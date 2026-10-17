@@ -1841,6 +1841,45 @@ test('the tenant-switcher testbed fires tenant_switcher_smoke + cljs_browser (rf
   assert.equal(result.cljs_browser, 'true');
 });
 
+// The smoke drives the resources runtime and the managed-HTTP fx through the
+// Reagent adapter, so those artefacts' source and deps.edn run it. Their test
+// trees are not in the testbed's build, and core stays off, as it does for
+// the other Playwright smokes.
+const TENANT_SMOKE_RUNTIME = pinnedRoster('the tenant-switcher runtime arm', [
+  'implementation/resources/src/re_frame/resources.cljc',
+  'implementation/resources/src/re_frame/resources/events.cljc',
+  'implementation/resources/deps.edn',
+  'implementation/http/src/re_frame/http/managed.cljc',
+  'implementation/http/deps.edn',
+  'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+  'implementation/adapters/reagent/deps.edn',
+]);
+const TENANT_SMOKE_UNARMED = pinnedRoster('the tenant-switcher runtime arm, unarmed side', [
+  'implementation/resources/test/re_frame/resources_managed_http_cljs_test.cljc',
+  'implementation/http/test/re_frame/http_decode_test.clj',
+  'implementation/adapters/reagent/test/re_frame/late_bind_hooks_cljs_test.cljs',
+  'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
+  'implementation/core/src/re_frame/frame.cljc',
+  'docs/resources/concepts.md',
+]);
+
+test('resources, managed HTTP and the Reagent adapter run the tenant-switcher smoke from src and deps.edn only', () => {
+  for (const file of TENANT_SMOKE_RUNTIME) {
+    assert.equal(
+      classify(file).tenant_switcher_smoke,
+      'true',
+      `${file} is in the tenant-switcher testbed's build and must run its smoke`,
+    );
+  }
+  for (const file of TENANT_SMOKE_UNARMED) {
+    assert.equal(
+      classify(file).tenant_switcher_smoke,
+      'false',
+      `${file} must not run the tenant-switcher smoke`,
+    );
+  }
+});
+
 // The Fresco three-engine controlled-input gate.
 const FRESCO_CONTROLLED = {
   job: 'cljs-fresco-controlled',

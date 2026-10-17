@@ -765,10 +765,11 @@ else
         cljs_node_test=true
         ;;
       implementation/core/*)
-        # adapter_testbed_smokes
-        # and story_xray_browser are NOT fired here. The Playwright
+        # adapter_testbed_smokes, story_xray_browser
+        # and tenant_switcher_smoke are NOT fired here. The Playwright
         # gates exist to catch surface-specific browser bugs (adapter
-        # mount lifecycle, Story variant boot, Xray panel layout) —
+        # mount lifecycle, Story variant boot, Xray panel layout, the
+        # scoped-resource runtime) —
         # none of which are core regressions. Core renames are caught
         # by node-test (consolidated CLJS unit + browser-test) which
         # exercises every public re-frame.core fn, and by the always-on
@@ -878,9 +879,13 @@ else
         # Stock Reagent is the substrate baked into the docs/cljs SCI bundle
         # (re-frame.adapter.reagent + reagent.*), so its source and deps must
         # prove the bundle still builds and renders. Its tests and testbed
-        # are not baked in.
+        # are not baked in. The tenant-switcher testbed mounts through the
+        # same adapter, so its source and deps run that smoke too (the
+        # per-feature case below says what the smoke drives).
         case "$file" in
-          implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn) playground=true ;;
+          implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn)
+            playground=true
+            tenant_switcher_smoke=true ;;
         esac
         ;;
       examples/scripts/spec-helpers.cjs)
@@ -1142,6 +1147,23 @@ else
           implementation/machines/*|implementation/flows/*|implementation/schemas/*) playground=true ;;
           implementation/http/src/*|implementation/http/deps.edn|implementation/resources/src/*|implementation/resources/deps.edn) playground=true ;;
           implementation/routing/src/*|implementation/routing/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn) playground=true ;;
+        esac
+        # The tenant-switcher scoped-cache smoke runs the resources runtime in
+        # a browser. testbeds/tenant_switcher requires `re-frame.resources`
+        # and `re-frame.http.managed` (the resources facade requires the
+        # latter too), resolves a named scope, ensures a scoped resource, and
+        # answers the lowered `:rf.http/managed` fx from an `:fx-overrides`
+        # stub whose reply must land in the active tenant's entry. That stub
+        # consumes the lowered fx and its reply payload exactly as an app's
+        # stub or server would, so a change to either artefact's source can
+        # break the smoke while every unit suite stays green — and the smoke
+        # is the one PR-time job that sees it. Source and deps.edn only:
+        # neither test/ tree is in the testbed's build. The Reagent adapter
+        # the testbed mounts through arms it in the adapters case above; core
+        # does not, for the reason the implementation/core/* case gives.
+        case "$file" in
+          implementation/resources/src/*|implementation/resources/deps.edn|implementation/http/src/*|implementation/http/deps.edn)
+            tenant_switcher_smoke=true ;;
         esac
         # The engine half of the
         # machines-viz parity ratchet. tools/machines-viz/deps.edn declares a
