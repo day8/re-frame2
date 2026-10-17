@@ -74,7 +74,10 @@
 ;; the event boundary (Spec 002 §Destroy), so the incarnation stays live through
 ;; the whole teardown. The durable writes still ride its token, binding each to
 ;; the container the effect entered against; an eventless caller (the
-;; frame-destroy walker) has no token and takes the bare write.
+;; frame-destroy walker) has no token and takes the bare write. A frame's
+;; teardown binds no event owner, so a `:rf.machine/destroy` an `:exit` emits
+;; during the walk is eventless too, even when another frame's event destroyed
+;; the frame.
 
 (defn- snapshot-present?
   "True iff `runtime-db` carries a machine snapshot at `actor-id`. A nil
