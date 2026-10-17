@@ -2,9 +2,11 @@
   "The plain-atom adapter — JVM / SSR / headless. Per Spec 006 §Plain-atom
   adapter (JVM, SSR, headless).
 
-  The container is just `clojure.core/atom`. There is no reactivity layer,
-  no caching, no listeners. Trivially compliant with the revertibility
-  contract because there is no state outside the atom.
+  The container is just `clojure.core/atom`. There is no reactivity graph
+  and no caching: a derived value recomputes on every read, and watches its
+  sources only while an observer is attached. Trivially compliant with the
+  revertibility contract because there is no state outside the atom beyond
+  those transient watches.
 
   There is no default-adapter registry and no ns-load side-effect.
   Consumers (JVM tests, headless SSR hosts, any process that wants the
@@ -20,12 +22,12 @@
   the parent reaction disposes. Both runtimes must honour that contract
   or input ref-counts leak monotonically until `clear-sub-cache!`.
 
-    - **JVM.** The plain-atom JVM derived value IS an
-      `re-frame.interop/make-reaction` `Reaction`, which
-      carries its own on-dispose callback storage on the object. So
+    - **JVM.** The plain-atom JVM derived value implements
+      `re-frame.interop/IDisposeRegistry`, so it carries its own on-dispose
+      callback storage on the object. So
       `re-frame.interop/add-on-dispose!` / `dispose!` store/fire
-      callbacks directly on the reaction — no process-wide registry, and
-      an orphaned reaction is GC-reclaimable along with its callbacks
+      callbacks directly on the value — no process-wide registry, and
+      an orphaned value is GC-reclaimable along with its callbacks
       rather than pinned in a global strong-ref map.
 
     - **CLJS.** `re-frame.interop` (the `.cljs`) reaches those calls
@@ -49,21 +51,46 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(defn- watch-sources!
+  "Attach one observer to a plain-atom derived value: watch each source,
+  recompute on a source change, and call `(notify old new)` when the computed
+  value moved by `=` from the last one this observer was handed (its baseline
+  is the value at attach). Returns a thunk that removes those source watches;
+  a source refusing its watch leaves none of the others behind."
+  [source-containers compute notify]
+  (let [k         (gensym "rf-plain-atom-derived-")
+        baseline  (atom (compute))
+        unwatch   (fn [] (doseq [s source-containers] (remove-watch s k)))
+        on-change (fn [_ _ _ _]
+                    (let [nu      (compute)
+                          [old _] (swap-vals! baseline (constantly nu))]
+                      (when-not (= old nu) (notify old nu))))]
+    (try
+      (doseq [s source-containers] (add-watch s k on-change))
+      (catch #?(:clj Throwable :cljs :default) e
+        (unwatch)
+        (throw e)))
+    unwatch))
+
 (defn make-derived-value
-  "The plain-atom derived value: it recomputes on every deref, and is
-  disposable on both runtimes, so a layer-2+ sub's declared inputs are released
-  when its cache entry is. The SSR adapter reuses it."
+  "The plain-atom derived value: it recomputes on every deref and caches
+  nothing. It takes a watch on both runtimes, so `subscribe-container` works on
+  it as on a base container (Spec 006 §`make-derived-value`): each observer
+  watches the sources while it is attached. It is disposable on both runtimes,
+  so a layer-2+ sub's declared inputs are released when its cache entry is, and
+  disposal removes any observer's source watches left. The SSR adapter reuses
+  it."
   [source-containers compute-fn]
   ;; No caching: derived values recompute on every deref. SSR runs each
   ;; sub at most a handful of times per request; caching would add
-  ;; complexity for negligible gain.
+  ;; complexity for negligible gain. An observer's baseline is not a cache:
+  ;; it is the value that observer was last handed, so its next `old` is true.
   ;;
-  ;; JVM: the derived value IS an `rf.interop/make-reaction`
-  ;; `Reaction`, which carries its own on-dispose callback storage on the
-  ;; object. `re-frame.interop`'s `add-on-dispose!` / `dispose!` store and
-  ;; fire callbacks directly on it — no process-wide registry — so an
-  ;; un-disposed reaction is GC-reclaimable along with its callbacks
-  ;; rather than pinned in a global strong-ref map.
+  ;; JVM: the value implements `rf.interop/IDisposeRegistry`, carrying its own
+  ;; on-dispose callback storage. `re-frame.interop`'s `add-on-dispose!` /
+  ;; `dispose!` store and fire callbacks directly on it — no process-wide
+  ;; registry — so an un-disposed value is GC-reclaimable along with its
+  ;; callbacks rather than pinned in a global strong-ref map.
   ;;
   ;; CLJS: `re-frame.interop` (the .cljs) reaches
   ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` slots, which hold
@@ -71,32 +98,63 @@
   ;; (mirroring `re-frame.substrate.spine`) so the sub-cache's symmetric
   ;; input-release callback is registered at slot construction and fires
   ;; at slot evict — otherwise layer-2+ input ref-counts never decrement
-  ;; on the CLJS-plain-atom path. The plain-atom derived value owns no
-  ;; source watches (it recomputes on deref), so `-dispose` only fires
-  ;; the registered on-dispose callbacks.
-  #?(:clj
-     (rf.interop/make-reaction
-       (fn [] (apply compute-fn (map deref source-containers))))
-     :cljs
-     (let [on-dispose-fns (atom [])
-           disposed?      (volatile! false)]
+  ;; on the CLJS-plain-atom path.
+  (let [compute          (fn [] (apply compute-fn (map deref source-containers)))
+        observers        (atom {}) ; watch key -> [watch-fn unwatch-sources]
+        on-dispose-fns   (atom [])
+        add-observer!    (fn [this k f]
+                           (let [unwatch    (watch-sources! source-containers compute
+                                                            (fn [old nu] (f k this old nu)))
+                                 [before _] (swap-vals! observers assoc k [f unwatch])]
+                             ;; Re-adding a key replaces its watch, as on an atom.
+                             (when-let [[_ replaced] (get before k)] (replaced))
+                             this))
+        remove-observer! (fn [this k]
+                           (let [[before _] (swap-vals! observers dissoc k)]
+                             (when-let [[_ unwatch] (get before k)] (unwatch))
+                             this))
+        dispose!         (fn []
+                           ;; Snapshot-and-clear before firing, so a re-entrant
+                           ;; dispose from inside an on-dispose callback finds
+                           ;; nothing to fire twice.
+                           (doseq [[_ [_ unwatch]] (first (reset-vals! observers {}))]
+                             (unwatch))
+                           (doseq [f (first (reset-vals! on-dispose-fns []))]
+                             (f)))]
+    #?(:clj
+       ;; No disposed flag, as on `rf.interop`'s `Reaction`: a callback that a
+       ;; dispose re-registers fires on the next one, which is how the sub-cache
+       ;; keeps a slot that an explicit subscribe still holds.
        (reify
-         IDeref
-         (-deref [_] (apply compute-fn (map deref source-containers)))
-         rf.disposable/IDisposable
-         (-add-on-dispose [_ f]
-           (swap! on-dispose-fns conj f))
-         (-dispose [_]
-           ;; Idempotent + re-entrant safe, mirroring the spine
-           ;; (spine.cljs). Flip the guard FIRST so a re-entrant `-dispose`
-           ;; from inside an on-dispose callback (or a plain second call)
-           ;; short-circuits before any teardown re-runs; snapshot-and-clear
-           ;; the callbacks before firing so each runs exactly once.
-           (when-not @disposed?
-             (vreset! disposed? true)
-             (let [fns @on-dispose-fns]
-               (reset! on-dispose-fns [])
-               (doseq [f fns] (f)))))))))
+         clojure.lang.IDeref
+         (deref [_] (compute))
+         clojure.lang.IRef
+         (addWatch [this k f] (add-observer! this k f))
+         (removeWatch [this k] (remove-observer! this k))
+         (getWatches [_] (into {} (map (fn [[k [f _]]] [k f])) @observers))
+         (getValidator [_] nil)
+         (setValidator [_ _]
+           (throw (UnsupportedOperationException.
+                    "a derived value is read-only, so it takes no validator")))
+         rf.interop/IDisposeRegistry
+         (-add-on-dispose [_ f] (swap! on-dispose-fns conj f) nil)
+         (-dispose [_] (dispose!)))
+       :cljs
+       (let [disposed? (volatile! false)]
+         (reify
+           IDeref
+           (-deref [_] (compute))
+           IWatchable
+           (-add-watch [this k f] (add-observer! this k f))
+           (-remove-watch [this k] (remove-observer! this k))
+           rf.disposable/IDisposable
+           (-add-on-dispose [_ f] (swap! on-dispose-fns conj f))
+           (-dispose [_]
+             ;; Disposed once, mirroring the spine (spine.cljs): flip the
+             ;; guard FIRST so a re-entrant or second dispose short-circuits.
+             (when-not @disposed?
+               (vreset! disposed? true)
+               (dispose!))))))))
 
 (defn- render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the JVM is

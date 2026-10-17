@@ -51,11 +51,11 @@
 ;; recomputes f on every deref. For the headless / SSR use cases this is fine
 ;; — they read once or twice per request, not in a hot reactive loop.
 ;;
-;; On-dispose callbacks live ON the reaction object (a mutable
-;; field on the `Reaction` deftype), NOT in a process-wide identity-keyed
-;; registry. This mirrors the CLJS plain-atom adapter, whose derived-value
-;; reify closes over an `(atom [])` of callbacks (see
-;; `re-frame.substrate.plain-atom/make-derived-value`): the callbacks' lifetime
+;; On-dispose callbacks live ON the object (anything implementing
+;; `IDisposeRegistry`: the `Reaction` deftype below, and the plain-atom
+;; derived value, which closes over an `(atom [])` of callbacks — see
+;; `re-frame.substrate.plain-atom/make-derived-value`), NOT in a process-wide
+;; identity-keyed registry. The callbacks' lifetime
 ;; is tied to the reaction's lifetime, so an orphaned reaction (one that is
 ;; dropped WITHOUT an explicit `dispose!` — a partial-teardown bug, an
 ;; exception between `add-on-dispose!` and `dispose!`) is reclaimed by GC along
@@ -71,15 +71,16 @@
 ;; first (re-entrancy / idempotency — a second `dispose!` is a no-op) then
 ;; fired in registration order.
 ;;
-;; A weak-keyed fallback registry handles objects that are NOT `Reaction`s
-;; (bare `reify clojure.lang.IDeref` test doubles, plain atoms) so the
+;; A weak-keyed fallback registry handles objects that do not implement
+;; `IDisposeRegistry` (bare `reify clojure.lang.IDeref` test doubles, plain atoms) so the
 ;; `add-on-dispose!` / `dispose!` surface still works uniformly for any
 ;; deref-able. The fallback is weak-KEYED (a `WeakHashMap`) so even a
 ;; non-`Reaction` orphan is reclaimable: the only path on which a fallback
 ;; value could strong-ref its key is when a registered callback closes over
 ;; the keyed object, and the production sub-cache disposal closure
-;; (`re-frame.subs`) closes over the reaction — which on the JVM is a
-;; `Reaction`, so it takes the on-object storage path, not the fallback.
+;; (`re-frame.subs`) closes over the reaction — which on the JVM is the
+;; plain-atom derived value, so it takes the on-object storage path, not the
+;; fallback.
 
 (defprotocol IDisposeRegistry
   "JVM on-dispose callback storage carried ON the reaction object. The
@@ -109,7 +110,7 @@
       (set! callbacks [])
       (doseq [cb cbs] (cb)))))
 
-;; Weak-keyed fallback for deref-ables that are not `Reaction`s (bare
+;; Weak-keyed fallback for deref-ables outside `IDisposeRegistry` (bare
 ;; reify test doubles, plain atoms). Identity is the natural key; a
 ;; `WeakHashMap` keys by `.equals`/`.hashCode`, which for these objects
 ;; is identity. Synchronized for the concurrent SSR / hot-reload paths.
@@ -132,7 +133,7 @@
   nil)
 
 (defn add-on-dispose! [a-ratom f]
-  (if (instance? Reaction a-ratom)
+  (if (satisfies? IDisposeRegistry a-ratom)
     (-add-on-dispose a-ratom f)
     (locking fallback-on-dispose-callbacks
       (let [cbs (.get fallback-on-dispose-callbacks a-ratom)]
@@ -140,7 +141,7 @@
   nil)
 
 (defn dispose! [a-ratom]
-  (if (instance? Reaction a-ratom)
+  (if (satisfies? IDisposeRegistry a-ratom)
     (-dispose a-ratom)
     (let [callbacks (locking fallback-on-dispose-callbacks
                       (let [cbs (.get fallback-on-dispose-callbacks a-ratom)]
