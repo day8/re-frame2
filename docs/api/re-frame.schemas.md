@@ -290,7 +290,6 @@ The runtime calls these four functions for you: `validate-event!` before an even
 
 - They exist in development builds only. In a production build the code is dead-code-eliminated and each function returns `true` without checking anything.
 - A malformed registered schema (one that makes the validator throw) emits `:rf.error/malformed-schema` and counts as a failure (`false`), so a broken schema never passes silently. That trace carries only locator slots, no values.
-- Each function's longest arity takes a trailing `continue?` predicate, which the runtime passes. It is checked around each validator call; once it returns false, the function stops, emits nothing more, and returns `:rf/stale-incarnation`, meaning the event's frame was destroyed or re-created while the event ran and the verdict no longer applies. The shorter arities supply the predicate themselves.
 
 #### `validate-app-schema!`
 
@@ -300,8 +299,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db) → boolean                    ;; current frame
   (validate-app-schema! db event-id) → boolean           ;; current frame, named handler
   (validate-app-schema! db event-id frame-id) → boolean  ;; explicit frame
-  (validate-app-schema! db event-id frame-id continue?) → boolean or :rf/stale-incarnation
-  (validate-app-schema! db event-id frame-id continue? db-before) → boolean or :rf/stale-incarnation
+  (validate-app-schema! db event-id frame-id db-before) → boolean
   ```
 - **Description**: Validates the handler's proposed `app-db` before installation, against every schema the frame resolves whose path the proposed `app-db` has. A path it lacks is skipped in every arity, and a present `nil` is checked. A schema the frame's images do not select is ignored.
     - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
@@ -319,7 +317,6 @@ The runtime calls these four functions for you: `validate-event!` before an even
   ```clojure
   (validate-event! event-id event handler-meta) → boolean
   (validate-event! event-id event handler-meta frame) → boolean
-  (validate-event! event-id event handler-meta frame continue?) → boolean or :rf/stale-incarnation
   ```
 - **Description**: Validates an event vector against the `:schema` in its handler's registration metadata, before the handler runs.
     - On failure it emits `:rf.error/schema-validation-failure` with `:where :event`, and the caller skips the handler (recovery `:no-recovery`).
@@ -334,7 +331,6 @@ The runtime calls these four functions for you: `validate-event!` before an even
   ```clojure
   (validate-fx! fx-id event-id args fx-meta) → boolean
   (validate-fx! fx-id event-id args fx-meta frame) → boolean
-  (validate-fx! fx-id event-id args fx-meta frame continue?) → boolean or :rf/stale-incarnation
   ```
 - **Description**: Validates an fx handler's args against the `:schema` in its registration metadata, before the fx runs.
     - On failure it emits `:rf.error/schema-validation-failure` with `:where :fx-args`, and only that fx is skipped (recovery `:skipped`). The other fx in the same `:fx` vector still run, and queued events still drain.
@@ -348,7 +344,6 @@ The runtime calls these four functions for you: `validate-event!` before an even
   ```clojure
   (validate-sub! sub-id query-v value sub-meta) → boolean
   (validate-sub! sub-id query-v value sub-meta frame) → boolean
-  (validate-sub! sub-id query-v value sub-meta frame continue?) → boolean or :rf/stale-incarnation
   ```
 - **Description**: Validates a subscription's value against the `:schema` in its registration metadata, after the subscription recomputes.
     - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return`, and the caller replaces the value with `nil` (recovery `:replaced-with-default`).

@@ -160,7 +160,7 @@
 (deftest listener-marks-flow-throw-as-non-ok-outcome
   ;; A flow throw aborts the event: no install, so the handler's `:db` never lands.
   (rf.late-bind/set-fn! :flows/run-flows-on-db
-                        (fn [_frame _db _runtime-db _exact-owner]
+                        (fn [_frame _db _runtime-db]
                           (throw (ex-info "flow output blew up"
                                           {:rf.flow/failed-id :flow/derived}))))
   (let [seen (record-events!)]
