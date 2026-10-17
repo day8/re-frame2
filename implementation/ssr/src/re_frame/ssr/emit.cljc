@@ -36,11 +36,6 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            ;; `dom-attr-aliases`, react-dom's prop →
-            ;; attribute table, is read by the hiccup attribute conversion
-            ;; below, and `validate-tag-name!` gates every hiccup tag.
-            ;; `ui-tree` requires nothing from this ns, so no cycle.
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])))
 
 ;; ---- shared HTML helpers --------------------------------------------------
@@ -73,9 +68,7 @@
 ;; An ordinary inline `<script>`/`<style>`
 ;; with STRING content is AUTHOR CONTENT — trust the programmer. It is
 ;; emitted VERBATIM with only React's context-safe closing-sequence rewrite
-;; (`html/escape-raw-text`), the ONE shared implementation this emitter and
-;; the S5 serialiser (`re-frame.ssr.ui-tree`) both call,
-;; so the same author content is byte-identical on every SSR path. This is
+;; (`html/escape-raw-text`). This is
 ;; NOT sanitisation — the rewrite is the same breakout guard React applies,
 ;; aimed at attacker-supplied `</script>` DATA that must not terminate the
 ;; element early; residual JS/CSS-context safety is author-owned, as in
@@ -90,9 +83,9 @@
 ;; (`html/raw-text-tags` / `html/escape-raw-text`).
 
 ;; Tag-name injection gate: the tag component `parse-tag-name*` splits off
-;; passes `rf.ssr.ui-tree/validate-tag-name!`, the one HTML5 / SVG / MathML
-;; element-name grammar both SSR serialisers apply, and a name outside it
-;; throws rather than being escaped.
+;; passes `rf.ssr.html-helpers/validate-tag-name!`, the HTML5 / SVG / MathML
+;; element-name grammar, and a name outside it throws rather than being
+;; escaped.
 ;;
 ;; `:<>` (React fragment) and `:>` (Reagent-native) are special heads
 ;; consumed by `emit-element` BEFORE this validator runs — they never
@@ -119,7 +112,7 @@
                      (->> (clojure.string/split classes #"\.")
                           (remove empty?)
                           (clojure.string/join " ")))]
-    (rf.ssr.ui-tree/validate-tag-name! tag tag-kw "hiccup head" 're-frame.ssr.emit)
+    (rf.ssr.html-helpers/validate-tag-name! tag tag-kw "hiccup head" 're-frame.ssr.emit)
     [tag
      (cond-> {}
        id         (assoc :id id)
@@ -210,7 +203,7 @@
 ;;      KEYWORD keys, before names are converted.
 ;;   3. NAMES and VALUES (`convert-dom-attrs`): on an ordinary element a
 ;;      keyword or symbol name takes Reagent's rule and then react-dom's alias
-;;      table (`re-frame.ssr.ui-tree/dom-attr-aliases`); a string name takes
+;;      table (`re-frame.ssr.html-helpers/dom-attr-aliases`); a string name takes
 ;;      the alias table only (Reagent hands a string key to React unchanged).
 ;;      A hyphenated (custom-element) tag keeps its author names verbatim — the
 ;;      two supported adapters disagree there, and web components
@@ -306,13 +299,13 @@
     (string? attr-key)
     (if custom-element?
       attr-key
-      (get rf.ssr.ui-tree/dom-attr-aliases attr-key attr-key))
+      (get rf.ssr.html-helpers/dom-attr-aliases attr-key attr-key))
 
     (or (keyword? attr-key) (symbol? attr-key))
     (if custom-element?
       (name attr-key)
       (let [prop-name (reagent-prop-name (name attr-key))]
-        (get rf.ssr.ui-tree/dom-attr-aliases prop-name prop-name)))
+        (get rf.ssr.html-helpers/dom-attr-aliases prop-name prop-name)))
 
     ;; Not a name at all — left for `attr-string`, which refuses it.
     :else
@@ -1063,8 +1056,7 @@
             (str "<" tag-name (attr-string attrs) ">" inner-html "</" tag-name ">")
             ;; An ordinary inline <script>/<style> with STRING
             ;; content is author content: emit it VERBATIM with only the
-            ;; shared closing-sequence rewrite (`html/escape-raw-text`),
-            ;; byte-identical to the S5 serialiser.
+            ;; closing-sequence rewrite (`html/escape-raw-text`).
             ;; The `every? string?` gate mirrors the compiled path — an
             ;; all-string body is the real inline-script/style shape; any
             ;; structural child takes the ordinary per-child walk
@@ -1090,8 +1082,8 @@
             ;; first LF after those start tags. Without it `[:pre "\ncode"]`
             ;; would reach the DOM as "code" — one authored character lost, and a
             ;; text hydration mismatch against the client's rendering of the
-            ;; same `.cljc` view. The roster and the rule are shared with the
-            ;; S5 serialiser (`html/leading-newline-compensation`); `""` for every other
+            ;; same `.cljc` view. The roster and the rule live in
+            ;; `html/leading-newline-compensation`; `""` for every other
             ;; tag and body shape, so this is inert on the common path.
             :else
             (str "<" tag-name (attr-string attrs) ">"

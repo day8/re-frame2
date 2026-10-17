@@ -17,11 +17,7 @@
                                     safe closing-sequence rewrite — NO
                                     entity escaping (the HTML parser never
                                     decodes character references inside a
-                                    raw-text element). ONE shared
-                                    implementation for the S5 serialiser
-                                    (`re-frame.ssr.ui-tree`) and the
-                                    hiccup emitter (`emit`), so every SSR
-                                    path emits byte-identical raw-text.
+                                    raw-text element).
     - `newline-eating-tags` /
       `sole-string-child` /
       `leading-newline-compensation`
@@ -29,10 +25,7 @@
                                     `<textarea>`) whose parser eats one
                                     leading LF, and the compensating LF
                                     react-dom/server 19.2 prefixes for a
-                                    single-string body. ONE roster and ONE
-                                    rule for the S5 serialiser
-                                    (`re-frame.ssr.ui-tree`) and the hiccup
-                                    emitter (`emit`).
+                                    single-string body.
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
                                     dropped inside `<script>` bodies. JSON bodies
                                     only — every `<` is in a string.
@@ -42,15 +35,17 @@
                                     literals (tokens with `<` round-trip;
                                     `</`/`<!` token breakouts fail loud).
     - `validate-attr-name!`      — HTML5-grammar gate on attribute keys.
+    - `validate-tag-name!`       — HTML5 / SVG / MathML element-name gate
+                                    on hiccup heads.
     - `boolean-attr-class` /
       `boolean-attrs` /
       `booleanish-attrs` /
       `overloaded-boolean-attrs`  — the react-dom 19.3.0 boolean
                                     attribute-value classes (Spec 004B
-                                    §Booleans and their neighbours). ONE
-                                    roster, read by BOTH the hiccup
-                                    emitter here and the structural-tree
-                                    serialiser (`re-frame.ssr.ui-tree`).
+                                    §Booleans and their neighbours).
+    - `dom-attr-aliases`         — React prop name → the DOM attribute
+                                    name react-dom/server writes (Spec
+                                    004B §Attribute names).
     - `attr-string`              — render an attribute map as
                                     ` k1=\"v1\" k2=\"v2\"`. A boolean is
                                     rendered by its attribute's class:
@@ -84,13 +79,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Raw-text elements — <script>/<style> content is HTML RAW TEXT
 ;;
-;; The single shared home for the raw-text emission rule. Both SSR
-;; paths — the S5 structural serialiser and the hiccup emitter — call
-;; this ONE implementation, so an ordinary inline `<script>`/`<style>`
-;; with the same author content serialises to byte-identical HTML on every
-;; path. This is the AUTHOR-CONTENT channel; the stricter DATA-payload
-;; helpers (`escape-script-body-string` / `escape-edn-script-body`, below)
-;; are a separate concern.
+;; The home for the raw-text emission rule the hiccup emitter applies to an
+;; ordinary inline `<script>`/`<style>`. This is the AUTHOR-CONTENT channel;
+;; the stricter DATA-payload helpers (`escape-script-body-string` /
+;; `escape-edn-script-body`, below) are a separate concern.
 ;; ---------------------------------------------------------------------------
 
 (def raw-text-tags
@@ -144,11 +136,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Newline-eating elements — leading-LF compensation
 ;;
-;; The single shared home for the leading-LF rule, for exactly the reason the
-;; raw-text rule has one: an SSR path without the rule would serialise the
-;; SAME author content to DIFFERENT bytes from the paths with it — and lose a
-;; character at parse time. ONE roster and ONE rule, read by both paths:
-;; the S5 structural serialiser and the HICCUP emitter (`emit`).
+;; The home for the leading-LF rule the hiccup emitter (`emit`) applies: a
+;; body emitted without it loses a character at parse time.
 ;; ---------------------------------------------------------------------------
 
 (def newline-eating-tags
@@ -165,9 +154,7 @@
   string (`typeof children === 'string'`) — one text child and nothing else. A
   multi-child body, an element child, or an empty body is left untouched, and
   this returns nil for each. The hiccup lever for
-  `leading-newline-compensation`; the structural serialiser has its own richer
-  lever (it must also recognise a sole trusted-markup `{:html s}` child and a
-  textarea `:value`) and feeds this same rule."
+  `leading-newline-compensation`."
   [children]
   (let [content (seq children)]
     (when (and content (nil? (next content)) (string? (first content)))
@@ -180,12 +167,11 @@
   string body, or nil when it has none.
 
   HTML parsing eats the FIRST LF immediately after `<pre>` / `<listing>` /
-  `<textarea>` (the newline-eating elements). So markup whose textarea value,
-  pre text, or sole trusted-markup (`:html`) body begins with LF would, without
-  compensation, parse to a DOM carrying one FEWER newline than authored — an S5
-  hydration/correctness gap, and on the hiccup paths a silent loss of an
-  authored character relative to the client's Reagent/React rendering of the
-  same `.cljc` view. React prefixes exactly one LF, but ONLY for a SINGLE
+  `<textarea>` (the newline-eating elements). So markup whose textarea value
+  or pre text begins with LF would, without compensation, parse to a DOM
+  carrying one FEWER newline than authored — a silent loss of an authored
+  character relative to the client's Reagent/React rendering of the same
+  `.cljc` view. React prefixes exactly one LF, but ONLY for a SINGLE
   STRING body: multiple or element children are left untouched, because the
   parser's newline-eating still applies but React does not doctor a multi-child
   body. Passing nil for `content-string` is how a caller says \"not a single
@@ -391,6 +377,59 @@
              "letters/digits/underscore/colon/hyphen.")
         {:recovery :rename-the-attribute-key
          :extra    {:attribute k}}))))
+
+;; ---- tag names -------------------------------------------------------------
+;;
+;; Tag-name injection gate. HTML5 / SVG / MathML element names require an
+;; ASCII letter start, then letters / digits / hyphens; anything else is
+;; refused.
+;;
+;; Fail fast (throw) rather than escape-and-emit. A tag-name
+;; outside the grammar has no safe wire interpretation — escaping would
+;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
+;; visible glyph. The hiccup emitter (`re-frame.ssr.emit`) gates every head
+;; it emits through `validate-tag-name!`.
+(def ^:private tag-name-re
+  ;; HTML5 §element-name + SVG element-name + MathML element-name all
+  ;; share the same conservative ASCII grammar: leading letter, then
+  ;; letters / digits / hyphens. Custom elements (per HTML5 §custom-
+  ;; element-name) require an ASCII-lower first letter + a `-`; the
+  ;; conservative grammar admits both standard elements and well-formed
+  ;; custom-element names.
+  ;;
+  ;; XML-namespaced SVG/MathML tags carry a single colon-
+  ;; separated prefix (e.g. `:svg:rect`, `:xlink:href`-style elements).
+  ;; Admit one optional `prefix:` segment where the prefix follows the
+  ;; same element-name grammar. A single colon only — embedded `<`, `>`,
+  ;; whitespace, `=` (the tag-injection vectors) remain rejected, and a
+  ;; bare/leading/trailing/double colon (`:rect`, `svg:`, `a::b`) still
+  ;; throws because each segment must be a well-formed element name.
+  #"(?:[A-Za-z][A-Za-z0-9-]*:)?[A-Za-z][A-Za-z0-9-]*")
+
+(defn validate-tag-name!
+  "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
+  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`,
+  optionally prefixed by a single XML namespace segment `prefix:`);
+  otherwise return it. `source` is the value the name was read from,
+  `origin` names what that value is (`\"hiccup head\"`), and `where`
+  names the emitter refusing it."
+  [tag-name source origin where]
+  (when-not (and (string? tag-name)
+                 (re-matches tag-name-re tag-name))
+    (rf.error/throw-error!
+      :rf.error/invalid-tag-name
+      where
+      (str "tag-name " (pr-str tag-name)
+           " (from " origin " " (pr-str source) ")"
+           " does not match the HTML5/SVG/MathML"
+           " element-name grammar"
+           " ([A-Za-z][A-Za-z0-9-]*, optionally"
+           " namespaced prefix:local) — DOM tag-name"
+           " injection forbidden. Use a grammar-valid element name.")
+      {:recovery :use-a-valid-element-name
+       :extra    {:tag-name tag-name
+                  :source   source}}))
+  tag-name)
 
 ;; Prototype-pollution keys. These three names, if they reach the host's
 ;; `createElement`-equivalent on the client at hydration, can poison
@@ -657,23 +696,15 @@
 ;; HTML/React attributes do NOT share one boolean rule, so a `false` value
 ;; cannot mean "omit" everywhere. Spec 004B §Booleans and their neighbours
 ;; carries the react-dom 19.2.0 table, row-by-row probed; these are its three
-;; rosters and the classifier both SSR serialisers read. A serialiser that
+;; rosters and the classifier `attr-string` reads. A serialiser that
 ;; ignored the table would drop `aria-expanded false` / `contentEditable
 ;; false` entirely — markup asserting the OPPOSITE of what the author wrote,
 ;; with no hydration-mismatch signal to catch it (011 §What React-native
 ;; adoption does not catch — attribute-only mismatches).
 ;;
-;; ONE roster, read by both — a second copy is a drift surface, and the two
-;; emitters' PIPELINES are separate (004B) because only the rosters and the
-;; name→class function are shared; each emitter keeps its own attribute-name
-;; handling and its own escape.
-;;
-;; WHAT CHECKS THESE ROSTERS, AND WHY IT CANNOT BE A PARITY TEST. Sharing
-;; one roster between two serialisers removes the drift between them and,
-;; with it, any check that compares them: two consumers of one table agree
-;; with each other whatever the table says. A roster can be internally
-;; consistent and still miss names, with every in-repo test green, as long
-;; as every test compares re-frame with re-frame.
+;; WHAT CHECKS THESE ROSTERS, AND WHY IT CANNOT BE A PARITY TEST. A roster
+;; can be internally consistent and still miss names, with every in-repo
+;; test green, as long as every test compares re-frame with re-frame.
 ;;
 ;; So the rosters are pinned against something OUTSIDE them:
 ;; `re-frame.ssr-boolean-attr-react-parity-test` reads
@@ -772,10 +803,10 @@
 
   TOTAL over every value an attribute map can carry, `nil` and booleans
   included, rather than documented as undefined for them. `attr-string` does
-  drop `nil` and dispatch booleans before it asks — but `re-frame.ssr.ui-tree`
-  routes both straight here, and a predicate whose contract said \"never
-  called with `nil`\" would have answered `true` for one and emitted an
-  attribute react-dom omits. `null` is falsy in JS, so `nil` is falsy here."
+  drop `nil` and dispatch booleans before it asks, but a predicate whose
+  contract said \"never called with `nil`\" would answer `true` for it in any
+  caller that does not, and emit an attribute react-dom omits. `null` is falsy
+  in JS, so `nil` is falsy here."
   [v]
   (cond
     (nil? v)     false
@@ -827,8 +858,8 @@
                meaning differs per element (`<input>` attribute,
                `<textarea>` text child, `<select>` → `selected` on an
                option). Classifying it in this shared roster would change
-               `re-frame.ssr.ui-tree`'s handling of that special form from
-               here, which is 004B's call and not this ns's.
+               that special form's handling from here, which is 004B's call
+               and not this ns's.
     `ismap`  — `:presence` per 004B §Booleans and their neighbours,
                which names it explicitly and carries the
                divergence and its reason in the row itself. react-dom 19.2.0
@@ -846,8 +877,7 @@
   emitted attribute NAME is each caller's business (the hiccup body
   walker converts author names the way the hydrating Reagent-tier adapter
   does before calling `attr-string`; the head emitter and the
-  Ring host shell pass theirs verbatim; `re-frame.ssr.ui-tree` maps them
-  through the React prop vocabulary)."
+  Ring host shell pass theirs verbatim)."
   [attribute-name]
   (let [collapsed (str/lower-case (str/replace attribute-name "-" ""))]
     (cond
@@ -857,6 +887,359 @@
       (contains? overloaded-boolean-attrs collapsed)   :overloaded
       (contains? boolean-attrs collapsed)              :presence
       :else                                            :ordinary)))
+
+;; ---- React prop name → DOM attribute name ----------------------------------
+;;
+;; The hiccup emitter converts an author key to the React prop name the
+;; hydrating Reagent-tier adapter hands React (`re-frame.ssr.emit`'s
+;; `dom-attr-key`), then looks that prop name up in `dom-attr-aliases` for
+;; the attribute react-dom/server writes — the serialisation half of Spec
+;; 004B §Attribute names.
+
+(def ^:private standard-names
+  "react-dom 19.3.0 `possibleStandardNames`, reduced to non-identity
+  entries and keyed by both the kebab and the hyphen-collapsed lowercase
+  form — the author-name → React-prop-name half of the conversion table,
+  kept whole so it is re-derived against a react-dom release as one table.
+  `dom-attr-aliases` inverts its hyphenated entries."
+  {"accent-height" "accentHeight"
+   "accentheight" "accentHeight"
+   "accept-charset" "acceptCharset"
+   "acceptcharset" "acceptCharset"
+   "accesskey" "accessKey"
+   "alignment-baseline" "alignmentBaseline"
+   "alignmentbaseline" "alignmentBaseline"
+   "allowfullscreen" "allowFullScreen"
+   "allowreorder" "allowReorder"
+   "arabic-form" "arabicForm"
+   "arabicform" "arabicForm"
+   "attributename" "attributeName"
+   "attributetype" "attributeType"
+   "autocapitalize" "autoCapitalize"
+   "autocomplete" "autoComplete"
+   "autocorrect" "autoCorrect"
+   "autofocus" "autoFocus"
+   "autoplay" "autoPlay"
+   "autoreverse" "autoReverse"
+   "autosave" "autoSave"
+   "basefrequency" "baseFrequency"
+   "baseline-shift" "baselineShift"
+   "baselineshift" "baselineShift"
+   "baseprofile" "baseProfile"
+   "calcmode" "calcMode"
+   "cap-height" "capHeight"
+   "capheight" "capHeight"
+   "cellpadding" "cellPadding"
+   "cellspacing" "cellSpacing"
+   "charset" "charSet"
+   "class" "className"
+   "classid" "classID"
+   "clip-path" "clipPath"
+   "clip-rule" "clipRule"
+   "clippath" "clipPath"
+   "clippathunits" "clipPathUnits"
+   "cliprule" "clipRule"
+   "color-interpolation" "colorInterpolation"
+   "color-interpolation-filters" "colorInterpolationFilters"
+   "color-profile" "colorProfile"
+   "color-rendering" "colorRendering"
+   "colorinterpolation" "colorInterpolation"
+   "colorinterpolationfilters" "colorInterpolationFilters"
+   "colorprofile" "colorProfile"
+   "colorrendering" "colorRendering"
+   "colspan" "colSpan"
+   "contenteditable" "contentEditable"
+   "contentscripttype" "contentScriptType"
+   "contentstyletype" "contentStyleType"
+   "contextmenu" "contextMenu"
+   "controlslist" "controlsList"
+   "crossorigin" "crossOrigin"
+   "dangerouslysetinnerhtml" "dangerouslySetInnerHTML"
+   "datetime" "dateTime"
+   "defaultchecked" "defaultChecked"
+   "defaultvalue" "defaultValue"
+   "diffuseconstant" "diffuseConstant"
+   "disablepictureinpicture" "disablePictureInPicture"
+   "disableremoteplayback" "disableRemotePlayback"
+   "dominant-baseline" "dominantBaseline"
+   "dominantbaseline" "dominantBaseline"
+   "edgemode" "edgeMode"
+   "enable-background" "enableBackground"
+   "enablebackground" "enableBackground"
+   "enctype" "encType"
+   "enterkeyhint" "enterKeyHint"
+   "externalresourcesrequired" "externalResourcesRequired"
+   "fetchpriority" "fetchPriority"
+   "fill-opacity" "fillOpacity"
+   "fill-rule" "fillRule"
+   "fillopacity" "fillOpacity"
+   "fillrule" "fillRule"
+   "filterres" "filterRes"
+   "filterunits" "filterUnits"
+   "flood-color" "floodColor"
+   "flood-opacity" "floodOpacity"
+   "floodcolor" "floodColor"
+   "floodopacity" "floodOpacity"
+   "font-family" "fontFamily"
+   "font-size" "fontSize"
+   "font-size-adjust" "fontSizeAdjust"
+   "font-stretch" "fontStretch"
+   "font-style" "fontStyle"
+   "font-variant" "fontVariant"
+   "font-weight" "fontWeight"
+   "fontfamily" "fontFamily"
+   "fontsize" "fontSize"
+   "fontsizeadjust" "fontSizeAdjust"
+   "fontstretch" "fontStretch"
+   "fontstyle" "fontStyle"
+   "fontvariant" "fontVariant"
+   "fontweight" "fontWeight"
+   "for" "htmlFor"
+   "formaction" "formAction"
+   "formenctype" "formEncType"
+   "formmethod" "formMethod"
+   "formnovalidate" "formNoValidate"
+   "formtarget" "formTarget"
+   "frameborder" "frameBorder"
+   "glyph-name" "glyphName"
+   "glyph-orientation-horizontal" "glyphOrientationHorizontal"
+   "glyph-orientation-vertical" "glyphOrientationVertical"
+   "glyphname" "glyphName"
+   "glyphorientationhorizontal" "glyphOrientationHorizontal"
+   "glyphorientationvertical" "glyphOrientationVertical"
+   "glyphref" "glyphRef"
+   "gradienttransform" "gradientTransform"
+   "gradientunits" "gradientUnits"
+   "horiz-adv-x" "horizAdvX"
+   "horiz-origin-x" "horizOriginX"
+   "horizadvx" "horizAdvX"
+   "horizoriginx" "horizOriginX"
+   "hreflang" "hrefLang"
+   "http-equiv" "httpEquiv"
+   "httpequiv" "httpEquiv"
+   "image-rendering" "imageRendering"
+   "imagerendering" "imageRendering"
+   "imagesizes" "imageSizes"
+   "imagesrcset" "imageSrcSet"
+   "inputmode" "inputMode"
+   "itemid" "itemID"
+   "itemprop" "itemProp"
+   "itemref" "itemRef"
+   "itemscope" "itemScope"
+   "itemtype" "itemType"
+   "kernelmatrix" "kernelMatrix"
+   "kernelunitlength" "kernelUnitLength"
+   "keyparams" "keyParams"
+   "keypoints" "keyPoints"
+   "keysplines" "keySplines"
+   "keytimes" "keyTimes"
+   "keytype" "keyType"
+   "lengthadjust" "lengthAdjust"
+   "letter-spacing" "letterSpacing"
+   "letterspacing" "letterSpacing"
+   "lighting-color" "lightingColor"
+   "lightingcolor" "lightingColor"
+   "limitingconeangle" "limitingConeAngle"
+   "marginheight" "marginHeight"
+   "marginwidth" "marginWidth"
+   "marker-end" "markerEnd"
+   "marker-mid" "markerMid"
+   "marker-start" "markerStart"
+   "markerend" "markerEnd"
+   "markerheight" "markerHeight"
+   "markermid" "markerMid"
+   "markerstart" "markerStart"
+   "markerunits" "markerUnits"
+   "markerwidth" "markerWidth"
+   "maskcontentunits" "maskContentUnits"
+   "masktype" "maskType"
+   "maskunits" "maskUnits"
+   "maxlength" "maxLength"
+   "mediagroup" "mediaGroup"
+   "minlength" "minLength"
+   "nomodule" "noModule"
+   "novalidate" "noValidate"
+   "numoctaves" "numOctaves"
+   "overline-position" "overlinePosition"
+   "overline-thickness" "overlineThickness"
+   "overlineposition" "overlinePosition"
+   "overlinethickness" "overlineThickness"
+   "paint-order" "paintOrder"
+   "paintorder" "paintOrder"
+   "panose-1" "panose1"
+   "pathlength" "pathLength"
+   "patterncontentunits" "patternContentUnits"
+   "patterntransform" "patternTransform"
+   "patternunits" "patternUnits"
+   "playsinline" "playsInline"
+   "pointer-events" "pointerEvents"
+   "pointerevents" "pointerEvents"
+   "pointsatx" "pointsAtX"
+   "pointsaty" "pointsAtY"
+   "pointsatz" "pointsAtZ"
+   "popovertarget" "popoverTarget"
+   "popovertargetaction" "popoverTargetAction"
+   "preservealpha" "preserveAlpha"
+   "preserveaspectratio" "preserveAspectRatio"
+   "primitiveunits" "primitiveUnits"
+   "radiogroup" "radioGroup"
+   "readonly" "readOnly"
+   "referrerpolicy" "referrerPolicy"
+   "refx" "refX"
+   "refy" "refY"
+   "rendering-intent" "renderingIntent"
+   "renderingintent" "renderingIntent"
+   "repeatcount" "repeatCount"
+   "repeatdur" "repeatDur"
+   "requiredextensions" "requiredExtensions"
+   "requiredfeatures" "requiredFeatures"
+   "rowspan" "rowSpan"
+   "shape-rendering" "shapeRendering"
+   "shaperendering" "shapeRendering"
+   "specularconstant" "specularConstant"
+   "specularexponent" "specularExponent"
+   "spellcheck" "spellCheck"
+   "spreadmethod" "spreadMethod"
+   "srcdoc" "srcDoc"
+   "srclang" "srcLang"
+   "srcset" "srcSet"
+   "startoffset" "startOffset"
+   "stddeviation" "stdDeviation"
+   "stitchtiles" "stitchTiles"
+   "stop-color" "stopColor"
+   "stop-opacity" "stopOpacity"
+   "stopcolor" "stopColor"
+   "stopopacity" "stopOpacity"
+   "strikethrough-position" "strikethroughPosition"
+   "strikethrough-thickness" "strikethroughThickness"
+   "strikethroughposition" "strikethroughPosition"
+   "strikethroughthickness" "strikethroughThickness"
+   "stroke-dasharray" "strokeDasharray"
+   "stroke-dashoffset" "strokeDashoffset"
+   "stroke-linecap" "strokeLinecap"
+   "stroke-linejoin" "strokeLinejoin"
+   "stroke-miterlimit" "strokeMiterlimit"
+   "stroke-opacity" "strokeOpacity"
+   "stroke-width" "strokeWidth"
+   "strokedasharray" "strokeDasharray"
+   "strokedashoffset" "strokeDashoffset"
+   "strokelinecap" "strokeLinecap"
+   "strokelinejoin" "strokeLinejoin"
+   "strokemiterlimit" "strokeMiterlimit"
+   "strokeopacity" "strokeOpacity"
+   "strokewidth" "strokeWidth"
+   "suppresscontenteditablewarning" "suppressContentEditableWarning"
+   "suppresshydrationwarning" "suppressHydrationWarning"
+   "surfacescale" "surfaceScale"
+   "systemlanguage" "systemLanguage"
+   "tabindex" "tabIndex"
+   "tablevalues" "tableValues"
+   "targetx" "targetX"
+   "targety" "targetY"
+   "text-anchor" "textAnchor"
+   "text-decoration" "textDecoration"
+   "text-rendering" "textRendering"
+   "textanchor" "textAnchor"
+   "textdecoration" "textDecoration"
+   "textlength" "textLength"
+   "textrendering" "textRendering"
+   "transform-origin" "transformOrigin"
+   "transformorigin" "transformOrigin"
+   "underline-position" "underlinePosition"
+   "underline-thickness" "underlineThickness"
+   "underlineposition" "underlinePosition"
+   "underlinethickness" "underlineThickness"
+   "unicode-bidi" "unicodeBidi"
+   "unicode-range" "unicodeRange"
+   "unicodebidi" "unicodeBidi"
+   "unicoderange" "unicodeRange"
+   "units-per-em" "unitsPerEm"
+   "unitsperem" "unitsPerEm"
+   "usemap" "useMap"
+   "v-alphabetic" "vAlphabetic"
+   "v-hanging" "vHanging"
+   "v-ideographic" "vIdeographic"
+   "v-mathematical" "vMathematical"
+   "valphabetic" "vAlphabetic"
+   "vector-effect" "vectorEffect"
+   "vectoreffect" "vectorEffect"
+   "vert-adv-y" "vertAdvY"
+   "vert-origin-x" "vertOriginX"
+   "vert-origin-y" "vertOriginY"
+   "vertadvy" "vertAdvY"
+   "vertoriginx" "vertOriginX"
+   "vertoriginy" "vertOriginY"
+   "vhanging" "vHanging"
+   "videographic" "vIdeographic"
+   "viewbox" "viewBox"
+   "viewtarget" "viewTarget"
+   "vmathematical" "vMathematical"
+   "word-spacing" "wordSpacing"
+   "wordspacing" "wordSpacing"
+   "writing-mode" "writingMode"
+   "writingmode" "writingMode"
+   "x-height" "xHeight"
+   "xchannelselector" "xChannelSelector"
+   "xheight" "xHeight"
+   "xlinkactuate" "xlinkActuate"
+   "xlinkarcrole" "xlinkArcrole"
+   "xlinkhref" "xlinkHref"
+   "xlinkrole" "xlinkRole"
+   "xlinkshow" "xlinkShow"
+   "xlinktitle" "xlinkTitle"
+   "xlinktype" "xlinkType"
+   "xmlbase" "xmlBase"
+   "xmllang" "xmlLang"
+   "xmlnsxlink" "xmlnsXlink"
+   "xmlspace" "xmlSpace"
+   "ychannelselector" "yChannelSelector"
+   "zoomandpan" "zoomAndPan"})
+
+(def dom-attr-aliases
+  "React prop name -> the DOM attribute name react-dom/server writes when
+  the two differ — the serialiser half of the conversion table. Transcribed
+  from react-dom 19.2.0, with `maskType` carrying its 19.3.0 spelling — the
+  one emitted-name move measured across the two versions. The table as a
+  whole is not re-derived against 19.3.0; `standard-names` above, the OTHER
+  half — author name to React prop name — is.
+  Everything NOT in this map serialises as the prop name verbatim
+  (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
+  are ASCII case-insensitive).
+
+  The `keep` below inverts only `standard-names` entries whose KEY carries a
+  hyphen, which is why the `masktype -> maskType` entry in `standard-names`
+  contributes nothing here: the hyphen-collapsed key is not a kebab spelling.
+  `maskType` therefore needs an explicit row, and `react_dom_probe/
+  attr_name_mask_family.cjs` + `re-frame.ssr-attr-name-react-parity-test`
+  pin that row against the installed package rather than against this prose.
+
+  The inversion is not quite react-dom's rule, and one row shows it:
+  react-dom 19.3.0 keys its `panose-1` alias on the HYPHENATED name (an
+  identity row) and has no `panose1` key, so it writes the prop `panose1`
+  verbatim. The `keep` therefore skips `panose-1`. The other 89 rows are
+  byte-identical against 19.3.0 by a one-off probe; no test pins the whole
+  table."
+  (merge (into {}
+               (keep (fn [[attribute-key attribute-value]]
+                       (when (and (str/includes? attribute-key "-")
+                                  (not= "panose-1" attribute-key))
+                         [attribute-value attribute-key])))
+               standard-names)
+         {"className"    "class"
+          "htmlFor"      "for"
+          "maskType"     "mask-type"
+          "tabIndex"     "tabindex"
+          "xlinkActuate" "xlink:actuate"
+          "xlinkArcrole" "xlink:arcrole"
+          "xlinkHref"    "xlink:href"
+          "xlinkRole"    "xlink:role"
+          "xlinkShow"    "xlink:show"
+          "xlinkTitle"   "xlink:title"
+          "xlinkType"    "xlink:type"
+          "xmlBase"      "xml:base"
+          "xmlLang"      "xml:lang"
+          "xmlSpace"     "xml:space"
+          "xmlnsXlink"   "xmlns:xlink"}))
 
 ;; ---- inline-style map serialisation ---------------------------------------
 ;;
