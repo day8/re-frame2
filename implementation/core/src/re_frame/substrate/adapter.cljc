@@ -676,10 +676,9 @@
 
   Sound ONLY for adapters whose base container IS atom-shaped (plain-atom,
   UIx): their base container is a `clojure.core/atom`
-  (an `IAtom`) and their derived value is an `IDeref`-only reify (plain-atom
-  JVM), an `IDeref`+`IDisposable` reify (plain-atom CLJS), or
-  an `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
-  which is an `IAtom`. NOT sound for the Reagent family (a Reagent
+  (an `IAtom`) and their derived value is an `IDeref`+`IRef` reify (plain-atom
+  JVM) or an `IDeref`+`IWatchable`+`IDisposable` reify (plain-atom CLJS and
+  the React spine) — none of which is an `IAtom`. NOT sound for the Reagent family (a Reagent
   `Reaction` reifies `IAtom` too) NOR for a custom adapter whose base
   container is a non-atom host shape (a JS class instance, signal/store
   object, or record). Those adapters MUST carry a `:derived-container?`
