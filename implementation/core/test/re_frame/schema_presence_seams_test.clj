@@ -60,13 +60,13 @@
       (let [seen (spy-validator!)]
         (is (thrown? ExceptionInfo
               (validate-recordable-value!
-                :cofx/x {:v 1} {:schema token} :ev/x nil (constantly true)))
+                :cofx/x {:v 1} {:schema token} :ev/x nil))
             "the false verdict takes the always-on hard error")
         (is (= [token] @seen)))))
   (let [seen (spy-validator!)]
     (is (= {:v 1}
            (validate-recordable-value!
-             :cofx/x {:v 1} {:doc "no schema"} :ev/x nil (constantly true))))
+             :cofx/x {:v 1} {:doc "no schema"} :ev/x nil)))
     (is (= [] @seen) "an omitted :schema never consults the validator")))
 
 (deftest sub-override-schema-is-key-presence
