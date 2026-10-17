@@ -1283,30 +1283,6 @@
         (is (= [[:error {:kind :frame :frame :test/succ}]] (no-such-frame-errors @recorded)))
         (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded))))))
 
-(deftest restore-tail-anchoring-fenced-to-exact-incarnation
-  (testing "a :rf.epoch/restored trace listener that destroys A and
-            seats a same-id successor B after the install: restore still
-            reports success (it committed on A), but the post-write tail does
-            not stamp B's last-settled anchor with A's restored epoch"
-    (rf/make-frame {:id :test/seam3})
-    (rf/reg-event :set-owner3 (fn [_ [_ o n]] {:db {:owner o :n n}}))
-    (rf/dispatch-sync [:set-owner3 :A 1] {:frame :test/seam3})
-    (rf/dispatch-sync [:set-owner3 :A 2] {:frame :test/seam3})
-    (let [a-target-id (:epoch-id (first (rf.epoch/epoch-history :test/seam3)))
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/seam3 a-target-id)
-          fired?      (atom false)]
-      (is (= :ok outcome))
-      (rf/register-listener! :trace ::seam3-churn
-        (fn [ev]
-          (when (and (not @fired?) (= :rf.epoch/restored (:operation ev)))
-            (reset! fired? true)
-            (rf/destroy-frame! :test/seam3)
-            (rf/make-frame {:id :test/seam3})
-            (rf/dispatch-sync [:set-owner3 :B 99] {:frame :test/seam3}))))
-      (is (:ok? (rf.epoch.tool-pair/perform-restore! :test/seam3 incarnation-token epoch)))
-      (is (not= a-target-id (rf.epoch.state/last-settled-epoch-id :test/seam3))))))
-
 (deftest restore-through-all-fences-still-succeeds
   (testing "control — with no churn the restore consults the reconcile and the
             deferred resource-trace commit, installs and returns true, and the
@@ -1460,12 +1436,12 @@
              (select-keys result [:ok? :reason :kind])))
       (is (= @b-baseline [(rf/frame-state-value :test/rep) (rf.epoch/epoch-history :test/rep)])))))
 
-;; ---- the fenced tail ops are themselves fan-outs ---------------------------
+;; ---- the post-write tail ----------------------------------------------------
 ;;
-;; The host-work quiesce walks a chain of late-bound hooks and the deferred
-;; resource-trace commit walks a list of intents. Each element is a callback
-;; boundary addressing the frame by bare id, so the token has to travel into
-;; the fan-out: a check before the loop does not fence its later iterations.
+;; After the install the tail addresses the frame by bare id with no token
+;; check, because nothing can retire the incarnation before the serialized
+;; section ends: trace listeners run only after it. The host-work quiesce walks
+;; a chain of late-bound subsystem hooks, best-effort.
 
 (defn- with-quiesce-hook-stubs
   "Install stub `:machines/on-frame-restored!` / `:http/abort-in-flight-for-frame!`
@@ -1483,26 +1459,28 @@
         (rf.late-bind/set-fn! mk m0)
         (rf.late-bind/set-fn! hk h0)))))
 
-(deftest restore-quiesce-chain-fenced-per-hook
-  (testing "restore carries the exact token into the quiesce chain: the first
-            hook churns A to a same-id successor B, so the chain stops before
-            the HTTP hook can abort B's requests; the committed install still
-            returns true"
-    (rf/make-frame {:id :test/sdeae-quiesce})
-    (rf/reg-event :set-q (fn [_ [_ o n]] {:db {:owner o :n n}}))
-    (rf/dispatch-sync [:set-q :A 1] {:frame :test/sdeae-quiesce})
-    (rf/dispatch-sync [:set-q :A 2] {:frame :test/sdeae-quiesce})
-    (let [target-id (:epoch-id (first (rf.epoch/epoch-history :test/sdeae-quiesce)))
-          http-saw  (atom [])]
+(deftest restore-trace-listeners-run-after-the-tail
+  (testing "a :rf.epoch/restored trace listener runs only once the restore's
+            serialized section has ended: by then the tail has anchored
+            last-settled to the restored epoch and run the quiesce chain, so a
+            listener that destroys or reseats the frame cannot reach the tail"
+    (rf/make-frame {:id :test/tail})
+    (rf/reg-event :set-owner-tail (fn [_ [_ o n]] {:db {:owner o :n n}}))
+    (rf/dispatch-sync [:set-owner-tail :A 1] {:frame :test/tail})
+    (rf/dispatch-sync [:set-owner-tail :A 2] {:frame :test/tail})
+    (let [target-id (:epoch-id (first (rf.epoch/epoch-history :test/tail)))
+          quiesced  (atom [])
+          seen      (atom nil)]
+      (rf/register-listener! :trace ::restored-after-tail
+        (fn [ev]
+          (when (= :rf.epoch/restored (:operation ev))
+            (reset! seen [(rf.epoch.state/last-settled-epoch-id :test/tail) @quiesced]))))
       (with-quiesce-hook-stubs
-        (fn [fid]
-          (rf/destroy-frame! fid)
-          (rf/make-frame {:id fid})
-          (rf/dispatch-sync [:set-q :B 99] {:frame fid}))
-        (fn [fid] (swap! http-saw conj fid))
+        (fn [fid] (swap! quiesced conj fid))
+        (fn [_fid] nil)
         (fn []
-          (is (:ok? (rf.epoch/restore-epoch! :test/sdeae-quiesce target-id)))
-          (is (empty? @http-saw)))))))
+          (is (:ok? (rf.epoch/restore-epoch! :test/tail target-id)))
+          (is (= [target-id [:test/tail]] @seen)))))))
 
 (defn- with-quiesce-warning-capture
   "Register a global `:trace` listener collecting every
@@ -1518,35 +1496,20 @@
     (try (f warnings)
          (finally (rf/unregister-listener! :trace k)))))
 
-(deftest quiesce-warning-fence-admits-and-refuses-repeatedly
-  (testing "a throwing quiesce hook warns, naming the hook, and the best-effort
-            chain continues while the incarnation is live; once the hook has
-            churned the incarnation the warning is withheld and the chain stops.
-            Alternating rounds prove the fence re-reads the live slot rather
-            than latching"
-    (let [fid   :test/vy2hj-seq
-          ;; One round: seat a fresh incarnation and fire the chain with a
-          ;; throwing first hook, optionally churning the incarnation first.
-          ;; Returns [warnings emitted, second hook ran?].
-          round (fn [warnings churn?]
-                  (let [before    (count @warnings)
-                        http-ran? (atom false)]
-                    (rf/make-frame {:id fid})
-                    (let [token (rf.frame/frame-incarnation-token fid)]
-                      (with-quiesce-hook-stubs
-                        (fn [f]
-                          (when churn?
-                            (rf/destroy-frame! f)
-                            (rf/make-frame {:id f}))
-                          (throw (ex-info "hook failed" {})))
-                        (fn [_f] (reset! http-ran? true))
-                        #(rf.epoch.tool-pair/quiesce-orphaned-async-host-work! fid token)))
-                    [(- (count @warnings) before) @http-ran?]))]
+(deftest quiesce-chain-warns-on-a-throwing-hook-and-continues
+  (testing "a throwing quiesce hook emits one warning naming the hook, and the
+            best-effort chain still runs the next hook"
+    (let [fid       :test/quiesce-warn
+          http-ran? (atom false)]
+      (rf/make-frame {:id fid})
       (with-quiesce-warning-capture
         (fn [warnings]
-          (is (= [[1 true] [0 false] [1 true] [0 false]]
-                 (mapv #(round warnings %) [false true false true])))
-          (is (= [:machines/on-frame-restored! :machines/on-frame-restored!]
+          (with-quiesce-hook-stubs
+            (fn [_f] (throw (ex-info "hook failed" {})))
+            (fn [_f] (reset! http-ran? true))
+            #(rf.epoch.tool-pair/quiesce-orphaned-async-host-work! fid))
+          (is (true? @http-ran?))
+          (is (= [:machines/on-frame-restored!]
                  (mapv #(get-in % [:tags :hook]) @warnings))))))))
 
 ;; The resources restore reconcile runs BEFORE the atomic install and defers its

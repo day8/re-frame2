@@ -1014,54 +1014,29 @@
   nothing) returns before this point, so a restore that never landed never
   cancels a live frame's host work. Each `restore-quiesce-hooks` entry is a
   late-bound `(fn [frame-id])`; an unregistered hook (the artefact is absent) is
-  a no-op, and a throwing hook is swallowed so one bad subsystem cleanup cannot
-  block the rest. Returns nil.
+  a no-op, and a throwing hook is reported as
+  `:rf.warning/restore-quiesce-hook-exception` and swallowed, so one bad
+  subsystem cleanup cannot block the rest. Returns nil.
 
-  The caller's single pre-chain liveness check does not fence the chain. EVERY
-  hook addresses the frame by BARE id, and each hook body runs synchronously on
-  the restoring thread, where a `destroy-frame!` runs at once instead of
-  waiting for the serialized section to end. So hook 1 can destroy incarnation
-  A and seat a same-id successor B, after which the HTTP hook would snapshot and
-  abort B's in-flight requests. (A trace listener cannot: under
-  `perform-restore!` every emit, a hook's cancellation traces included, reaches
-  listeners only once the section ends.) The chain therefore carries the
-  restore's EXACT `incarnation-token` INTO the loop and revalidates ownership at
-  every hook boundary, STOPPING the chain the moment the incarnation is lost
-  rather than retargeting the remaining A-only cleanup onto B. That
-  revalidation covers the THROWING path too: the swallow-and-warn catch runs
-  after the hook, so it announces only while the captured incarnation is still
-  owned. A nil token has no incarnation to fence and fires the whole chain —
-  and every warning."
-  ([frame-id incarnation-token]
-   (let [still-owned? (fn []
-                        (or (nil? incarnation-token)
-                            (rf.frame/event-continuation-live? frame-id incarnation-token)))]
-      (doseq [hook-key restore-quiesce-hooks
-              :while   (still-owned?)]
-        (when-let [quiesce-hook (rf.late-bind/get-fn hook-key)]
-          (try (quiesce-hook frame-id)
-               (catch #?(:clj Throwable :cljs :default) quiesce-error
-                ;; The SETTLED path needs the same fence as the
-                ;; loop's `:while`. Hook 1 may destroy A, seat a same-id
-                ;; successor B, and only THEN throw — unwinding into a catch
-                ;; that addresses the frame by BARE id, which B now owns. An
-                ;; unfenced emit does NOT error; it silently RESURRECTS A's
-                ;; cleanup diagnostic as B's, delivered to B's trace listeners
-                ;; and retainable under B's id. The hazard is a run OUTLIVING
-                ;; its claim, not a token failing to arrive — the token is
-                ;; already conveyed correctly — so the check is the same
-                ;; live-slot comparison, taken once more at the moment of
-                ;; announcement. A hook that throws under a STILL-LIVE
-                ;; incarnation is unaffected: it emits its one warning and the
-                ;; best-effort chain continues.
-                (when (still-owned?)
-                  (rf.trace/emit-error! :rf.warning/restore-quiesce-hook-exception
-                                      {:category  :rf.warning/restore-quiesce-hook-exception
-                                       :hook      hook-key
-                                       :frame     frame-id
-                                       :exception quiesce-error
-                                       :recovery  :ignored})))))))
-   nil))
+  Every hook addresses the frame by bare id with no ownership check, because
+  the chain runs inside `perform-restore!`'s serialized section, where nothing
+  can retire the restored incarnation: a cross-thread `destroy-frame!` waits on
+  the `:drain-lock`, each trace a hook emits reaches listeners only once the
+  section ends, and neither published hook body destroys or reseats a frame —
+  the machines hook releases timer handles, and the HTTP hook aborts with a
+  reply-suppressing reason that delivers no reply."
+  [frame-id]
+  (doseq [hook-key restore-quiesce-hooks]
+    (when-let [quiesce-hook (rf.late-bind/get-fn hook-key)]
+      (try (quiesce-hook frame-id)
+           (catch #?(:clj Throwable :cljs :default) quiesce-error
+             (rf.trace/emit-error! :rf.warning/restore-quiesce-hook-exception
+                                   {:category  :rf.warning/restore-quiesce-hook-exception
+                                    :hook      hook-key
+                                    :frame     frame-id
+                                    :exception quiesce-error
+                                    :recovery  :ignored})))))
+  nil)
 
 (defn commit-resources-restore-traces!
   "Emit the resources restore-reconcile trace rows DEFERRED by
@@ -1097,10 +1072,10 @@
   current host state before install, deferring success traces until the write
   lands.
 
-  The WHOLE restore is one EXACT-incarnation transaction, keyed on
-  `incarnation-token`, not the bare id. A same-id
-  SUCCESSOR frame reseated at ANY seam must not receive the resolved epoch's
-  state, touch host tables, or be anchored. Four fences, all on the token:
+  The restore is keyed on `incarnation-token`, not the bare id. A same-id
+  SUCCESSOR frame seated after validation must not receive the resolved
+  epoch's state, touch host tables, or be anchored. Two fences, both on the
+  token:
 
     - an early `event-continuation-live?` gate refuses BEFORE running the
       subsystem reconcile, so nothing is reconciled against a stale
@@ -1110,31 +1085,23 @@
     - the physical install goes through the EXACT-INCARNATION
       `replace-frame-state!` arity, which returns nil unless the token still
       names the live record — so even the write itself can never redirect into a
-      same-id successor;
-    - each post-write bare-id tail op (last-settled anchor, deferred subsystem
-      trace commit, host-work quiesce) re-checks `event-continuation-live?`.
-      No trace listener can churn A to B there, because the
-      `:rf.epoch/restored` emit and the commit's emits reach listeners only
-      once the serialized section ends. The tail's late-bound hooks (the flows
-      memo reset, the trace commit, the quiesce chain) do run synchronously on
-      this thread, where a `destroy-frame!` runs at once, so a lost
-      incarnation STOPS the remaining A-only tail work rather than RETARGETING
-      it onto B;
-    - the quiesce CHAIN carries the token INSIDE. A check taken before a
-      loop does not fence the loop, and the chain walks several late-bound
-      subsystem hooks, each addressing the frame by bare id. So
-      `incarnation-token` is threaded into
-      `quiesce-orphaned-async-host-work!`, which revalidates exact ownership
-      at EVERY hook boundary and stops mid-chain.
+      same-id successor.
 
-  Every incarnation loss resolves to ONE coherent typed failure —
-  `:rf.error/no-such-handler` (kind `:frame`), the same shape a destroyed-frame
-  write race produces — and leaves any successor frame byte-for-byte untouched
-  with no success telemetry. The write's non-nil return (a changed-key set,
-  possibly empty) is success; the result is then
-  `{:ok? true :frame <id> :epoch-id <restored epoch> :to <to>}` even if a tail
-  hook churns the incarnation. A refusal returns `refuse!`'s
-  `{:ok? false :reason <op> …}` envelope. Only the success branch emits restore
+  The post-write tail (flows memo reset, last-settled anchor, deferred
+  subsystem trace commit, host-work quiesce) addresses the frame by bare id
+  without re-checking the token, because nothing the tail runs can retire the
+  incarnation: a cross-thread `destroy-frame!` waits on the `:drain-lock`,
+  the `:rf.epoch/restored` emit and every hook's emits reach trace listeners
+  only once the serialized section ends, and no published tail hook destroys
+  or reseats a frame.
+
+  An incarnation lost before the write lands resolves to ONE coherent typed
+  failure — `:rf.error/no-such-handler` (kind `:frame`), the same shape a
+  destroyed-frame write race produces — and leaves any successor frame
+  byte-for-byte untouched with no success telemetry. The write's non-nil
+  return (a changed-key set, possibly empty) is success; the result is then
+  `{:ok? true :frame <id> :epoch-id <restored epoch> :to <to>}`. A refusal
+  returns `refuse!`'s `{:ok? false :reason <op> …}` envelope. Only the success branch emits restore
   telemetry, re-anchors post-settle attribution, commits deferred subsystem
   traces, and cancels host-transient work from the abandoned timeline.
 
@@ -1199,36 +1166,23 @@
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
                  ;; The exact-incarnation install committed, so the public result
-                 ;; is success and stays truthful regardless of what follows. The
-                 ;; `:rf.epoch/restored` emit above reaches trace listeners only
-                 ;; once this serialized section ends, so no listener runs before
-                 ;; the tail. The tail's late-bound hooks (the flows memo reset
-                 ;; above, the resources trace commit, the machines/http
-                 ;; host-work quiesce chain) do run synchronously on this thread,
-                 ;; where a `destroy-frame!` runs at once, and every
-                 ;; framework-owned tail op addresses the frame by BARE id
-                 ;; (`set-last-settled-epoch!`, the trace commit, the quiesce
-                 ;; chain). So each re-checks the EXACT incarnation the restore
-                 ;; installed, and once A is lost the remaining A-only tail work
-                 ;; is STOPPED rather than RETARGETED onto a same-id successor B:
-                 ;; no B anchor is stamped, no B resource trace committed, no B
-                 ;; host handle released or aborted.
-                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                   ;; Restore triggers no ordinary event, so explicitly anchor its
-                   ;; repaint/subscription/unmount back-fill to the restored epoch.
-                   ;; The anchor also names the state a later halt record
-                   ;; snapshots, and the epoch never settled into its own
-                   ;; before-state, so a `:before` restore clears it instead.
-                   (if (= :before to)
-                     (rf.epoch.state/drop-last-settled-epoch! frame-id)
-                     (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch))))
-                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                   ;; Deferred subsystem success traces are valid only after install.
-                   (commit-resources-restore-traces! reconciled-frame-state))
-                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                   ;; Host timers and HTTP handles are not frame state; cancel the
-                   ;; abandoned timeline only after the new state is installed.
-                   (quiesce-orphaned-async-host-work! frame-id incarnation-token))
+                 ;; is success. The tail addresses the frame by bare id: no trace
+                 ;; listener runs before this serialized section ends, and no
+                 ;; tail hook destroys or reseats a frame.
+                 ;;
+                 ;; Restore triggers no ordinary event, so explicitly anchor its
+                 ;; repaint/subscription/unmount back-fill to the restored epoch.
+                 ;; The anchor also names the state a later halt record
+                 ;; snapshots, and the epoch never settled into its own
+                 ;; before-state, so a `:before` restore clears it instead.
+                 (if (= :before to)
+                   (rf.epoch.state/drop-last-settled-epoch! frame-id)
+                   (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
+                 ;; Deferred subsystem success traces are valid only after install.
+                 (commit-resources-restore-traces! reconciled-frame-state)
+                 ;; Host timers and HTTP handles are not frame state; cancel the
+                 ;; abandoned timeline only after the new state is installed.
+                 (quiesce-orphaned-async-host-work! frame-id)
                  {:ok?      true
                   :frame    frame-id
                   :epoch-id (:epoch-id epoch)
