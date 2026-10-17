@@ -1558,14 +1558,17 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; the unified `:rf.machine.timer/cancelled` event
   ;; emitted on every cancellation path. Payload shape mirrors
   ;; `:rf.machine.timer/scheduled` for arm-fire-cancel pairing by
-  ;; `(actor-id, state, epoch)`; `:reason` discriminates the
-  ;; cancellation cause from the closed set below.
+  ;; actor, declaring node (`:decl-path` with `:region`), epoch and
+  ;; `:delay-key`; `:reason` discriminates the cancellation cause from
+  ;; the closed set below.
   ;;
   ;; The timer's owning actor is a LIVE INSTANCE (`:actor-id`);
   ;; `:machine-id` is reserved for the registered TYPE.
   [:map
    [:actor-id      :keyword]
    [:state         :any]                    ;; keyword OR vector path
+   [:decl-path     [:vector :any]]          ;; the declaring node's path; region-relative inside a region, [] for a parallel root's own `:after`
+   [:region        {:optional true} :keyword] ;; the parallel region that declared the timer; present only inside a region
    [:delay         :int]                    ;; the resolved-ms the timer held
    [:delay-key     :any]                    ;; the :after key as declared: ms, an ISO-8601 string, a :delays name, or the delay fn
    [:epoch         :int]
