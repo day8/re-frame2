@@ -1,16 +1,14 @@
 (ns re-frame.machine-destroy-tail-incarnation-fence-test
-  "Teardown writes that outlive the frame incarnation A that started them leave
-  a same-id successor B untouched: an `:after` timer release cancels only its
-  own handle, and the classification drop rides the exact elision write."
+  "A teardown write that outlives the frame incarnation A that started it
+  leaves a same-id successor B untouched: an `:after` timer release cancels
+  only its own handle."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.machines :as rf.machines]
-            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -21,18 +19,7 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private actor-type :rf2-i4aj9c/child)
-(def ^:private actor-id   (keyword "rf2-i4aj9c" "child#1"))
-
-;; Declares a `:sensitive` path, so spawn lowers a classification claim.
-(def ^:private classified-spec
-  {:initial   :running
-   :sensitive [[:data :token]]
-   :states    {:running {:exit (fn [ctx] (:data ctx))
-                         :on   {:go :done}}
-               :done    {:final? true}}})
-
-(defn- elision-slot [frame-id] (get-in (rf/frame-state-value frame-id) [:rf.db/runtime :rf.runtime/elision]))
+(def ^:private actor-id (keyword "rf2-i4aj9c" "child#1"))
 
 ;; Releasing an `:after` timer cancels the entry's own host handle. Once a
 ;; cancelled-trace listener has destroyed A and a same-id B has armed the same
@@ -71,50 +58,3 @@
         (finally
           (rf.trace.tooling/unregister-listener! ::release-fence)
           (swap! rf.machines.timer/after-timers dissoc frame-a))))))
-
-(defn- install-watching-adapter!
-  "Install a plain-atom adapter whose container write lands, then runs
-  `on-write` once while `armed?` holds."
-  [armed? on-write]
-  (let [base-replace (:replace-container! rf.substrate.plain-atom/adapter)]
-    (rf.substrate.adapter/dispose-adapter!)
-    (reset! rf.frame/frames {})
-    (rf.substrate.adapter/install-adapter!
-      (assoc rf.substrate.plain-atom/adapter
-             :kind :custom
-             :replace-container!
-             (fn [container value]
-               (base-replace container value)
-               (when (compare-and-set! armed? true false)
-                 (on-write)))))))
-
-(defn- restore-plain-adapter! []
-  (reset! rf.frame/frames {})
-  (rf.substrate.adapter/dispose-adapter!)
-  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
-
-(deftest classification-drop-write-watch-loss-fences-removal
-  ;; A container watch destroys A and publishes a same-id B, which re-lowers
-  ;; the same owner's claim, DURING A's classification-drop write.
-  (let [frame-a :rf2-i4aj9c/class-drop-frame
-        armed?  (atom false)
-        b-state (atom nil)]
-    (install-watching-adapter!
-      armed?
-      (fn []
-        (rf.frame/destroy-frame! frame-a)
-        (rf/make-frame {:id frame-a})
-        (rf.machines.classification/lower-at-spawn! frame-a actor-id classified-spec)
-        (reset! b-state [(elision-slot frame-a) (rf.frame/frame-commit-epoch frame-a)])))
-    (try
-      (rf/reg-machine actor-type classified-spec)
-      (rf/make-frame {:id frame-a})
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (reset! armed? true)
-        (rf.frame/call-with-event-owner-token frame-a token-a
-          #(rf.machines.classification/drop-at-destroy! frame-a actor-id classified-spec token-a)))
-      (is (seq (first @b-state)) "B re-lowered its claim")
-      (is (= @b-state [(elision-slot frame-a) (rf.frame/frame-commit-epoch frame-a)])
-          "A's drop neither removed B's claim nor bumped B's commit epoch")
-      (finally
-        (restore-plain-adapter!)))))

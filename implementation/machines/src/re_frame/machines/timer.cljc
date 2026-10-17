@@ -942,26 +942,20 @@
                      :event-id (:rf/parent-id args)})
         parent-id (:rf/parent-id args)
         invoke-id (vec (:rf/invoke-id args))
-        ;; Bind the whole batch to ONE captured incarnation: cancel each entry by
-        ;; its SNAPSHOTTED attempt token (`cancel-snapshotted-entry!`, never
-        ;; re-reading the current occupant), and stop the loop if the captured
-        ;; incarnation is lost. No same-id successor can replace A under this
-        ;; loop: the fx runs in one of A's events, with A's drain on the stack, so
-        ;; a destroy requested there takes the id's reservation at once but cannot
-        ;; begin A's teardown before the event ends, and the callback-bearing
-        ;; `:rf.machine.timer/cancelled` traces reach listeners only after the
-        ;; drain.
-        owner-gone? (successor-published?-fn frame-id)
+        ;; Cancel each entry by its SNAPSHOTTED attempt token
+        ;; (`cancel-snapshotted-entry!`, never re-reading the current occupant).
+        ;; The batch needs no incarnation check: the fx is built only by a
+        ;; transition and runs in one of A's events, so no same-id successor can
+        ;; be seated under the loop. A destroy requested there cannot finish
+        ;; before the event ends, and the id's reservation makes a same-id
+        ;; `make-frame` fail fast.
         timer-entry-snapshot
                     (into []
                           (filter (fn [[k _]] (and (= parent-id (:parent k))
                                                    (= invoke-id (:spawn k)))))
                           (get @after-timers frame-id))]
-    (loop [pairs timer-entry-snapshot]
-      (when (and (seq pairs) (not (owner-gone?)))
-        (let [[k entry] (first pairs)]
-          (cancel-snapshotted-entry! frame-id k entry :on-exit))
-        (recur (rest pairs))))
+    (doseq [[k entry] timer-entry-snapshot]
+      (cancel-snapshotted-entry! frame-id k entry :on-exit))
     nil))
 
 (defn cancel-actor-timers!
