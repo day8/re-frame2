@@ -6,8 +6,8 @@
 
   The waterfall renders per-phase timing for one managed-fx interaction:
   one horizontal row per phase, bar width proportional to the phase's
-  share of total elapsed time, ms-label to the right. Five surfaces use
-  it (HTTP / WebSocket / machine-invoke / SSR / flow); promoting it to
+  share of total elapsed time, ms-label to the right. Four surfaces use
+  it (HTTP / WebSocket / machine-invoke / SSR); promoting it to
   a shared chart primitive keeps the panel template lean and the
   rendering testable from `clojure -M:test`.
 

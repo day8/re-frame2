@@ -26,8 +26,7 @@
   ([op tags] (surface-ev op tags 1100))
   ([op tags t]
    {:operation op
-    :op-type   (if (#{:rf.flow/failed :rf.machine/invoke-failed :rf.ssr/render-failed
-                      :rf.error/flow-eval-exception} op)
+    :op-type   (if (#{:rf.machine/invoke-failed :rf.ssr/render-failed} op)
                  :error
                  :info)
     :id        (rand-int 1000000)
@@ -216,13 +215,6 @@
            ((juxt :surface :status :req :res)
             (h/ssr-fx-adapter (fx-handled :rf.server/set-status args) []))))))
 
-(deftest flow-adapter-registered-record
-  (let [args {:flow-id :flow/cart-subtotal :input [:cart] :output [:cart :subtotal]}
-        comp (surface-ev :rf.flow/computed {:flow-id :flow/cart-subtotal :output 42})]
-    (is (= [:flow :ok :flow/cart-subtotal 42]
-           ((juxt :surface :status :correlation-id :res)
-            (h/flow-adapter (fx-handled :rf.flow/sample args) [comp]))))))
-
 (deftest non-http-adapters-read-a-failure-row-as-an-error
   (are [adapter fx-id args fail-op fail-tags]
        (= [:error fail-op]
@@ -231,14 +223,14 @@
     h/machine-invoke-adapter :rf.machine/spawn     {:machine-id :auth/main :fixed-actor-id :inv-2}
                              :rf.machine/invoke-failed     {:invoke-id :inv-2 :reason :no-such-machine}
     h/ssr-fx-adapter         :rf.server/set-status {:status 500}
-                             :rf.ssr/render-failed         {:request-id :ssr-1 :message "boom"}
-    h/flow-adapter           :rf.flow/sample       {:flow-id :flow/x}
-                             :rf.error/flow-eval-exception {:flow-id :flow/x :message "div by zero"}))
+                             :rf.ssr/render-failed         {:request-id :ssr-1 :message "boom"}))
 
 ;; ---- (3) the event-bundle walker -----------------------------------------
 
 (deftest cascade-walker-extracts-managed-fx-only
-  (testing "one record per managed fx, in bundle order; :db and user fxs are dropped"
+  (testing "one record per managed fx, in bundle order; :db, user fxs and a
+            :rf.flow/* id are dropped, the last because it names a flow
+            trace operation, never an effect"
     (let [cascade {:dispatch-id 7
                    :frame :rf/default
                    :effects [(fx-handled :rf.http/managed {:request {:method :get :url "/x"}})
@@ -247,7 +239,7 @@
                              (fx-handled :rf.server/set-header {:name "X" :value "Y"})
                              (fx-handled :rf.flow/sample {:flow-id :flow/x})]
                    :other []}]
-      (is (= [[:http :rf.http/managed] [:ssr-fx :rf.server/set-header] [:flow :rf.flow/sample]]
+      (is (= [[:http :rf.http/managed] [:ssr-fx :rf.server/set-header]]
              (mapv (juxt :surface :fx-id) (h/event-bundle->managed-fx-records cascade)))))))
 
 (deftest cascade-walker-paths-untracked-without-diff-feed
