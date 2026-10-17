@@ -498,7 +498,8 @@
 ;; ---- the deferred trace commit is a callback fan-out too -------------------
 
 (deftest commit-restore-reconcile-traces-fenced-per-intent
-  ;; Each deferred intent emits to trace listeners, any of which can destroy A
+  ;; Called directly, outside any drain or serialized section, each deferred
+  ;; intent reaches the trace listeners at once, and any of them can destroy A
   ;; and seat a same-id successor B; with the captured :owner-token the commit
   ;; STOPS rather than announcing A's restore against B.
   (let [fid :restore/commit-fence

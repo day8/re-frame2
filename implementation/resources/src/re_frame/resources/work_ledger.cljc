@@ -718,9 +718,12 @@
 ;; ---- DETACH-then-abort ---------------------------------------------------
 ;;
 ;; Aborting a slot fires a CALLBACK (the transport's `:abort-fn`, or the
-;; `:http/abort-in-flight!` hook) — app / host code that can synchronously churn
-;; frame incarnation A to a same-id successor B, and let B record its own handle
-;; under the SAME `[frame-id work-id]` key. A read-abort-dissoc cleanup therefore
+;; `:http/abort-in-flight!` hook) — app / host code. Outside any drain (the
+;; restore clear, or a `clear-resource` call made outside an event) it can
+;; synchronously churn frame incarnation A to a same-id successor B, and let B
+;; record its own handle under the SAME `[frame-id work-id]` key; inside a frame
+;; destroy the id's reservation keeps B out until step 10 has finished. A
+;; read-abort-dissoc cleanup therefore
 ;; deletes a slot the callback already re-seated: A's returning tail destroys B's
 ;; live handle. Re-entrancy is worse still — a callback that re-enters the
 ;; teardown re-reads the not-yet-dropped slot and aborts it again.
