@@ -1017,18 +1017,21 @@
   a no-op, and a throwing hook is swallowed so one bad subsystem cleanup cannot
   block the rest. Returns nil.
 
-  The chain is itself a callback FAN-OUT, so the caller's single
-  pre-chain liveness check does not fence it: EVERY hook addresses the frame by
-  BARE id, and each one is app-observable — a machines cancellation trace fired
-  by the first hook can destroy incarnation A and seat a same-id successor B,
-  after which the HTTP hook would snapshot and abort B's in-flight requests.
-  It therefore carries the restore's EXACT `incarnation-token` INTO the
-  loop and revalidates ownership at every hook boundary, STOPPING the chain the
-  moment the incarnation is lost rather than retargeting the remaining A-only
-  cleanup onto B. That revalidation covers the THROWING path too:
-  the swallow-and-warn catch is itself a post-callback tail, so it announces
-  only while the captured incarnation is still owned. A nil token has no
-  incarnation to fence and fires the whole chain — and every warning."
+  The caller's single pre-chain liveness check does not fence the chain. EVERY
+  hook addresses the frame by BARE id, and each hook body runs synchronously on
+  the restoring thread, where a `destroy-frame!` runs at once instead of
+  waiting for the serialized section to end. So hook 1 can destroy incarnation
+  A and seat a same-id successor B, after which the HTTP hook would snapshot and
+  abort B's in-flight requests. (A trace listener cannot: under
+  `perform-restore!` every emit, a hook's cancellation traces included, reaches
+  listeners only once the section ends.) The chain therefore carries the
+  restore's EXACT `incarnation-token` INTO the loop and revalidates ownership at
+  every hook boundary, STOPPING the chain the moment the incarnation is lost
+  rather than retargeting the remaining A-only cleanup onto B. That
+  revalidation covers the THROWING path too: the swallow-and-warn catch runs
+  after the hook, so it announces only while the captured incarnation is still
+  owned. A nil token has no incarnation to fence and fires the whole chain —
+  and every warning."
   ([frame-id incarnation-token]
    (let [still-owned? (fn []
                         (or (nil? incarnation-token)
@@ -1039,18 +1042,16 @@
           (try (quiesce-hook frame-id)
                (catch #?(:clj Throwable :cljs :default) quiesce-error
                 ;; The SETTLED path needs the same fence as the
-                ;; loop's `:while`. A hook is the very callback boundary this
-                ;; chain polices, so hook 1 may destroy A, seat a same-id
+                ;; loop's `:while`. Hook 1 may destroy A, seat a same-id
                 ;; successor B, and only THEN throw — unwinding into a catch
-                ;; that addresses the frame by BARE id, which B now owns. The
+                ;; that addresses the frame by BARE id, which B now owns. An
                 ;; unfenced emit does NOT error; it silently RESURRECTS A's
-                ;; cleanup diagnostic as B's, fanning synchronously through B's
-                ;; public trace listeners (and retainable under B's id) BEFORE
-                ;; the loop's next `:while` gets to stop hook 2. The hazard is
-                ;; a run OUTLIVING its claim, not a token failing to arrive —
-                ;; the token is already conveyed correctly — so the repair is
-                ;; the same live-slot comparison, taken once more at the moment
-                ;; of announcement. A hook that throws under a STILL-LIVE
+                ;; cleanup diagnostic as B's, delivered to B's trace listeners
+                ;; and retainable under B's id. The hazard is a run OUTLIVING
+                ;; its claim, not a token failing to arrive — the token is
+                ;; already conveyed correctly — so the check is the same
+                ;; live-slot comparison, taken once more at the moment of
+                ;; announcement. A hook that throws under a STILL-LIVE
                 ;; incarnation is unaffected: it emits its one warning and the
                 ;; best-effort chain continues.
                 (when (still-owned?)
@@ -1111,10 +1112,14 @@
       names the live record — so even the write itself can never redirect into a
       same-id successor;
     - each post-write bare-id tail op (last-settled anchor, deferred subsystem
-      trace commit, host-work quiesce) re-checks `event-continuation-live?`
-      — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
-      are callback boundaries that can churn A to B, so a lost incarnation STOPS
-      the remaining A-only tail work rather than RETARGETING it onto B;
+      trace commit, host-work quiesce) re-checks `event-continuation-live?`.
+      No trace listener can churn A to B there, because the
+      `:rf.epoch/restored` emit and the commit's emits reach listeners only
+      once the serialized section ends. The tail's late-bound hooks (the flows
+      memo reset, the trace commit, the quiesce chain) do run synchronously on
+      this thread, where a `destroy-frame!` runs at once, so a lost
+      incarnation STOPS the remaining A-only tail work rather than RETARGETING
+      it onto B;
     - the quiesce CHAIN carries the token INSIDE. A check taken before a
       loop does not fence the loop, and the chain walks several late-bound
       subsystem hooks, each addressing the frame by bare id. So
@@ -1128,7 +1133,7 @@
   with no success telemetry. The write's non-nil return (a changed-key set,
   possibly empty) is success; the result is then
   `{:ok? true :frame <id> :epoch-id <restored epoch> :to <to>}` even if a tail
-  callback churns the incarnation. A refusal returns `refuse!`'s
+  hook churns the incarnation. A refusal returns `refuse!`'s
   `{:ok? false :reason <op> …}` envelope. Only the success branch emits restore
   telemetry, re-anchors post-settle attribution, commits deferred subsystem
   traces, and cancels host-transient work from the abandoned timeline.
@@ -1136,7 +1141,8 @@
   The whole gate → reconcile → write → bookkeeping runs under the
   frame's `:drain-lock` (`serialize-tool-write!`), so no event transition can
   interleave between the reconcile's read and the physical install — the
-  restore holds one serial position relative to any drain. A
+  restore holds one serial position relative to any drain — and every trace
+  emitted inside it reaches listeners only once it ends. A
   restore invoked reentrantly from the active drainer refuses with
   `:rf.epoch/restore-during-drain` rather than deadlocking or splicing."
   ([frame-id incarnation-token epoch]
@@ -1193,19 +1199,20 @@
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
                  ;; The exact-incarnation install committed, so the public result
-                 ;; is success and stays truthful regardless of what follows. But the
-                 ;; `:rf.epoch/restored` emit above is a synchronous callback
-                 ;; boundary: a trace listener can destroy A and seat a same-id
-                 ;; successor B. Every framework-owned tail op below addresses the
-                 ;; frame by BARE id (`set-last-settled-epoch!`, the resources
-                 ;; trace commit, the machines/http host-work quiesce chain), so
-                 ;; each is fenced to the EXACT incarnation the restore installed
-                 ;; Re-check liveness before each — the trace
-                 ;; commit and the quiesce chain themselves fan out to
-                 ;; listeners/hooks that may churn — so once A is lost the
-                 ;; remaining A-only tail work is STOPPED rather than RETARGETED
-                 ;; onto B: no B anchor is stamped, no B resource trace committed,
-                 ;; no B host handle released or aborted.
+                 ;; is success and stays truthful regardless of what follows. The
+                 ;; `:rf.epoch/restored` emit above reaches trace listeners only
+                 ;; once this serialized section ends, so no listener runs before
+                 ;; the tail. The tail's late-bound hooks (the flows memo reset
+                 ;; above, the resources trace commit, the machines/http
+                 ;; host-work quiesce chain) do run synchronously on this thread,
+                 ;; where a `destroy-frame!` runs at once, and every
+                 ;; framework-owned tail op addresses the frame by BARE id
+                 ;; (`set-last-settled-epoch!`, the trace commit, the quiesce
+                 ;; chain). So each re-checks the EXACT incarnation the restore
+                 ;; installed, and once A is lost the remaining A-only tail work
+                 ;; is STOPPED rather than RETARGETED onto a same-id successor B:
+                 ;; no B anchor is stamped, no B resource trace committed, no B
+                 ;; host handle released or aborted.
                  (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                    ;; Restore triggers no ordinary event, so explicitly anchor its
                    ;; repaint/subscription/unmount back-fill to the restored epoch.
