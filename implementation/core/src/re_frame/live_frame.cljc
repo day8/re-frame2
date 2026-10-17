@@ -772,9 +772,9 @@
 ;; long-lived server would retain one row per request served, plus (on the
 ;; 2-arity) the caller's whole explicit descriptor pool. The Fresco frame-ops
 ;; row one layer up is released the same way. The release needs no
-;; incarnation token: a same-id successor is constructable only after
-;; teardown's step-9 registry dissoc, so every row standing at hook time is a
-;; dead incarnation's.
+;; incarnation token: the destroy holds the id's reservation until step 10 has
+;; finished, so no same-id successor can be constructed before this hook runs
+;; and every row standing at hook time is the dying incarnation's.
 ;;
 ;; ---- WHEN the row is written, and under WHOSE authority -------------------
 ;;
@@ -911,9 +911,10 @@
 
   Keyed and UNCONDITIONAL, carrying no incarnation token — the same argument
   the sibling `:fresco/on-frame-destroyed!` hook makes: destroy
-  still holds the id's exact construction/destruction reservation here, and a
-  same-id successor can only be seated after the step-9 registry dissoc, so
-  every row standing at hook time belongs to the incarnation being torn down.
+  still holds the id's exact construction/destruction reservation here and
+  releases it only once step 10 has finished, so no same-id successor can be
+  seated first and every row standing at hook time belongs to the incarnation
+  being torn down.
   A stale exact-value destroy never reaches this pass at all — it fails its
   claim before the cleanup walk begins.
 

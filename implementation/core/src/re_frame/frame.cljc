@@ -2670,10 +2670,10 @@
   in-band capture. `cause-msg` is the human cause text for the diagnostic
   message. `where-sym` is the constructor symbol. `owner-token` is the EXACT
   incarnation token this construction installed (the record's `:drain-lock`,
-  returned by `try-install-new-frame!`): teardown is exact-token-owned, so a
-  setup step that (re-entrantly / concurrently) destroyed A and seated a same-id
-  successor B before this rollback ran cannot make the stale A rollback destroy
-  B — the two-argument `destroy-frame!` no-ops unless A's token is still live."
+  returned by `try-install-new-frame!`): teardown is exact-token-owned, so once
+  a setup step has destroyed A the two-argument `destroy-frame!` finds no live A
+  and no-ops. Construction holds the id's reservation until its own `finally`,
+  so no same-id successor can be seated before this rollback runs."
   [id idx event cause-ex cause-msg where-sym owner-token]
   (destroy-frame! id owner-token)
   (rf.error/throw-error!
@@ -2758,8 +2758,10 @@
   produced (the record's `:drain-lock`). Every teardown path here — the
   escaping-throw + in-band `raise-setup-step-failed!` branches and the
   runner-unavailable branch — destroys via the two-argument `destroy-frame! id
-  owner-token`, so a rollback owns exactly the incarnation it constructed and
-  can never destroy a same-id successor that replaced it in the interim."
+  owner-token`, so a rollback owns exactly the incarnation it constructed: it
+  no-ops once a setup step has destroyed that incarnation, and the
+  construction's reservation keeps any same-id successor out until the
+  transaction settles."
   [id steps base-opts where-sym owner-token]
   (when (seq steps)
     ;; The setup runner reaches `dispatch-sync!` via late-bind (the
@@ -3129,9 +3131,10 @@
   `true` the caller would have to re-read via `frame-incarnation-token` — lets
   construction rollback OWN that exact incarnation: a failed-setup / handler-
   guard teardown passes this token to the two-argument `destroy-frame!`, which
-  can then only destroy the frame this call created, never a same-id successor
-  that replaced it in the interim. A later re-read would repeat the
-  same check-then-act race the token closes."
+  destroys only the frame this call created and no-ops once a setup step has
+  already destroyed it. The caller's reservation keeps every other same-id
+  construction out until the transaction settles, so no successor can replace
+  that frame in between."
   [id config policy-token owner]
   (when-not (contains? @frames id)
     (let [f (assoc (new-frame-record id config)
@@ -3438,8 +3441,9 @@
                 ;; then. The container was already installed above; tear it back
                 ;; down before throwing so a handler-time construction leaves NO
                 ;; half-registered frame. Teardown owns `installed-token`, so it
-                ;; removes exactly the incarnation we just installed — never a
-                ;; concurrently-seated same-id successor.
+                ;; removes exactly the incarnation we just installed; this
+                ;; transaction's reservation keeps any other same-id
+                ;; construction out.
                 (when rf.trace/*handler-scope*
                   (destroy-frame! id installed-token)
                   (rf.error/throw-error!

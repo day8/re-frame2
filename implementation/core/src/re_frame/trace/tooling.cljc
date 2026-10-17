@@ -1281,10 +1281,12 @@
 
   `retain?` gates ONLY the ring push. Under retentionless
   structural delivery (`re-frame.trace/call-with-structural-delivery`) it is
-  false: an obsolete incarnation's terminal fact still streams live to every
-  listener, but no per-frame ring retains it — the fact carries the bare frame id
-  a same-id successor now shares, so a ring push would leak predecessor evidence
-  into the successor's ring. The default `true` arity is the ordinary emit
+  false: a destroyed incarnation's terminal fact still streams live to every
+  listener, but no per-frame ring retains it. The fact carries the bare frame id
+  after teardown released that id's ring, so a push would recreate a ring for a
+  frame that is gone, or, for the old router's late `:rf.frame/drain-interrupted`,
+  land in a same-id successor's ring (Spec 009 §Retention boundary). The
+  default `true` arity is the ordinary emit
   path. Retention is the ONLY thing gated; listener fan-out is unconditional so
   the required terminal fact reaches live consumers exactly once either way.
 

@@ -425,10 +425,11 @@
   Used by `schedule-after-timer!`'s leading `:on-supersede` single-cancel,
   which DELIBERATELY cancels whatever attempt currently holds the key before
   installing over it. BATCH cancellations (`after-cancel-fx`, actor / frame destroy, restore)
-  must NOT re-read the current occupant — a same-id successor B could have re-armed
-  the key on a prior cancellation's callback stack, and re-reading would claim B —
-  so they use `cancel-snapshotted-entry!` instead, binding the claim to the
-  incarnation's OWN attempt token captured at batch entry.
+  must NOT re-read the current occupant — outside a frame destroy, a same-id
+  successor B could have re-armed the key on a prior cancellation's callback
+  stack, and re-reading would claim B — so they use `cancel-snapshotted-entry!`
+  instead, binding the claim to the incarnation's OWN attempt token captured at
+  batch entry.
 
   `emit-cancelled!` is CALLBACK-BEARING; the release that follows it cancels
   only the claimed entry's own handle, so a listener that replaced A with
@@ -444,13 +445,16 @@
   A batch (`after-cancel-fx`, `cancel-actor-timers!`, `cancel-all-timers!`,
   `cancel-frame-timers-on-restore!`) snapshots the incarnation A's entries, then
   cancels them one by one. Each cancellation's `:rf.machine.timer/cancelled` trace
-  is CALLBACK-BEARING: a listener can destroy A and publish same-id B, re-arming a
-  reused `{:parent :spawn :delay}` key under a FRESH token, on that trace's own
-  stack (deterministic) — or a JVM thread can do the same between snapshot and
-  claim. Re-reading the current occupant to source the claim token (as
-  `cancel-after-timer-entry!` does) would then claim/remove B. Sourcing the token
-  from the SNAPSHOT `entry` instead makes the claim incarnation-exact: B's
-  fresh-token entry fails the atomic CAS and survives untouched."
+  is CALLBACK-BEARING: outside a frame destroy, a listener can destroy A and
+  publish same-id B, re-arming a reused `{:parent :spawn :delay}` key under a
+  FRESH token, on that trace's own stack (deterministic) — or a JVM thread can do
+  the same between snapshot and claim. Re-reading the current occupant to source
+  the claim token (as `cancel-after-timer-entry!` does) would then claim/remove
+  B. Sourcing the token from the SNAPSHOT `entry` instead makes the claim
+  incarnation-exact: B's fresh-token entry fails the atomic CAS and survives
+  untouched. `cancel-all-timers!` runs inside a frame destroy, which holds the id's
+  reservation until step 10 has finished, so no B can be seated under it; it
+  shares the batch shape all the same."
   [frame-id k entry reason]
   (claim-cancel-and-release! frame-id k reason (:token entry)))
 
@@ -1008,13 +1012,15 @@
   the destroyed frame's host-clock handles without touching sibling
   frames' state.
 
-  The 1-arity is a BATCH: each `:rf.machine.timer/cancelled` trace is
-  callback-bearing, so a listener could re-arm a same-key successor B on the first
-  cancellation's stack. It snapshots the `[k entry]` pairs, cancels each by its
-  snapshotted attempt token (`cancel-snapshotted-entry!`, never re-reading — a
-  re-read would claim B), and short-circuits once the captured incarnation is
-  lost. The 0-arity fixture-reset stays a SILENT bulk release (no traces, no
-  successor semantics — test-isolation cleanup)."
+  The 1-arity is a BATCH with the others' shape: it snapshots the `[k entry]`
+  pairs, cancels each by its snapshotted attempt token
+  (`cancel-snapshotted-entry!`, never re-reading), and short-circuits once the
+  captured incarnation is lost. Each `:rf.machine.timer/cancelled` trace is
+  callback-bearing, but no same-id successor can re-arm a key under it: the
+  destroy runs it at step 6 and holds the id's reservation until step 10 has
+  finished. The frame is already lifecycle-dead there, so the capture reads nil
+  and the short-circuit never fires. The 0-arity fixture-reset stays a SILENT
+  bulk release (no traces, no successor semantics — test-isolation cleanup)."
   ([]
    (doseq [inner (vals @after-timers)
            entry (vals inner)]

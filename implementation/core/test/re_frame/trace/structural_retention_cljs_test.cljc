@@ -1,12 +1,14 @@
 (ns re-frame.trace.structural-retention-cljs-test
   "Retentionless structural delivery (`re-frame.trace/call-with-structural-delivery`).
 
-  An obsolete incarnation A's terminal facts carry A's inherited dispatch-id
-  and the bare frame id a same-id successor B now owns, so a ring push would
-  land them in B's ring. Structural delivery therefore streams each fact live
-  to every listener exactly once and retains it in no ring. The deterministic
-  same-id A→B scenario lives in `frame-destroy-incarnation-jvm-test`; this
-  suite pins the boundary synchronously on JVM and CLJS.
+  A destroyed incarnation's terminal facts carry an inherited dispatch-id and
+  the bare frame id, and arrive after teardown released that id's ring, so a
+  ring push would recreate a ring for a frame that is gone — or, for the old
+  router's late `:rf.frame/drain-interrupted`, land in a same-id successor's
+  ring. Structural delivery therefore streams each fact live to every listener
+  exactly once and retains it in no ring. The destroy-path scenarios live in
+  `frame-destroy-incarnation-jvm-test`; this suite pins the boundary
+  synchronously on JVM and CLJS.
 
   Per Spec 009 §Per-frame trace rings and §Listener invocation rules."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

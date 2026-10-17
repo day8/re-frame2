@@ -71,9 +71,13 @@
 ;; Retentionless structural delivery. When false, an emitted
 ;; event still streams live to every registered trace listener but is NOT
 ;; pushed onto any per-frame trace ring. `call-with-structural-delivery` binds
-;; it false so an obsolete incarnation A's terminal facts — which carry A's
-;; inherited dispatch-id and A's bare frame id — cannot be retained by the
-;; ring that id now names (a same-id successor B's ring once B is installed).
+;; it false so a destroyed incarnation's terminal facts — which carry an
+;; inherited dispatch-id and the bare frame id — are retained by no ring. They
+;; arrive after teardown released the frame's ring, so a push would recreate a
+;; ring under an id whose frame is gone, which a later same-id incarnation
+;; inherits; a `:rf.frame/drain-interrupted` the old router reports after the
+;; destroy has released the id would land in a same-id successor's ring
+;; (Spec 009 §Retention boundary).
 (def ^:dynamic ^:private *ring-retention-enabled?* true)
 
 (defn ^:no-doc call-with-continuation-predicate
@@ -192,14 +196,16 @@
   "Deliver a structural trace without bare-id epoch/policy attribution and
   without any per-frame ring retention.
 
-  Used when an obsolete incarnation must report a lifecycle fact after its
-  registry slot may already belong to a same-id successor. The successor's
-  frame-no-emit policy cannot suppress the predecessor's required fact, its
-  epoch capture cannot buffer it, and no per-frame ring
-  (the successor's included, since predecessor and successor share the bare
-  frame id) may retain it. The fact still streams live to every registered
-  trace listener exactly once. This is the whole of `retentionless structural
-  delivery`: global live delivery, zero durable per-frame residue."
+  Used when a destroyed incarnation reports a lifecycle fact after its teardown
+  released its per-frame trace state (Spec 009 §Retention boundary): what the
+  step-10 terminal publication emits, and a `:rf.frame/drain-interrupted` the
+  old router reports once the destroy has finished, when a same-id successor
+  may already own the id. The bare id names a frame that is gone, or that
+  successor, so no frame-no-emit policy may suppress the fact, no epoch capture
+  may buffer it, and no per-frame ring may retain it. It still streams live to
+  every registered trace listener exactly once. This is the whole of
+  `retentionless structural delivery`: global live delivery, zero durable
+  per-frame residue."
   [f]
   (binding [*epoch-capture-enabled?*   false
             *frame-policy-enabled?*    false
