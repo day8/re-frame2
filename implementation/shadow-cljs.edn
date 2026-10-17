@@ -1534,8 +1534,8 @@
   ;; Spec 013 — Flows worked example. THE canonical Flows
   ;; exemplar: a shopping cart whose subtotal + total are materialised
   ;; into app-db by registered flows (not subs), with a flow-reads-flow
-  ;; topological cascade and a runtime-toggleable discount via
-  ;; :rf.fx/reg-flow / :rf.fx/clear-flow. Companion to spec/013-Flows.md.
+  ;; topological cascade and a discount that is an ordinary app-db rate
+  ;; the total flow reads. Companion to spec/013-Flows.md.
   :examples/flows
   {:target     :browser
    :output-dir "out/examples/flows"
