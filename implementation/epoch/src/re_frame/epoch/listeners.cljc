@@ -24,7 +24,7 @@
        ring, and drops the frame's id-keyed stores.
 
        Publication does not depend on the store drop: the record was bound
-       before dissoc, so it is delivered whatever the drop finds.
+       before dissoc.
 
   The listener registry lives in `re-frame.epoch.state`."
   (:require [re-frame.epoch.assembly :as rf.epoch.assembly]
@@ -336,55 +336,42 @@
   stored: destroyed frames have empty history, so listener delivery is the only
   channel for this terminal record.
 
-  The id-keyed store DROP goes through the exact-owner compare
-  (`state/cleanup-frame-owner!`), which here finds this incarnation's token or
-  no claim at all: the destroy holds the id's reservation until this step has
-  finished, so no same-id incarnation can have claimed the stores. That drop
-  runs UNCONDITIONALLY of terminal-evidence — cleanup authority is the
-  frame-id + owner-token, not the snapshot bundle — so a throwing pre-dissoc
+  The id-keyed store DROP (`state/cleanup-frame-owner!`) compares no owner
+  token: the destroy holds the id's reservation until this step has finished,
+  so no same-id incarnation can have claimed the stores, and everything under
+  the id is A's. `owner-token` is part of the hook's arity and goes unused
+  here. The drop runs UNCONDITIONALLY of terminal-evidence — cleanup authority
+  is the reserved frame-id, not the snapshot bundle — so a throwing pre-dissoc
   snapshot hook (nil terminal-evidence) still frees A's history / buffer /
   last-settled-epoch / mount attribution, which nothing else would free under
   an id that is never reused. PUBLICATION of A's already-snapshotted terminal
   record and its structural trailers is INDEPENDENT of the drop AND
   conditional on a non-nil bundle — the evidence was bound to A's exact
-  incarnation before dissoc and is A's to deliver whatever the drop finds; a
-  nil bundle bound nothing and publishes nothing. All terminal emits use
-  structural delivery: they arrive after step 8 released the frame's ring and
-  no-emit flag, and an ordinary emit would recreate a ring under an id whose
-  frame is gone (Spec 009 §Retention boundary). Repeated destroys are
-  idempotent (a re-destroyed frame has no boundary record, so nothing is
-  owed)."
-  [frame-id owner-token terminal-evidence]
+  incarnation before dissoc and is A's to deliver; a nil bundle bound nothing
+  and publishes nothing. All terminal emits use structural delivery: they
+  arrive after step 8 released the frame's ring and no-emit flag, and an
+  ordinary emit would recreate a ring under an id whose frame is gone (Spec 009
+  §Retention boundary). Repeated destroys are idempotent (a re-destroyed frame
+  has no boundary record, so nothing is owed)."
+  [frame-id _owner-token terminal-evidence]
   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
-  ;; concerns split INSIDE the gate: (1) exact-owner STORE CLEANUP runs
-  ;; UNCONDITIONALLY of terminal-evidence; (2) terminal-record PUBLICATION stays
-  ;; conditional on a non-nil bundle. Neither is folded into the gate condition
-  ;; itself.
+  ;; concerns split INSIDE the gate: (1) STORE CLEANUP runs UNCONDITIONALLY of
+  ;; terminal-evidence; (2) terminal-record PUBLICATION stays conditional on a
+  ;; non-nil bundle. Neither is folded into the gate condition itself.
   (when rf.interop/debug-enabled?
-    ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
-    ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
-    ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
+    ;; (1) STORE CLEANUP — runs whether or not terminal-evidence is nil.
+    ;; Cleanup authority is the reserved frame-id, NOT the snapshot bundle: a
+    ;; throwing `:epoch/snapshot-frame-destroyed` hook yields nil
     ;; terminal-evidence (frame.cljc converts the throw to nil), but the
     ;; destroyed incarnation's id-keyed stores must STILL be dropped, or A's
     ;; history / buffer / last-settled-epoch / mount attribution outlive the
-    ;; frame under its id. The drop is compare-owned (`cleanup-frame-owner!`):
-    ;; it erases only stores this incarnation owns or nobody claimed, and while
-    ;; this destroy holds the id's reservation no other incarnation can own
-    ;; them.
-    (rf.epoch.state/cleanup-frame-owner!
-      frame-id owner-token
-      (fn []
-        ;; Data-only exact-owner transaction: no external callback runs
-        ;; between owner comparison and the complete drop.
-        (rf.epoch.state/drop-frame-history! frame-id)
-        (rf.epoch.state/drop-frame-buffer! frame-id)
-        (rf.epoch.state/drop-last-settled-epoch! frame-id)
-        (rf.epoch.state/drop-frame-mount-attribution! frame-id)
-        true))
+    ;; frame under its id. While this destroy holds the id's reservation no
+    ;; other incarnation can own them, so the drop compares no owner token.
+    (rf.epoch.state/cleanup-frame-owner! frame-id)
     ;; (2) TERMINAL-RECORD PUBLICATION — conditional on a bundle that bound a
-    ;; record, and regardless of the cleanup comparison: the evidence was
-    ;; snapshotted before dissoc and belongs to A's incarnation. It is
+    ;; record, and independent of the drop: the evidence was snapshotted
+    ;; before dissoc and belongs to A's incarnation. It is
     ;; delivered before the destroy releases the id, so it never overlaps a
     ;; same-id incarnation; consumers treat it as HISTORICAL for A (Tool-Pair
     ;; late-record consumer rule).
