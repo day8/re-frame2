@@ -482,9 +482,13 @@
   "The chart node-id a ring sits on. A timer record names its declaring
   node as a state keyword or path, or as `{<region> <in-region-path>}` for
   a timer declared inside a parallel region — forms `highlight-ids`
-  resolves, region-scoped exactly as the chart mints a region's node ids."
+  resolves, region-scoped exactly as the chart mints a region's node ids.
+  The empty path outside any region is a parallel root's own `:after`, and
+  the chart draws that root as its machine-root node."
   [node]
-  (first (chart-layout/highlight-ids node)))
+  (if (= [] node)
+    chart-layout/machine-root-id
+    (first (chart-layout/highlight-ids node))))
 
 (defn- timer-hovered!
   "Wire a ring's hover into the Xray timer-hover slot. The overlay

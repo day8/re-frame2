@@ -3,11 +3,12 @@
   countdown rings: the `:rf.xray/active-timers-for-focused-machine` sub
   (which machine, which frame) and the overlay's
   hiccup (`overlay-tree`) — retention eviction, the retro now-ms anchor,
-  and the frame its hover dispatch lands on."
+  the node a ring sits on, and the frame its hover dispatch lands on."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support]
+            [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -231,6 +232,47 @@
     (pin-now-ms! (+ 2000 rings-h/cancelled-retention-ms 1))
     (is (nil? (overlay-tree))
         "one ms later it is gone, and with no other ring the layer drops out")))
+
+(def ^:private root-timer-definition
+  {:type    :parallel
+   :after   {250 {:target [[:a :two]]}}
+   :regions {:a {:initial :one :states {:one {} :two {}}}}})
+
+(defn- push-root-timer!
+  "A parallel root's own `:after` row as the runtime emits it: the
+  `:rf/parallel-root` sentinel as `:state`, the empty path as `:decl-path`,
+  and no `:region`."
+  [id operation machine-id extra-tags]
+  (trace-collector/seed-trace-for-test!
+    {:id id :time id
+     :operation operation
+     :tags (merge {:actor-id  machine-id
+                   :state     :rf/parallel-root
+                   :decl-path []
+                   :delay     250
+                   :delay-key 250
+                   :epoch     1}
+                  extra-tags)}))
+
+(deftest a-parallel-root-timer-ring-sits-on-the-machine-root-node
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (override-machines!    [:rings/root])
+    (override-definitions! {:rings/root root-timer-definition})
+    (focus-machine!        :rings/root)
+    (is (some #(= chart-layout/machine-root-id (:id %))
+              (:nodes (chart-layout/project-definition root-timer-definition)))
+        "the chart draws the parallel root as its machine-root node")
+    (push-root-timer! 1000 :rf.machine.timer/scheduled :rings/root {:delay-source :literal})
+    (pin-now-ms! 1100)
+    (is (= [[chart-layout/machine-root-id false]]
+           (mapv (juxt :node-id :cancelled?) (-> (overlay-tree) delegated-props :ring-specs)))
+        "the armed ring sits on the machine-root node")
+    (push-root-timer! 1200 :rf.machine.timer/cancelled :rings/root {:reason :on-destroy})
+    (pin-now-ms! 1300)
+    (is (= [[chart-layout/machine-root-id true]]
+           (mapv (juxt :node-id :cancelled?) (-> (overlay-tree) delegated-props :ring-specs)))
+        "so does the crossed ring that closes it")))
 
 (defn- dispatch-trace-ev
   "A `:rf.event/dispatched` trace, so the L2 projector builds ONE focusable
