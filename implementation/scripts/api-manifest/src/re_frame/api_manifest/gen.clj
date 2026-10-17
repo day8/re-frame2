@@ -309,13 +309,12 @@
      re-frame.ssr.install
      re-frame.ssr.substrate
      re-frame.ssr.wire
-     ;; The render pipeline: request/response shaping, emission, the UI tree.
+     ;; The render pipeline: request/response shaping and emission.
      re-frame.ssr.emit
      re-frame.ssr.html-helpers
      re-frame.ssr.http-validation
      re-frame.ssr.request
      re-frame.ssr.response
-     re-frame.ssr.ui-tree
      ;; `<head>` emission and the registry behind the façade. The façade
      ;; itself (`re-frame.ssr.head`) is a SCANNED public door — see
      ;; `jvm-namespaces` above; these two are the producing internals it

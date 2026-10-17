@@ -2316,7 +2316,7 @@ _WHERE_SYM_FIX_HINT = (
     "CAN LAND ON. Exactly three spellings satisfy that (Spec 009 §The "
     "thrown-error shape):\n"
     "      1. a PUBLIC VAR in the alias dialect — `'rf/reg-flow`,\n"
-    "         `'rf.ssr/emit-ui-tree`;\n"
+    "         `'rf.ssr/hydrate!`;\n"
     "      2. a RESERVED PUBLIC EVENT ID as a symbol —\n"
     "         `'rf.resource/invalidate-tags`. A CLOSED two-member set in this\n"
     "         script, each entry citing the Conventions row reserving it;\n"

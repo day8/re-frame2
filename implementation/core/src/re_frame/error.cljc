@@ -109,7 +109,7 @@
                 arrives somewhere real; lands in `:where`. Exactly three
                 spellings satisfy it (Spec 009 §The thrown-error shape):
                   1. a PUBLIC VAR in the alias dialect — `'rf/init!`,
-                     `'rf.ssr/emit-ui-tree`;
+                     `'rf.ssr/hydrate!`;
                   2. a RESERVED PUBLIC EVENT ID as a symbol —
                      `'rf.resource/invalidate-tags`;
                   3. a REAL NAMESPACE SPELLED IN FULL —

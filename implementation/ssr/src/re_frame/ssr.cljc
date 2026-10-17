@@ -27,20 +27,13 @@
             [re-frame.ssr.response :as rf.ssr.response]
             ;; Plain-data schemas attached to the seven server effects.
             [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
-            [re-frame.ssr.substrate :as rf.ssr.substrate]
-            ;; The S5 structural-tree -> HTML serialiser.
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
+            [re-frame.ssr.substrate :as rf.ssr.substrate]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
 ;; `def`s expose the supported sub-namespace functions at the façade.
 
 (def render-to-string                rf.ssr.emit/render-to-string)
-;; The S5 tree->HTML seam: an already-rendered version-1 structural tree
-;; (from the JVM emitter) -> HTML string. Distinct from `render-to-string`,
-;; which consumes hiccup and renders it (calls views, resolves subs).
-;; Per Spec 004B §The SSR consumption boundary.
-(def emit-ui-tree                    rf.ssr.ui-tree/emit-ui-tree)
 ;; There is no emitter-side view annotation: dev-mode view annotation
 ;; lives at the reg-view registration boundary
 ;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
