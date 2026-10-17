@@ -368,6 +368,5 @@ Not for application code — used by adapters, tools and the test harness.
   (settle! frame-id frame-state-before frame-state-after committed-at settling-dispatch-id) → epoch record | nil
   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason) → epoch record | nil
   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id) → epoch record | nil
-  (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id {:exact-owner-token …}) → epoch record | nil
   ```
 - **Description**: Records one epoch and returns its `:rf/epoch-record`, or `nil` when nothing was recorded. The router calls it once per dequeued event; application and tool code never call it.

@@ -286,7 +286,7 @@
     :description "Validate an event vector against the registered event schema."}
    {:key         :schemas/validate-app-schema!
     :producer-ns 're-frame.schemas
-    :description "`(fn [db-after event-id frame continue? db-before])` — validate a candidate app-db against the frame's registered app-db schemas before it installs, skipping each registered slice the candidate leaves `identical?` to `db-before`. False rejects the candidate."}
+    :description "`(fn [db-after event-id frame db-before])` — validate a candidate app-db against the frame's registered app-db schemas before it installs, skipping each registered slice the candidate leaves `identical?` to `db-before`. False rejects the candidate."}
    {:key         :schemas/validate-fx!
     :producer-ns 're-frame.schemas
     :description "Validate an fx-handler's args against the registered fx schema (Spec 010 step 5)."}
@@ -597,7 +597,7 @@
    ;; ---- re-frame.epoch (Tool-Pair surface) ---------------------------------
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch
-    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router calls the five-argument arity `[frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]`; the full arity's `{:exact-owner-token token}` opt is for callers that can outlive the incarnation they settle. Skips an empty buffer (rejected/aborted dispatch)."}
+    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router calls the five-argument arity `[frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]`. Skips an empty buffer (rejected/aborted dispatch)."}
    {:key         :epoch/commit-halt-record!
     :producer-ns 're-frame.epoch
     :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}

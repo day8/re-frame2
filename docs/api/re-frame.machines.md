@@ -653,12 +653,10 @@ These run the registration-time checks and the `:data` schema checks. The three 
 - **Signature**:
   ```clojure
   (re-frame.machines/validate-machine-data! runtime-db event-id frame-id) → boolean
-  (re-frame.machines/validate-machine-data! runtime-db event-id frame-id live?)
   ```
 - **Description**: Validates the `:data` of every snapshot under `[:rf.runtime/machines :snapshots]` in `runtime-db` against its machine's `[:schemas :data]` schema. This is the `:where :machine-data` boundary: the router runs it with `validate-app-schema!` against the candidate `runtime-db`, before commit.
     - Returns `true` when every snapshot conforms or has no schema or validator, and `false` otherwise. It validates every snapshot without stopping at the first failure, so each failing machine emits its own trace. On `false` the router rejects the whole candidate, as it does for a `:where :app-db` failure.
     - It finds the schema for a registered machine through the `:rf/machine` registration, and for a spawned actor through the snapshot's `:rf/machine-type`.
-    - The 4-arity is the shape the router calls every candidate validator with; this boundary ignores the trailing predicate.
 
 #### `re-frame.machines/validate-spawn-data!`
 
