@@ -13,7 +13,7 @@
 {:fixture/id           :flow/multi-input-topo
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :flow/basic :flow/topo}
- :fixture/doc          "Two-layer flow graph: flow B reads what flow A wrote. The topological sort places A before B so a single drain pass settles both. Cycle detection rejects mutual deps at registration; this fixture is acyclic by construction."
+ :fixture/doc          "Two-layer flow graph: flow B reads what flow A wrote. The topological sort places A before B so a single drain pass settles both. Cycle detection rejects mutual deps when a frame activates them; this fixture is acyclic by construction."
 
  :fixture/registry
  {:event {:rect/init  {:doc "Seed width and height."}
@@ -39,7 +39,8 @@
   :rect/area-doubled [[:fn :* [:event-arg 0] 2]]}
 
  :fixture/frame-config
- {:initial-events [[:rect/init]]}
+ {:flows          [:rect/area :rect/area-doubled]
+  :initial-events [[:rect/init]]}
 
  :fixture/dispatches
  [[:rect/set-w 5]

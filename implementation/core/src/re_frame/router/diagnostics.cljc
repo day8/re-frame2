@@ -162,8 +162,9 @@
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
                             framework-private `[:rf/settle-flows]` child a
-                            completed `:fx` walk dispatches when it registered
-                            or cleared a flow (`fx/settle-flows-if-requested!`).
+                            completed `:fx` walk dispatches when it wrote the
+                            state of a frame running a flow
+                            (`fx/settle-flows-after-walk!`).
                             `insert-envelope` reads it to put the settle at the
                             head of the internal lane, ahead of the
                             continuations that same handler queued. INTERNAL —

@@ -158,9 +158,6 @@
   {:namespace "re-frame.epoch", :var "restore-epoch!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "settle!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; hook target for :epoch/unregister-epoch-listener!; the public door is rf/unregister-listener! :epoch)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "flow-meta", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "flows", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "flows-snapshot", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reg-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-last-inputs!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}

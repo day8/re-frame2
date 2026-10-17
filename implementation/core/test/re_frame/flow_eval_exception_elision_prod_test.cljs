@@ -29,6 +29,7 @@
                    (when (string? t)
                      (throw (ex-info "no strings allowed" {})))
                    (count t)))
+    (rf/make-frame {:id :rf/default :flows [:str-len]})
     (rf/dispatch-sync [:prod/flow-throw])
     (is (= 1 (count @seen)) "the listener fires exactly once")
     (let [r (first @seen)]

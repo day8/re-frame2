@@ -311,10 +311,9 @@
 
   Per-row rationale:
 
-    :flows/reset-flows!              — drop ALL per-frame flow state: the
-                                       flow registry, the paired dirty-check
-                                       last-inputs containers, and the pending
-                                       abandoned-output-paths containers.
+    :flows/reset-flows!              — drop every frame's flow evaluation
+                                       memo. Flow definitions are registrar
+                                       rows, restored with the table.
     :machines/reset-timers!          — cancel in-flight `:after` wall-clock
                                        timers so a stale timer from a
                                        sibling test can't survive.
@@ -448,7 +447,7 @@
 ;;      standard re-seeds, `:clear-kinds`. Runs inside the caller's try so
 ;;      the finish half still fires if it throws.
 ;;   3. `finish-runtime-reset!`    — the finally body: restore the table,
-;;      reset the frames + flows registries.
+;;      reset the frames registry and the flow memo.
 ;;
 ;; What the halves DELIBERATELY leave to each shape: establishing the ambient
 ;; frame scope. The fn-form wraps the body in a dynamic `binding` (unwound when
@@ -526,8 +525,8 @@
   "The post-test finally body shared by both fixture shapes. Restore the
   registration table to `:snap` (the app-db schemas step 8 of
   `make-reset-runtime-fixture` cleared included), clear the generation
-  cache, then reset the frames + flows registries so nothing a test body
-  seated survives into the next fixture run."
+  cache, then reset the frames registry and the flow memo so nothing a test
+  body seated survives into the next fixture run."
   [{:keys [snap]}]
   (restore-registrar! snap)
   (rf.image-assembly/clear-generation-cache!)
@@ -580,7 +579,7 @@
     1. Captures the current (baseline-reinstated) table (so user-test
        registrations can be rolled back without losing ns-load-time
        framework / example registrations, app-db schemas among them).
-    2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
+    2. Resets `rf.frame/frames` to `{}`, plus the flow memo (via
        `flows/reset-flows!` — atoms are private behind
        an accessor seam) when that artefact is loaded — reset is
        late-bound so JVM tests that don't pull it in are unaffected.
@@ -606,9 +605,9 @@
        app-db.
    10. Runs the test.
    11. Restores the registration table to the captured snapshot.
-   12. Resets `rf.frame/frames` back to `{}` for symmetry, and the flows
-       registry (via the `:flows/reset-flows!` late-bind hook, when flows
-       is loaded).
+   12. Resets `rf.frame/frames` back to `{}` for symmetry, and the flow
+       memo (via the `:flows/reset-flows!` late-bind hook, when flows is
+       loaded).
 
   Steps 11–12 run in a `finally` block so they fire even on test
   exceptions. The table restore they carry is also what takes the

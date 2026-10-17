@@ -1,9 +1,9 @@
 (ns re-frame.flow-algebra-view-test
   "The static derivation/process algebra view of flows (EP-0014; spec
   Derivations.md, and the `:rf/derivation-node` shape in Spec-Schemas.md):
-  `re-frame.flows.tooling/flow-algebra-view` lowers each registered flow to a
-  `:derivation` materialized in app-db, evaluated `:after-event` and owned by
-  its frame. The view has no public accessor: it lives in the bundle-isolated
+  `re-frame.flows.tooling/flow-algebra-view` lowers each flow a frame runs to
+  a `:derivation` materialized in app-db, evaluated `:after-event` and owned by
+  that frame. The view has no public accessor: it lives in the bundle-isolated
   tooling sibling, which Xray and the conformance fixtures name directly."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -21,6 +21,8 @@
   (is (= [{} {}] [(rf.flows.tooling/flow-algebra-view) (rf.flows.tooling/flow-algebra-view :rf/default)]))
   (rf/reg-flow :cart/total {:inputs [[:cart :items] [:pricing :discounts]] :output-path [:cart :total]}
     (fn [items discounts] [items discounts]))
+  (is (= {} (rf.flows.tooling/flow-algebra-view)) "a registration no frame runs projects nothing")
+  (rf/make-frame {:id :rf/default :flows [:cart/total]})
   (let [node (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :cart/total])]
     (is (= {:id            :cart/total
             :kind          :derivation
@@ -47,17 +49,20 @@
                                         [:local :seed]]
                                :output-path [:derived :slug]}
     (fn [route-id seed] [route-id seed]))
+  (rf/make-frame {:id :rf/default :flows [:route/derived]})
   (is (= {:inputs [[:runtime [:rf.runtime/routing :current :route-id]] [:db [:local :seed]]]
           :schema :app/slug
           :doc    "a route slug"}
          (select-keys (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :route/derived])
                       [:inputs :schema :doc]))))
 
-(deftest same-flow-id-on-two-frames-projects-per-frame
-  (rf/make-frame {:id :other})
-  (rf/reg-flow :shared {:frame :rf/default :inputs [[:a]] :output-path [:out :default]} identity)
-  (rf/reg-flow :shared {:frame :other :inputs [[:b]] :output-path [:out :other]} identity)
-  (is (= {:rf/default [[:db [:out :default]] [:frame :rf/default]]
-          :other      [[:db [:out :other]] [:frame :other]]}
+(deftest one-flow-run-by-two-frames-projects-per-frame
+  (rf/reg-flow :shared {:inputs [[:a]] :output-path [:out]} identity)
+  (rf/reg-flow :only-other {:inputs [[:b]] :output-path [:other]} identity)
+  (rf/make-frame {:id :rf/default :flows [:shared]})
+  (rf/make-frame {:id :other :flows [:shared :only-other]})
+  (is (= {:rf/default {:shared [[:db [:out]] [:frame :rf/default]]}
+          :other      {:shared     [[:db [:out]] [:frame :other]]
+                       :only-other [[:db [:other]] [:frame :other]]}}
          (into {} (for [[frame-id nodes] (rf.flows.tooling/flow-algebra-view)]
-                    [frame-id ((juxt :output :owner) (:shared nodes))])))))
+                    [frame-id (update-vals nodes (juxt :output :owner))])))))

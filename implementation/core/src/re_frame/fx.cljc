@@ -11,8 +11,6 @@
     :dispatch         — runtime, intra-frame dispatch (back of router queue)
     :dispatch-later   — runtime, delayed dispatch
     :raise            — machine-internal (machine handler routes locally)
-    :rf.fx/reg-flow   — runtime, register a flow (Spec 013)
-    :rf.fx/clear-flow — runtime, clear a flow
 
   The machine fx-ids `:rf.machine/spawn` and `:rf.machine/destroy` are
   registered by `re-frame.machines` (ships in `day8/re-frame2-machines`)
@@ -21,7 +19,6 @@
   artefact don't carry the trace strings or the handler for them."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
-            [re-frame.features :as rf.features]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -439,11 +436,10 @@
 
 ;; ---- reserved fx-id table -------------------------------------------------
 ;;
-;; Per Conventions §Reserved fx-ids — `:dispatch`, `:dispatch-later`,
-;; `:rf.fx/reg-flow`, `:rf.fx/clear-flow` resolve to runtime-internal
-;; callables held behind `late-bind` hooks (avoiding cyclic loads against
-;; the router and flows namespaces). Each entry maps the fx-id to a small
-;; body-fn and `handle-one-fx` dispatches off this table — adding a
+;; Per Conventions §Reserved fx-ids — `:dispatch` and `:dispatch-later`
+;; resolve to runtime-internal callables held behind `late-bind` hooks
+;; (avoiding a cyclic load against the router). Each entry maps the fx-id to a
+;; small body-fn and `handle-one-fx` dispatches off this table — adding a
 ;; reserved fx-id is a data edit, not a code edit.
 ;;
 ;; Body-fn signature: `(fn [frame-id parent-envelope args])`. It is invoked
@@ -451,26 +447,7 @@
 ;; `:rf.fx/handled` uniformly.
 ;;
 ;; `:dispatch` and `:dispatch-later` route through `child-dispatch!` (the
-;; delayed one destructures `{:keys [ms event]}` from args);
-;; `:rf.fx/reg-flow` threads the frame into its metadata; `:rf.fx/clear-flow`
-;; is a uniform `(hook args {:frame frame-id})` call.
-
-(defn- require-flows-hook!
-  "The `:flows/*` hook `hook-key` behind the flow effect `fx-id`. Without the
-  flows artefact the hook is unregistered, and this throws
-  `:rf.error/flows-artefact-missing` — the error every other flow door raises
-  (Spec 009) — so the effect is refused rather than skipped in silence. The
-  throw reaches both error channels through `handle-one-fx`'s typed-throw
-  arm, and the rest of the `:fx` walk continues."
-  [hook-key fx-id flow-id]
-  (or (rf.late-bind/get-fn hook-key)
-      (let [{maven :maven require-ns :require} (:flows rf.features/feature-registry)]
-        (rf.error/throw-error!
-          :rf.error/flows-artefact-missing
-          're-frame.fx
-          (str "The `" fx-id "` effect requires " maven " on the classpath; "
-               "add it to deps and require " require-ns " at app boot.")
-          {:extra {:flow-id flow-id}}))))
+;; delayed one destructures `{:keys [ms event]}` from args).
 
 ;; ---- the reserved-fx source policy ----------------------------------------
 ;;
@@ -501,8 +478,8 @@
 ;;
 ;;   HARD-REJECT (the source set below): the state-installing lifecycle fxs.
 ;;                Their bodies install/clear durable frame state (machine
-;;                snapshots in runtime-db, entries in the frame's flow
-;;                registry) or thread a correctness-critical nav-token;
+;;                snapshots in runtime-db) or thread a correctness-critical
+;;                nav-token;
 ;;                an override that stubs them out would
 ;;                break framework behaviour FAR FROM the override site (a
 ;;                spawned actor's later dispatches become `:rf.error/no-such-
@@ -512,17 +489,15 @@
 ;;                pre-empt the reserved body (pinned by fx_test.clj's
 ;;                `reserved-fx-fn-value-override-pre-empts-reserved-body`).
 ;;
-;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` resolve via `reserved-fx-handlers`
-;; (the reserved table); `:rf.machine/spawn` / `:rf.machine/destroy` /
-;; `:rf.route/with-nav-token` resolve via the registrar (registered by their
-;; feature artefacts through the regular `reg-fx` path). The source reject is
-;; enforced uniformly in `handle-one-fx` BEFORE resolution, so it covers both
-;; resolution paths.
+;; `:rf.machine/spawn` / `:rf.machine/destroy` / `:rf.route/with-nav-token`
+;; resolve via the registrar (registered by their feature artefacts through
+;; the regular `reg-fx` path). The source reject is enforced uniformly in
+;; `handle-one-fx` BEFORE resolution.
 (def ^:private non-overridable-source-fx-ids
   "POLICY 1 — reserved fx-ids whose `:fx-overrides` are HARD-REJECTED when
   supplied AS THE OVERRIDDEN id. Overriding any of these
-  installs/clears durable frame state (machine snapshots in runtime-db, the
-  frame's flow registry) or drops a correctness-critical nav-token. The
+  installs/clears durable frame state (machine snapshots in runtime-db) or
+  drops a correctness-critical nav-token. The
   override is ignored,
   `:rf.error/reserved-fx-override` is emitted, and the real reserved/registered
   body runs. In production the effective override map is stripped of these keys
@@ -534,8 +509,6 @@
   privilege escalation and is permitted. There is no redirect-TARGET policy."
   #{:rf.machine/spawn
     :rf.machine/destroy
-    :rf.fx/reg-flow
-    :rf.fx/clear-flow
     :rf.route/with-nav-token})
 
 (defn classify-fx-override
@@ -590,7 +563,7 @@
   (`real-override?`), NOT the documented nil/false no-op placeholder.
 
   Testing bare key PRESENCE (`contains?`) instead would treat an override
-  entry `{:rf.fx/reg-flow nil}` — the collapsed
+  entry `{:rf.machine/spawn nil}` — the collapsed
   `{:some-fx (when cond? stub)}` no-op idiom (spec/002 §`:fx-overrides`:
   \"nil/false → no override, fall through\") — as an ATTEMPTED
   reject-tier override and emit a spurious `:rf.error/reserved-fx-override`
@@ -660,7 +633,7 @@
   override (state-installing lifecycle fx / nav-token) NEVER propagates into
   a machine-internal or fx-emitted child dispatch. A captured-dispatch test
   override of `:dispatch` rides the cascade (it's OVERRIDABLE);
-  a `:rf.machine/spawn` / `:rf.fx/reg-flow` / `:rf.route/with-nav-token`
+  a `:rf.machine/spawn` / `:rf.route/with-nav-token`
   entry that slipped onto an envelope is dropped from the child opts (it is
   also rejected at the dev per-call site and the production prod-strip — this
   is the third defence layer, keeping the reject local to the override site
@@ -712,7 +685,7 @@
                    flow settle, which the router puts at the head of the
                    internal lane, ahead of the continuations the same
                    handler queued (Spec 013
-                   §Sequencing). Set by `settle-flows-if-requested!` and by
+                   §Sequencing). Set by `settle-flows-after-walk!` and by
                    nothing else — it is not a general priority lever.
     :rf.cofx       optional recordable causal-envelope coeffect map merged
                    verbatim onto the child dispatch. `build-envelope` preserves
@@ -740,52 +713,13 @@
       (when-let [f (rf.late-bind/get-fn-cached :router/dispatch!)]
         (f event opts)))))
 
-;; ---- flow-settle request (Spec 013 §Sequencing) ---------------------------
-
-(def ^:dynamic ^:private *flow-settle-requested*
-  "An atom bound by `do-fx` for the duration of ONE event's `:fx` walk, or nil
-  outside one. A flow-lifecycle call sets it (see `request-flow-settle!`); the
-  walk's terminal branch reads it and enqueues at most one settle event.
-
-  An atom rather than a return value because the request must survive the walk:
-  `handle-one-fx` deliberately discards a reserved body's value (Spec 002 §`:fx`
-  ordering rule 4 — one bad fx must not halt the rest), so there is no return
-  channel from a reserved body to the end of the walk.
-
-  Nil-when-unbound is load-bearing in two places. `do-fx` is the single
-  universal effect-execution choke point but not the only caller of these
-  bodies in principle, and — the case that actually occurs — a dry run binds
-  `*effect-sink*`, which RECORDS each entry and executes nothing, so no body
-  runs, nothing is requested, and a dry run cannot enqueue a settle."
-  nil)
-
-(defn ^:no-doc request-flow-settle!
-  "Ask the current `:fx` walk to settle this frame's flows when it finishes.
-
-  Called by `:rf.fx/reg-flow` / `:rf.fx/clear-flow` after the flows hook
-  returned — so an effect refused for a missing flows artefact requests
-  nothing — and by
-  the flows registry itself, from the in-drain branches of `clear-flow` and of
-  an `:output-path`-moving `reg-flow`. Those branches queue
-  their vacation for the event's pending flow pass, which has ALREADY RUN when
-  the call comes from any effect, reserved or user-registered. Public for that
-  one caller; flows requires core, so the call needs no late-bind hook.
-
-  A no-op outside a walk (the var is unbound), so a lifecycle call from a
-  handler BODY — whose own pending pass still settles it — requests nothing.
-
-  Idempotent by construction: N lifecycle effects in one `:fx` vector set the
-  same flag and produce exactly ONE settle event, because one pass over the
-  registry settles every mutation the walk made, whatever their number."
-  []
-  (some-> *flow-settle-requested* (reset! true))
-  nil)
+;; ---- flow settle after a state-writing walk (Spec 013 §Sequencing) --------
 
 (defn- walk-changed-flowed-frame-state?
   "True when a completed `:fx` walk left `frame-id`'s frame-state container no
-  longer `identical?` to `state-at-walk-start` AND the frame holds a flow.
+  longer `identical?` to `state-at-walk-start` AND the frame runs a flow.
 
-  The write trigger for the settle. The flow pass is the
+  The settle's trigger. The flow pass is the
   router's outermost `:after`, so it has already run when the walk starts;
   any effect that writes app-db or runtime-db DURING the walk — the machine
   lifecycle effects `:rf.machine/destroy` / `:rf.machine/spawn`, a resource
@@ -796,10 +730,10 @@
   writers because a list is easy to leave incomplete — any user fx can write.
 
   The flows guard is what keeps this free where it does not apply. Without it
-  every writing walk on a flow-free frame (or in an app without the flows
-  artefact, where the hook is unbound) would enqueue a settle that recomputes
-  nothing — 50 dispatches whose `:fx` spawn an actor would become 100 events. The
-  hook is read only once the container has actually changed.
+  every writing walk on a frame running no flows (or in an app without the
+  flows artefact, where the hook is unbound) would enqueue a settle that
+  recomputes nothing — 50 dispatches whose `:fx` spawn an actor would become
+  100 events. The hook is read only once the container has actually changed.
 
   A dry run never gets here with a change: `*effect-sink*` executes no entry,
   so the container is untouched."
@@ -809,19 +743,14 @@
          (boolean (has-flows? frame-id))
          false)))
 
-(defn- settle-flows-if-requested!
-  "Enqueue the one settle event a completed `:fx` walk asked for, if it did.
+(defn- settle-flows-after-walk!
+  "Enqueue one settle event when a completed `:fx` walk changed the frame's
+  state on a frame that runs a flow (`walk-changed-flowed-frame-state?`).
 
-  Two triggers, one settle. A flow-lifecycle call set the request flag, or the
-  walk changed the frame's state on a frame that holds a flow
-  (`walk-changed-flowed-frame-state?`). Only the second is guarded by \"has
-  flows\": a clear of the frame's LAST flow must still settle so that its
-  vacation lands, and it leaves the frame holding none.
-
-  Placed at the END of the walk rather than inside the lifecycle bodies so the
-  settle observes the registry as the WHOLE walk left it — a `:fx` vector that
-  clears one flow and registers another settles both in a single pass, in
-  topological order, with one app-db install.
+  Placed at the END of the walk so the settle observes the frame state as the
+  WHOLE walk left it — a `:fx` vector that spawns two actors and writes a
+  resource settles all of it in a single pass, in topological order, with one
+  app-db install.
 
   It goes through `child-dispatch!`, the same seam `:dispatch` uses, so the
   settle inherits the parent's `:fx-overrides` / `:interceptor-overrides` /
@@ -837,11 +766,10 @@
   settle BOUNDARY Spec 013 §Sequencing states; what the back placement does
   not satisfy is composition with ordinary follow-up work. A `:dispatch`
   effect from the same handler is appended DURING the walk, so a back-inserted
-  settle sits behind it in FIFO order: the continuation then runs against the pre-registration /
-  pre-clear `app-db`, cannot read a newly registered flow's output, reads a
-  cleared flow's stale one, and can persist that wrong decision into `app-db`
-  where the later settle — which repairs only the derived slot — will not undo
-  it.
+  settle sits behind it in FIFO order: the continuation then reads a flow
+  output derived from the frame state as it stood before the walk wrote it,
+  and can persist that wrong decision into `app-db` where the later settle —
+  which repairs only the derived slot — will not undo it.
 
   Settling early costs nothing: the flow transform runs on EVERY event, so
   each continuation settles its OWN writes on its OWN drain, and no one late
@@ -856,11 +784,10 @@
   be added in this direction. The two are held together by the round trip
   instead — an id that did not match would resolve through neither the
   registrar nor `router/resolve-unhandled`, raising
-  `:rf.error/no-such-handler` and leaving every flow-lifecycle effect
-  unsettled, which is exactly what the settle tests assert against."
+  `:rf.error/no-such-handler` and leaving every state-writing walk unsettled,
+  which is exactly what the settle tests assert against."
   [frame-id parent-envelope state-at-walk-start]
-  (when (or (some-> *flow-settle-requested* deref)
-            (walk-changed-flowed-frame-state? frame-id state-at-walk-start))
+  (when (walk-changed-flowed-frame-state? frame-id state-at-walk-start)
     (child-dispatch! frame-id parent-envelope
                      [:rf/settle-flows]
                      {:source            :fx-dispatch
@@ -958,87 +885,7 @@
                                         :machine-action
                                         :fx-dispatch-later)
                        :ms            ms
-                       :source-detail {:ms ms}}))
-
-   ;; Per Spec 013 — flows are frame-scoped. The flow registers against
-   ;; the dispatching frame.
-   ;;
-   ;; Both fx-ids route through the SAME hooks the public API uses
-   ;; (`:flows/reg-flow` / `:flows/clear-flow`) — the API-shape hooks
-   ;; accept `(arg opts)` with opts carrying `:frame`, and
-   ;; `:rf.fx/clear-flow` passes `{:frame frame-id}` as the second arg, so
-   ;; one hook pair serves both surfaces.
-   ;;
-   ;; SETTLING ON THE DISPATCHING FRAME (Spec 013 §Sequencing). The `:fx`
-   ;; walk is the LAST drain stage — it runs AFTER the flow-transform
-   ;; `:after` has already evaluated this event's flows (Spec 013 §Drain
-   ;; integration: step 4 runs after step 2). So a flow registered HERE
-   ;; was not in the registry when the flow transform walked, and a flow
-   ;; cleared HERE was still in it. Left there, the app-db consequence of
-   ;; either effect arrives one drain late, and the CLEAR case is
-   ;; incoherent at the dispatch boundary: the registry row is already
-   ;; gone while the derived value it owned is still present.
-   ;;
-   ;; So both bodies below call `request-flow-settle!`, and the end of the
-   ;; walk enqueues ONE `[:rf/settle-flows]` on this frame
-   ;; (`settle-flows-if-requested!`). Run-to-completion drains it inside
-   ;; the same pass, so both arms have settled by the time the dispatch
-   ;; returns — and it goes to the HEAD of the queue, so it settles ahead
-   ;; of any continuation this same handler queued with a `:dispatch`
-   ;; effect rather than behind it. Otherwise those continuations read the
-   ;; pre-registration / pre-clear `app-db` and can persist a decision the
-   ;; later settle would not undo.
-   ;;
-   ;; Note what this does NOT do, because it is what the ordering was
-   ;; protecting. It does NOT re-run the flow transform after `:fx`, and
-   ;; it does NOT install `app-db` a second time inside THIS event: the
-   ;; settle is a separate dequeued event with its own single install, so
-   ;; the one-install-per-event invariant (Spec 013 §Drain integration
-   ;; property 4) and the atomic-commit contract (§Failure semantics)
-   ;; both stand untouched. That separation also keeps the failure
-   ;; boundary where it belongs — a newly registered flow whose `:derive`
-   ;; throws aborts the SETTLE, not the event that registered it, so the
-   ;; registering event's own `:db` write still commits and the throw
-   ;; reports through the ordinary `:rf.error/flow-eval-exception` path
-   ;; with its usual `:phase` discriminator.
-   ;;
-   ;; This is the framework performing, once, the follow-up no-op
-   ;; dispatch every caller would otherwise hand-write.
-   ;; `:rf.fx/reg-flow` carries the SAME 3-slot triple as the
-   ;; `reg-flow` macro: `[:rf.fx/reg-flow [flow-id metadata derive-fn]]`. The
-   ;; dispatching frame threads through as the `:frame` metadata key (the frame
-   ;; is the mounting concern — per Conventions §The `:frame` registration
-   ;; key — not a positional arg), so the reserved fx stays frame-correct
-   ;; without the author naming a frame in the args. The `:flows/reg-flow` hook
-   ;; is the 3-arity `re-frame.flows.registry/reg-flow`; without the flows
-   ;; artefact the effect raises `:rf.error/flows-artefact-missing`, as the
-   ;; public `reg-flow` does.
-   :rf.fx/reg-flow
-   (fn [frame-id _parent-envelope args]
-     (let [[flow-id metadata derive-fn] args
-           f (require-flows-hook! :flows/reg-flow :rf.fx/reg-flow flow-id)]
-       ;; Only a map takes the `:frame` key. Anything else reaches the
-       ;; registry as written, which refuses it with the same
-       ;; `:rf.error/invalid-flow-metadata` the public `reg-flow` raises,
-       ;; carrying the offending value.
-       (f flow-id
-          (if (map? metadata) (assoc metadata :frame frame-id) metadata)
-          derive-fn)
-       ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
-       ;; bad registration shape, a missing artefact) requests nothing —
-       ;; there is no mutation to settle.
-       (request-flow-settle!)))
-
-   :rf.fx/clear-flow
-   (fn [frame-id _parent-envelope args]
-     ((require-flows-hook! :flows/clear-flow :rf.fx/clear-flow args)
-      args {:frame frame-id})
-     ;; `clear-flow` over an unregistered id is a legitimate no-op, and it
-     ;; still requests a settle. Distinguishing the two would mean widening
-     ;; the hook's return contract to report whether it MUTATED, to save a
-     ;; pass that a settle over an unchanged registry already makes free:
-     ;; the dirty check recomputes nothing, so the settle installs nothing.
-     (request-flow-settle!))})
+                       :source-detail {:ms ms}}))})
 
 (defn- emit-fx-error!
   "Fan a runtime `:rf.error/*` fx-category out through BOTH error
@@ -1091,8 +938,6 @@
   policy-level clause if a member is ever added without its own line."
   {:rf.machine/spawn   "installs the spawned actor's durable snapshot into frame runtime-db"
    :rf.machine/destroy "clears the actor's durable snapshot and event handler from frame runtime-db"
-   :rf.fx/reg-flow     "installs a durable entry into the frame's flow registry"
-   :rf.fx/clear-flow   "clears a durable entry from the frame's flow registry"
    :rf.route/with-nav-token
    (str "threads a correctness-critical nav-token (dropping it silently defeats "
         "stale-result suppression)")})
@@ -1314,7 +1159,7 @@
   registration coord onto the emitted event's `:rf.trace/trigger-
   handler` slot — so consumers can jump to the fx's `reg-fx` site
   from the success trace. Reserved fx-id calls (`:dispatch`,
-  `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) emit
+  `:dispatch-later`) emit
   outside any fx-handler binding; the outer event handler's scope
   (if any) stamps the event handler's coord instead, which is the
   right attribution for those — they don't have their own
@@ -1385,9 +1230,8 @@
         ;; — the state-installing lifecycle fxs + the nav-token threader).
         ;; Whether the override is fn-value or keyword-redirect, it is IGNORED: we
         ;; emit `:rf.error/reserved-fx-override` and neutralise the override
-        ;; for this id so the real reserved/registered body runs (the
-        ;; reserved table for `:rf.fx/reg-flow` / `:rf.fx/clear-flow`, the
-        ;; registrar for `:rf.machine/spawn` / `:rf.machine/destroy` /
+        ;; for this id so the real registered body runs (the registrar for
+        ;; `:rf.machine/spawn` / `:rf.machine/destroy` /
         ;; `:rf.route/with-nav-token`). This is the DEV-path counterpart of
         ;; the router's production prod-strip (`strip-rejected-overrides`):
         ;; the per-call emit + neutralise rides `emit-fx-error!`'s always-on
@@ -1463,8 +1307,7 @@
    ;; `rf:fx:<fx-id>` measure entry per fx walk-step. Default-off: the
    ;; bracket DCEs under :advanced + `re-frame.performance/enabled?=false`.
    ;; The bracket sits at the top of `handle-one-fx` so it covers reserved
-   ;; fx-ids too (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`,
-   ;; `:rf.fx/clear-flow`) — without that, an app whose handlers only
+   ;; fx-ids too (`:dispatch`, `:dispatch-later`) — without that, an app whose handlers only
    ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
    ;; flag on.
    (rf.performance/mark-and-measure :fx fx-id
@@ -1486,13 +1329,13 @@
     ;; thrown-error shape) carrying a keyword category, route it
     ;; through the always-on `error-emit` substrate so prod monitors
     ;; get the typed signal; ex-data is preserved verbatim including
-    ;; any reserved-fx-specific slots (e.g. `:cycle`). Reached via
+    ;; any reserved-fx-specific slots. Reached via
     ;; the late-bind hook `:error-emit/dispatch-on-error` (fx.cljc
     ;; cannot statically require error-emit — would form a load
     ;; cycle). Untyped throws re-throw to keep the crash-loud
     ;; contract. Routing generically keeps reserved-fx-specific
-    ;; error keywords (e.g. flow-cycle) out of core/fx.cljc so they
-    ;; DCE from consumer bundles that don't use the offending fx.
+    ;; error keywords out of core/fx.cljc so they DCE from consumer
+    ;; bundles that don't use the offending fx.
     (try
       ;; Wall-clock the reserved-fx body (dev-only) so
       ;; `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The `now-ms`
@@ -1521,7 +1364,7 @@
             ;; (`:rf.error/no-such-fx`, `:rf.error/fx-handler-exception`,
             ;; `:rf.error/override-fallthrough`) route through. The typed
             ;; category + reserved-fx-specific ex-data slots ride verbatim
-            ;; (e.g. flow-cycle's `:cycle`) via the merged trace-payload.
+            ;; via the merged trace-payload.
             (emit-fx-error! category origin-event origin-event-id frame-id e
                             (merge {:failing-id        fx-id
                                     :rf.fx/id          fx-id
@@ -1914,8 +1757,7 @@
   This makes a dry-run STRUCTURALLY unable to execute an effect: interception
   is at the SINGLE universal effect executor (`do-fx`), BEFORE any per-fx
   resolution, so it covers the reject-tier reserved fx (`:rf.machine/spawn`,
-  `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`,
-  `:rf.route/with-nav-token`), frame-image / inline / hot-registered fx, and
+  `:rf.machine/destroy`, `:rf.route/with-nav-token`), frame-image / inline / hot-registered fx, and
   unknown ids WITHOUT enumerating the registrar. Every `do-fx` call within the
   bound dynamic extent — the top-level event fx walk, a machine exit-cascade
   walk, a resource-release walk — records-and-skips, so no effect body escapes.
@@ -1990,41 +1832,36 @@
    (do-fx frame-id fx-vec active-platform nil))
   ([frame-id fx-vec active-platform
     {:keys [overrides origin-event parent-envelope effects]}]
-   ;; Spec 013 §Sequencing — the flow-settle request slot for THIS walk. Fresh
-   ;; per `do-fx` call, so one event's lifecycle effects can never settle
-   ;; another's.
-   (binding [*flow-settle-requested* (atom false)]
-     ;; Spec 013 §Sequencing — the baseline for the settle's WRITE trigger:
-     ;; the frame state as this walk found it, i.e. after
-     ;; the event's flow pass and install. One read, compared by identity
-     ;; when the walk ends (`walk-changed-flowed-frame-state?`).
-     (let [state-at-walk-start (rf.frame/frame-state-value frame-id)]
-       (loop [pairs (seq fx-vec)]
-         (cond
-           (nil? pairs)
-           (do
-             ;; Stamp `:fx` + `:db-present?` onto the terminal marker.
-             (rf.trace/emit! :rf.fx :rf.fx/do-fx
-                          (cond-> {:frame frame-id}
-                            (some? effects)
-                            (assoc :rf.event/fx          (:fx effects)
-                                   :rf.event/db-present? (contains? effects :db))))
-             ;; Spec 013 §Sequencing: the walk is over, so the flow registry and
-             ;; the frame state are in their final shape for this event —
-             ;; settle this frame's flows if the walk touched either. AFTER the
-             ;; terminal `:rf.fx/do-fx` marker so the settle's own dispatch
-             ;; trace reads as what it is, a
-             ;; consequence of the completed walk rather than part of it.
-             (settle-flows-if-requested! frame-id parent-envelope
-                                         state-at-walk-start))
+   ;; Spec 013 §Sequencing — the baseline for the settle's trigger: the frame
+   ;; state as this walk found it, i.e. after the event's flow pass and
+   ;; install. One read, compared by identity when the walk ends
+   ;; (`walk-changed-flowed-frame-state?`).
+   (let [state-at-walk-start (rf.frame/frame-state-value frame-id)]
+     (loop [pairs (seq fx-vec)]
+       (cond
+         (nil? pairs)
+         (do
+           ;; Stamp `:fx` + `:db-present?` onto the terminal marker.
+           (rf.trace/emit! :rf.fx :rf.fx/do-fx
+                        (cond-> {:frame frame-id}
+                          (some? effects)
+                          (assoc :rf.event/fx          (:fx effects)
+                                 :rf.event/db-present? (contains? effects :db))))
+           ;; Spec 013 §Sequencing: the walk is over, so the frame state is in
+           ;; its final shape for this event — settle this frame's flows if the
+           ;; walk wrote it. AFTER the terminal `:rf.fx/do-fx` marker so the
+           ;; settle's own dispatch trace reads as what it is, a consequence of
+           ;; the completed walk rather than part of it.
+           (settle-flows-after-walk! frame-id parent-envelope
+                                     state-at-walk-start))
 
-           :else
-           (let [pair (first pairs)]
-             (when (fx-entry-ok? pair frame-id origin-event)
-               (if-let [sink *effect-sink*]
-                 ;; Dry-run records but never executes the entry.
-                 (swap! sink conj [(first pair) (second pair)])
-                 (handle-one-fx frame-id pair active-platform
-                                (or overrides {}) origin-event
-                                parent-envelope)))
-             (recur (next pairs)))))))))
+         :else
+         (let [pair (first pairs)]
+           (when (fx-entry-ok? pair frame-id origin-event)
+             (if-let [sink *effect-sink*]
+               ;; Dry-run records but never executes the entry.
+               (swap! sink conj [(first pair) (second pair)])
+               (handle-one-fx frame-id pair active-platform
+                              (or overrides {}) origin-event
+                              parent-envelope)))
+           (recur (next pairs))))))))

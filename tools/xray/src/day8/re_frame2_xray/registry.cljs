@@ -1414,12 +1414,11 @@
     ;; chip dispatches `:rf.xray/open-in-editor` (open-in-editor
     ;; installed above).
     (static-schemas-panel/install!)
-    ;; Static Flows sub-tab — browse every flow registered
-    ;; via `re-frame.flows/reg-flow`. Reads the public
-    ;; `re-frame.flows/flows-snapshot` surface, regrouping the flat
-    ;; `{flow-id meta}` shape by each entry's stamped `:frame`. Flows
-    ;; are frame-scoped per Spec 013 — the sub flattens the two-level
-    ;; shape into a single row vector for the view.
+    ;; Static Flows sub-tab — browse the flows each frame runs. Reads
+    ;; each frame's `:flows` (`rf/frame-meta`) and resolves every id to
+    ;; its registrar `:flow` definition under that frame (Spec 013
+    ;; §Activation) — the sub flattens the per-frame shape into a single
+    ;; row vector for the view.
     (static-flows-panel/install!)
     (reactive-panel/install!)
     (trace/install!)

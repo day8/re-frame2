@@ -318,13 +318,14 @@
                                      {:where    're-frame.router/build-envelope
                                       :event-id (first event)})))
         ;; Spec 013 §Sequencing: the framework-private flow settle, stamped by
-        ;; `rf.fx/settle-flows-if-requested!` on the ONE child dispatch a completed
-        ;; `:fx` walk makes when it registered or cleared a flow. `insert-envelope`
-        ;; reads it to place the settle at the HEAD of the internal lane, ahead of
-        ;; the continuations that same handler queued — so those continuations
-        ;; read the settled `app-db` rather than the pre-registration / pre-clear
-        ;; one. A runtime ordering guarantee, not a trace concern, so it is
-        ;; carried unconditionally (never gated on debug-enabled?).
+        ;; `rf.fx/settle-flows-after-walk!` on the ONE child dispatch a completed
+        ;; `:fx` walk makes when it wrote the state of a frame running a flow.
+        ;; `insert-envelope` reads it to place the settle at the HEAD of the
+        ;; internal lane, ahead of the continuations that same handler queued —
+        ;; so those continuations read the settled `app-db` rather than a flow
+        ;; output derived from the state before the walk wrote it. A runtime
+        ;; ordering guarantee, not a trace concern, so it is carried
+        ;; unconditionally (never gated on debug-enabled?).
         flow-settle?       (true? (:rf.flow/settle? opts))
         ;; EP-0017 §6: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
@@ -465,7 +466,7 @@
   the late-bound one: `framework-private-handler-metas` holds the handler-metas
   for framework-OWNED event ids that are deliberately never registered. That
   is `:rf/settle-flows`, the flow-settle event the `:fx` walk enqueues
-  after it registered or cleared a flow. Resolving it HERE rather than seeding
+  after it wrote the state of a frame running a flow. Resolving it HERE rather than seeding
   it into the registrar is what keeps it off `rf.registrar/registrations :event` —
   so the framework's own follow-up drain adds no row to an app's event
   catalogue — and is also why it needs no EP-0023 image-standard registration:
@@ -1278,31 +1279,26 @@
                 :frame             frame}))
 
 (defn- restore-flow-snapshots!
-  "Roll the flow dirty-check (`last-inputs`) rows and the in-drain
-  abandoned-output-path queue BACK to the pre-transform snapshots the
-  outermost flows `:after` stashed on `ctx`, for an event that is NOT going to
-  commit. The flow transform advances a recomputed flow's row and
-  read-and-clears the queued vacations EAGERLY, folding the result into the
-  pending `:db`; whether that `:db` lands is decided AFTER the chain, so every
-  NON-COMMIT outcome must undo those eager side effects in lock-step with the
-  discarded `:db` — else a fresh flow's output never re-materialises
-  (`last-inputs` stuck advanced past a write that never landed, Spec 013
-  §Failure semantics rule 2) and a queued vacation is lost (§clear-flow
-  cleanup). Shared by every in-band non-commit arm in `commit-and-flow!` —
+  "Roll the frame's flow evaluation memo BACK to the pre-transform snapshot
+  the outermost flows `:after` stashed on `ctx`, for an event that is NOT
+  going to commit. A successful flow pass advances the memo as it folds its
+  result into the pending `:db`; whether that `:db` lands is decided AFTER the
+  chain, so every NON-COMMIT outcome must undo the advance in lock-step with
+  the discarded `:db` — else a fresh flow's output never re-materialises (its
+  row stuck advanced past a write that never landed, Spec 013 §Failure
+  semantics rule 2) and a vacation the advanced memo no longer records is
+  lost. Shared by every in-band non-commit arm in `commit-and-flow!` —
   the schema-validation candidate REJECTION (the only state the
   rejection restores is this transient flow bookkeeping; the container was
   never written) and the pre-commit aborts (legacy-runtime-root /
   classification-effect-shape) — the boundaries `run-flows-on-db`'s own
   throw arm cannot reach. Frame-scoped and idempotent: a no-op when no flow
-  ran (the snapshot keys are absent) or the flows artefact never loaded (the
-  restore hooks are nil)."
-  [ctx frame owner-token]
+  ran (the snapshot key is absent) or the flows artefact never loaded (the
+  restore hook is nil)."
+  [ctx frame]
   (when (contains? ctx :rf/flow-last-inputs-before)
     (when-let [restore-li (rf.late-bind/get-fn-cached :flows/restore-last-inputs!)]
-      (restore-li frame owner-token (:rf/flow-last-inputs-before ctx))))
-  (when (contains? ctx :rf/flow-abandoned-paths-before)
-    (when-let [restore-ap (rf.late-bind/get-fn-cached :flows/restore-abandoned-paths!)]
-      (restore-ap frame owner-token (:rf/flow-abandoned-paths-before ctx)))))
+      (restore-li frame (:rf/flow-last-inputs-before ctx)))))
 
 (defn- commit-frame-effects!
   "Install the partitioned frame transition atomically (EP-0001,
@@ -1386,8 +1382,8 @@
 
   On rejection the caller (`commit-and-flow!`) restores ONLY the transient
   flow bookkeeping (`restore-flow-snapshots!` — the flow transform advanced
-  each computed flow's dirty-check row inside the chain for a write that
-  will now never land) and reports the `:rolled-back` outcome; the durable
+  the frame's flow memo inside the chain for a write that will now never
+  land) and reports the `:rolled-back` outcome; the durable
   frame-state needs no restore because it was never touched."
   [effects event-id event frame frame-record ctx]
   (let [app-effect?  (contains? effects :db)
@@ -1645,9 +1641,8 @@
       ;; `:rf/interceptor-error` (interceptor.cljc). This framework-OUTERMOST
       ;; flows interceptor heads the chain, so it has always entered and its
       ;; `:after` is the LAST to fire; without this guard it would run the flow transform
-      ;; against a DOOMED pending db — eagerly advancing each recomputed
-      ;; flow's dirty-check (`last-inputs`) row (flows.cljc) and read-and-
-      ;; clearing the queued in-drain output-path vacations (registry.cljc) —
+      ;; against a DOOMED pending db — advancing the frame's flow memo
+      ;; (flows.cljc), and with it the output-path vacations its rows record —
       ;; even though `commit-and-flow!` is about to abort THIS event
       ;; (`:error`) WITHOUT committing. That poisons the dirty-check (a fresh
       ;; flow's output never re-materialises), loses a queued vacation, and
@@ -1726,11 +1721,9 @@
                                   class-effects))))
           (if run-on-db
             (try
-              (let [;; Snapshot THIS frame's
-                    ;; dirty-check (`last-inputs`) rows BEFORE the flow transform
-                    ;; advances them. The transform eagerly advances a flow's row
-                    ;; the moment it recomputes, folding the output into the
-                    ;; pending `:db`. But whether that pending `:db` becomes
+              (let [;; Snapshot THIS frame's flow memo BEFORE the flow
+                    ;; transform advances it. A successful pass advances the
+                    ;; memo as it folds its outputs into the pending `:db`. But whether that pending `:db` becomes
                     ;; DURABLE is decided AFTER the chain: candidate schema /
                     ;; machine-data validation can REJECT the
                     ;; transition pre-install. `run-flows-on-db`'s own
@@ -1751,15 +1744,6 @@
                      snapshot-li (rf.late-bind/get-fn-cached :flows/snapshot-last-inputs)
                      li-before   (when snapshot-li
                                    (snapshot-li frame))
-                    ;; Snapshot the frame's pending abandoned-output-
-                    ;; paths BEFORE the transform (it DRAINS/clears them and
-                    ;; dissocs them from the pending `:db`). On a candidate
-                    ;; rejection `commit-and-flow!` re-records this snapshot —
-                    ;; the exact mirror of the `last-inputs` snapshot above, for
-                    ;; the boundary `run-flows-on-db`'s own throw arm cannot see.
-                     snapshot-ap (rf.late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
-                     ap-before   (when snapshot-ap
-                                   (snapshot-ap frame))
                     ;; EP-0001 §535-551: hand the flow transform
                     ;; BOTH partitions of the pending frame-state. Bare `:inputs`
                     ;; resolve against `pending-db` (app-db); `[:rf.db/runtime …]`
@@ -1793,8 +1777,7 @@
                 ;; the value OR the handler already had one.
                 (if (or has-db? (not (identical? new-db pending-db)))
                     (cond-> (rf.interceptor/assoc-effect ctx :db new-db)
-                      snapshot-li (assoc :rf/flow-last-inputs-before li-before)
-                      snapshot-ap (assoc :rf/flow-abandoned-paths-before ap-before))
+                      snapshot-li (assoc :rf/flow-last-inputs-before li-before))
                     ctx)))
               (catch #?(:clj Throwable :cljs :default) e
                 ;; Atomicity contract (Spec 013 §Failure semantics): a flow
@@ -2481,8 +2464,7 @@
         effects      (:effects final-ctx)
         shape-defect (rf.events/effect-map-defect effects event)
         class-defect (rf.elision/classification-effect-defect effects)
-        restore!     #(restore-flow-snapshots!
-                        final-ctx frame (rf.frame/current-event-owner-token))]
+        restore!     #(restore-flow-snapshots! final-ctx frame)]
     (cond
       error
       (do
@@ -4018,7 +4000,7 @@
   PersistentQueue has no native head-push, so the lane is rebuilt. Only the
   flow settle and the `dispatch-sync` seed use this, and neither has siblings
   a head-push could reverse: the `:fx` walk enqueues at most one settle, at
-  the very end of the walk (`rf.fx/settle-flows-if-requested!`), and a
+  the very end of the walk (`rf.fx/settle-flows-after-walk!`), and a
   `dispatch-sync` call pushes exactly one seed."
   [q envelope]
   (into rf.interop/empty-queue (cons envelope q)))
@@ -4037,13 +4019,13 @@
   drain always dequeues from the internal lane first:
 
   1. **The flow settle** (`:rf.flow/settle? true`, stamped by
-     `build-envelope` from the opt `rf.fx/settle-flows-if-requested!` passes)
+     `build-envelope` from the opt `rf.fx/settle-flows-after-walk!` passes)
      goes to the HEAD of the internal lane. Per Spec 013 §Sequencing the
-     settle repairs `app-db` to agree with the flow registry as the completed
-     `:fx` walk left it, and every event still in the internal lane is a
-     CONTINUATION of the handler that mutated that registry. Behind them,
-     those continuations would run against the pre-registration / pre-clear
-     `app-db` and could persist a wrong decision into `app-db` that the later
+     settle brings the frame's flow outputs up to the state the completed
+     `:fx` walk left, and every event still in the internal lane is a
+     CONTINUATION of the handler whose walk wrote that state. Behind them,
+     those continuations would read flow outputs derived from the state before
+     the walk and could persist a wrong decision into `app-db` that the later
      settle, which repairs only the derived slot, does not undo. Ahead of
      them, every continuation reads the settled value. Nothing is lost by
      settling early: the flow transform runs on EVERY event, so a

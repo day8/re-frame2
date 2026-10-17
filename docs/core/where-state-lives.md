@@ -59,10 +59,13 @@ The value now needs to be part of the application's state. That is a [flow](glos
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]             ;; app-db paths to watch
-   :output-path [:remaining-count]     ;; where the result is written
-   :frame       :rf/default}           ;; a flow belongs to one frame
+   :output-path [:remaining-count]}    ;; where the result is written
   (fn [todos]
     (count (remove :done? (vals todos)))))
+
+;; a frame runs the flows its :flows names
+[rf/frame-root {:id :rf/default :flows [:todo/remaining-count]}
+ [todo-app]]
 ```
 
 The formula is the same; the value's home changed. `:todo/add` now reads `(:remaining-count db)` like any other state. Because the value is part of the [frame](glossary.md#frame)'s state it is covered by schemas, time-travel and SSR, and in [Xray](glossary.md#xray) the flow recomputes in the same [pipeline run](glossary.md#run) that changed its inputs.

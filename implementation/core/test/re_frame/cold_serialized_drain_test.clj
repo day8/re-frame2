@@ -3,8 +3,8 @@
   `:drain-lock` without being a drainer. Its release must re-kick a queue that a
   `dispatch!` made during the hold left stranded, and a `dispatch-sync!` issued
   from inside the section on the same thread must re-enter the drain rather
-  than spin on the lock it already holds. Both are JVM-only: CLJS is
-  single-threaded."
+  than spin on the lock it already holds, and so must a `destroy-frame!`. All
+  are JVM-only: CLJS is single-threaded."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -74,3 +74,14 @@
         (.join worker 5000))
       (is (= [:returned 1 true]
              [@result @ran (:inner? (rf/app-db-value :rf/default))])))))
+
+(deftest destroy-from-within-a-cold-serialized-write-does-not-deadlock
+  ;; A Tool-Pair write holds the lock through `call-serialized-with-drain!`
+  ;; and may destroy the same frame from inside it; the nested destroy must
+  ;; run reentrantly rather than spin on the lock its own thread holds.
+  (rf/make-frame {:id :fc/nested})
+  (let [done (future
+               (rf.frame/call-serialized-with-drain! :fc/nested
+                 (fn [] (rf.frame/destroy-frame! :fc/nested) :ok)))]
+    (is (= :ok (deref done 30000 ::timeout))))
+  (is (nil? (rf.frame/frame :fc/nested))))

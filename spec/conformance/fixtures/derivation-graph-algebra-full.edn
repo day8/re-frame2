@@ -110,7 +110,7 @@
  :fixture/flow-bodies
  {:cart/materialized-total [[:fn :identity [:event-arg 0]]]}
 
- :fixture/frame-config {}
+ :fixture/frame-config {:flows [:cart/materialized-total]}
 
  ;; Dispatch into the machine so its SINGLETON snapshot materializes in
  ;; runtime-db — the live machine instance node the `:mode :live` call below

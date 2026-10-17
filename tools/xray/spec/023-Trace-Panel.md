@@ -145,7 +145,7 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 | RESOURCE | registered · owner-attached · cache-hit · deduped · fetch-started · work-started · abort-requested · work-completed · succeeded · failed · refresh-failed · invalidated · refetch-decision · revalidate-scan · route-plan · owner-released · stale-scheduled · stale-fired · gc-scheduled · gc-fired · gc-skipped · poll-scheduled · poll-fired · removed · stale-suppressed · hydrated · hydrate-refetch · restored (the `:rf.resource/*` trace family, Spec 016 §Xray and AI tooling + [`024`](./024-Resources-Panel.md) §The `:rf.resource/*` trace family; the per-op semantic class + label live in `panels/resources_helpers.cljc`. The `:warning`-level `hydrate-clock-skew` / `restore-clock-skew` rows surface as `WARNING`, not a positive RESOURCE op — severity is cross-cutting §7. `:rf.resource/ensure` / `refetch` / `window-focused` are dispatched EVENT ids, surfacing as `:rf.event/dispatched` EVENT rows, not RESOURCE ops) |
 | EPOCH | snapshotted · restored · db-replaced · replay-conflict · replace-* |
 
-Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flow`, `:rf.machine.registrar/*`) are boot-time / out-of-epoch and are normally absent from a per-epoch arc.
+Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.machine.registrar/*`) are boot-time / out-of-epoch and are normally absent from a per-epoch arc.
 
 ## §6 Duration / timing
 
@@ -421,6 +421,6 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.view/dropped-after` · `rendered-cap-reached` | VIEWS | VIEW | dropped / cap-reached | view-id | — |
 | **`:rf.error/*`** (any) | inline (its stage) | ERROR | the `operation` id | ex-data | — |
 | **`:rf.warning/*`** (any) | inline (its stage) | WARNING | the `operation` id | context | — |
-| **Registration/boot** — `:rf.fx/reg-flow` · `:rf.fx/registered-platforms` · `:rf.cofx/registered-platforms` · `:rf.flow/registered` · `:rf.route/registered` · `:rf.machine.registrar/*` | — | — | OUT OF SCOPE (boot-time, not per-epoch) | — | — |
+| **Registration/boot** — `:rf.fx/registered-platforms` · `:rf.cofx/registered-platforms` · `:rf.flow/registered` · `:rf.route/registered` · `:rf.machine.registrar/*` | — | — | OUT OF SCOPE (boot-time, not per-epoch) | — | — |
 
 > Generic rules: any `:rf.error/*` → ERROR row (emphasised, inline); any `:rf.warning/*` → WARNING row (inline). Both also feed the surviving issue surfaces — **not** an Issues panel, which was removed with its tab (rf2-gbz39 Option (c)); see §7. The implementer cross-checks this matrix against the live trace-emit sites; new ops get a row before shipping (the completeness contract, §1).

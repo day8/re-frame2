@@ -1,77 +1,73 @@
 ;; Conformance fixture: flow/hot-reload-preserves-output
 ;; Per Spec 013 §Re-registration and Spec 001 §Hot-reload semantics —
-;; reg-flow against an already-registered :id performs a surgical
-;; update: the new flow's definition replaces the old; last-inputs
-;; clears so the new body re-evaluates regardless of whether inputs
-;; changed. Registered through :rf.fx/reg-flow, as here, a flow is
-;; evaluated by the framework's settle before the registering dispatch
-;; returns (Spec 013 §Sequencing), for a first registration and a
-;; re-registration alike, so no follow-up event is involved.
+;; reg-flow against an already-registered id replaces the definition, and
+;; each frame running the id re-evaluates it on its next event: the memo
+;; row records the definition it was computed with, so a new definition
+;; recomputes whether or not the inputs changed. The `{:reg-flow id :body …}`
+;; harness step re-registers the flow with a new body, as a namespace reload
+;; does.
 ;;
-;; This fixture verifies the user-visible value at the output path:
-;; if the new body would compute the same output, the prior output is
-;; preserved across re-registration.
+;; This fixture verifies the user-visible value at the output path: if the
+;; new body computes the same output, the prior output is preserved across
+;; re-registration.
 
 {:fixture/id           :flow/hot-reload-preserves-output
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace :flow/basic :flow/hot-reload :flow/trace}
- :fixture/doc          "Re-registering a flow with an equivalent body keeps the prior output value at the flow's :output-path. Registered through :rf.fx/reg-flow, the new flow re-evaluates before the re-registering dispatch settles (Spec 013 §Sequencing) — so the user observes a continuous output as long as the new body is value-equivalent on the same inputs. (A new body that computes a different value materialises it by that same boundary.)"
+ :fixture/doc          "Re-registering a flow with an equivalent body keeps the prior output value at the flow's :output-path. The new definition re-evaluates on the frame's next event, unchanged inputs and all, so the user observes a continuous output as long as the new body is value-equivalent on the same inputs. (A new body that computes a different value materialises it on that same event.)"
 
  :fixture/registry
- {:event {:doubled/init      {:doc "Seed :n to 7."}
-          :doubled/reg-v1    {:doc "Register :double v1 — output is (* 2 n)."}
-          :doubled/reg-v2    {:doc "Re-register :double v2 — same output value."}
-          :doubled/poke      {:doc "No-op event to drive a drain."}}
-  :fx    {:rf.fx/reg-flow {:doc "Reserved — register a flow."
-                           :platforms #{:client :server}}}}
+ {:event {:doubled/init {:doc "Seed :n to 7."}
+          :doubled/poke {:doc "Write :tick to drive an event."}}
+  :flow  {:doubled/value {:doc         "Twice :n, at :doubled."
+                          :inputs      [[:n]]
+                          :output-path [:doubled]}}}
 
  :fixture/handlers
- {:event {:doubled/init   [[:set [:n] 7]]
-          :doubled/reg-v1 [[:fx :rf.fx/reg-flow
-                            {:id     :doubled/value
-                             :inputs [[:n]]
-                             :body   [[:fn :* [:event-arg 0] 2]]
-                             :output-path [:doubled]}]]
-          :doubled/reg-v2 [[:fx :rf.fx/reg-flow
-                            {:id     :doubled/value
-                             :inputs [[:n]]
-                             :body   [[:fn :+ [:event-arg 0] [:event-arg 0]]]
-                             :output-path [:doubled]}]]
-          :doubled/poke   [[:set [:tick] [:event-arg 1]]]}}
+ {:event {:doubled/init [[:set [:n] 7]]
+          :doubled/poke [[:set [:tick] [:event-arg 1]]]}}
+
+ ;; v1 — `(* n 2)`.
+ :fixture/flow-bodies
+ {:doubled/value [[:fn :* [:event-arg 0] 2]]}
 
  :fixture/frame-config
- {:initial-events [[:doubled/init]]}
+ {:flows          [:doubled/value]
+  :initial-events [[:doubled/init]]}
 
  ;; Sequence:
- ;;   :initial-events [:doubled/init] — :n 7
- ;;   [:doubled/reg-v1]           — register v1; it evaluates before this
- ;;                                 dispatch settles → :doubled 14
- ;;   [:doubled/poke 1]           — :n is unchanged, so the flow skips
- ;;   [:doubled/reg-v2]           — re-register with (+ n n); last-inputs
- ;;                                 cleared, so v2 evaluates before this
- ;;                                 dispatch settles → the same 14
- ;;   [:doubled/poke 2]           — the flow skips again
+ ;;   :initial-events [:doubled/init] — :n 7; v1 computes :doubled 14
+ ;;   [:doubled/poke 1]               — :n is unchanged, so the flow skips
+ ;;   {:reg-flow …}                   — re-register with (+ n n)
+ ;;   [:doubled/poke 2]               — a new definition: v2 evaluates on this
+ ;;                                     event → the same 14
+ ;;   [:doubled/poke 3]               — the flow skips again
  :fixture/dispatches
- [[:doubled/reg-v1]
-  [:doubled/poke 1]
-  [:doubled/reg-v2]
-  [:doubled/poke 2]]
+ [[:doubled/poke 1]
+  {:reg-flow :doubled/value :body [[:fn :+ [:event-arg 0] [:event-arg 0]]]}
+  [:doubled/poke 2]
+  [:doubled/poke 3]]
 
  :fixture/expect
  {:final-app-db
   {:n       7
-   :tick    2
+   :tick    3
    :doubled 14}
 
-  ;; The timing pin. `:final-app-db` is a submap match on the END state,
-  ;; so it cannot see WHEN the flow evaluated; this order-preserving
-  ;; subset can. Each `:rf.flow/computed` must land after its registering
-  ;; event starts and before the next poke starts, so a runtime that left
-  ;; either evaluation to the next drain fails here.
+  ;; The timing pin. `:final-app-db` is a submap match on the END state, so
+  ;; it cannot see WHEN the flow evaluated; this order-preserving subset can.
+  ;; v2's `:rf.flow/computed` lands inside the first event after the
+  ;; re-registration and before the next poke starts, so a runtime that kept
+  ;; skipping on the unchanged inputs fails here.
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/reg-v1}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/poke}}
+   {:operation :rf.flow/skip       :tags {:flow-id :doubled/value}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/poke}}
    {:operation :rf.flow/computed   :tags {:flow-id :doubled/value :result 14}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/poke}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/reg-v2}}
-   {:operation :rf.flow/computed   :tags {:flow-id :doubled/value :result 14}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :doubled/poke}}]}}
+   {:operation :rf.flow/skip       :tags {:flow-id :doubled/value}}]
+
+  ;; The init computed v1 and the first poke after the re-registration
+  ;; computed v2: two recomputes, and no others.
+  :flow-recompute-counts
+  {:doubled/value 2}}}

@@ -1,9 +1,9 @@
 (ns re-frame.late-bind-missing-test
   "The flows artefact's missing-artefact contract (Spec 002 §The late-bind
-  seam): a user-facing flow surface called while the artefact is absent
-  raises `:rf.error/flows-artefact-missing`. The artefact is on this
-  classpath, so each test clears the hook for its duration, the same
-  mechanism a CLJS test would use.
+  seam): `reg-flow`, and a frame naming `:flows`, raise
+  `:rf.error/flows-artefact-missing` while the artefact is absent. The
+  artefact is on this classpath, so each test clears the hooks for its
+  duration, the same mechanism a CLJS test would use.
 
   The framework-internal hooks (`:flows/run-flows-on-db`,
   `:flows/reset-flows!`, `:flows/teardown-on-frame-destroy!`) no-op when
@@ -12,7 +12,7 @@
   those lanes."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -39,27 +39,21 @@
         (is (= {:rf.error/id :rf.error/flows-artefact-missing :where 'rf/reg-flow :recovery :no-recovery}
                (select-keys (ex-data e) [:rf.error/id :where :recovery])))))))
 
-(deftest flow-fxs-raise-when-flows-artefact-missing
+(deftest a-frame-naming-flows-raises-when-flows-artefact-missing
+  ;; The activation checks need the artefact too; with both hooks absent the
+  ;; frame engine's preflight refuses the construction before any record
+  ;; exists. A frame naming no flows needs nothing.
   (rf/init! rf.substrate.plain-atom/adapter)
-  (rf/make-frame {:id :late-bind-missing/fx})
-  (rf/reg-event :late-bind-missing/flow-fxs
-    (fn [_ _]
-      {:fx [[:rf.fx/reg-flow [:late-bind-missing/flow
-                              {:inputs [[:in]] :output-path [:out]}
-                              (fn [v] v)]]
-            [:rf.fx/clear-flow :late-bind-missing/flow]]}))
-  (let [records (atom [])]
-    (rf.error-emit/register-error-listener! ::flow-fxs #(swap! records conj %))
-    (try
-      (with-hook-as-nil :flows/reg-flow
+  (with-hook-as-nil :flows/check-activation!
+    (fn []
+      (with-hook-as-nil :flows/run-flows-on-db
         (fn []
-          (with-hook-as-nil :flows/clear-flow
-            (fn []
-              (rf/dispatch-sync [:late-bind-missing/flow-fxs]
-                                {:frame :late-bind-missing/fx})))))
-      (finally
-        (rf.error-emit/unregister-error-listener! ::flow-fxs)))
-    (is (= [[:rf.error/flows-artefact-missing :rf.fx/reg-flow :late-bind-missing/fx]
-            [:rf.error/flows-artefact-missing :rf.fx/clear-flow :late-bind-missing/fx]]
-           (mapv (juxt :error :failing-id :frame) @records))
-        "each flow effect is refused with the missing-artefact id, naming the effect")))
+          (let [e (try (rf/make-frame {:id :late-bind-missing/frame :flows [:late-bind-missing/flow]})
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+            (is (= {:rf.error/id :rf.error/flows-artefact-missing :where 'rf/make-frame}
+                   (select-keys (ex-data e) [:rf.error/id :where])))
+            (is (nil? (rf.frame/frame :late-bind-missing/frame))))
+          (rf/make-frame {:id :late-bind-missing/frame :flows []})
+          (is (some? (rf.frame/frame :late-bind-missing/frame)))
+          (rf/destroy-frame! :late-bind-missing/frame))))))

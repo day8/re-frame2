@@ -160,25 +160,11 @@
 ;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
 ;; tick N-1's committed value.
 
-;; The three reg-flow calls run from `run` via this fn rather than at
-;; ns-load, as in the sibling deliberate_throw testbed. A frame must be live
-;; or `reg-flow` rejects with :rf.error/flow-frame-not-live (no frame is live
-;; until `run` makes `:rf/default`). Registration order relative to the
-;; events/fx/subs above doesn't matter — the runtime topsorts the flow map
-;; before the first drain.
-;; Per EP-0002, reg-flow is context-required frame-local;
-;; it needs a CARRIED frame stamp. `run` calls this inside a
-;; `(with-frame :rf/default …)` scope so all three flows register against the
-;; explicitly-registered `:rf/default` frame (the runtime never synthesises one
-;; from absence). This testbed hosts on :rf/default.
-(defn- register-flows!
-  "Register the three cascade flows against the live `:rf/default` frame.
-  Called from `run` after `rf/init!` and `rf/make-frame` (and inside a
-  `with-frame :rf/default` scope) — a frame must be live or `reg-flow`
-  rejects with :rf.error/flow-frame-not-live."
-  []
-
-  (rf/reg-flow ::flow-a
+;; The three flows are top-level registrations; `run` makes `:rf/default`
+;; with all three in its `:flows`. Registration order relative to the
+;; events/fx/subs above doesn't matter — the runtime topsorts the frame's
+;; flows before each pass.
+(rf/reg-flow ::flow-a
   {:inputs [[:input]]
    :output-path [:a-result]
    :doc    "Doubles :input. Watched by :flow-b (topo-order pin) and
@@ -243,7 +229,7 @@
     ;; when both upstreams have successfully advanced —
     ;; :flow-c does NOT run on the drain where :flow-b
     ;; throws (the cascade halts before it).
-    (+ a b))))
+    (+ a b)))
 
 ;; ----------------------------------------------------------------------------
 ;; Tick handler — the cascade engine
@@ -387,16 +373,12 @@
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   ;; Per EP-0002, the runtime never synthesises a frame from
-  ;; absence — `:rf/default` is this testbed's app frame, registered
-  ;; explicitly here (init! installs only the adapter). The boot dispatch
-  ;; runs under the frame scope and the render is wrapped in a
-  ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/make-frame {:id :rf/default})
-  ;; Both the three-flow registration (reg-flow must run against a live
-  ;; frame) and the boot dispatch run inside the carried
-  ;; `:rf/default` scope. The render is wrapped in a `frame-provider` so in-tree
-  ;; dispatch/subscribe resolve to `:rf/default`.
+  ;; absence — `:rf/default` is this testbed's app frame, made explicitly
+  ;; here (init! installs only the adapter), and its `:flows` names the
+  ;; three cascade flows it runs. The boot dispatch runs under the frame
+  ;; scope and the render is wrapped in a `frame-provider` so in-tree
+  ;; dispatch/subscribe resolve to it.
+  (rf/make-frame {:id :rf/default :flows [::flow-a ::flow-b ::flow-c]})
   (rf/with-frame :rf/default
-    (register-flows!)
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

@@ -16,6 +16,11 @@
 
 (defn- db [] (rf/app-db-value :rf/default))
 
+(defn- run-flows!
+  "Re-make `:rf/default` running the flows `ids`."
+  [& ids]
+  (rf/make-frame {:id :rf/default :flows (vec ids)}))
+
 (defn- counted
   "`f`, bumping `calls` once per invocation."
   [calls f]
@@ -30,6 +35,7 @@
   (let [calls (atom 0)]
     (reg-replace-db!)
     (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (counted calls #(* 2 %)))
+    (run-flows! :doubled)
     (rf/dispatch-sync [:set 5])
     (is (= [{:n 5 :doubled 10} 1] [(db) @calls]))
     (rf/dispatch-sync [:set 5])
@@ -43,17 +49,20 @@
     (reg-replace-db!)
     (rf/reg-event :clobber (fn [{:keys [db]} _] {:db (assoc db :doubled 99)}))
     (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (counted calls #(* 2 %)))
+    (run-flows! :doubled)
     (rf/dispatch-sync [:set 5])
     (rf/dispatch-sync [:clobber])
     (is (= [{:n 5 :doubled 10} 1] [(db) @calls]))))
 
 (deftest a-chained-dependent-is-repaired-in-topological-order
-  ;; Registered dependent-first, so only the topological sort puts :a ahead.
+  ;; Registered and named dependent-first, so only the topological sort puts
+  ;; :a ahead.
   (let [calls (atom {})
         count! (fn [id f] (fn [x] (swap! calls update id (fnil inc 0)) (f x)))]
     (reg-replace-db!)
     (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} (count! :b #(vector :b %)))
     (rf/reg-flow :a {:inputs [[:n]] :output-path [:a]} (count! :a #(* 2 %)))
+    (run-flows! :b :a)
     (rf/dispatch-sync [:set 5])
     (is (= {:n 5 :a 10 :b [:b 10]} (db)))
     (rf/dispatch-sync [:set 5])
@@ -65,6 +74,7 @@
   (rf/reg-event :trim-cart
     (fn [{:keys [db]} _] {:db (assoc db :cart (select-keys (:cart db) [:items]))}))
   (rf/reg-flow :first-item {:inputs [[:cart :items]] :output-path [:cart :first]} first)
+  (run-flows! :first-item)
   (rf/dispatch-sync [:init])
   (is (= {:items [] :first nil} (:cart (db))))
   (rf/dispatch-sync [:trim-cart])
@@ -78,6 +88,7 @@
       (reg-replace-db!)
       (rf/reg-event :keep (fn [{:keys [db]} _] {:db db}))
       (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} #(* 2 %))
+      (run-flows! :doubled)
       (rf/dispatch-sync [:set 5])
       (rf/dispatch-sync [:set 5])
       (rf/dispatch-sync [:keep])
@@ -94,6 +105,7 @@
     (rf/reg-event :init (fn [_ _] {:db {:n 5 :out {}}}))
     (rf/reg-event :vectorise (fn [{:keys [db]} _] {:db (assoc db :out [])}))
     (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:out :doubled]} #(* 2 %))
+    (run-flows! :doubled)
     (rf/dispatch-sync [:init])
     (let [before (db)]
       (rf/dispatch-sync [:vectorise])

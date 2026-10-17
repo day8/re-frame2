@@ -273,12 +273,11 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
 - **Signature**:
   ```clojure
   (clear kind id) → id
-  (clear kind id {:frame f}) → id
   ```
 - **Description**: Removes one registration and returns its `id`. It is the inverse of the `reg-*` forms, keyed by kind, for tests, REPL work and teardown. There are no per-kind names such as `clear-event` or `clear-resource`.
     - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
-    - Kinds that hold runtime state clean it up: `:flow` vacates its output path and settles dependents, `:route` emits `:rf.route/cleared`, `:http-interceptor` emits `:rf.http.interceptor/cleared`, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
-    - The `{:frame f}` map is accepted only for the per-frame kind `:flow`. It must be exactly `{:frame f}`, with `f` a frame-id keyword or a live frame value. Anything else, including opts on another kind, throws `:rf.error/registrar-clear-bad-request` before any frame is resolved, so a typo such as `{:fram :session}` throws instead of clearing the ambient frame's registration. An unknown kind throws the same error, naming the valid kinds.
+    - Kinds that hold runtime state clean it up: `:flow` emits `:rf.flow/cleared`, and each frame running the flow removes its output path on its next event; `:route` emits `:rf.route/cleared`, `:http-interceptor` emits `:rf.http.interceptor/cleared`, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
+    - A registration belongs to no frame, so `clear` removes it for every frame at once and takes no opts. A trailing opts map throws `:rf.error/registrar-clear-bad-request`, as does an unknown kind, naming the valid kinds. To stop one frame running a flow or an HTTP interceptor, re-make that frame without it.
     - Clearing a kind whose optional artefact is not loaded throws that artefact's missing-artefact error, for example `:rf.error/flows-artefact-missing` for `:flow`.
     - There is no clear-all arity. Bulk clearing belongs to the test fixtures in [`re-frame.test-support`](re-frame.test-support.md).
 - **Example**:
@@ -286,8 +285,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   (rf/clear :event :counter/inc)                 ;; => :counter/inc
   (rf/clear :sub   :counter/value)               ;; the registrar side; `unsubscribe` decrements the cache
   (rf/clear :cofx  :now)                         ;; any registrar kind
-  (rf/clear :flow  :cart/total)                  ;; ambient frame
-  (rf/clear :flow  :cart/total {:frame :session}) ;; explicit frame
+  (rf/clear :flow  :cart/total)                  ;; every frame running it drops [:cart :total]
   ```
 
 ## Dispatch and subscribe
@@ -784,7 +782,7 @@ Any other top-level key rejects the event before anything commits, so a valid `:
     - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
     - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
     - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
-    - `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` and `:rf.route/with-nav-token` cannot be overridden: the override is ignored, the real effect runs, and `:rf.error/reserved-fx-override` is emitted.
+    - `:rf.machine/spawn`, `:rf.machine/destroy` and `:rf.route/with-nav-token` cannot be overridden: the override is ignored, the real effect runs, and `:rf.error/reserved-fx-override` is emitted.
     - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
     - See [Asserting on what would dispatch](../core/testing/pipeline-runs.md#asserting-on-what-would-dispatch).
 - **Example**:
@@ -797,7 +795,7 @@ Any other top-level key rejects the event before anything commits, so a valid `:
 
 ## Standard effects and interceptor
 
-The framework reserves a few `:fx` ids and one standard interceptor reference; register your own fx ids with `reg-fx`. Feature fx (`[:rf.http/managed …]`, `[:rf.nav/push-url …]`, `[:rf.machine/spawn …]`, `[:rf.fx/reg-flow …]`, `[:rf.server/* …]`, …) are documented on each feature's page.
+The framework reserves a few `:fx` ids and one standard interceptor reference; register your own fx ids with `reg-fx`. Feature fx (`[:rf.http/managed …]`, `[:rf.nav/push-url …]`, `[:rf.machine/spawn …]`, `[:rf.server/* …]`, …) are documented on each feature's page.
 
 ### `[:dispatch event-vec]`
 
@@ -921,6 +919,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 | `:adapter` | Any value. | None. | Recorded on the frame for tools. Rendering always uses the adapter installed by `init!`. |
 | `:doc`, `:tags` | A string; a set of keywords. | None. | Registration metadata, read back with [`frame-meta`](#frame-meta). |
 | `:initial-events` | A vector of setup steps. | None. | Events dispatched into the new frame when it is created; see below. |
+| `:flows` | A vector of [`reg-flow`](#reg-flow) ids. | None, so no flow runs. | The flows the frame runs on every event, in dependency order. The ids resolve when the frame is made: an unregistered one raises `:rf.error/unregistered-flow`, and a cycle or overlapping output paths among them raise `:rf.error/flow-cycle` or `:rf.error/flow-path-overlap`. See [Activation](re-frame.flows.md#activation). |
 | `:on-destroy` | One event vector. | None. | The event `destroy-frame!` runs before the frame is marked dead. |
 | `:fx-overrides` | `{fx-id replacement}` | None. | Replaces effect handlers for every event in this frame. The replacement is an fx id or a function; see [`with-fx-overrides`](#with-fx-overrides). A per-dispatch override wins. |
 | `:interceptor-overrides` | `{interceptor-ref replacement}` | None. | Replaces or removes interceptors in every event's chain in this frame; see [Interceptor overrides](#interceptor-overrides). A per-dispatch override wins. |
@@ -940,7 +939,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
 - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
 - `:preset :test` sets `:drain-depth 1000` and `:rf.cofx/mint-policy :strict` and redirects `:rf.http/managed` to `:rf.http/managed-canned-success`; `:preset :story` sets `:drain-depth 16` and the same redirect. Keys you pass win over the preset's. The redirect needs `re-frame.http.test-support` loaded.
-- An `:fx-overrides` entry for `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` or `:rf.route/with-nav-token` is refused with `:rf.error/reserved-fx-override`, and the real effect runs.
+- An `:fx-overrides` entry for `:rf.machine/spawn`, `:rf.machine/destroy` or `:rf.route/with-nav-token` is refused with `:rf.error/reserved-fx-override`, and the real effect runs.
 - A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the [`make-frame`](#make-frame) example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - Any other key is stored with the frame and returned by `frame-meta`; nothing reads it, and nothing warns.
 - The errors a malformed config raises are listed under [`make-frame`](#make-frame).
@@ -958,7 +957,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 
 - The new frame starts with an empty `app-db` and `runtime-db` and runs its `:initial-events` again; a machine's snapshot stays `nil` until the machine next handles an event.
 - For a frame built from images, pass the same `:images` vector again; otherwise the new frame gets the default image, which runs every registration.
-- Flows are not part of the config. `destroy-frame!` removes the frame's flows, so register them again after `make-frame`, or register them from `:initial-events` with [`:rf.fx/reg-flow`](re-frame.flows.md#rffxreg-flow).
+- Flows are part of the config: pass the same `:flows` again. `destroy-frame!` drops the frame's flow memo, so the new frame evaluates every flow on its first event; the definitions stay registered.
 - To empty `app-db` and keep `runtime-db`, dispatch `[:rf/set-db {}]` instead. Development tools can also call `(rf.epoch/replace-frame-state! frame-id {:rf.db/app {}})`.
 - The pair is not atomic. `destroy-frame!` has no handler-scope guard, so called from inside a handler it destroys the frame, and the following `make-frame` throws because frames cannot be created inside a handler, leaving the frame destroyed. Frame creation and destruction belong outside handlers anyway.
 - See [Ending and resetting a frame](../core/frames.md#ending-and-resetting-a-frame).
@@ -1089,7 +1088,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
     - `:registrations`, inline registrations in `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx` sections. Each entry is `[id body]` or `[id metadata body]`.
     - In `:images`, a later image wins, and `(:rf.gen/shadows (rf/frame-generation f))` reports what it overrode.
     - A registration made through a `reg-*` function rather than its macro records no namespace, so `:select-ns` cannot select it unless its metadata carries `:ns`.
-    - `reg-flow` registers against a frame, and no image selects it.
+    - Images select `reg-flow` registrations like any other; a frame runs the ones its `:flows` names.
     - See [Images](../core/images.md).
 - **Errors**:
     - When the image is built:
@@ -1283,7 +1282,7 @@ Each optional feature's registration macros are on this facade, so one require c
 
 The feature itself ships in its own artefact, which must be loaded as its page describes; without it, the macro throws that feature's missing-artefact error: `:rf.error/machines-artefact-missing`, `:rf.error/routing-artefact-missing`, `:rf.error/flows-artefact-missing`, `:rf.error/schemas-artefact-missing`, `:rf.error/ssr-artefact-missing`, `:rf.error/http-artefact-missing` or `:rf.error/resources-artefact-missing`.
 
-Most of these register process-wide, like `reg-event`. One registers against one frame: `reg-flow`. Name the frame with `:frame`, or call it inside [`with-frame`](#with-frame); with neither, it throws `:rf.error/no-frame-context`.
+These register process-wide, like `reg-event`. A frame runs a flow only when its `:flows` config names it.
 
 ### Machines → [re-frame.machines.md](re-frame.machines.md)
 
@@ -1323,7 +1322,7 @@ Routes are data. The current route lives in `runtime-db` and is read with the `:
 
 ### Flows → [re-frame.flows.md](re-frame.flows.md)
 
-A flow is derived state: it reads declared frame-state inputs, computes a value with a pure function, and writes it to an `app-db` output path, recomputing when the inputs change. The runtime-registration fx `[:rf.fx/reg-flow …]` and `[:rf.fx/clear-flow …]` are on the flows page; `(rf/clear :flow id)` removes a flow.
+A flow is derived state: it reads declared frame-state inputs, computes a value with a pure function, and writes it to an `app-db` output path, recomputing when the inputs change. A frame runs the flows its `:flows` config names; `(rf/clear :flow id)` removes a flow.
 
 #### `reg-flow`
 
@@ -1332,7 +1331,7 @@ A flow is derived state: it reads declared frame-state inputs, computes a value 
   ```clojure
   (reg-flow flow-id metadata derive-fn) → flow-id
   ```
-- **Description**: Registers a flow, a derived value kept in `app-db` so handlers can read it. `metadata` carries `:inputs` and `:output-path` (both required) and optionally `:doc`, `:schema` and the `:frame` to mount on; without `:frame` it uses the frame in scope, and with neither it throws `:rf.error/no-frame-context`. `derive-fn` is pure. Returns `flow-id`. Throws `:rf.error/flows-artefact-missing` when `re-frame.flows` is not loaded. See [`reg-flow`](re-frame.flows.md#reg-flow).
+- **Description**: Registers a flow, a derived value kept in `app-db` so handlers can read it. `metadata` carries `:inputs` and `:output-path` (both required) and optionally `:doc`, `:schema` and the classification keys; a `:frame` key is refused, because each frame names the flows it runs in its `:flows` config. `derive-fn` is pure. Returns `flow-id`. Throws `:rf.error/flows-artefact-missing` when `re-frame.flows` is not loaded. See [`reg-flow`](re-frame.flows.md#reg-flow).
 
 ### Schemas → [re-frame.schemas.md](re-frame.schemas.md)
 
@@ -1690,7 +1689,7 @@ The registrar holds every registration (events, subs, fx, cofx, interceptors, ma
     - `{:source :store …}` reads the process-wide registrar and never consults a frame's image, so it answers the same inside any frame; this is what a tool inspecting a host application wants. `:store` is the only `:source` value.
     - `{:frame f …}` returns only the ids that frame runs: those its generation carries (see [`frame-generation`](#frame-generation)), or, for a frame made without `:images`, every registered id except one that two namespaces register. `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame raises `:rf.error/frame-no-generation`.
     - Naming both `:source` and `:frame`, naming neither, a `:source` other than `:store`, or a non-map argument (usually a leftover positional call) raises `:rf.error/registrar-query-needs-source`. There is no default source.
-    - `:kind :flow` and `:kind :frame` raise `:rf.error/registrar-kind-not-queryable`, naming the function to use instead (`re-frame.flows/flows`, `flow-meta`, `flows-snapshot`; `frame-ids`, `frame-meta`), rather than returning a misleading `{}`.
+    - `:kind :frame` raises `:rf.error/registrar-kind-not-queryable`, naming the functions to use instead (`frame-ids`, `frame-meta`), rather than returning a misleading `{}`.
     - Any other `:kind` outside the registrar kinds raises `:rf.error/unknown-registry-kind`, naming the queryable set.
     - To filter, use `filter` on the result; there is no predicate arity.
 - **Example**:
@@ -1709,7 +1708,7 @@ The registrar holds every registration (events, subs, fx, cofx, interceptors, ma
   (handler-meta {:frame f      :kind k :id id}) → metadata resolved through frame f's image (or nil)
   ```
 - **Description**: Returns the metadata a `reg-*` form recorded for one id, or `nil`. View registrations include source coordinates (`:ns`, `:line`, `:column`, `:file`); Pair tools resolve `data-rf2-source-coord` DOM annotations to a `:file` through this lookup.
-    - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:resource`, `:mutation`, `:resource-scope`. `:flow` and `:frame` raise, as for `registrations`.
+    - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope`. `:frame` raises, as for `registrations`.
     - The two machine kinds `:machine-guard` and `:machine-action` take a 2-vector id: `(handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration and exist only in development builds; they are not frame-targetable, so `:frame` returns `nil` for them.
     - The source grammar and the errors are those of `registrations` (`:rf.error/registrar-query-needs-source`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`, `:rf.error/unknown-registry-kind`).
     - App-db schemas are the kind `:app-schema`, keyed by path; `(app-schema-meta {:frame f :path p})` in [re-frame.schemas](re-frame.schemas.md) reads the same registration a frame resolves.

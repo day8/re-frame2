@@ -145,7 +145,7 @@
 (defn- realise-event-sub-fx-handlers
   "Register the fixture's event, sub and fx handlers through the
   `re-frame.conformance` DSL interpreter. Flows are registered separately,
-  after the frame exists, because destroying a frame tears its flows down."
+  by `realise-flows!`."
   [fixture]
   (let [hmap        (or (:fixture/handlers fixture) {})
         event-meta  (get-in fixture [:fixture/registry :event] {})
@@ -170,22 +170,27 @@
           ;; The fn-form `subs/reg-sub` takes the inputs as data; the public
           ;; `rf/reg-sub` is a JVM macro.
           :layer-2 (rf.subs/reg-sub id (assoc meta :inputs (vec inputs)) body))))
-    ;; `:rf.fx/reg-flow` and `:rf.fx/clear-flow` come from `re-frame.flows`;
-    ;; fixtures name them without a body.
-    (doseq [id (remove #{:rf.fx/reg-flow :rf.fx/clear-flow}
-                       (into #{} (concat (keys fx-bodies) (keys fx-registry))))]
+    (doseq [id (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
       (let [handler (rf.conformance/realise-fx-handler id (get fx-bodies id [[:noop]]) helpers)]
         (rf/reg-fx id (assoc (get fx-registry id {}) :handler-fn handler) handler)))))
 
 (defn- realise-flows!
-  "Register each static flow in `:fixture/registry :flow` whose body is in
-  `:fixture/flow-bodies`. Flows registered through `:rf.fx/reg-flow` reach
-  the runtime through the DSL interpreter instead."
+  "Register each flow in `:fixture/registry :flow` whose body is in
+  `:fixture/flow-bodies`. Called before any frame is made, because a frame
+  whose `:flows` names an unregistered flow fails construction."
   [fixture]
   (let [flow-bodies (or (:fixture/flow-bodies fixture) {})]
     (doseq [[flow-id flow-meta] (get-in fixture [:fixture/registry :flow] {})]
       (when-let [body (get flow-bodies flow-id)]
         (rf/reg-flow flow-id flow-meta (rf.conformance/realise-flow-output-fn body))))))
+
+(defn- re-register-flow!
+  "The `{:reg-flow id :body body}` dispatch entry: re-register the fixture's
+  flow `id` with a new body, as a namespace reload does."
+  [fixture {:keys [reg-flow body]}]
+  (rf/reg-flow reg-flow
+               (get-in fixture [:fixture/registry :flow reg-flow] {})
+               (rf.conformance/realise-flow-output-fn body)))
 
 ;; ---- matchers -------------------------------------------------------------
 ;;
@@ -207,25 +212,34 @@
   (frequencies (for [ev traces :when (= :rf.flow/computed (:operation ev))]
                  (get-in ev [:tags :flow-id]))))
 
+(defn- active-flows
+  "`{flow-id flow}` for the flows `frame-id`'s config names."
+  [frame-id]
+  (into {} (for [id (:flows (rf/frame-meta frame-id))]
+             [id (rf/handler-meta {:source :store :kind :flow :id id})])))
+
 (defn- flow-graph-deps
-  "`{flow-id #{dep-id ...}}` over `:rf/default`'s flows, by the runtime's own
-  `topo/depends-on?` so the matcher cannot drift from the dependency rule."
+  "`{flow-id #{dep-id ...}}` over the flows `:rf/default` runs, by the
+  runtime's own `topo/depends-on?` so the matcher cannot drift from the
+  dependency rule."
   []
-  (let [registry (get (rf.flows/flows-snapshot) :rf/default {})]
+  (let [registry (active-flows :rf/default)]
     (into {} (for [[id flow] registry]
                [id (into #{} (for [[other-id other] registry
                                    :when (and (not= id other-id) (rf.flows.topo/depends-on? flow other))]
                                other-id))]))))
 
-(defn- flow-registry-ids [frame-id]
-  (set (keys (get (rf.flows/flows-snapshot) frame-id))))
+(defn- flow-registry-ids
+  "The flows `frame-id`'s config names; none for a destroyed frame."
+  [frame-id]
+  (set (:flows (rf/frame-meta frame-id))))
 
 (defn- channels
   "Each `:fixture/expect` channel as `[observe ok?]`: `observe` reads the
   runtime given the expectation, and `ok?` compares the two.
-  `:registrar-flow-slots-after` reads the whole `:flow` registrar slot, which
-  `reg-flow` never writes, rather than the per-frame store or the expected
-  ids, either of which would let an empty expectation match a polluted slot."
+  `:registrar-flow-slots-after` reads the whole `:flow` registrar slot rather
+  than the expected ids, which would let an expectation match a slot holding
+  more."
   [traces err-records]
   (let [no-failures (fn [_ failures] (empty? failures))]
     {:final-app-db               [(fn [_] (rf/app-db-value :rf/default)) rf.conformance/submap?]
@@ -245,7 +259,7 @@
      :flow-last-inputs-after     [#(into {} (for [[id _] %]
                                               [id (set (keys (get (rf.flows/last-inputs-snapshot) id)))]))
                                   =]
-     :registrar-flow-slots-after [(fn [_] (rf.registrar/ids :flow)) =]
+     :registrar-flow-slots-after [(fn [_] (set (rf.registrar/ids :flow))) =]
      :error-emit-records         [#(rf.conformance/check-trace-emissions @err-records %) no-failures]}))
 
 ;; ---- running a fixture ----------------------------------------------------
@@ -261,19 +275,21 @@
       (rf.trace.tooling/register-listener! [fid] #(swap! traces conj %))
       (rf.error-emit/register-error-listener! [::flows-conformance fid] #(swap! err-records conj %))
       ;; make-frame on an existing id does not re-fire `:initial-events`, so
-      ;; the reset's bare `:rf/default` goes first. Handlers precede
-      ;; make-frame, whose `:initial-events` dispatch them; flows follow it.
+      ;; the reset's bare `:rf/default` goes first. Handlers and flows
+      ;; precede make-frame, whose `:flows` must resolve and whose
+      ;; `:initial-events` dispatch the handlers.
       (rf/destroy-frame! :rf/default)
       (realise-event-sub-fx-handlers fixture)
+      (realise-flows! fixture)
       (if-let [frames (seq (:fixture/frames fixture))]
         (run! rf/make-frame frames)
         (rf/make-frame (assoc (:fixture/frame-config fixture) :id :rf/default)))
       (binding [rf.frame/*current-frame* :rf/default]
-        (realise-flows! fixture)
         (doseq [step (:fixture/dispatches fixture)]
           (cond
             (not (map? step))               (rf/dispatch-sync step)
             (contains? step :destroy-frame) (rf.frame/destroy-frame! (:destroy-frame step))
+            (contains? step :reg-flow)      (re-register-flow! fixture step)
             :else                           (rf/dispatch-sync (:event step) (dissoc step :event)))))
       (let [channels (channels traces err-records)
             result   {:mismatches

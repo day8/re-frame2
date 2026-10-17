@@ -112,18 +112,29 @@
     (is (= ::b (:handler-fn (rf.registrar/lookup :event :dup/id)))
         "with no frame resolution bound the latest registration answers")))
 
-(deftest reserved-empty-kinds-are-not-queryable
+(deftest the-reserved-empty-frame-kind-is-not-queryable
   ;; {} for a reserved-but-empty slot would read as an authoritative empty
   ;; catalogue; the error names the read that owns the data
   (is (= :rf.error/registrar-kind-not-queryable
-         (err-id #(rf/handler-meta {:source :store :kind :flow :id :anything}))))
+         (err-id #(rf/handler-meta {:source :store :kind :frame :id :anything}))))
   (let [read-for (fn [kind]
                    (try (rf/registrations {:source :store :kind kind}) nil
                         (catch #?(:clj clojure.lang.ExceptionInfo
                                   :cljs cljs.core/ExceptionInfo) e
                           (:read (ex-data e)))))]
-    (is (re-find #"flows-snapshot" (str (read-for :flow))))
     (is (re-find #"frame-ids" (str (read-for :frame))))))
+
+(deftest flow-definitions-answer-the-ordinary-query
+  ;; :flow is an ordinary registrar kind: the store form lists and returns
+  ;; what was registered under it, and an id nothing registered reads nil
+  (rf.registrar/register! :flow :query.flow/total
+                          {:inputs [[:a]] :output-path [:total]})
+  (is (= [[:total] [:total] nil]
+         [(:output-path (get (rf/registrations {:source :store :kind :flow})
+                             :query.flow/total))
+          (:output-path (rf/handler-meta {:source :store :kind :flow
+                                          :id     :query.flow/total}))
+          (rf/handler-meta {:source :store :kind :flow :id :query.flow/absent})])))
 
 (deftest unknown-kinds-fail-loud
   (is (= :rf.error/unknown-registry-kind

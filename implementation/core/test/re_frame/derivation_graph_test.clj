@@ -78,6 +78,7 @@
               {:inputs [[:rf/machine :upload/main]]}
               (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
   (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} count)
+  (rf/make-frame {:id :rf/default :flows [:cart/materialized-total]})
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]}
@@ -133,16 +134,14 @@
            [(get-in g [:nodes [:sub :article/page] :inputs])
             (filterv #(= [:sub :article/page] (:to %)) (:edges g))]))))
 
-(deftest same-flow-id-on-two-frames-stays-distinct
-  ;; A flow is frame-scoped, so one frame's flow never overwrites another's.
-  (rf/make-frame {:id :app/a})
-  (rf/make-frame {:id :app/b})
-  (rf/with-frame :app/a
-    (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))
-  (rf/with-frame :app/b
-    (rf/reg-flow :shared/total {:inputs [[:basket :lines]] :output-path [:b-total]} count))
-  (is (= {[:flow :app/a :shared/total] [[:db [:a-total]] [:frame :app/a]]
-          [:flow :app/b :shared/total] [[:db [:b-total]] [:frame :app/b]]}
+(deftest one-flow-run-by-two-frames-is-a-node-per-frame
+  ;; A flow node is frame-scoped: each frame running the flow owns its own
+  ;; materialization, so neither node overwrites the other.
+  (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:total]} count)
+  (rf/make-frame {:id :app/a :flows [:shared/total]})
+  (rf/make-frame {:id :app/b :flows [:shared/total]})
+  (is (= {[:flow :app/a :shared/total] [[:db [:total]] [:frame :app/a]]
+          [:flow :app/b :shared/total] [[:db [:total]] [:frame :app/b]]}
          (into {} (keep (fn [[id node]]
                           (when (= :shared/total (:id node))
                             [id ((juxt :output :owner) node)])))

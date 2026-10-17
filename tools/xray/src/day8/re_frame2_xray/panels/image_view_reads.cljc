@@ -89,9 +89,9 @@
 
 (def ^:private queryable-kinds
   "The registrar kinds a frame-targeted `rf/registrations` query answers: the
-  registrar's closed kind set less `:frame` and `:flow`, the two
-  reserved-but-empty slots the query refuses."
-  (disj rf.registrar/kinds :frame :flow))
+  registrar's closed kind set less `:frame`, the reserved-but-empty slot the
+  query refuses."
+  (disj rf.registrar/kinds :frame))
 
 (defn- live-store-frame-view
   "The frame view of `frame-id`, a frame that resolves the registration store

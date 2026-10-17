@@ -11,8 +11,9 @@
             [re-frame.core                 :as rf]
             [re-frame.fx                   :as rf.fx]
             [re-frame.image                :as rf.image]
-            [re-frame.late-bind            :as rf.late-bind]
             [re-frame.live-frame           :as rf.live-frame]
+            ;; Loaded for `:rf.machine/spawn`, the reject-tier reserved fx.
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]))
 
@@ -42,32 +43,24 @@
     (rf/dispatch-sync [:do/it] {:frame :inline/main})
     (is (= [{:n 7}] @fired) "positive control: without the sink the inline fx fires")))
 
-(deftest dry-run-skips-and-records-reserved-flow-fx
-  ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are reject-tier reserved fx: core
-  ;; runs their real body (the `:flows/*` late-bind hook) even over an override.
+(deftest dry-run-skips-and-records-reject-tier-reserved-fx
+  ;; `:rf.machine/spawn` is a reject-tier reserved fx: core runs its real body
+  ;; even over an override.
   (rf/make-frame {:id :rf/frame})
-  (let [hits      (atom [])
-        old-reg   (rf.late-bind/get-fn :flows/reg-flow)
-        old-clear (rf.late-bind/get-fn :flows/clear-flow)]
-    (try
-      (rf.late-bind/set-fn! :flows/reg-flow   (fn [& _] (swap! hits conj :reg-flow)))
-      (rf.late-bind/set-fn! :flows/clear-flow (fn [& _] (swap! hits conj :clear-flow)))
-      (rf/reg-event :rf/go
-        (fn [{:keys [db]} _]
-          {:db (assoc db :ran true)
-           :fx [[:rf.fx/reg-flow  [:my/flow {} (fn [_] 1)]]
-                [:rf.fx/clear-flow :my/flow]]}))
-      (let [sink (atom [])]
-        (binding [rf.fx/*effect-sink* sink]
-          (rf/dispatch-sync [:rf/go] {:frame :rf/frame}))
-        (is (= [] @hits))
-        (is (= [:rf.fx/reg-flow :rf.fx/clear-flow] (mapv first @sink))))
-      (rf/dispatch-sync [:rf/go] {:frame :rf/frame})
-      (is (= [:reg-flow :clear-flow] @hits)
-          "positive control: without the sink the reserved flow bodies run")
-      (finally
-        (rf.late-bind/set-fn! :flows/reg-flow   old-reg)
-        (rf.late-bind/set-fn! :flows/clear-flow old-clear)))))
+  (rf/reg-machine :dry/m {:initial :idle :states {:idle {}}})
+  (rf/reg-event :rf/go
+    (fn [{:keys [db]} _]
+      {:db (assoc db :ran true)
+       :fx [[:rf.machine/spawn {:machine-id :dry/m :fixed-actor-id :dry/a}]]}))
+  (let [spawned? #(some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/frame))
+                                 [:rf.runtime/machines :snapshots :dry/a]))
+        sink     (atom [])]
+    (binding [rf.fx/*effect-sink* sink]
+      (rf/dispatch-sync [:rf/go] {:frame :rf/frame}))
+    (is (not (spawned?)))
+    (is (= [:rf.machine/spawn] (mapv first @sink)))
+    (rf/dispatch-sync [:rf/go] {:frame :rf/frame})
+    (is (spawned?) "positive control: without the sink the reserved body runs")))
 
 (deftest dry-run-records-complete-source-ordered-and-nothing-escapes
   ;; The tentative :db still commits; rolling it back is the caller's job.

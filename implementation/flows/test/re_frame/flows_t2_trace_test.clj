@@ -28,6 +28,7 @@
 (deftest t2-emits-when-flow-changes-db
   ;; t1 carries what the handler returned; t2 what the flows made of it.
   (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
+  (rf/make-frame {:id :rf/default :flows [:len]})
   (rf/reg-event :t2/add-items (fn [_ _] {:db {:items [:a :b :c]}}))
   (let [evs (traces-of [:t2/add-items])
         ops (mapv :operation evs)
@@ -44,6 +45,7 @@
   ;; The second same-input dispatch skips the flow, so the post-flow db is
   ;; identical to t1. The t1 count shows the capture saw the dispatch.
   (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
+  (rf/make-frame {:id :rf/default :flows [:doubled]})
   (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
   (rf/dispatch-sync [:t2/set-n])
   (let [evs (traces-of [:t2/set-n])]

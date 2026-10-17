@@ -16,6 +16,11 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
+(defn- run-flows!
+  "Re-make `:rf/default` running the flows `ids`."
+  [& ids]
+  (rf/make-frame {:id :rf/default :flows (vec ids)}))
+
 (deftest runtime-only-change-recomputes-while-app-db-value-identical
   ;; The same app-db value is handed to every pass, so only runtime-db can
   ;; dirty the flow. A value-equal runtime-db skips `:derive`, and the pass
@@ -26,6 +31,7 @@
     (rf/reg-flow :route-slug
       {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:slug]}
       (fn [route-id] (swap! calls conj route-id) route-id))
+    (run-flows! :route-slug)
     (is (= [{:unrelated 1 :slug :home} {:unrelated 1 :slug :about} {:unrelated 1 :slug :about}]
            (mapv #(rf.flows/run-flows-on-db :rf/default app-db (rt %)) [:home :about :about])))
     (is (= [:home :about] @calls))))
@@ -34,6 +40,7 @@
   (rf/reg-flow :mixed
     {:inputs [[:app-first] [:rf.db/runtime :rt :mid] [:app-last]] :output-path [:combined]}
     vector)
+  (run-flows! :mixed)
   (is (= [:A :R :B]
          (:combined (rf.flows/run-flows-on-db :rf/default {:app-first :A :app-last :B} {:rt {:mid :R}})))))
 
@@ -46,6 +53,7 @@
       (fn [ev] (when (= :rf.flow/computed (:operation ev)) (swap! computed conj ev))))
     (try
       (rf/reg-flow :route-blob {:inputs [[:rf.db/runtime :rt :val]] :output-path [:out]} identity)
+      (run-flows! :route-blob)
       (rf.frame/swap-runtime-db! :rf/default
         (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:rt :val]]})))
       (rf.flows/run-flows-on-db :rf/default {}

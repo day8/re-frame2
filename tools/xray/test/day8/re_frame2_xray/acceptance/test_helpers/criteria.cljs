@@ -105,7 +105,9 @@
             ;; history and a nil failure flash, because `[]` is also the
             ;; shape a clean history has.
             [re-frame.epoch :as rf.epoch]
-            [re-frame.flows :as rf.flows]
+            ;; Criterion 2's lever registers a flow and re-makes the
+            ;; application's frame to run it, which needs the flows hooks.
+            [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
@@ -663,9 +665,9 @@
   through the production observation chain, and a settling window with the
   chain NOT pumped does not.
 
-  The lever is the application registering a flow at run time — an ordinary
-  thing a live app does — and the witness is the Static Flows panel growing
-  that flow's row. The chain in between is the shipped one: the app's own
+  The lever is the application registering a flow at run time and re-making
+  its frame to run it — what a live app's hot reload does — and the witness
+  is the Static Flows panel growing that flow's row. The chain in between is the shipped one: the app's own
   dispatch lands in its per-frame trace ring, `refresh-trace-rings!` mirrors
   the rings into `:rf/xray`'s `:trace-buffer`, and the panel's read — which
   is gated on that buffer — is invalidated and recommits.
@@ -705,13 +707,12 @@
                 (rf/reg-flow probe-flow-id
                              {:inputs      [[:probe :in]]
                               :output-path [:probe :out]
-                              :doc         "criterion 2's run-time registration"
-                              :frame       app-frame}
+                              :doc         "criterion 2's run-time registration"}
                              (fn [_] 0))
-                (is (some? (get-in (rf.flows/flows-snapshot)
-                                   [app-frame probe-flow-id]))
-                    (str "[" label "] PRECONDITION: the application's own registry "
-                         "really carries the new flow — so a missing row below is "
+                (rf/make-frame {:id app-frame :flows [probe-flow-id]})
+                (is (= [probe-flow-id] (:flows (rf/frame-meta app-frame)))
+                    (str "[" label "] PRECONDITION: the application's own frame "
+                         "really runs the new flow — so a missing row below is "
                          "Xray failing to observe, not the flow failing to exist"))
                 (settle)))
             (.then

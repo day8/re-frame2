@@ -158,31 +158,6 @@
   [x]
   (boolean (and (map? x) (get x object-marker))))
 
-(defn frame-opts?
-  "True when `opts` is EXACTLY `{:frame target}` — the sole key is `:frame`,
-  and its value is a PRESENT, non-nil frame TARGET (a frame-id keyword or a
-  live frame value). Rejects a missing `:frame`, a nil target, a misspelled or
-  unknown key, an extra key, `{}`, `nil`, and any non-map. Pure.
-
-  THE ONE VALIDATOR for the trailing `{:frame f}` opts map, shared by
-  `rf/clear`, `re-frame.flows/…/clear-flow` and
-  `re-frame.http.middleware/clear-http-interceptor`. It exists
-  because a TOLERANT destructure of the same map is a SILENT MIS-CLEAR:
-  `{:keys [frame]}` binds `frame` to nil on `{:fram :session}`, the ambient
-  frame is then resolved, and the WRONG frame's registration is cleared with
-  no signal at all. Every one of those doors takes the same guard, from one
-  copy.
-  Per [Principles §No silent swallow](../../../../../spec/Principles.md).
-
-  A frame VALUE is itself a map (it carries `:rf.frame/object`), so
-  `frame-value?` is what distinguishes it from a bare-keyword target."
-  [opts]
-  (and (map? opts)
-       (= #{:frame} (set (keys opts)))
-       (let [target (:frame opts)]
-         (or (keyword? target)
-             (frame-value? target)))))
-
 (defn frame-value->id
   "INTERNAL normalization primitive (there is no public
   `rf/frame-value->id` facade accessor — every public surface accepts
@@ -1396,13 +1371,14 @@
   CONSTANT across one incarnation and DISTINCT across a `destroy-frame!` +
   fresh construction of the same id.
 
-  A lifecycle-sensitive registry mutation (cold `reg-flow`) captures this token
-  while the frame is live, then admits its write ONLY while the SAME token is
-  still live (`(identical? pinned (frame-incarnation-token id))`). Because
+  A write that must land on one incarnation — a Tool-Pair state write, an
+  exact-incarnation runtime-db write — captures this token while the frame is
+  live, then admits its write ONLY while the SAME token is still live
+  (`(identical? pinned (frame-incarnation-token id))`). Because
   `destroy-frame!` flips liveness under that SAME `:drain-lock` (both go through
-  `call-serialized-with-drain!`), the registration and the destruction
-  linearize: the mutation can neither leave a ghost row on a destroyed frame
-  nor clobber a newer incarnation that reused the id."
+  `call-serialized-with-drain!`), the write and the destruction linearize: it
+  can neither land on a destroyed frame nor clobber a newer incarnation that
+  reused the id."
   [id]
   (some-> (frame id) :drain-lock))
 
@@ -2058,9 +2034,9 @@
   read-then-replace is effectively atomic — `commit-frame-transition!` is the
   only writer during fx drain. INTERNAL.
 
-  The 6-arity is the EXACT-INCARNATION variant used by the
-  callback-bearing flow-registry lifecycle writes (`clear-flow` / `reg-flow`
-  output-mark refresh and path vacation). It resolves the write through
+  The 6-arity is the EXACT-INCARNATION variant behind
+  `swap-runtime-db-exact!`, used by the writes an event issues under its
+  owner token (machine spawn and destroy). It resolves the write through
   `owner-token`'s own frame record (a same-id successor can never redirect it),
   and — `replace-container!` is a host-adapter callback boundary whose
   synchronous watch may destroy A and publish same-id B mid-install — rechecks
@@ -2149,70 +2125,52 @@
   [id f & args]
   (swap-partition! id runtime-partition-key f args))
 
-(defn ^:no-doc swap-frame-db-exact!
-  "Exact-incarnation `swap-frame-db!`: threads `owner-token`
-  so a synchronous container watch that destroys A and publishes a same-id B
-  during the physical install neither redirects the write into B nor bumps B's
-  commit epoch. A's write that linearized before the loss stands in A's
-  captured container. Used by the callback-bearing flow-registry lifecycle
-  writes. Returns the new app-db slice, or nil on owner loss."
-  [id owner-token f & args]
-  (swap-partition! id app-partition-key f args owner-token true))
-
 (defn ^:no-doc swap-runtime-db-exact!
-  "Exact-incarnation `swap-runtime-db!` — the runtime-db
-  sibling of `swap-frame-db-exact!`, used by the exact-aware elision-registry
-  writes the flow lifecycle ops issue. Returns the new runtime-db slice, or
-  nil on owner loss."
+  "Exact-incarnation `swap-runtime-db!`: threads `owner-token` so a
+  synchronous container watch that destroys A and publishes a same-id B during
+  the physical install neither redirects the write into B nor bumps B's commit
+  epoch. A's write that linearized before the loss stands in A's captured
+  container. Used by the machine lifecycle writes and the exact-aware
+  elision-registry writes they issue. Returns the new runtime-db slice, or nil
+  on owner loss."
   [id owner-token f & args]
   (swap-partition! id runtime-partition-key f args owner-token true))
 
 ;; ---- lifecycle-vs-drain serialization -------------------------------------
 ;;
-;; Some per-frame registry mutations must be ATOMIC with respect to that
-;; frame's event drain — they read-modify-write shared registry state AND
-;; app-db, and a concurrent drain that interleaves between the steps can
-;; observe a half-applied lifecycle change. The flows artefact has two such
-;; ops:
-;;
-;;   - `clear-flow` vacates the output path THEN removes the flow from the
-;;     registry. A drain that starts in that window still sees the flow,
-;;     recomputes it, and re-commits the output that clear-flow already
-;;     vacated — leaving stale derived state no live flow maintains.
-;;   - `reg-flow` replacement publishes the new flow into the registry
-;;     (visible to the drain) BEFORE the registrar replacement-hook drops
-;;     the stale `last-inputs` row. A drain in that window sees the new flow
-;;     with the OLD input cache and skips recompute on `=`-equal inputs.
+;; Some per-frame mutations must be ATOMIC with respect to that frame's event
+;; drain — they read-modify-write frame state, and a concurrent drain that
+;; interleaves between the steps can observe a half-applied change. The
+;; `destroy-frame!` liveness flip and the Tool-Pair state writes are such
+;; operations.
 ;;
 ;; The frame's `:drain-lock` is the single-drainer serialization
 ;; primitive (the router CAS-acquires it for the whole drain pass — see
 ;; `re-frame.router/drain-loop!`). `call-serialized-with-drain!` runs `f`
-;; under that lock so the lifecycle mutation is mutually exclusive with any
-;; concurrent drain, closing the windows above with ONE mechanism rather
-;; than per-op reordering / token threading (which would touch the hot
-;; dirty-check path). The drain path itself just CAS-acquires the lock;
-;; only the cold lifecycle ops contend for it on top.
+;; under that lock so the mutation is mutually exclusive with any concurrent
+;; drain, with ONE mechanism rather than per-op reordering / token threading
+;; (which would touch the hot path). The drain path itself just CAS-acquires
+;; the lock; only the cold ops contend for it on top.
 ;;
-;; REENTRANCY is the load-bearing subtlety. `clear-flow` / `reg-flow` can be
-;; invoked MID-DRAIN via the `:rf.fx/clear-flow` / `:rf.fx/reg-flow` effects
-;; (do-fx runs inside the drain pass, on the draining thread, which already
-;; holds `:drain-lock`). A naive acquire would deadlock the drainer against
-;; a lock it itself holds. So we first ask the router whether THIS thread is
-;; the frame's active drainer (the same `:in-drain?` thread marker the
-;; `dispatch-sync` nesting guard reads): if so we are already inside the
-;; single-drainer window and run `f` directly; only a DIFFERENT thread (or a
-;; non-drain call site) acquires the lock. On CLJS — single-threaded — the
-;; marker is `true`/`nil` and the same equality discriminates; an
-;; uncontended top-level call CAS-acquires the false lock on the first try.
+;; REENTRANCY is the load-bearing subtlety. A cold op can be issued MID-DRAIN
+;; — a `destroy-frame!` reached from an event's `:fx` walk runs on the
+;; draining thread, which already holds `:drain-lock`. A naive acquire would
+;; deadlock the drainer against a lock it itself holds. So we first ask the
+;; router whether THIS thread is the frame's active drainer (the same
+;; `:in-drain?` thread marker the `dispatch-sync` nesting guard reads): if so
+;; we are already inside the single-drainer window and run `f` directly; only
+;; a DIFFERENT thread (or a non-drain call site) acquires the lock. On CLJS —
+;; single-threaded — the marker is `true`/`nil` and the same equality
+;; discriminates; an uncontended top-level call CAS-acquires the false lock on
+;; the first try.
 
 (defn- current-thread-is-drainer?
   "True when the calling thread is the frame's currently-active drainer.
   Reads the router's `:in-drain?` marker (stamped by
   `re-frame.router/mark-drainer!` to the drainer thread on JVM, `true` on
-  CLJS). The flows lifecycle ops use this to take the reentrant fast-path
-  when invoked mid-drain via `:rf.fx/reg-flow` / `:rf.fx/clear-flow` — they
-  are already inside the single-drainer window, so re-taking `:drain-lock`
-  would self-deadlock."
+  CLJS). `call-serialized-with-drain!` uses this to take the reentrant
+  fast-path for an op issued mid-drain — it is already inside the
+  single-drainer window, so re-taking `:drain-lock` would self-deadlock."
   [frame-record]
   (let [in-drain (:in-drain? @(:router frame-record))]
     #?(:clj  (identical? in-drain (Thread/currentThread))
@@ -2246,16 +2204,10 @@
 (defn in-drain?
   "True when the calling thread is `frame-id`'s currently-active drainer —
   i.e. THIS call is happening reentrantly inside the frame's single-drainer
-  window (e.g. a `reg-flow` / `clear-flow` issued from an event HANDLER or a
-  `:rf.fx/reg-flow` effect mid-cascade). Public wrapper over the same
-  `:in-drain?` thread marker `call-serialized-with-drain!` reads.
-
-  `reg-flow`'s same-frame `:path`-change vacate must DEFER to the
-  drain's pending-`:db` transform when in-drain (a direct app-db write made
-  here is clobbered by the deferred commit that publishes the handler's
-  returned `:db`), but may vacate directly when OUT of a drain (no pending
-  commit to clobber it). Returns false for an absent frame (nothing can be
-  draining it)."
+  window (e.g. a Tool-Pair write issued from an event HANDLER mid-cascade).
+  Public wrapper over the same `:in-drain?` thread marker
+  `call-serialized-with-drain!` reads. Returns false for an absent frame
+  (nothing can be draining it)."
   [frame-id]
   (boolean
     (when-let [frame-record (frame frame-id)]
@@ -2273,14 +2225,13 @@
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
   value. Used by per-frame lifecycle mutations that must not interleave with a
-  concurrent `run-flows-on-db` pass or with each other — the flows lifecycle
-  ops (`reg-flow` / `clear-flow`), the `destroy-frame!` liveness flip
-  (`mark-frame-destroyed!`), and Tool-Pair state writes.
+  concurrent drain or with each other — the `destroy-frame!` liveness flip
+  (`mark-frame-destroyed!`) and Tool-Pair state writes.
 
   - Frame absent (unregistered / destroyed): nothing can be draining it, so
     just run `f`.
   - Calling thread already OWNS the serialization — it is the active drainer
-    (mid-drain `:rf.fx/*` call), OR it already holds a COLD critical section on
+    (a mid-drain call), OR it already holds a COLD critical section on
     this frame (e.g. a Tool-Pair write body that calls `destroy-frame!`): run
     `f` directly. Re-taking the non-reentrant `:drain-lock` CAS cell from a
     thread that already holds it would self-deadlock (see
@@ -3003,6 +2954,38 @@
              "them, e.g. [:shop/auth :shop/telemetry] — got " (pr-str ids) ".")
         {:extra {:http-interceptors ids}}))))
 
+(defn- validate-flows!
+  "PREFLIGHT guard for the `:flows` frame-config key (Spec 013 §Activation):
+  when present and non-nil it is a vector of keyword ids naming `reg-flow`
+  definitions. A non-empty vector needs the flows artefact, which evaluates
+  the flows each event; storing ids nothing will run is refused here, before
+  any frame state is written. `make-frame` has already resolved the ids
+  through the frame's own view and run the activation checks by the time this
+  runs. `where-sym` is the constructor symbol for the diagnostic."
+  [config where-sym]
+  (let [ids (:flows config)]
+    (cond
+      (not (or (nil? ids) (and (vector? ids) (every? keyword? ids))))
+      (rf.error/throw-error!
+        :rf.error/unregistered-flow
+        where-sym
+        (str ":flows must be a vector of keyword ids naming reg-flow "
+             "definitions, e.g. [:cart/subtotal :cart/total] — got "
+             (pr-str ids) ".")
+        {:recovery :fix-registration
+         :extra    {:flows ids}})
+
+      (and (seq ids) (nil? (rf.late-bind/get-fn :flows/run-flows-on-db)))
+      (rf.error/throw-error!
+        :rf.error/flows-artefact-missing
+        where-sym
+        (let [{maven      :maven
+               require-ns :require} (:flows rf.features/feature-registry)]
+          (str "this frame config names :flows, which requires " maven
+               " on the classpath; add it to deps and require " require-ns
+               " at app boot, BEFORE the frame is constructed."))
+        {:extra {:flows ids}}))))
+
 (def ^:private frame-registered-hook-keys
   "The ORDERED roster of optional-artefact POST-(RE-)REGISTRATION hook keys
   `fire-frame-registered-hook!` consults, in the order it consults them. A
@@ -3290,6 +3273,7 @@
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/make-frame)
         _              (validate-http-interceptors! config 'rf/make-frame)
+        _              (validate-flows! config 'rf/make-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
         ;; EP-0015 §9: validate the frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,
@@ -3433,7 +3417,7 @@
     ;; reprojection dirty for a change that is NOT a registration-pool change.
     ;; Routing reads frame config via
     ;; `frame-meta` / `frame-ids`; the registrar `:frame` kind is reserved with
-    ;; an intentionally EMPTY slot (the `:flow` precedent).
+    ;; an intentionally EMPTY slot.
     ;; One exact per-id reservation is acquired BEFORE the decision probe, any
     ;; adapter callback, provisional registry publication, trace-policy write,
     ;; synchronous setup, lifecycle trace, or extension hook. It is released in
@@ -4433,12 +4417,8 @@
          :machines/on-frame-destroyed!      — clear the machines
                                               artefact's frame-scoped
                                               `:after` timer table.
-         :flows/teardown-on-frame-destroy!  — release the destroyed
-                                              frame's per-frame flow-store
-                                              slot, its `last-inputs`
-                                              rows, and its pending
-                                              abandoned-output-path
-                                              (vacation) state.
+         :flows/teardown-on-frame-destroy!  — drop the destroyed frame's
+                                              flow evaluation memo.
          :routing/on-frame-destroyed!       — release the frame's
                                               host-side scroll-position
                                               cache and URL claim; the
@@ -4629,20 +4609,14 @@
         (safe-teardown-step! :frame/notify-machine-destruction!
                              (fn [] (notify-machine-destruction! id)))
         ;; Flip the liveness bit under the frame's OWN `:drain-lock` (the ONE
-        ;; frame-owned lifecycle gate, via the same `call-serialized-with-drain!`
-        ;; the flows lifecycle ops use) so a concurrent cold `reg-flow` / flow
-        ;; lifecycle op linearizes against this destroy. That op pins the
-        ;; incarnation token (`frame-incarnation-token`) and REVALIDATES it under
-        ;; the same lock inside its serialized mutation, so it either published
-        ;; its registry row BEFORE this flip — and the `:flows/teardown-on-frame-
-        ;; destroy!` hook below (which runs AFTER this flip) removes it — or it
-        ;; observes the destroyed incarnation AFTER the flip and refuses,
-        ;; leaving NO ghost row on the dead frame. Because the flows teardown
-        ;; always runs before `dissoc-frame!` (and a fresh same-id incarnation
-        ;; can only exist after that dissoc), the teardown can never delete a
-        ;; newer registration either. The frame is still LIVE at this point (the
-        ;; flip has not yet run), so the id-keyed helper resolves + locks the
-        ;; correct incarnation. Reentrant on ANY same-thread hold: a mid-drain
+        ;; frame-owned lifecycle gate, via `call-serialized-with-drain!`) so a
+        ;; concurrent cold serialized op — a Tool-Pair write — linearizes
+        ;; against this destroy. That op pins the incarnation token
+        ;; (`frame-incarnation-token`) and REVALIDATES it under the same lock,
+        ;; so it either ran BEFORE this flip or observes the destroyed
+        ;; incarnation AFTER it and refuses. The frame is still LIVE at this
+        ;; point (the flip has not yet run), so the id-keyed helper resolves +
+        ;; locks the correct incarnation. Reentrant on ANY same-thread hold: a mid-drain
         ;; destroy runs on the drainer thread, and a destroy issued from inside
         ;; a cold serialized op (e.g. a Tool-Pair write body) runs under that
         ;; op's `:serialized-holder` — either way the flip runs directly rather
@@ -4662,26 +4636,14 @@
         (safe-call-hook! :elision/clear-warning-cache!)
         (safe-call-hook! :ssr/on-frame-destroyed id)
         (safe-call-hook! :machines/on-frame-destroyed! id)
-        ;; Drop every flow registered against the destroyed
-        ;; frame plus its cached `last-inputs` rows and its pending
-        ;; abandoned-output-path (vacation) state. There is NO `:flow`
-        ;; registrar slot to prune: the `:flow` registrar
-        ;; kind is RESERVED with an intentionally empty slot, and
-        ;; `reg-flow` writes only to the flows artefact's own per-frame
-        ;; `{frame-id {flow-id flow-map}}` store — the single source of
-        ;; truth. Releasing this frame's key from that store (plus the two
-        ;; sibling frame-keyed caches) IS the whole teardown.
-        ;; Symmetric with the machines teardown hook above.
-        ;; Without this hook a long-running SSR JVM with
-        ;; per-request frame churn grows the flow registry unboundedly.
-        ;; This hook does NOT scrub the frame's flow-output elision marks:
-        ;; those live in the runtime-db partition INSIDE the
-        ;; `:frame-state` container, which `dissoc-frame!` (step 9 below)
-        ;; drops wholesale with the frame record — a per-flow scrub here
-        ;; would be redundant work over about-to-be-GC'd state, and a reused
-        ;; frame-id gets a fresh empty container so no stale flow-sourced
-        ;; declaration survives the cycle (see the flows
-        ;; `teardown-on-frame-destroy!` docstring).
+        ;; Drop the destroyed frame's flow evaluation memo. Flow definitions
+        ;; are registrar rows a frame's death leaves alone, and the frame's
+        ;; flow-output elision marks live in the runtime-db partition INSIDE
+        ;; the `:frame-state` container, which `dissoc-frame!` (step 9 below)
+        ;; drops wholesale with the frame record — so the memo is the whole
+        ;; teardown. Symmetric with the machines teardown hook above. Without
+        ;; this hook a long-running SSR JVM with per-request frame churn grows
+        ;; the memo table unboundedly.
         ;; No-op when re-frame.flows is absent (the artefact is optional).
         (safe-call-hook! :flows/teardown-on-frame-destroy! id)
         ;; Release the destroyed frame's host-side transient scroll

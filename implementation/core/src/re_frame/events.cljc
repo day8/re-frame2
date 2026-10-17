@@ -887,8 +887,8 @@
                        footprint-free ownership leaves open: a registrar entry
                        is consulted BEFORE the seam, so an app
                        `(reg-event :rf/settle-flows …)` would silently SHADOW
-                       the framework's settle and strand every flow-lifecycle
-                       effect. It fails loud instead."
+                       the framework's settle and leave every state-writing
+                       walk's flows a drain behind. It fails loud instead."
   #{:rf/set-db :rf/install-frame-state :rf/settle-flows})
 
 (defn- reject-reserved-event-id!
@@ -1371,21 +1371,22 @@
 
 ;; ---- the framework-private flow-settle event (Spec 013 §Sequencing) -------
 ;;
-;; `:rf.fx/reg-flow` and `:rf.fx/clear-flow` are walked by `:fx`, the LAST drain
-;; stage — it runs after the flow-transform `:after` has already evaluated this
-;; event's flows. So the registry mutation lands after the pass that would have
-;; acted on it, and the app-db consequence is one drain behind the effect.
+;; An effect that writes frame state — a machine spawn or destroy, a resource
+;; write, a user fx calling `re-frame.frame/swap-runtime-db!` — runs in the
+;; `:fx` walk, the LAST drain stage, after the flow-transform `:after` has
+;; already evaluated this event's flows. So the write lands after the pass that
+;; would have read it, and the flows' outputs are one drain behind it.
 ;;
 ;; The runtime closes that by having the `:fx` walk enqueue ONE of these on the
-;; same frame whenever it actually touched the flow registry (fx.cljc
-;; `request-flow-settle!` / `do-fx`). It drains inside the same
+;; same frame whenever the walk changed the state of a frame running a flow
+;; (fx.cljc `settle-flows-after-walk!` / `do-fx`). It drains inside the same
 ;; run-to-completion pass, runs the ordinary chain — so the framework's
 ;; `flows-after-interceptor` transforms the pending `:db` exactly as it does for
-;; any other event — and settles both arms before the dispatch returns. It is
-;; enqueued at the HEAD of the frame's queue (`router/insert-envelope`, keyed on
-;; the `:rf.flow/settle?` envelope flag), so it drains ahead of the
-;; continuations the registering/clearing handler queued with its own
-;; `:dispatch` effects and they read the settled `app-db`.
+;; any other event — and settles before the dispatch returns. It is enqueued at
+;; the HEAD of the frame's queue (`router/insert-envelope`, keyed on the
+;; `:rf.flow/settle?` envelope flag), so it drains ahead of the continuations
+;; the writing handler queued with its own `:dispatch` effects and they read
+;; the settled `app-db`.
 ;;
 ;; This is the framework performing, once, the follow-up no-op dispatch every
 ;; application would otherwise hand-write.
@@ -1425,8 +1426,8 @@
   is not done by this handler; it is done by the framework's flow-transform
   `:after`, which runs on EVERY event and needs only that an event run. With no
   `:db` effect of its own the transform reads the CURRENT app-db as the pending
-  value, walks the flows against the registry as the just-completed `:fx` walk
-  left it, and publishes a `:db` effect only if a flow actually changed
+  value, walks the flows against the frame state as the just-completed `:fx`
+  walk left it, and publishes a `:db` effect only if a flow actually changed
   something. A settle over an already-settled frame therefore installs nothing
   and emits no `:rf.event/db-changed`.
 
@@ -1434,7 +1435,7 @@
   install, one epoch record, the normal topo/dirty-check pass, and a derive
   throw reported through the SAME `:rf.error/flow-eval-exception` path with the
   same `:phase` discriminator as any other drain. No second failure path, and
-  no second install inside the registering event."
+  no second install inside the event whose walk wrote the state."
   [_coeffects _event]
   nil)
 
@@ -1443,8 +1444,8 @@
   Carried so tooling that receives the materialised meta (via the router's
   unresolved-handler seam) sees the same `:doc` shape a registered event would."
   {:doc "Framework-private flow-settle event (Spec 013 §Sequencing). Enqueued
-        by the `:fx` walk when it registered or cleared a flow, so the flow's
-        app-db consequence settles on the dispatching frame rather than one
+        by the `:fx` walk when it wrote the state of a frame running a flow, so
+        the flows' outputs settle on the dispatching frame rather than one
         drain later. Writes nothing itself. Not registered, not app API."})
 
 (defn settle-flows-handler-meta

@@ -51,10 +51,10 @@
                  "the SCOPE/ENSURE boundary pair"]]}
 
    {:file      "spec/013-Flows.md"
-    :why       "reg-flow's frame resolution (x2)"
+    :why       "reg-flow reads no frame scope"
     :forbidden [[stale-token "a provider-only scope-chain inventory"]
                 [#"surrounding `with-frame` scope or `frame-provider` —"
-                 "a provider-only reg-flow resolution inventory"]]
+                 "a provider-only scope-chain inventory"]]
     :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
 

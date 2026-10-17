@@ -6,7 +6,7 @@
   runtime-db — the machine lifecycle effects `:rf.machine/destroy` and
   `:rf.machine/spawn`, or any fx calling `re-frame.frame/swap-runtime-db!` —
   writes after it. When the walk leaves the frame's state container
-  non-`identical?` and the frame holds a flow, the walk enqueues one
+  non-`identical?` and the frame runs a flow, the walk enqueues one
   head-inserted settle; otherwise it enqueues none. The settle is keyed on the
   container, not on a list of writers, so the test-local `:p/write-snapshot`
   effect stands for every writer.
@@ -18,8 +18,8 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.event-emit :as rf.event-emit]
-   ;; Loaded for their late-bind hooks: without them no flow registers, and
-   ;; `reg-machine` and the lifecycle effects do not resolve.
+   ;; Loaded for their late-bind hooks: without them no flow registers or
+   ;; runs, and `reg-machine` and the lifecycle effects do not resolve.
    [re-frame.flows]
    [re-frame.frame :as rf.frame]
    [re-frame.machines]
@@ -82,6 +82,7 @@
     {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :pm/m :data :note]]
      :output-path [:mnote]}
     identity)
+  (rf/make-frame {:id :rf/default :flows [:pf/state :pf/note]})
   (rf/dispatch-sync [:pm/m [:go]])
   (rf/dispatch-sync [:pm/m [:go]]))
 
@@ -109,6 +110,7 @@
       {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :c/one :state]]
        :output-path [:cstate]}
       identity)
+    (rf/make-frame {:id :rf/default :flows [:pf/child]})
     (rf/reg-event :p/record-child
       (fn [{:keys [db]} _] {:db (assoc db :child-seen (:cstate db))}))
     (rf/reg-event :p/spawn
@@ -139,6 +141,7 @@
       {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :pm/timed :state]]
        :output-path [:tstate]}
       identity)
+    (rf/make-frame {:id :rf/default :flows [:pf/state :pf/note :pf/timed]})
     (rf/dispatch-sync [:pm/timed [:go]])
     (rf/dispatch-sync [:pm/timed [:go]])
     (call-counting-runs
@@ -149,7 +152,7 @@
         (is (zero? (settles runs)))))))
 
 (deftest a-frame-with-no-flows-pays-nothing
-  (testing "a mid-walk write on a frame holding no flows enqueues no settle"
+  (testing "a mid-walk write on a frame running no flows enqueues no settle"
     (rf/reg-machine :pm/m
       {:initial :idle :states {:idle {:on {:go :busy}} :busy {:on {:go :idle}}}})
     (reg-write-snapshot-fx!)

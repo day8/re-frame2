@@ -262,40 +262,6 @@
         :else
         (resolve-value last-step ctx)))))
 
-(defn- resolve-fx-args
-  "Resolve fx args, leaving DSL fields that the conformance harness owns
-  alone. `:rf.fx/reg-flow`'s `:body` is itself a DSL body — it must NOT
-  be walked through resolve-value (which would treat `[:fn :k ...]` as
-  a value form and partially-apply it). Pull `:body` aside, resolve the
-  rest of the map normally, then realise `:body` into `:derive`."
-  [fx-id args ctx]
-  (case fx-id
-    ;; `:rf.fx/reg-flow` carries the 3-slot triple
-    ;; `[flow-id metadata derive-fn]` (matching the `reg-flow` macro / fn). The
-    ;; fixture DSL describes a flow with a single map `{:id … :inputs …
-    ;; :body … :output-path …}` (a data description, not the API call), so this
-    ;; interpreter LOWERS that map into the triple: pull the `:id` out as the
-    ;; first slot, realise `:body` → the pure `derive-fn` third slot, and leave
-    ;; the remaining reflection keys (`:inputs` / `:output-path` / `:doc` /
-    ;; `:schema`) as the metadata middle slot. A fixture that already supplies a
-    ;; literal triple vector passes through resolved element-wise.
-    :rf.fx/reg-flow
-    (cond
-      (and (map? args) (contains? args :body))
-      (let [body           (:body args)
-            derive-fn      (realise-flow-output-fn body)
-            flow-id        (:id args)
-            metadata       (resolve-value (dissoc args :id :body) ctx)]
-        [flow-id metadata derive-fn])
-
-      (vector? args)
-      (mapv #(resolve-value % ctx) args)
-
-      :else
-      (resolve-value args ctx))
-
-    (resolve-value args ctx)))
-
 ;; ---- event-db / event-fx interpreter -------------------------------------
 
 (defn- apply-step
@@ -362,14 +328,14 @@
                    (and (vector? a) (every? vector? a))
                    (assoc ctx :fx (into (or fx [])
                                         (mapv (fn [[fx-id fx-args]]
-                                                [fx-id (resolve-fx-args fx-id fx-args ctx)])
+                                                [fx-id (resolve-value fx-args ctx)])
                                               a)))
 
                    ;; Single form: [:fx fx-id args]
                    :else
                    (assoc ctx :fx
                           (conj (or fx [])
-                                [a (resolve-fx-args a b ctx)]))))
+                                [a (resolve-value b ctx)]))))
 
     :dispatch  (let [ev (resolve-value (second step) ctx)]
                  (assoc ctx :fx (conj (or fx []) [:dispatch ev])))

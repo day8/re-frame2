@@ -28,28 +28,22 @@ The cart total meets all 3. `:checkout/place-order` reads the total straight fro
 
 Three things Spec 013 calls out, all in this one cart.
 
-Computed state in app-db. `:cart/subtotal` sums the line items and writes the result to `[:cart :subtotal]`. `:cart/total` takes it from there. Both are declared with `rf/reg-flow`. The runtime — not your code — is the only writer of those paths.
+Computed state in app-db. `:cart/subtotal` sums the line items and writes the result to `[:cart :subtotal]`. `:cart/total` takes it from there. Both are declared with `rf/reg-flow` as top-level forms, like the events and subscriptions beside them, and the cart's frame runs them because its `:flows` config names them: `{:id :rf/default :flows [:cart/subtotal :cart/total] …}`. The runtime — not your code — is the only writer of those paths.
 
 A flow that reads another flow. `:cart/total`'s `:inputs` are `[:cart :subtotal]` (another flow's output) and `[:cart :discount-rate]`. The runtime sees that `:cart/total` depends on `:cart/subtotal` (their paths overlap) and runs `:cart/subtotal` first. Both update in a single pass, right after the event handler and before the `:db` commit. So when you bump a quantity, the line-item change, the new subtotal, and the new total all land in one commit. A view never sees the subtotal updated while the total is still stale.
 
-A derivation you can switch on at runtime. The discount is a feature gate. `:cart/discount-rate` is not registered at boot; while it is absent, its path reads nil and `:cart/total` treats it as 0% off. "Apply 10% discount" registers the flow mid-event with the `:rf.fx/reg-flow` effect. "Remove discount" tears it down with `:rf.fx/clear-flow` (which also removes its output from app-db, so the path reads nil again). Because a flow is data in a registry — not logic baked into event chains — you can add or remove one while the app runs. (v1's closest equivalent, the `on-changes` interceptor, wires into fixed events at registration time and can't be toggled.)
+A discount that is just data. The discount rate is an ordinary app-db value. "Apply 10% discount" is an event that writes `0.1` to `[:cart :discount-rate]`; "Remove discount" is an event that removes it, and while it is absent `:cart/total` reads nil as 0% off. Because that path is one of `:cart/total`'s inputs, the total recomputes in the same event, before the commit: one click, one event, one write. A feature that switches a derivation on and off is state the flow reads, not a flow that comes and goes.
 
 Two smaller payoffs come along too, both about how ordinary a flow's output is:
 
 - a handler reads it with a plain `get-in` — `:checkout/place-order` reads `[:cart :total]` straight off `db`, with no subscribe and no special flow accessor. The flow's output is just app-db state.
 - a view reads it through a plain subscription — the subscriptions over `[:cart :subtotal]` and `[:cart :total]` are ordinary app-db reads; a flow publishes no subscription of its own. The `:output-path` is the contract, and anything that reads app-db can read it.
 
-### Toggling settles on the dispatch that does it
-
-A flow registered mid-event has its first output by the time that dispatch returns, and a cleared flow's output path is vacated by the same boundary. So `:cart/apply-discount` is one effect and nothing else — the discount rate and the total it feeds are both correct the moment the handler is done, and `:cart/remove-discount` puts them back the same way.
-
-There is a little machinery under that. Effects run after the event's flow pass is already done, so the registration lands after the walk that would have used it. Rather than walk twice inside one event, the framework enqueues one private settling event on the same frame; run-to-completion drains it before your dispatch returns. You never see it, and you never write it.
-
 ## Files
 
 ```
 flows/
-  core.cljs    — :cart slice, the three flows, demo events,
+  core.cljs    — :cart slice, the two flows, demo events,
                  subs, view, mount.
   index.html   — minimal host page.
 ```
@@ -61,9 +55,9 @@ flows/
 npm run dev:example -- examples/flows
 ```
 
-Then open the URL it prints. Bump a cart quantity to watch the subtotal and total update together. Toggle the discount to add and remove a flow live.
+Then open the URL it prints. Bump a cart quantity to watch the subtotal and total update together. Toggle the discount to watch the total follow it in the same click.
 
-Hot reload works on the flows too: edit a `:derive` body in `core.cljs` and save, and the watch reload swaps the new derivation into the live frame — your cart state survives, and the next quantity nudge computes with the edited formula. (The example's `reload!` re-registers the flows on each rebuild; same-id `reg-flow` is a surgical replace.)
+Hot reload works on the flows too: edit a `:derive` body in `core.cljs` and save. The reloaded namespace re-registers the flow like any other top-level form, and the live frame computes with the edited formula from its next event — your cart state survives, and the next quantity nudge shows the change.
 
 ## Cross-references
 

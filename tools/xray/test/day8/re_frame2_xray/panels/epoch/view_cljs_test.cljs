@@ -12,7 +12,7 @@
             ;; The producer-driven schema-violation rows below
             ;; drive a real flow, a real machine and the `:sub-overrides`
             ;; seam, and read each registration back through its own door.
-            [re-frame.flows :as rf.flows]
+            [re-frame.flows]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
@@ -970,6 +970,7 @@
      :output-path [:rf2-1t8fn/flow-out]
      :schema      :int}
     (fn [in] (str "not-an-int-" in)))
+  (rf/make-frame {:id :rf/default :flows [:rf2-1t8fn/typed-flow]})
   (rf/reg-event :rf2-1t8fn/seed-flow
     (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/flow-in 1)}))
   (rf/reg-machine :rf2-1t8fn/machine
@@ -1053,10 +1054,7 @@
                     ;; `:rf/machine? true`; its `[:schemas …]` ride on it.
                     :machine-data   (store :event :rf2-1t8fn/machine)
                     :machine-output (store :event :rf2-1t8fn/machine)
-                    ;; Flows live in the per-frame flow store, not the
-                    ;; registrar, whose `:flow` slot is reserved-but-empty.
-                    :flow-output    (rf.flows/flow-meta {:frame :rf/default
-                                                         :id    :rf2-1t8fn/typed-flow})
+                    :flow-output    (store :flow :rf2-1t8fn/typed-flow)
                     ;; An app-db schema is registered at a PATH. The row's
                     ;; `:failing-id` names the HANDLER whose write failed, so
                     ;; a link resolving through it would open the wrong form.

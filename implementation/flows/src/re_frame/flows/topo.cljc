@@ -1,11 +1,13 @@
 (ns re-frame.flows.topo
-  "Pure topology checks over one frame's flow map.
+  "Pure topology checks over the flows one frame runs.
 
   Flow B depends on A when A's output path and one of B's input paths overlap
   by prefix. Kahn's algorithm produces evaluation order; cycle errors include a
-  closing-repeat path for tools. Registration separately rejects overlapping
+  closing-repeat path for tools. Activation separately rejects overlapping
   output paths because output/output overlap creates no dependency edge and
-  would otherwise leave write order undefined."
+  would otherwise leave write order undefined. Each check names its caller in
+  `where-sym`: `rf/make-frame` for the activation checks, the flow pass for
+  the per-event recheck."
   (:require [re-frame.error :as rf.error]
             [re-frame.path :as rf.path]))
 
@@ -51,14 +53,14 @@
             [i j]))))
 
 (defn detect-output-path-overlap!
-  "Reject overlapping output paths in a prospective flow map.
+  "Reject overlapping output paths in a flow map.
 
   Output/output overlap is not a topology edge, so accepting it would make
   last-write order depend on map iteration. Returns `flow-map` when valid."
-  [flow-map]
+  [flow-map where-sym]
   (when-let [overlap (first-overlapping-pair flow-map)]
     (rf.error/throw-error!
-      :rf.error/flow-path-overlap 'rf/reg-flow
+      :rf.error/flow-path-overlap where-sym
       "Two flows in the same frame have overlapping output :output-paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :output-path against :inputs, never :output-path against :output-path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :output-path."
       {:recovery :fix-registration
        :extra    {:overlap overlap}}))
@@ -69,7 +71,7 @@
 
   Follow the original graph because Kahn's working dependency sets have been
   mutated while peeling acyclic nodes."
-  [graph remaining]
+  [graph remaining where-sym]
   ;; Hash ordering is deterministic enough here: any cycle path is valid.
   (let [stuck-node-ids (vec (sort-by hash remaining))
         start-node-id  (first stuck-node-ids)]
@@ -84,7 +86,7 @@
           (nil? next-dependency-id)
           ;; Every unpeeled node must have an unpeeled dependency.
           (rf.error/throw-error!
-            :rf.error/flow-cycle-extract-invariant 'rf/reg-flow
+            :rf.error/flow-cycle-extract-invariant where-sym
             "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
             {:extra {:node      node-id
                      :stack     stack
@@ -115,9 +117,9 @@
   (Spec 013 §Dependency rule), so the dependency graph RETAINS the `id -> id`
   self-edge and Kahn rejects it exactly like a multi-node cycle — there is no
   separate self-edge case and no singleton fast path that could smuggle one in.
-  This is intentionally unmemoized: frame flow maps are small and lifecycle
-  changes would require explicit cache invalidation."
-  [flow-map]
+  This is intentionally unmemoized: frame flow maps are small, and a cache
+  would need invalidating whenever a definition the frame resolves changes."
+  [flow-map where-sym]
   (let [ids (vec (keys flow-map))]
     (if (empty? ids)
       []
@@ -157,12 +159,13 @@
                              remaining-without-node)]
               (recur ready' remaining' (conj order node-id)))
             (if (seq remaining)
-              ;; Registration validates the prospective map before mutation,
-              ;; so callers can correct the graph and retry.
+              ;; Activation validates the frame's set before the frame
+              ;; exists, so callers can correct the graph and retry.
               (rf.error/throw-error!
-                :rf.error/flow-cycle 'rf/reg-flow
+                :rf.error/flow-cycle where-sym
                 "Cyclic flow dependency — either two-or-more flows' :output-path / :inputs overlap mutually, or one flow's :inputs overlap its own :output-path (a self-cycle) (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain; a self-cycle repeats one id, e.g. [id id]."
                 {:recovery :fix-registration
                  :extra    {:cycle (extract-cycle-path graph
-                                                       (set (keys remaining)))}})
+                                                       (set (keys remaining))
+                                                       where-sym)}})
               order)))))))

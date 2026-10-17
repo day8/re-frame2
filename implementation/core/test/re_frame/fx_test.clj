@@ -372,29 +372,39 @@
 ;; ---- 7c. Reserved-fx REJECT tier ------------------------------------------
 ;;
 ;; A reserved fx whose body installs or clears durable frame runtime state
-;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`,
-;; `:rf.fx/clear-flow`, `:rf.route/with-nav-token`) rejects an override: it
-;; emits `:rf.error/reserved-fx-override` and runs the real body. Three layers
-;; enforce it — the dev per-call reject in `handle-one-fx`, the production
-;; `strip-rejected-overrides`, and the cascade exclusion in `child-dispatch-opts`.
+;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.route/with-nav-token`)
+;; rejects an override: it emits `:rf.error/reserved-fx-override` and runs the
+;; real body. Three layers enforce it — the dev per-call reject in
+;; `handle-one-fx`, the production `strip-rejected-overrides`, and the cascade
+;; exclusion in `child-dispatch-opts`.
+
+(defn- spawn-fx
+  "A `:rf.machine/spawn` effect starting `actor-id` of a one-state machine."
+  [actor-id]
+  (rf/reg-machine :fx-test.snsup5/m {:initial :idle :states {:idle {}}})
+  [:rf.machine/spawn {:machine-id :fx-test.snsup5/m :fixed-actor-id actor-id}])
+
+(defn- spawned?
+  "True when `actor-id`'s snapshot is installed in `:rf/default`'s runtime-db."
+  [actor-id]
+  (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                 [:rf.runtime/machines :snapshots actor-id])))
 
 (deftest reject-tier-fn-value-override-ignored-reserved-body-runs
-  (testing "a fn-value override of :rf.fx/reg-flow is ignored, loudly; the flow is registered"
+  (testing "a fn-value override of :rf.machine/spawn is ignored, loudly; the actor spawns"
     (let [stub-fired (atom 0)
           stub       (fn [_ _] (swap! stub-fired inc))
-          flow       [:fx-test.snsup5/a-flow
-                      {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :out]}
-                      (fn [_] 42)]]
-      (rf/reg-event :fx-test.snsup5/install-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
+          spawn      (spawn-fx :fx-test.snsup5/a-actor)]
+      (rf/reg-event :fx-test.snsup5/spawn
+        (fn [_ _] {:fx [spawn]}))
       (let [{:keys [errors traces]} (observe #(rf/dispatch-sync
-                                                [:fx-test.snsup5/install-flow]
-                                                {:fx-overrides {:rf.fx/reg-flow stub}}))]
+                                                [:fx-test.snsup5/spawn]
+                                                {:fx-overrides {:rf.machine/spawn stub}}))]
         (is (= 0 @stub-fired))
-        (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow))
-        (is (= [{:failing-id :rf.fx/reg-flow
-                 :event      [:fx-test.snsup5/install-flow]
-                 :event-id   :fx-test.snsup5/install-flow
+        (is (spawned? :fx-test.snsup5/a-actor))
+        (is (= [{:failing-id :rf.machine/spawn
+                 :event      [:fx-test.snsup5/spawn]
+                 :event-id   :fx-test.snsup5/spawn
                  :frame      :rf/default}]
                (map #(select-keys % [:failing-id :event :event-id :frame])
                     (of-category :rf.error/reserved-fx-override errors))))
@@ -408,7 +418,7 @@
         {:keys [result errors traces]}
         (observe #(rf.fx/strip-rejected-overrides
                     {:rf.machine/spawn        stub
-                     :rf.fx/reg-flow          :some-redir
+                     :rf.machine/destroy      :some-redir
                      :rf.route/with-nav-token stub
                      :dispatch                stub
                      :my-app/http             stub}
@@ -416,7 +426,7 @@
                     [:some/event]))]
     (is (= #{:dispatch :my-app/http} (set (keys result)))
         "reject-tier keys are stripped; overridable and user keys survive")
-    (is (= {:rf.machine/spawn 1 :rf.fx/reg-flow 1 :rf.route/with-nav-token 1}
+    (is (= {:rf.machine/spawn 1 :rf.machine/destroy 1 :rf.route/with-nav-token 1}
            (frequencies (map :failing-id (of-category :rf.error/reserved-fx-override errors))))
         "one always-on record per stripped key")
     (when rf.interop/debug-enabled?
@@ -428,38 +438,33 @@
   ;; always-on record per dispatched event, and the reserved body still runs.
   (doseq [noop-value [nil false]]
     (testing (pr-str noop-value)
-      (rf.flows/reset-flows!)
-      (let [flow [:fx-test.x76af2-27/flow
-                  {:inputs [[:fx-test.x76af2-27 :seed]] :output-path [:fx-test.x76af2-27 :out]}
-                  (fn [_] 1)]]
-        (rf/reg-event :fx-test.x76af2-27/install-flow
-          (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
+      (let [actor-id (keyword "fx-test.x76af2-27" (str "actor-" noop-value))
+            spawn    (spawn-fx actor-id)]
+        (rf/reg-event :fx-test.x76af2-27/spawn
+          (fn [_ _] {:fx [spawn]}))
         (let [{:keys [errors]} (observe #(rf/dispatch-sync
-                                           [:fx-test.x76af2-27/install-flow]
-                                           {:fx-overrides {:rf.fx/reg-flow noop-value}}))]
+                                           [:fx-test.x76af2-27/spawn]
+                                           {:fx-overrides {:rf.machine/spawn noop-value}}))]
           (is (empty? (of-category :rf.error/reserved-fx-override errors)))
-          (is (contains? (get (rf.flows/flows-snapshot) :rf/default)
-                         :fx-test.x76af2-27/flow)))))))
+          (is (spawned? actor-id)))))))
 
 (deftest cascade-exclusion-reject-tier-not-inherited
   (testing "a reject-tier override on the parent envelope is not inherited by a [:dispatch …] child"
     (let [child-stub (atom 0)
           stub       (fn [_ _] (swap! child-stub inc))]
-      (rf/reg-event :fx-test.snsup5/child-installs-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/child-flow
-                                          {:inputs      [[:fx-test.snsup5 :seed]]
-                                           :output-path [:fx-test.snsup5 :child]}
-                                          (fn [_] 7)]]]}))
+      (let [spawn (spawn-fx :fx-test.snsup5/child-actor)]
+        (rf/reg-event :fx-test.snsup5/child-spawns
+          (fn [_ _] {:fx [spawn]})))
       (rf/reg-event :fx-test.snsup5/parent-cascades
-        (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-installs-flow]]]}))
+        (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-spawns]]]}))
       (let [{:keys [errors]} (observe #(rf/dispatch-sync
                                          [:fx-test.snsup5/parent-cascades]
-                                         {:fx-overrides {:rf.fx/reg-flow stub}}))]
+                                         {:fx-overrides {:rf.machine/spawn stub}}))]
         (is (= 0 @child-stub))
-        (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow))
+        (is (spawned? :fx-test.snsup5/child-actor))
         ;; The production strip legitimately reports the PARENT's override; only a
         ;; CHILD-attributed record would mean the override was inherited.
-        (is (empty? (filter #(= :fx-test.snsup5/child-installs-flow (:event-id %))
+        (is (empty? (filter #(= :fx-test.snsup5/child-spawns (:event-id %))
                             (of-category :rf.error/reserved-fx-override errors))))))))
 
 ;; ---- 7d. The SOURCE policy is the only policy -----------------------------
@@ -483,8 +488,7 @@
 
 (deftest reject-diagnostic-reason-is-id-specific
   (testing "every non-overridable source has its own rationale, not the generic fallback clause"
-    (doseq [id [:rf.machine/spawn :rf.machine/destroy
-                :rf.fx/reg-flow :rf.fx/clear-flow :rf.route/with-nav-token]]
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy :rf.route/with-nav-token]]
       (is (not (re-find #"is a non-overridable SOURCE \(" (reject-reason-for id)))
           (str id)))))
 

@@ -1,79 +1,71 @@
 ;; Conformance fixture: flow/toggle-via-fx
-;; Per Spec 013 §Dynamic toggle via fx — two reserved fx-ids let event
-;; handlers register and clear flows during normal event processing:
-;;
-;;   :rf.fx/reg-flow   — args are a flow map; registers the flow
-;;   :rf.fx/clear-flow — args are a flow id;  clears the flow
-;;
-;; Both settle on the DISPATCHING frame (per Spec 013 §Sequencing): the
-;; `:fx` walk enqueues one framework-private settling drain, so a flow
-;; registered mid-event has its initial output by the time that dispatch
-;; returns, and a cleared flow's :output-path is vacated by the same
-;; boundary. No app-authored follow-up event is involved.
+;; Per Spec 013 §Activation rule 6 — a feature gate is data. A flow whose
+;; output depends on whether a feature is engaged reads the gate as an
+;; input, and the events that engage and withdraw the feature write the
+;; gate into app-db. Nothing registers or clears a flow at runtime: the flow
+;; is registered once and the frame runs it throughout, so the gate rewinds
+;; with app-db under an epoch restore and arrives with it over SSR.
 
 {:fixture/id           :flow/toggle-via-fx
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle}
- :fixture/doc          "Round-trip the dynamic toggle: an event handler emits :rf.fx/reg-flow which registers the flow; a later event emits :rf.fx/clear-flow which deregisters and dissoc-in's the output path. Both settle on their own dispatch — the flow's first run lands on the REGISTERING event, and the clear vacates the slot on the clearing event."
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/toggle}
+ :fixture/doc          "A feature gate is an app-db input: :wizard/enter writes the gate and the flow's output takes it into account on that dispatch; :wizard/leave withdraws it on that dispatch too. The flow is registered once and runs throughout."
 
  :fixture/registry
- {:event {:wizard/init       {:doc "Seed :step-2 inputs."}
-          :wizard/enter      {:doc "Register the :step-2/computed flow via fx."}
-          :wizard/bump-foo   {:doc "Mutate :step-2 :foo to drive a recompute."}
-          :wizard/leave      {:doc "Clear the :step-2/computed flow via fx."}}
-  :fx    {:rf.fx/reg-flow   {:doc "Reserved — register a flow at runtime."
-                             :platforms #{:client :server}}
-          :rf.fx/clear-flow {:doc "Reserved — clear a flow at runtime."
-                             :platforms #{:client :server}}}}
+ {:event {:wizard/init     {:doc "Seed the :step-2 total, with the gate withdrawn."}
+          :wizard/enter    {:doc "Engage step 2 by writing its gate."}
+          :wizard/bump-foo {:doc "Mutate the :step-2 total to drive a recompute."}
+          :wizard/leave    {:doc "Withdraw step 2 by clearing its gate."}}
+  :flow  {:step-2/computed {:doc         "The step-2 total while step 2 is engaged (gate 1), else 0 (gate 0)."
+                            :inputs      [[:step-2 :total] [:step-2 :engaged]]
+                            :output-path [:step-2 :result]}}}
 
- ;; The flow body is described declaratively; the harness wires it to
- ;; (fn [foo bar] (+ foo bar)) when materialising the :rf.fx/reg-flow
- ;; effect's args.
  :fixture/handlers
- {:event {:wizard/init     [[:set [:step-2 :foo] 3]
-                            [:set [:step-2 :bar] 4]]
-          :wizard/enter    [[:fx :rf.fx/reg-flow
-                             {:id     :step-2/computed
-                              :inputs [[:step-2 :foo] [:step-2 :bar]]
-                              :body   [[:fn :+ [:event-arg 0] [:event-arg 1]]]
-                              :output-path [:step-2 :result]}]]
-          :wizard/bump-foo [[:set [:step-2 :foo] [:event-arg 1]]]
-          :wizard/leave    [[:fx :rf.fx/clear-flow :step-2/computed]]}}
+ {:event {:wizard/init     [[:set [:step-2 :total] 7]
+                            [:set [:step-2 :engaged] 0]]
+          :wizard/enter    [[:set [:step-2 :engaged] 1]]
+          :wizard/bump-foo [[:set [:step-2 :total] [:event-arg 1]]]
+          :wizard/leave    [[:set [:step-2 :engaged] 0]]}}
+
+ ;; `(fn [total engaged] (* total engaged))` — the gate is a 0/1 factor.
+ :fixture/flow-bodies
+ {:step-2/computed [[:fn :* [:event-arg 0] [:event-arg 1]]]}
 
  :fixture/frame-config
- {:initial-events [[:wizard/init]]}
+ {:flows          [:step-2/computed]
+  :initial-events [[:wizard/init]]}
 
  ;; Sequence:
- ;;   :wizard/enter    — registers the flow. It settles on THIS dispatch
- ;;                      (per Spec 013 §Sequencing); inputs are 3 + 4, so
- ;;                      [:step-2 :result] is 7 by the time it returns.
+ ;;   :initial-events  — :total 7 with the gate at 0: the flow computes 0.
  ;;                      Recompute #1.
- ;;   :wizard/bump-foo — mutates :step-2 :foo to 5; the flow recomputes on
- ;;                      this drain → 5 + 4 = 9 at [:step-2 :result].
- ;;                      Recompute #2.
- ;;   :wizard/leave    — clears the flow. The output path is dissoc-in'd on
- ;;                      this same dispatch, so the registry row and the
- ;;                      value it owned go together.
+ ;;   :wizard/enter    — engages the gate; 7 at [:step-2 :result] by the
+ ;;                      time this dispatch returns. Recompute #2.
+ ;;   :wizard/bump-foo — :total 9; 9. Recompute #3.
+ ;;   :wizard/leave    — withdraws the gate; 0 again on this same dispatch.
+ ;;                      Recompute #4.
  :fixture/dispatches
  [[:wizard/enter]
-  [:wizard/bump-foo 5]
+  [:wizard/bump-foo 9]
   [:wizard/leave]]
 
  :fixture/expect
- ;; After :wizard/leave, :step-2 retains :foo / :bar; :result is gone
- ;; (clear-flow dissoc-in's the leaf at the flow's :output-path).
  {:final-app-db
-  {:step-2 {:foo 5 :bar 4}}
+  {:step-2 {:total 9 :engaged 0 :result 0}}
 
-  ;; The harness checks that the flow registry no longer contains
-  ;; :step-2/computed after :wizard/leave fires.
+  ;; The frame runs the flow throughout.
   :flow-registry-after
-  #{}
+  #{:step-2/computed}
 
-  ;; This count is what pins the settle contract, and `:final-app-db`
-  ;; cannot: it is a SUBMAP matcher, so it is blind to a stale `:result`
-  ;; the clear failed to vacate, and blind to whether the registering
-  ;; dispatch computed anything at all. Two recomputes says both — one on
-  ;; :wizard/enter (the settle) and one on :wizard/bump-foo.
+  ;; `:final-app-db` is a SUBMAP matcher on the end state, so it cannot see
+  ;; that the gate's writes each took effect on their own dispatch; four
+  ;; recomputes say they did.
   :flow-recompute-counts
-  {:step-2/computed 2}}}
+  {:step-2/computed 4}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :wizard/enter}}
+   {:operation :rf.flow/computed   :tags {:flow-id :step-2/computed :result 7}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :wizard/bump-foo}}
+   {:operation :rf.flow/computed   :tags {:flow-id :step-2/computed :result 9}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :wizard/leave}}
+   {:operation :rf.flow/computed   :tags {:flow-id :step-2/computed :result 0}}]}}

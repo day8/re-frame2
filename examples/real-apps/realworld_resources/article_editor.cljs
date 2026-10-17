@@ -15,15 +15,11 @@
       is the mutation INSTANCE, watched through `[:rf/mutation {:instance …}]`;
       there's no `:status` field in app-db.
 
-   2. The can-submit gate is a flow. `:editor/can-submit?` materialises one
-      derived fact — 'the draft is valid AND differs from the loaded baseline' —
-      into app-db at `[:editor :can-submit?]`. The submit handler then reads it as
-      plain data (no subscribing mid-handler), and the submit button reads the same
-      value through a plain sub over the flow's `:output-path`. The flow is
-      registered ONCE at boot from `:editor/register-flow` (dispatched by
-      `:app/initialise`) via `:rf.fx/reg-flow`, so it binds to the boot frame and
-      isn't re-registered on every editor entry. See the flow glossary:
-      ../../../docs/core/glossary.md#flow.
+   2. The can-submit gate is a pure function. `can-submit?` answers one derived
+      question — 'is the draft valid AND different from the loaded baseline?' —
+      over the editor slice. The submit handler calls it on the slice it already
+      holds, and the submit button reads it through the `:editor/can-submit?` sub.
+      One definition, two readers, and nothing extra stored in app-db.
 
    3. A navigation `:can-leave` guard. The editor route declares
       `:can-leave [:editor/can-leave?]`; a dirty draft blocks a navigate-away and
@@ -55,10 +51,6 @@
             [re-frame.core :as rf]
             [re-frame.http.managed]
             [re-frame.resources]
-            ;; The flows runtime. Loading it publishes the hooks so the
-            ;; `:rf.fx/reg-flow` effect has something to resolve against; without
-            ;; it, the effect raises.
-            [re-frame.flows]
             [realworld-resources.http :as rh]
             [realworld-shared.schema :as schema])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -158,38 +150,23 @@
   [:editor/save nav-token])
 
 ;; ============================================================================
-;; THE FLOW — :editor/can-submit?
+;; THE GATE — can-submit?
 ;; ============================================================================
 ;;
-;; This materialises one derived boolean — 'the draft passes client-side
-;; validation AND differs from the loaded baseline' — into app-db at
-;; `[:editor :can-submit?]`. Why bother with a flow instead of a sub? Because the
-;; `:editor/submit` handler wants to read this value as plain app-db data to gate
-;; the submit, and a sub would force the handler to subscribe mid-handler, which is
-;; awkward. The submit button, meanwhile, reads the very same materialised value
-;; through a plain sub over the `:output-path`. One derived fact, two readers, no
-;; duplication. See the flow glossary: ../../../docs/core/glossary.md#flow.
-;;
-;; It's registered ONCE at boot via `:rf.fx/reg-flow` from `:editor/register-flow`
-;; (dispatched by `:app/initialise`, not at ns-load and not per route entry), so it
-;; binds to the boot frame and lives as long as it — the same lifetime as the
-;; `[:editor …]` slice it derives over. Its first walk settles on that same
-;; registering dispatch, so `[:editor :can-submit?]` is populated before
-;; `:app/initialise` returns.
+;; One derived boolean — 'the draft passes client-side validation AND differs
+;; from the loaded baseline' — as a pure function of the editor slice. The
+;; `:editor/submit` handler calls it on the slice it already holds, and the
+;; submit button reads it through the `:editor/can-submit?` sub. One derived
+;; fact, two readers, no duplication, and nothing stored: the value never has to
+;; travel with the state, so it does not need to be a flow
+;; (../../../docs/core/flows.md#when-a-derivation-earns-app-db).
 
-;; This value uses the canonical `[flow-id metadata derive-fn]` triple shared by
-;; `reg-flow` and `:rf.fx/reg-flow`, so `[:rf.fx/reg-flow can-submit-flow]`
-;; passes the complete registration through unchanged.
-(def can-submit-flow
-  [:editor/can-submit?
-   {:doc    "True when the editor draft is both valid AND dirty (differs from the
-             loaded baseline). Materialised into app-db so the submit handler can
-             read it as plain data."
-    :inputs [[:editor :draft] [:editor :baseline]]
-    :output-path [:editor :can-submit?]}
-   (fn [draft baseline]
-     (and (empty? (validate-draft draft))
-          (not= draft baseline)))])
+(defn can-submit?
+  "True when the editor slice's draft is both valid AND dirty (it differs from
+   the loaded baseline)."
+  [{:keys [draft baseline]}]
+  (and (empty? (validate-draft draft))
+       (not= draft baseline)))
 
 ;; ============================================================================
 ;; THE WRITE — mutations (POST create / PUT edit / DELETE)
@@ -265,21 +242,6 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event :editor/register-flow
-  {:doc "Boot-time one-shot: register the `:editor/can-submit?` flow ONCE against
-         the boot frame. Dispatched from `:app/initialise` at boot — NOT per route
-         entry. `:rf.fx/reg-flow` replaces by id, so re-registering on every
-         `/editor` entry wouldn't stack copies — but it WOULD leave the flow
-         registered after you leave the editor, quietly recomputing over the
-         editor slice for the rest of the session. Registering once at boot (the
-         flow lives as long as the frame, like the `[:editor …]` slice it derives
-         over) is the honest singleton shape; each route entry then only resets
-         the slice. (The http sibling reuses its same-named `:editor/initialise`
-         as this boot one-shot; here `:editor/initialise` is the create-route
-         `:on-match`, so the boot registration gets its own event.)"}
-  (fn [_ _]
-    {:fx [[:rf.fx/reg-flow can-submit-flow]]}))
-
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Resets the editor
          slice to a blank draft. It clears no save instance: this navigation's
@@ -288,9 +250,7 @@
          `/editor` from an edit route is a real navigation, so the runtime has
          already released the outgoing edit article owner — the ROUTE owns the
          edit read (`:realworld.editor/edit` `:resources`, routing.cljs) and drops
-         it on leave — leaving this event only the slice reset. The
-         `:editor/can-submit?` flow is registered ONCE at boot by
-         `:editor/register-flow`, not per entry."}
+         it on leave — leaving this event only the slice reset."}
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))}))
 
@@ -313,10 +273,8 @@
          cache entries with independent generations, so leaving A for B (or new, or
          home) releases A's owner but a best-effort-uncancelled A settle can still
          fire A's continuation late — carrying the slug lets `:editor/article-loaded`
-         drop a reply the editor has moved on from. The `:editor/can-submit?` flow
-         is registered ONCE at boot by `:editor/register-flow`, not per entry. The
-         seeded baseline is what gives the dirty-check something to compare
-         against."}
+         drop a reply the editor has moved on from. The seeded baseline is what
+         gives the dirty-check something to compare against."}
   (fn [{:keys [db]} [_ target]]
     (let [slug (get-in target [:params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
@@ -419,21 +377,20 @@
   (get-in rt [:rf.runtime/routing :current :nav-token]))
 
 (rf/reg-event :editor/submit
-  {:doc "Save the article. Reads the `:editor/can-submit?` FLOW output straight off
-         app-db — a materialised derived value, consumed as plain data, no
-         subscribe ceremony required. Valid-and-dirty fires the save mutation; an
-         invalid draft re-runs validation to fill in the per-field error map; and
+  {:doc "Save the article. Gates on `can-submit?`, the same pure function the
+         button's sub calls. Valid-and-dirty fires the save mutation; an invalid
+         draft re-runs validation to fill in the per-field error map; and
          valid-but-unchanged is a no-op."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)
-          can-submit? (get-in db [:editor :can-submit?])
+          submittable? (can-submit? (:editor db))
           errors      (validate-draft draft)
           nav-token   (current-nav-token rt)]
       (cond
         ;; Valid but unchanged → nothing to save. The button is already disabled in
         ;; this state; this is just the belt-and-braces no-op for a programmatic
         ;; dispatch.
-        (and (not can-submit?) (empty? errors))
+        (and (not submittable?) (empty? errors))
         {}
 
         (seq errors)
@@ -548,12 +505,10 @@
       (get-in e [:errors field]))))
 
 (rf/reg-sub :editor/can-submit?
-  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db `:output-path` —
-         a flow's output is just ordinary app-db state, read through a plain sub.
-         Drives the submit button. It's nil until the flow's first walk lands,
-         which `(boolean …)` tidily normalises to false."}
-  (fn [db _]
-    (boolean (get-in db [:editor :can-submit?]))))
+  {:doc "The `can-submit?` gate over the editor slice. Drives the submit button;
+         `:editor/submit` calls the same function."
+   :inputs [[:editor/slice]]}
+  (fn [[e] _] (can-submit? e)))
 
 (rf/reg-sub :editor/dirty?
   {:inputs [[:editor/slice]]}
@@ -636,9 +591,8 @@
              :on-change #(dispatch [:editor/edit-field :tagList (.. % -target -value)])}]]
           [:button.btn.btn-lg.pull-xs-right.btn-primary
            {:type "submit" :data-testid "editor-submit"
-            ;; Disabled while busy, or while the can-submit? flow is false (draft
-            ;; invalid or unchanged) — the flow's materialised output drives this
-            ;; directly.
+            ;; Disabled while busy, or while the can-submit? gate is false (draft
+            ;; invalid or unchanged).
             :disabled (or busy? (not can-submit?))}
            (if editing? "Update Article" "Publish Article")]
           (when editing?

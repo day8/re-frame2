@@ -249,6 +249,7 @@
   (let [recorded (atom [])]
     (rf/register-listener! :trace ::timing (fn [ev] (swap! recorded conj ev)))
     (rf/reg-flow :timing/doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 (or n 0))))
+    (rf/make-frame {:id :rf/default :flows [:timing/doubled]})
     (rf/reg-fx :timing/side (fn [_ _] :ok))
     (rf/reg-event :timing/seed (fn [_ _] {:db {:n 1} :fx [[:timing/side :go]]}))
     (rf/dispatch-sync [:timing/seed])

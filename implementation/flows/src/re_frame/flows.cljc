@@ -1,8 +1,9 @@
 (ns re-frame.flows
-  "Flows — registered, runtime-toggleable computed-state declarations.
+  "Flows — registered computed-state declarations a frame activates through
+  its `:flows` config.
 
-  Each event drain evaluates the frame's flows in dependency order against
-  the pending app-db and runtime-db. Changed inputs run the flow's pure
+  Each event drain evaluates the flows its frame runs, in dependency order,
+  against the pending app-db and runtime-db. Changed inputs run the flow's pure
   derivation and materialize its result in app-db before that db is committed.
 
   Flows are for derived values that must be durable application state. Values
@@ -19,40 +20,27 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
             ;; No require of `re-frame.flows.tooling` on EITHER runtime: the
             ;; facade carries no `flow-algebra-view` alias, so tooling is
             ;; unreachable from this facade on both runtimes and Closure
             ;; removes it whenever no tool requires the sibling directly.
             [re-frame.trace :as rf.trace]))
 
-(def ^:no-doc stale-incarnation
-  "Internal return marker: the exact frame owner vanished during a flow pass."
-  :rf.flow/stale-incarnation)
-
-(defn- owner-live?
-  [frame-id owner-token exact-owner?]
-  (or (not exact-owner?)
-      (rf.frame/event-continuation-live? frame-id owner-token)))
-
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
-;; `last-inputs-snapshot` exposes raw cached values for tests and rollback. It
-;; is not a tooling or egress surface; trace payloads use the elided path.
+;; `last-inputs-snapshot` exposes raw cached values for tests. It is not a
+;; tooling or egress surface; trace payloads use the elided path. Flow
+;; definitions are read through the registrar (`rf/registrations`,
+;; `rf/handler-meta`) and a frame's active set through `(:flows (rf/frame-meta
+;; f))` — there is no flows-specific read API.
 
-(def flows-snapshot       rf.flows.registry/flows-snapshot)
 (def ^:no-doc last-inputs-snapshot rf.flows.registry/last-inputs-snapshot)
-
-;; Flow metadata is frame-scoped and therefore cannot use the frame-blind
-;; registrar metadata slot. Both per-frame reads take one opts MAP with a
-;; REQUIRED `:frame` — no ambient default, no trailing
-;; frame-target sniffing.
-(def flows              rf.flows.registry/flows)
-(def flow-meta          rf.flows.registry/flow-meta)
 
 (def reg-flow           rf.flows.registry/reg-flow)
 ;; No public `clear-flow` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn below is
-;; the late-bind hook target.
+;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn is the
+;; late-bind hook target.
 (def reset-flows!       rf.flows.registry/reset-flows!)
 (def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
@@ -145,153 +133,64 @@
 
   Validation is diagnostic: it emits a schema failure but does not unwind the
   pending flow cascade. The caller invokes this only in debug builds."
-  [frame-id owner-token exact-owner? flow new-output]
-  (let [live?  #(owner-live? frame-id owner-token exact-owner?)
-        schema (:schema flow)]
-    (cond
-      (not (live?)) false
-      ;; KEY-presence, not value truthiness: a present nil /
-      ;; false `:schema` on the flow is a declaration whose exact token is
-      ;; delegated to the registered validator below; only an ABSENT key
-      ;; means no declaration.
-      (not (contains? flow :schema)) true
-      :else
-      (if-let [validate (rf.late-bind/get-fn-cached
+  [frame-id flow new-output]
+  ;; KEY-presence, not value truthiness: a present nil / false `:schema` on
+  ;; the flow is a declaration whose exact token is delegated to the
+  ;; registered validator below; only an ABSENT key means no declaration.
+  (when (contains? flow :schema)
+    (when-let [validate (rf.late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]
-        (let [valid? (validate schema new-output)]
-          ;; Registered schema functions are authored callback boundaries.
-          ;; Once A is gone, their result and every later diagnostic are inert.
-          (cond
-            (not (live?)) false
-            valid? true
-            :else
-            (let [explain     (rf.late-bind/get-fn-cached
-                                :schemas/explain-with-registered-fn)
-                  explanation (when explain (explain schema new-output))]
-              (if-not (live?)
-                false
-                (let [redact (rf.late-bind/get-fn-cached
-                               :schemas/redact-validation-tags)
-                      elided (rf.elision/elide-wire-value
-                               new-output
-                               {:frame frame-id
-                                :path (:output-path flow)})
-                      tags   {:category   :rf.error/schema-validation-failure
-                              :where      :flow-output
-                              :rf.flow/id (:id flow)
-                              :failing-id (:id flow)
-                              :schema-id  (:id flow)
-                              :path       (:output-path flow)
-                              :value      elided
-                              :explain    explanation
-                              :reason     (str "Flow " (:id flow)
-                                               " output failed schema "
-                                               (pr-str schema) ".")
-                              :recovery   :no-recovery
-                              :frame      frame-id}
-                      tags   (if redact (redact schema tags) tags)
-                      ;; `:explain` re-ships the checked value whole (Malli's
-                      ;; `:value` and every `:errors[*].:value`) and is not
-                      ;; path-anchored, so it cannot be walked like `:value`.
-                      ;; The seam above reads only `:sensitive?` props in the
-                      ;; SCHEMA, so an output the frame's registry classifies
-                      ;; is redacted whole here, and the trace is stamped so
-                      ;; the egress gate drops it. This runs after the seam,
-                      ;; so sensitive wins over any size marker it substituted.
-                      ;; Otherwise an output the registry classifies large
-                      ;; gets a size marker in place of `:explain`,
-                      ;; as Spec 010's size arm does for a `:large?` schema —
-                      ;; unless the seam already redacted it, since sensitive
-                      ;; wins there too.
-                      tags   (cond
-                               (sensitive-output? frame-id flow new-output)
-                               (assoc tags
-                                      :explain    rf.privacy/redacted-sentinel
-                                      :sensitive? true)
+      (let [schema (:schema flow)]
+        (when-not (validate schema new-output)
+          (let [explain     (rf.late-bind/get-fn-cached
+                              :schemas/explain-with-registered-fn)
+                explanation (when explain (explain schema new-output))
+                redact      (rf.late-bind/get-fn-cached
+                              :schemas/redact-validation-tags)
+                elided      (rf.elision/elide-wire-value
+                              new-output
+                              {:frame frame-id
+                               :path  (:output-path flow)})
+                tags        {:category   :rf.error/schema-validation-failure
+                             :where      :flow-output
+                             :rf.flow/id (:id flow)
+                             :failing-id (:id flow)
+                             :schema-id  (:id flow)
+                             :path       (:output-path flow)
+                             :value      elided
+                             :explain    explanation
+                             :reason     (str "Flow " (:id flow)
+                                              " output failed schema "
+                                              (pr-str schema) ".")
+                             :recovery   :no-recovery
+                             :frame      frame-id}
+                tags        (if redact (redact schema tags) tags)
+                ;; `:explain` re-ships the checked value whole (Malli's
+                ;; `:value` and every `:errors[*].:value`) and is not
+                ;; path-anchored, so it cannot be walked like `:value`. The
+                ;; seam above reads only `:sensitive?` props in the SCHEMA, so
+                ;; an output the frame's registry classifies is redacted whole
+                ;; here, and the trace is stamped so the egress gate drops it.
+                ;; This runs after the seam, so sensitive wins over any size
+                ;; marker it substituted. Otherwise an output the registry
+                ;; classifies large gets a size marker in place of `:explain`,
+                ;; as Spec 010's size arm does for a `:large?` schema — unless
+                ;; the seam already redacted it, since sensitive wins there too.
+                tags        (cond
+                              (sensitive-output? frame-id flow new-output)
+                              (assoc tags
+                                     :explain    rf.privacy/redacted-sentinel
+                                     :sensitive? true)
 
-                               (:sensitive? tags) tags
+                              (:sensitive? tags) tags
 
-                               :else
-                               (if-let [marker (explain-size-marker
-                                                 flow new-output elided)]
-                                 (assoc tags :explain marker :large? true)
-                                 tags))]
-                  (if-not (live?)
-                    false
-                    (do
-                      (rf.trace/emit-error!
-                        :rf.error/schema-validation-failure tags)
-                      (live?))))))))
-        true))))
-
-;; ---- who is running this pass --------------------------------------------
-;;
-;; The evaluator is shared: the router runs it over an event's PENDING db, and
-;; the out-of-drain settle below runs the SAME pass over the COMMITTED one.
-;; Everything about evaluation is identical across the two — same topological
-;; sort, same dirty check, same phases, same error id — so nothing here
-;; branches on the caller except the two things that genuinely differ.
-;;
-;; WHICH flows it may evaluate for the FIRST time. A drain is
-;; where a flow's first evaluation belongs (Spec 013 §Why a direct `reg-flow`
-;; does not settle), so the drain evaluates a flow with no dirty-check row. The
-;; direct-clear settle does not: it re-evaluates only flows that have already
-;; run, and leaves a never-run flow — row still absent — for the next drain.
-;; Otherwise a clear of ANY flow would force the first evaluation of every flow
-;; registered cold since the last drain, at a moment the caller did not choose
-;; and often against an unseeded app-db.
-;;
-;; And what a failure LEAVES BEHIND, and therefore what the diagnostic may
-;; truthfully say about it.
-;;
-;; In a drain the pass output is a candidate `:db` the router discards on a
-;; throw, so the event aborts before the install and app-db is unchanged. In a
-;; direct `clear-flow`'s settle the deregistration and output-path vacation are
-;; ALREADY COMMITTED and intentionally stand (Spec 013 §The same boundary for a
-;; direct `clear-flow`, point 2); only the settle's candidate db is dropped.
-;; Reporting the drain's sentence to that caller states three things that are
-;; each false — that a drain ran, that an event aborted, and that app-db is
-;; unchanged — and sends the reader looking for an event that never existed.
-;;
-;; A dynamic var rather than an extra parameter: the pass's hot loop already
-;; carries seven arguments, this one is read at two sites — the first-
-;; evaluation skip in `evaluate-flow!` and the failure path — and the settle is
-;; synchronous, so the binding cannot outlive its pass.
-
-(def ^:private ^:dynamic *pass-caller*
-  "Which caller's commit boundary the running flow pass belongs to — `:drain`
-  (the router, over a pending db) or `:direct-clear` (`settle-frame-flows!`,
-  over the committed one). Read by [[evaluate-flow!]] (a `:direct-clear` pass
-  performs no first evaluation) and by [[flow-eval-failure!]]."
-  :drain)
-
-(defn- failure-site
-  "The clause naming WHERE the failing evaluation ran, for `*pass-caller*`."
-  []
-  (if (= :direct-clear *pass-caller*)
-    "during the settle a direct clear-flow runs before it returns"
-    "during the drain"))
-
-(defn- failure-aftermath
-  "The clause naming what the failure LEFT BEHIND, for `*pass-caller*`.
-
-  Both branches say the same operational thing — no partial output committed,
-  re-attempt next drain — about two different commit boundaries."
-  []
-  (if (= :direct-clear *pass-caller*)
-    (str "the clear itself stands (its flow is already deregistered and its "
-         "output leaf vacated — that is what the caller asked for), the "
-         "settle's candidate app-db is discarded unwritten (no partial commit, "
-         "no flow output changed) and the flow re-attempts on the next drain")
-    (str "the event aborts before the :db install (no partial commit, app-db "
-         "unchanged) and the flow re-attempts on the next drain")))
-
-(defn- failure-db-noun
-  "How to name the app-db the failing install could not write, for
-  `*pass-caller*`. The drain writes a PENDING db; the direct settle recomputes
-  against the committed one."
-  []
-  (if (= :direct-clear *pass-caller*) "app-db" "the pending app-db"))
+                              :else
+                              (if-let [marker (explain-size-marker
+                                                flow new-output elided)]
+                                (assoc tags :explain marker :large? true)
+                                tags))]
+            (rf.trace/emit-error! :rf.error/schema-validation-failure tags))))))
+  nil)
 
 (defn- flow-eval-failure!
   "Report one flow-evaluation failure, attributed to the phase that actually
@@ -303,68 +202,57 @@
   because the pending app-db holds a container at that path which cannot accept
   the path's final segment (a keyword segment over a vector, say).
 
-  The two are discriminated STRUCTURALLY, by which `try` in `evaluate-flow!`
+  The two are discriminated STRUCTURALLY, by which `try` in `evaluate-flow`
   caught the throw — never by reading the exception's message. The callback and
   the install sit in separate `try` forms, so an install failure cannot reach
   the derive handler and be reported as authored code failing.
 
-  Returns `stale-incarnation` when the owning incarnation died during the
-  callback: a callback may destroy A and then throw, and terminal loss wins —
-  the old callback's exception produces no B-attributed failure. Otherwise
-  emits the per-flow `:rf.flow/failed` trace and throws the aggregate
+  Emits the per-flow `:rf.flow/failed` trace and throws the aggregate
   `:rf.error/flow-eval-exception`, carrying the phase on BOTH the dev trace and
   the thrown ex-data so the router can lift it onto the always-on production
-  error record.
+  error record."
+  [frame-id flow new-inputs phase e]
+  (let [flow-id     (:id flow)
+        output-path (:output-path flow)]
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit! :flow :rf.flow/failed
+                      {:flow-id           flow-id
+                       :phase             phase
+                       :path              output-path
+                       :exception-message #?(:clj (.getMessage ^Throwable e)
+                                             :cljs (.-message e))
+                       :exception-data    (ex-data e)
+                       :inputs            (elide-inputs frame-id flow new-inputs)
+                       :frame             frame-id}))
+    (rf.error/throw-error!
+      :rf.error/flow-eval-exception
+      're-frame.flows/run-flows-on-db
+      (if (= :derive phase)
+        (str "a flow's :derive fn threw while recomputing flow "
+             (pr-str flow-id)
+             " during the drain; the event aborts before the :db install "
+             "(no partial commit, app-db unchanged) and the flow re-attempts "
+             "on the next drain. Fix the :derive fn so it does not throw on "
+             "the inputs it is given.")
+        (str "flow " (pr-str flow-id)
+             "'s :derive fn RETURNED normally, but re-frame could not "
+             "install that value at the flow's declared :output-path "
+             (pr-str output-path)
+             " — the pending app-db holds a container at that path which "
+             "cannot accept it. The :derive fn did not throw; the failure "
+             "is the framework's output write, during the drain; the event "
+             "aborts before the :db install (no partial commit, app-db "
+             "unchanged) and the flow re-attempts on the next drain. Fix "
+             "the :output-path, or the shape the pending app-db holds at "
+             "its parent path — do not go looking in the :derive fn."))
+      {:recovery :no-recovery
+       :extra    {:rf.flow/failed-id    flow-id
+                  :rf.flow/failed-phase phase
+                  :rf.flow/output-path  output-path
+                  :cause                e}})))
 
-  The error id, the phase taxonomy, the trace tags and the thrown ex-data are
-  the same for every caller. Only the human `:reason` sentence varies, and only
-  in the two clauses that describe the CALLER's commit boundary — see
-  `*pass-caller*`."
-  [frame-id owner-token exact-owner? flow new-inputs phase e]
-  (if-not (owner-live? frame-id owner-token exact-owner?)
-    stale-incarnation
-    (let [flow-id     (:id flow)
-          output-path (:output-path flow)]
-      (when rf.interop/debug-enabled?
-        (rf.trace/emit! :flow :rf.flow/failed
-                     {:flow-id           flow-id
-                      :phase             phase
-                      :path              output-path
-                      :exception-message #?(:clj (.getMessage ^Throwable e)
-                                            :cljs (.-message e))
-                      :exception-data    (ex-data e)
-                      :inputs            (elide-inputs frame-id flow new-inputs)
-                      :frame             frame-id}))
-      (if-not (owner-live? frame-id owner-token exact-owner?)
-        stale-incarnation
-        (rf.error/throw-error!
-          :rf.error/flow-eval-exception
-          're-frame.flows/run-flows-on-db
-          (if (= :derive phase)
-            (str "a flow's :derive fn threw while recomputing flow "
-                 (pr-str flow-id)
-                 " " (failure-site) "; " (failure-aftermath)
-                 ". Fix the :derive fn so it "
-                 "does not throw on the inputs it is given.")
-            (str "flow " (pr-str flow-id)
-                 "'s :derive fn RETURNED normally, but re-frame could not "
-                 "install that value at the flow's declared :output-path "
-                 (pr-str output-path)
-                 " — " (failure-db-noun) " holds a container at that path which "
-                 "cannot accept it. The :derive fn did not throw; the failure "
-                 "is the framework's output write, " (failure-site) "; "
-                 (failure-aftermath)
-                 ". Fix the :output-path, or "
-                 "the shape " (failure-db-noun) " holds at its parent path — do "
-                 "not go looking in the :derive fn."))
-          {:recovery :no-recovery
-           :extra    {:rf.flow/failed-id    flow-id
-                      :rf.flow/failed-phase phase
-                      :rf.flow/output-path  output-path
-                      :cause                e}})))))
-
-(defn- reassert-output!
-  "The equal-input visit of `evaluate-flow!`: `:derive` does not run.
+(defn- reassert-output
+  "The equal-input visit: `:derive` does not run.
 
   A flow owns its `:output-path` (Spec 013 §Dirty-check semantics), so when the
   candidate db no longer holds the output `row` remembers — a handler replaced
@@ -375,270 +263,177 @@
 
   The visit's `:rf.flow/skip` carries `:repaired? true` when it wrote. A write
   that cannot be installed fails as `:output-write`, as a recompute's would."
-  [frame-id owner-token exact-owner? db flow new-inputs row]
+  [frame-id db flow new-inputs row]
   (let [path    (:output-path flow)
         output  (:output row)
-        repair? (and (contains? row :output)
-                     (not= output (get-in db path ::absent)))
+        repair? (not= output (get-in db path ::absent))
         new-db  (if repair?
                   (try
                     (assoc-in db path output)
                     (catch #?(:clj Throwable :cljs :default) e
-                      (flow-eval-failure! frame-id owner-token exact-owner?
-                                          flow new-inputs :output-write e)))
+                      (flow-eval-failure! frame-id flow new-inputs :output-write e)))
                   db)]
-    (if (= stale-incarnation new-db)
-      stale-incarnation
-      (do
-        (when rf.interop/debug-enabled?
-          (rf.trace/emit! :flow :rf.flow/skip
-                       (cond-> {:flow-id               (:id flow)
-                                :reason                :inputs-value-equal
-                                :input-paths-unchanged (:inputs flow)
-                                :frame                 frame-id}
-                         repair? (assoc :repaired? true))))
-        (if (owner-live? frame-id owner-token exact-owner?)
-          new-db
-          stale-incarnation)))))
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit! :flow :rf.flow/skip
+                      (cond-> {:flow-id               (:id flow)
+                               :reason                :inputs-value-equal
+                               :input-paths-unchanged (:inputs flow)
+                               :frame                 frame-id}
+                        repair? (assoc :repaired? true))))
+    new-db))
 
-(defn- evaluate-flow!
-  "Evaluate one flow against the pending frame-state.
+(defn- evaluate-flow
+  "Run one flow's `:derive` over `new-inputs` and write the result into `db`.
+  Returns `[db' output]`.
 
-  Returns the transformed db, or `stale-incarnation` when the owning
-  incarnation died mid-visit — the same two-outcome discrimination
-  `run-flows-on-db*` itself returns to its own caller.
-
-  Inputs `=`-equal to the flow's dirty-check row skip `:derive` and re-assert
-  the row's remembered output ([[reassert-output!]]). Changed inputs run
-  `:derive`, write its value, and store the inputs and that value together as
-  the new row.
-
-  A failure is rethrown with the failing flow id AND the
-  failing PHASE for router attribution — `:derive` for the authored callback,
-  `:output-write` for the framework's install of its returned value (see
-  [[flow-eval-failure!]]); `run-flows-on-db` restores dirty-check state and the
-  router discards the pending db, so no partial output is committed either way.
+  The authored `:derive` callback and the framework's own output installation
+  are caught by SEPARATE `try` forms. The split is the whole attribution
+  mechanism: an `assoc-in` that cannot write the declared `:output-path` into
+  the pending app-db is structurally unreachable from the derive handler, so
+  it can never be reported as the programmer's `:derive` fn throwing.
 
   Trace payloads and their elision walks stay inside `debug-enabled?` branches
   so Closure removes them from production CLJS builds."
-  [frame-id owner-token exact-owner? pass db runtime-db flow]
-  (if-not (owner-live? frame-id owner-token exact-owner?)
-    stale-incarnation
-    (let [flow-id    (:id flow)
-          new-inputs (read-inputs db runtime-db flow)
-          ;; Read and write the captured A-owned cell, never a bare-id lookup
-          ;; that could resolve to replacement B after a callback.
-          row        (rf.flows.registry/pass-flow-row pass flow-id)]
-      (if (= new-inputs (:inputs row))
-        (reassert-output! frame-id owner-token exact-owner? db flow new-inputs row)
-        ;; The authored `:derive` callback and the framework's own output
-        ;; installation are caught by SEPARATE `try` forms.  The split is the
-        ;; whole attribution mechanism: an `assoc-in` that cannot write the
-        ;; declared `:output-path` into the pending app-db is structurally
-        ;; unreachable from the derive handler, so it can never be reported as
-        ;; the programmer's `:derive` fn throwing.
-        (let [started-at-ms  (when rf.interop/debug-enabled? (rf.interop/now-ms))
-              derive-outcome (try
-                               {::output (apply (:derive flow) new-inputs)}
-                               (catch #?(:clj Throwable :cljs :default) e
-                                 {::thrown e}))]
-          (if (contains? derive-outcome ::thrown)
-            (flow-eval-failure! frame-id owner-token exact-owner?
-                                flow new-inputs :derive (::thrown derive-outcome))
-            ;; `:derive` is the principal authored callback boundary.  Its
-            ;; value is inert once A loses ownership; no cache write, trace,
-            ;; validation or later flow may be attributed to B.
-            (if-not (owner-live? frame-id owner-token exact-owner?)
-              stale-incarnation
-              (try
-                (let [new-output      (::output derive-outcome)
-                      flow-elapsed-ms (when rf.interop/debug-enabled?
-                                        (- (rf.interop/now-ms) started-at-ms))
-                      old-output      (when rf.interop/debug-enabled?
-                                        (get-in db (:output-path flow)))
-                      new-db          (assoc-in db (:output-path flow)
-                                                new-output)]
-                  (rf.flows.registry/pass-set-flow-row!
-                    pass flow-id new-inputs new-output)
-                  (when rf.interop/debug-enabled?
-                    (rf.trace/emit! :flow :rf.flow/computed
-                                 {:flow-id      flow-id
-                                  :input-values (elide-inputs frame-id flow new-inputs)
-                                  :before       (rf.elision/elide-wire-value
-                                                  old-output
-                                                  {:frame frame-id
-                                                   :path (:output-path flow)})
-                                  :result       (rf.elision/elide-wire-value
-                                                  new-output
-                                                  {:frame frame-id
-                                                   :path (:output-path flow)})
-                                  :path         (:output-path flow)
-                                  :elapsed-ms   flow-elapsed-ms
-                                  :frame        frame-id}))
-                  (if-not (owner-live? frame-id owner-token exact-owner?)
-                    stale-incarnation
-                    (if (or (not rf.interop/debug-enabled?)
-                            (validate-output! frame-id owner-token exact-owner?
-                                              flow new-output))
-                      new-db
-                      stale-incarnation)))
-                (catch #?(:clj Throwable :cljs :default) e
-                  (flow-eval-failure! frame-id owner-token exact-owner?
-                                      flow new-inputs :output-write e))))))))))
+  [frame-id db flow new-inputs]
+  (let [started-at-ms  (when rf.interop/debug-enabled? (rf.interop/now-ms))
+        derive-outcome (try
+                         {::output (apply (:derive flow) new-inputs)}
+                         (catch #?(:clj Throwable :cljs :default) e
+                           {::thrown e}))]
+    (when (contains? derive-outcome ::thrown)
+      (flow-eval-failure! frame-id flow new-inputs :derive (::thrown derive-outcome)))
+    (let [new-output (::output derive-outcome)
+          old-output (when rf.interop/debug-enabled?
+                       (get-in db (:output-path flow)))
+          new-db     (try
+                       (assoc-in db (:output-path flow) new-output)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (flow-eval-failure! frame-id flow new-inputs :output-write e)))]
+      (when rf.interop/debug-enabled?
+        (rf.trace/emit! :flow :rf.flow/computed
+                        {:flow-id      (:id flow)
+                         :input-values (elide-inputs frame-id flow new-inputs)
+                         :before       (rf.elision/elide-wire-value
+                                         old-output
+                                         {:frame frame-id
+                                          :path  (:output-path flow)})
+                         :result       (rf.elision/elide-wire-value
+                                         new-output
+                                         {:frame frame-id
+                                          :path  (:output-path flow)})
+                         :path         (:output-path flow)
+                         :elapsed-ms   (- (rf.interop/now-ms) started-at-ms)
+                         :frame        frame-id})
+        (validate-output! frame-id flow new-output))
+      [new-db new-output])))
 
-(defn- first-evaluation-deferred?
-  "True when this pass must leave `flow` untouched for the next drain: it is
-  the direct-clear settle, and the flow has not evaluated since it was
-  (re-)registered. The flow's slot, and anything established
-  downstream of it, keep their current values until that drain — the stale
-  but OWNED state Spec 013 §Re-registration already accepts. The drain itself
-  never defers: a first evaluation is its job."
-  [pass flow]
-  (and (= :direct-clear *pass-caller*)
-       (not (rf.flows.registry/pass-flow-evaluated? pass (:id flow)))))
+;; ---- the active set ------------------------------------------------------
 
-(defn- run-flows-on-db*
-  [frame-id db runtime-db owner-token exact-owner?]
-  (if-not (owner-live? frame-id owner-token exact-owner?)
-    stale-incarnation
-    (let [pass (if exact-owner?
-                 (rf.flows.registry/capture-flow-pass-state frame-id owner-token)
-                 (rf.flows.registry/legacy-flow-pass-state frame-id))]
-      (if-not pass
-        stale-incarnation
-        (let [flow-map          (:flow-map pass)
-              abandoned-before (rf.flows.registry/pass-abandoned-paths-snapshot pass)
-              abandoned-paths  (rf.flows.registry/pass-drain-abandoned-paths! pass)
-              db               (reduce rf.flows.registry/vacate-path-in-db
-                                       db abandoned-paths)]
-          (if-not (owner-live? frame-id owner-token exact-owner?)
-            stale-incarnation
-            (if-not (seq flow-map)
-              db
-              (let [ordered            (rf.flows.topo/topo-sort flow-map)
-                    last-inputs-before (rf.flows.registry/pass-last-inputs-snapshot pass)]
-                (try
-                  (loop [remaining ordered
-                         db        db]
-                    (cond
-                      (not (owner-live? frame-id owner-token exact-owner?))
-                      stale-incarnation
+(defn- active-flows
+  "The definitions of the ids in `ids` that resolve, as `{id flow}`. Resolution
+  goes through whatever registration view the caller has bound — inside an
+  event, the frame's own."
+  [ids]
+  (reduce (fn [m id]
+            (if-let [flow (rf.registrar/lookup rf.flows.registry/kind id)]
+              (assoc m id flow)
+              m))
+          {}
+          ids))
 
-                      (empty? remaining)
-                      db
+(defn- reconcile-departures
+  "Vacate what the memo `rows` record for flows that no longer run as they did:
+  a row whose flow left the active set has its output path removed from `db`
+  and the row dropped, and a row whose flow now writes a different
+  `:output-path` has the old path removed. Returns `[db rows]`.
 
-                      :else
-                      (let [flow   (flow-map (first remaining))
-                            result (if (first-evaluation-deferred? pass flow)
-                                     db
-                                     (evaluate-flow! frame-id owner-token
-                                                     exact-owner? pass db
-                                                     runtime-db flow))]
-                        (if (= stale-incarnation result)
-                          stale-incarnation
-                          (recur (rest remaining) result)))))
-                  (catch #?(:clj Throwable :cljs :default) e
-                    ;; Exact loss detached A's cells during destroy; restoring
-                    ;; through the bare id would corrupt B.  When A is still
-                    ;; live, restore the captured cells and preserve the
-                    ;; ordinary flow-throw contract.
-                    (if-not (owner-live? frame-id owner-token exact-owner?)
-                      stale-incarnation
-                      (do
-                        (rf.flows.registry/pass-reset-last-inputs!
-                          pass last-inputs-before)
-                        (rf.flows.registry/pass-restore-abandoned-paths!
-                          pass abandoned-before)
-                        (throw e)))))))))))))
+  A row whose id the frame still names but which no longer resolves — its
+  registration cleared or swept — warns `:rf.warning/unregistered-flow`. Its
+  claims in the frame's elision registry go with it."
+  [frame-id ids active db rows]
+  (let [named (set ids)]
+    (reduce-kv
+      (fn [[db rows] id row]
+        (let [old-flow (:flow row)
+              old-path (:output-path old-flow)]
+          (if-let [flow (get active id)]
+            (if (= old-path (:output-path flow))
+              [db rows]
+              [(rf.flows.registry/vacate-path-in-db db old-path) rows])
+            (do
+              (when (and rf.interop/debug-enabled? (contains? named id))
+                (rf.trace/emit! :warning :rf.warning/unregistered-flow
+                                {:frame   frame-id
+                                 :flow-id id
+                                 :path    old-path
+                                 :reason  (str "frame " (pr-str frame-id)
+                                               " names flow " (pr-str id)
+                                               " in its :flows, but no reg-flow"
+                                               " defines it any more; its output"
+                                               " at " (pr-str old-path)
+                                               " is vacated, and re-registering"
+                                               " the id resumes it.")}))
+              (when (rf.flows.registry/flow-declares-marks? old-flow)
+                (rf.flows.registry/drop-output-marks! frame-id id))
+              [(rf.flows.registry/vacate-path-in-db db old-path)
+               (dissoc rows id)]))))
+      [db rows]
+      rows)))
 
 (defn run-flows-on-db
-  "Transform a frame's pending app-db by evaluating its flows in dependency
-  order. Runtime-db is a read-only input; flow outputs always target app-db.
+  "Transform a frame's pending app-db by evaluating the flows its `:flows`
+  config names, in dependency order. Runtime-db is a read-only input; flow
+  outputs always target app-db.
 
   The router calls this from its outermost `:after` interceptor, after other
-  interceptors have shaped the pending db and before commit. If a derivation
-  throws, this function restores the frame's dirty-check cache and pending path
-  vacations, then rethrows. The router discards the pending db, preserving
-  all-or-nothing event semantics."
-  ([frame-id db runtime-db]
-   ;; The three-argument late-bind contract. Inside an
-   ;; event, core's private owner binding supplies the exact A token; direct
-   ;; callers have no token and get frame-id-scoped (non-exact) behaviour.
-   (if-let [owner-token (rf.frame/current-event-owner-token)]
-     (run-flows-on-db* frame-id db runtime-db owner-token true)
-     (run-flows-on-db* frame-id db runtime-db nil false)))
-  ([frame-id db runtime-db {:keys [exact-owner-token]}]
-   (run-flows-on-db* frame-id db runtime-db exact-owner-token true)))
+  interceptors have shaped the pending db and before commit, with the frame's
+  own registration view bound — so the ids resolve live for a frame made
+  without `:images`, and through its sealed generation for one made with them.
 
-;; ---- out-of-drain lifecycle settle ---------------------------------------
+  The memo decides what runs. A flow with no row, or a row computed with a
+  different definition, recomputes; otherwise `=`-equal inputs skip `:derive`
+  and re-assert the remembered output. A row whose flow left the frame, or
+  moved its `:output-path`, has the old path vacated in this same pending db.
+  The activation checks run over the active set on every pass, so a
+  re-registration that completes a cycle or an output overlap aborts the event.
 
-(defn- settle-frame-flows!
-  "Recompute `frame-id`'s remaining flows against its LIVE app-db and install
-  the result, fenced to `owner-token`'s incarnation.
-
-  The out-of-drain half of the Spec 013 §Sequencing boundary. In a drain the
-  router runs `run-flows-on-db` over the pending `:db`; a direct
-  `clear-flow` has no pending db, so it runs the SAME pass over the committed
-  one. This adds no evaluation semantics of its own — same topological sort,
-  same dirty check, same failure taxonomy — it only supplies the db and writes
-  the result back, with one exception: it performs no FIRST evaluation. A flow
-  that has not evaluated since it was (re-)registered is left for the next
-  drain (`first-evaluation-deferred?`), because a direct
-  `reg-flow` promises exactly that and a clear of some other flow must not
-  break the promise.
-
-  The candidate is computed BEFORE anything is written, so the three
-  non-results all leave app-db exactly as the vacation left it: a lost
-  incarnation (`stale-incarnation`), a pass that changed nothing (dirty check
-  clean throughout — the common case, and it must not manufacture a write),
-  and a `:derive` throw, which propagates the ordinary
-  `:rf.error/flow-eval-exception` to the direct caller with no partial output
-  installed. `run-flows-on-db` restores the dirty-check cache and pending
-  vacations on that throw, so the next drain re-attempts normally.
-
-  The pass runs under `*pass-caller*` `:direct-clear` so that throw's human
-  `:reason` describes THIS boundary — the clear stands, the candidate is
-  dropped — rather than the drain's abort, which never happened here. The
-  binding wraps the whole pass because the throw is raised deep inside it, and
-  unwinds with it because the settle is synchronous.
-
-  The pass ALSO runs under `owner-token`'s exact-owner trace continuation
-  `:exact-owner-token` fences the pass's own writes — cache,
-  output, validation — but a trace it emits is a separate callback pipeline
-  whose stages recheck ownership only while a continuation predicate is
-  installed (`trace/continuation-live?` reads the always-true default
-  otherwise), and this settle runs inside the cold serialized region, which
-  DEFERS listener delivery past the release. `deferred-continue` captures
-  whatever predicate stood at emit time, so without this wrap the dependent's
-  `:rf.flow/computed` fan-out would carry the always-continue default: a listener
-  that destroys A mid-fan-out would not suppress the listeners behind it,
-  and the observer would receive A's computed evidence after A's destruction was
-  claimed. Every other route supplies one — the ordinary event route
-  inherits the router's, and the sibling direct register / replace / clear
-  emits install their own. The scope wraps the WHOLE
-  pass, not the computed emit alone, so the sibling skip / failure / schema
-  observations cannot escape it either, and it AND-composes with any enclosing
-  predicate.
-
-  `registry/clear-flow` calls this through the seam it publishes; the
-  `:require` runs the other way."
-  [frame-id owner-token]
-  (when-let [db (rf.frame/frame-app-db-value frame-id)]
-    (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
-          pass       #(binding [*pass-caller* :direct-clear]
-                        (run-flows-on-db frame-id db runtime-db
-                                         {:exact-owner-token owner-token}))
-          settled    (if rf.interop/debug-enabled?
-                       (rf.trace/call-with-continuation-predicate
-                         #(rf.frame/event-continuation-live? frame-id owner-token)
-                         pass)
-                       (pass))]
-      (when-not (or (= stale-incarnation settled)
-                    (identical? settled db))
-        (rf.frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
-  nil)
-
-(rf.flows.registry/set-settle-fn! settle-frame-flows!)
+  The memo advances only when the whole pass succeeds. A throw leaves it as it
+  was and propagates; the router discards the pending db, so the event commits
+  in full or not at all."
+  [frame-id db runtime-db]
+  (let [ids  (:flows (rf.frame/frame-config frame-id))
+        rows (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
+    (if (and (empty? ids) (empty? rows))
+      db
+      (let [active       (active-flows ids)
+            [db rows]    (reconcile-departures frame-id ids active db rows)
+            _            (rf.flows.topo/detect-output-path-overlap!
+                           active 're-frame.flows/run-flows-on-db)
+            order        (rf.flows.topo/topo-sort
+                           active 're-frame.flows/run-flows-on-db)
+            [db rows]    (reduce
+                           (fn [[db rows] id]
+                             (let [flow       (get active id)
+                                   row        (get rows id)
+                                   new-inputs (read-inputs db runtime-db flow)]
+                               (if (and (identical? flow (:flow row))
+                                        (= new-inputs (:inputs row)))
+                                 [(reassert-output frame-id db flow new-inputs row) rows]
+                                 (do
+                                   ;; A definition the frame has not evaluated
+                                   ;; claims its output paths before it emits.
+                                   (when (and (not (identical? flow (:flow row)))
+                                              (or (rf.flows.registry/flow-declares-marks? flow)
+                                                  (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))
+                                     (rf.flows.registry/claim-output-marks! frame-id flow))
+                                   (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
+                                     [db (assoc rows id {:flow   flow
+                                                         :inputs new-inputs
+                                                         :output output})])))))
+                           [db rows]
+                           order)]
+        (reset! (rf.flows.registry/ensure-frame-memo-atom! frame-id) rows)
+        db))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
@@ -647,18 +442,16 @@
 
 (rf.late-bind/set-fn! :flows/reg-flow           reg-flow)
 (rf.late-bind/set-fn! :flows/clear-flow         rf.flows.registry/clear-flow)
+(rf.late-bind/set-fn! :flows/check-activation!  rf.flows.registry/check-activation!)
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
-;; The router owns post-transform commit rollback. These pairs let it restore
-;; the eager dirty-check advances and consumed path vacations that this
-;; artefact cannot otherwise observe after returning.
+;; The router owns post-transform commit rollback: it snapshots a frame's memo
+;; before the flow pass and puts it back when the event does not commit.
 (rf.late-bind/set-fn! :flows/snapshot-last-inputs rf.flows.registry/frame-last-inputs-snapshot)
 (rf.late-bind/set-fn! :flows/restore-last-inputs!  rf.flows.registry/reset-frame-last-inputs-to!)
-(rf.late-bind/set-fn! :flows/snapshot-abandoned-paths rf.flows.registry/abandoned-output-paths-snapshot)
-(rf.late-bind/set-fn! :flows/restore-abandoned-paths!  rf.flows.registry/restore-abandoned-output-paths!)
-;; Frame destruction must release registry rows and caches owned by that frame.
+;; Frame destruction drops the frame's memo.
 (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
-                   rf.flows.registry/teardown-on-frame-destroy!)
+                      rf.flows.registry/teardown-on-frame-destroy!)
 ;; Core's `:fx` walk settles a frame whose state it changed only when the frame
-;; holds a flow.
-(rf.late-bind/set-fn! :flows/frame-has-flows? rf.flows.registry/frame-has-flows?)
+;; runs a flow.
+(rf.late-bind/set-fn! :flows/frame-has-flows? rf.flows.registry/frame-runs-flows?)

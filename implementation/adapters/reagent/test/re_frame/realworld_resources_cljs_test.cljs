@@ -391,9 +391,8 @@
         (reply-success! @last-managed-args result f)
         (is (some? (:invalidated-at (entry f (tags-key)))))))))
 
-(deftest editor-flow-gates-submit-and-reply-to-navigates-to-the-saved-article
+(deftest editor-gate-opens-on-a-valid-dirty-draft-and-reply-to-navigates-to-the-saved-article
   (with-new-frame [f (app-frame!)]
-    (rf/dispatch-sync [:editor/register-flow] {:frame f})
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     (is (false? (rf/compute-sub [:editor/can-submit?] (state-value f))))
     (fill-draft! f new-draft)
@@ -407,7 +406,6 @@
 (deftest editor-save-parses-its-tag-list-exactly-once
   (doseq [[tags expected] [["" []] ["clojure, SPA" ["clojure" "SPA"]]]]
     (with-new-frame [f (app-frame!)]
-      (rf/dispatch-sync [:editor/register-flow] {:frame f})
       (rf/dispatch-sync [:editor/initialise] {:frame f})
       (fill-draft! f (assoc new-draft :tagList tags))
       (rf/dispatch-sync [:editor/submit] {:frame f})
@@ -540,7 +538,6 @@
             after the reader confirmed the leave neither navigates nor re-seeds"
     (with-new-frame [f (app-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      (rf/dispatch-sync [:editor/register-flow] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
       (fill-draft! f new-draft)
       (rf/dispatch-sync [:editor/submit] {:frame f})
@@ -577,7 +574,6 @@
     (testing (str "the old delete answers " answer)
       (with-new-frame [f (app-frame!)]
         (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-        (rf/dispatch-sync [:editor/register-flow] {:frame f})
         (let [list-key (cache-home-list! f)]
           (is (= :loaded (:status (entry f list-key))))
           (open-doomed-editor! f)
@@ -603,7 +599,6 @@
 (deftest editor-current-page-save-failure-stays-on-its-instance
   (with-new-frame [f (app-frame!)]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-    (rf/dispatch-sync [:editor/register-flow] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
     (fill-draft! f new-draft)
     (rf/dispatch-sync [:editor/submit] {:frame f})

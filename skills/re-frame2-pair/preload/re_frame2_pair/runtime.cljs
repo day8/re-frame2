@@ -800,9 +800,11 @@
 (defn- handler-fn-hash
   "Opaque function-identity hash for hot-reload probe comparisons.
    Hash the function itself: different closures can print identical source
-   while capturing different values. Repeated reads of the same fn are stable."
+   while capturing different values. Repeated reads of the same fn are stable.
+   The function is the registration's executable identity: its `:handler-fn`,
+   or the slot it names under `:executable-key` (a flow names `:derive`)."
   [meta-map]
-  (some-> meta-map :handler-fn hash))
+  (some-> meta-map (get (get meta-map :executable-key :handler-fn)) hash))
 
 (def ^:private fn-slot-sentinel
   "Readable EDN placeholder substituted for a Function value anywhere in a
@@ -998,9 +1000,9 @@
 
 (def ^:private frame-query-kinds
   "The registrar kinds a frame-targeted `rf/registrations` query answers: the
-   closed registrar set less `:frame` and `:flow`, the two reserved-but-empty
-   slots the query refuses."
-  (vec (remove #{:frame :flow} pure/orient-registrar-kinds)))
+   closed registrar set less `:frame`, the reserved-but-empty slot the query
+   refuses."
+  (vec (remove #{:frame} pure/orient-registrar-kinds)))
 
 (defn- describe-live-store-frame
   "`describe-image` for frame `frame-id` when it was made without `:images`: it

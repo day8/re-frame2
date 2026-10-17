@@ -30,16 +30,9 @@
   validates against the schemas it resolves, exactly as it resolves any other
   kind.
 
-  The `:flow` kind is RESERVED but the registrar slot is
-  intentionally **empty** — `reg-flow` writes only to the flows artefact's
-  own per-frame store (`flows`, keyed `{frame-id {flow-id flow-map}}`),
-  which is the single source of truth. Flows are FRAME-DIVERGENT-PER-ID
-  (the same flow-id can hold different `:inputs` / `:derive` /
-  `:output-path` per frame, Spec 013), so a frame-blind `{flow-id metadata}`
-  registrar slot is the wrong shape; the kind keyword is preserved for
-  Spec 001 §Registry model continuity. Tools introspecting flows go through
-  `flows/flows` / `flows/flow-meta` / `flows/flows-snapshot` rather than
-  `handlers :flow` / `handler-meta :flow`.
+  `:flow` holds `reg-flow` definitions. Registration is frame-agnostic, as
+  for every other kind; a frame RUNS only the flows its `:flows` config names
+  (Spec 013 §Activation), resolved through the frame's registration view.
 
   The `:frame` kind is likewise RESERVED with an intentionally
   **empty** registrar slot — the frame engine (`re-frame.frame/upsert-frame!`)
@@ -104,8 +97,7 @@
 
   `:frame` is RESERVED with an intentionally EMPTY slot — seated
   frames live in the frames registry (`re-frame.frame/frames`), introspected
-  via `rf/frame-meta` / `rf/frame-ids`; nothing writes `:frame` rows here
-  (the `:flow` precedent below).
+  via `rf/frame-meta` / `rf/frame-ids`; nothing writes `:frame` rows here.
 
   Machine guards/actions are NOT registrar kinds — the runtime resolves
   them through the machine spec's `:guards` / `:actions` maps, and their

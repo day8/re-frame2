@@ -1647,16 +1647,9 @@
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
   ;; =========================================================================
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
-  ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
-  ;; The canonical per-frame flow introspection surfaces — the flows analogue
-  ;; of `re-frame.schemas/app-schemas` / `app-schema-meta`.
-  ;; Frame-divergent-per-id, so they answer what a
-  ;; `(handler-meta :flow flow-id)` read cannot. Both take ONE opts map with a
-  ;; REQUIRED `:frame`. `:tooling` (pair-tools / 10x panels /
-  ;; source-coord tests), mirroring the schemas classification. `flows` is the
-  ;; per-frame slice of `flows-snapshot`, which is the whole-registry verb.
-  ["re-frame.flows" "flows"]                 {:tier :tooling :owner "013" :status "v1"}
-  ["re-frame.flows" "flow-meta"]             {:tier :tooling :owner "013" :status "v1"}
+  ;; Flow definitions are registrar rows under the `:flow` kind, so they are
+  ;; read through `rf/registrations` / `rf/handler-meta`; the namespace has
+  ;; no flows-specific read.
   ;; EP-0015: the raw `last-inputs-snapshot` is `^:no-doc` (internal / test /
   ;; rollback seam, NOT an egress boundary), so it stays off the public
   ;; manifest. Off-box reads ride the elided trace path, not a dedicated
