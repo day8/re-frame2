@@ -257,19 +257,15 @@
   the claims land under each actor's own owner, union with every other
   owner's claim on the same path, and re-installing the same actor adds
   nothing. An actor whose spec declares no classification, or resolves to no
-  spec, is a no-op. Stops as soon as `owner-gone?` reports a same-id successor,
-  so no claim derived from this frame's snapshots lands in another's registry."
-  [frame-id snapshots owner-gone?]
+  spec, is a no-op."
+  [frame-id snapshots]
   (let [owner-token (rf.frame/current-event-owner-token)]
-    (loop [entries (seq snapshots)]
-      (when (and entries (not (owner-gone?)))
-        (let [[actor-id snapshot] (first entries)]
-          (when (map? snapshot)
-            (rf.machines.classification/lower-at-spawn!
-              frame-id actor-id
-              (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
-              owner-token)))
-        (recur (next entries))))))
+    (doseq [[actor-id snapshot] snapshots]
+      (when (map? snapshot)
+        (rf.machines.classification/lower-at-spawn!
+          frame-id actor-id
+          (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
+          owner-token)))))
 
 (defn rearm-after-timers!
   "RECONCILE the host-side `:after` timer table for `frame-id` to the
@@ -323,50 +319,28 @@
   epoch restore keeps its opposite contract — `:machines/on-frame-restored!`
   cancels and never re-arms, and shares no callback with this seam.
 
-  ## One incarnation for the whole reconcile
+  ## One owner for the whole reconcile
 
-  Both phases emit traces —
-  `:rf.machine.timer/cancelled` in phase 1, and in phase 2 both each
-  arm's leading `:on-supersede` and the arm's own
-  `:rf.machine.timer/scheduled` (every arm emits its own, so a hydration
-  arm's is emitted here, where no transition ran; on a frame that held no
-  prior timer it is the FIRST callback of the whole reconcile). From the `:rf.machine/hydrate-rearm`
-  fx, inside the hydrating event's drain, their listeners run after the
-  drain. On a direct call they run synchronously on this stack, so each
-  trace is a callback boundary, and a listener on any of them can
-  `destroy-frame!` this frame and publish a same-id successor B. The
-  declarations being reconciled are A's: they were enumerated from the
-  runtime-db A held. Installing them into B would be host work derived
-  from a frame that no longer exists, which is the same class of leak the
-  cancel half exists to close, arriving from the other direction.
-
-  So the reconcile captures the owning incarnation ONCE, before either
-  phase, and every callback-bearing step is fenced by that ONE predicate:
-  the classification loop rechecks it before each actor's registry write,
-  the cancel batch short-circuits on it, the arm loop
-  rechecks it before each declaration, and each arm carries it down into
-  `schedule-after-timer!` in place of a fresh capture — where it fences
-  BOTH of that fn's callback boundaries, the leading `:on-supersede`
-  cancel and the `/scheduled` emit, each with its own recheck before any
-  durable step. Per-step capture
-  is what fails here, and it fails silently: each step alone is correct
-  about the owner it captured, and B — a live frame with the right id —
-  accepts the work without complaint. The loop is explicit rather than a
-  `doseq` for exactly that recheck.
+  Both phases emit traces — `:rf.machine.timer/cancelled` in phase 1, and in
+  phase 2 each arm's leading `:on-supersede` and its own
+  `:rf.machine.timer/scheduled`. The reconcile runs from the
+  `:rf.machine/hydrate-rearm` fx inside the installing event, so their
+  listeners run after the drain, a destroy of the frame cannot finish before
+  the event ends, and the id's reservation makes a same-id `make-frame` fail
+  fast. The frame whose runtime-db the declarations were enumerated from
+  therefore owns the timer table for the whole reconcile, and neither phase
+  rechecks its owner.
 
   Returns nil; the only observables are the frame's elision registry, the
   timer table, one `:rf.machine.timer/scheduled` trace per armed
   declaration, and one `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
   (when frame-id
-    ;; Captured BEFORE anything callback-bearing runs, so it names the
-    ;; incarnation whose runtime-db the snapshots below are read from.
-    (let [owner-gone? (rf.machines.timer/successor-published?-fn frame-id)
-          snapshots   (get-in (rf.frame/frame-runtime-db-value frame-id)
-                              (rf.machines.paths/snapshot-path))]
+    (let [snapshots (get-in (rf.frame/frame-runtime-db-value frame-id)
+                            (rf.machines.paths/snapshot-path))]
       ;; Classification first, on every platform: a server frame arms no
       ;; timer but still projects its machines for the wire.
-      (lower-installed-classification! frame-id snapshots owner-gone?)
+      (lower-installed-classification! frame-id snapshots)
       (when (not= :server (or (:platform (rf.frame/frame-meta frame-id)) :client))
         (let [live (live-declarations snapshots)]
           ;; PHASE 1 — release the host work the replacement snapshots dropped.
@@ -375,15 +349,10 @@
           (rf.machines.timer/cancel-timers-absent-from!
             frame-id
             (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
-            (set (keys snapshots))
-            owner-gone?)
-          ;; PHASE 2 — arm / supersede the live set, while the frame is still the
-          ;; one these declarations were enumerated from.
-          (loop [decls live]
-            (when (and (seq decls) (not (owner-gone?)))
-              (let [decl (first decls)]
-                (rf.machines.timer/rearm-hydrated-after-timer!
-                  frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
-                  (:delay-key decl) (:epoch decl) (:snapshot decl) owner-gone?))
-              (recur (rest decls))))))))
+            (set (keys snapshots)))
+          ;; PHASE 2 — arm / supersede the live set.
+          (doseq [decl live]
+            (rf.machines.timer/rearm-hydrated-after-timer!
+              frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
+              (:delay-key decl) (:epoch decl) (:snapshot decl)))))))
   nil)
