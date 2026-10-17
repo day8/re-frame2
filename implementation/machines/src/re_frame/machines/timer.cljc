@@ -101,6 +101,18 @@
    :spawn (vec invoke-id)
    :delay  delay-key})
 
+(defn- region-relative-path
+  "The declaring node's path as the transition engine names it. A region
+  `:after`'s `invoke-id` carries the region name as its head
+  (`prefix-region-invoke-id`), while the engine resolves a region's timer
+  against its region-relative path (`pick-after-transition`), so the head is
+  stripped when `region` is the region it names. A flat / compound /
+  parallel-root timer has no region, so its path is unchanged."
+  [region invoke-id]
+  (if (and region (seq invoke-id) (= region (first invoke-id)))
+    (vec (rest invoke-id))
+    (vec invoke-id)))
+
 ;; `:after` delay-source classification (`{:literal :fn :named}`) lives once
 ;; in `re-frame.machines.transition/classify-delay-source` — the leaf engine
 ;; that owns the `:after` grammar and already tags the pure-side
@@ -225,36 +237,28 @@
   cancellation site. Every cancellation path — state exit, machine
   destroy, in-place supersede, frame destroy, epoch restore — flows
   through this single emit so consumers can pair
-  scheduled→fired→cancelled by `(actor-id, state, epoch)` and branch on
+  scheduled→fired→cancelled by actor, declaring node, epoch and
+  `:delay-key`, and branch on
   `:reason` from the closed set `:on-exit / :on-destroy / :on-supersede
   / :on-frame-destroy / :on-restore` (the epoch-restore
   host-timer cleanup, `cancel-frame-timers-on-restore!`).
 
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
-  cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
-  / `:frame` slots — plus the `:reason` discriminator. `:delay` reads the
+  cancel pairing — same `:actor-id` / `:state` / `:decl-path` / `:region`
+  / `:delay` / `:epoch` / `:frame` slots — plus the `:reason`
+  discriminator. `:delay` reads the
   entry's `:resolved-ms` — the wall-clock window the timer actually held —
   and `:delay-key` the `:after` key it was declared under, as on every
   timer row."
   [frame-id k entry reason]
   (let [delay-source (:delay-source entry)
-        ;; The timer-table `:spawn` is the region-PREFIXED invoke-id for a
-        ;; region `:after` (`prefix-region-invoke-id`). The fired / stale
-        ;; replies strip the region head (`pick-after-transition`'s
-        ;; `carried-decl-path`), so strip it here too — using the `:region`
-        ;; name recorded at schedule time — before building the reply's
-        ;; `:rf.reply/work-id`. Without the strip the cancelled row's
-        ;; `[:rf.work/timer [<actor> <region> <state...>] epoch]` work-id
-        ;; would split from the fired / stale `[:rf.work/timer
-        ;; [<actor> <state...>] epoch]` rows of the SAME logical `:after`
-        ;; across the work/reply ledger (correlation only — the runtime
-        ;; stale-gate keys on the region-scoped epoch slot and is unaffected).
-        ;; A flat / root timer has no `:region`, so its decl-path is unchanged.
+        ;; The `:region` recorded at schedule time names the region whose
+        ;; head the timer-table `:spawn` carries; the row and the reply both
+        ;; name the node by its region-relative path, as the fired / stale
+        ;; rows do, so all the rows of one `:after` share one
+        ;; `:rf.reply/work-id`.
         region       (:region entry)
-        decl-path    (let [sp (:spawn k)]
-                       (if (and region (seq sp) (= region (first sp)))
-                         (vec (rest sp))
-                         sp))
+        decl-path    (region-relative-path region (:spawn k))
         ;; Close the timer work attempt the reply-envelope way: a cancelled
         ;; `:after` timer is `:status :cancelled` DATA, not the absence of a
         ;; reply (Managed-Effects §Cancellation). The canonical `:rf.reply/work-id`
@@ -278,6 +282,7 @@
                           ;; `:machine-id` is reserved for the registered TYPE.
                           :actor-id   (:parent k)
                           :state      (:state entry)
+                          :decl-path  decl-path
                           :delay      (:resolved-ms entry)
                           :delay-key  (:delay k)
                           :epoch      (:epoch entry)
@@ -291,6 +296,7 @@
                           :rf.reply/cancelled?  (:cancelled? summary)
                           :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
                           :rf.reply/correlation (:correlation summary)}
+                   (some? region)       (assoc :region region)
                    (some? delay-source) (assoc :delay-source delay-source)))))
 
 (defn successor-published?-fn
@@ -544,7 +550,8 @@
         region       (when (and snapshot
                                  (map? (:state snapshot))
                                  (seq invoke-id))
-                       (first invoke-id))]
+                       (first invoke-id))
+        decl-path    (region-relative-path region invoke-id)]
     (cancel-after-timer-entry! frame-id k :on-supersede)
     ;; A superseding cancellation's listener may have replaced A with
     ;; same-id B on the stack above; gate every durable step (delay resolution,
@@ -639,16 +646,18 @@
             (binding [*announcing-attempt-tokens*
                       (conj *announcing-attempt-tokens* token)]
               (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
-                           {;; the timer's owning actor INSTANCE;
-                            ;; `:machine-id` is reserved for the
-                            ;; registered TYPE.
-                            :actor-id     parent-id
-                            :state        state
-                            :delay        resolved-ms
-                            :delay-key    delay-key
-                            :delay-source delay-source
-                            :epoch        epoch
-                            :frame        frame-id}))
+                           (cond-> {;; the timer's owning actor INSTANCE;
+                                    ;; `:machine-id` is reserved for the
+                                    ;; registered TYPE.
+                                    :actor-id     parent-id
+                                    :state        state
+                                    :decl-path    decl-path
+                                    :delay        resolved-ms
+                                    :delay-key    delay-key
+                                    :delay-source delay-source
+                                    :epoch        epoch
+                                    :frame        frame-id}
+                             (some? region) (assoc :region region))))
             ;; That `/scheduled` emit is the LAST callback-bearing
             ;; step before the durable arm. Outside a drain `rf.trace/emit!`
             ;; invokes listeners SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can

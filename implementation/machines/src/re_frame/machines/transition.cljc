@@ -1154,37 +1154,41 @@
       (some? carried-decl-path)
       ;; Per-node path supplied by the runtime — route directly to the
       ;; scheduling node so colliding delay-keys across hierarchy levels
-      ;; resolve unambiguously.
+      ;; resolve unambiguously. Inside a region the match also names the
+      ;; region, because `:decl-path` is region-relative and two regions
+      ;; may declare the same path.
       (let [decl-path carried-decl-path
             cur-epoch (node-epoch machine snapshot decl-path)
             node      (when (prefix-of? decl-path path)
                         (node-at machine decl-path))
             t         (when node (get-in node [:after delay-key]))]
-        (cond
-          ;; Node still active and its per-path epoch matches the carried
-          ;; epoch → the timer is live; resolve its transition + guard.
-          (and t (= carried-epoch cur-epoch))
-          (resolve-hit decl-path t)
+        (cond->
+          (cond
+            ;; Node still active and its per-path epoch matches the carried
+            ;; epoch → the timer is live; resolve its transition + guard.
+            (and t (= carried-epoch cur-epoch))
+            (resolve-hit decl-path t)
 
-          ;; Node still active but the per-path epoch advanced (a re-entry
-          ;; scheduled a fresh timer) → this in-flight timer is stale.
-          ;; Likewise when the node has been exited (no longer on the
-          ;; active path) → stale.
-          ;;
-          ;; Per Managed-Effects §Stale suppression,
-          ;; the declaring path + per-path epoch ARE the data-only
-          ;; suppression gate. Carry `:decl-path` so the lifecycle's
-          ;; `:rf.machine.timer/stale-after` trace can express the
-          ;; carried/current gate the reply-envelope way.
-          :else
-          {:stale?          true
-           :actor-id        actor-id
-           :state           (last decl-path)
-           :decl-path       decl-path
-           :delay-key       delay-key
-           :delay           delay-ms
-           :scheduled-epoch carried-epoch
-           :current-epoch   cur-epoch}))
+            ;; Node still active but the per-path epoch advanced (a re-entry
+            ;; scheduled a fresh timer) → this in-flight timer is stale.
+            ;; Likewise when the node has been exited (no longer on the
+            ;; active path) → stale.
+            ;;
+            ;; Per Managed-Effects §Stale suppression,
+            ;; the declaring path + per-path epoch ARE the data-only
+            ;; suppression gate. Carry `:decl-path` so the lifecycle's
+            ;; `:rf.machine.timer/stale-after` trace can express the
+            ;; carried/current gate the reply-envelope way.
+            :else
+            {:stale?          true
+             :actor-id        actor-id
+             :state           (last decl-path)
+             :decl-path       decl-path
+             :delay-key       delay-key
+             :delay           delay-ms
+             :scheduled-epoch carried-epoch
+             :current-epoch   cur-epoch})
+          region (assoc :region region)))
 
       ;; A malformed event with no carried decl-path: the
       ;; runtime always emits the 4-element `[delay-key epoch decl-path]`
@@ -2393,7 +2397,9 @@
     (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
           server?   (= :server (:rf/platform machine))
           ;; Epoch-capture admission requires `:frame`.
-          frame-id  (:rf/frame machine)]
+          frame-id  (:rf/frame machine)
+          ;; Inside a parallel region `prefix` is region-relative.
+          region    (:rf/region machine)]
       (vec
         (mapcat
           (fn [[prefix n]]
@@ -2409,7 +2415,7 @@
                     ;; `:rf/parallel-root` so the `:scheduled` / `:cancelled`
                     ;; `:state` matches the `:fired` / `:stale-after` rows
                     ;; (`root-after-match` / the fired-reply emit both set
-                    ;; `:rf/parallel-root`) and the `(actor,state,epoch)` pairing
+                    ;; `:rf/parallel-root`) and the arm-fire-cancel pairing
                     ;; `emit-cancelled!` promises holds. A flat / region-root
                     ;; `:after` is rejected at registration
                     ;; (`validate-non-parallel-root-after!`), so an empty prefix
@@ -2424,13 +2430,15 @@
                                      (cond-> {;; Owning actor INSTANCE.
                                               :actor-id     parent-id
                                               :state        leaf-state
+                                              :decl-path    (vec prefix)
                                               :delay-key    delay-key
                                               :delay-source (classify-delay-source delay-key)
                                               :epoch        epoch
                                               :platform     :server
                                               :frame        frame-id
                                               :recovery     :skipped}
-                                       (some? ms) (assoc :delay ms)))))
+                                       (some? region) (assoc :region region)
+                                       (some? ms)     (assoc :delay ms)))))
                     [:rf.machine/after-schedule
                      {:rf/parent-id parent-id
                       :rf/invoke-id (vec prefix)
@@ -4120,6 +4128,7 @@
                       ;; INSTANCE (spec/009 §`:rf.machine.timer/*`);
                       ;; `:machine-id` is reserved for the registered TYPE.
                       :actor-id           (:actor-id match)
+                      :decl-path          (:decl-path match)
                       :state              (:state match)
                       :delay-key          (:delay-key match)
                       :scheduled-epoch    (:scheduled-epoch match)
@@ -4136,6 +4145,9 @@
                       :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/stale-reason (:rf.reply/stale-reason summary)
                       :rf.reply/correlation (:correlation summary)}
+                       ;; Inside a parallel region `:decl-path` is region-relative.
+                       (some? (:region match))
+                       (assoc :region (:region match))
                        ;; The CAUSAL completion timestamp of the
                        ;; firing dispatch (router-stamped `:rf/time-ms`), under
                        ;; the reply-envelope `:rf.reply/completed-at` (mirroring
@@ -4169,6 +4181,7 @@
                      (cond->
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
+                      :decl-path (:decl-path match)
                       :state  (:state match)
                       :delay-key (:delay-key match)
                       :epoch  (:epoch match)
@@ -4180,6 +4193,9 @@
                       :rf.reply/work-id     (:rf.reply/work-id summary)
                       :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
+                       ;; Inside a parallel region `:decl-path` is region-relative.
+                       (some? (:region match))
+                       (assoc :region (:region match))
                        ;; Milliseconds and causal completion time (see stale branch).
                        (some? (:delay match))
                        (assoc :delay (:delay match))
@@ -4207,6 +4223,7 @@
                      (cond->
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
+                      :decl-path (:decl-path match)
                       :state  fired-state
                       :delay-key (:delay-key match)
                       :epoch  (:epoch match)
@@ -4218,6 +4235,9 @@
                       :rf.reply/work-id     (:rf.reply/work-id summary)
                       :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
+                       ;; Inside a parallel region `:decl-path` is region-relative.
+                       (some? (:region match))
+                       (assoc :region (:region match))
                        ;; Milliseconds and causal completion time (see stale branch).
                        (some? (:delay match))
                        (assoc :delay (:delay match))
