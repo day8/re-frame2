@@ -16,8 +16,8 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            ;; Publishes the `:flows/*` late-bind hooks; `reg-flow` installs its
-            ;; `:source :flow` elision marks at registration.
+            ;; Publishes the `:flows/*` late-bind hooks; a frame claims a
+            ;; flow's `:source :flow` elision marks when it evaluates it.
             [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -187,19 +187,21 @@
 
 (deftest ^:requires-debug schema-rejection-never-installs-in-band-effect-keeps-flow-mark
   ;; The in-band `:sensitive` effect rides the rejected candidate, so it never
-  ;; installs; the `:source :flow` mark predates the event and stands.
-  (rf/make-frame {:id :pc/rb-srcaware})
-  (rf.epoch/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0} :rf.db/runtime {}})
-  (rf/reg-flow :creds {:frame       :pc/rb-srcaware
-                       :inputs      [[:n]]
+  ;; installs; the `:source :flow` mark, claimed by an earlier committed
+  ;; event, stands.
+  (rf/reg-flow :creds {:inputs      [[:n]]
                        :output-path [:derived :creds]
                        :sensitive   [[:secret]]}
     (fn [n] {:secret n}))
+  (rf/make-frame {:id :pc/rb-srcaware :flows [:creds]})
+  (rf.epoch/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0} :rf.db/runtime {}})
   (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
+  (rf/reg-event :pc/ok (fn [{:keys [db]} _] {:db db}))
   (rf/reg-event :pc/bad-with-effect
     (fn [_ _] {:db {:n -5} :sensitive [[:another-secret]]}))
+  (rf/dispatch-sync [:pc/ok] {:frame :pc/rb-srcaware})
   (rf/dispatch-sync [:pc/bad-with-effect] {:frame :pc/rb-srcaware})
-  (is (= {:n 0} (rf/app-db-value :pc/rb-srcaware)))
+  (is (= {:n 0 :derived {:creds {:secret 0}}} (rf/app-db-value :pc/rb-srcaware)))
   (is (= {[:derived :creds :secret] #{{:source :flow :flow-id :creds}}}
          (rf.elision/sensitive-declarations :pc/rb-srcaware))))
 
@@ -225,36 +227,36 @@
   (is (= {[:actor :token] #{{:source :machine :machine-id :door}}}
          (rf.elision/sensitive-declarations :pc/rb-subsys))))
 
-(deftest ^:requires-debug schema-rejection-keeps-flow-move-reconcile
-  ;; A reentrant `reg-flow` output-path move inside a rejected event is a
-  ;; durable re-registration: the old-path claim stays dropped and the
-  ;; new-path claim stands.
-  (rf/make-frame {:id :pc/rb-move})
-  (rf.epoch/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0} :rf.db/runtime {}})
-  (rf/reg-flow :mover {:frame       :pc/rb-move
-                       :inputs      [[:n]]
-                       :output-path [:old :creds]
-                       :sensitive   [[:secret]]}
-    (fn [n] {:secret n}))
-  (is (= {[:old :creds :secret] #{{:source :flow :flow-id :mover}}}
-         (rf.elision/sensitive-declarations :pc/rb-move))
-      "precondition: the old-path mark is installed")
-  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
-  (rf/reg-interceptor :pc/flow-mover
-    {:after (fn [ctx]
-              (rf/reg-flow :mover {:frame       :pc/rb-move
-                                   :inputs      [[:n]]
-                                   :output-path [:new :creds]
-                                   :sensitive   [[:secret]]}
-                (fn [n] {:secret n}))
-              ctx)})
-  (rf/reg-event :pc/bad-move
-    {:interceptors [:pc/flow-mover]}
-    (fn [_ _] {:db {:n -5}}))
-  (rf/dispatch-sync [:pc/bad-move] {:frame :pc/rb-move})
-  (is (= {:n 0} (rf/app-db-value :pc/rb-move)))
-  (is (= {[:new :creds :secret] #{{:source :flow :flow-id :mover}}}
-         (rf.elision/sensitive-declarations :pc/rb-move))))
+(deftest ^:requires-debug schema-rejection-keeps-flow-claims-on-the-committed-output
+  ;; A re-registration that moves a flow's output path reaches the frame on its
+  ;; next event, whose pass claims the new path and vacates the old one. When
+  ;; that event is rejected the old output stays committed, so its claim comes
+  ;; back with the restored memo; the next committed event moves both.
+  (let [mover (fn [path]
+                (rf/reg-flow :mover {:inputs      [[:n]]
+                                     :output-path path
+                                     :sensitive   [[:secret]]}
+                  (fn [n] {:secret n})))
+        claims #(rf.elision/sensitive-declarations :pc/rb-move)]
+    (mover [:old :creds])
+    (rf/make-frame {:id :pc/rb-move :flows [:mover]})
+    (rf.epoch/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0} :rf.db/runtime {}})
+    (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
+    (rf/reg-event :pc/ok (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :pc/bad (fn [_ _] {:db {:n -5}}))
+    (rf/dispatch-sync [:pc/ok] {:frame :pc/rb-move})
+    (is (= {[:old :creds :secret] #{{:source :flow :flow-id :mover}}} (claims))
+        "precondition: the old-path claim is installed")
+    (mover [:new :creds])
+    (rf/dispatch-sync [:pc/bad] {:frame :pc/rb-move})
+    (is (= {:n 0 :old {:creds {:secret 0}}} (rf/app-db-value :pc/rb-move)))
+    (is (= {:source :flow :flow-id :mover}
+           (first (get (claims) [:old :creds :secret])))
+        "the committed old output is still claimed")
+    (rf/dispatch-sync [:pc/ok] {:frame :pc/rb-move})
+    (is (= [{:n 0 :old {} :new {:creds {:secret 0}}}
+            {[:new :creds :secret] #{{:source :flow :flow-id :mover}}}]
+           [(rf/app-db-value :pc/rb-move) (claims)]))))
 
 (deftest ^:requires-debug schema-rejection-preserves-full-app-db-under-path-interceptor
   ;; A path interceptor focuses `[:coeffects :db]` on its slice, so a

@@ -437,10 +437,10 @@
     (rf/reg-app-schema path schema)))
 
 (defn- realise-flows!
-  "Register the fixture's static flows. Called AFTER `make-frame` — per Spec
-  013 flows are FRAME-SCOPED, so the destroy-frame! teardown hook
-  clears any flows registered before the destroy step. Static shape lives
-  under `:fixture/registry :flow`; body DSL under `:fixture/flow-bodies`."
+  "Register the fixture's flows. Called BEFORE `make-frame` — a flow is a
+  top-level registration (Spec 013 §Activation), and a frame whose `:flows`
+  names an unregistered flow fails construction. Metadata lives under
+  `:fixture/registry :flow`; body DSL under `:fixture/flow-bodies`."
   [fixture]
   (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
         flow-bodies   (or (:fixture/flow-bodies fixture) {})]
@@ -469,7 +469,7 @@
   body, these ops are a TEST-ONLY shorthand writing the frame's durable
   elision registry EXACTLY as those effects would. `:sensitive` / `:large`
   are additive; `:clear-*` remove the named paths on their named axis ONLY.
-  Called AFTER `make-frame` and BEFORE `realise-flows!`.
+  Called AFTER `make-frame`.
 
   Each op carries EXACTLY ONE of the four axes, and that is CHECKED here
   before anything is applied. The `cond` below is
@@ -690,15 +690,18 @@
           paths)))
 
 (defn- flow-ids
-  "The ids of the flows registered on `frame-id`."
+  "The ids of the flows `frame-id`'s config names; none for a destroyed
+  frame."
   [frame-id]
-  (set (keys (get (rf.flows/flows-snapshot) frame-id))))
+  (set (:flows (rf/frame-meta frame-id))))
 
 (defn- flow-dependencies
-  "`{flow-id #{dep-id …}}` over `:rf/default`'s flows, by the runtime's own
-  `topo/depends-on?`, so the matcher cannot drift from the dependency rule."
+  "`{flow-id #{dep-id …}}` over the flows `:rf/default` runs, by the
+  runtime's own `topo/depends-on?`, so the matcher cannot drift from the
+  dependency rule."
   []
-  (let [registry (get (rf.flows/flows-snapshot) :rf/default {})]
+  (let [registry (into {} (for [id (flow-ids :rf/default)]
+                            [id (rf/handler-meta {:source :store :kind :flow :id id})]))]
     (into {} (for [[id flow] registry]
                [id (into #{} (for [[other-id other] registry
                                    :when (and (not= id other-id)
@@ -786,7 +789,7 @@
    ;; A bare set reads `:rf/default`; a map reads each named frame.
    [:flow-registry-after
     {:match (fn [_ want]
-              (equal-failures "registered flows" want
+              (equal-failures "flows each frame runs" want
                               (if (map? want)
                                 (into {} (for [[fid _] want] [fid (flow-ids fid)]))
                                 (flow-ids :rf/default))))}]
@@ -795,9 +798,8 @@
               (equal-failures "frames holding last inputs" want
                               (into {} (for [[id _] want]
                                          [id (set (keys (get (rf.flows/last-inputs-snapshot) id)))]))))}]
-   ;; The whole `:flow` registrar slot, which `reg-flow` never writes —
-   ;; neither the per-frame store nor the expected ids, either of which
-   ;; would let an empty expectation match a polluted slot.
+   ;; The whole `:flow` registrar slot, not the expected ids, which would let
+   ;; an expectation match a slot holding more.
    [:registrar-flow-slots-after
     {:match (fn [_ want] (equal-failures "registrar :flow ids" want (set (rf.registrar/ids :flow))))}]
    [:trace-emissions
@@ -1504,7 +1506,7 @@
   dispatch phase can be run inside the `:fixture/clock` redefs
   without duplicating it. Must run inside the fixture's established frame
   scope."
-  [ev sub-registry dispatch-error-failures]
+  [ev registry dispatch-error-failures]
   (cond
     (map? ev)
     (cond
@@ -1532,7 +1534,7 @@
       (let [sub-id (:reg-sub ev)
             steps  (:body ev)
             {:keys [kind inputs body]} (rf.conformance/realise-sub steps)
-            sub-meta (get sub-registry sub-id {})]
+            sub-meta (get-in registry [:sub sub-id] {})]
         (case kind
           :layer-1 (if (seq sub-meta)
                      (rf.subs/reg-sub sub-id sub-meta body)
@@ -1542,6 +1544,15 @@
                         (rf.subs/reg-runtime-sub sub-id body))
           :layer-2 (rf.subs/reg-sub
                      sub-id (assoc sub-meta :inputs (vec inputs)) body)))
+
+      ;; Harness re-registration `{:reg-flow <flow-id> :body <body>}`: the
+      ;; fixture's flow re-registered with a new body, as a namespace reload
+      ;; does (Spec 013 §Re-registration).
+      (contains? ev :reg-flow)
+      (let [flow-id (:reg-flow ev)]
+        (rf/reg-flow flow-id
+                     (get-in registry [:flow flow-id] {})
+                     (rf.conformance/realise-flow-output-fn (:body ev))))
 
       ;; EP-0017: a dispatch asserting a boundary /
       ;; context-assembly THROW. The throw escapes `dispatch-sync`, so
@@ -1620,20 +1631,18 @@
           ;; app-schema registrations — BEFORE make-frame (so the
           ;; :initial-events cascade validates the seeded state).
           _            (realise-app-schemas! fixture)
+          ;; Flows register BEFORE make-frame, whose `:flows` resolve them.
+          _            (realise-flows! fixture)
           _            (cond
                          (seq frames-spec)
                          (doseq [f frames-spec]
                            (rf/make-frame f))
                          :else
                          (rf/make-frame (assoc frame-config :id :rf/default)))
-          ;; Data-classification commit-plane effects run AFTER make-frame and
-          ;; BEFORE realise-flows!.
+          ;; Data-classification commit-plane effects run AFTER make-frame.
           _            (realise-classification-effects! fixture scope-frame)
-          ;; Flow registration runs AFTER make-frame (frame-scoped teardown).
-          _            (rf/with-frame scope-frame
-                         (realise-flows! fixture))
           dispatches   (or (:fixture/dispatches fixture) [])
-          sub-registry (get-in fixture [:fixture/registry :sub] {})
+          registry     (:fixture/registry fixture)
           ;; EP-0017: per-dispatch `:expect-error` assertions.
           dispatch-error-failures (atom [])
           ;; `:fixture/clock`. Present ⇒ the dispatch phase runs
@@ -1647,7 +1656,7 @@
           (fn []
             (rf/with-frame scope-frame
               (doseq [ev dispatches]
-                (dispatch-fixture-event! ev sub-registry dispatch-error-failures))))]
+                (dispatch-fixture-event! ev registry dispatch-error-failures))))]
       (if clock
         (with-redefs [rf.interop/schedule-after!   (clock-arm-fn clock)
                       rf.interop/cancel-scheduled! (clock-cancel-fn clock)]

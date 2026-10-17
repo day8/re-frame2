@@ -37,6 +37,7 @@
     (rf/dispatch-sync [:init])
     (rf/reg-flow :flow/output-write {:inputs [[:source]] :output-path path}
       (fn [_] (swap! calls inc) 42))
+    (rf/make-frame {:id :rf/default :flows [:flow/output-write]})
     (let [before (rf/app-db-value :rf/default)]
       (rf/dispatch-sync [:bump])
       (is (= [1 before] [@calls (rf/app-db-value :rf/default)])

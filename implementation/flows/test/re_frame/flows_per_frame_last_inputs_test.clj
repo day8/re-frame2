@@ -1,6 +1,5 @@
 (ns re-frame.flows-per-frame-last-inputs-test
-  "A failed flow's dirty-check rollback restores only the draining frame's
-  rows. Drain locks are per frame, so a sibling can advance and commit its
+  "A failed flow's memo rollback restores only the draining frame's rows. Drain locks are per frame, so a sibling can advance and commit its
   own row while this frame sits between snapshot and throw; restoring every
   frame's rows would revert the sibling's, and its next same-input drain would
   recompute and rewrite for nothing. JVM-only: CLJS has no threads."
@@ -29,18 +28,19 @@
                   (future (.await latch)
                           (dotimes [i stress-iters]
                             (rf/dispatch-sync [:set-n (n-of i)] {:frame frame-id}))))]
-    (rf/make-frame {:id :a})
-    (rf/make-frame {:id :b})
     (rf/reg-event :set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (rf/reg-flow :throws {:frame :a :inputs [[:n]] :output-path [:out]}
+    (rf/reg-flow :throws {:inputs [[:n]] :output-path [:out]}
       (fn [_] (throw (ex-info "boom-A" {}))))
-    (rf/reg-flow :doubles {:frame :b :inputs [[:n]] :output-path [:out]}
+    (rf/reg-flow :doubles {:inputs [[:n]] :output-path [:out]}
       (fn [n] (.incrementAndGet b-calls) (* 2 n)))
+    (rf/make-frame {:id :a :flows [:throws]})
+    (rf/make-frame {:id :b :flows [:doubles]})
     (rf/dispatch-sync [:set-n 7] {:frame :b})
     (let [a (drive :a inc)
           b (drive :b (constantly 7))]
       (.countDown latch)
       (is (not= ::timeout (deref a 120000 ::timeout)))
       (is (not= ::timeout (deref b 120000 ::timeout))))
-    (is (= [1 [7]] [(.get b-calls) (rf.flows.registry/get-frame-flow-last-inputs :b :doubles)])
+    (is (= [1 [7]] [(.get b-calls)
+                    (:inputs (get (rf.flows.registry/frame-last-inputs-snapshot :b) :doubles))])
         "B derived once and its row survived A's rollbacks")))

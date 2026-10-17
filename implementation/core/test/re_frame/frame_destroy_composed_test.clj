@@ -141,20 +141,22 @@
 
 (deftest composed-destroy-leak-audit
   ;; every per-frame subsystem with a teardown hook, cleared by one destroy
-  (rf/make-frame {:id :composed/leak-audit :doc "leak-audit"})
+  (rf/reg-flow :composed/area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
+  (rf/make-frame {:id :composed/leak-audit :doc "leak-audit" :flows [:composed/area]})
   (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-  (rf/reg-flow :composed/area {:frame :composed/leak-audit :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
   (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
   ;; written directly: a sibling's flows reload can gate the walker's hook
-  (rf.flows.registry/set-frame-flow-last-inputs! :composed/leak-audit :composed/area [3 4])
+  (reset! (rf.flows.registry/ensure-frame-memo-atom! :composed/leak-audit)
+          {:composed/area {:flow nil :inputs [3 4] :output 12}})
   (rf/reg-sub :composed/leak-rect (fn [db _] (:rect db)))
   (rf/subscribe [:composed/leak-rect] {:frame :composed/leak-audit})
   (let [rows (fn []
-               [(contains? (rf.flows/flows-snapshot) :composed/leak-audit)
+               [(contains? (rf.flows.registry/frame-last-inputs-snapshot :composed/leak-audit)
+                           :composed/area)
                 (contains? (get (rf.flows/last-inputs-snapshot) :composed/area)
                            :composed/leak-audit)
                 (some? (get @rf.frame/frames :composed/leak-audit))])]
-    (is (= [true true true] (rows)) "precondition: flow, last-inputs and frame rows")
+    (is (= [true true true] (rows)) "precondition: memo row, cached inputs and frame row")
     (is (pos? (count @(:sub-cache (rf.frame/frame :composed/leak-audit)))))
     (when rf.interop/debug-enabled?
       (is (pos? (count (rf.epoch/epoch-history :composed/leak-audit)))

@@ -15,11 +15,11 @@
 ;; `:different-fn?` tag MUST distinguish an idempotent reload from a
 ;; real handler-fn swap.
 ;;
-;; The fixture drives the re-registration via `:rf.fx/reg-flow` (the
-;; public flow-registration fx per Spec 013 — the only public surface
-;; through which the pure-data corpus can re-register a slot mid-
-;; dispatch). The `:rf.registry/handler-replaced` contract is
-;; cross-kind, not flow-specific; per Spec 001 §Per-kind rules the
+;; The fixture drives the re-registration through the harness's
+;; `{:reg-flow id :body …}` dispatch entry, which re-registers a flow with
+;; a new body as a namespace reload does. The
+;; `:rf.registry/handler-replaced` contract is cross-kind, not
+;; flow-specific; per Spec 001 §Per-kind rules the
 ;; same trace fires for every registry kind. This fixture exercises
 ;; the contract through the flow kind; per-kind variants live in
 ;; per-kind implementation tests (see e.g.
@@ -27,18 +27,19 @@
 ;; cross-kind JVM coverage).
 ;;
 ;; Sequence:
-;;   1. `:flow/init` seeds `:n`.
-;;   2. `:flow/reg-v1` registers `:doubled/value` with `(* 2 n)` —
-;;      first-time registration; `:rf.flow/registered` fires (per Spec
-;;      013 §Flow tracing) but `:rf.registry/handler-replaced` does NOT
-;;      (the registrar's `register!` discriminates first-time from
-;;      re-registration).
-;;   3. `:flow/reg-v2` re-registers `:doubled/value` with `(+ n n)` —
+;;   1. The harness registers `:doubled/value` with `(* 2 n)` before the
+;;      frame exists — first-time registration; `:rf.flow/registered`
+;;      fires (per Spec 013 §Flow tracing) but
+;;      `:rf.registry/handler-replaced` does NOT (the registrar's
+;;      `register!` discriminates first-time from re-registration).
+;;   2. The frame runs the flow; `:flow/init` seeds `:n`, and the flow
+;;      computes 14.
+;;   3. `{:reg-flow …}` re-registers `:doubled/value` with `(+ n n)` —
 ;;      re-registration; `:rf.registry/handler-replaced` fires with
 ;;      `:kind :flow` + `:id :doubled/value` + `:different-fn? true`.
 ;;      The new body is value-equivalent on the same input so the
-;;      output stays at 14 (per Spec 013 §Re-registration — flows that
-;;      re-evaluate to the same value preserve the prior output).
+;;      output stays at 14 when the frame's next event re-evaluates it
+;;      (per Spec 013 §Re-registration).
 ;;
 ;; Reference: Spec 001 §Hot-reload trace surface;
 ;;            Spec 013 §Re-registration;
@@ -53,33 +54,26 @@
 
  :fixture/registry
  {:event {:flow/init     {:doc "Seed :n."}
-          :flow/reg-v1   {:doc "First-time flow registration."}
-          :flow/reg-v2   {:doc "Re-register the same flow id with a different body."}
-          :flow/poke     {:doc "No-op event to drive a drain."}}
-  :fx    {:rf.fx/reg-flow {:doc       "Public fx: register a flow."
-                           :platforms #{:client :server}}}}
+          :flow/poke     {:doc "Write :tick to drive an event."}}
+  :flow  {:doubled/value {:doc         "Twice :n, at :doubled."
+                          :inputs      [[:n]]
+                          :output-path [:doubled]}}}
 
  :fixture/handlers
  {:event {:flow/init   [[:set [:n] 7]]
-          :flow/reg-v1 [[:fx :rf.fx/reg-flow
-                         {:id     :doubled/value
-                          :inputs [[:n]]
-                          :body   [[:fn :* [:event-arg 0] 2]]
-                          :output-path [:doubled]}]]
-          :flow/reg-v2 [[:fx :rf.fx/reg-flow
-                         {:id     :doubled/value
-                          :inputs [[:n]]
-                          :body   [[:fn :+ [:event-arg 0] [:event-arg 0]]]
-                          :output-path [:doubled]}]]
           :flow/poke   [[:set [:tick] [:event-arg 1]]]}}
 
+ ;; v1 — `(* n 2)`.
+ :fixture/flow-bodies
+ {:doubled/value [[:fn :* [:event-arg 0] 2]]}
+
  :fixture/frame-config
- {:initial-events [[:flow/init]]}
+ {:flows          [:doubled/value]
+  :initial-events [[:flow/init]]}
 
  :fixture/dispatches
- [[:flow/reg-v1]
-  [:flow/poke 1]
-  [:flow/reg-v2]
+ [[:flow/poke 1]
+  {:reg-flow :doubled/value :body [[:fn :+ [:event-arg 0] [:event-arg 0]]]}
   [:flow/poke 2]]
 
  :fixture/expect
@@ -89,25 +83,22 @@
    :doubled 14}
 
   ;; The trace assertion is the load-bearing one. Order:
-  ;;   :flow/reg-v1 dispatches → :rf.flow/registered fires (first-time,
-  ;;     per Spec 013 §Flow tracing), and the flow evaluates against the
-  ;;     v1 body before this dispatch settles (Spec 013 §Sequencing).
+  ;;   The harness registration → :rf.flow/registered fires (first-time,
+  ;;     per Spec 013 §Flow tracing).
   ;;   :flow/poke 1 — :n is unchanged, so the flow skips.
-  ;;   :flow/reg-v2 dispatches → :rf.registry/handler-replaced fires
-  ;;     (the cross-kind hot-reload trace). NO second :rf.flow/registered
+  ;;   {:reg-flow …} → :rf.registry/handler-replaced fires (the
+  ;;     cross-kind hot-reload trace). NO second :rf.flow/registered
   ;;     fires — that op-type is first-time-only (re-registration
   ;;     surfaces as :rf.registry/handler-replaced only, so subscribers
-  ;;     don't double-count). The flow re-evaluates against the v2 body
-  ;;     before this dispatch settles.
-  ;;   :flow/poke 2 — the flow skips again.
+  ;;     don't double-count).
+  ;;   :flow/poke 2 — the flow re-evaluates against the v2 body.
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :flow/reg-v1}}
-   {:operation :rf.flow/registered
-    :tags      {:flow-id :doubled/value :frame :rf/default}}
+  [{:operation :rf.flow/registered
+    :tags      {:flow-id :doubled/value}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :flow/poke}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :flow/reg-v2}}
    {:operation :rf.registry/handler-replaced
     :tags      {:kind          :flow
                 :id            :doubled/value
                 :different-fn? true}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :flow/poke}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :flow/poke}}
+   {:operation :rf.flow/computed   :tags {:flow-id :doubled/value :result 14}}]}}

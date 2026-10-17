@@ -103,6 +103,7 @@
   (rf/reg-event ::touch (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
   (rf/reg-flow ::out {:inputs [[:src]] :output-path [:out] :sensitive [[:token]]}
     (fn [s] {:token (str "secret-historic-flow-" s) :note "visible"}))
+  (rf/make-frame {:id :rf/default :flows [::out]})
   (rf/dispatch-sync [::seed "output"])
   (rf/dispatch-sync [::touch])
   (let [record     (record-for ::touch)
@@ -112,8 +113,9 @@
            (values-at record token-path))
         "control: the raw record carries the output in all four app-db slots")
     (rf/clear :flow ::out)
+    (rf/dispatch-sync [::touch])
     (is (not (contains? (rf.elision/sensitive-declarations :rf/default) token-path))
-        "clearing the flow drops its claim")
+        "the event after the clear vacates the output and drops its claim")
     (let [projected (rf/project-egress record)]
       (is (= [[:db-before :rf/redacted] [:db-after :rf/redacted]
               [:frame-state-before :rf/redacted] [:frame-state-after :rf/redacted]]

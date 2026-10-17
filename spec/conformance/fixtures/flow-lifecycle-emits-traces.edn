@@ -2,22 +2,26 @@
 ;; Per Spec 009 §Flow trace events / Spec 013 §Flow tracing — every flow
 ;; lifecycle event emits a :op-type :flow trace event with its operation
 ;; under the :rf.flow/* namespace. This fixture exercises the canonical
-;; lifecycle and asserts each of the five events fires with the documented
-;; payload shape.
+;; lifecycle — registration, then the frame that runs the flow evaluating it
+;; — and asserts the events it reaches fire with the documented payload
+;; shape.
 ;;
 ;; Event vocabulary:
-;;   :rf.flow/registered  — reg-flow ran successfully
+;;   :rf.flow/registered  — a first reg-flow of the id ran successfully
 ;;   :rf.flow/computed    — recompute ran (inputs differed by =-equality)
 ;;   :rf.flow/skip        — recompute suppressed (inputs =-equal)
-;;   :rf.flow/cleared     — clear-flow ran
+;;   :rf.flow/cleared     — (rf/clear :flow id) removed a registration
 ;;   :rf.flow/failed      — :derive fn threw (re-raised after this trace)
+;;
+;; The fixture DSL has no clear step and this flow never throws, so the
+;; last two are pinned by the flows artefact's own trace tests.
 ;;
 ;; Required for re-frame-10x v2's flow panel.
 
 {:fixture/id           :flow/lifecycle-emits-traces
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :flow/basic :flow/trace}
- :fixture/doc          "Drive the canonical flow lifecycle (register → first compute → no-op equal rewrite → real recompute → clear) and assert each lifecycle action emits the documented :rf.flow/* trace event with op-type :flow. The harness records every emitted trace event and checks the captured stream for the expected entries in order."
+ :fixture/doc          "Drive the canonical flow lifecycle (register → the frame running the flow first computes it → no-op equal rewrite → real recompute) and assert each lifecycle action emits the documented :rf.flow/* trace event with op-type :flow. The harness records every emitted trace event and checks the captured stream for the expected entries in order."
 
  :fixture/registry
  {:event {:n/init     {:doc "Seed :n to 3."}
@@ -34,6 +38,10 @@
  ;; The :derive fn realised by the harness as `(fn [n] (* 2 n))`.
  :fixture/flow-bodies
  {:double [[:fn :* 2 [:event-arg 0]]]}
+
+ ;; The frame runs :double (Spec 013 §Activation).
+ :fixture/frame-config
+ {:flows [:double]}
 
  :fixture/dispatches
  [;; first drain: flow first-fires

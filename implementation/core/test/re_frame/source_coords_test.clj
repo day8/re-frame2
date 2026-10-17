@@ -10,9 +10,9 @@
   unchanged. The always-on registration coordinate, which
   `rf.registrar/register!` attaches to the stored descriptor
   (`rf.source-coords/registration-coords`), is filled in both postures. So each claim is asserted on the always-on sink, with the
-  public-meta claim in a `(when rf.interop/debug-enabled? …)` arm. `reg-flow`
-  and `reg-app-schema` store their coords in their own artefacts' side-tables,
-  never through `register!`, so they have only the dev sink."
+  public-meta claim in a `(when rf.interop/debug-enabled? …)` arm.
+  `reg-app-schema` stores its coords in its own artefact's side-table, never
+  through `register!`, so it has only the dev sink."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
             [clojure.java.io :as io]
             [re-frame.core :as rf]
@@ -72,13 +72,12 @@
                      [:view            :rf2-k84s/reg-view-sample]
                      [:event           :rf2-k84s/reg-machine-sample]
                      [:route           :rf2-k84s/reg-route-sample]
-                     [:error-projector :rf2-k84s/reg-error-projector-sample]]]
+                     [:error-projector :rf2-k84s/reg-error-projector-sample]
+                     [:flow            :rf2-k84s/reg-flow-sample]]]
     (assert-coords (rf.source-coords/registration-coords (rf.registrar/lookup kind id)) kind id)
     (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta {:source :store :kind kind :id id}) kind id)))
   (when rf.interop/debug-enabled?
-    (assert-coords (rf.flows/flow-meta {:frame :rf/default :id :rf2-k84s/reg-flow-sample})
-                   :flow :rf2-k84s/reg-flow-sample)
     (assert-coords (rf.schemas/app-schema-meta {:frame :rf/default
                                                 :path  [:rf2-k84s/reg-app-schema-sample]})
                    :app-schema [:rf2-k84s/reg-app-schema-sample])))

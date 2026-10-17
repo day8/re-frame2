@@ -170,6 +170,8 @@
    [:map {:closed true} [:destroy-frame :keyword]]
    ;; Re-register a sub with a new body.
    [:map {:closed true} [:reg-sub :keyword] [:body :conformance/sub-body]]
+   ;; Re-register a `:fixture/registry :flow` flow with a new body.
+   [:map {:closed true} [:reg-flow :keyword] [:body :conformance/flow-body]]
    ;; Queue each event with async `dispatch` behind a held drain, then run
    ;; that drain once.
    [:map {:closed true} [:queue [:vector [:vector :any]]]]
@@ -335,12 +337,12 @@
     [:map-of :keyword [:set :keyword]]]
    [:flow-registry-after
     {:optional true
-     :observe  "the set of flow ids registered on :rf/default when the expected value is a set; the set registered on each named frame when it is a map"
+     :observe  "the set of flow ids :rf/default's :flows config names when the expected value is a set; the set each named frame's names when it is a map, empty for a destroyed frame"
      :law      :equal}
     [:or [:set :keyword] [:map-of :keyword [:set :keyword]]]]
    [:flow-last-inputs-after
     {:optional true
-     :observe  "for each flow id the expectation names, the set of frames holding last inputs for it"
+     :observe  "for each flow id the expectation names, the set of frames holding an evaluation memo row for it"
      :law      :equal}
     [:map-of :keyword [:set :keyword]]]
    [:registrar-flow-slots-after

@@ -1,149 +1,75 @@
 ;; Conformance fixture: flow/frame-scoped
-;; Per Spec 013 §Frame-scoping — flows belong to one frame. The per-frame
-;; registry shape is `{frame-id {flow-id flow-map}}`; registration,
-;; evaluation, undo / time-travel, and `clear-flow`'s `dissoc-in` are
-;; all frame-local. Three normative consequences (Spec 013 lines 99-103)
-;; this fixture pins:
+;; Per Spec 013 §Activation — a flow is a top-level registration, and a
+;; frame runs the flows its `:flows` config names, and no others. Two
+;; normative consequences this fixture pins:
 ;;
-;;   Contract 1 (sibling-frame isolation, lifted from "per-frame undo
-;;     / time-travel boundaries"). An event dispatched on one frame
-;;     walks ONLY that frame's flows; the sibling frame's app-db /
-;;     flow output are untouched. (`run-flows!` walks
-;;     `(get @flows frame-id)` only — per §Drain integration property
-;;     4 "Frame isolation".)
+;;   Contract 1 (sibling-frame isolation). An event dispatched on one frame
+;;     evaluates ONLY the flows that frame runs; the sibling frame's app-db
+;;     and flow outputs are untouched (§Drain integration property 4,
+;;     "Frame isolation").
 ;;
-;;   Contract 2 (same flow-id, multiple frames, independent
-;;     definitions). Registering `:compute` against `:left` with
-;;     `(fn [x] (* 2 x))` and against `:right` with `(fn [x] (* 100 x))`
-;;     produces two independent flows. Each frame's `run-flows!` walks
-;;     only its own slot of the registry; the same input value in each
-;;     frame yields a different output.
-;;
-;;   Contract 3 (`clear-flow` is frame-local). `(clear-flow :compute
-;;     {:frame :left})` removes the flow's definition from `:left`'s
-;;     slot and `dissoc-in`s its `:output-path` from `:left`'s app-db only.
-;;     `:right`'s `:compute` and its output are undisturbed.
-;;
-;; The flow body, registration, and clearing all flow through
-;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` so registration resolves to
-;; the dispatching frame (per Spec 013 §Dynamic toggle via fx — the
-;; reserved fxs register against the dispatching frame). Driving the
-;; fixture from per-frame dispatches is the canonical way to exercise
-;; the same flow-id against two frames with two independent definitions.
+;;   Contract 2 (two derivations are two ids). `:compute/double` and
+;;     `:compute/cent` both read `[:x]` and write `[:result]`. No frame runs
+;;     both, so the shared output path is legal (the overlap check is per
+;;     frame), and the same input value in each frame yields that frame's
+;;     own output.
 
 {:fixture/id           :flow/frame-scoped
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle :flow/frame-scoped}
- :fixture/doc          "Flows are frame-scoped (Spec 013 §Frame-scoping). The same flow-id registered against two frames maintains two independent definitions; clearing it on one frame leaves the other intact; an event dispatched on one frame does not recompute the sibling frame's flows."
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/frame-scoped}
+ :fixture/doc          "Flows are activated per frame (Spec 013 §Activation). Two frames run two different flows over the same input and output paths; an event dispatched on one frame evaluates only that frame's flow, and each frame holds its own output."
 
  :fixture/registry
- {:event {:tenant/init       {:doc "Seed :x on the dispatching frame."}
-          :tenant/reg-double {:doc "Register :compute on the dispatching frame; output = (* x 2)."}
-          :tenant/reg-cent   {:doc "Register :compute on the dispatching frame; output = (* x 100)."}
-          :tenant/set-x      {:doc "Mutate :x on the dispatching frame to drive a flow recompute."}
-          :tenant/clear      {:doc "Clear :compute on the dispatching frame."}}
-  :fx    {:rf.fx/reg-flow   {:doc "Reserved — register a flow at runtime, frame-scoped."
-                             :platforms #{:client :server}}
-          :rf.fx/clear-flow {:doc "Reserved — clear a flow at runtime, frame-scoped."
-                             :platforms #{:client :server}}}}
+ {:event {:tenant/init  {:doc "Seed :x on the dispatching frame."}
+          :tenant/set-x {:doc "Mutate :x on the dispatching frame to drive a flow recompute."}}
+  :flow  {:compute/double {:doc         "Twice :x, at :result."
+                           :inputs      [[:x]]
+                           :output-path [:result]}
+          :compute/cent   {:doc         "A hundred times :x, at :result."
+                           :inputs      [[:x]]
+                           :output-path [:result]}}}
 
- ;; Each frame's :initial-events cascade fires :tenant/init, which seeds
- ;; :x against the cascading frame. The fx-fired :rf.fx/reg-flow then
- ;; registers :compute against the dispatching frame — different :body
- ;; per frame, same flow-id, same :output-path.
  :fixture/handlers
- {:event {:tenant/init       [[:set [:x] 1]]
-          :tenant/reg-double [[:fx :rf.fx/reg-flow
-                               {:id     :compute
-                                :inputs [[:x]]
-                                :body   [[:fn :* [:event-arg 0] 2]]
-                                :output-path [:result]}]]
-          :tenant/reg-cent   [[:fx :rf.fx/reg-flow
-                               {:id     :compute
-                                :inputs [[:x]]
-                                :body   [[:fn :* [:event-arg 0] 100]]
-                                :output-path [:result]}]]
-          :tenant/set-x      [[:set [:x] [:event-arg 1]]]
-          :tenant/clear      [[:fx :rf.fx/clear-flow :compute]]}}
+ {:event {:tenant/init  [[:set [:x] 1]]
+          :tenant/set-x [[:set [:x] [:event-arg 1]]]}}
 
- ;; Two frames; each seeds itself on creation. :tenant/init runs in
- ;; each frame's :initial-events cascade, so :x lands in both :left and
- ;; :right's app-db independently.
+ :fixture/flow-bodies
+ {:compute/double [[:fn :* [:event-arg 0] 2]]
+  :compute/cent   [[:fn :* [:event-arg 0] 100]]}
+
+ ;; Each frame seeds :x through its own :initial-events cascade, whose drain
+ ;; evaluates the frame's flow for the first time.
  :fixture/frames
- [{:id :left  :initial-events [[:tenant/init]]}
-  {:id :right :initial-events [[:tenant/init]]}]
+ [{:id :left  :flows [:compute/double] :initial-events [[:tenant/init]]}
+  {:id :right :flows [:compute/cent]   :initial-events [[:tenant/init]]}]
 
- ;; Sequence (frames are isolated; per Spec 013 §Sequencing a flow
- ;; registered via :rf.fx/reg-flow settles on its own dispatch, and the
- ;; settling drain is frame-scoped like every other):
- ;;
- ;;   1. {:event [:tenant/reg-double] :frame :left}
- ;;        Registers :compute on :left (output = (* x 2)) and settles it on
- ;;        this dispatch → :left :result 2 (x is still the seeded 1).
- ;;        :right is untouched — the settle runs on the DISPATCHING frame.
- ;;   2. {:event [:tenant/reg-cent] :frame :right}
- ;;        Registers :compute on :right (output = (* x 100)) and settles it
- ;;        → :right :result 100.
- ;;   3. {:event [:tenant/set-x 5] :frame :left}
- ;;        Mutates :left's :x to 5; :left's :compute fires → :left :result 10.
- ;;        Critically, :right's :compute does NOT fire (frame isolation,
- ;;        Contract 1). :right's :x still 1, :right's :result still 100.
- ;;   4. {:event [:tenant/set-x 5] :frame :right}
- ;;        Mutates :right's :x to 5; :right's :compute fires → :right :result 500.
- ;;        Same input value as :left (both 5); independent definitions
- ;;        yield different outputs (Contract 2): :left 10 vs :right 500.
- ;;   5. {:event [:tenant/clear] :frame :left}
- ;;        Clears :compute on :left. :left's registry no longer carries
- ;;        :compute; :left's :result is dissoc'd. :right's :compute and
- ;;        :right's :result are untouched (Contract 3).
+ ;; Sequence:
+ ;;   1. {:event [:tenant/set-x 5] :frame :left}
+ ;;        :left's :compute/double recomputes → :left :result 10. :right's
+ ;;        :x is still 1 and its :result still 100 (Contract 1).
+ ;;   2. {:event [:tenant/set-x 5] :frame :right}
+ ;;        :right's :compute/cent recomputes → :right :result 500. Same input
+ ;;        as :left, its own derivation (Contract 2).
  :fixture/dispatches
- [{:event [:tenant/reg-double] :frame :left}
-  {:event [:tenant/reg-cent]   :frame :right}
-  {:event [:tenant/set-x 5]    :frame :left}
-  {:event [:tenant/set-x 5]    :frame :right}
-  {:event [:tenant/clear]      :frame :left}]
+ [{:event [:tenant/set-x 5] :frame :left}
+  {:event [:tenant/set-x 5] :frame :right}]
 
  :fixture/expect
- ;; --- Contract 2: same flow-id, two frames, two independent outputs.
- ;; Both frames carry :x 5 after dispatch (3) / (4); :left's output is
- ;; (* 5 2) but cleared by step (5) so :left has no :result; :right's
- ;; output is (* 5 100) = 500, untouched by :left's clear.
- ;;
- ;; --- Contract 1: sibling-frame isolation. :right's app-db is the
- ;; product of :right's drains ONLY. Dispatch (3) on :left did not
- ;; touch :right's :x (still 1 at that moment); dispatch (5) clearing
- ;; on :left did not touch :right's :result.
- ;;
- ;; --- Contract 3: clear-flow is frame-local. After dispatch (5), the
- ;; per-frame registry has :compute on :right but NOT on :left;
- ;; :left's :result is dissoc'd from :left's app-db; :right's :result
- ;; (500) is intact.
  {:final-app-dbs
-  ;; :left has :x 5 (from step 3) and no :result (cleared in step 5).
-  ;; The submap matcher only checks declared keys; we declare :x to
-  ;; pin the value, but assert :result's absence via the registry
-  ;; channel and via :right's final-app-db (which still carries
-  ;; :result, proving the clear is frame-local).
-  {:left  {:x 5}
+  {:left  {:x 5 :result 10}
    :right {:x 5 :result 500}}
 
-  ;; Per-frame registry shape — {frame-id #{flow-ids}}. After step 5:
-  ;;   :left  — :compute was cleared, slot empty.
-  ;;   :right — :compute remains.
+  ;; The flows each frame's config names.
   :flow-registry-after
-  {:left  #{}
-   :right #{:compute}}
+  {:left  #{:compute/double}
+   :right #{:compute/cent}}
 
-  ;; Recompute counts pin the frame-isolated walker (Contract 1):
-  ;;   :left's :compute fired twice — once settling its own registration
-  ;;   (step 1) and once on the input mutation (step 3); step 5 cleared it.
-  ;;   :right's :compute likewise fired twice (steps 2 and 4). Steps 1, 3
-  ;;   and 5 dispatched on :left and did NOT walk :right's flows, and the
-  ;;   settling drains are frame-scoped for the same reason: a settle is an
-  ;;   ordinary event on the dispatching frame, so it can no more reach a
-  ;;   sibling than any other event can.
-  ;; The recompute aggregator keys by :flow-id only (not
-  ;; [:frame :flow-id]); both frames' :compute fire twice each, so the
-  ;; total is 4.
+  ;; Each flow computed twice — on its frame's seeding event and on that
+  ;; frame's set-x — and never on the sibling's events (Contract 1).
   :flow-recompute-counts
-  {:compute 4}}}
+  {:compute/double 2
+   :compute/cent   2}
+
+  ;; Both definitions are ordinary registrations.
+  :registrar-flow-slots-after
+  #{:compute/double :compute/cent}}}

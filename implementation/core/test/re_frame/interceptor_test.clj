@@ -60,6 +60,7 @@
                 (fn [_ _] {:fx []}))
   (rf/reg-flow :bw76/derived {:inputs [[:counter]] :output-path [:derived]}
                (fn [n] (or n 0)))
+  (rf/make-frame {:id :rf/default :flows [:bw76/derived]})
   (rf/dispatch-sync [:bw76/init])
   (doseq [event-id [:bw76/fx-only :bw76/nested-fx-only]]
     (rf/dispatch-sync [event-id])

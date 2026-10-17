@@ -169,7 +169,6 @@
   (rf/reg-view* :o1bp/view1 (fn [] [:div "v1"]))
   (rf/reg-machine :o1bp/mach1 {:initial :idle :data {} :states {:idle {}}})
   (rf/reg-route :o1bp/route1 {} "/o1bp/landing")
-  ;; flows live in their artefact's own per-frame store
   (rf/reg-flow :o1bp/flow1 {:inputs [] :output-path [:o1bp/flow-output]} (fn [_inputs] :computed))
   (rf/reg-http-interceptor :o1bp/interceptor1 {:before identity})
   (rf/reg-error-projector :o1bp/err1 (fn [_ _] {}))
@@ -180,11 +179,11 @@
                          [:sub :o1bp/sub1] [:fx :o1bp/fx1] [:cofx :o1bp/cofx1]
                          [:view :o1bp/view1] [:route :o1bp/route1]
                          [:error-projector :o1bp/err1] [:app-schema [:o1bp/path]]
-                         [:http-interceptor :o1bp/interceptor1]]]
+                         [:http-interceptor :o1bp/interceptor1] [:flow :o1bp/flow1]]]
         (is (contains? (ids-of kind) id) (str kind " lists " id)))
-      ;; :flow is reserved-but-empty: the query throws rather than answering an
+      ;; :frame is reserved-but-empty: the query throws rather than answering an
       ;; authoritative-looking {} over a store that lives elsewhere
-      (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))))
+      (is (thrown? clojure.lang.ExceptionInfo (ids-of :frame))))
     (testing "handler-meta per id"
       (let [evt (rf/handler-meta {:source :store :kind :event :id :o1bp/evt1})]
         (is (= [true false] [(fn? (:handler-fn evt)) (contains? evt :event/kind)])
@@ -192,10 +191,7 @@
       (is (= [true true] ((juxt (comp true? :rf/machine?) (comp map? :rf/machine))
                           (rf/handler-meta {:source :store :kind :event :id :o1bp/mach1}))))
       (is (= "/o1bp/landing" (:path (rf/handler-meta {:source :store :kind :route :id :o1bp/route1}))))
-      (is (thrown? clojure.lang.ExceptionInfo
-            (rf/handler-meta {:source :store :kind :flow :id :o1bp/flow1}))
-          "a :flow query throws :rf.error/registrar-kind-not-queryable")
       (is (= {:output-path [:o1bp/flow-output] :inputs []}
-             (select-keys (rf.flows/flow-meta {:frame :rf/default :id :o1bp/flow1})
+             (select-keys (rf/handler-meta {:source :store :kind :flow :id :o1bp/flow1})
                           [:output-path :inputs])))
       (is (nil? (rf/handler-meta {:source :store :kind :event :id :no-such-event}))))))

@@ -46,6 +46,7 @@
     (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
     (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow :rect/area {:inputs [[:w] [:h]] :output-path [:area]} (fn [w h] (* w h)))
+    (rf/make-frame {:id :rf/default :flows [:rect/area]})
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])

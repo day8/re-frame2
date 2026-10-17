@@ -1,118 +1,74 @@
 ;; Conformance fixture: flow/frame-destroy-teardown
-;; Per Spec 013 §Frame-destroy teardown and Spec 002 §Destroy — flows are
-;; frame-scoped, so `destroy-frame!` MUST release every per-frame piece of
-;; flow state held for the destroyed frame: its slot in the SOLE per-frame
-;; flow store `{frame-id {flow-id flow-map}}` and every `last-inputs`
-;; dirty-check row. Sibling frames' state is preserved.
+;; Per Spec 013 §Frame-destroy teardown and Spec 002 §Destroy —
+;; `destroy-frame!` MUST release the destroyed frame's flow evaluation memo:
+;; every memo row it holds. Sibling frames' memos are preserved, and the
+;; flow definitions — registrar rows, not frame state — outlive every frame.
 ;;
-;; SINGLE STORE: there is NO frame-blind flow registrar. The
-;; `:flow` registrar kind is RESERVED but its slot is intentionally EMPTY —
-;; `reg-flow` writes only to the per-frame store — so nothing is ever
-;; "re-pointed" on destroy; the destroyed frame's slot is simply dropped
-;; and a sibling frame keeps its own independent slot.
+;; This is a normative requirement: without lockstep teardown a
+;; long-running SSR JVM with per-request frame churn leaks cached input
+;; vectors indefinitely.
 ;;
-;; This is a normative requirement: without
-;; lockstep teardown a long-running SSR JVM with per-request frame churn
-;; leaks flow definitions and cached input vectors indefinitely.
+;; `:fc/a` and `:fc/b` both run `:area`; `:fc/scratch` alone runs
+;; `:area-sole`. After a `:seed` dispatch into each frame populates its
+;; memo, the harness destroys `:fc/a` and `:fc/scratch` and asserts:
 ;;
-;; The fixture registers the same flow id (`:area`) against two frames
-;; (`:fc/a` and `:fc/b`) via the `:rf.fx/reg-flow` runtime fx (which
-;; targets the dispatching frame, per Spec 013 §Dynamic toggle via fx).
-;; After driving a `:seed` dispatch into each frame to populate the
-;; dirty-check cache, it tears down `:fc/a` via the harness-level
-;; `{:destroy-frame :fc/a}` step and asserts:
-;;
-;;   - `:flow-registry-after`         — frame :fc/a's slot is gone;
-;;                                       :fc/b's slot still holds :area.
-;;   - `:flow-last-inputs-after`      — last-inputs for :area no longer
-;;                                       holds a :fc/a row; :fc/b's row
-;;                                       is preserved.
-;;   - `:registrar-flow-slots-after`  — the reserved `:flow` registrar
-;;                                       stays EMPTY before and after
-;;                                       teardown (no flow id is ever
-;;                                       written to it).
-;;
-;; A second teardown destroys `:fc/scratch`, the sole owner of
-;; `:area-sole`; its per-frame store slot and last-inputs row drop
-;; entirely (no surviving frame still registers it), asserted via the
-;; `:fc/scratch` / `:area-sole` empty entries below.
+;;   - `:flow-registry-after`         — `:fc/b` still runs `:area`; the
+;;                                       destroyed `:fc/scratch` runs nothing.
+;;   - `:flow-last-inputs-after`      — `:area`'s memo row survives on `:fc/b`
+;;                                       only, and `:area-sole` has none left.
+;;   - `:registrar-flow-slots-after`  — both definitions are still registered.
 
 {:fixture/id           :flow/frame-destroy-teardown
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle :flow/frame-scoped}
- :fixture/doc          "destroy-frame! releases every per-frame piece of flow state for the destroyed frame (its slot in the sole per-frame flow store {frame-id {flow-id flow-map}} and its last-inputs dirty-check rows). Sibling frames' state is preserved; the reserved :flow registrar slot stays empty throughout (single store). The teardown is normative — without it, long-running SSR JVM hosts with per-request frame churn leak flow definitions and cached input vectors indefinitely."
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/frame-scoped}
+ :fixture/doc          "destroy-frame! releases the destroyed frame's flow evaluation memo. Sibling frames' memos are preserved and the flow definitions stay registered. The teardown is normative — without it, long-running SSR JVM hosts with per-request frame churn leak cached input vectors indefinitely."
 
  :fixture/registry
- {:event {:reg-area      {:doc "Emit :rf.fx/reg-flow for :area against the dispatching frame."}
-          :reg-area-sole {:doc "Emit :rf.fx/reg-flow for :area-sole against the dispatching frame."}
-          :seed          {:doc "Seed :w/:h on the dispatching frame."}}
-  :fx    {:rf.fx/reg-flow {:doc "Reserved — register a flow at runtime."
-                           :platforms #{:client :server}}}}
+ {:event {:seed {:doc "Seed :w/:h on the dispatching frame."}}
+  :flow  {:area      {:doc         "Rectangle area at [:rect :area]."
+                      :inputs      [[:w] [:h]]
+                      :output-path [:rect :area]}
+          :area-sole {:doc         "Rectangle area at [:rect :area-sole]."
+                      :inputs      [[:w] [:h]]
+                      :output-path [:rect :area-sole]}}}
 
  :fixture/handlers
- {:event {:reg-area      [[:fx :rf.fx/reg-flow
-                           {:id     :area
-                            :inputs [[:w] [:h]]
-                            :body   [[:fn :* [:event-arg 0] [:event-arg 1]]]
-                            :output-path [:rect :area]}]]
-          :reg-area-sole [[:fx :rf.fx/reg-flow
-                           {:id     :area-sole
-                            :inputs [[:w] [:h]]
-                            :body   [[:fn :* [:event-arg 0] [:event-arg 1]]]
-                            :output-path [:rect :area-sole]}]]
-          :seed          [[:set [:w] [:event-arg 1]]
-                          [:set [:h] [:event-arg 2]]]}}
+ {:event {:seed [[:set [:w] [:event-arg 1]]
+                 [:set [:h] [:event-arg 2]]]}}
 
- ;; Three frames. :fc/a + :fc/b co-own :area; :fc/scratch solely owns
- ;; :area-sole.
+ :fixture/flow-bodies
+ {:area      [[:fn :* [:event-arg 0] [:event-arg 1]]]
+  :area-sole [[:fn :* [:event-arg 0] [:event-arg 1]]]}
+
  :fixture/frames
- [{:id :fc/a}
-  {:id :fc/b}
-  {:id :fc/scratch}]
+ [{:id :fc/a       :flows [:area]}
+  {:id :fc/b       :flows [:area]}
+  {:id :fc/scratch :flows [:area-sole]}]
 
  :fixture/dispatches
- [;; Register :area against :fc/a; first drain seeds :w/:h there.
-  {:event [:reg-area]    :frame :fc/a}
-  {:event [:seed 3 4]    :frame :fc/a}
-  ;; Same again for :fc/b — different inputs to make the dirty-check
-  ;; rows distinct.
-  {:event [:reg-area]    :frame :fc/b}
-  {:event [:seed 7 9]    :frame :fc/b}
-  ;; Sole-owner :area-sole on :fc/scratch.
-  {:event [:reg-area-sole] :frame :fc/scratch}
-  {:event [:seed 11 13]    :frame :fc/scratch}
-  ;; Harness teardown step — destroy :fc/a. :area survives on :fc/b
-  ;; (its own independent store slot); the reserved `:flow` registrar
-  ;; stays empty.
+ [;; Distinct inputs per frame make the memo rows distinct.
+  {:event [:seed 3 4]   :frame :fc/a}
+  {:event [:seed 7 9]   :frame :fc/b}
+  {:event [:seed 11 13] :frame :fc/scratch}
+  ;; Harness teardown steps.
   {:destroy-frame :fc/a}
-  ;; Destroy :fc/scratch — sole owner of :area-sole; its per-frame store
-  ;; slot and last-inputs row drop entirely.
   {:destroy-frame :fc/scratch}]
 
  :fixture/expect
  {:final-app-dbs
-  ;; :fc/b is the only surviving frame holding flow state.
+  ;; :fc/b is the only surviving frame.
   {:fc/b {:w 7 :h 9 :rect {:area 63}}}
 
-  ;; Per-frame flow store. :fc/a and :fc/scratch are gone.
-  ;; :fc/b retains :area; :fc/scratch's slot is empty (destroyed),
-  ;; proving the sole-owner destroy dropped :area-sole's store slot.
+  ;; The flows each frame's config names; a destroyed frame names none.
   :flow-registry-after
   {:fc/b       #{:area}
    :fc/scratch #{}}
 
-  ;; Per-flow, per-frame last-inputs map. After destroy:
-  ;;   :area on :fc/a — gone (destroyed)
-  ;;   :area on :fc/b — preserved
-  ;;   :area-sole on :fc/scratch — gone (destroyed; whole flow-id row drops)
+  ;; The frames holding a memo row for each flow.
   :flow-last-inputs-after
   {:area      #{:fc/b}
    :area-sole #{}}
 
-  ;; The reserved `:flow` registrar stays EMPTY before and after teardown
-  ;; (single store) — no flow id is ever written to it, so no
-  ;; slot survives (or ever existed) for either a destroyed or a surviving
-  ;; frame. The per-frame release is asserted by `:flow-registry-after` /
-  ;; `:flow-last-inputs-after` above.
+  ;; Definitions are registrar rows; no destroy removes them.
   :registrar-flow-slots-after
-  #{}}}
+  #{:area :area-sole}}}

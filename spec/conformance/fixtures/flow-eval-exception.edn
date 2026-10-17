@@ -55,16 +55,13 @@
  {:tries [[:fn :count [:event-arg 0]]]}
 
  :fixture/frame-config
- {:initial-events [[:flow/init]]}
+ {:flows          [:tries]
+  :initial-events [[:flow/init]]}
 
- ;; First dispatch drives a successful flow eval — :token is the seeded
- ;; vector [1 2 3]; :tries computes (count [1 2 3]) = 3 and writes.
- ;; Conformance runners register flows AFTER the :initial-events cascade
- ;; (per the comment at run-fixture's `realise-flows!` call site), so
- ;; the :initial-events drain itself doesn't trigger :tries.
- ;; A bare no-op dispatch is enough to fire the drain on which :tries
- ;; first-evals — we use :flow/init again because re-dispatching it is
- ;; deterministic and re-seeds the same vector.
+ ;; The :initial-events drain evaluates :tries over the seeded vector
+ ;; [1 2 3]: (count [1 2 3]) = 3. The first dispatch re-seeds the same
+ ;; vector, so its drain skips the flow on =-equal inputs and the frame
+ ;; holds a clean committed state before the failing event.
  :fixture/dispatches
  [[:flow/init]
   [:flow/bad-input]]

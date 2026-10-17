@@ -37,7 +37,8 @@
  {:rectangle/area [[:fn :* [:event-arg 0] [:event-arg 1]]]}
 
  :fixture/frame-config
- {:initial-events [[:rect/init]]}
+ {:flows          [:rectangle/area]
+  :initial-events [[:rect/init]]}
 
  :fixture/dispatches
  [[:rect/set-w 3]

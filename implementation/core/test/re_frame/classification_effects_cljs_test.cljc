@@ -178,6 +178,7 @@
             candidate registry"
     (rf/reg-flow :same-event/doubled {:inputs [[:n]] :output-path [:doubled]}
       (fn [n] (* 2 n)))
+    (rf/make-frame {:id :rf/default :flows [:same-event/doubled]})
     (let [{:keys [t1 t2]} (same-event-login! :auth/login-t2)]
       (assert-same-event-db-redacted :t1 (first t1))
       (assert-same-event-db-redacted :t2 (first t2)))))

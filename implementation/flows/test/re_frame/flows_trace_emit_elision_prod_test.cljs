@@ -16,7 +16,7 @@
             [re-frame.test-support :as rf.test-support]
             ;; Required directly, so every gated emit site is in the
             ;; compiler's reachability graph.
-            [re-frame.flows :as rf.flows]
+            [re-frame.flows]
             [re-frame.flows.registry]
             ;; A wired validator, so the validation surface is shown to
             ;; elide even when the seam is present.
@@ -43,7 +43,7 @@
   ;; Registration, a recompute, a value-equal skip, a clear and a `:derive`
   ;; throw each still happen; `seen` records that they did.
   (let [seen   (atom [])
-        area   #(get-in (rf.flows/flows-snapshot) [:rf/default :prod-elision/area])
+        area   #(get (rf/registrations {:source :store :kind :flow}) :prod-elision/area)
         traces (capture-traces
                  (fn []
                    (rf/reg-event :prod-elision/set-w
@@ -51,6 +51,7 @@
                    (rf/reg-flow :prod-elision/area
                      {:inputs [[:w] [:h]] :output-path [:rect :area]}
                      (fn [w h] (* (or w 0) (or h 0))))
+                   (rf/make-frame {:id :rf/default :flows [:prod-elision/area]})
                    (swap! seen conj (some? (area)))
                    (rf/dispatch-sync [:prod-elision/set-w 3])
                    (swap! seen conj (get-in (rf/app-db-value :rf/default) [:rect :area]))
@@ -60,6 +61,7 @@
                    (rf/reg-flow :prod-elision/throwing
                      {:inputs [[:w]] :output-path [:prod-elision/result]}
                      (fn [_] (throw (ex-info "prod-elision throw" {}))))
+                   (rf/make-frame {:id :rf/default :flows [:prod-elision/throwing]})
                    (rf/dispatch-sync [:prod-elision/set-w 5])))]
     (is (= [[] [true 12 nil]] [traces @seen]))))
 
@@ -73,6 +75,7 @@
     (rf/reg-flow :prod-elision/validated
       {:inputs [[:w] [:h]] :output-path [:prod-elision/area] :schema (fn [_] false)}
       (fn [w h] (* (or w 0) (or h 0))))
+    (rf/make-frame {:id :rf/default :flows [:prod-elision/validated]})
     (let [traces (capture-traces #(rf/dispatch-sync [:prod-elision/seed-validate]))]
       (is (= [[] 0 12]
              [traces @consulted (get-in (rf/app-db-value :rf/default) [:prod-elision/area])])))))

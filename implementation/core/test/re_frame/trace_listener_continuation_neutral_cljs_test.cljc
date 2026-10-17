@@ -5,7 +5,7 @@
 
   A framework lifecycle emit fenced to incarnation A
   (`re-frame.trace/call-with-continuation-predicate` bound to
-  `rf.frame/event-continuation-live?`, as a cold `reg-flow` does) fans out inside
+  `rf.frame/event-continuation-live?`, as an epoch tool write does) fans out inside
   that binding. A listener that destroys A and creates same-id B with
   `:initial-events` gets B seeded, and its nested work in an unrelated frame
   runs. The loop itself must still suppress A's remaining listeners once A is

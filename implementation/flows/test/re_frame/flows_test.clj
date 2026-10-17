@@ -1,16 +1,16 @@
 (ns re-frame.flows-test
   "JVM coverage for Spec 013 — Flows: registration validation and its error
-  ids, the clear lifecycle's registry and app-db effects, frame-value
-  targets, and the drain ordering `:fx` and the `:db` install observe.
+  ids, path vacation, and the drain ordering `:fx` and the `:db` install
+  observe.
 
-  The canonical flow shapes (dirty-check, topological order, hot-reload, frame
-  scoping, teardown) run as data in spec/conformance/fixtures/flow-*.edn via
-  `re-frame.flows-conformance-test`."
+  Activation, re-registration and frame isolation are in
+  `re-frame.flows-activation-test`; the canonical flow shapes (dirty-check,
+  topological order, hot-reload, frame scoping, teardown) run as data in
+  spec/conformance/fixtures/flow-*.edn via `re-frame.flows-conformance-test`."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
-            [re-frame.flows :as rf.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -27,15 +27,15 @@
         later-runs (atom 0)
         final-db   (atom ::unset)]
     (rf/reg-event :flow/record-final (fn [{:keys [db]} _] (reset! final-db db) {}))
-    (rf/make-frame {:id id :on-destroy [:flow/record-final]})
     (rf/reg-flow :killer
-      {:frame id :inputs [[:seed]] :output-path [:derived]}
+      {:inputs [[:seed]] :output-path [:derived]}
       (fn [seed]
         (when seed (rf.frame/destroy-frame! id))
         (some-> seed inc)))
     (rf/reg-flow :later
-      {:frame id :inputs [[:derived]] :output-path [:later]}
+      {:inputs [[:derived]] :output-path [:later]}
       (fn [v] (when v (swap! later-runs inc)) v))
+    (rf/make-frame {:id id :on-destroy [:flow/record-final] :flows [:killer :later]})
     (rf/reg-event :flow/destroy-owner-event (fn [_ _] {:db {:seed 1}}))
     (rf/dispatch-sync [:flow/destroy-owner-event] {:frame id})
     (is (= {:later-runs 1
@@ -46,19 +46,15 @@
             :frame      (rf.frame/frame id)})
         "the later flow ran once, :on-destroy saw both outputs, and the frame is gone after the event")))
 
-;; ---- clear-flow ----------------------------------------------------------
+;; ---- path vacation -------------------------------------------------------
 
-(deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
-  ;; A leaf that never materialised, under a missing parent or a scalar one,
-  ;; leaves the very db it found: no throw, and no fresh value-equal install
-  ;; that would invalidate every subscription for nothing.
-  (doseq [seed [{:other 1} {:step-2 1 :foo 3}]]
-    (rf/reg-event :seed (fn [_ _] {:db seed}))
-    (rf/dispatch-sync [:seed])
-    (rf/reg-flow :pending {:inputs [[:n]] :output-path [:step-2 :result]} (fn [_] :never-runs))
-    (let [before (rf/app-db-value :rf/default)]
-      (rf/clear :flow :pending)
-      (is (identical? before (rf/app-db-value :rf/default)) (pr-str seed)))))
+(deftest vacating-a-leaf-that-never-materialised-returns-the-same-db
+  ;; A leaf under a missing parent or a scalar one leaves the very db it found:
+  ;; no throw, and no fresh value-equal db that would invalidate every
+  ;; subscription for nothing.
+  (doseq [db [{:other 1} {:step-2 1 :foo 3}]]
+    (is (identical? db (rf.flows.registry/vacate-path-in-db db [:step-2 :result]))
+        (pr-str db))))
 
 ;; ---- registration validation ---------------------------------------------
 
@@ -89,6 +85,16 @@
       (is (= {:where 'rf/reg-flow :recovery :fix-registration}
              (select-keys data [:error :where :recovery])))
       (is (string? (:reason data))))))
+
+(deftest reg-flow-rejects-a-frame-key
+  ;; Which frames run a flow is each frame's `:flows` config, never the
+  ;; registration's (Spec 013 §The registration shape).
+  (let [data (ex-data (reg-flow-throwing {:id :scoped :frame :rf/default :inputs [[:n]]
+                                          :derive identity :output-path [:out]}))]
+    (is (= {:rf.error/id :rf.error/invalid-flow-metadata :value :rf/default}
+           (select-keys data [:rf.error/id :value])))
+    (is (re-find #":flows" (str (:reason data))) "the message names the frame's :flows config")
+    (is (= {} (rf/registrations {:source :store :kind :flow})) "nothing registered")))
 
 (deftest reg-flow-rejects-malformed-inputs
   (are [inputs bad-entries]
@@ -144,9 +150,9 @@
     {:sensitive? true}                       {:bad-key :sensitive? :bad-value true :use :sensitive}
     {:rf.egress/output-sensitivity :inherit} {:bad-key :rf.egress/output-sensitivity :bad-value :inherit}))
 
-(deftest reg-flow-bad-marks-installs-no-flow-row-and-no-elision-declaration
+(deftest reg-flow-bad-marks-installs-no-registration-and-no-elision-declaration
   ;; One well-formed and one malformed mark: the rejection installs neither.
-  (let [state  #(vector (rf.flows/flows-snapshot)
+  (let [state  #(vector (rf/registrations {:source :store :kind :flow})
                         (rf.elision/sensitive-declarations :rf/default)
                         (rf.elision/declarations :rf/default))
         before (state)
@@ -154,35 +160,6 @@
                                    :output-path [:out] :sensitive [[:secret]] :large :not-a-vector})]
     (is (= :rf.error/flow-bad-marks (:rf.error/id (ex-data ex))))
     (is (= before (state)))))
-
-(deftest reg-flow-self-cycle-replacement-preserves-prior-registration-and-output
-  ;; A replacement whose input overlaps its own output is rejected before any
-  ;; mutation: the prior definition, its dirty-check row and its output stand.
-  (rf/reg-event :init (fn [_ _] {:db {:n 5}}))
-  (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
-  (rf/dispatch-sync [:init])
-  (let [state  #(vector (get-in (rf.flows/flows-snapshot) [:rf/default :double])
-                        (rf.flows.registry/get-frame-flow-last-inputs :rf/default :double)
-                        (rf/app-db-value :rf/default))
-        before (state)]
-    (is (= {:n 5 :derived {:doubled 10}} (peek before)))
-    (is (= :rf.error/flow-cycle
-           (:rf.error/id (ex-data (reg-flow-throwing {:id :double :inputs [[:derived :doubled]]
-                                                      :derive inc :output-path [:derived :doubled]})))))
-    (is (= before (state)))))
-
-;; ---- frame-value targets -------------------------------------------------
-
-(deftest reg-and-clear-flow-normalize-frame-value-target
-  ;; EP-0024: a frame VALUE is accepted wherever a frame id is. Both write paths
-  ;; key the per-frame store by the normalized id, and clearing a frame's last
-  ;; flow prunes its key rather than leaving a `{frame-id {}}` husk.
-  (let [frame-val (rf/make-frame {:id :fv/host})]
-    (rf/reg-flow :area {:frame frame-val :inputs [[:w]] :output-path [:area]} identity)
-    (is (= [:fv/host] (keys (rf.flows/flows-snapshot))))
-    (is (= :area (:id (rf.flows/flow-meta {:frame frame-val :id :area}))))
-    (rf/clear :flow :area {:frame frame-val})
-    (is (= {} (rf.flows/flows-snapshot)))))
 
 ;; ---- drain ordering ------------------------------------------------------
 
@@ -199,6 +176,7 @@
     (try
       (rf/reg-fx :test/peek-db (fn [_ _] (reset! fx-saw (rf/app-db-value :rf/default))))
       (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
+      (rf/make-frame {:id :rf/default :flows [:double]})
       (rf/reg-event :go (fn [_ [_ v]] {:db {:n v} :fx [[:test/peek-db {}]]}))
       (rf/dispatch-sync [:go 6])
       (is (= [{:n 6 :doubled 12}] @installs))

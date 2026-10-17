@@ -347,10 +347,10 @@
   from the installed db rather than skipping on the inputs it cached before
   the install."
   [install!]
-  (rf/make-frame {:id :test/main})
+  (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area]} *)
+  (rf/make-frame {:id :test/main :flows [:area]})
   (rf/reg-event :seed  (fn [_ _] {:db {:w 2 :h 2}}))
   (rf/reg-event :set-w (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
-  (rf/reg-flow :area {:frame :test/main :inputs [[:w] [:h]] :output-path [:area]} *)
   (rf/dispatch-sync [:seed] {:frame :test/main})
   (let [seeded (:epoch-id (last (rf.epoch/epoch-history :test/main)))]
     (rf/dispatch-sync [:set-w 3] {:frame :test/main})
@@ -369,6 +369,31 @@
   (is (= {:w 3 :h 2 :area 6}
          (app-db-after-install-and-reset-input
            (fn [_] (rf.epoch/replace-frame-state! :test/main {:rf.db/app {:w 2 :h 2 :area 4}}))))))
+
+;; ---- a feature gate rewinds with app-db (Spec 013 §Activation rule 6) -------
+
+(deftest restoring-before-a-discount-leaves-the-cart-at-full-price
+  ;; The discount is a value in app-db that the total reads, so restoring the
+  ;; epoch before it withdraws the discount along with everything else.
+  (rf/reg-flow :cart/total
+    {:inputs      [[:cart :subtotal] [:cart :discount-rate]]
+     :output-path [:cart :total]}
+    (fn [subtotal rate] (Math/round (double (* subtotal (- 1 (or rate 0)))))))
+  (rf/make-frame {:id :test/main :flows [:cart/total]})
+  (rf/reg-event :cart/seed (fn [_ _] {:db {:cart {:subtotal 9700}}}))
+  (rf/reg-event :cart/apply-discount
+    (fn [{:keys [db]} _] {:db (assoc-in db [:cart :discount-rate] 0.1)}))
+  (rf/reg-event :cart/touch (fn [{:keys [db]} _] {:db db}))
+  (rf/dispatch-sync [:cart/seed] {:frame :test/main})
+  (let [before-discount (:epoch-id (last (rf.epoch/epoch-history :test/main)))]
+    (rf/dispatch-sync [:cart/apply-discount] {:frame :test/main})
+    (is (= 8730 (get-in (rf/app-db-value :test/main) [:cart :total]))
+        "the discount applies")
+    (is (:ok? (rf.epoch/restore-epoch! :test/main before-discount)))
+    (rf/dispatch-sync [:cart/touch] {:frame :test/main})
+    (is (= {:subtotal 9700 :total 9700} (:cart (rf/app-db-value :test/main)))
+        "after the restore and one more event the cart is at full price, and
+         no discount is written again")))
 
 ;; ---- restore failure modes (Tool-Pair §Time-travel) -------------------------
 
@@ -652,8 +677,9 @@
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/reg-flow :boom {:frame :test/main :inputs [[:n]] :output-path [:derived :doomed]}
+    (rf/reg-flow :boom {:inputs [[:n]] :output-path [:derived :doomed]}
                  (fn [_] (throw (ex-info "flow boom" {}))))
+    (rf/make-frame {:id :test/main :flows [:boom]})
     (rf/dispatch-sync [:bump] {:frame :test/main})
     (let [r (last (rf.epoch/epoch-history :test/main))]
       (is (= {:event-id :bump :outcome :ok :db-before {:n 0} :db-after {:n 0}}

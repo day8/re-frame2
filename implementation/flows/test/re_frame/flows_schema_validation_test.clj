@@ -43,6 +43,11 @@
 
 (defn- violations [] @*captured*)
 
+(defn- run-flows!
+  "Re-make `:rf/default` running the flows `ids`."
+  [& ids]
+  (rf/make-frame {:id :rf/default :flows (vec ids)}))
+
 (defn- violation-for
   "The single recorded violation for `flow-id`."
   [flow-id]
@@ -51,12 +56,15 @@
     (first vs)))
 
 (defn- area-flow!
-  "`:area` = :w × :h at [:rect :area], seeded 3 × 4, with `extra` metadata."
-  [extra]
-  (rf/reg-event :seed (fn [_ _] {:db {:w 3 :h 4}}))
-  (rf/reg-flow :area (merge {:inputs [[:w] [:h]] :output-path [:rect :area]} extra)
-    (fn [w h] (* w h)))
-  (rf/dispatch-sync [:seed]))
+  "`:area` = :w × :h at [:rect :area], seeded 3 × 4, with `extra` metadata,
+  run on `:rf/default` beside the already-registered flows `also-run`."
+  ([extra] (area-flow! extra []))
+  ([extra also-run]
+   (rf/reg-event :seed (fn [_ _] {:db {:w 3 :h 4}}))
+   (rf/reg-flow :area (merge {:inputs [[:w] [:h]] :output-path [:rect :area]} extra)
+     (fn [w h] (* w h)))
+   (apply run-flows! :area also-run)
+   (rf/dispatch-sync [:seed])))
 
 (defn- area [] (get-in (rf/app-db-value :rf/default) [:rect :area]))
 
@@ -68,6 +76,7 @@
   (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]
                       :schema (fn [v] (and (integer? v) (not (neg? v))))}
     (fn [w h] (* w h)))
+  (run-flows! :area)
   (rf/dispatch-sync [:seed])
   (is (= -12 (area)) "validation is observational, not a rollback")
   (let [ev (violation-for :area)]
@@ -85,7 +94,7 @@
   (let [seen (atom [])]
     (rf.schemas/set-schema-fns! {:validate (fn [schema _] (swap! seen conj schema) false)})
     (rf/reg-flow :no-schema {:inputs [[:w]] :output-path [:plain]} identity)
-    (area-flow! {:schema nil})
+    (area-flow! {:schema nil} [:no-schema])
     (is (= [nil] @seen) "only the nil token reached the validator, once")
     (is (= [[:area :flow-output]] (mapv (comp (juxt :rf.flow/id :where) :tags) (violations))))
     (is (= 12 (area)))))
@@ -104,6 +113,7 @@
                {:inputs [[:secret]] :output-path [:auth :token-leaf]
                 :sensitive [[:token]] :schema [:map [:token :int]]}
                (fn [s] {:token s}))
+  (run-flows! :p2/token :p2/token-leaf)
   (rf/dispatch-sync [:seed])
   (is (= "hunter2-SECRET" (get-in (rf/app-db-value :rf/default) [:auth :token :token])))
   (doseq [[flow-id value] [[:p2/token      :rf/redacted]
@@ -123,6 +133,7 @@
                {:inputs [[:secret]] :output-path [:users :current]
                 :schema [:map [:password :int]]}
                (fn [s] {:password s}))
+  (run-flows! :p2/current-user)
   (rf/dispatch-sync [:classify])
   (reset! *captured* [])
   (rf/dispatch-sync [:seed])
@@ -141,6 +152,7 @@
                {:inputs [[:plain]] :output-path [:out]
                 :schema [:map [:token :int]]}
                (fn [s] {:token s}))
+  (run-flows! :p2/plain)
   (rf/dispatch-sync [:classify-elsewhere])
   (reset! *captured* [])
   (rf/dispatch-sync [:seed])
@@ -168,6 +180,7 @@
                {:inputs [[:blob] [:n]] :output-path [:reports :part]
                 :schema [:map [:n :int]]}
                (fn [b n] {:blob b :n n}))
+  (run-flows! :size/whole :size/part)
   (rf/dispatch-sync [:classify])
   (reset! *captured* [])
   (rf/dispatch-sync [:seed])
@@ -205,6 +218,7 @@
                {:inputs [[:secret] [:blob]] :output-path [:both :schema]
                 :large [[]] :schema [:map [:token {:sensitive? true} :int]]}
                (fn [s b] {:token s :blob b}))
+  (run-flows! :both/whole :both/slots :both/schema-sensitive)
   (rf/dispatch-sync [:seed])
   (doseq [flow-id [:both/whole :both/slots :both/schema-sensitive]]
     (let [ev (violation-for flow-id)]

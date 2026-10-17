@@ -26,6 +26,7 @@
             ;; `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
             [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -78,6 +79,7 @@
         {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :gauge/flow :data :ticks]]
          :output-path [:derived :gauge-label]}
         (fn [ticks] (swap! flow-evals conj ticks) (str "ticks=" ticks)))
+      (rf/make-frame {:id :rf/default :flows [:gauge/label]})
       (rf/dispatch-sync [:gauge/flow [:start]])
       (is (= [2] @flow-evals)))))
 
@@ -91,6 +93,7 @@
     (let [flow-outputs (atom [])]
       (rf/reg-flow :doubler {:inputs [[:n]] :output-path [:derived :doubled]}
         (fn [n] (let [out (* 2 n)] (swap! flow-outputs conj out) out)))
+      (rf/make-frame {:id :rf/default :flows [:doubler]})
       (rf/dispatch-sync [:seed])
       (let [baseline-db (default-db)]
         (reset! *captured* [])
@@ -118,6 +121,7 @@
     (rf/reg-flow :user/full-name
       {:inputs [[:user :first] [:user :last]] :output-path [:derived :full-name]}
       (fn [first last] (str first " " last)))
+    (rf/make-frame {:id :rf/default :flows [:user/full-name]})
     (rf/reg-sub :full-name (fn [db _] (get-in db [:derived :full-name])))
     (rf/reg-view* :pages/greeting
       (fn [] [:div.greeting [:h1 "Hello, " (rf/subscribe-once [:full-name])]]))
@@ -131,6 +135,7 @@
     (let [flow-inputs (atom [])]
       (rf/reg-flow :tracker {:inputs [[:n]] :output-path [:derived :scaled]}
         (fn [n] (swap! flow-inputs conj n) (* 10 n)))
+      (rf/make-frame {:id :rf/default :flows [:tracker]})
       (rf/reg-event :parent (fn [{:keys [db]} _] {:db (assoc db :n 1) :fx [[:dispatch [:child]]]}))
       (rf/reg-event :child  (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
       (rf/dispatch-sync [:parent])
@@ -152,6 +157,7 @@
           {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
            :output-path [:derived :route-doomed]}
           (fn [_] (throw (ex-info "flow boom on route" {:why :test}))))
+        (rf/make-frame {:id :rf/default :flows [:route/boom]})
         (reset! *captured* [])
         (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
         (is (= baseline-db (default-db)))
@@ -173,6 +179,7 @@
         {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
          :output-path [:nav :breadcrumb]}
         (fn [route-id] (swap! flow-evals conj route-id) (str "at:" route-id)))
+      (rf/make-frame {:id :rf/default :flows [:nav/breadcrumb]})
       (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
       (is (= [:route/home :route/article] @flow-evals))
@@ -192,7 +199,40 @@
         {:inputs      [[:greeting] [:rf.db/runtime :rf.runtime/routing :current :route-id]]
          :output-path [:nav :banner]}
         (fn [greeting route-id] (swap! flow-evals conj [greeting route-id]) (str greeting " @ " route-id)))
+      (rf/make-frame {:id :rf/default :flows [:nav/banner]})
       (rf/dispatch-sync [:set-greeting "Hi"])
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
       (rf/dispatch-sync [:set-greeting "Yo"])
       (is (= [["Hi" nil] ["Hi" :route/article] ["Yo" :route/article]] @flow-evals)))))
+
+(deftest a-client-frame-running-flows-derives-them-from-the-hydrated-state
+  (testing "a :client frame naming a flow in :flows, hydrated from a server
+            payload that ships the flow's inputs but not its output, holds
+            the output the server computed once hydration settles, and the
+            next event recomputes it from the hydrated inputs"
+    (rf/reg-flow :cart/total
+      {:inputs [[:cart :subtotal] [:cart :rate]] :output-path [:derived :total]}
+      (fn [subtotal rate] (Math/round (double (* subtotal (- 1 rate))))))
+    (rf/reg-event :cart/seed (fn [_ _] {:db {:cart {:subtotal 9700 :rate 0.1}}}))
+    (rf/reg-event :cart/set-subtotal
+      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:cart :subtotal] v)}))
+    (let [policy {:version 1 :payload [:cart]}]
+      (rf/make-frame {:id :ssr/server :platform :server :flows [:cart/total]})
+      (rf/dispatch-sync [:cart/seed] {:frame :ssr/server})
+      (let [server-db (rf/app-db-value :ssr/server)
+            payload   (rf.ssr.payload-policy/build-payload
+                        :ssr/client
+                        (rf.ssr.payload-policy/apply-policy server-db policy)
+                        policy)]
+        (rf/make-frame {:id :ssr/client :platform :client :flows [:cart/total]})
+        (rf.ssr/hydrate! {:frame :ssr/client :payload payload})
+        (is (= [8730 {:subtotal 9700 :rate 0.1} 8730]
+               [(get-in server-db [:derived :total])
+                (get-in payload [:rf/app-db :cart])
+                (get-in (rf/app-db-value :ssr/client) [:derived :total])])
+            "the payload carries the inputs and the hydrated client derives the output")
+        (rf/dispatch-sync [:cart/set-subtotal 5000] {:frame :ssr/client})
+        (is (= [4500 8730]
+               [(get-in (rf/app-db-value :ssr/client) [:derived :total])
+                (get-in (rf/app-db-value :ssr/server) [:derived :total])])
+            "one event on the client recomputes there and leaves the server frame alone")))))

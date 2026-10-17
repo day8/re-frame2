@@ -35,6 +35,11 @@
 (defn- by-op [op]
   (filterv #(= op (:operation %)) @*captured*))
 
+(defn- run-flows!
+  "Re-make `:rf/default` running the flows `ids`."
+  [& ids]
+  (rf/make-frame {:id :rf/default :flows (vec ids)}))
+
 (defn- tags-of
   "A trace's tags without the per-dispatch id the trace bus stamps."
   [tags]
@@ -55,6 +60,15 @@
     (rf/reg-flow :area {:inputs [[:w]] :output-path [:area]} (fn [w] w)))
   (is (= 1 (count (by-op :rf.flow/registered)))))
 
+(deftest clear-flow-fires-cleared-for-a-registration-only
+  ;; The trace names the cleared flow and the output path it wrote; clearing an
+  ;; id with no registration changes nothing and says nothing.
+  (rf/reg-flow :area {:inputs [[:w]] :output-path [:rect :area]} (fn [w] w))
+  (rf/clear :flow :area)
+  (rf/clear :flow :area)
+  (is (= [{:flow-id :area :path [:rect :area]}]
+         (mapv (comp tags-of :tags) (by-op :rf.flow/cleared)))))
+
 ;; ---- computed / skip / failed --------------------------------------------
 
 (deftest flow-computed-fires-on-input-change
@@ -64,6 +78,7 @@
   (rf/reg-event :init (fn [_ _] {:db {:w 3 :h 4}}))
   (rf/reg-event :grow (fn [{:keys [db]} _] {:db (assoc db :w 5)}))
   (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
+  (run-flows! :area)
   (rf/dispatch-sync [:init])
   (rf/dispatch-sync [:grow])
   (let [computes (by-op :rf.flow/computed)]
@@ -78,6 +93,7 @@
   ;; `:input-paths-unchanged` lists every declared input, in order.
   (rf/reg-event :rewrite (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
   (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
+  (run-flows! :area)
   (rf/dispatch-sync [:rewrite])
   (reset! *captured* [])
   (rf/dispatch-sync [:rewrite])
@@ -90,6 +106,7 @@
   (rf/reg-event :init (fn [_ _] {:db {:n 1}}))
   (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]}
     (fn [_] (throw (ex-info "boom" {:why :test}))))
+  (run-flows! :boom)
   (rf/dispatch-sync [:init])
   (is (= [{:flow-id :boom :phase :derive :path [:doomed] :exception-message "boom"
            :exception-data {:why :test} :inputs [1] :frame :rf/default}]
@@ -106,6 +123,7 @@
     (rf/reg-event :init (fn [_ _] {:db {:n 1}}))
     (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]}
       (fn [_] (throw (ex-info "flow boom" {:why :test}))))
+    (run-flows! :boom)
     (rf/dispatch-sync [:init])
     (let [r    (first @seen)
           data (ex-data (:exception r))]
@@ -118,16 +136,19 @@
               :recovery :no-recovery :rf.flow/failed-id :boom}
              (select-keys data [:rf.error/id :where :recovery :rf.flow/failed-id]))))))
 
-(deftest fx-reg-flow-cycle-routes-through-error-emit-substrate
-  ;; A cycle closed by `:rf.fx/reg-flow` reaches the always-on substrate as the
-  ;; typed `:rf.error/flow-cycle`, carrying the chain tools render.
+(deftest a-re-registration-closing-a-cycle-routes-through-error-emit-substrate
+  ;; A re-registration that closes a cycle in a frame's active set aborts that
+  ;; frame's next event, and reaches the always-on substrate carrying the
+  ;; typed `:rf.error/flow-cycle` and the chain tools render.
   (let [seen (atom [])]
     (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
     (rf/reg-flow :a {:inputs [[:b-out]] :output-path [:a-out]} identity)
-    (rf/reg-event :introduce-cycle
-      (fn [_ _] {:fx [[:rf.fx/reg-flow [:b {:inputs [[:a-out]] :output-path [:b-out]} identity]]]}))
-    (rf/dispatch-sync [:introduce-cycle])
-    (is (= [[:rf.error/flow-cycle :rf.error/flow-cycle true]]
+    (rf/reg-flow :b {:inputs [[:n]] :output-path [:b-out]} identity)
+    (run-flows! :a :b)
+    (rf/reg-flow :b {:inputs [[:a-out]] :output-path [:b-out]} identity)
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:touch])
+    (is (= [[:rf.error/flow-eval-exception :rf.error/flow-cycle true]]
            (mapv (fn [r]
                    (let [d (ex-data (:exception r))]
                      [(:error r) (:rf.error/id d) (contains? #{[:a :b :a] [:b :a :b]} (:cycle d))]))
@@ -144,6 +165,7 @@
     (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (swap! calls conj :A) (* 2 n)))
     (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]}
       (fn [_] (swap! calls conj :B) (throw (ex-info "boom" {}))))
+    (run-flows! :A :B)
     (dotimes [_ 2] (rf/dispatch-sync [:init]))
     (is (= [:A :B :A :B] @calls))))
 
@@ -154,6 +176,7 @@
   (rf/reg-event :init (fn [_ _] {:db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}}}))
   (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob]}
     (fn [n] {:bytes (str "blob-" n)}))
+  (run-flows! :payload)
   (classify! :rf/default :large [:derived :blob])
   (rf/dispatch-sync [:init])
   (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -172,6 +195,7 @@
      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]}
      (fn [tok] (throw (throwable (str "rejected " tok) tok))))
+   (run-flows! :auth/derived-user)
    (rf/dispatch-sync [:auth/signed-in token])
    (by-op :rf.flow/failed)))
 
@@ -258,6 +282,7 @@
   (classify! :rf/default :sensitive [:auth :token] [:auth :derived-token])
   (rf/reg-flow :auth/derived-token {:inputs [[:auth :token]] :output-path [:auth :derived-token]}
     (fn [t] (str "derived-" t)))
+  (run-flows! :auth/derived-token)
   (rf/reg-event :auth/signed-in {:interceptors [[:rf.interceptor/path [:auth]]]}
     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
   (rf/dispatch-sync [:auth/signed-in "secret-token"])
@@ -268,12 +293,15 @@
 (deftest flow-and-effect-claims-union-and-remove-independently
   ;; A flow's output claim and an app effect's claim on the same absolute path
   ;; union, and each removes only itself: the path stays classified while any
-  ;; owner claims it. A flow claim reads as `:flow`; the effect's is exact.
+  ;; owner claims it. A flow claim reads as `:flow`; the effect's is exact. A
+  ;; cleared flow drops its claims on the frame's next event, as it vacates.
   (let [p      [:auth :creds :secret]
         owners #(set (map (fn [d] (if (= :flow (:source d)) :flow d))
                           (get (rf.elision/sensitive-declarations :rf/default) p)))]
     (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]}
       (fn [n] {:secret n}))
+    (run-flows! :creds)
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :classify (fn [{:keys [db]} _] {:db db :sensitive [p]}))
     (rf/reg-event :declassify (fn [{:keys [db]} _] {:db db :clear-sensitive [p]}))
     (rf/dispatch-sync [:classify])
@@ -281,5 +309,6 @@
     (rf/dispatch-sync [:declassify])
     (is (= #{:flow} (owners)))
     (rf/dispatch-sync [:classify])
-    (rf/clear :flow :creds {:frame :rf/default})
+    (rf/clear :flow :creds)
+    (rf/dispatch-sync [:touch])
     (is (= #{{:source :effect}} (owners)))))
