@@ -1,57 +1,32 @@
 (ns re-frame.ssr.diagnostic-cycle-cljs-test
   "THE DIAGNOSTIC PATH MUST NOT ITSELF THROW.
 
-  `re-frame.ssr.emit` builds rejection messages by printing the offending
-  value, and `cljs.core`'s printer descends into a
-  plain JS object or array with no seen-set. A foreign graph may be CYCLIC —
-  React 19's `ctx.Provider` is the context, whose `Provider` key points back
-  at itself — so `[ThemeContext.Provider {…}]`, the very mistake
+  `cljs.core`'s printer descends into a plain JS object or array with no
+  seen-set, and a foreign graph may be CYCLIC — React 19's `ctx.Provider` is
+  the context, whose `Provider` key points back at itself. So
+  `[ThemeContext.Provider {…}]`, the very mistake
   `:rf.error/invalid-hiccup-head` exists to catch, would raise `RangeError`
-  instead of the error. Every site therefore crosses the value through
-  `re-frame.error/safe-form` (or prints it with `re-frame.error/pr-form`),
-  or describes it by its shape and prints none of it, as the emitter's head
-  errors do with a malformed head and with the element around any head.
+  instead of the error were `re-frame.ssr.emit` to print the offending
+  value. The emitter's head errors describe a malformed head, and the
+  element around any head, by shape, and print none of it.
 
   Each guarded site must show that a cyclic input yields the site's OWN
   error id and that the thrown ex-data survives `pr-str` at a downstream
   sink. [[outcome]] returns a map rather than letting a throw abort the var,
-  so a regression fails with `\"RangeError\"` in its own failure text.
-
-  `safe-form` / `pr-form` live in core because a sibling artefact has a site
-  of the same defect; their unit rows live here beside the SSR sites."
+  so a regression fails with `\"RangeError\"` in its own failure text."
   (:require ["react" :as react]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.error :as rf.error]
             [re-frame.ssr.emit :as rf.ssr.emit]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
 ;; ---------------------------------------------------------------------------
 
-(defn- self-referential-object
-  "A plain JS object holding a reference to ITSELF — the smallest value with
-  the defect."
-  []
-  (let [o #js {"tag" "cyclic"}]
-    (unchecked-set o "self" o)
-    o))
-
-(defn- self-referential-array
-  "The ARRAY half — `pr-str`'s other descending branch."
-  []
-  (let [a #js ["cyclic"]]
-    (.push a a)
-    a))
-
 (def ^:private corpus-context (react/createContext "unset"))
 
 (def ^:private provider
   "`ctx.Provider` — what an author writes in head position."
   (.-Provider corpus-context))
-
-(def ^:private acyclic-object
-  "The ACYCLIC control, used by every byte-identity row."
-  #js {"theme" "dark" "level" 3})
 
 ;; ---------------------------------------------------------------------------
 ;; Observation
@@ -82,56 +57,6 @@
         (str label "'s ex-data must survive pr-str at a downstream sink; got "
              (pr-str (dissoc o :message))))
     o))
-
-;; ---------------------------------------------------------------------------
-;; The helper
-;; ---------------------------------------------------------------------------
-
-(deftest safe-form-returns-an-acyclic-input-identically
-  (testing "with no cycle reachable `safe-form` hands back the very object it
-           was given, so `pr-form` (`pr-str` of it) is byte-identical to `pr-str`"
-    (doseq [[label v] [["ordinary hiccup"      [:div {:class "x"} [:p "hi"]]]
-                       ["an acyclic JS object" acyclic-object]
-                       ["hiccup holding one"   [acyclic-object {:value "dark"}]]
-                       ["an acyclic JS array"  #js [1 2 3]]
-                       ["a nested acyclic obj" [:div {} [:span {:ctx acyclic-object}]]]
-                       ["nil"                  nil]]]
-      (is (identical? v (rf.error/safe-form v))
-          (str label " must come back identical")))))
-
-(deftest safe-form-elides-only-the-cyclic-foreign-value
-  (testing "the token replaces only the value `pr-str` cannot survive, so the
-           props and children around it stay in the diagnostic"
-    (is (= "#js {…cyclic…}" (rf.error/pr-form (self-referential-object))))
-    (is (= "#js […cyclic…]" (rf.error/pr-form (self-referential-array))))
-    (is (= "[#js {…cyclic…} {:value \"dark\"} [:p \"x\"]]"
-           (rf.error/pr-form [provider {:value "dark"} [:p "x"]])))
-    (is (= "[:div {:ctx #js {…cyclic…}} \"x\"]"
-           (rf.error/pr-form [:div {:ctx provider} "x"]))
-        "a cycle nested in an attrs map is elided in place")
-    (is (= "[:div #js […cyclic…]]"
-           (rf.error/pr-form [:div #js [(self-referential-object)]]))
-        "a foreign value from which a cycle is REACHABLE is elided whole")))
-
-(deftest a-shared-subtree-is-not-a-cycle
-  (testing "the detector is PATH-scoped: a foreign value reachable twice is a
-           DAG that `pr-str` prints and terminates on"
-    (let [shared #js {"k" "v"}
-          form   [:div {:a shared :b shared}]]
-      (is (identical? form (rf.error/safe-form form)))))
-  (testing "a persistent collection inside a foreign value is crossed, not
-           treated as the end of the graph"
-    (let [form [:div #js {"held" [:p "x"]}]]
-      (is (identical? form (rf.error/safe-form form))))))
-
-(deftest a-cycle-through-a-mixed-chain-is-found
-  (testing "the detector alternates between foreign values and persistent
-           collections as `pr-str` does"
-    (is (= "[:div #js {…cyclic…}]"
-           (rf.error/pr-form [:div #js {"held" [:p provider]}])))
-    (is (= "#js {…cyclic…}"
-           (rf.error/pr-form #js {"held" #js [[:p provider]]}))
-        "two collections deep and through an array as well")))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ssr.emit — three throw sites
