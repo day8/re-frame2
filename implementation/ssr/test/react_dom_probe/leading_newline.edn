@@ -1,0 +1,90 @@
+;; GENERATED FILE — do not hand-edit.
+;;
+;; react-dom leading-LF evidence for the newline-eating elements.
+;; `:markup` is what react-dom/server wrote for `:body` handed to
+;; `:element` through `:channel`; `:refused` holds the rows React
+;; throws on, with its message. Measured by
+;; `react_dom_probe/leading_newline.cjs` against the installed package;
+;; compared with `re-frame.ssr/render-to-string` in
+;; `re_frame/ssr_leading_newline_react_parity_test.clj`.
+;;
+;; Regenerate from `implementation/`:
+;;   node ssr/test/react_dom_probe/leading_newline.cjs \
+;;     > ssr/test/react_dom_probe/leading_newline.edn
+{:react-dom-version "19.3.0"
+ :generated-by "implementation/ssr/test/react_dom_probe/leading_newline.cjs"
+ :rows
+ [
+  {:element "pre" :channel "child" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<pre>\n\n&lt;b&gt;code&lt;/b&gt; &amp; more</pre>"}
+  {:element "pre" :channel "child" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<pre>\r\n&lt;b&gt;code&lt;/b&gt;</pre>"}
+  {:element "pre" :channel "child" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<pre>&lt;b&gt;code&lt;/b&gt;</pre>"}
+  {:element "listing" :channel "child" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<listing>\n\n&lt;b&gt;code&lt;/b&gt; &amp; more</listing>"}
+  {:element "listing" :channel "child" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<listing>\r\n&lt;b&gt;code&lt;/b&gt;</listing>"}
+  {:element "listing" :channel "child" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<listing>&lt;b&gt;code&lt;/b&gt;</listing>"}
+  {:element "textarea" :channel "child" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<textarea>\n\n&lt;b&gt;code&lt;/b&gt; &amp; more</textarea>"}
+  {:element "textarea" :channel "child" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<textarea>\r\n&lt;b&gt;code&lt;/b&gt;</textarea>"}
+  {:element "textarea" :channel "child" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<textarea>&lt;b&gt;code&lt;/b&gt;</textarea>"}
+  {:element "pre" :channel "inner-html" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<pre>\n\n<b>code</b> & more</pre>"}
+  {:element "pre" :channel "inner-html" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<pre>\r\n<b>code</b></pre>"}
+  {:element "pre" :channel "inner-html" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<pre><b>code</b></pre>"}
+  {:element "listing" :channel "inner-html" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<listing>\n\n<b>code</b> & more</listing>"}
+  {:element "listing" :channel "inner-html" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<listing>\r\n<b>code</b></listing>"}
+  {:element "listing" :channel "inner-html" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<listing><b>code</b></listing>"}
+  {:element "textarea" :channel "value" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<textarea>\n\n&lt;b&gt;code&lt;/b&gt; &amp; more</textarea>"}
+  {:element "textarea" :channel "value" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<textarea>\r\n&lt;b&gt;code&lt;/b&gt;</textarea>"}
+  {:element "textarea" :channel "value" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<textarea>&lt;b&gt;code&lt;/b&gt;</textarea>"}
+  {:element "textarea" :channel "default-value" :label "leading-lf"
+   :body   "\n<b>code</b> & more"
+   :markup "<textarea>\n\n&lt;b&gt;code&lt;/b&gt; &amp; more</textarea>"}
+  {:element "textarea" :channel "default-value" :label "leading-cr-lf"
+   :body   "\r\n<b>code</b>"
+   :markup "<textarea>\r\n&lt;b&gt;code&lt;/b&gt;</textarea>"}
+  {:element "textarea" :channel "default-value" :label "no-leading-lf"
+   :body   "<b>code</b>"
+   :markup "<textarea>&lt;b&gt;code&lt;/b&gt;</textarea>"}
+ ]
+ :refused
+ [
+  {:element "textarea" :channel "inner-html" :label "leading-lf"
+   :message "`dangerouslySetInnerHTML` does not make sense on <textarea>."}
+  {:element "textarea" :channel "inner-html" :label "leading-cr-lf"
+   :message "`dangerouslySetInnerHTML` does not make sense on <textarea>."}
+  {:element "textarea" :channel "inner-html" :label "no-leading-lf"
+   :message "`dangerouslySetInnerHTML` does not make sense on <textarea>."}
+ ]}
