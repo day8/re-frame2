@@ -177,7 +177,8 @@ collects what React reports while it adopts the server's markup:
 Once the hydration commit has landed, assert `(empty? @hydration-errors)`: a
 browser test reads the atom, or the CI page fails its run on the first entry. The
 root still emits its `:rf.ssr/hydration-mismatch` report before calling your
-function, so the trace and the always-on record are unchanged.
+function, so the trace and the always-on record are unchanged. A Fresco root
+takes the same two keys on `h/render!`.
 
 The callback alone cannot prove the attributes agree, because React calls it only
 for divergences it recovers from. In development, also watch `console.error` for

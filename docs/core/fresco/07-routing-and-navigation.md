@@ -78,7 +78,8 @@ Three things in that boot matter:
   navigation still updates the frame's route state, but the address bar never
   moves and a refresh loses the page.
 - **`:url-bound?` goes on `h/frame-root`, not in `h/render!`'s options.**
-  `h/render!` accepts only `:hydrate?` and `:identifier-prefix`; frame options
+  `h/render!` accepts only React-root options (`:hydrate?`, `:identifier-prefix`
+  and `:on-recoverable-error`); frame options
   belong on the frame-root with the rest of the `rf/make-frame` map, as in [A
   frame that needs more than a
   seed](00-installation.md#a-frame-that-needs-more-than-a-seed).

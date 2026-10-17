@@ -126,16 +126,17 @@
       o)))
 
 (def ^:private root-options-roster
-  "Every key a ROOT DOOR's opts map may carry. Two keys, because a root
+  "Every key a ROOT DOOR's opts map may carry. Three keys, because a root
   door configures the REACT ROOT and nothing else: the frame is the
   TREE's business (`h/frame-root` / `h/frame-provider`).
 
   `:hydrate?` picks which React constructor the FIRST render through a
-  handle calls; `:identifier-prefix` is React's own `identifierPrefix`,
-  an option of both constructors. Both are first-call keys — a later
-  `h/render!` through a live handle updates the Root it already owns, so
-  neither can be re-read without meaning a second root."
-  #{:hydrate? :identifier-prefix})
+  handle calls; `:identifier-prefix` and `:on-recoverable-error` are
+  React's own `identifierPrefix` and `onRecoverableError`, options of both
+  constructors. All three are first-call keys — a later `h/render!`
+  through a live handle updates the Root it already owns, so none can be
+  re-read without meaning a second root."
+  #{:hydrate? :identifier-prefix :on-recoverable-error})
 
 (def ^:private frame-config-keys
   "The two FRAME keys a caller may hand the root door, which carries
@@ -177,7 +178,8 @@
                  where
                  (str "The root door configures no frame: " (pr-str k)
                       " belongs in the TREE, on " head ". A root door carries "
-                      "ROOT options only (:hydrate?, :identifier-prefix), and "
+                      "ROOT options only (:hydrate?, :identifier-prefix, "
+                      ":on-recoverable-error), and "
                       "the frame boundary is a head you write:\n\n"
                       "  (h/render! app-root [h/frame-root {:id :app/main "
                       ":initial-events [[:app/init]]} [root-view]] node)\n\n"
@@ -189,10 +191,12 @@
                  where
                  (str (pr-str k) " is not a root option. A root door carries "
                       ":hydrate? — adopt this container's server-rendered DOM "
-                      "on the first render through this handle — and "
+                      "on the first render through this handle — "
                       ":identifier-prefix, React's own `identifierPrefix`, so "
                       "a page with two roots can keep their `useId` values "
-                      "apart. Frame configuration lives on the `h/frame-root` "
+                      "apart, and :on-recoverable-error, React's own "
+                      "`onRecoverableError`, called with each error React "
+                      "recovers from. Frame configuration lives on the `h/frame-root` "
                       "/ `h/frame-provider` head in the tree, and every "
                       "`rf/make-frame` option rides `h/frame-root` whole.")
                  {:option k :roster root-options-roster :config config}))))))
@@ -236,13 +240,15 @@
   `mount-client-root!`, and the test kit's `catching-root!` drives this
   positional shape directly.
 
-  `opts` is optional and carries two keys, both the caller's:
+  `opts` is optional and carries three keys, all the caller's:
   `:initial-events`, ordinary events dispatched in order when this mount
-  CREATES the frame and never when it joins one (`ensure-frame!`); and
+  CREATES the frame and never when it joins one (`ensure-frame!`);
   `:identifier-prefix`, handed to `createRoot` as React's
   `identifierPrefix` untouched — no default, no coercion — so a page
-  mounting two roots can keep their `useId` values apart. Name neither and
-  the call React receives is the bare one.
+  mounting two roots can keep their `useId` values apart; and
+  `:on-recoverable-error`, handed to `createRoot` as React's
+  `onRecoverableError` untouched. Name neither React option and the call
+  React receives is the bare one.
 
   THE FIRST TREE IS LOWERED BEFORE `createRoot`, and the order is part of
   what this fn promises: a construction that fails allocates nothing, so
@@ -250,7 +256,7 @@
   ([container frame-kw hiccup] (root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
    (ensure-frame! frame-kw (:initial-events opts))
-   (let [ropts   (root-options (:identifier-prefix opts) nil)
+   (let [ropts   (root-options (:identifier-prefix opts) (:on-recoverable-error opts))
          ;; LOWERED FIRST, and that order is the whole of the failed-
          ;; construction rule. Lowering runs the CALLER's code — the codec
          ;; forces a lazy child seq here, so an ordinary `(map fmt rows)`
@@ -328,11 +334,15 @@
   "Build the `onRecoverableError` for the root that owns `window`: while
   THAT root's window is open, fan the always-on record (owned by
   `frame-kw`, when the door knows it) and emit the framework diagnostic,
-  then always delegate to React's default reporting. Without it a
-  mismatch is an uncaught window error and nothing else — Spec 011's
-  `:rf.ssr/hydration-mismatch` never fires. A builder, as the spine's
-  `native-hydration-reporter` is, because the window belongs to one root
-  and the callback has to close over it.
+  then always delegate — to `authored`, the host's
+  `:on-recoverable-error`, when there is one, and to React's default
+  reporting when there is not. Compose, never clobber: the framework
+  reports first and the host callback still sees every error, inside the
+  window and after it, as the spine's `native-hydration-reporter`
+  composes it. Without this reporter a mismatch reaches only the host
+  callback or React's default report, and Spec 011's
+  `:rf.ssr/hydration-mismatch` never fires. A builder because the window
+  belongs to one root and the callback has to close over it.
 
   Per-root rather than page-wide because both failure directions are
   real: React fires this callback for post-hydration recoveries too, so a
@@ -344,24 +354,30 @@
   outside this channel (docs/design/fresco/production-server-arm.md).
   Public so a witness can drive the real callback across the window
   boundary."
-  ([window] (hydration-reporter window nil))
-  ([^js window frame-kw]
-   (fn on-recoverable [error _error-info]
+  ([window] (hydration-reporter window nil nil))
+  ([window frame-kw] (hydration-reporter window frame-kw nil))
+  ([^js window frame-kw authored]
+   (fn on-recoverable [error error-info]
      (when (rf.fresco.impl.roots/adopting? window)
        (rf.substrate.spine/dispatch-hydration-mismatch-record!
          're-frame.fresco.impl.mount/hydrate-root! frame-kw)
        (emit-hydration-mismatch! error))
-     (report-recoverable-default! error))))
+     (if (fn? authored)
+       (authored error error-info)
+       (report-recoverable-default! error)))))
 
 (defn- hydrate-root-options
-  "The root options for the root owning `window`, mounted under `frame-kw`.
-  Neither key is gated on `interop/debug-enabled?`. The reporter's
-  always-on record is how a production build's error sinks learn of a
-  mismatch, and `:identifier-prefix` is behaviour, deciding what `useId`
-  answers: a release build that dropped it would hydrate every server
-  `useId` into a mismatch."
+  "The root options for the root owning `window`, mounted under `frame-kw`:
+  `:identifier-prefix` as given, and `hydration-reporter` composed over
+  the host's `:on-recoverable-error`. Neither is gated on
+  `interop/debug-enabled?`. The reporter's always-on record is how a
+  production build's error sinks learn of a mismatch, and
+  `:identifier-prefix` is behaviour, deciding what `useId` answers: a
+  release build that dropped it would hydrate every server `useId` into a
+  mismatch."
   [window frame-kw opts]
-  (root-options (:identifier-prefix opts) (hydration-reporter window frame-kw)))
+  (root-options (:identifier-prefix opts)
+                (hydration-reporter window frame-kw (:on-recoverable-error opts))))
 
 (defn hydrate-root!
   "Associate `container`'s existing server-rendered DOM with `frame-kw`
@@ -386,11 +402,14 @@
   carries `hydration-reporter` as its `onRecoverableError` in every
   build, so a divergence React recovers from surfaces as Spec 011's
   `:rf.ssr/hydration-mismatch` — the always-on record, plus the trace in
-  debug builds — beside the uncaught error, never instead of it. The
+  debug builds — before the host's `:on-recoverable-error` sees it, or
+  React's default report when there is none, never instead of either. The
   window is minted in every build because presence and the reporter read
   it in production.
 
-  `opts` carries one key, `:identifier-prefix` — React's `identifierPrefix`,
+  `opts` carries two keys. `:on-recoverable-error` is the host's callback,
+  called with each error React recovers from, after the framework's own
+  report. `:identifier-prefix` is React's `identifierPrefix`,
   passed through untouched, and it must be the string the server render
   used or every `useId` in the tree resolves differently from the bytes
   and React recovers by replacing the subtree. Matching the prefix is
@@ -548,8 +567,9 @@
   `{:live? :update! :unmount!}`.
 
   `{:hydrate? true}` takes `hydrate-root!`, which installs this root's
-  own adoption window and (in debug builds) its own recoverable-error
-  reporter; anything else takes `root!`, which renders inside `flushSync`.
+  own adoption window and its own recoverable-error reporter, composed
+  over any `:on-recoverable-error`; anything else takes `root!`, which
+  renders inside `flushSync`.
   Either way the frame slot is `nil`: the frame is spelled in
   the TREE, on `h/frame-root` or `h/frame-provider`."
   [render-tree mount-point opts]

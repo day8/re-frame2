@@ -374,6 +374,12 @@ it, Fresco emits no trace and no record for it, and React's development
 `console.error` is the only signal. Either way, the fix is to put values both
 sides need in the snapshot or payload.
 
+To fail a test or CI run on a recovery, hand the hydrating `h/render!` an
+`:on-recoverable-error` and assert it was never called once adoption has
+finished. The root still reports first, so the trace and the record above are
+unchanged; your function then runs in place of React's default report. The
+recipe is in [Testing SSR](../../ssr/testing.md#in-the-browser-watch-reacts-recoveries).
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

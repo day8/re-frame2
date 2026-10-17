@@ -392,10 +392,15 @@ the root whose handle you pass, so a page can hold as many roots as it needs. Se
 - **Options**:
     - `:hydrate?`: `true` makes the first call adopt the server-rendered DOM already
       in `container` (`hydrateRoot`) instead of replacing it, with its own
-      recoverable-error reporter in development builds. It returns before adoption
+      recoverable-error reporter in every build. It returns before adoption
       finishes. A later call through a live handle ignores it.
     - `:identifier-prefix`: passed to React as `identifierPrefix`. A hydrating root
       must be given the prefix its server render used.
+    - `:on-recoverable-error`: passed to React as `onRecoverableError`, and called
+      with the error and React's error info for each error React recovers from. On a
+      hydrating root the reporter runs first, so a recovery inside the adoption
+      window still emits `:rf.ssr/hydration-mismatch`; your function then runs in
+      place of React's default report.
 - **Errors**:
     - `:rf.error/fresco-frame-config-misplaced`: `opts` carries `:frame` or
       `:initial-events`. The message names the head that takes them.
