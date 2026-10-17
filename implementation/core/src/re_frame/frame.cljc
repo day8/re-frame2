@@ -718,13 +718,15 @@
        the shared boundary context; the no-provider sentinel appears only
        beneath neither.
 
-  On CLJS this consults the `:adapter/current-frame` late-bind hook so
-  the React-context tier is LIVE — adapters publish their React-context-
-  aware impl through the hook at ns-load time. That impl returns nil when
+  On CLJS this consults the `:adapter/current-frame` late-bind slot so
+  the React-context tier is LIVE — a React-shaped adapter carries its
+  React-context-aware impl as the `:current-frame` key of its adapter map,
+  and `install-adapter!` publishes it into that slot. That impl returns nil when
   neither the dynamic var nor an enclosing frame boundary (`frame-provider`
   or `frame-root`) names a frame (the React-context default is the
   no-provider sentinel, per Spec 002 §`:rf/default`
-  is the conventional app-frame id). When the hook is unbound (no adapter loaded yet, or JVM build)
+  is the conventional app-frame id). When the slot is empty (no adapter
+  installed yet, an installed map without the key, or a JVM build)
   the result is `current-frame` — the dynamic-var tier alone; the React-
   context tier silently no-ops to nil.
 
@@ -764,10 +766,10 @@
   reader would hand the declared frame to every reader-first caller,
   `subs/subscribe` included, which is the op the refusal exists for."
   []
-  ;; Sticky hook — `:adapter/current-frame` is published
-  ;; once per loaded React-shaped adapter at ns-load time and routed
-  ;; via `current-adapter`; it fires on every ambient resolution
-  ;; (every ambient dispatch and every ambient subscribe).
+  ;; Sticky hook — `:adapter/current-frame` holds the installed adapter
+  ;; map's `:current-frame` key, published by `install-adapter!`; it fires
+  ;; on every ambient resolution (every ambient dispatch and every ambient
+  ;; subscribe).
   ;;
   ;; NORMALIZED to the frame ID: `with-frame` / `with-new-frame`
   ;; may bind a frame VALUE (`make-frame`'s return token) into

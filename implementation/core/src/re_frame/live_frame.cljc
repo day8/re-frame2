@@ -1428,8 +1428,9 @@
 ;;
 ;; WHY HERE AND NOT IN `re-frame.frame`. `re-frame.subs.cache` requires
 ;; `re-frame.frame`, so the frame ns cannot statically reach the cache (the
-;; same constraint that puts `:subs/dispose-frame-sub-caches!` in the late-bind
-;; directory). This ns sits ABOVE both — it already requires `rf.frame`, and
+;; same constraint that has frame teardown reach it through the
+;; `:subs.cache/dispose-all-for-frame-destroy!` late-bind hook). This ns sits
+;; ABOVE both — it already requires `rf.frame`, and
 ;; `rf.subs.cache`'s whole require closure is a subset of the one this ns
 ;; already carries, so the edge adds no transitive dependency — and it is the
 ;; ns that owns `generation-diff`. It is also the ns through which BOTH

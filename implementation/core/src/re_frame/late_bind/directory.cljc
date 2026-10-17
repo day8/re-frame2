@@ -576,7 +576,7 @@
    ;; ---- re-frame.ssr ---------------------------------------------------------
    {:key         :ssr/current-hiccup-emitter
     :producer-ns 're-frame.ssr.emit
-    :description "The retained current SSR hiccup → HTML emitter (`re-frame.ssr.emit/render-to-string`), published durably at SSR ns-load. `re-frame.substrate.adapter/install-adapter!` replays it into each freshly-installed adapter generation via the `:reagent/set-hiccup-emitter!` chain, so a public destroy → re-init cycle (or an SSR-before-adapter load order) re-arms `render-to-string` after disposal cleared the React-shaped adapter's per-generation emitter-cell. Idempotent and stale-safe: always the same current emitter, never cleared. Absent (no re-frame.ssr loaded) the replay is a no-op and `render-to-string` throws `:rf.error/no-hiccup-emitter-bound`."}
+    :description "The retained current SSR hiccup → HTML emitter (`re-frame.ssr.emit/render-to-string`), published durably at SSR ns-load. `re-frame.substrate.adapter/install-adapter!` hands it to the installed adapter map's own `:arm-hiccup-emitter-if-unarmed!` key, which fills that generation's emitter slot only when nothing else armed it: a public destroy → re-init cycle (or an SSR-before-adapter load order) re-arms `render-to-string` after disposal cleared the adapter's per-generation emitter-cell, while an explicit `set-hiccup-emitter!` stays authoritative. Stale-safe: always the same current emitter, never cleared. A no-op for a map carrying no arm; absent (no re-frame.ssr loaded) nothing is armed and `render-to-string` throws `:rf.error/no-hiccup-emitter-bound`."}
    {:key         :ssr/reg-error-projector
     :producer-ns 're-frame.ssr
     :description "Register a fn projecting SSR render errors to user-facing markup."}

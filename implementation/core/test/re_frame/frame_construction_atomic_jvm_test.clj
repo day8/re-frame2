@@ -6,8 +6,9 @@
   was never installed. A throwing `make-derived-value` unwinds its own partial
   work.
 
-  The custom ten-fn adapter can be armed to throw at any position and tracks
-  the watch each returned projection installs. Each case asserts no residual
+  The test's own adapter map — the required functions, and no capability
+  keys — can be armed to throw at any position and tracks the watch each
+  returned projection installs. Each case asserts no residual
   watch, no frame row, no trace-policy residue, and a clean retry through the
   same adapter."
   (:require [clojure.test :refer [deftest is use-fixtures]]
