@@ -4038,6 +4038,16 @@
   hook is published by `re-frame.machines` so core never statically
   requires the optional machines artefact.
 
+  The cascade runs inside the frame's own registration resolution
+  (`:live-frame/call-with-frame-resolution`, the view the router binds around
+  each of the frame's events), so every machine definition, `:exit` action and
+  effect handler it resolves comes from the frame's own image. A teardown is no
+  event's work and so binds no view of its own: without this, two frames whose
+  images select different definitions of one machine id would run whichever
+  definition the destroying stack's view, or each id's latest registration,
+  names. The id resolves to the claimed incarnation: the destroy holds the id's
+  reservation and the record stays registered until step 9.
+
   Fallback (no machines artefact on the classpath): the minimal contract —
   fire the `:http/abort-on-actor-destroy`
   hook per snapshot key and emit `:rf.machine.lifecycle/destroyed`
@@ -4052,7 +4062,9 @@
   abort a sibling frame's live requests."
   [id]
   (if-let [teardown! (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
-    (teardown! id)
+    (if-let [with-resolution (rf.late-bind/get-fn :live-frame/call-with-frame-resolution)]
+      (with-resolution id #(teardown! id))
+      (teardown! id))
     ;; Fallback path — minimal contract when the machines artefact is absent.
     ;; EP-0001: machine snapshots are durable runtime-db state.
     (let [container  (runtime-db-container id)
@@ -4314,7 +4326,10 @@
     3. notify-machine-destruction!  — per Spec 005 §Cross-Spec Interactions §1:
                                       delegates to the machines artefact's
                                       `:machines/teardown-on-frame-destroy!`
-                                      hook. That walks each
+                                      hook inside the frame's own
+                                      registration resolution, so it runs
+                                      the definitions the frame's image
+                                      selects. That walks each
                                       active machine in reverse-creation
                                       order: runs the `:exit` cascade
                                       against a live container, applies
