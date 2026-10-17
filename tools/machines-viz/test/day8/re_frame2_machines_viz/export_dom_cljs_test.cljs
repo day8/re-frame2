@@ -249,18 +249,23 @@
             raw secret, while a non-sensitive slot still renders"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (let [secret "card-4111-1111-1111-1111"]
+      ;; `visible` occurs nowhere else in the SVG, so finding it proves the
+      ;; non-sensitive slot rendered. A bare value such as 7 also occurs in
+      ;; the chart's own markup, so checking for it passes even when every
+      ;; slot is redacted.
+      (let [secret  "card-4111-1111-1111-1111"
+            visible "visible-note-value"]
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done
            :current-state :loading
-           :context-band {:card secret :count 7}
+           :context-band {:card secret :note visible}
            :context-band-inferred? false
            :context-band-sensitive #{:card}}
           (fn [node]
             (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
               (is (not (str/includes? svg secret)))
               (is (str/includes? svg ":rf/redacted"))
-              (is (str/includes? svg "7")))))))))
+              (is (str/includes? svg visible)))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
   (testing ":context-band-raw? true is the explicit trusted-local opt-in: the
