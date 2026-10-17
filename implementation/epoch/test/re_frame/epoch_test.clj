@@ -240,7 +240,7 @@
         fs       {:rf.db/app {:n 1} :rf.db/runtime {:rf.runtime/resources {:entries {:k :v}}}}]
     (try
       (rf.late-bind/set-fn! hook-key nil)
-      (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs 1 nil))
+      (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs 1))
           "no resources artefact → the frame-state installs verbatim")
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
@@ -1308,10 +1308,9 @@
       (is (not= a-target-id (rf.epoch.state/last-settled-epoch-id :test/seam3))))))
 
 (deftest restore-through-all-fences-still-succeeds
-  (testing "control — with no churn the reconcile and the deferred
-            resource-trace commit both receive the live exact incarnation
-            token, the restore installs and returns true, and the tail anchors
-            last-settled to the restored epoch"
+  (testing "control — with no churn the restore consults the reconcile and the
+            deferred resource-trace commit, installs and returns true, and the
+            tail anchors last-settled to the restored epoch"
     (rf/make-frame {:id :test/allfences})
     (rf/reg-event :seedc
       (fn [{rt :rf.db/runtime} [_ n]]
@@ -1319,8 +1318,7 @@
     (rf/dispatch-sync [:seedc 1] {:frame :test/allfences})
     (rf/dispatch-sync [:seedc 2] {:frame :test/allfences})
     (let [target-id   (:epoch-id (first (rf.epoch/epoch-history :test/allfences)))
-          token       (rf.frame/frame-incarnation-token :test/allfences)
-          token-live? (atom nil)
+          reconciled  (atom nil)
           committed   (atom nil)
           rk          :resources/reconcile-on-restore
           ck          :resources/commit-restore-reconcile!
@@ -1328,17 +1326,14 @@
           c0          (rf.late-bind/get-fn ck)]
       (try
         (rf.late-bind/set-fn! rk
-          (fn [rdb frame-id {:keys [owner-token]}]
-            (reset! token-live? (and (some? owner-token)
-                                     (rf.frame/frame-incarnation-live? frame-id owner-token)))
+          (fn [rdb frame-id _opts]
+            (reset! reconciled frame-id)
             rdb))
         (rf.late-bind/set-fn! ck
-          (fn [_rdb frame-id opts] (reset! committed [frame-id (:owner-token opts)])))
+          (fn [rdb] (reset! committed (:marker rdb))))
         (is (:ok? (rf.epoch/restore-epoch! :test/allfences target-id)))
-        (is (true? @token-live?) "the reconcile saw the exact token, live")
-        (is (= [:test/allfences true]
-               [(first @committed) (identical? token (second @committed))])
-            "the deferred commit got the frame id and the exact token")
+        (is (= [:test/allfences :present] [@reconciled @committed])
+            "the reconcile got the frame id and the commit the reconciled runtime-db")
         (is (= [{:n 1} target-id]
                [(rf/app-db-value :test/allfences)
                 (rf.epoch.state/last-settled-epoch-id :test/allfences)]))
@@ -1590,14 +1585,10 @@
                                (do (doseq [{:keys [level op tags]} intents]
                                      (rf.trace/emit! level op tags))
                                    rdb)))))
-      ;; Mirrors the real ssr.cljc body: the commit revalidates exact ownership
-      ;; at every intent.
+      ;; Mirrors the real ssr.cljc body: the commit emits every deferred intent.
       (rf.late-bind/set-fn! ck
-                         (fn [rdb frame-id {:keys [owner-token]}]
-                           (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))
-                                   :while (or (nil? frame-id)
-                                              (nil? owner-token)
-                                              (rf.frame/frame-incarnation-live? frame-id owner-token))]
+                         (fn [rdb]
+                           (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))]
                              (rf.trace/emit! level op tags))
                            nil))
       (f)

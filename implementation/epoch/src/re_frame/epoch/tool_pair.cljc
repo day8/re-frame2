@@ -946,18 +946,12 @@
   (`now-ms`). A durable frame-state field MUST come from a causal input, never
   an ambient world read at install (EP-0010 §Restore/Replay).
 
-  The EXACT incarnation `owner-token` (the captured record's `:drain-lock`) is
-  threaded through `:owner-token` so the reconcile fences its non-deferred host-
-  table clearing (stale/GC timer + work-ledger host handles) to the exact
-  incarnation the restore resolved against. The reconcile
-  runs BEFORE the atomic write and addresses the frame by BARE id; without the
-  token, a callback that churns A to B mid-reconcile would let the bare-id clear
-  touch same-id successor B. Passing the token lets the reconcile skip the clear
-  once the exact incarnation is lost, so no B host handle is released — B's
-  transients belong to B and, if A was destroyed to seat B, `destroy-frame!`
-  already released A's. A nil owner-token has no incarnation to fence and
-  clears unconditionally."
-  [frame-id frame-state restore-time-ms owner-token]
+  The reconcile's non-deferred host-table clear (stale/GC timer + work-ledger
+  host handles) addresses the frame by BARE id before the atomic write. It runs
+  inside `perform-restore!`'s serialized section straight after the liveness
+  gate, with no callback in between, so it clears the incarnation the gate
+  admitted."
+  [frame-id frame-state restore-time-ms]
   (if-let [reconcile-runtime-db!
            (rf.late-bind/get-fn :resources/reconcile-on-restore)]
     (update frame-state rf.frame/runtime-partition-key
@@ -965,8 +959,7 @@
               (when (some? runtime-db)
                 (reconcile-runtime-db!
                   runtime-db frame-id {:defer-traces?   true
-                                       :restore-time-ms restore-time-ms
-                                       :owner-token     owner-token}))))
+                                       :restore-time-ms restore-time-ms}))))
     frame-state))
 
 ;; ---- restore-time host-transient quiesce ----------------------------------
@@ -1081,19 +1074,14 @@
   carries no runtime-db partition, or when the runtime-db carries no deferred
   intents (a resource-free restore). Returns nil.
 
-  The commit walks a LIST of intents and each one emits to the frame's trace
-  listeners, so it is a callback FAN-OUT that a single pre-call
-  liveness check cannot fence. `frame-id` and the restore's EXACT
-  `incarnation-token` are carried in under the SAME `:owner-token` opt the
-  pre-write reconcile already takes, so the commit revalidates exact ownership
-  at every intent boundary and stops announcing A's restore once a listener has
-  seated a same-id successor B."
-  [frame-state frame-id incarnation-token]
+  The commit emits every intent: each emit reaches trace listeners only once
+  `perform-restore!`'s serialized section ends, so no listener runs between
+  two intents."
+  [frame-state]
   (when-let [commit-restore-reconcile!
              (rf.late-bind/get-fn :resources/commit-restore-reconcile!)]
     (when-let [runtime-db (get frame-state rf.frame/runtime-partition-key)]
-      (commit-restore-reconcile! runtime-db frame-id
-                                 {:owner-token incarnation-token})))
+      (commit-restore-reconcile! runtime-db)))
   nil)
 
 (defn perform-restore!
@@ -1111,13 +1099,13 @@
   The WHOLE restore is one EXACT-incarnation transaction, keyed on
   `incarnation-token`, not the bare id. A same-id
   SUCCESSOR frame reseated at ANY seam must not receive the resolved epoch's
-  state, touch host tables, or be anchored. Five fences, all on the token:
+  state, touch host tables, or be anchored. Four fences, all on the token:
 
     - an early `event-continuation-live?` gate refuses BEFORE running the
-      subsystem reconcile, so nothing is reconciled against a stale incarnation;
-    - the reconcile carries `incarnation-token` so its non-deferred
-      pre-write host-table clear is fenced — a callback that churns A to B
-      mid-reconcile cannot make the bare-id clear release B's host handles;
+      subsystem reconcile, so nothing is reconciled against a stale
+      incarnation. Nothing between the gate and the reconcile's bare-id
+      host-table clear runs a callback, so the clear reaches the incarnation
+      the gate admitted;
     - the physical install goes through the EXACT-INCARNATION
       `replace-frame-state!` arity, which returns nil unless the token still
       names the live record — so even the write itself can never redirect into a
@@ -1127,14 +1115,12 @@
       — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
       are callback boundaries that can churn A to B, so a lost incarnation STOPS
       the remaining A-only tail work rather than RETARGETING it onto B;
-    - the two tail ops that are themselves FAN-OUTS carry the token INSIDE.
-      A check taken before a loop does not fence the loop: the
-      quiesce CHAIN walks several late-bound subsystem hooks and the deferred
-      trace commit walks several intents, every element addressing the frame by
-      bare id and every element app-observable. So `incarnation-token` is
-      threaded into `quiesce-orphaned-async-host-work!` and
-      `commit-resources-restore-traces!`, which revalidate exact ownership at
-      EVERY hook / intent boundary and stop mid-fan-out.
+    - the quiesce CHAIN carries the token INSIDE. A check taken before a
+      loop does not fence the loop, and the chain walks several late-bound
+      subsystem hooks, each addressing the frame by bare id. So
+      `incarnation-token` is threaded into
+      `quiesce-orphaned-async-host-work!`, which revalidates exact ownership
+      at EVERY hook boundary and stops mid-chain.
 
   Every incarnation loss resolves to ONE coherent typed failure —
   `:rf.error/no-such-handler` (kind `:frame`), the same shape a destroyed-frame
@@ -1183,14 +1169,9 @@
                ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
                ;; mutation instance's durable `:settled-at` from a replay-stable
                ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
-               ;; Thread the EXACT incarnation token too, so the reconcile's
-               ;; pre-write host-table clear is fenced to this incarnation — a
-               ;; callback that churns A to B mid-reconcile cannot make the bare-id
-               ;; clear release B's host handles.
                reconciled-frame-state
                (reconcile-runtime-db-on-restore frame-id recorded-frame-state
-                                                (:committed-at epoch)
-                                                incarnation-token)
+                                                (:committed-at epoch))
                ;; Write both partitions through the one physical frame container,
                ;; via the EXACT-INCARNATION arity: it resolves through the
                ;; validated incarnation's own record and returns nil if a same-id
@@ -1236,8 +1217,7 @@
                      (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch))))
                  (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                    ;; Deferred subsystem success traces are valid only after install.
-                   (commit-resources-restore-traces! reconciled-frame-state
-                                                      frame-id incarnation-token))
+                   (commit-resources-restore-traces! reconciled-frame-state))
                  (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                    ;; Host timers and HTTP handles are not frame state; cancel the
                    ;; abandoned timeline only after the new state is installed.
