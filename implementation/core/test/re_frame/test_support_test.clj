@@ -237,7 +237,7 @@
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   ;; each cleanup hook fires exactly once with the destroyed id; the epoch
   ;; teardown spans the PRE-dissoc snapshot hook (id halt) and the POST-dissoc
-  ;; hook (id owner-token evidence), and the post hook runs after the snapshot
+  ;; hook (id evidence), and the post hook runs after the snapshot
   ;; was captured
   (let [snapshot      @rf.late-bind/hooks
         calls         (atom {})
@@ -252,9 +252,9 @@
           (record! :epoch/snapshot-frame-destroyed [id halt])
           (when original-snap (original-snap id halt))))
       (rf.late-bind/set-fn! :epoch/on-frame-destroyed
-        (fn [id owner-token _evidence]
+        (fn [id _evidence]
           (record! :epoch/on-frame-destroyed
-                   [id (some? owner-token) (contains? @calls :epoch/snapshot-frame-destroyed)])))
+                   [id (contains? @calls :epoch/snapshot-frame-destroyed)])))
       (rf/make-frame {:id fid})
       (rf.frame/destroy-frame! fid)
       ;; an immediate destroy has no event boundary, so it hands the snapshot
@@ -262,7 +262,7 @@
       (is (= {:ssr/on-frame-destroyed         [fid]
               :machines/on-frame-destroyed!   [fid]
               :epoch/snapshot-frame-destroyed [[fid nil]]
-              :epoch/on-frame-destroyed       [[fid true true]]}
+              :epoch/on-frame-destroyed       [[fid true]]}
              @calls))
       (finally
         (reset! rf.late-bind/hooks snapshot)))))

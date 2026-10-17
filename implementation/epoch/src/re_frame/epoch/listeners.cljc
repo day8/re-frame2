@@ -339,13 +339,12 @@
   The id-keyed store DROP (`state/cleanup-frame-owner!`) compares no owner
   token: the destroy holds the id's reservation until this step has finished,
   so no same-id incarnation can have claimed the stores, and everything under
-  the id is A's. `owner-token` is part of the hook's arity and goes unused
-  here. The drop runs UNCONDITIONALLY of terminal-evidence — cleanup authority
-  is the reserved frame-id, not the snapshot bundle — so a throwing pre-dissoc
-  snapshot hook (nil terminal-evidence) still frees A's history / buffer /
-  last-settled-epoch / mount attribution, which nothing else would free under
-  an id that is never reused. PUBLICATION of A's already-snapshotted terminal
-  record and its structural trailers is INDEPENDENT of the drop AND
+  the id is A's. The drop runs UNCONDITIONALLY of terminal-evidence — cleanup
+  authority is the reserved frame-id, not the snapshot bundle — so a throwing
+  pre-dissoc snapshot hook (nil terminal-evidence) still frees A's history /
+  buffer / last-settled-epoch / mount attribution, which nothing else would
+  free under an id that is never reused. PUBLICATION of A's already-snapshotted
+  terminal record and its structural trailers is INDEPENDENT of the drop AND
   conditional on a non-nil bundle — the evidence was bound to A's exact
   incarnation before dissoc and is A's to deliver; a nil bundle bound nothing
   and publishes nothing. All terminal emits use structural delivery: they
@@ -353,7 +352,7 @@
   ordinary emit would recreate a ring under an id whose frame is gone (Spec 009
   §Retention boundary). Repeated destroys are idempotent (a re-destroyed frame
   has no boundary record, so nothing is owed)."
-  [frame-id _owner-token terminal-evidence]
+  [frame-id terminal-evidence]
   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
   ;; concerns split INSIDE the gate: (1) STORE CLEANUP runs UNCONDITIONALLY of
