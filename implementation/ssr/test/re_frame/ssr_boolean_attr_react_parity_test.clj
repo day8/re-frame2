@@ -1,10 +1,9 @@
 (ns re-frame.ssr-boolean-attr-react-parity-test
   "The SSR boolean attribute-value rosters pinned against react-dom ITSELF.
 
-  The hiccup emitter and the structural-tree serialiser share one classifier
-  (`html-helpers/boolean-attr-class`), so a parity test between them cannot
-  validate it: a wrong roster makes both wrong the same way. The evidence is
-  react-dom's own markup, recorded by `react_dom_probe/boolean_attr_classes.cjs`
+  The hiccup emitter reads one classifier (`html-helpers/boolean-attr-class`),
+  and a test comparing re-frame with re-frame cannot validate it. The evidence
+  is react-dom's own markup, recorded by `react_dom_probe/boolean_attr_classes.cjs`
   into `react_dom_probe/boolean_attr_classes.edn` (committed and regenerated
   by hand; the `.edn` header carries the command), with candidate names taken
   from react-dom's `possibleStandardNames` rather than from our roster.
@@ -14,15 +13,14 @@
   only on a non-boolean value, and JavaScript truthiness disagrees with
   Clojure's about `\"\"` and `0`. The class is derived from React's bytes,
   compared with the roster in both directions, and every row is driven
-  through both public emitters. `value` and `ismap` are the documented
+  through `render-to-string`. `value` and `ismap` are the documented
   divergences."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
 ;; ---------------------------------------------------------------------------
 ;; The external evidence.
@@ -120,9 +118,8 @@
 
 (deftest boolean-attr-class-agrees-with-installed-react-dom
   (testing "Every attribute react-dom accepts a boolean for is
-            classified the way react-dom classifies it. A comparison between
-            the two serialisers structurally cannot make this check: the
-            evidence comes from outside both consumers of the roster"
+            classified the way react-dom classifies it. The evidence comes
+            from outside the roster"
     (doseq [row (rows)]
       (let [attribute (:attribute row)
             react     (react-class row)]
@@ -159,13 +156,10 @@
                    " accepts no boolean for")))))))
 
 ;; ---------------------------------------------------------------------------
-;; The public emitters follow the roster — every row, both values.
+;; The public hiccup emitter follows the roster — every row, both values.
 ;;
-;; The class is compared rather than the bytes for the structural-tree
-;; serialiser, whose presence spelling (`disabled=""`) and React prop-name
-;; mapping differ from the hiccup emitter's by design (004B: one table, two
-;; pipelines). The hiccup paths write the author's name verbatim, so those
-;; two are asserted as exact strings.
+;; It writes the author's name verbatim, so its markup is asserted as an
+;; exact string.
 ;; ---------------------------------------------------------------------------
 
 (defn- expected-hiccup-markup
@@ -185,10 +179,8 @@
 ;; Everything above this line hands the emitters `true` and `false` only, and
 ;; that leaves a hole: a presence attribute given a non-boolean value that
 ;; took `attr-string`'s ordinary `:else` branch would emit `disabled="yes"`,
-;; where react-dom collapses to `disabled=""` and the structural-tree
-;; serialiser next door collapses too. Two SSR pipelines would disagree about
-;; one input, with every boolean row green, because no such row can reach
-;; the input.
+;; where react-dom collapses to `disabled=""`, with every boolean row green,
+;; because no such row can reach the input.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private non-boolean-probe-values
@@ -270,96 +262,3 @@
         (is (= (expected-hiccup-markup klass attribute value)
                (rf.ssr.emit/render-to-string [:div {(keyword attribute) value}] {}))
             (str attribute " " value " (" klass ")"))))))
-
-(defn- observed-class
-  "Which class a serialiser applied, read off its own output and compared
-  against its no-attribute baseline. Name-agnostic on purpose: the
-  structural-tree serialiser renames attributes through the React prop
-  vocabulary, so matching on the author's name would misread a rename as an
-  omission."
-  [baseline true-html false-html string-html]
-  (cond
-    (and (str/includes? true-html "=\"true\"")
-         (str/includes? false-html "=\"false\""))
-    :stringify
-
-    (and (not= baseline true-html) (= baseline false-html))
-    ;; The two middle classes are one shape for a boolean, so the split is
-    ;; read off a NON-boolean value exactly as react-dom's own is:
-    ;; a presence name collapses `"yes"` onto the same output `true` gave, an
-    ;; overloaded name keeps it. Still name-agnostic — this compares the
-    ;; serialiser's outputs with each other, never with the author's spelling.
-    (if (= true-html string-html) :presence :overloaded)
-
-    (and (= baseline true-html) (= baseline false-html))
-    :ordinary
-
-    :else
-    (throw (ex-info "serialiser output this test cannot classify"
-                    {:baseline baseline :true-html true-html
-                     :false-html false-html :string-html string-html}))))
-
-(defn- tree-html [attrs]
-  (rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
-
-(defn- tree-error-id
-  "The `:rf.error/id` the structural-tree serialiser throws for `attrs`, or
-  the markup it returns when it does not throw."
-  [attrs]
-  (try
-    (tree-html attrs)
-    (catch Throwable e
-      (:rf.error/id (ex-data e)))))
-
-(deftest structural-tree-serialiser-follows-react-for-every-evidenced-attribute
-  (testing "The structural-tree serialiser is the parity
-            REFERENCE, and it has to agree with react-dom too rather than
-            merely with the hiccup emitter. Compared as classes, not bytes:
-            the two pipelines stay separate (004B) and differ in presence
-            spelling and attribute naming; what must not differ is the class.
-            A reserved prop has no class to compare: react-dom renders it as
-            CONTENT (see `reserved-props`), and the tree holds content in
-            `:children`, so the tree refuses it in `:attrs` outright"
-    (let [baseline (tree-html {})]
-      (doseq [row (rows)]
-        (let [attribute (:attribute row)
-              klass     (expected-class attribute (react-class row))
-              key       (keyword attribute)]
-          (if (contains? reserved-props attribute)
-            (is (= :rf.error/ui-tree-malformed (tree-error-id {key "yes"}))
-                (str attribute " — a reserved prop in :attrs is refused, not classed"))
-            (is (= klass
-                   (observed-class baseline
-                                   (tree-html {key true})
-                                   (tree-html {key false})
-                                   (tree-html {key "yes"})))
-                (str attribute " (" klass ") — structural-tree serialiser"))))))))
-
-(deftest structural-tree-serialiser-collapses-on-react-s-truthiness
-  (testing "The structural-tree serialiser's presence collapse uses the one
-            shared truthiness helper the hiccup emitter uses, so the two
-            pipelines cannot answer one input two ways. An OWN predicate would
-            disagree with react-dom on two of these four values — reading the
-            number `0` as present (only `nil` absent) or a whitespace string
-            as absent (`str/blank?`).
-            Name-agnostic: the serialiser renames attributes through the React
-            prop vocabulary, so every comparison is between its OWN outputs"
-    (let [baseline (tree-html {})]
-      (doseq [row   (rows)
-              probe non-boolean-probe-values
-              :let  [attribute (:attribute row)
-                     klass     (expected-class attribute (react-class row))
-                     key       (keyword attribute)]
-              :when (contains? #{:presence :overloaded} klass)]
-        (let [observed (tree-html {key (:value probe)})
-              why      (str attribute " " (pr-str (:value probe)) " (" klass
-                            ") — react-dom renders "
-                            (pr-str (get row (:field probe))))]
-          (if (= :presence klass)
-            (if (react-emits? attribute (get row (:field probe)))
-              (is (= (tree-html {key true}) observed)
-                  (str why "; a truthy value collapses onto what `true` gives"))
-              (is (= baseline observed)
-                  (str why "; a JS-falsy value writes no attribute at all")))
-            (is (str/includes? observed (str "=\"" (:serialised probe) "\""))
-                (str why "; an overloaded name keeps the value"))))))))

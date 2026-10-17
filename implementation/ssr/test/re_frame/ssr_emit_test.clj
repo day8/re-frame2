@@ -6,25 +6,16 @@
   bypassed it would pass every per-attribute test while leaking a hostile
   prop onto the wire."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
-(defn- v1
-  "Wrap a structural node as a version-1 tree for `emit-ui-tree`."
-  [node]
-  (assoc node :rf.ui/tree-version 1))
-
-(defn- assert-emitters-agree
-  "Both SSR paths — the sync hiccup emitter and the structural-tree
-  serialiser — emit the same raw-text body
-  `expected-inner` for a `tag` carrying the single string `content`."
+(defn- assert-raw-text-body
+  "`render-to-string` emits the raw-text body `expected-inner` for a `tag`
+  carrying the single string `content`."
   [tag content expected-inner]
   (let [tag-name (name tag)
         expected (str "<" tag-name ">" expected-inner "</" tag-name ">")]
     (is (= expected (rf.ssr.emit/render-to-string [tag content] {}))
-        (str "sync render-to-string byte-mismatch for <" tag-name ">"))
-    (is (= expected (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children [content]})))
-        (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
+        (str "render-to-string byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
 ;; Strip-prop XSS rule through the hiccup walker
@@ -56,22 +47,21 @@
 
 ;; ===========================================================================
 ;; Inline <script>/<style> STRING content is author content: emitted verbatim
-;; with only React's closing-sequence rewrite, no entity escaping, and one
-;; raw-text semantics on both SSR paths.
+;; with only React's closing-sequence rewrite and no entity escaping.
 ;; ===========================================================================
 
 (deftest raw-text-body-closing-sequence-is-rewritten-case-insensitively
   (testing "An embedded `(<|</)script`/`style` sequence is rewritten as
-            react-dom/server's scriptRegex/styleRegex do, on both paths"
+            react-dom/server's scriptRegex/styleRegex do"
     ;; <script>: s/S -> s / S (a valid JS *and* JSON string escape).
-    (assert-emitters-agree :script "var x = '</script>';"
-                           "var x = '</\\u0073cript>';")
-    (assert-emitters-agree :script "a</ScRiPt>b" "a</\\u0053cRiPt>b")
-    (assert-emitters-agree :script "a<script>b" "a<\\u0073cript>b")
+    (assert-raw-text-body :script "var x = '</script>';"
+                          "var x = '</\\u0073cript>';")
+    (assert-raw-text-body :script "a</ScRiPt>b" "a</\\u0053cRiPt>b")
+    (assert-raw-text-body :script "a<script>b" "a<\\u0073cript>b")
     ;; <style>: s/S -> \73 / \53  (trailing space terminates the CSS hex escape).
-    (assert-emitters-agree :style "@import '</style>';"
-                           "@import '</\\73 tyle>';")
-    (assert-emitters-agree :style "x</StYlE>y" "x</\\53 tYlE>y")))
+    (assert-raw-text-body :style "@import '</style>';"
+                          "@import '</\\73 tyle>';")
+    (assert-raw-text-body :style "x</StYlE>y" "x</\\53 tYlE>y")))
 
 (deftest raw-text-classification-is-case-insensitive-on-the-tag
   (is (= "<Script>if (a < b)</Script>"
