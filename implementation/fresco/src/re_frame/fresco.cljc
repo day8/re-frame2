@@ -774,6 +774,15 @@
   page with one root names none. No default, no coercion, no validation:
   React owns the option and this is a pass-through to it.
 
+  **`:on-recoverable-error`** is React's own `onRecoverableError`, called
+  with the error and React's error info for each error React recovers
+  from. On a hydrating root the framework reports first — inside the
+  adoption window a recovery is Spec 011's `:rf.ssr/hydration-mismatch`:
+  the always-on record and, in development, the trace — and then calls
+  this, in place of React's default report. It is how CI fails a build on
+  a hydration recovery: collect what it is handed and assert nothing
+  arrived.
+
   ## Hydrating: three calls, three jobs
 
   **State comes first, and it is a different door.** This adopts DOM;

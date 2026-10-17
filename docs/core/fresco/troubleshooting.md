@@ -197,7 +197,8 @@ already exists.
 #### `:rf.error/fresco-unknown-root-option`
 
 You passed `h/render!` options that are not a map, or a key other than
-`:hydrate?` and `:identifier-prefix`. Pass a map holding only those two keys.
+`:hydrate?`, `:identifier-prefix` and `:on-recoverable-error`. Pass a map holding
+only those keys.
 
 <a id="no-adapter-installed"></a>
 #### `:rf.error/no-adapter-installed`

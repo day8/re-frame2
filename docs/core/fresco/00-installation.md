@@ -314,7 +314,7 @@ than re-throwing it, so these show up in the console.
 | A hot reload replaced the whole tree instead of updating it | A new handle was allocated on reload, so its first `h/render!` created a second root | Allocate the handle with `defonce` |
 | A second root's `:initial-events` never run | The frame already exists; `frame-root` reuses it without re-seeding | Seed from the root that creates the frame; join it with `h/frame-provider` |
 | `h/render!` throws `:rf.error/fresco-frame-config-misplaced` | `:frame` or `:initial-events` was passed in `h/render!`'s options | Move it to `[h/frame-root {:id … :initial-events …}]` ([above](#a-frame-that-needs-more-than-a-seed)) |
-| `h/render!` throws `:rf.error/fresco-unknown-root-option` | `h/render!` accepts only `:hydrate?` and `:identifier-prefix` | Put every `rf/make-frame` option on `h/frame-root` |
+| `h/render!` throws `:rf.error/fresco-unknown-root-option` | `h/render!` accepts only `:hydrate?`, `:identifier-prefix` and `:on-recoverable-error` | Put every `rf/make-frame` option on `h/frame-root` |
 | One failing view blanks the whole page | React unmounts a root that throws with no boundary above it | Wrap recoverable regions with `h/error-boundary` ([Errors](17-errors.md)) |
 | A changed initialisation handler has no effect after hot reload | The live frame kept its app-db | Reload, recreate the frame, or dispatch a reset event |
 | A view body runs twice on first mount in development | React `StrictMode` calls bodies twice in development | Expected. Keep view bodies pure |
