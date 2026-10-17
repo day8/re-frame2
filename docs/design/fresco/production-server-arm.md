@@ -622,9 +622,7 @@ produces both sides, so there is nothing for two tables to disagree about.
   requires the door, so the value of getting it free is a value nobody has
   priced.
 - **A server render that is data before it is a string.** Structural tests,
-  caching and golden files all become available at the tree, and the deferred
-  `ui-tree-fingerprint` candidate becomes cheap on the server side. (Not on the
-  client side — see §6.)
+  caching and golden files all become available at the tree.
 
 ### What would have to be true for it to be wrong
 

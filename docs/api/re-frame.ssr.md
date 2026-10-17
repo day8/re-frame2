@@ -36,7 +36,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
   ```
 - **Description**: Renders hiccup to an HTML string in one walk of the tree. Pure and JVM-runnable.
     - It resolves callable-headed views (a Var or `(rf/view :id)`), `:tag#id.cls` shorthand and HTML5 void elements, and escapes text and attribute values.
-    - Inline `<script>` / `<style>` string content is HTML raw text: emitted verbatim, never entity-escaped and never refused. The only rewrite is React's: an embedded `</script>` / `</style>` is respelled so the parser cannot end the element early. The output is byte-identical across `render-to-string` and `emit-ui-tree`.
+    - Inline `<script>` / `<style>` string content is HTML raw text: emitted verbatim, never entity-escaped and never refused. The only rewrite is React's: an embedded `</script>` / `</style>` is respelled so the parser cannot end the element early.
     - Put structured data on its own channel: JSON-LD and other head content through `reg-head`, which escapes `<` as `\u003c`, and state through the `__rf_payload` hydration payload.
     - It drops props that have no HTML form, as react-dom does: `on*` handlers and other fn-valued props, `:key` and `:ref`, and the `:children` and `:dangerouslySetInnerHTML` props. `:dangerouslySetInnerHTML` becomes the element's body instead of an attribute: its `:__html` is written raw, as react-dom writes it, so the markup is yours to make safe. It wins over any children, a void element ignores it, and a `nil` `:__html` gives an empty body. A `javascript:` URL in `:href`, `:src`, `:action`, `:form-action` or `:xlink-href` is replaced by react-dom's blocked-URL placeholder.
 - **Options** (all optional):
@@ -512,28 +512,6 @@ A skipped effect emits a `:rf.fx/skipped-on-platform` trace event, so debug tool
 ## Framework integration
 
 Not for application code — used by adapters, tools and the test harness.
-
-### `emit-ui-tree`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (emit-ui-tree tree)      → HTML string
-  (emit-ui-tree tree opts) → HTML string
-  ```
-- **Description**: Serialises an already-rendered version-1 structural tree to an HTML string. Where `render-to-string` takes hiccup and renders it, `emit-ui-tree` takes a tree that is already rendered, such as the one `re-frame.fresco.test/tree` returns ([L2: one view body as a semantic tree](../core/fresco/15-testing.md#l2-one-view-body-as-a-semantic-tree)), and calls nothing: no view, no subscription, no frame binding. Every dynamic value is already a literal in the tree. Pure, JVM-runnable and deterministic to the byte.
-    - It emits the markup for one root's tree. Manifests, payloads, root identity and the HTTP response come from the SSR artefact's other functions.
-    - `opts` takes one key, `:doctype?`, which prefixes `<!DOCTYPE html>`. Other keys are ignored; `render-to-string`'s options do not apply.
-- **Errors**:
-    - `:rf.error/ssr-ui-tree-version-unsupported` — the root's `:rf.ui/tree-version` is missing, not an integer, or unsupported. Checked first, before any emission, with `{:got <received> :supported #{1}}`. This signals deploy skew: the server is older than the tree it was handed.
-    - `:rf.error/ui-tree-malformed` — a structurally invalid node past the version check. This is the shared tree-consumer id and signals a code bug.
-    - `:rf.error/invalid-tag-name` — an element's `:tag` is outside the HTML5 / SVG / MathML element-name grammar. The tag is read as an element name exactly as written, never as `.class#id` shorthand, and is rejected before any markup is composed.
-    - `:rf.error/ssr-invalid-attribute-name` — an emitted attribute name is outside the HTML5 attribute-name grammar. Names are checked after the conversion table is applied, because a name is written into the tag unescaped.
-- **Example**:
-  ```clojure
-  ;; The tree arrives already rendered; this call only folds it to markup.
-  (ssr/emit-ui-tree tree {:doctype? true})
-  ```
 
 ### The response accumulator
 
