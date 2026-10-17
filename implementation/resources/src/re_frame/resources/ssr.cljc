@@ -1776,28 +1776,13 @@
   `emit-trace-intent!`. No-op when the value carries no deferred intents (a
   resource-free restore, or a reconcile that emitted inline). Returns nil.
 
-  Every intent emits to the frame's trace listeners. Under `perform-restore!`
-  the commit runs inside the restore's `call-serialized-with-drain!` section,
-  which delivers those emits to listeners only once the section ends, so no
-  listener runs between two intents there. A direct call made outside any
-  drain or serialized section delivers each emit at once, and a listener is
-  app code that can destroy incarnation A and seat a same-id successor B. So
-  the 3-arity takes the SAME `:owner-token` `reconcile-on-restore` fences its
-  host-transient clear with, and revalidates exact ownership at EVERY intent
-  boundary. Once the incarnation is lost the remaining A-owned intents are
-  STOPPED, so A's restore is never announced against B. nil token (and the
-  1-arity pure-unit path) has no incarnation to fence and commits every
-  intent."
-  ([reconciled-runtime-db] (commit-restore-reconcile-traces! reconciled-runtime-db nil nil))
-  ([reconciled-runtime-db frame-id {:keys [owner-token]}]
-   (let [still-owned? (fn []
-                        (or (nil? frame-id)
-                            (nil? owner-token)
-                            (rf.frame/frame-incarnation-live? frame-id owner-token)))]
-     (doseq [intent (-> reconciled-runtime-db meta (get deferred-trace-intents-key))
-             :while (still-owned?)]
-       (emit-trace-intent! intent)))
-   nil))
+  Every intent is emitted. `perform-restore!` runs the commit inside the
+  restore's `call-serialized-with-drain!` section, which delivers each emit to
+  trace listeners only once the section ends, so no listener runs between two
+  intents and none can retire the incarnation mid-commit."
+  [reconciled-runtime-db]
+  (run! emit-trace-intent! (-> reconciled-runtime-db meta (get deferred-trace-intents-key)))
+  nil)
 
 (defn reconcile-on-restore
   "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch!` (the body
@@ -1865,18 +1850,6 @@
     to emit post-install. The host-side-transient clear runs regardless
     (idempotent; the only failure path is an already-destroyed frame whose
     transients were already released).
-  - `:owner-token` — the EXACT incarnation token (the
-    captured frame record's `:drain-lock`) the restore resolved against. The
-    host-side-transient clear addresses the frame by BARE id and runs BEFORE the
-    atomic install, so when the token is present the clear fires ONLY while that
-    exact incarnation is still live (`rf.frame/frame-incarnation-live?`); once
-    it is lost the clear is skipped — a same-id successor's host handles are
-    untouched, and A's transients were already released by `destroy-frame!`.
-    Under `perform-restore!` the clear always fires: it checks the same token
-    just before the reconcile, and nothing between that check and the clear
-    runs a callback. Only a direct call handed a token that is no longer live
-    skips it. nil (the pure-unit 1-/2-arity) has no incarnation to fence and
-    clears unconditionally.
   - `:restore-time-ms` — the restore's CAUSAL time: the restored
     epoch's `:committed-at` (the committing token's `:rf.cofx`
     `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
@@ -1893,7 +1866,7 @@
   touches it."
   ([runtime-db] (reconcile-on-restore runtime-db nil nil))
   ([runtime-db frame-id] (reconcile-on-restore runtime-db frame-id nil))
-  ([runtime-db frame-id {:keys [defer-traces? restore-time-ms owner-token]}]
+  ([runtime-db frame-id {:keys [defer-traces? restore-time-ms]}]
    (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)
          ledger    (get runtime-db rf.resources.state/work-ledger-key)
@@ -2071,21 +2044,14 @@
          ;; NOT deferred: idempotent, and the only failed-install
          ;; path is an already-destroyed frame whose transients were released.
          ;;
-         ;; FENCED to the exact incarnation. This clear addresses the frame by
-         ;; BARE id and runs BEFORE `perform-restore!`'s atomic write, so with an
-         ;; `:owner-token` we clear ONLY while that exact incarnation is still
-         ;; live — once it is lost the clear is skipped, leaving any same-id
-         ;; successor's handles alone (A's transients went with
-         ;; `destroy-frame!`). `perform-restore!` checked the same token just
-         ;; before this reconcile and nothing since has run a callback, so there
-         ;; the clear always fires; a direct call with a stale token skips it.
-         ;; The clear's own abort callbacks can churn the incarnation, which
+         ;; The clear addresses the frame by BARE id and runs BEFORE
+         ;; `perform-restore!`'s atomic write. It reaches the incarnation the
+         ;; restore is installing into because the restore holds the frame's
+         ;; drain serialization, its liveness gate admitted that incarnation, and
+         ;; nothing between the gate and this clear runs a callback. The clear's
+         ;; own abort callbacks can churn the incarnation, which
          ;; `work-ledger/release-frame!` survives by detaching the slots first.
-         ;; nil owner-token (the pure-unit 1-/2-arity) has no incarnation to
-         ;; fence and clears unconditionally.
-         (when (and frame-id
-                    (or (nil? owner-token)
-                        (rf.frame/frame-incarnation-live? frame-id owner-token)))
+         (when frame-id
            (clear-host-transients-on-restore! frame-id))
          ;; Reconcile the restored ROUTE readiness through the
          ;; ONE projector, LAST (after the entry settles + the work/mutation
@@ -2309,18 +2275,15 @@
   `timers/timer-table`, never in runtime-db, so nothing rides the wire. Each arm
   emits its kind's scheduled trace. Run from the `:rf.resource/hydrate-rearm`
   fx, the arms happen inside the hydrating event's drain, which delivers those
-  traces to listeners only after the drain, so nothing can churn the frame
-  mid-loop. A direct call outside any drain delivers each trace at once, and a
-  listener there can destroy this frame and seat a same-id successor, so the
-  incarnation is captured once and rechecked before every arm. Returns nil."
+  traces to listeners only after the drain and holds any destroy of the frame
+  pending until it ends, so every arm lands on the incarnation that committed
+  the hydration. Returns nil."
   [frame-id]
   (when (and frame-id (not (rf.resources.state/server-frame? frame-id)))
-    (let [token   (rf.frame/frame-incarnation-token frame-id)
-          now-ms  (rf.interop/epoch-now-ms)
+    (let [now-ms  (rf.interop/epoch-now-ms)
           entries (get-in (rf.frame/frame-runtime-db-value frame-id)
                           (rf.resources.state/entries-path))]
       (doseq [[_ entry] entries
-              :while (rf.frame/frame-incarnation-live? frame-id token)
               :let  [policy   (rf.resources.registry/resource-meta (:resource/id entry))
                      gc-ms    (rf.resources.state/positive-or-nil (:gc-after-ms policy))
                      stale-ms (rf.resources.state/stale-wake-delay-ms entry now-ms)
@@ -2329,10 +2292,10 @@
         (when gc-ms
           (rf.resources.timers/schedule! frame-id (:resource/key entry)
                                          rf.resources.timers/gc-kind gc-ms))
-        (when (and stale-ms (rf.frame/frame-incarnation-live? frame-id token))
+        (when stale-ms
           (rf.resources.timers/schedule! frame-id (:resource/key entry)
                                          rf.resources.timers/stale-kind stale-ms))
-        (when (and poll-ms (rf.frame/frame-incarnation-live? frame-id token))
+        (when poll-ms
           (rf.resources.timers/schedule! frame-id (:resource/key entry)
                                          rf.resources.timers/poll-kind poll-ms)))))
   nil)

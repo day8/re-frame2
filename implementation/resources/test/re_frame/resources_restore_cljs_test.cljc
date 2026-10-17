@@ -406,33 +406,6 @@
       (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid)
       (is (= [false false] (armed? fid))))))
 
-(deftest reconcile-host-transient-clear-fenced-to-exact-incarnation
-  ;; The reconcile runs BEFORE the atomic write and addresses the frame by bare
-  ;; id, so the clear fires only while the threaded :owner-token still names the
-  ;; live incarnation: a STALE token (a churned successor) spares the
-  ;; successor's handles. A nil token (the pure-unit path) clears unconditionally.
-  (let [fid  :restore/fence
-        wid  [:rf.work/resource gkey 7]
-        arm! (fn []
-               (rf.resources.timers/schedule! fid gkey rf.resources.timers/stale-kind 600000)
-               (rf.resources.work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid}))
-        rdb  (runtime-db-with {gkey (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
-                                            :loaded-at 1 :stale-at 9.0e15 :current-work wid})})]
-    (rf/make-frame {:id fid})
-    (let [live-token  (rf.frame/frame-incarnation-token fid)
-          ;; an incarnation token is a `:drain-lock` atom, so a fresh atom
-          ;; stands in for a destroyed / successor incarnation's
-          stale-token (atom :stale-incarnation)]
-      (arm!)
-      (rf.resources.ssr/reconcile-on-restore rdb fid {:owner-token stale-token})
-      (is (= [true true] (armed? fid)) "a stale incarnation token SKIPS the clear")
-      (rf.resources.ssr/reconcile-on-restore rdb fid {:owner-token live-token})
-      (is (= [false false] (armed? fid)) "the live incarnation token clears")
-      (arm!)
-      (rf.resources.ssr/reconcile-on-restore rdb fid {:owner-token nil})
-      (is (= [false false] (armed? fid)) "a nil token clears unconditionally")
-      (rf.resources.timers/cancel-for-key! fid gkey))))
-
 ;; ---- the clear itself is a CALLBACK-BEARING fan-out ------------------------
 ;;
 ;; `work-ledger/release-frame!` best-effort ABORTS each slot on the way out, and
@@ -494,60 +467,6 @@
     (is (identical? b-handle (rf.resources.work-ledger/get-handle fid wid))
         "successor B's re-seated handle survives the returning clear")
     (rf.resources.work-ledger/clear-handle! fid wid)))
-
-;; ---- the deferred trace commit is a callback fan-out too -------------------
-
-(deftest commit-restore-reconcile-traces-fenced-per-intent
-  ;; Called directly, outside any drain or serialized section, each deferred
-  ;; intent reaches the trace listeners at once, and any of them can destroy A
-  ;; and seat a same-id successor B; with the captured :owner-token the commit
-  ;; STOPS rather than announcing A's restore against B.
-  (let [fid :restore/commit-fence
-        rdb (with-live-nav-token
-              (runtime-db-with {gkey (loaded-entry #{[:route :route/article "nav-OLD"]})}) "nav-NEW")]
-    (rf/make-frame {:id fid})
-    (let [token    (rf.frame/frame-incarnation-token fid)
-          out      (rf.resources.ssr/reconcile-on-restore rdb fid {:defer-traces? true :owner-token token})
-          intents  (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents))
-          [seen unregister!] (restore-trace-recorder)
-          churned? (atom false)]
-      (is (< 1 (count intents)) "premise: more than one deferred intent (a genuine fan-out)")
-      ;; the FIRST emitted intent's listener destroys A and seats successor B
-      (rf.trace.tooling/register-listener! ::sdeae-churn
-        (fn [ev]
-          (when (and (not @churned?)
-                     (contains? #{:rf.resource/restored :rf.resource/owner-released}
-                                (:operation ev)))
-            (reset! churned? true)
-            (rf/destroy-frame! fid)
-            (rf/make-frame {:id fid}))))
-      (try
-        (rf.resources.ssr/commit-restore-reconcile-traces! out fid {:owner-token token})
-        (finally
-          (rf.trace.tooling/unregister-listener! ::sdeae-churn)
-          (unregister!)))
-      (is (true? @churned?) "the first intent's listener churned A to B")
-      (is (= 1 (count @seen))
-          "the remaining A-owned intents are STOPPED once the incarnation is lost"))))
-
-(deftest commit-restore-reconcile-traces-unfenced-arities-emit-all
-  ;; The control: with no token or a LIVE incarnation, every intent commits.
-  (let [fid :restore/commit-live
-        mk  (fn [] (rf.resources.ssr/reconcile-on-restore
-                     (with-live-nav-token
-                       (runtime-db-with {gkey (loaded-entry #{[:route :route/article "nav-OLD"]})})
-                       "nav-NEW")
-                     fid {:defer-traces? true}))]
-    (rf/make-frame {:id fid})
-    (let [token (rf.frame/frame-incarnation-token fid)
-          n     (count (-> (mk) meta (get :re-frame.resources.ssr/deferred-trace-intents)))]
-      (doseq [[label commit!] [["a LIVE incarnation token"
-                                #(rf.resources.ssr/commit-restore-reconcile-traces! % fid {:owner-token token})]
-                               ["a nil token"
-                                #(rf.resources.ssr/commit-restore-reconcile-traces! % fid {:owner-token nil})]]]
-        (let [[seen unregister!] (restore-trace-recorder)]
-          (try (commit! (mk)) (finally (unregister!)))
-          (is (= n (count @seen)) label))))))
 
 ;; ===========================================================================
 ;; 5. The generation allocator is monotonic across restore (part 1)
