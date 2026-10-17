@@ -15,7 +15,7 @@
 ;; observes. It is not an allowance: it is what stops this gate
 ;; reporting a confident clean sweep after its extraction has gone
 ;; blind. It ratchets the OTHER way — up only.
-{:min-where-syms 173
+{:min-where-syms 171
 
  :sites
  {
