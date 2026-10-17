@@ -326,8 +326,9 @@ Four things matter, and the first two are the ones a migration gets wrong:
 
 - **The frame is spelled IN THE TREE, exactly as `rf/frame-root` already is.**
   `h/render!`'s arity is `(handle hiccup container [opts])` and its opts carry
-  **root options only** — `:hydrate?` and `:identifier-prefix` (React's own, for
-  a page with two roots) — refusing `:frame` and `:initial-events` by name. `[h/frame-root
+  **root options only** — `:hydrate?`, `:identifier-prefix` (React's own, for
+  a page with two roots) and `:on-recoverable-error` — refusing `:frame` and
+  `:initial-events` by name. `[h/frame-root
   {:id … }]` is the ENSURE boundary and takes the WHOLE `rf/make-frame` option
   map, `:initial-events` / `:images` / `:fx-overrides` and the rest; it creates
   the frame if absent and reuses a live one without re-seeding.

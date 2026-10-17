@@ -248,8 +248,8 @@
 ;;
 ;;   3. `rf.fresco/render!` associates the DOM node with one root view,
 ;;      through the handle allocated below. Its opts carry ROOT options only
-;;      — `:hydrate?` and `:identifier-prefix` — and a key it does not own
-;;      fails loud rather than being ignored.
+;;      — `:hydrate?`, `:identifier-prefix` and `:on-recoverable-error` — and
+;;      a key it does not own fails loud rather than being ignored.
 ;;
 ;; Nothing above this line touched the DOM. Namespace load registers handlers
 ;; and defines views and does no more, so another namespace can require this

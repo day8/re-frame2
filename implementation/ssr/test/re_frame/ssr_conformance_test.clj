@@ -86,7 +86,7 @@
       says event X RAN, and the always-on `:events` substrate (Spec 009
       §Event-emit listener) records exactly that, in production.
       `check-always-on-events` adjudicates those claims under BOTH postures;
-      an event that never ran reds it. Nine of the fifteen fixtures depend
+      an event that never ran reds it. Nine of the twelve fixtures depend
       on this for their only trace-shaped coverage under the gate.
 
     - `:ssr/public-error` sources its error event from whichever axis
@@ -110,10 +110,9 @@
   verbatim in the dev arm.
 
   `:rf.ssr/hydration-mismatch` comes only from a hydrating React root's
-  adoption reporter, which this data harness has no root to drive;
-  `spec/conformance/fixtures/ssr-hydration-mismatch.edn` pins that the
-  `:rf/hydrate` dispatch itself emits none, through `:trace-not-emitted`,
-  in the dev arm.
+  adoption reporter, which this data harness has no root to drive, so no
+  fixture claims it either way: a `:trace-not-emitted` row for it would
+  hold with the reporter deleted.
 
   ## Capability claim
 
