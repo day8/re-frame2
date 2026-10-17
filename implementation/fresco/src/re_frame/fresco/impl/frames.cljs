@@ -57,7 +57,7 @@
   `forget-frame-ops!` is therefore ALSO wired to frame destruction,
   through core's `:fresco/on-frame-destroyed!` late-bind hook — the same
   shape every other artefact releases its frame-keyed bookkeeping through
-  in `destroy-frame!`'s step 7. It changes nothing above: a row a destroyed
+  in `destroy-frame!`'s step 6. It changes nothing above: a row a destroyed
   incarnation leaves behind is already unreachable by every branch of
   `frame-row`, so dropping it earlier is hygiene and never safety.
 
@@ -170,16 +170,16 @@
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
 
 (defn- on-frame-destroyed!
-  "Core's step-7 destroy hook — retire the dying frame's install epoch into
+  "Core's step-6 destroy hook — retire the dying frame's install epoch into
   the commit basis, then drop the destroyed frame's row.
 
   UNCONDITIONAL by key, and it needs no incarnation token to be safe about
-  it: a same-id successor is constructable
-  only AFTER `dissoc-frame!` (step 10) and this fires at step 7, so whatever
-  row stands under `frame-kw` here belongs to an incarnation that is already
-  dead — the dying one, or an earlier one whose successor never looked up.
-  The same ordering is why the retire reads the dying incarnation's epoch:
-  core clears it only at `dissoc-frame!`.
+  it: the destroy holds the id's reservation until step 10 has finished, so no
+  same-id successor can be constructed before this fires at step 6, and
+  whatever row stands under `frame-kw` here belongs to an incarnation that is
+  already dead — the dying one, or an earlier one whose successor never looked
+  up. The retire reads the dying incarnation's epoch because core clears it
+  only at `dissoc-frame!` (step 9).
 
   A 1-arity fn rather than `forget-frame-ops!` itself, so the hook's arity
   is the contract rather than an accident of that door having two."
