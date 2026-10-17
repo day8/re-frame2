@@ -3,13 +3,16 @@
   `:decl-path` is that node's path, and inside a parallel region `:region`
   names the region and the path is region-relative (Spec 009 §`:rf.machine.timer/*`).
   The leaf `:state` alone cannot tell two regions' same-named leaves apart,
-  and each region owns its own timer for the same `:after` key."
+  and each region owns its own timer for the same `:after` key — and its own
+  `:rf.reply/work-id`, whose declaring path is region-qualified."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -30,6 +33,35 @@
   (->> captured
        (filter #(= op (:operation %)))
        (mapv #(select-keys (:tags %) [:state :decl-path :region]))))
+
+(defn- reply-ledger
+  "The timer rows' reply statuses, in order, under the `:rf.reply/work-id`
+  each row joins."
+  [captured]
+  (reduce (fn [ledger {:keys [tags]}]
+            (if-let [work-id (:rf.reply/work-id tags)]
+              (update ledger work-id (fnil conj []) (:rf.reply/status tags))
+              ledger))
+          {}
+          (filter #(= "rf.machine.timer" (namespace (:operation %))) captured)))
+
+(deftest each-region-timer-is-its-own-reply-work-attempt
+  (rf/reg-machine :decl-node/work-ids two-regions)
+  (rf.machines.test-support/with-trace-capture captured
+    (let [thunks (atom [])
+          orig   (rf.late-bind/get-fn :router/dispatch!)]
+      (with-redefs [rf.interop/schedule-after! (fn [thunk _ms] (swap! thunks conj thunk) ::handle)]
+        (rf/dispatch-sync [:decl-node/work-ids [:go]]))
+      (rf/dispatch-sync [:decl-node/work-ids [:leave]])
+      ;; Both host clocks expire; the left fire finds its slot already
+      ;; claimed by the cancel and dispatches nothing.
+      (try
+        (rf.late-bind/set-fn! :router/dispatch! rf.router/dispatch-sync!)
+        (run! #(%) @thunks)
+        (finally (rf.late-bind/set-fn! :router/dispatch! orig))))
+    (is (= {[:rf.work/timer [:decl-node/work-ids :left :idle] 1]  [:cancelled]
+            [:rf.work/timer [:decl-node/work-ids :right :idle] 1] [:ok]}
+           (reply-ledger @captured)))))
 
 (deftest region-timer-rows-name-their-region
   (rf/reg-machine :decl-node/regions two-regions)
