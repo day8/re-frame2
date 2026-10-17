@@ -173,9 +173,9 @@
 ;;
 ;; A schema value is OPAQUE to re-frame (Spec 010): an ABSENT [:schemas :data]
 ;; key means "no declaration", while a PRESENT key must hand
-;; its exact value — nil included — to the registered validator. Seams that
-;; tested the value for truthiness (if-let / `(and (continue?) schema)`)
-;; would let `{:schemas {:data nil}}` silently validate nothing.
+;; its exact value — nil included — to the registered validator. The seams
+;; therefore test the key with `contains?` / `find`: a truthiness test on the
+;; schema value would let `{:schemas {:data nil}}` silently validate nothing.
 
 (deftest present-nil-data-schema-is-delegated-not-skipped
   (testing "a machine registered with {:schemas {:data nil}} delegates the
