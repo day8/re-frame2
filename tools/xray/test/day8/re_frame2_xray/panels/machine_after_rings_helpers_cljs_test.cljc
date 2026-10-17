@@ -118,6 +118,29 @@
     (is (= 1 (count (active-timers buf :auth/login 7000))))
     (is (= [] (active-timers buf :auth/login 7001)))))
 
+(deftest same-named-region-leaves-fold-to-their-own-rings
+  ;; Two regions' `:idle` leaves arm the same key at the same epoch. The rows
+  ;; name their declaring node, so they are two records, and each region's
+  ;; cancel crosses only its own ring rather than collapsing onto one state.
+  (let [row (fn [op id region]
+              {:id id :time id :operation op
+               :tags {:actor-id :m :state :idle :decl-path [:idle] :region region
+                      :delay 250 :delay-key 250 :epoch 1 :reason :on-exit}})
+        armed [(row :rf.machine.timer/scheduled 1 :left)
+               (row :rf.machine.timer/scheduled 2 :right)]]
+    (is (= {:left :armed :right :armed}
+           (into {} (map (juxt :region :status)) (h/project-timers armed :m))))
+    (is (= {:left :cancelled :right :armed}
+           (into {} (map (juxt :region :status))
+                 (h/project-timers (conj armed (row :rf.machine.timer/cancelled 3 :left)) :m))))
+    (is (= [:left :right]
+           (mapv :region (active-timers
+                           (conj armed
+                                 (row :rf.machine.timer/cancelled 3 :left)
+                                 (row :rf.machine.timer/cancelled 4 :right))
+                           :m 10)))
+        "one crossed ring per declaring node, not per leaf name")))
+
 ;; ---- ring geometry and colour -------------------------------------------
 
 (deftest ring-fraction-is-the-share-of-the-delay-still-to-run
@@ -138,7 +161,8 @@
 ;; ---- xyflow overlay ring-specs ------------------------------------------
 
 (defn- id-fn
-  "Stands in for `chart.layout/highlight-id`; a `:ghost` state has no node."
+  "Stands in for the panel's `chart.layout/highlight-ids` resolver; a
+  `:ghost` state has no node."
   [state]
   (when-not (= :ghost state) (name state)))
 

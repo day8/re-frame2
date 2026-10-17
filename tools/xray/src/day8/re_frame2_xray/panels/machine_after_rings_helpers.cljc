@@ -13,7 +13,10 @@
 
       {:machine-id  <kw>      ;; the live actor the timer belongs to (read from
                               ;; the trace's :actor-id into this field)
-       :state       <kw|vec>  ;; the bearing state-node
+       :state       <kw|vec>  ;; the bearing state-node's name
+       :decl-path   <vec>     ;; the declaring node's path (region-relative
+                              ;; inside a region); absent on a row without it
+       :region      <kw>      ;; the parallel region, for a region timer only
        :armed-at    <int>     ;; trace event time (ms epoch)
        :fires-at    <int>     ;; armed-at + duration-ms
        :duration-ms <int>     ;; resolved delay
@@ -38,11 +41,14 @@
   ## Folding algorithm
 
   Walk the trace buffer oldest-first. Each `scheduled` event opens a
-  timer keyed by `(machine-id, state, epoch, delay-key)`; a later
+  timer keyed by `(machine-id, node, epoch, delay-key)`; a later
   `fired` / `stale-after` / `cancelled` event for the same key closes
-  it. The `delay-key` discriminator matters because a single state's
+  it. The node is the one that DECLARED the timer ([[declaring-node]]),
+  not the leaf `:state`: two parallel regions can each enter a leaf of
+  the same name carrying the same `:after` key, and those are two
+  timers. The `delay-key` discriminator matters because a single state's
   `:after` map can schedule several timers CONCURRENTLY at the same
-  `(machine-id, state, epoch)` — one entry per key — so the key is
+  `(machine-id, node, epoch)` — one entry per key — so the key is
   required to keep them as independent records / independent rings.
   The resolved `:delay` cannot stand in for it: two keys can resolve
   to the same milliseconds. The latest event wins so re-schedules at
@@ -129,15 +135,31 @@
   (let [k (:delay-key tags)]
     (if (some? k) k (:delay tags))))
 
+(defn- declaring-node
+  "The node that declared the timer a row — or a record folded from one —
+  is about, in the forms the chart resolves to a node id: the declaring
+  path `:decl-path`, or `{<region> <decl-path>}` for a timer declared
+  inside a parallel region, whose path is region-relative. It is what a
+  ring opens, closes and sits on, because a leaf `:state` alone cannot
+  tell two regions' same-named leaves apart. A row without `:decl-path`
+  falls back to its `:state`, so a replayed buffer of such rows folds as
+  it always has."
+  [{:keys [state decl-path region]}]
+  (cond
+    (nil? decl-path) state
+    (some? region)   {region decl-path}
+    :else            decl-path))
+
 (defn- timer-key
-  "Composite key for the timer-table fold. `(machine-id, state, epoch,
-  delay-key)` is the runtime's identity tuple.
+  "Composite key for the timer-table fold. `(machine-id, node, epoch,
+  delay-key)` is the runtime's identity tuple, `node` being the
+  [[declaring-node]].
 
   `epoch` alone does NOT disambiguate: `build-after-fx`
   computes ONE epoch per scheduling node and reuses it across EVERY
   entry in that node's `:after` map (Spec 005 §Multiple :after per
   state — `{:after {5000 :warn 30000 :timeout}}` schedules both timers
-  concurrently at the same `(machine-id, state, epoch)`). The declared
+  concurrently at the same `(machine-id, node, epoch)`). The declared
   key ([[delay-key-of]]) is the discriminator — each concurrent
   `:after` timer on a state gets its own key, its own fold record, and
   its own ring. Re-scheduling at the same state still bumps the epoch
@@ -149,9 +171,9 @@
   match is exact for cancel rows — the `:*` fallback serves trace
   replays that lack `:epoch` + edge cases where the closing event's
   tags are projected through a lossy intermediary."
-  [machine-id state epoch delay-key]
+  [machine-id node epoch delay-key]
   {:machine-id machine-id
-   :state      state
+   :node       node
    :epoch      (or epoch :*)
    :delay-key  (if (some? delay-key) delay-key :*)})
 
@@ -160,32 +182,32 @@
 (defn- update-or-cancel
   "Match a closing event against the open timer-table. When `epoch`
   AND `delay-key` are both known, exact match on the full
-  `(machine-id, state, epoch, delay-key)` key; otherwise fall back to
-  the most recent open record for `(machine-id, state)` — narrowed to
+  `(machine-id, node, epoch, delay-key)` key; otherwise fall back to
+  the most recent open record for `(machine-id, node)` — narrowed to
   `delay-key` when the closing event carries one, so two concurrent
-  `:after` timers on the same state/epoch don't collide
+  `:after` timers on the same node/epoch don't collide
   in the fallback path either. Returns `[k record-or-nil]` — `nil`
   record means no open entry to update.
 
   Pure fn — JVM-runnable."
-  [open machine-id state epoch delay-key]
-  (let [exact-k (timer-key machine-id state epoch delay-key)
+  [open machine-id node epoch delay-key]
+  (let [exact-k (timer-key machine-id node epoch delay-key)
         exact   (get open exact-k)]
     (if exact
       [exact-k exact]
-      ;; Fall back to the latest open record for the (machine-id, state)
+      ;; Fall back to the latest open record for the (machine-id, node)
       ;; pair — the closing event didn't stamp epoch (and/or delay-key) so
       ;; we trust the ordering of the buffer, narrowed by the key when
       ;; available so concurrent timers at the same state don't collide.
       (let [matches (filter (fn [[k _v]]
                               (and (= machine-id (:machine-id k))
-                                   (= state      (:state k))
+                                   (= node       (:node k))
                                    (or (nil? delay-key)
                                        (= delay-key (:delay-key k)))))
                             open)]
         (if (seq matches)
           ;; Pick the most-recently-armed one. The open record's
-          ;; `:armed-at` is monotonic per `(machine-id, state)`.
+          ;; `:armed-at` is monotonic per `(machine-id, node)`.
           (let [[k v] (apply max-key (fn [[_ v]] (or (:armed-at v) 0))
                              matches)]
             [k v])
@@ -200,7 +222,7 @@
   The fold guarantees:
 
     - Every `:scheduled` opens / refreshes a record at its `(machine-
-      id, state, epoch, delay-key)` key with `:status :armed`; the
+      id, node, epoch, delay-key)` key with `:status :armed`; the
       resolved `:delay` ms set only its countdown (`:duration-ms`,
       `:fires-at`).
     - A `:fired` event flips the matching record's `:status` to
@@ -223,6 +245,14 @@
             tags       (get ev :tags {})
             machine-id (machine-id-of ev)
             state      (or (:state tags) (:to tags) (:to-state tags))
+            decl-path  (:decl-path tags)
+            region     (:region tags)
+            node       (declaring-node {:state state :decl-path decl-path :region region})
+            ;; Carried onto the record so the ring resolves the same node.
+            identify   (fn [record]
+                         (cond-> record
+                           (some? decl-path) (assoc :decl-path decl-path)
+                           (some? region)    (assoc :region region)))
             epoch      (:epoch tags)
             t          (:time ev)
             delay      (:delay tags)
@@ -234,19 +264,20 @@
           (nil? state)      open
 
           (= :rf.machine.timer/scheduled op)
-          (assoc open (timer-key machine-id state epoch timer-id)
-                 {:machine-id  machine-id
-                  :state       state
-                  :armed-at    t
-                  :fires-at    (when (and t (number? delay)) (+ t delay))
-                  :duration-ms (when (number? delay) delay)
-                  :epoch       epoch
-                  :status      :armed
-                  :delay-source delay-src
-                  :delay-key   delay-key})
+          (assoc open (timer-key machine-id node epoch timer-id)
+                 (identify
+                   {:machine-id  machine-id
+                    :state       state
+                    :armed-at    t
+                    :fires-at    (when (and t (number? delay)) (+ t delay))
+                    :duration-ms (when (number? delay) delay)
+                    :epoch       epoch
+                    :status      :armed
+                    :delay-source delay-src
+                    :delay-key   delay-key}))
 
           (= :rf.machine.timer/fired op)
-          (let [[k v] (update-or-cancel open machine-id state epoch timer-id)]
+          (let [[k v] (update-or-cancel open machine-id node epoch timer-id)]
             (if v
               (assoc open k
                      (assoc v
@@ -261,13 +292,13 @@
                 ;; + `:current-epoch` (the machine's epoch when the timer
                 ;; fired) — we close the scheduled-epoch record.
                 stale-epoch (or (:scheduled-epoch tags) epoch)
-                [k v] (update-or-cancel open machine-id state stale-epoch timer-id)]
+                [k v] (update-or-cancel open machine-id node stale-epoch timer-id)]
             (if v
               (assoc open k (assoc v :status :stale :closed-at t))
               open))
 
           (= :rf.machine.timer/cancelled op)
-          (let [[k v] (update-or-cancel open machine-id state epoch timer-id)]
+          (let [[k v] (update-or-cancel open machine-id node epoch timer-id)]
             (if v
               (assoc open k (assoc v
                                    :status :cancelled
@@ -282,16 +313,17 @@
               open))
 
           (= :rf.machine.timer/skipped-on-server op)
-          (assoc open (timer-key machine-id state epoch timer-id)
-                 {:machine-id  machine-id
-                  :state       state
-                  :armed-at    t
-                  :fires-at    nil
-                  :duration-ms (when (number? delay) delay)
-                  :epoch       epoch
-                  :status      :skipped
-                  :delay-source delay-src
-                  :delay-key   delay-key})
+          (assoc open (timer-key machine-id node epoch timer-id)
+                 (identify
+                   {:machine-id  machine-id
+                    :state       state
+                    :armed-at    t
+                    :fires-at    nil
+                    :duration-ms (when (number? delay) delay)
+                    :epoch       epoch
+                    :status      :skipped
+                    :delay-source delay-src
+                    :delay-key   delay-key}))
 
           :else open)))
     {}
@@ -307,7 +339,7 @@
   registered once and instantiated in several frames — a testbed
   mounting two hosts side by side is the ordinary case — and a singleton
   actor-id is identical across them, so folding on
-  `(machine-id, state, epoch, delay-key)` alone would let two frames' timers
+  `(machine-id, node, epoch, delay-key)` alone would let two frames' timers
   collide on one ring key: a `:cancelled` in frame A would close the
   `:armed` record frame B had just opened. Every `:rf.machine.timer/*`
   trace stamps its owning frame under `:tags :frame` (all five ops —
@@ -433,7 +465,7 @@
       `:closed-at` cannot be aged, so it is dropped rather than kept
       for ever — an unboundable ring is what this eviction
       exists to prevent.
-    - **Newest-wins per bearing state** for `:cancelled`. One node
+    - **Newest-wins per declaring node** for `:cancelled`. One node
       shows at most one crossed ring, so repeated entry/exit of a
       state cannot pile them up under the overlay's single
       `:node-id` React key. `:armed` records are deliberately NOT
@@ -456,7 +488,7 @@
             newest (reduce
                      (fn [acc r]
                        (if (cancelled-ring-live? r now-ms)
-                         (let [k   (:state r)
+                         (let [k   (declaring-node r)
                                cur (get acc k)]
                            (if (or (nil? cur)
                                    (> (:closed-at r) (:closed-at cur)))
@@ -571,19 +603,20 @@
   fraction / tooltip + the `:node-id` the overlay queries the DOM
   for. Pure fn — JVM-runnable.
 
-  `id-fn` is `chart.layout/highlight-id` (passed in to keep this ns
-  free of a compile-time dep on the chart layout). It resolves the
-  timer's `:state` keyword / path to the string node-id xyflow stamps
-  on the bearing node's `data-testid`.
+  `id-fn` resolves the timer's [[declaring-node]] — a state keyword or
+  path, or a `{<region> <in-region-path>}` map — to the string node-id
+  xyflow stamps on the bearing node's `data-testid` (the panel passes a
+  `chart.layout/highlight-ids` resolver; passed in to keep this ns free
+  of a compile-time dep on the chart layout).
 
   `now-ms` is the wall-clock instant the fraction freezes at — live
   mode passes the rAF-bumped now; retrospective mode passes the
   scrubber's anchor time, so the ring's swept arc reflects the
   scrubbed instant (scrubber-aware retro-replay).
 
-  Returns nil when the state has no resolvable node-id."
+  Returns nil when the node has no resolvable node-id."
   [timer id-fn now-ms]
-  (when-let [nid (and id-fn (some-> (:state timer) id-fn))]
+  (when-let [nid (and id-fn (not-empty (some-> (declaring-node timer) id-fn)))]
     (let [state-id (if (keyword? (:state timer))
                      (name (:state timer))
                      (pr-str (:state timer)))]
