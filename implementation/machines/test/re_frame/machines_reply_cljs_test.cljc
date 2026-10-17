@@ -79,11 +79,23 @@
         "a late completion carries no :value")
     (is (nil? (rf.reply/validate-reply r)))))
 
+(deftest timer-work-id-names-the-after-entry
+  ;; Each entry of a node's `:after` map is its own timer, so its declared
+  ;; key, never the resolved milliseconds, ends the logical id; an inline
+  ;; delay fn is not data and stands as `:fn`.
+  (is (= [:rf.work/timer [:a/multi :loading 250] 1]
+         (rf.machines.reply/timer-work-id :a/multi nil [:loading] 250 1)))
+  (is (= [:rf.work/timer [:a/multi :left :loading :warning] 1]
+         (rf.machines.reply/timer-work-id :a/multi :left [:loading] :warning 1)))
+  (is (= [:rf.work/timer [:a/multi :loading :fn] 1]
+         (rf.machines.reply/timer-work-id :a/multi nil [:loading] (fn [_] 250) 1))))
+
 (deftest after-stale-reply-is-canonical
   (let [r (rf.machines.reply/after-stale-reply
             {:actor-id        :a/multi
              :state           :loading
              :delay           30000
+             :delay-key       30000
              :decl-path       [:loading]
              :scheduled-epoch 1
              :current-epoch   2
@@ -93,7 +105,7 @@
             :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
             :rf.reply/work-status  :suppressed
             :rf.reply/work-kind    :timer
-            :rf.reply/work-id      [:rf.work/timer [:a/multi :loading] 1]
+            :rf.reply/work-id      [:rf.work/timer [:a/multi :loading 30000] 1]
             :rf.frame/id           :rf/default
             :correlation           {:actor-id :a/multi
                                     :state    :loading
@@ -105,14 +117,14 @@
     (is (nil? (rf.reply/validate-reply r)))))
 
 (deftest after-fired-reply-is-canonical
-  (let [ctx        {:actor-id :a/multi :state :loading :delay 30000
+  (let [ctx        {:actor-id :a/multi :state :loading :delay 30000 :delay-key 30000
                     :decl-path [:loading] :epoch 2 :frame :rf/default}
         live       (rf.machines.reply/after-fired-reply ctx)
         suppressed (rf.machines.reply/after-fired-reply (assoc ctx :guard-suppressed? true))]
     (is (= {:status               :ok
             :rf.reply/work-status :completed
             :rf.reply/work-kind   :timer
-            :rf.reply/work-id     [:rf.work/timer [:a/multi :loading] 2]
+            :rf.reply/work-id     [:rf.work/timer [:a/multi :loading 30000] 2]
             :value                nil
             :rf.frame/id          :rf/default
             :correlation          {:actor-id :a/multi
@@ -126,7 +138,7 @@
 
 (deftest cancelled-timer-reply-is-canonical
   (let [r (rf.machines.reply/cancelled-timer-reply
-            {:actor-id :a/multi :state :loading :delay 30000
+            {:actor-id :a/multi :state :loading :delay 30000 :delay-key 30000
              :decl-path [:loading] :epoch 1 :frame :rf/default
              :reason :on-exit})]
     (is (= {:status                 :cancelled
@@ -134,7 +146,7 @@
             :rf.reply/cancel-reason :on-exit
             :rf.reply/work-status   :cancelled
             :rf.reply/work-kind     :timer
-            :rf.reply/work-id       [:rf.work/timer [:a/multi :loading] 1]
+            :rf.reply/work-id       [:rf.work/timer [:a/multi :loading 30000] 1]
             :rf.frame/id            :rf/default
             :correlation            {:actor-id :a/multi
                                      :state    :loading

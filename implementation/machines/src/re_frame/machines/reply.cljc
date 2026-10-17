@@ -425,13 +425,17 @@
   "Build the machine `:after` timer work-id for one timer attempt:
   `[:rf.work/timer logical-timer-id epoch]` (Managed-Effects §Work-id
   correlation — the Timer row; the machine `:after` is a specialized timer
-  instance per EP-0011 §Timer Reply). The `logical-timer-id` is the timer's
-  declaring path (`[actor-id decl-path...]` when an `actor-id` is known,
-  else the bare declaring path) — the stable identity of THIS `:after` within
-  the chart. Inside a parallel region `region` heads the region-relative
-  `decl-path`: the region-qualified path the runtime timer table keys the
-  timer by, so two regions entering same-named leaves own distinct work ids.
-  The `epoch` is the per-path `:rf/after-epoch` the timer was
+  instance per EP-0011 §Timer Reply). The `logical-timer-id` names THIS
+  `:after` entry within the chart: its declaring path followed by the
+  `:after` key it was declared under (`[actor-id decl-path... delay-key]`
+  when an `actor-id` is known, else without it) — the identity the runtime
+  timer table keys the timer by. Inside a parallel region `region` heads the
+  region-relative `decl-path`, so two regions entering same-named leaves own
+  distinct work ids. The key, never its resolved milliseconds, tells one
+  node's `:after` entries apart: each is an independent timer, and two
+  `:delays` names can resolve to the same milliseconds. An inline delay fn
+  is not data, so it stands as `:fn`, its `:delay-source`. The `epoch` is the
+  per-path `:rf/after-epoch` the timer was
   SCHEDULED in, which discriminates one timer attempt from a re-armed one on
   node re-entry (one attempt has one work id — EP-0007). `=`-comparable and
   EDN-serializable. `decl-path` nil (the node was exited — no live
@@ -441,13 +445,14 @@
   `:rf.machine.timer/stale-after`) carry this `:rf.reply/work-id` so they join into
   the uniform work/reply rows that every other managed async family
   correlates by (Managed-Effects §Tracing — \"one `:rf.reply/work-id`\")."
-  [actor-id region decl-path epoch]
-  (let [path       (when (some? decl-path)
-                     (cond->> (vec decl-path) (some? region) (into [region])))
+  [actor-id region decl-path delay-key epoch]
+  (let [entry      (when (some? decl-path)
+                     (cond-> (cond->> (vec decl-path) (some? region) (into [region]))
+                       (some? delay-key) (conj (if (fn? delay-key) :fn delay-key))))
         logical-id (cond
-                     (and (some? actor-id) (some? path)) (into [actor-id] path)
-                     (some? path)                        path
-                     :else                               actor-id)]
+                     (and (some? actor-id) (some? entry)) (into [actor-id] entry)
+                     (some? entry)                        entry
+                     :else                                actor-id)]
     [:rf.work/timer logical-id epoch]))
 
 (defn after-suppression-gate
@@ -478,7 +483,7 @@
   `:correlation`.
 
   The reply carries the canonical `:rf.reply/work-id`
-  `[:rf.work/timer <decl-path> <scheduled-epoch>]` (the timer's attempt
+  `[:rf.work/timer <logical-id> <scheduled-epoch>]` (the timer's attempt
   identity — see `timer-work-id`), so a stale `:after` completion joins into
   the uniform work/reply rows by the same key HTTP / resources / routing use.
 
@@ -495,14 +500,16 @@
   map).
 
   `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
-  `:state`, `:delay`, `:decl-path`, `:region` (a region timer's only),
-  `:scheduled-epoch`, `:current-epoch`, `:frame`, optional `:completed-at`."
-  [{:keys [actor-id state delay region decl-path scheduled-epoch current-epoch
-           frame completed-at]}]
+  `:state`, `:delay`, `:delay-key`, `:decl-path`, `:region` (a region
+  timer's only), `:scheduled-epoch`, `:current-epoch`, `:frame`, optional
+  `:completed-at`."
+  [{:keys [actor-id state delay delay-key region decl-path scheduled-epoch
+           current-epoch frame completed-at]}]
   (cond-> {:status       :stale
            :stale?       true
            :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
-           :rf.reply/work-id      (timer-work-id actor-id region decl-path scheduled-epoch)
+           :rf.reply/work-id      (timer-work-id actor-id region decl-path delay-key
+                                                 scheduled-epoch)
            :rf.reply/work-kind    :timer
            :rf.reply/work-status  :suppressed
            :correlation  (cond-> {:state   state
@@ -518,7 +525,7 @@
   its declaring path is still active and its carried epoch equals the node's
   current per-path epoch). A fired `:after` timer is a CLOSED
   `:after` completion: `:status :ok` / `:rf.reply/work-status :completed`, carrying the
-  canonical `:rf.reply/work-id` `[:rf.work/timer <decl-path> <epoch>]` and
+  canonical `:rf.reply/work-id` `[:rf.work/timer <logical-id> <epoch>]` and
   `:rf.reply/work-kind :timer` so its `:rf.machine.timer/fired` trace joins the uniform
   work/reply rows the same way every other managed async completion does
   (Managed-Effects §Tracing — \"completion classified as one of the five
@@ -547,10 +554,11 @@
   carries no `:completed-at` (Managed-Effects §The reply map).
 
   `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
-  `:state`, `:delay`, `:decl-path`, `:region` (a region timer's only),
-  `:epoch`, `:frame`, optional `:guard-suppressed?`, optional `:completed-at`."
-  [{:keys [actor-id state delay region decl-path epoch frame guard-suppressed?
-           completed-at]}]
+  `:state`, `:delay`, `:delay-key`, `:decl-path`, `:region` (a region
+  timer's only), `:epoch`, `:frame`, optional `:guard-suppressed?`, optional
+  `:completed-at`."
+  [{:keys [actor-id state delay delay-key region decl-path epoch frame
+           guard-suppressed? completed-at]}]
   (cond-> {:status      :ok
            ;; A timer carries no payload — its effect is the transition it
            ;; triggers, not a value. The reply-map contract requires a `:value`
@@ -559,7 +567,7 @@
            ;; no payload" shape); a nil value keeps the reply schema-valid
            ;; without inventing a synthetic payload.
            :value       nil
-           :rf.reply/work-id     (timer-work-id actor-id region decl-path epoch)
+           :rf.reply/work-id     (timer-work-id actor-id region decl-path delay-key epoch)
            :rf.reply/work-kind   :timer
            :rf.reply/work-status :completed
            :correlation (cond-> {:state state
@@ -600,18 +608,18 @@
   `:rf.reply/cancel-reason`. NO `:value` (the timer never fired).
 
   `ctx` keys: `:actor-id` (the timer's owning actor INSTANCE — optional),
-  `:state`, `:delay`, `:decl-path`, `:region` (a region timer's only),
-  `:epoch`, `:frame`, and `:reason` — the closed `:rf.machine.timer/cancelled`
+  `:state`, `:delay`, `:delay-key`, `:decl-path`, `:region` (a region
+  timer's only), `:epoch`, `:frame`, and `:reason` — the closed `:rf.machine.timer/cancelled`
   `:reason` vocabulary of Spec 005:
   `:on-exit` (state exit), `:on-destroy` (actor destroy), `:on-supersede`
   (in-place re-arm),
   `:on-frame-destroy` (frame teardown), or `:on-restore` (epoch-restore
   host-timer cleanup, `timer/cancel-frame-timers-on-restore!`)."
-  [{:keys [actor-id state delay region decl-path epoch frame reason]}]
+  [{:keys [actor-id state delay delay-key region decl-path epoch frame reason]}]
   (cond-> {:status        :cancelled
            :cancelled?    true
            :rf.reply/cancel-reason reason
-           :rf.reply/work-id       (timer-work-id actor-id region decl-path epoch)
+           :rf.reply/work-id       (timer-work-id actor-id region decl-path delay-key epoch)
            :rf.reply/work-kind     :timer
            :rf.reply/work-status   :cancelled
            :correlation   (cond-> {:state state
