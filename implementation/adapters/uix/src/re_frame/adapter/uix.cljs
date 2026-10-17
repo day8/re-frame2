@@ -246,14 +246,15 @@
 
   `opts` is the map the substrate `render` slot takes, read on the first
   call only — `:hydrate?`, plus two keys only a hydrating Root uses.
-  `:on-recoverable-error` becomes the Root's `onRecoverableError`: a
-  development build composes the hydration-mismatch reporter over it, so a
-  mismatch React recovers from during hydration emits
-  `:rf.ssr/hydration-mismatch` before reaching the callback (or React's
-  default report), and a recoverable error after the hydration commit
-  skips the emit. `:identifier-prefix` becomes React's `identifierPrefix`,
-  which `useId` needs to match the server's; pass the prefix the server
-  rendered under.
+  `:on-recoverable-error` becomes the Root's `onRecoverableError`, and the
+  adapter composes the hydration-mismatch reporter over it in every build:
+  a mismatch React recovers from during hydration is reported first as an
+  always-on `:rf.ssr/hydration-mismatch` error record that reaches the
+  error sinks, and in a development build also as the trace of the same
+  id; then the callback runs (or React's default report). A recoverable
+  error after the hydration commit is reported as neither.
+  `:identifier-prefix` becomes React's `identifierPrefix`, which `useId`
+  needs to match the server's; pass the prefix the server rendered under.
 
   CLJS data in the element slot — a hiccup vector, seq or map — raises
   `:rf.error/hiccup-on-element-render-slot`, on the first render and on
