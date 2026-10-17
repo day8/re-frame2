@@ -67,29 +67,42 @@
 
 (declare claim-output-marks! flow-declares-marks?)
 
+(defn ^:no-doc restore-output-claims!
+  "Hand the output claims a pass rewrote back to the `prior` rows, the memo
+  the frame held when the pass began, for a pass that does not commit.
+  `current` is `{flow-id definition}`: the definitions the pass ran, with no
+  entry for a flow it dropped.
+
+  A pass rewrites a flow's output claims in the live elision registry, ahead of
+  the commit, when it evaluates a new definition or vacates a departed flow.
+  Each `prior` row whose definition the pass replaced or dropped gets its
+  claims back, so the claims keep covering the output the frame still holds.
+  The claims sit under the flow's own owner identity, so another owner's claim
+  on the same path is untouched. Claims a `prior` row does not account for
+  stay: they cover a path no committed output occupies, which over-classifies
+  and leaks nothing."
+  [frame-id prior current]
+  (doseq [[id row] prior
+          :let [restored (:flow row)
+                replaced (get current id)]
+          :when (and (not (identical? restored replaced))
+                     (or (flow-declares-marks? restored)
+                         (some-> replaced flow-declares-marks?)))]
+    (claim-output-marks! frame-id restored)))
+
 (defn ^:no-doc reset-frame-last-inputs-to!
   "Replace `frame-id`'s memo rows with `prior`. The `:flows/restore-last-inputs!`
   hook: the router restores a snapshot when an event does not commit, and
   epoch passes `{}` after a tool write so the next event evaluates every flow
-  against the installed state.
-
-  A pass rewrites a flow's output claims when it evaluates a new definition or
-  vacates a departed flow, in the live elision registry, ahead of the commit.
-  Each restored row whose definition the pass replaced or dropped gets its
-  claims back, so the claims keep covering the output the frame still holds.
-  Claims a restored row does not account for stay: they cover a path no
-  committed output occupies, which over-classifies and leaks nothing."
+  against the installed state. The output claims of the rows the pass
+  advanced go back with them (`restore-output-claims!`)."
   [frame-id prior]
   (when-let [a (frame-memo-atom frame-id)]
     (let [current @a]
       (reset! a prior)
-      (doseq [[id row] prior
-              :let [restored (:flow row)
-                    replaced (:flow (get current id))]
-              :when (and (not (identical? restored replaced))
-                         (or (flow-declares-marks? restored)
-                             (some-> replaced flow-declares-marks?)))]
-        (claim-output-marks! frame-id restored))))
+      (restore-output-claims!
+        frame-id prior
+        (reduce-kv (fn [flows id row] (assoc flows id (:flow row))) {} current))))
   nil)
 
 (defn ^:no-doc last-inputs-snapshot
@@ -263,8 +276,9 @@
 ;;
 ;; A frame claims a flow's output paths in its elision registry when it first
 ;; evaluates the definition, before that evaluation emits anything, and drops
-;; the claims when the flow leaves the frame; an event that does not commit
-;; puts back the claims of the rows it restores. The registry governs flow traces
+;; the claims when the flow leaves the frame; an event that does not commit,
+;; its pass thrown or its candidate rejected, puts back the claims of the rows
+;; whose outputs the frame still holds. The registry governs flow traces
 ;; and observation of the materialized app-db slot. The owner identity names
 ;; the flow, so replacing or dropping one flow's claims leaves every other
 ;; claim on the same path standing.
