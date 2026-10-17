@@ -437,11 +437,11 @@
 ;; and whether the destroy is still PENDING:
 ;; `{id {:token drain-lock :transaction-owner owner :pending? bool}}`. The bare
 ;; id is what the re-entrancy guard above consults — "is a destroy for this id
-;; in flight at all"; the token is what the duplicate guard and
-;; `frame-incarnation-closing?` consult so a stale close marker of an
-;; already-torn-down incarnation A cannot be mistaken for a fresh same-id
-;; REPLACEMENT incarnation B being in-flight. A new B claim REPLACES A's stale
-;; marker; each destroy's terminal cleanup compare-removes only its own token.
+;; in flight at all"; the token is what `frame-incarnation-closing?` and the
+;; drain's boundary check compare, so a caller holding some other incarnation's
+;; token never joins this teardown. The destroy holds the id's reservation until
+;; its teardown has finished and removes its marker before releasing it, so no
+;; same-id incarnation is constructed while a marker stands.
 ;;
 ;; A destroy requested while the target incarnation's drain is on the current
 ;; stack is PENDING (Spec 002 §Destroy): the marker and the reservation are
@@ -1412,9 +1412,8 @@
     (c) The frame record is absent from the `frames` atom (post-step-9
         of `destroy-frame!` — the dissoc step has run).
 
-  The claim test is INCARNATION-SCOPED: a stale destroy marker for incarnation A
-  does not dispose a fresh same-id incarnation B installed after A's registry
-  dissoc but before A's terminal marker cleanup. Returns false when `id` is
+  The claim test is INCARNATION-SCOPED: it matches the marker's token against
+  the record's `:drain-lock`. Returns false when `id` is
   registered, live, and not claimed for destruction. Calling for a
   never-registered `id` returns true — that case is benign for the drain-loop
   caller (a drain cannot run on a frame that was never registered), but the
@@ -1443,26 +1442,16 @@
 
   The close-lifecycle read, and deliberately the only one: it answers 'is the
   destroy that is in flight for this id the one destroying the incarnation I
-  acquired'. There is no bare-id counterpart asking merely 'is this id anywhere
-  in its close lifecycle', because Spec 002's destroy recipe linearizes on the
-  EXACT-incarnation claim and states that a stale claim for incarnation A does
-  not fence a fresh same-id incarnation B — a bare-id answer contradicts that
-  invariant in exactly the post-dissoc window described below. Callers outside
+  acquired'. Spec 002's destroy recipe linearizes on the EXACT-incarnation
+  claim, so the answer is per incarnation, never per bare id. Callers outside
   this namespace acquire a token first (`frame-incarnation-token`) and ask this.
   `destroying-frames` records
   `{id {:token destroying-incarnation-token}}`, so this
   compares the caller's acquire-time token against the token the marker carries
-  by identity.
-
-  This is what keeps the post-dissoc window safe: in the
-  JVM window between `destroy-frame!`'s step-9 `dissoc-frame!` and its terminal
-  `finally`, incarnation A's marker is still set while a fresh same-id incarnation
-  B is already live under the reused id. A ViewCell commit that ACQUIRED B (its
-  captured token is B's) reads false here (B's token ≠ A's marker token), so B's
-  cell is not torn down by A's stale close authority — while the
-  in-flight case (a commit that acquired A while A is mid-teardown, still live
-  pre-flip) reads true (A's token IS the marker token) and correctly joins A's
-  teardown. Nil `token` (or no marker for `id`) reads false.
+  by identity: a ViewCell commit that acquired the incarnation mid-teardown
+  (still live, pre-flip) reads true and joins its teardown, while a token from
+  any other incarnation of the id reads false. Nil `token` (or no marker for
+  `id`) reads false.
 
   Keyed by the bare frame-id; the incarnation is disambiguated by the token value."
   [id token]
@@ -3430,8 +3419,7 @@
         ;; Destruction publishes its exact-incarnation marker and acquires this
         ;; same reservation under the drain gate. If construction acquired first,
         ;; destroy loses as a prompt idempotent no-op; if destroy marked first,
-        ;; this exact-token check fails construction before any side effect. A
-        ;; stale marker from an already-dissoc'd incarnation does not match.
+        ;; this exact-token check fails construction before any side effect.
         (let [raw           (get @frames id)
               closing-token (:token (get @destroying-frames id))]
           (when (and raw
@@ -4133,11 +4121,6 @@
           (recur))
         false))))
 
-(def ^:private ^:dynamic *destroy-claim-probe*
-  "JVM concurrency-test seam fired after `destroy-frame!` captures the candidate
-  incarnation and before it enters drain serialization. nil in production."
-  nil)
-
 (defn- claim-frame-destroy!
   "Claim teardown authority for `expected-token`'s live incarnation of `id`.
 
@@ -4154,98 +4137,73 @@
   (`::destroy-pending?` on the returned record): the queue is left for the
   drain to cut at the next event boundary, where it also runs the teardown.
 
-  `call-serialized-with-drain!` may have captured A's frame record before
-  blocking and wake after A was replaced by B, so the thunk revalidates the
-  registry token after acquisition and retries against the current record. A
-  stale expected token therefore never claims B while holding A's obsolete
-  lock. An existing marker blocks only a duplicate claim for the SAME token; a
-  fresh same-id incarnation replaces a stale prior marker. Returns the claimed
-  frame record, or nil."
+  `call-serialized-with-drain!` may have captured the frame record before it
+  blocked, so the thunk revalidates the token under the lock: a stale expected
+  token claims nothing. A marker already standing for `id` means a destroy of
+  this incarnation is in flight — re-entrant from its own teardown, or a second
+  request joining a pending one — so the claim is a nil no-op. Returns the
+  claimed frame record, or nil."
   [id expected-token]
-  (loop []
-    (when-let [candidate (frame id)]
-      (let [candidate-token (:drain-lock candidate)]
-        (when (identical? expected-token candidate-token)
-          (when *destroy-claim-probe*
-            (*destroy-claim-probe* id candidate-token))
-          (let [claimed
-                (call-serialized-with-drain!
-                  id
-                  (fn []
-                    (when-let [current (frame id)]
-                      (let [marker-token (:token (get @destroying-frames id))]
-                        (cond
-                          (not (identical? candidate-token (:drain-lock current)))
-                          ::retry-destroy-claim
-
-                          (and (some? marker-token)
-                               (identical? candidate-token marker-token))
-                          nil
-
-                          :else
-                          (when-let [transaction-owner
-                                     (or (when (owner-holds-frame-id?
-                                                 *frame-transaction-owner* id)
-                                           *frame-transaction-owner*)
-                                         (try-claim-frame-transaction!
-                                           #{id} :destruction))]
-                            (let [router   (:router current)
-                                  ;; This incarnation's drain is on the current
-                                  ;; stack — its own event, or another frame's
-                                  ;; handler reached through a nested
-                                  ;; cross-frame `dispatch-sync` inside it. The
-                                  ;; destroy is PENDING: the queue stays, the
-                                  ;; event finishes, and the drain cuts the queue
-                                  ;; and tears down at the next event boundary.
-                                  pending? (current-thread-is-drainer? current)]
-                            ;; Serialize claim publication + queue cutoff with
-                            ;; the router's scheduling/release monitor. A
-                            ;; submitter that linearized before this section is
-                            ;; included in the dropped queue; ordinary drains
-                            ;; after publication observe the claim and halt.
-                            (locking router
-                              (swap! destroying-frames assoc id
-                                     {:token             candidate-token
-                                      :transaction-owner transaction-owner
-                                      :pending?          pending?})
-                              (when-not pending?
-                               (swap! router
-                                      (fn [{:keys [queue internal destroy-claim-dropped-count]
-                                            :as state}]
-                                        (let [dropped (+ (count queue)
-                                                         (count internal)
-                                                         (or destroy-claim-dropped-count 0))]
-                                          ;; Preserve the claim-time count until
-                                          ;; an actual drain observes the claim.
-                                          ;; A public post-claim/pre-dead arrival
-                                          ;; may enqueue, but that exact drain
-                                          ;; drops it before invocation and
-                                          ;; atomically combines both counts in
-                                          ;; one interruption report.
-                                          (cond-> (-> state
-                                                      (assoc :queue rf.interop/empty-queue
-                                                             :internal rf.interop/empty-queue
-                                                             :scheduled? false)
-                                                      (dissoc :destroy-claim-report-emitted?))
-                                            (pos? dropped)
-                                            (assoc :destroy-claim-dropped-count dropped))))))
-                               (assoc current
-                                      ::destroy-transaction-owner transaction-owner
-                                      ::destroy-pending?          pending?)))))))))]
-            (if (= ::retry-destroy-claim claimed)
-              (recur)
-              claimed)))))))
+  (when-let [candidate (frame id)]
+    (when (identical? expected-token (:drain-lock candidate))
+      (call-serialized-with-drain!
+        id
+        (fn []
+          (when-let [current (frame id)]
+            (when (and (identical? expected-token (:drain-lock current))
+                       (not (contains? @destroying-frames id)))
+              (when-let [transaction-owner
+                         (or (when (owner-holds-frame-id?
+                                     *frame-transaction-owner* id)
+                               *frame-transaction-owner*)
+                             (try-claim-frame-transaction! #{id} :destruction))]
+                (let [router   (:router current)
+                      ;; This incarnation's drain is on the current stack — its
+                      ;; own event, or another frame's handler reached through a
+                      ;; nested cross-frame `dispatch-sync` inside it. The
+                      ;; destroy is PENDING: the queue stays, the event finishes,
+                      ;; and the drain cuts the queue and tears down at the next
+                      ;; event boundary.
+                      pending? (current-thread-is-drainer? current)]
+                  ;; Serialize claim publication + queue cutoff with the
+                  ;; router's scheduling/release monitor. A submitter that
+                  ;; linearized before this section is included in the dropped
+                  ;; queue; ordinary drains after publication observe the claim
+                  ;; and halt.
+                  (locking router
+                    (swap! destroying-frames assoc id
+                           {:token             expected-token
+                            :transaction-owner transaction-owner
+                            :pending?          pending?})
+                    (when-not pending?
+                      (swap! router
+                             (fn [{:keys [queue internal destroy-claim-dropped-count]
+                                   :as state}]
+                               (let [dropped (+ (count queue)
+                                                (count internal)
+                                                (or destroy-claim-dropped-count 0))]
+                                 ;; Preserve the claim-time count until an
+                                 ;; actual drain observes the claim. A public
+                                 ;; post-claim/pre-dead arrival may enqueue, but
+                                 ;; that exact drain drops it before invocation
+                                 ;; and atomically combines both counts in one
+                                 ;; interruption report.
+                                 (cond-> (-> state
+                                             (assoc :queue rf.interop/empty-queue
+                                                    :internal rf.interop/empty-queue
+                                                    :scheduled? false)
+                                             (dissoc :destroy-claim-report-emitted?))
+                                   (pos? dropped)
+                                   (assoc :destroy-claim-dropped-count dropped))))))
+                    (assoc current
+                           ::destroy-transaction-owner transaction-owner
+                           ::destroy-pending?          pending?)))))))))))
 
 (defn- release-frame-destroy-claim!
-  "Compare-remove only `expected-token`'s claim. A stale incarnation A's
-  terminal `finally` must not erase a fresh same-id B claim that replaced A's
-  marker after A dissociated its frame record."
-  [id expected-token]
-  (swap! destroying-frames
-         (fn [claims]
-           (if (identical? expected-token (:token (get claims id)))
-             (dissoc claims id)
-             claims))))
+  "Remove `id`'s destroy marker. The destroy removes it before releasing the
+  id's reservation, so no same-id incarnation can have claimed the id."
+  [id]
+  (swap! destroying-frames dissoc id))
 
 (defn- tear-down-sub-cache!
   "Dispose every cached subscription reaction for the destroyed frame.
@@ -4307,23 +4265,25 @@
   "Fire the epoch destroy hook (step 10): publish the terminal evidence the
   pre-dissoc snapshot bound and drop the frame's epoch stores.
 
-  `owner-token` is the destroyed frame's stable incarnation identity. The epoch
-  artefact uses it to compare-clean only this incarnation's id-keyed state if a
-  fresh same-id frame has already published between registry dissoc and step 10.
+  `owner-token` is the destroyed frame's stable incarnation identity; the epoch
+  artefact cleans only the id-keyed state that incarnation owns.
 
   `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
-  BEFORE dissoc — the epoch surface publishes A's terminal
-  facts from it rather than re-reading the now-shared id-keyed stores.
+  BEFORE dissoc — the epoch surface publishes the incarnation's terminal facts
+  from it rather than re-reading its id-keyed stores after the dissoc.
 
-  This is the ONLY teardown step that runs AFTER `dissoc-frame!`, so a same-id
-  successor B may already own the registry key when it fires. A throw here is
-  predecessor A's terminal diagnostic: it is recorded on both Spec 009 channels
-  like every other teardown step, but the dev-only
-  `:rf.warning/teardown-hook-exception` trace is delivered under STRUCTURAL
-  delivery so a same-id B's `:rf.trace/frame-no-emit?` policy can neither
-  suppress nor capture it. Every PRE-dissoc teardown hook keeps
-  ordinary bare-id policy — no same-id B can exist before dissoc, so their
-  attribution is A's unambiguously."
+  This step runs after step 8 released the frame's trace ring and
+  frame-no-emit flag, and after `dissoc-frame!`. The destroy still holds the
+  id's reservation, so no same-id incarnation exists yet. A throw here is
+  recorded on both Spec 009 channels like every other teardown step, but the
+  dev-only `:rf.warning/teardown-hook-exception` trace is delivered under
+  STRUCTURAL delivery: it streams live to every listener and is retained by no
+  ring and captured by no epoch buffer. Ordinary delivery would push it under
+  the bare id — when the destroy runs inside another frame's event the warning
+  carries that event's dispatch-id — and so recreate a ring for a frame that is
+  gone, which nothing frees and a later same-id incarnation would inherit. The
+  hooks before step 8 keep ordinary delivery, and the ring release clears what
+  they push."
   [id owner-token terminal-evidence]
   (when-let [f (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (try
@@ -4335,11 +4295,9 @@
 
 (defn- snapshot-epoch-terminal-evidence!
   "Snapshot the destroyed incarnation's terminal halted-destroy
-  evidence (its `:halted-destroy` record and the listeners it fans to) while it
-  is still the sole owner of its id-keyed epoch stores, i.e. BEFORE
-  `dissoc-frame!`. A same-id successor can only be constructed after that dissoc,
-  so it can never claim (and drop) the capture buffer out from under
-  this snapshot. `halt` is the drain's boundary evidence for a pending destroy
+  evidence (its `:halted-destroy` record and the listeners it fans to) while its
+  id-keyed epoch stores are still intact, BEFORE `dissoc-frame!` and before the
+  step-8 ring release. `halt` is the drain's boundary evidence for a pending destroy
   (see `run-destroy-recipe!`), nil for an immediate one. Returns the evidence
   bundle threaded to `notify-epoch-listeners!` (or nil when no epoch layer
   participates). Guarded like the best-effort teardown steps: a throw here is
@@ -4363,9 +4321,10 @@
                                       the shared per-id transaction reservation,
                                       cut the ordinary queue, and publish the
                                       cutoff before lifecycle-dead. The
-                                      reservation lasts through step 9, then is
-                                      released for the fresh-incarnation
-                                      post-dissoc window.
+                                      reservation is held until step 10 has
+                                      finished, on an exceptional exit too, so
+                                      no same-id incarnation coexists with any
+                                      part of the teardown.
 
   When the incarnation's drain is on the current stack — its own event, or
   another frame's handler reached through a nested cross-frame `dispatch-sync`
@@ -4454,18 +4413,14 @@
                                               its lifetime is the frame's.
     7. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
-    7a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
+    7a. snapshot-epoch-terminal-    — bind the terminal :halted-destroy
         evidence!                     evidence (its epoch record + the
                                       listeners it fans to) via the
                                       :epoch/snapshot-frame-destroyed hook
-                                      while A still SOLELY owns its id-keyed
-                                      epoch stores — i.e. BEFORE the step-9
-                                      dissoc, after which a same-id successor
-                                      B can be constructed and claim (drop)
-                                      those stores. The bundle is bound
-                                      lexically here and published by step 10
-                                      regardless of whether A still owns the
-                                      stores when it fires.
+                                      while the id-keyed epoch stores are
+                                      intact, BEFORE the step-9 dissoc. The
+                                      bundle is bound lexically here and
+                                      published by step 10.
                                       Taken BEFORE the step-8 ring release so a
                                       snapshot-hook failure's ordinary-delivery
                                       warning rides A's ring and is cleared by
@@ -4487,11 +4442,12 @@
                                       the frame's epoch stores.
                                       This is the PUBLISH half of the epoch
                                       destroy contract: it ships the terminal
-                                      evidence step 7a bound pre-dissoc,
-                                      whether or not a same-id successor now
-                                      owns the id-keyed stores. Only a pending
-                                      destroy whose boundary drop removed work
-                                      has a :halted-destroy record to publish.
+                                      evidence step 7a bound pre-dissoc. Only a
+                                      pending destroy whose boundary drop
+                                      removed work has a :halted-destroy record
+                                      to publish. It is the destroy's terminal
+                                      publication: the reservation is released
+                                      only once it has finished.
 
   An ordinary dispatch that linearizes while the claimed incarnation remains
   lifecycle-live — for a pending destroy, the destroying event's own dispatches
@@ -4704,8 +4660,9 @@
         ;; successor — `re-frame.fresco.server/render` mints a fresh gensym per
         ;; request, so without this a long-lived SSR process would retain one
         ;; bundle per request served. Keyed and unconditional, needing no incarnation
-        ;; token: a same-id successor is constructable only after the step-9
-        ;; dissoc, so every row standing here is a dead incarnation's. Pure
+        ;; token: this destroy holds the id's reservation, so no same-id
+        ;; successor exists and the row standing here is this dying
+        ;; incarnation's. Pure
         ;; RETENTION — the substrate's safety argument is that lazy replacement
         ;; and does not depend on this. No-op when the day8/re-frame2-fresco
         ;; artefact is absent (the hook is unbound).
@@ -4724,9 +4681,9 @@
         ;; `live-frame/reproject-live-frame!`, already a no-op for a frame
         ;; carrying no generation, so the row is needed only while the frame is
         ;; live. Keyed and unconditional, needing no incarnation token: this
-        ;; destroy still owns the id's reservation and a same-id successor is
-        ;; constructable only after the step-9 dissoc, so the row standing here
-        ;; is this dying incarnation's. Reached by late-bind because
+        ;; destroy holds the id's reservation until its teardown has finished,
+        ;; so the row standing here is this dying incarnation's. Reached by
+        ;; late-bind because
         ;; `re-frame.live-frame` requires THIS ns (a back-require would invert
         ;; the load order); published at `re-frame.live-frame`'s NS LOAD, which
         ;; strictly precedes the first `make-frame`, so it is bound whenever a
@@ -4739,20 +4696,16 @@
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate
         ;; forget hook is needed.
-        ;; Snapshot A's terminal halted-destroy evidence while A
-        ;; is STILL the sole owner of its id-keyed epoch stores — before
-        ;; dissoc-frame!, after which a same-id successor B can be constructed
-        ;; and claim (dropping) those stores. The bundle is bound lexically to
-        ;; A's exact destroy recipe and published by the post-dissoc epoch hook
-        ;; regardless of whether A still owns the stores when it fires.
-        ;; The snapshot is taken BEFORE the ring release below.
+        ;; Snapshot the terminal halted-destroy evidence while the id-keyed
+        ;; epoch stores are intact — before dissoc-frame!. The bundle is bound
+        ;; lexically to this destroy recipe and published by the step-10 epoch
+        ;; hook. The snapshot is taken BEFORE the ring release below.
         ;; The snapshot itself emits no trace on the happy path, but a snapshot-
         ;; hook FAILURE emits `:rf.warning/teardown-hook-exception` under
-        ;; ordinary (non-structural) delivery — carrying A's bare frame id — so
-        ;; it would push onto A's ring. Ordering it before `release-frame-ring!`
-        ;; means A's normal ring release clears that push instead of the warning
-        ;; recreating an already-released ring. No same-id B can exist yet (this
-        ;; is still pre-dissoc), so ordinary delivery is correct here.
+        ;; ordinary (non-structural) delivery — carrying the bare frame id — so
+        ;; it would push onto the frame's ring. Ordering it before
+        ;; `release-frame-ring!` means the ring release clears that push instead
+        ;; of the warning recreating an already-released ring.
         (let [terminal-evidence (snapshot-epoch-terminal-evidence! id halt)]
           ;; Per Spec 009 §Per-frame trace rings:
           ;; release the destroyed frame's event-keyed ring so no
@@ -4781,14 +4734,6 @@
              ;; Idempotent no-op for application frames (the common case).
              (rf.trace/clear-frame-no-emit-for! id)))
           (dissoc-frame! id)
-          ;; A PUBLIC destroy owns a :destruction reservation only through exact
-          ;; registry removal. Release here (the recipe's finally is a harmless
-          ;; compare-release fallback) so the post-dissoc window may
-          ;; seat a fresh same-id incarnation before stale teardown diagnostics
-          ;; finish. A construction rollback JOINED its outer :construction owner
-          ;; and must leave that reservation for the constructor's own finally.
-          (when (= :destruction (:kind transaction-owner))
-            (release-frame-construction! transaction-owner))
           (notify-epoch-listeners! id expected-incarnation-token
                                    terminal-evidence))
         nil)
@@ -4812,17 +4757,20 @@
               (when-let [emit-report (rf.late-bind/get-fn
                                        :error-emit/dispatch-frame-teardown-report)]
                 (try
-                  ;; A was dissociated before this finally boundary. Preserve
-                  ;; the corpus-wide terminal report, but do not resolve its
-                  ;; bare id through a same-id B's frame-owned error sinks.
+                  ;; The frame was dissociated before this finally, so the
+                  ;; report carries no frame authority: it reaches the
+                  ;; corpus-wide listeners and the process-default sink.
                   (emit-report id failures (rf.interop/now-ms) false)
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))
-          ;; Compare-remove only this incarnation's in-flight marker. A fresh
-          ;; same-id incarnation may have replaced it after `dissoc-frame!`;
-          ;; stale A's finally must never erase B's claim.
+          ;; Release only once teardown and its terminal publication have
+          ;; finished — here, on an exceptional exit too — so no same-id
+          ;; incarnation coexists with any part of this one. The marker goes
+          ;; first: a construction admitted by the release must find the id
+          ;; free of it. A construction rollback JOINED its outer :construction
+          ;; owner and leaves that reservation for the constructor's own finally.
+          (release-frame-destroy-claim! id)
           (when (= :destruction (:kind transaction-owner))
-            (release-frame-construction! transaction-owner))
-          (release-frame-destroy-claim! id expected-incarnation-token))))))
+            (release-frame-construction! transaction-owner)))))))
 
 (defn ^:no-doc pending-destroy?
   "True when a PENDING destroy (Spec 002 §Destroy) is recorded for exactly the
@@ -4860,9 +4808,9 @@
           (run-destroy-recipe! id token
                                (assoc f ::destroy-transaction-owner owner)
                                halt)
-          (do (when (= :destruction (:kind owner))
-                (release-frame-construction! owner))
-              (release-frame-destroy-claim! id token)))))
+          (do (release-frame-destroy-claim! id)
+              (when (= :destruction (:kind owner))
+                (release-frame-construction! owner))))))
     nil))
 
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
