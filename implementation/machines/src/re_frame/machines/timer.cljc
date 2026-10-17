@@ -322,10 +322,9 @@
   construction, so the predicate flips only on a genuine A→B incarnation swap,
   never on a mere frame-close — no ordinary state-exit / supersede /
   frame-destroy / restore cancellation is cut short. It reads no bound
-  event owner, so it fences the non-destroy reasons uniformly (INCLUDING the
-  eventless frame-destroy / restore paths) without the wrongful-skip a
-  closing-frame `owner-continuation` gate would inflict on a frame torn down under
-  an unrelated event owner."
+  event owner, so it fences the non-destroy reasons uniformly, INCLUDING the
+  eventless frame-destroy / restore paths, and a frame torn down under an
+  unrelated event owner is not skipped."
   [frame-id]
   (let [captured-incarnation (rf.frame/frame-incarnation-token frame-id)]
     (if (some? captured-incarnation)

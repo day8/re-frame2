@@ -77,20 +77,13 @@
   §Declarative `:spawn` §Composition — `:exit` reads the actor's
   final snapshot before clearing.
 
-  The 3-arity takes the destroy EFFECT's exact-incarnation
-  `fence` (`{:owner-gone? :owner-token}`, captured once at the effect entry by
-  `lifecycle-fx.destroy`). The helper crosses three callback-bearing
-  boundaries — the pure cascade (each `:exit` action emits a synchronous
-  `:rf.machine/action-ran`), the snapshot write (the container's watches) and
-  every exit effect — any of which can destroy A and publish a same-id B. So
-  ownership is rechecked after the cascade and again after the write, the write
-  rides the exact owner token, and the nested `do-fx` walk carries the same
-  token, so a loss inside one exit effect stops the rest and the terminal
-  marker. Work completed in A while A existed stands. The 2-arity is the
-  eventless frame-destroy entry: no owner, full authority."
+  The 3-arity takes the destroy effect's `owner-token` — the token of the
+  incarnation whose event entered the destroy (`lifecycle-fx.destroy`) — and
+  the snapshot write rides it as an exact durable write. The 2-arity is the
+  eventless frame-destroy entry, which takes the bare write."
   ([frame-id actor-id]
-   (run-child-exit! frame-id actor-id {:owner-gone? (constantly false) :owner-token nil}))
-  ([frame-id actor-id {:keys [owner-gone? owner-token]}]
+   (run-child-exit! frame-id actor-id nil))
+  ([frame-id actor-id owner-token]
    (when actor-id
      (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
            snapshot   (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
@@ -103,23 +96,13 @@
                               (assoc :id actor-id :rf/frame frame-id))]
        (when (and snapshot machine)
          (let [r (rf.machines.parallel/run-active-exit-cascade machine snapshot)]
-           (cond
-             (rf.machines.result/fail? r)
+           (if (rf.machines.result/fail? r)
              ;; Match `apply-transition-once`'s exit-cascade failure
              ;; trace shape — same category, with a destroy-time
              ;; discriminator so consumers can disambiguate. Shared with
              ;; `finalize-machine`'s final-state auto-destroy via
              ;; `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
              (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure! actor-id frame-id (rf.machines.result/info r))
-
-             ;; On a direct call the cascade's `:rf.machine/action-ran`
-             ;; listeners run synchronously (inside a drain they run after
-             ;; it), so they may have lost A: nothing of A's may be written
-             ;; into, or run against, B.
-             (owner-gone?)
-             nil
-
-             :else
              (rf.machines.result/with-ok [new-snap exit-fx] r
                ;; (4) Write the post-exit snapshot back to runtime-db. The
                ;; write is transient — the unified teardown projection runs
@@ -128,9 +111,8 @@
                ;; steps that still read the snapshot see the `:exit`-time
                ;; `:data` writes; the production-runtime cost is one extra
                ;; swap-runtime-db! per destroy. Machine snapshots are
-               ;; durable runtime-db state. With an owner token the write
-               ;; binds to A's own container and is not attributed to a
-               ;; same-id B if a watch loses A mid-install.
+               ;; durable runtime-db state. With an owner token the write is
+               ;; exact: it lands only in the incarnation that token names.
                (when (not= snapshot new-snap)
                  (let [write (fn [rt] (assoc-in rt (rf.machines.paths/snapshot-path actor-id) new-snap))]
                    (if owner-token
@@ -139,10 +121,8 @@
                ;; (5) Fire the `:exit`-emitted fx via the standard fx
                ;; interpreter. Use the frame's `:platform` (defaults to
                ;; :client) so platform-gated fx behave consistently with
-               ;; transition-time fx fires. Rechecked after the write's
-               ;; watches; the owner token fences each entry of the walk.
-               (when (and (seq exit-fx) (not (owner-gone?)))
+               ;; transition-time fx fires.
+               (when (seq exit-fx)
                  (let [platform (or (:platform (rf.frame/frame-meta frame-id)) :client)]
-                   (rf.fx/do-fx frame-id (vec exit-fx) platform
-                                {:frame-incarnation-token owner-token}))))))))
+                   (rf.fx/do-fx frame-id (vec exit-fx) platform))))))))
      nil)))
