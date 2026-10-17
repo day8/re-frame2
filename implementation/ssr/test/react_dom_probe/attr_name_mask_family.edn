@@ -7,7 +7,7 @@
 ;; candidate names are react-dom's own `possibleStandardNames`
 ;; values, not a re-frame roster. Measured by
 ;; `react_dom_probe/attr_name_mask_family.cjs` against the installed
-;; package; compared with `re-frame.ssr.ui-tree` in
+;; package; compared with `re-frame.ssr/render-to-string` in
 ;; `re_frame/ssr_attr_name_react_parity_test.clj`.
 ;;
 ;; Regenerate from `implementation/`:

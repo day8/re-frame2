@@ -4,8 +4,8 @@
 // for the SSR EMITTED-ATTRIBUTE-NAME direction of the react-dom conversion
 // table.
 //
-// WHY THIS EXISTS. `re-frame.ssr.ui-tree` carries the conversion table in two
-// halves that are maintained independently:
+// WHY THIS EXISTS. `re-frame.ssr.html-helpers` carries the conversion table in
+// two halves that are maintained independently:
 //
 //   `standard-names`     author name  -> React prop name  (a mirror of
 //                        react-dom's own `possibleStandardNames`)
@@ -195,7 +195,7 @@ out.push(';; future reader can see the bytes the name was read out of. The');
 out.push(';; candidate names are react-dom\'s own `possibleStandardNames`');
 out.push(';; values, not a re-frame roster. Measured by');
 out.push(';; `react_dom_probe/attr_name_mask_family.cjs` against the installed');
-out.push(';; package; compared with `re-frame.ssr.ui-tree` in');
+out.push(';; package; compared with `re-frame.ssr/render-to-string` in');
 out.push(';; `re_frame/ssr_attr_name_react_parity_test.clj`.');
 out.push(';;');
 out.push(';; Regenerate from `implementation/`:');

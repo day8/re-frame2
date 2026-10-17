@@ -1,8 +1,8 @@
 (ns re-frame.ssr.diagnostic-cycle-cljs-test
   "THE DIAGNOSTIC PATH MUST NOT ITSELF THROW.
 
-  `re-frame.ssr.emit` and `re-frame.ssr.ui-tree` build rejection messages by
-  printing the offending value, and `cljs.core`'s printer descends into a
+  `re-frame.ssr.emit` builds rejection messages by printing the offending
+  value, and `cljs.core`'s printer descends into a
   plain JS object or array with no seen-set. A foreign graph may be CYCLIC —
   React 19's `ctx.Provider` is the context, whose `Provider` key points back
   at itself — so `[ThemeContext.Provider {…}]`, the very mistake
@@ -22,8 +22,7 @@
   (:require ["react" :as react]
             [cljs.test :refer-macros [deftest is testing]]
             [re-frame.error :as rf.error]
-            [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -83,11 +82,6 @@
         (str label "'s ex-data must survive pr-str at a downstream sink; got "
              (pr-str (dissoc o :message))))
     o))
-
-(defn- tree
-  "A version-1 structural tree wrapping `children` in a root fragment."
-  [& children]
-  {:rf.ui/tree-version 1 :children (vec children)})
 
 ;; ---------------------------------------------------------------------------
 ;; The helper
@@ -162,39 +156,3 @@
   (testing "`[:> ctx.Provider …]` is what `:>` interop is FOR"
     (rejected-with :rf.error/ssr-reagent-native-head "a :> provider element"
                    #(rf.ssr.emit/emit-element [:> provider {:value "dark"}]))))
-
-;; ---------------------------------------------------------------------------
-;; re-frame.ssr.ui-tree — the malformed-node + version-gate throws
-;; ---------------------------------------------------------------------------
-
-(deftest ui-tree-rejects-a-cyclic-malformed-node-with-its-own-error
-  (testing "every `malformed-node!` arm prints the offending node or child"
-    (doseq [[label t]
-            [["a foreign node in child position"
-              (tree provider)]
-             ["a cyclic array in child position"
-              (tree (self-referential-array))]
-             ["a node with two discriminators"
-              (tree {:tag :div :view-id :v :attrs {:ctx provider}})]
-             ["a node with no discriminator and no children"
-              (tree {:attrs {:ctx provider}})]
-             ["a trusted-HTML node whose :html is not a string"
-              (tree {:html provider})]
-             ["a raw-text element with a structural child"
-              (tree {:tag :script :children [{:tag :b :children ["x"]} provider]})]
-             ["a textarea given both a value and a child"
-              (tree {:tag :textarea :attrs {:value "v"} :children [provider]})]
-             ["a textarea given more than one child"
-              (tree {:tag :textarea :children [provider provider]})]
-             ["a textarea given a trusted-markup child"
-              (tree {:tag :textarea :children [{:html "x" :ctx provider}]})]
-             ["a textarea given a structural child"
-              (tree {:tag :textarea :children [{:tag :b :attrs {:ctx provider}}]})]]]
-      (rejected-with :rf.error/ui-tree-malformed label
-                     #(rf.ssr.ui-tree/emit-ui-tree t)))))
-
-(deftest ui-tree-version-gate-rejects-a-cyclic-version-with-its-own-error
-  (testing "the version gate runs FIRST and prints the version it got"
-    (rejected-with :rf.error/ssr-ui-tree-version-unsupported
-                   "a cyclic :rf.ui/tree-version"
-                   #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version provider}))))

@@ -4,12 +4,9 @@
 // external anchor for the SSR boolean attribute-value rosters.
 //
 // WHY THIS EXISTS. `re-frame.ssr.html-helpers` carries three rosters and
-// `boolean-attr-class` reads them; BOTH SSR serialisers (the hiccup emitter
-// and the structural-tree serialiser `re-frame.ssr.ui-tree`) consult that one
-// classifier. One roster means no drift, but it also means one check where
-// there could be two: a parity test BETWEEN two consumers of a shared table
-// cannot validate the table. Both sides agree on the same wrong answer, so a
-// name missing from the roster leaves every in-repo test green.
+// `boolean-attr-class` reads them; the hiccup emitter consults that one
+// classifier. A test comparing re-frame with re-frame cannot validate the
+// table: a name missing from the roster leaves every in-repo test green.
 //
 // So the roster is pinned against something OUTSIDE it: react-dom itself,
 // the installed copy, measured rather than restated.
