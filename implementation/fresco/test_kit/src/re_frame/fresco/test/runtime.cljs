@@ -26,9 +26,8 @@
 
   The commit seam itself — `collector/render-body`, `collector/last-reads`
   and `collector/commit-boundary!`, the three calls that take React's
-  place — lives on the collector: it is the runtime's own seam rather
-  than an instrument, and Xray's suites drive it through the artefact's
-  `:paths`, which this source root is outside of."
+  place — lives on the collector, because it is the runtime's own seam
+  rather than an instrument."
   (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
