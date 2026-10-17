@@ -1002,7 +1002,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
    fx-id chip + duration + status caption. For `:dispatch` the
    queued child event renders inline as `→ queued [:foo …]`. For
    managed-fx surfaces (`:rf.http/*`, `:rf.ws/*`, `:rf.machine/*`,
-   `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`
+   `:rf.server/*`) the wire-boundary `record-panel`
    mounts INLINE beneath the row per §8.3 of the findings doc — NOT
    in a trailing block.
 

@@ -540,11 +540,12 @@ was removed) — server error projection trace (S-C5).
 (`spec/Managed-Effects.md` names the eight-property contract that HTTP,
 WebSocket, machine `:spawn`, SSR `:rf.server/*`, and flows all satisfy.
 This section catalogues the bug classes Xray addresses uniformly across
-all five surfaces.)
+the four that issue an effect; flow activity shows on the Epoch panel's
+FLOW steps and in the Static Flows tab.)
 
 #### F.1 — "What happens when this effect crosses the wire?"
 
-**Bug class:** Managed effects (HTTP, WS, invoke, server, flow) issue work
+**Bug class:** Managed effects (HTTP, WS, invoke, server) issue work
 across a boundary; the author needs to see the entire wire interaction in
 one picture — payload (post-elision) → wire (status / headers / timing
 waterfall) → response → handler dispatched → app-db slice touched.
@@ -584,7 +585,7 @@ status note under the panel says which parts ship today:
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The headline — the design target for all five surfaces — is **request →
+The headline — the design target for all four surfaces — is **request →
 wire → response → handler → app-db slice touched** in one compact panel.
 The waterfall makes timing visible. The "Applied" section connects the
 http response to its downstream effect on app-db. **Privacy markers are
@@ -597,7 +598,7 @@ APP-DB SLICE TOUCHED — but two of the headline's links are
 
 - **Wire.** No runtime producer stamps per-phase wire timing, so the
   `issued → sent → received → decoded → on-success` waterfall drawn above
-  is unbuilt. The four non-HTTP surfaces draw a synthesised two-phase
+  is unbuilt. The three non-HTTP surfaces draw a synthesised two-phase
   `:issued → :elapsed` bar from their in-bundle rows instead, absent
   even that an explicit `n/a`; HTTP draws the same bar once its
   completion has joined (below).
@@ -660,7 +661,7 @@ it CARRIED, never the one that superseded it. What it then draws:
 The record draws no APP-DB SLICE: what the reply did to app-db is the
 reply bundle's own story, and the link is the bridge to it (the
 "Applied:" half of the headline is not built for HTTP). **REPLY TARGET is
-what the caller configured, not an observed delivery.** The four surfaces
+what the caller configured, not an observed delivery.** The three surfaces
 whose end events DO land in-bundle keep all five sections.
 
 For WebSocket: same shape but for a frame's send/recv, plus connection
@@ -668,7 +669,6 @@ state at issue time.
 For machine `:spawn`: same shape but the "wire" is the spawn → run → reply.
 For SSR `:rf.server/*`: same shape but the "wire" is the server response
 accumulator's evolution.
-For flows: same shape but inputs/outputs.
 
 **Affordance:** Epoch panel — wire-boundary diff template embedded in
 "EFFECT HANDLERS" (F-C2). The hero managed-effects feature. The
@@ -797,8 +797,8 @@ removed) — flow cascade-halt alarm (F-C8).
   vector visualised (F-C11).
 - **F.9** Per-fx args + handler source-coord chip — every fx-row carries
   the registered fx's source coord (F-C6).
-- **F.10** Expanded badge taxonomy — `🌐 🔌 📄 🌊 🤖` for HTTP /
-  WebSocket / SSR / Flow / Machine `:spawn` (F-C1) — **superseded** on the
+- **F.10** Expanded badge taxonomy — `🌐 🔌 📄 🤖` for HTTP /
+  WebSocket / SSR / Machine `:spawn` (F-C1) — **superseded** on the
   L2 row; 018 retired row badges under rf2-pjjwh (see
   [§4](#4-surface-placement--which-tab-grows-which-feature)).
 - **F.11** Cross-surface stale-suppression badge — unified `STALE`
@@ -916,7 +916,7 @@ Each is a small PR (<300 LoC); each lights up a meaningful workflow.
 ### Phase 3 — Hero features (3 PRs)
 
 8. **F-C2 — Wire-boundary diff.** The hero managed-effects feature. One
-   template per surface (HTTP / WS / invoke / server / flow). **Partial**
+   template per surface (HTTP / WS / invoke / server). **Partial**
    — see the status note under §2.4's panel.
 9. **S-C2 — Hydration mismatch bisector.** The hero SSR feature. Needs
    canonical-EDN bisector + sub-attribution at hydration time.
@@ -1074,7 +1074,7 @@ clause), the findings carry the discussion that locked the opinion.
 - [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) — the
   eight-property contract uniformly satisfied across HTTP, WebSocket,
   `:spawn`, `:rf.server/*`, flows. This doc's wire-boundary diff (F-C2)
-  is its visible UI.
+  is its visible UI for the four that issue an effect.
 - [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md)
   — the cross-cutting stale-detection pattern. Xray's
   stale-suppression tally (F-C5) and the nav-token timeline (R-C3) are

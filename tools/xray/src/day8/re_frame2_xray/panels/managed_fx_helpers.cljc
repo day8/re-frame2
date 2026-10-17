@@ -7,15 +7,17 @@
 
   One uniform record per managed-fx invocation in a focused event-bundle,
   satisfying [`spec/Managed-Effects.md`'s eight-property
-  contract](../../../../spec/Managed-Effects.md). Across five surfaces
-  (HTTP / WebSocket / machine `:spawn` / SSR `:rf.server/*` /
-  `:rf.flow/*`) the record fields are the same; only the projection
-  from the surface's raw trace events differs.
+  contract](../../../../spec/Managed-Effects.md). Across four surfaces
+  (HTTP / WebSocket / machine `:spawn` / SSR `:rf.server/*`) the record
+  fields are the same; only the projection from the surface's raw trace
+  events differs. Flows issue no effect, so they are not a surface here:
+  flow activity shows on the Epoch panel's FLOW steps and in the Static
+  Flows tab.
 
   ## The record shape
 
       {:surface         :http | :websocket | :machine-invoke
-                                | :ssr-fx | :flow
+                                | :ssr-fx
        :fx-id           <id>                ;; the fx id the handler
                                             ;; EMITTED (a redirect's
                                             ;; target rides :override-to)
@@ -91,8 +93,7 @@
                           for this surface (e.g.
                           `:rf.http/retry-attempt`,
                           `:rf.http/aborted-on-actor-destroy`,
-                          `:rf.machine.lifecycle/spawned`,
-                          `:rf.flow/computed`).
+                          `:rf.machine.lifecycle/spawned`).
     - `handler-event`   — the dispatched response event vector (if
                           known via the fx-args `:on-success` /
                           `:on-failure` / `:on-done` slot or via the
@@ -120,27 +121,25 @@
 
 (def surfaces
   "Canonical render-order — the same order the template list uses, so a
-  event-bundle with HTTP + machine-invoke + flow records always renders in
+  event-bundle with HTTP + machine-invoke + SSR records always renders in
   the same vertical order."
-  [:http :websocket :machine-invoke :ssr-fx :flow])
+  [:http :websocket :machine-invoke :ssr-fx])
 
 (def surface->label
   "Render-label for the panel header, e.g. `MANAGED FX [HTTP]`."
   {:http           "HTTP"
    :websocket      "WS"
    :machine-invoke "INVOKE"
-   :ssr-fx         "SSR"
-   :flow           "FLOW"})
+   :ssr-fx         "SSR"})
 
 (def surface->glyph
-  "Per spec/019 §3 the badge taxonomy (F-C1) maps the five surfaces to
+  "Per spec/019 §3 the badge taxonomy (F-C1) maps the four surfaces to
   glyphs. Same alphabet as the L2 event-list row badges so the panel
   header reads continuously with the row glyph."
   {:http           "🌐"   ;; 🌐
    :websocket      "🔌"   ;; 🔌
    :machine-invoke "🤖"   ;; 🤖
-   :ssr-fx         "📄"   ;; 📄
-   :flow           "🌊"}) ;; 🌊
+   :ssr-fx         "📄"}) ;; 📄
 
 (def status->colour-token
   "Status → colour-token mapping. The view resolves the token to a hex
@@ -198,11 +197,11 @@
     - `:rf.ws/*`       → `:websocket`   (Pattern-WebSocket)
     - `:rf.machine/*`  → `:machine-invoke` (Spec 005 `:spawn`)
     - `:rf.server/*`   → `:ssr-fx`      (Spec 011)
-    - `:rf.flow/*`     → `:flow`        (Spec 013)
 
   Pure fn. Idempotent. Returns nil for `:db`, `:dispatch`, `:fx`, and
   every user-registered fx — those don't satisfy the eight-property
-  contract."
+  contract — and for a `:rf.flow/*` id, which names a flow trace
+  operation, never an effect."
   [fx-id]
   (when (keyword? fx-id)
     (let [n (namespace fx-id)]
@@ -222,10 +221,6 @@
         (or (= n "rf.server")
             (str/starts-with? (or n "") "rf.server."))
         :ssr-fx
-
-        (or (= n "rf.flow")
-            (str/starts-with? (or n "") "rf.flow."))
-        :flow
 
         :else nil))))
 
@@ -369,14 +364,6 @@
     :rf.ssr/hydration-mismatch
     :rf.ssr/payload-too-large})
 
-(def flow-trace-operations
-  #{:rf.flow/computed
-    :rf.flow/failed
-    :rf.flow/skip
-    :rf.flow/registered
-    :rf.flow/cleared
-    :rf.error/flow-eval-exception})
-
 (defn- surface-events-for
   "Filter `event-bundle-other-events` to the operations a given surface
   emits. The `:other` slot of the event-bundle record per
@@ -388,7 +375,6 @@
               :websocket      websocket-trace-operations
               :machine-invoke machine-invoke-trace-operations
               :ssr-fx         ssr-fx-trace-operations
-              :flow           flow-trace-operations
               #{})]
     (filterv #(contains? ops (:operation %)) (or event-bundle-other-events []))))
 
@@ -423,9 +409,7 @@
                                                    :rf.ws/auth
                                                    :rf.ws/stale-socket
                                                    :rf.machine/invoke-failed
-                                                   :rf.ssr/render-failed
-                                                   :rf.flow/failed
-                                                   :rf.error/flow-eval-exception}
+                                                   :rf.ssr/render-failed}
                                                  (:operation ev)))
                               ev))
                           (or surface-events []))]
@@ -545,7 +529,6 @@
       :websocket      (or (:socket-id args) (:request-id args))
       :machine-invoke (or (:fixed-actor-id args) (:machine-id args) (:id args))
       :ssr-fx         (:request-id args)
-      :flow           (:flow-id args)
       nil)))
 
 ;; ---- wire timing (HTTP only natively; others are nil) ------------------
@@ -985,7 +968,7 @@
   `:issued` is its own status rather than `:ok` relabelled, so
   `(= status :ok)` can never mean 'completed' by accident. It is
   set here, on the HTTP surface, rather than in `fx-event->status`: the
-  other four surfaces DO get their end events in-bundle, so `:ok` keeps
+  other three surfaces DO get their end events in-bundle, so `:ok` keeps
   its meaning for them.
 
   THE JOIN. When the walker pairs this record with its own
@@ -1114,26 +1097,11 @@
            ;; contribution.
            :res args)))
 
-(defn flow-adapter
-  "Managed-flow adapter. The fx-args carry the flow-id; surface events
-  carry per-flow computation / failure traces."
-  [fx-ev event-bundle-other]
-  (let [surface-events (surface-events-for event-bundle-other :flow)
-        args           (fx-args-of fx-ev)
-        computed       (some #(when (= (:operation %) :rf.flow/computed) %)
-                             surface-events)
-        rec            (common-record :flow fx-ev surface-events)]
-    (assoc rec
-           :req args
-           :wire (non-http-wire-timing fx-ev surface-events)
-           :res (some-> computed :tags :output))))
-
 (def surface->adapter
   {:http           http-adapter
    :websocket      websocket-adapter
    :machine-invoke machine-invoke-adapter
-   :ssr-fx         ssr-fx-adapter
-   :flow           flow-adapter})
+   :ssr-fx         ssr-fx-adapter})
 
 ;; ---- event-bundle walker ----------------------------------------------------
 

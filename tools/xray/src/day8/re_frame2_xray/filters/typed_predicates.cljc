@@ -209,14 +209,14 @@
   `args-correlation-id` reads when it derives a record's
   `:correlation-id` — `:request-id` for `:http` and `:ssr-fx`,
   `:socket-id` for `:websocket`, `:fixed-actor-id` / `:machine-id` /
-  `:id` for `:machine-invoke`, `:flow-id` for `:flow`. The pill's value
+  `:id` for `:machine-invoke`. The pill's value
   IS that derived field, so matching on this set is matching back
   exactly what the pill was made from.
 
   Duplicated rather than shared because `args-correlation-id` is
   private to the helpers namespace; if a surface's id key changes
   there, change it here too."
-  [:request-id :socket-id :fixed-actor-id :machine-id :id :flow-id])
+  [:request-id :socket-id :fixed-actor-id :machine-id :id])
 
 (defn- issuing-effect-correlation?
   "Does this trace event's `:rf.fx/args` carry `target` at one of the

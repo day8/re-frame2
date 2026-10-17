@@ -56,10 +56,10 @@
   reply did to app-db is the reply bundle's own story, and the link is
   the bridge to it.
 
-  ## Five surfaces, one template
+  ## Four surfaces, one template
 
-  The same renderer handles HTTP, WebSocket, machine-`:spawn`, SSR
-  `:rf.server/*`, and `:rf.flow/*` records. Per-surface variation lives
+  The same renderer handles HTTP, WebSocket, machine-`:spawn` and SSR
+  `:rf.server/*` records. Per-surface variation lives
   in the helpers ns (`panels/managed_fx_helpers`); this ns is purely a
   hiccup folder over the record shape.
 
@@ -461,15 +461,9 @@
     (str "managed-fx/" (h/record-key record) "/" role)))
 
 (defn- request-section
-  [instance {:keys [req surface] :as record}]
-  (cond
-    (and (nil? req) (= surface :flow))
-    [:span {:style {:color (:text-tertiary tokens)}} "(flow input — see registration)"]
-
-    (nil? req)
+  [instance {:keys [req] :as record}]
+  (if (nil? req)
     [:span {:style {:color (:text-tertiary tokens)}} "(no request payload)"]
-
-    :else
     (edn/inspect-view req (node-key instance record "req"))))
 
 (defn- wire-section
@@ -485,7 +479,7 @@
        "n/a — this surface does not emit per-phase wire timing today."]))
 
 (defn- response-section
-  [instance {:keys [res surface failure] :as record}]
+  [instance {:keys [res failure] :as record}]
   (cond
     failure
     [:div
@@ -495,10 +489,6 @@
       (str "✗ " (or (some-> failure :kind name) "FAILURE"))]
      (edn/inspect-view (or (:tags failure) failure)
                        (node-key instance record "failure"))]
-
-    (and (nil? res) (= surface :flow))
-    [:span {:style {:color (:text-tertiary tokens)}}
-     "(in flight / no output yet)"]
 
     (nil? res)
     [:span {:style {:color (:text-tertiary tokens)}}
@@ -712,7 +702,7 @@
    ;; is not neutral: the RESPONSE row's "(no response payload yet)" says
    ;; a reply is still coming, and the WIRE row's "this surface does not
    ;; emit per-phase wire timing today" says the runtime is at fault. The
-   ;; four surfaces whose end events DO land in-bundle draw all five
+   ;; three surfaces whose end events DO land in-bundle draw all five
    ;; sections.
    ;;
    ;; The section-ids are shared across surfaces, so `section-defaults` and
