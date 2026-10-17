@@ -1218,34 +1218,22 @@
           true)))))
 
 (defn cleanup-frame-owner!
-  "Run `cleanup-fn` only when `owner-token` still owns `frame-id`'s epoch
-  stores (or no epoch state was ever claimed for the dying incarnation), then
-  drop the ownership entry.
+  "Drop `frame-id`'s ownership entry and every epoch store under it.
 
-  Owner comparison and the complete cleanup run share one serialization with
-  `claim-frame-owner!`. The one caller is destroy step 10
-  (`listeners/on-frame-destroyed!`), which runs while the destroy still holds
-  the id's reservation, so no same-id incarnation can have claimed the stores
-  and the comparison finds `owner-token` or no claim. Returns `cleanup-fn`'s
-  value when cleanup ran, nil when another token owns the stores. Cleanup
-  functions therefore return a non-nil result when the caller needs to
-  distinguish a successful empty cleanup from a skipped one."
-  [frame-id owner-token cleanup-fn]
+  Runs under the serialization `claim-frame-owner!` and
+  `commit-frame-owner-record!` share, so a claim or commit racing it lands
+  wholly before the drop or wholly after it. It compares no owner token.
+  The one caller is destroy step 10 (`listeners/on-frame-destroyed!`), which
+  runs while the destroy still holds the id's reservation: no same-id
+  incarnation can have claimed the stores, so everything under `frame-id` is
+  the dying incarnation's to drop, and a token other than its own could only
+  be a dead incarnation's."
+  [frame-id]
   (with-frame-owner-lock
     (fn []
-      (let [current (get @frame-owner-tokens frame-id)]
-        (when (or (nil? current) (identical? current owner-token))
-          (try
-            (cleanup-fn)
-            (finally
-              ;; Compare-remove: retain an unexpected re-entrant replacement.
-              (swap! frame-owner-tokens
-                     (fn [owners]
-                       (let [latest (get owners frame-id)]
-                         (if (or (nil? latest)
-                                 (identical? latest owner-token))
-                           (dissoc owners frame-id)
-                           owners)))))))))))
+      (swap! frame-owner-tokens dissoc frame-id)
+      (drop-frame-epoch-state! frame-id)
+      nil)))
 
 (defn reset-frame-owners!
   "Clear the private incarnation ledger for fixture/global history reset."
