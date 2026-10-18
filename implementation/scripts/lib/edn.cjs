@@ -1,16 +1,18 @@
 'use strict';
 
 /*
- * A small, complete EDN reader shared by the release-policy gates that must
- * read a `deps.edn` as STRUCTURE rather than as text.
+ * A small, complete EDN reader shared by the gates that must read a
+ * `deps.edn` or `shadow-cljs.edn` as STRUCTURE rather than as text.
  *
- * Current consumers, all of them reading `deps.edn` coordinates / aliases:
+ * Current consumers:
  *
  *   implementation/scripts/lib/publishable-runtimes.cjs   — the publishable
  *     runtime roster (a `:clein/build` alias makes an artefact publishable)
  *   implementation/scripts/_release-dag-policy.test.cjs   — release DAG policy
  *   implementation/scripts/_preflight-xray-package.test.cjs — release preflight
  *   .github/scripts/verify-version-lockstep.sh            — version lockstep
+ *   implementation/scripts/check-examples-compile.cjs     — the swept build
+ *     roster, the keys of shadow-cljs.edn's `:builds` map
  *
  * Where a balanced-brace byte scan cannot tell a real `}` from one that sits
  * inside a `; comment`, a "string", or a `#_` reader-discarded form, this
@@ -31,8 +33,8 @@
  * It is deliberately strict and fail-closed: anything it does not understand
  * (an unterminated string, an unbalanced collection, an unknown `#` dispatch)
  * throws EdnReadError so callers can reject rather than silently mis-read. It
- * is NOT a full Clojure reader — it covers exactly the EDN grammar a deps.edn
- * can contain — but, unlike a brace counter, it never mistakes
+ * is NOT a full Clojure reader — it covers the EDN grammar a deps.edn and
+ * this repo's shadow-cljs.edn contain — but, unlike a brace counter, it never mistakes
  * comment / string / discarded bytes for real structure.
  */
 

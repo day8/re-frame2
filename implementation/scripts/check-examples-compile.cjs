@@ -96,13 +96,14 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
+const { EdnReadError, readEdn, isMap, isKeyword, mapGetKeyword } = require('./lib/edn.cjs');
 const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 // ---------------------------------------------------------------------------
-// shadow-cljs.edn enumeration. We hand-roll a focused scan rather than pull
-// in an EDN dependency — the only shape we read is top-level build-id keys
-// (`:examples/<name> {`, `:testbeds/<name> {`). This matches the parser style
-// the dev-testbed drift guard uses.
+// shadow-cljs.edn enumeration, read as STRUCTURE with the shared EDN reader
+// (`lib/edn.cjs`): the build ids are the keys of the top-level `:builds` map,
+// wherever on a line they sit, and nothing a comment, a string, a `#_`
+// discard or a nested map holds is mistaken for one.
 // ---------------------------------------------------------------------------
 
 /**
@@ -132,47 +133,43 @@ function readShadowEdn() {
 }
 
 /**
- * Strip line comments (`;` to end-of-line) so a commented-out build id
- * (e.g. the `:examples/xray-rhs-smoke` named in a comment) can't be mistaken
- * for a live build. Naive but sufficient: the build-id keys we scan never
- * appear inside string literals in shadow-cljs.edn.
+ * The `:builds` map of the shadow-cljs.edn text `edn`, as `[[id, build], …]`
+ * in file order, where `id` is the build key without its colon
+ * (`examples/login-uix`) and `build` is the build's EDN map form.
+ *
+ * Throws EdnReadError on anything it cannot read as that shape: a form the
+ * reader does not support (an unknown `#` tagged literal, say), a config that
+ * is not a map, a missing `:builds` map, or a build that is not a
+ * keyword-keyed map. The gate refuses rather than guess at a roster.
  */
-function stripEdnComments(edn) {
-  return edn
-    .split('\n')
-    .map((line) => {
-      const i = line.indexOf(';');
-      return i === -1 ? line : line.slice(0, i);
-    })
-    .join('\n');
+function readBuildEntries(edn) {
+  const config = readEdn(edn);
+  if (!isMap(config)) throw new EdnReadError('the top-level form is not a map');
+  const builds = mapGetKeyword(config, 'builds');
+  if (!isMap(builds)) throw new EdnReadError('there is no :builds map');
+  return builds.entries.map(([key, build]) => {
+    if (!isKeyword(key)) throw new EdnReadError('a :builds key is not a keyword');
+    if (!isMap(build)) throw new EdnReadError(`build :${key.name} is not a map`);
+    return [key.name, build];
+  });
 }
 
 /**
  * Enumerate every declared standalone build id under a swept prefix, in
- * sorted order. A build def is a top-level `:<prefix>/<name> {` key. Returns
- * the colon-stripped coords shadow-cljs's CLI expects (e.g.
+ * sorted order: each key of the `:builds` map that starts `<prefix>/`.
+ * Returns the colon-stripped coords shadow-cljs's CLI expects (e.g.
  * `examples/login-uix`, `testbeds/deep-machine`), de-duplicated and sorted
- * for a stable gate list.
- *
- * The keys are matched at line-start indentation (two spaces) followed by
- * `:<prefix>/<name>` and an opening brace, mirroring how build defs are
- * written throughout shadow-cljs.edn — so a `:examples/...` token that
- * appears mid-line (in prose or a nested map) is never picked up as a build.
+ * for a stable gate list. Throws as `readBuildEntries` does.
  *
  * `:story-static/*` is NOT swept: it is a `release`-shaped export driven by
  * its own `story:build` script and gated by `story_static_gate`, so
  * compiling it here would duplicate a gate rather than close a hole.
  */
 function enumerateCompiledBuilds(edn) {
-  const src = stripEdnComments(edn);
-  const prefixes = Object.keys(COMPILED_BUILD_PREFIXES).join('|');
-  const re = new RegExp(`^\\s*:((?:${prefixes})\\/[\\w.-]+)\\s*\\{`, 'gm');
-  const found = new Set();
-  let m;
-  while ((m = re.exec(src)) !== null) {
-    found.add(m[1]);
-  }
-  return [...found].sort();
+  const prefixes = Object.keys(COMPILED_BUILD_PREFIXES);
+  const swept = (id) => prefixes.some((prefix) => id.startsWith(`${prefix}/`));
+  const ids = readBuildEntries(edn).map(([id]) => id).filter(swept);
+  return [...new Set(ids)].sort();
 }
 
 /**
@@ -192,23 +189,20 @@ function prefixesBelowFloor(builds) {
 }
 
 /**
- * The swept builds whose own block does not set `:warnings-as-errors true`,
- * in sorted order. Empty means every swept build is warnings-fatal under any
- * invocation. A block runs from its build id to the next two-space-indented
- * key, which is how every build def in shadow-cljs.edn is laid out.
+ * The swept builds whose own `:compiler-options` do not set
+ * `:warnings-as-errors true`, in sorted order. Empty means every swept build
+ * is warnings-fatal under any invocation. Throws as `readBuildEntries` does.
  */
 function buildsMissingWarningsAsErrors(edn) {
-  const src = stripEdnComments(edn);
   const swept = new Set(enumerateCompiledBuilds(edn));
-  const keys = [...src.matchAll(/^ {2}:(\S+)/gm)];
-  return keys
-    .map((m, i) => ({
-      build: m[1],
-      block: src.slice(m.index, i + 1 < keys.length ? keys[i + 1].index : src.length),
-    }))
-    .filter(({ build, block }) => swept.has(build) && !/:warnings-as-errors\s+true\b/.test(block))
-    .map(({ build }) => build)
-    .sort();
+  const warningsFatal = (build) => {
+    const options = mapGetKeyword(build, 'compiler-options');
+    return isMap(options) && mapGetKeyword(options, 'warnings-as-errors') === true;
+  };
+  const unflagged = readBuildEntries(edn)
+    .filter(([id, build]) => swept.has(id) && !warningsFatal(build))
+    .map(([id]) => id);
+  return [...new Set(unflagged)].sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +320,7 @@ function reconcileRequestedBuilds(requested, output) {
 module.exports = {
   COMPILED_BUILD_PREFIXES,
   readShadowEdn,
-  stripEdnComments,
+  readBuildEntries,
   enumerateCompiledBuilds,
   prefixesBelowFloor,
   buildsMissingWarningsAsErrors,
@@ -342,7 +336,17 @@ if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
 
   const edn = readShadowEdn();
-  const builds = enumerateCompiledBuilds(edn);
+  let builds;
+  try {
+    builds = enumerateCompiledBuilds(edn);
+  } catch (err) {
+    if (!(err instanceof EdnReadError)) throw err;
+    console.error(
+      `check-examples-compile: cannot read the :builds map of shadow-cljs.edn ` +
+        `(${err.message}). Refusing to guess at the build roster.`,
+    );
+    process.exit(1);
+  }
 
   // Non-vacuous guard: a parser that silently recovers nothing must NOT let
   // the gate pass green having compiled zero builds. Checked PER PREFIX, so

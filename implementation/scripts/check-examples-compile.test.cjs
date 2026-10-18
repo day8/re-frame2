@@ -19,6 +19,7 @@ const {
   buildsMissingWarningsAsErrors,
   reconcileRequestedBuilds,
 } = require('./check-examples-compile.cjs');
+const { EdnReadError } = require('./lib/edn.cjs');
 
 let failed = 0;
 
@@ -69,9 +70,73 @@ it('every swept build in the real shadow-cljs.edn sets :warnings-as-errors true'
   assert.deepStrictEqual(buildsMissingWarningsAsErrors(realEdn), []);
 });
 
+// The roster is the key set of the `:builds` map, so it is a fact about the
+// map, not about how the file lays it out.
+
+const CONVENTIONAL_LAYOUT = [
+  '{:source-paths ["src"]',
+  ' :builds',
+  ' {:node-test',
+  '  {:target :node-test}',
+  '  :examples/counter',
+  '  {:target :browser',
+  '   :compiler-options {:warnings-as-errors true}}',
+  '  :testbeds/deep-machine',
+  '  {:target :browser',
+  '   :compiler-options {:warnings-as-errors true}}}}',
+].join('\n');
+
+it('reformatting the same :builds map preserves the roster', () => {
+  const oneLine =
+    '{:source-paths ["src"] :builds {:examples/counter {:target :browser, ' +
+    ':compiler-options {:warnings-as-errors true}} :node-test {:target :node-test} ' +
+    ':testbeds/deep-machine {:target :browser :compiler-options {:warnings-as-errors true}}}}';
+  const keyMidLine = [
+    '{:source-paths ["src"]',
+    ' :builds {:examples/counter {:target :browser',
+    '                             :compiler-options {:warnings-as-errors true}}',
+    '          :node-test {:target :node-test} :testbeds/deep-machine',
+    '          {:target :browser :compiler-options {:warnings-as-errors true}}}}',
+  ].join('\n');
+  const expected = ['examples/counter', 'testbeds/deep-machine'];
+  assert.deepStrictEqual(enumerateCompiledBuilds(CONVENTIONAL_LAYOUT), expected);
+  assert.deepStrictEqual(enumerateCompiledBuilds(oneLine), expected);
+  assert.deepStrictEqual(enumerateCompiledBuilds(keyMidLine), expected);
+});
+
+it('nested lookalikes, strings, comments and #_-discarded declarations are not builds', () => {
+  const edn = [
+    '{:dev-http {8000 {:roots ["out/examples/fake"]}}',
+    ' :target-defaults {:examples/top-level-lookalike {:target :browser}}',
+    ' :builds',
+    ' {:examples/real',
+    '  {:target :browser',
+    '   :modules {:examples/nested-lookalike {:init-fn a/run}}',
+    '   :compiler-options {:warnings-as-errors true}}',
+    '  ;; :examples/commented {:target :browser}',
+    '  :node-test {:target :node-test :doc ":examples/in-a-string {"}',
+    '  #_:examples/discarded #_{:target :browser}',
+    '  #_ #_ :testbeds/chain-discarded {:target :browser}',
+    '  :testbeds/real {:target :browser :compiler-options {:warnings-as-errors true}}}}',
+  ].join('\n');
+  assert.deepStrictEqual(enumerateCompiledBuilds(edn), ['examples/real', 'testbeds/real']);
+  assert.deepStrictEqual(buildsMissingWarningsAsErrors(edn), []);
+});
+
+it('a form the reader does not support, or no :builds map, fails explicitly', () => {
+  for (const edn of [
+    '{:builds {:examples/x {:target #shadow/env "TARGET"}}}',
+    '{:builds [:examples/x {:target :browser}]}',
+    '{:source-paths ["src"]}',
+    '{:builds {:examples/x [:target :browser]}}',
+  ]) {
+    assert.throws(() => enumerateCompiledBuilds(edn), EdnReadError, edn);
+  }
+});
+
 it('a swept build without the flag is named, whatever its neighbours or comments say', () => {
   const edn = [
-    ' :builds',
+    '{:builds',
     ' {:node-test',
     '  {:target :node-test',
     '   :compiler-options {:warnings-as-errors true}}',
@@ -86,12 +151,16 @@ it('a swept build without the flag is named, whatever its neighbours or comments
     '  {:target :browser}',
     '  :testbeds/disabled',
     '  {:target :browser',
-    '   :compiler-options {:warnings-as-errors false}}}',
+    '   :compiler-options {:warnings-as-errors false}}',
+    '  :testbeds/flag-outside-compiler-options',
+    '  {:target :browser',
+    '   :modules {:main {:warnings-as-errors true}}}}}',
   ].join('\n');
   assert.deepStrictEqual(buildsMissingWarningsAsErrors(edn), [
     'examples/commented',
     'testbeds/bare',
     'testbeds/disabled',
+    'testbeds/flag-outside-compiler-options',
   ]);
 });
 
