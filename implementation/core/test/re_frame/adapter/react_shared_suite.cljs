@@ -66,8 +66,8 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.schemas.malli]
             [re-frame.http.managed]
-            ;; Loaded for the canned-stub fx the managed-HTTP row overrides into.
-            [re-frame.http.test-support]
+            ;; The managed-HTTP row answers its requests from stub transports.
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.views]
             [re-frame.epoch]
             [re-frame.adapter.context :as rf.adapter.context]
@@ -1039,14 +1039,16 @@
           {:db {:article (:value reply)}}
           {:fx [[:rf.http/managed {:request {:method :get :url "/articles/hello"} :decode :json
                                    :reply-to [:article/load msg]}]]})))
-    (let [left  (rf.frame/make-anon-frame-record! {:doc "left"
-                                :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-          right (rf.frame/make-anon-frame-record! {:doc "right"
-                                :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})]
+    (let [left   (rf.frame/make-anon-frame-record! {:doc "left"})
+          right  (rf.frame/make-anon-frame-record! {:doc "right"})
+          answer #(rf.http.stub-transport/route-transport
+                    {[:get "/articles/hello"] {:body {:from %}}})]
+      (rf.http.stub-transport/install-transport! left (answer "left"))
+      (rf.http.stub-transport/install-transport! right (answer "right"))
       (rf/dispatch-sync [:article/load] {:frame left})
       (rf/dispatch-sync [:article/load] {:frame right})
-      (is (= {:stubbed true} (:article (rf/app-db-value left))))
-      (is (= {:stubbed true} (:article (rf/app-db-value right))))
+      (is (= {:from "left"} (:article (rf/app-db-value left))))
+      (is (= {:from "right"} (:article (rf/app-db-value right))))
       (is (nil? (:article (rf/app-db-value :rf/default)))))))
 
 ;; ===========================================================================
