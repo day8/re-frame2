@@ -31,7 +31,6 @@
   (rf/reg-route :route/active {} "/active")
   (rf/make-frame {:id           :ssr/history-base
                   :platform     :server
-                  :url-bound?   true
                   :url-strategy (rf.routing/with-base-path rf.routing/history-url-strategy "/demos")})
   (rf/with-frame :ssr/history-base
     (testing "the SSR emitter walking `[rf/route-link …]`"

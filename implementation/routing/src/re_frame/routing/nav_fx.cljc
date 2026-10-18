@@ -28,157 +28,33 @@
   (when (map? config)
     (:url-bound? config)))
 
-;; ---- URL-ownership claim order --------------------------------------------
-;;
-;; The browser URL has exactly ONE owner; the spec (Spec 012 §Multi-frame
-;; routing) says when a SECOND `:url-bound? true` frame registers, the
-;; **existing owner is unchanged** and the duplicate's history-mutation fxs
-;; no-op (the duplicate may still update its own route slice). So ownership
-;; must resolve to the frame that claimed `:url-bound? true` FIRST — the
-;; incumbent — never to whichever id happens to sort earlier.
-;;
-;; The frames store (`re-frame.frame/frames`) is an unordered map, so
-;; registration order is
-;; not recoverable from it. A separate claim-order vector is required; sorting
-;; frame ids would allow a later duplicate to displace the incumbent.
-;;
-;; This process-global vector records claim ORDER. The url-bound
-;; exclusivity check (`re-frame.routing.url-bound`, run from the
-;; `:routing/on-frame-registered!` lifecycle hook on every frame
-;; (re-)registration) calls `record-url-claim!` / `drop-
-;; url-claim!` so the vector tracks, in claim order, which frames currently
-;; carry `:url-bound? true`. Process-global like routing's other
-;; intentionally-cross-frame slots (the route `reg-counter`, the
-;; `route-table-cache` — Spec 012 §Process-global slots are intentionally not
-;; per-frame): the browser URL is one process resource, so its single owner is
-;; resolved across all frames, not per-frame.
-;;
-;; `url-owner-frame-id` returns the FIRST still-valid claimant — validated
-;; against the LIVE frames store so the resolver self-heals if the incumbent
-;; later drops its binding (re-registers `:url-bound? false`) or is destroyed:
-;; ownership then falls to the next-claimed frame that still carries
-;; `:url-bound? true`, in claim order. Fail-closed: a frame never owns the URL
-;; unless it is the first-claimed live `:url-bound? true` frame.
-;;
-;; The hook observes only future registrations, so a frame that claimed
-;; `:url-bound? true` before routing loaded has no entry here. The facade calls
-;; `reconcile-existing-url-bindings!` right after
-;; installing the hook to seed the unambiguous pre-existing incumbent. The
-;; claim-free resolver fallback below never picks by id sort:
-;; a sole bound frame owns, but 2+ bound frames with unrecoverable claim order
-;; fail closed to nil.
-
-(defonce ^:private url-claim-order
-  ;; A vector of frame-ids in the order they first claimed `:url-bound? true`,
-  ;; with no duplicates. The HEAD that still carries a live `:url-bound? true`
-  ;; binding is the URL owner. Process-global (the browser URL is one process
-  ;; resource); reset between tests via `reset-url-claims!` (wired into the
-  ;; shared reset-hook table) so a prior test's claim cannot leak.
-  (atom []))
-
-(defn record-url-claim!
-  "Record `frame-id` as having claimed `:url-bound? true`, appended to
-  `url-claim-order` iff not already present (so a hot-reload re-registration of
-  an existing owner keeps its claim position — it does NOT jump to the back,
-  and a later duplicate never displaces it). Returns nil. Called by the
-  url-bound exclusivity registration hook."
-  [frame-id]
-  (swap! url-claim-order
-         (fn [order]
-           (if (some #(= frame-id %) order)
-             order
-             (conj order frame-id))))
-  nil)
-
-(defn drop-url-claim!
-  "Drop `frame-id` from `url-claim-order` — called when a frame re-registers
-  WITHOUT `:url-bound? true` (it relinquished the binding) or is torn down, so
-  a stale claim cannot keep a non-bound frame at the head of the order.
-  Idempotent. Returns nil."
-  [frame-id]
-  (swap! url-claim-order (fn [order] (filterv #(not= frame-id %) order)))
-  nil)
-
-(defn reset-url-claims!
-  "Test-time helper: drop the whole `url-claim-order` vector so a prior test's
-  URL-ownership claim does not leak into the next test.
-  Wired into the shared `make-reset-runtime-fixture` reset-hook table via the
-  `:routing/reset-url-claims!` late-bind key. Returns nil."
-  []
-  (reset! url-claim-order [])
-  nil)
-
 (defn url-owner-frame-id
-  "Return the single frame that has EXPLICITLY declared browser-history
-  ownership via `(make-frame {:id … :url-bound? true})`, or `nil` when no
-  frame has declared it.
+  "Return the frame that has EXPLICITLY declared browser-history ownership via
+  `(make-frame {:id … :url-bound? true})`, or `nil` when none has.
 
-  URL ownership is an explicit host/bootstrap policy, not an absence repair.
-  The runtime must not infer `:rf/default` as
-  the owner. An app declares its one URL-owning frame explicitly; `nil`
-  here means no owner is declared (a routing-config state, surfaced by the
-  callers — outbound history mutations no-op, the inbound popstate listener
-  skips). `:rf/default` may still BE the owner, but only when it carries an
-  explicit `{:url-bound? true}` like any other frame.
+  URL ownership is an explicit host/bootstrap policy, not an absence repair:
+  the runtime never infers `:rf/default` as the owner. `nil` means no owner is
+  declared (a routing-config state, surfaced by the callers — outbound history
+  mutations no-op, the inbound listener skips). `:rf/default` may still BE the
+  owner, but only when it carries an explicit `{:url-bound? true}` like any
+  other frame.
 
-  Ownership resolves to the first-claimed still-live
-  `:url-bound? true` frame (the incumbent), NOT the alphabetically-first.
-  When a second `:url-bound? true` frame registers, Spec 012 §Multi-frame
-  routing says the existing owner is UNCHANGED and the duplicate's
-  history-mutation fxs no-op — so a later duplicate whose id sorts before the
-  incumbent must not steal the URL. Claim order is tracked in
-  `url-claim-order` (recorded by the
-  url-bound exclusivity hook); this resolver walks it in claim order and
-  returns the first id that STILL carries a live `:url-bound? true` binding in
-  the frames store — so the incumbent always wins, and ownership self-heals to
-  the next claimant if the incumbent later drops its binding or is destroyed.
+  The registration preflight (`re-frame.routing.url-bound`) refuses a second
+  live `:url-bound? true` frame, so at most one frame in the store carries the
+  binding and this reads it off the store (`rf.frame/frame-meta`, nil for a
+  destroyed frame). Destroying the owner, or re-registering it with
+  `:url-bound? false`, leaves no owner until a frame declares the binding.
 
-  When no claim is recorded yet (frames registered before the
-  hook installed AND before the façade's `reconcile-existing-url-bindings!`
-  seeded them), the claim-free fallback NEVER steals: a sole bound frame owns
-  (order is trivially known), but TWO OR MORE bound frames with unknowable
-  claim order fails closed to nil rather than id-sorting.
-
-  Frame config is read from the frames store (`rf.frame/frame-meta` — nil for a
-  destroyed / absent frame, so a dead claim reads as not-bound;
-  frames have no registrar rows).
-
-  Public (rather than `defn-`) so the ownership-resolution contract is
-  directly assertable — the single declared-owner case the step-deck
-  testbed relies on. A reimplemented gate cannot catch a
-  regression in THIS resolution; the test must reach the real fn."
+  Public so the ownership-resolution contract is directly assertable."
   []
-  (let [bound? (fn [frame-id]
-                 (true? (url-bound?-from-config (rf.frame/frame-meta frame-id))))]
-    ;; Walk the claim order; the first frame whose binding is still live owns
-    ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
-    ;; (self-healing).
-    ;;
-    ;; When no claim is recorded yet but `:url-bound? true` frame(s) exist in
-    ;; the frames store (frames registered before the hook was
-    ;; installed and before the façade's `reconcile-existing-url-bindings!`
-    ;; seeded them, or a raw programmatic path), fall back to claim-free
-    ;; resolution that NEVER steals:
-    ;;   - exactly ONE bound frame → it owns (order is trivially known);
-    ;;   - TWO OR MORE bound frames → claim order is genuinely unknowable
-    ;;     (the frames store is unordered), so FAIL CLOSED to nil rather than
-    ;;     picking by id sort. nil here means 'no deterministic owner
-    ;;     for this ambiguous load-order' — outbound pushes no-op and popstate
-    ;;     skips until one binding is re-registered/removed through the live
-    ;;     hook, which re-establishes a deterministic claim order.
-    ;; Normal operation (the façade installs the hook AND reconciles at load
-    ;; time) never reaches the multi-binding fallback — every claim is recorded
-    ;; in `url-claim-order`, so the first `some` branch resolves the incumbent.
-    (or (some (fn [frame-id] (when (bound? frame-id) frame-id))
-              @url-claim-order)
-        (let [bound (filterv bound? (rf.frame/frame-ids))]
-          (when (= 1 (count bound))
-            (first bound))))))
+  (some (fn [frame-id]
+          (when (true? (url-bound?-from-config (rf.frame/frame-meta frame-id)))
+            frame-id))
+        (rf.frame/frame-ids)))
 
 (defn url-bound-frame?
-  "Return true when the frame named `frame-id` is the one active URL
-  owner. Per Spec 012 §Multi-frame routing, duplicate `:url-bound? true`
-  declarations are reported AND non-owners are prevented from pushing.
+  "Return true when the frame named `frame-id` is the URL owner. Per Spec 012
+  §Multi-frame routing only the owner pushes browser history.
 
   `nil` frame-id (or no declared owner) is never the owner; the runtime does
   not synthesise `:rf/default` ownership from absence."
