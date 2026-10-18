@@ -4,7 +4,8 @@
    Per TESTING.md §Test surface ownership: examples/ are for humans;
    per-adapter smoke lives with the adapter. This testbed proves the
    UIx adapter wires up end-to-end — mount, subscribe (via the
-   `use-sub` hook), dispatch, re-render — without depending on
+   `use-sub` hook), dispatch (via the `use-frame` hook), re-render —
+   without depending on
    any example.
 
    Minimal by design. Don't grow it."
@@ -27,7 +28,7 @@
 
 (defui root []
   (let [n        (rf.adapter.uix/use-sub [:counter/value])
-        dispatch (:dispatch (rf/capture-frame))]
+        dispatch (:dispatch (rf.adapter.uix/use-frame))]
     ($ :div
        ($ :h1 {:data-testid "rf-adapter-testbed-uix"}
           "UIx adapter testbed")
@@ -49,7 +50,7 @@
   ;; through the UIx `frame-root` ENSURE boundary: it creates
   ;; the frame at commit time, runs the `:initial-events` seed once, and
   ;; scopes the frame to the subtree so the `use-sub` /
-  ;; `capture-frame` reads inside `root` resolve to it. This is the
+  ;; `use-frame` reads inside `root` resolve to it. This is the
   ;; documented boot idiom (the template scaffold's exact shape) — the
   ;; real-DOM path the smoke must cover.
   (rf/init! rf.adapter.uix/adapter)
