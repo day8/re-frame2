@@ -183,13 +183,11 @@
 
 (defn- reg-no-handler-fn!
   "Register a `:route`-shaped slot (no `:handler-fn`) whose metadata differs
-  only in provenance, so the hot-reload dedup-by-shape sees the SAME shape."
+  only in provenance."
   [kind id provenance]
   (rf.registrar/register! kind id (merge (or provenance {}) {:doc "slot"})))
 
-(deftest collision-fires-for-no-handler-fn-kind-despite-shape-dedup
-  ;; the shape dedup suppresses the handler-replaced TRACE; a collision check
-  ;; nested inside that gate would hide a genuine cross-source clash
+(deftest collision-and-handler-replaced-fire-for-no-handler-fn-kind
   (let [recorded (record-traces! ::no-fn-collision)]
     (reg-no-handler-fn! :route :surface/main
                         {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
@@ -197,8 +195,10 @@
                         {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
     (assert-live-provenance :route :surface/main 'feature.b)
     (when rf.interop/debug-enabled?
-      (is (empty? (filterv #(= :rf.registry/handler-replaced (:operation %)) @recorded))
-          "handler-replaced is dedup-suppressed")
+      (is (= [[:route :surface/main false]]
+             (mapv (comp (juxt :kind :id :different-fn?) :tags)
+                   (filterv #(= :rf.registry/handler-replaced (:operation %)) @recorded)))
+          "the re-registration emits handler-replaced")
       (is (= [[:route :surface/main 'feature.b 'feature.a]]
              (mapv (comp (juxt :kind :id (comp :ns :source-coords) (comp :ns :previous-coords)) :tags)
                    (warnings-of recorded :rf.warning/registration-collision)))

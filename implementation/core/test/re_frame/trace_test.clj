@@ -96,8 +96,7 @@
     (rf/reg-event :seed (fn [_ _] {:db {:n 0 :items [1 2 3]}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; Same fn, changed :doc: a :different-fn? false replacement that the
-    ;; hot-reload dedup does not suppress.
+    ;; Same fn, changed :doc: a :different-fn? false replacement.
     (let [same-fx (fn [_ _] :same)]
       (rf/reg-fx :test/same-fx same-fx)
       (rf/reg-fx :test/same-fx {:doc "same fn, new doc (rev 2)"} same-fx))

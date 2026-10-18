@@ -826,19 +826,11 @@
 
    ;; ---- re-frame.trace.tooling — per-frame trace rings ----------------------
    ;;
-   ;; The four hooks below carry the per-frame ring + B4 dedup machinery.
-   ;; They're consulted from
-   ;; `re-frame.frame/upsert-frame!` + `destroy-frame!` (lifecycle) and
-   ;; `re-frame.registrar/register!` / `unregister!` / `clear-kind!`
-   ;; (B4 dedup). All routed via late-bind so production CLJS bundles
+   ;; The two hooks below carry the per-frame ring machinery. They're
+   ;; consulted from `re-frame.frame/upsert-frame!` + `destroy-frame!`
+   ;; (lifecycle). Both are routed via late-bind so production CLJS bundles
    ;; that never load `re-frame.trace.tooling` short-circuit cleanly
-   ;; — the ring + dedup machinery is dev-only and DCEs out wholesale.
-   {:key         :trace.tooling/dedup-allow?
-    :producer-ns 're-frame.trace.tooling
-    :description "B4 hot-reload dedup-by-shape gate. Registrar emits consult this to suppress unchanged re-emits (`(operation, kind, id, meta) -> allow?`). Identical shape on re-register → false; changed shape or no prior entry → true."}
-   {:key         :trace.tooling/clear-dedup-table!
-    :producer-ns 're-frame.trace.tooling
-    :description "Reset the B4 dedup table. `re-frame.registrar/clear-all!` calls this so test fixtures start from a clean slate. Production builds (no tooling sibling) no-op."}
+   ;; — the ring machinery is dev-only and DCEs out wholesale.
    {:key         :trace.tooling/release-frame-ring!
     :producer-ns 're-frame.trace.tooling
     :description "Frame-destroy ring cleanup. `re-frame.frame/destroy-frame!` invokes this once the destroyed-trace has fired so the destroyed frame leaves no residual ring state in memory."}

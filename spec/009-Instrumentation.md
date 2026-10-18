@@ -851,26 +851,11 @@ Some trace events ride **outside** any in-flight run — registration-time `:rf.
 - **The live stream is the egress channel.** Tools that care about registration drift, hot-reload diagnostics, or REPL-eval emits subscribe to the live stream via `register-listener!` and filter by `:op-type` / `:operation` themselves. Per [§The listener API](#the-listener-api), the live stream is synchronous and event-at-a-time.
 - **The registry is the source of truth for "what's registered right now".** Tools reading "the current set of registered handlers / frames / routes" consult `(rf/registrations {:source :store :kind kind})` (per [001 §The query API](001-Registration.md#the-query-api)) — not by scanning ring contents. This collapses a class of duplication: the ring need not double-bookkeep registration state.
 
-##### Hot-reload dedup — re-emits suppressed by shape
+##### Hot-reload — every re-registration emits
 
-Hot-reload at scale would otherwise leak: every file save re-fires the entire ns-load worth of `reg-*` traces, and retained rings would fill with re-registration noise.
+A hot-reload re-registers every handler in the reloaded namespaces, and **every re-registration emits `:rf.registry/handler-replaced`** (per [001 §Hot-reload trace surface](001-Registration.md#hot-reload-trace-surface)). A clear emits `:rf.registry/handler-cleared` only for an id that was registered, so a double-clear emits once. The registrar deduplicates nothing by shape: re-evaluating a namespace builds fresh fns, so a shape comparison cannot tell a reload from an edit, and keeping every registration change visible is worth more than a quiet reload. A tool that wants to hide idempotent-reload noise filters on the event's `:different-fn?` tag, which is false when a re-registration rotates no executable.
 
-**Hot-reload re-emits are deduplicated by shape at the emit site.** The registrar tracks the last-emitted *shape* per `(kind, id)` pair and suppresses re-emits whose shape is unchanged. The emitter compares:
-
-- The registration's handler-fn identity (or source-coord, per the dedup mechanism's choice).
-- The metadata-map's content (`:doc`, `:schema`, `:interceptors`, `:tags`, etc.).
-
-Identical shape → re-emit suppressed; no trace event fires. Changed shape (a real edit to the handler or its metadata) → exactly one trace fires (`:rf.registry/handler-replaced`). Hot-reload of an unchanged file is a **non-event** for the trace bus.
-
-The dedup applies symmetrically to `register` / `replace` / `clear`:
-
-- A `register` for an id with no prior emit always fires.
-- A `replace` whose new shape matches the last-emitted shape is suppressed.
-- A `clear` of an id that the dedup table thinks is already absent (e.g. a double-clear) is suppressed.
-
-The dedup table is process-scoped, dev-only (it sits inside the same `interop/debug-enabled?` gate as the rest of the trace surface), and is implicitly cleared by `re-frame.trace.tooling/clear-listeners!` / test-runtime reset fixtures. The mechanism is per-`(kind, id)` — different ids hot-reload independently; the dedup of `:user/login` does not interfere with the dedup of `:user/logout`.
-
-Together: rings hold events exclusively; the live stream filters reload-noise via shape-dedup; the registry is the source of truth for "what's registered right now". Tools wanting "the current state of the world" read `registrations`; tools wanting "what changed in the last run" read the per-frame ring; tools wanting fine-grained event-by-event observation register a listener and receive the (post-dedup) live stream.
+These emits are frameless, so reload churn reaches the live stream and never a ring. Together: rings hold events exclusively; the live stream carries every registry change; the registry is the source of truth for "what's registered right now". Tools wanting "the current state of the world" read `registrations`; tools wanting "what changed in the last run" read the per-frame ring; tools wanting fine-grained event-by-event observation register a listener and receive the live stream.
 
 #### `trace-buffer` API — per-frame, event bundles by default
 
@@ -881,7 +866,7 @@ The query surface is per-frame, with a frame-id required argument. The default r
 | `(rf/trace-buffer frame-id)` | `(frame-id) → vector` | Returns the frame's event-bundle vector, oldest-first. Each entry is `{:dispatch-id <id> :parent-dispatch-id <id or nil> :frame <frame-id or nil> :event <event-vector or nil> :dispatched <trace-event or nil> :handler :fx :effects :subs :renders :other :trace-events [...]}` — the `group-by-event`-shape projection per [§Event-bundle projection](#event-bundle-projection-group-by-event--domino-bucket), pre-computed per run by the ring. Empty when no events have been recorded. |
 | `(rf/trace-buffer frame-id opts)` | `(frame-id, opts) → vector` | Optional filter map (see [§Filter vocabulary](#filter-vocabulary) below). Filters compose AND-wise across bundle-level fields; absent key = no constraint. The `:flat true` opt returns raw trace events instead of event bundles (escape hatch — see below). |
 | `(rf/clear-trace-buffer! frame-id)` | `(frame-id) → nil` | Empties the named frame's ring. Tooling uses this between sessions. |
-| `(rf/clear-trace-buffer!)` | `() → nil` | Empties **every** frame's ring. Retention policy — the process default and each frame's explicit `:rf.trace/events-retained` override — is preserved, and the hot-reload dedup table is untouched; the fixture-grade reset that also resets policy is `re-frame.trace.tooling`'s concern, not a public verb. This is the clear a user-facing "clear buffer" affordance or a privacy scrub wants: its subject is retained *events*, not the user's tuning. |
+| `(rf/clear-trace-buffer!)` | `() → nil` | Empties **every** frame's ring. Retention policy — the process default and each frame's explicit `:rf.trace/events-retained` override — is preserved; the fixture-grade reset that also resets policy is `re-frame.trace.tooling`'s concern, not a public verb. This is the clear a user-facing "clear buffer" affordance or a privacy scrub wants: its subject is retained *events*, not the user's tuning. |
 | `(rf/configure! {:trace-buffer {:events-retained N}})` | `(opts) → nil` | Process-default ring depth (applies to `:rf/default` and any frame that did not set per-frame metadata). |
 
 The `:flat` opt is the escape hatch for callers that want the pre-grouping raw stream:
@@ -946,7 +931,7 @@ For context — the design space the event-keyed per-frame ring won out against:
 - **"Don't emit sub-skip trace events at all."** Sub-recompute short-circuit signal is useful diagnostic output (performance work, invalidation chasing). The ring keeps the emit by routing it to the right frame's ring and bundling it with the parent run.
 - **"Filter `:skip` at the consumer level."** Too late — by the time a consumer reads a global ring, the real events the operator cares about are already evicted by the `:skip` flood. Filter-at-read is structurally late; the filtering has to happen at INGEST or at the storage-partition level.
 - **"Bigger flat ring (10× the default)."** Defers the architectural mismatch without fixing it. A bigger ring still gets polluted by tool-frame traces and still has no eviction semantic that respects event boundaries.
-- **"Frameless events go to a `:rf/default` cluster (the `:rf/default` + `nil` slot)."** The cluster would leak under hot reload: every file save re-fires the entire ns-load worth of `reg-*` traces, the cluster grows without bound, and the operator never benefits from the noise. Keeping the ring exclusively for events (no leak surface) and deduplicating re-emits by shape (no live-stream noise either) answers both halves.
+- **"Frameless events go to a `:rf/default` cluster (the `:rf/default` + `nil` slot)."** The cluster would leak under hot reload: every file save re-fires the entire ns-load worth of `reg-*` traces, the cluster grows without bound, and the operator never benefits from the noise. Keeping the ring exclusively for events closes the leak: reload churn reaches only the live stream, where a tool filters it on `:different-fn?`.
 
 Why this is a framework primitive (not a Xray-specific concern): pair-shaped tools, REPL companions, and any non-Xray consumer needs recent-history access. Locating the rings in the framework — keyed by the per-frame model — means external tools depend on a stable framework primitive rather than on Xray's internal data structures. See [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) for the full consumption pattern.
 
@@ -2645,7 +2630,7 @@ Per-run structured projection lives in the assembled `:rf/epoch-record` (per [Sp
 The trace surface is partitioned per-frame and sized by event count, not trace-event count. Five resolved sub-questions:
 
 1. **Cross-frame runs.** Each frame retains the traces of runs that executed in it, keyed by their own `:rf.trace/dispatch-id`. Cross-frame consumers (pair-mcp, monitoring tools, multi-frame story sessions) merge by `:dispatch-id` across rings; the framework does not maintain a process-global cross-frame index.
-2. **Frameless trace events — B3 + B4.** B3 — frameless trace events skip rings entirely; they stream live to listeners only, never retained anywhere. B4 — hot-reload re-emits are deduplicated by shape at the emit site (the registrar tracks last-emitted shape per `(kind, id)` pair and suppresses unchanged re-emits). Together: rings hold events exclusively; the live stream filters reload-noise; the registry is the source of truth for "what's registered right now". Hot-reload is a non-event for the trace bus.
+2. **Frameless trace events — B3.** Frameless trace events skip rings entirely; they stream live to listeners only, never retained anywhere. Every hot-reload re-registration emits `:rf.registry/handler-replaced` ([§Hot-reload](#hot-reload--every-re-registration-emits)), so reload churn reaches the live stream and never a ring. Together: rings hold events exclusively; the live stream carries every registry change; the registry is the source of truth for "what's registered right now".
 3. **Off-box streaming wire format.** Event bundles (not raw trace events). Matches the storage unit; off-box consumers (re-frame2-pair-mcp `trace-window` / `watch-epochs`, monitoring tools) receive one bundle per stream tick rather than reconstructing runs from individual events.
 4. **In-process `trace-buffer` API.** Per-frame, event bundles by default; `:flat true` opt-in for callers that want raw trace events. Signature: `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)`.
 5. **Run size bound.** No per-run trace cap by design. The operator's tuning lever is the event-count knob (`:rf.trace/events-retained`, default 50, per-frame override), not trace-volume per run. A run with 50K traces takes one slot like a run with 5 traces takes one slot.
