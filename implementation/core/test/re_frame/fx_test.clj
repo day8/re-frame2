@@ -369,14 +369,7 @@
           (is (= 1 @original-fired))
           (is (empty? (of-category :rf.error/override-fallthrough errors))))))))
 
-;; ---- 7c. Reserved-fx REJECT tier ------------------------------------------
-;;
-;; A reserved fx whose body installs or clears durable frame runtime state
-;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.route/with-nav-token`)
-;; rejects an override: it emits `:rf.error/reserved-fx-override` and runs the
-;; real body. Three layers enforce it — the dev per-call reject in
-;; `handle-one-fx`, the production `strip-rejected-overrides`, and the cascade
-;; exclusion in `child-dispatch-opts`.
+;; ---- 7c. A reserved fx takes an override like any other ------------------
 
 (defn- spawn-fx
   "A `:rf.machine/spawn` effect starting `actor-id` of a one-state machine."
@@ -390,107 +383,40 @@
   (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                  [:rf.runtime/machines :snapshots actor-id])))
 
-(deftest reject-tier-fn-value-override-ignored-reserved-body-runs
-  (testing "a fn-value override of :rf.machine/spawn is ignored, loudly; the actor spawns"
-    (let [stub-fired (atom 0)
-          stub       (fn [_ _] (swap! stub-fired inc))
-          spawn      (spawn-fx :fx-test.snsup5/a-actor)]
-      (rf/reg-event :fx-test.snsup5/spawn
-        (fn [_ _] {:fx [spawn]}))
-      (let [{:keys [errors traces]} (observe #(rf/dispatch-sync
-                                                [:fx-test.snsup5/spawn]
-                                                {:fx-overrides {:rf.machine/spawn stub}}))]
-        (is (= 0 @stub-fired))
-        (is (spawned? :fx-test.snsup5/a-actor))
-        (is (= [{:failing-id :rf.machine/spawn
-                 :event      [:fx-test.snsup5/spawn]
-                 :event-id   :fx-test.snsup5/spawn
-                 :frame      :rf/default}]
-               (map #(select-keys % [:failing-id :event :event-id :frame])
-                    (of-category :rf.error/reserved-fx-override errors))))
-        (when rf.interop/debug-enabled?
-          (is (= [:reserved-body-ran]
-                 (map :recovery (of-op :rf.error/reserved-fx-override traces)))))))))
+(deftest state-installing-reserved-fx-takes-its-override
+  (let [stub-fired (atom 0)
+        spawn      (spawn-fx :fx-test.snsup5/a-actor)]
+    (rf/reg-event :fx-test.snsup5/spawn
+      (fn [_ _] {:fx [spawn]}))
+    (testing "a fn-value override of :rf.machine/spawn runs in place of the spawn"
+      (rf/dispatch-sync [:fx-test.snsup5/spawn]
+                        {:fx-overrides {:rf.machine/spawn (fn [_ _] (swap! stub-fired inc))}})
+      (is (= 1 @stub-fired))
+      (is (not (spawned? :fx-test.snsup5/a-actor))))
+    (testing "FOIL: without the override the actor spawns"
+      (rf/dispatch-sync [:fx-test.snsup5/spawn])
+      (is (spawned? :fx-test.snsup5/a-actor)))))
 
-(deftest production-prod-strip-drops-reject-tier-loudly
-  ;; The router calls the strip only when debug is off, so the dev lane reaches it here.
-  (let [stub (fn [_ _] :stub)
-        {:keys [result errors traces]}
-        (observe #(rf.fx/strip-rejected-overrides
-                    {:rf.machine/spawn        stub
-                     :rf.machine/destroy      :some-redir
-                     :rf.route/with-nav-token stub
-                     :dispatch                stub
-                     :my-app/http             stub}
-                    :rf/default
-                    [:some/event]))]
-    (is (= #{:dispatch :my-app/http} (set (keys result)))
-        "reject-tier keys are stripped; overridable and user keys survive")
-    (is (= {:rf.machine/spawn 1 :rf.machine/destroy 1 :rf.route/with-nav-token 1}
-           (frequencies (map :failing-id (of-category :rf.error/reserved-fx-override errors))))
-        "one always-on record per stripped key")
-    (when rf.interop/debug-enabled?
-      (is (= [:production-strip :production-strip :production-strip]
-             (map #(get-in % [:tags :where]) (of-op :rf.error/reserved-fx-override traces)))))))
-
-(deftest reject-tier-nil-false-placeholder-stays-silent
-  ;; nil/false is the no-op placeholder in the reject tier too: no spurious
-  ;; always-on record per dispatched event, and the reserved body still runs.
-  (doseq [noop-value [nil false]]
-    (testing (pr-str noop-value)
-      (let [actor-id (keyword "fx-test.x76af2-27" (str "actor-" noop-value))
-            spawn    (spawn-fx actor-id)]
-        (rf/reg-event :fx-test.x76af2-27/spawn
-          (fn [_ _] {:fx [spawn]}))
-        (let [{:keys [errors]} (observe #(rf/dispatch-sync
-                                           [:fx-test.x76af2-27/spawn]
-                                           {:fx-overrides {:rf.machine/spawn noop-value}}))]
-          (is (empty? (of-category :rf.error/reserved-fx-override errors)))
-          (is (spawned? actor-id)))))))
-
-(deftest cascade-exclusion-reject-tier-not-inherited
-  (testing "a reject-tier override on the parent envelope is not inherited by a [:dispatch …] child"
+(deftest a-reserved-fx-stub-reaches-a-cascade-child
+  (testing "an override of :rf.machine/spawn on the parent reaches a [:dispatch …] child"
     (let [child-stub (atom 0)
-          stub       (fn [_ _] (swap! child-stub inc))]
-      (let [spawn (spawn-fx :fx-test.snsup5/child-actor)]
-        (rf/reg-event :fx-test.snsup5/child-spawns
-          (fn [_ _] {:fx [spawn]})))
+          spawn      (spawn-fx :fx-test.snsup5/child-actor)]
+      (rf/reg-event :fx-test.snsup5/child-spawns
+        (fn [_ _] {:fx [spawn]}))
       (rf/reg-event :fx-test.snsup5/parent-cascades
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-spawns]]]}))
-      (let [{:keys [errors]} (observe #(rf/dispatch-sync
-                                         [:fx-test.snsup5/parent-cascades]
-                                         {:fx-overrides {:rf.machine/spawn stub}}))]
-        (is (= 0 @child-stub))
-        (is (spawned? :fx-test.snsup5/child-actor))
-        ;; The production strip legitimately reports the PARENT's override; only a
-        ;; CHILD-attributed record would mean the override was inherited.
-        (is (empty? (filter #(= :fx-test.snsup5/child-spawns (:event-id %))
-                            (of-category :rf.error/reserved-fx-override errors))))))))
+      (rf/dispatch-sync [:fx-test.snsup5/parent-cascades]
+                        {:fx-overrides {:rf.machine/spawn (fn [_ _] (swap! child-stub inc))}})
+      (is (= 1 @child-stub))
+      (is (not (spawned? :fx-test.snsup5/child-actor))))))
 
-;; ---- 7d. The SOURCE policy is the only policy -----------------------------
+;; ---- 7d. A reserved fx-id is a redirect target ----------------------------
 
-(deftest source-nonoverridable-is-redirectable-target
-  (testing "a non-overridable SOURCE is still a redirectable TARGET — no target policy exists"
+(deftest reserved-fx-id-is-a-redirect-target
+  (testing "a keyword redirect naming a reserved fx-id resolves to it"
     (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
       (is (= {:disposition :applied-redirect :target id}
              (rf.fx/classify-fx-override {:my/custom id} :my/custom))))))
-
-;; ---- 7e. The reject diagnostic's REASON is id-specific --------------------
-
-(defn- reject-reason-for
-  "The always-on `:reason` the reject diagnostic emits for `fx-id`."
-  [fx-id]
-  (->> (observe #(rf.fx/strip-rejected-overrides {fx-id (fn [_ _] :stub)} :rf/default [:some/event]))
-       :errors
-       (of-category :rf.error/reserved-fx-override)
-       first
-       :reason))
-
-(deftest reject-diagnostic-reason-is-id-specific
-  (testing "every non-overridable source has its own rationale, not the generic fallback clause"
-    (doseq [id [:rf.machine/spawn :rf.machine/destroy :rf.route/with-nav-token]]
-      (is (not (re-find #"is a non-overridable SOURCE \(" (reject-reason-for id)))
-          (str id)))))
 
 ;; ---- Trace stamps the Xray Event lens reads -------------------------------
 

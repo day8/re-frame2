@@ -30,7 +30,6 @@
     :rf.error/bad-unsubscribe-arg
     :rf.error/ambient-frame-refused
     :rf.error/override-fallthrough
-    :rf.error/reserved-fx-override
     :rf.error/no-such-fx
     :rf.error/frame-destroyed
     :rf.error/write-after-destroy
