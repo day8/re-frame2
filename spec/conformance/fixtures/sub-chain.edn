@@ -9,9 +9,9 @@
 
  :fixture/registry
  {:event {:cart/initialise {:doc "Seed the cart."}
-          :cart.item/add   {:doc "Add an item with qty + price."}}
-  :sub   {:cart/items {:doc "All items in the cart."}
-          :cart/total {:doc "Sum of qty * price — a declared-input derivation over :cart/items."}}}
+          :cart.item/add   {:doc "Add an item's amount, its qty * price."}}
+  :sub   {:cart/items {:doc "The item amounts in the cart."}
+          :cart/total {:doc "Sum of the item amounts — a declared-input derivation over :cart/items."}}}
 
  :fixture/handlers
  {:event {:cart/initialise [[:set [:cart] {:items []}]]
@@ -19,21 +19,19 @@
   :sub   {:cart/items [[:get [:cart :items]]]
           :cart/total [[:reduce-input :cart/items
                         [:fn :+]
-                        [:fn :item-amount]]]}}        ;; sum of (qty * price) for each item
+                        [:fn :identity]]]}}
 
  :fixture/frame-config
  {:initial-events [[:cart/initialise]]}
 
  :fixture/dispatches
- [[:cart.item/add {:id "a" :qty 2 :price 9.99}]
-  [:cart.item/add {:id "b" :qty 1 :price 4.50}]]
+ [[:cart.item/add 19.98]        ;; 2 at 9.99
+  [:cart.item/add 4.50]]        ;; 1 at 4.50
 
  :fixture/expect
  {:final-app-db
-  {:cart {:items [{:id "a" :qty 2 :price 9.99}
-                  {:id "b" :qty 1 :price 4.50}]}}
+  {:cart {:items [19.98 4.50]}}
 
   :sub-values
-  {[:cart/items] [{:id "a" :qty 2 :price 9.99}
-                  {:id "b" :qty 1 :price 4.50}]
+  {[:cart/items] [19.98 4.50]
    [:cart/total] 24.48}}}
