@@ -62,9 +62,9 @@
 ;; and the finalization first-region tie-break.
 ;;
 ;; Declaration order is an EXPLICIT, IMMUTABLE part of the registration
-;; contract — the canonical `:region-order` vector — normalised ONCE at
-;; registration (`normalise-region-order`, via `install-region-cache`) and at
-;; the pure-fn engine seams. Runtime code NEVER recovers order from
+;; contract — the canonical `:region-order` vector — normalised ONCE, with the
+;; rest of the definition (`normalise-definition`), at registration and at the
+;; pure `machine-transition` entry. Runtime code NEVER recovers order from
 ;; `(keys (:regions …))` / state-map iteration: a `:regions` map with more
 ;; than eight entries is a PersistentHashMap whose key iteration is HASH order
 ;; (source order is already gone at read time, and hash order even differs
@@ -152,6 +152,24 @@
                    "order.")
               {:recovery :fix-registration
                :extra    {:regions keyset :region-count (count regions)}})))))))
+
+(defn normalise-definition
+  "Lower a machine definition as written onto the definition the engine
+  drives: `:timeout` / `:on-timeout` onto `:after`
+  (`rf.machines.timeout/desugar-timeouts`), `:type :choice` / `:choice` onto
+  `:always` (`rf.machines.choice/desugar-choices`), and the region declaration
+  order onto the canonical `:region-order` (`normalise-region-order`). Pure;
+  idempotent.
+
+  The engine's entries — `machine-transition`, `apply-initial-entry-cascade`
+  and the region-specs `region-machine` builds — take a normalised
+  definition. Registration normalises once, and the handler and the
+  `:rf/machine` registrar entry both hold the result; the pure
+  `re-frame.machines/machine-transition` normalises the definition it is
+  handed."
+  [machine]
+  (normalise-region-order
+    (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine))))
 
 (defn region-order
   "The canonical region declaration-order vector for a parallel `machine` —
@@ -264,30 +282,15 @@
   `parent-machine`. See `region-machine` for the contract — this is the
   uncached compute path.
 
-  The region body is DESUGARED here — `:timeout` / `:on-timeout` lowered onto
-  `:after`, `:type :choice` / `:choice` onto `:always` — so the synthetic
-  region-spec is ALWAYS in the lowered form the engine drives, regardless of
-  whether `parent-machine` was desugared. This is the single choke-point where
-  region-specs are born (`region-machine` memoises the result), so the cache
-  holds the desugared form and BOTH the paths that drive a region-spec
-  directly (`bootstrap-step`'s `apply-transition-once`, and the root
-  transition's `root-region-plan` — which BYPASS the per-dispatch
-  `machine-transition` desugar seam) and the event path see
-  identically-lowered region bodies. Without this, a
-  region-initial `:timeout` would never arm at birth and a region-initial
-  `:type :choice` would stay stuck at its transient node: the region body is
-  faulted into the cache during `build-initial-snapshot`'s tag computation,
-  and a raw one would then be served — still raw — on those direct-apply
-  paths. Both
-  desugars are idempotent and short-circuit for the common rf.machines.timeout/choice-free
-  region, so this costs one structural scan on the once-per-region cache miss.
-  A region-ROOT `:after` / `:timeout` is rejected at registration
-  (`validate-non-parallel-root-after!`), so only region STATE
-  nodes carry lowerable `:timeout` / `:choice` by the time a body reaches here."
+  `parent-machine` is normalised (`normalise-definition`), so the region body
+  is already in the lowered form the engine drives — a `:timeout` on
+  `:after`, a `:type :choice` on `:always` — on every path that applies a
+  region-spec: the event path, and the two that apply one directly,
+  `bootstrap-step`'s `apply-transition-once` and the root transition's
+  `root-region-plan`. So a region-initial `:timeout` arms at birth and a
+  region-initial `:type :choice` settles past its transient node."
   [parent-machine region-name]
-  (let [region-body (rf.machines.choice/desugar-choices
-                      (rf.machines.timeout/desugar-timeouts
-                       (get-in parent-machine [:regions region-name])))]
+  (let [region-body (get-in parent-machine [:regions region-name])]
     (-> region-body
         (assoc :guards            (:guards parent-machine))
         (assoc :actions           (:actions parent-machine))
@@ -1804,14 +1807,16 @@
     (fire-parallel-on-done machine settled newly-final?)))
 
 (defn machine-transition
-  "Pure function. Given a machine definition, current snapshot, and event,
-  return the engine's `re-frame.machines.result` Result — `rf.machines.result/ok`
+  "Pure function. Given a normalised machine definition
+  (`normalise-definition`), current snapshot, and event, return the engine's
+  `re-frame.machines.result` Result — `rf.machines.result/ok`
   carrying the new snapshot and effects vector (plus the engine-internal
   `::handled?` / `::microsteps` / `::cascade` riders the lifecycle handler
   reads), or `rf.machines.result/fail` carrying diagnostic info if any guard / action
   / `:data`-fn threw or a depth limit tripped. This is the engine seam;
-  the PUBLIC `re-frame.machines/machine-transition` wraps it and projects
-  the Result onto the plain Spec 005 §Level 1 map.
+  the PUBLIC `re-frame.machines/machine-transition` normalises the
+  definition it is handed, runs it, and projects the Result onto the plain
+  Spec 005 §Level 1 map.
 
   Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
    1. Pick the matching transition for the event using deepest-wins
@@ -1843,28 +1848,15 @@
   lifecycle handler emits the machine-scoped error trace and rolls back —
   the guard throw is never demoted to a lower-priority candidate."
   [machine snapshot event]
-  ;; Desugar `:timeout` / `:on-timeout` into equivalent `:after` entries and
-  ;; `:type :choice` / `:choice` into the
-  ;; equivalent `:always` candidate vector BEFORE the engine sees the spec —
-  ;; both are distinct authoring concepts that LOWER onto an existing
-  ;; mechanism (`:timeout` → `:after`; `:choice` → `:always`). Idempotent,
-  ;; so a spec already desugared at registration is unaffected; this seam
-  ;; also covers the conformance `:machine-transition` op, which passes the
-  ;; RAW (pre-registration) definition straight here — so normalise the region
-  ;; declaration order (idempotent for an already-registered machine) alongside
-  ;; the desugars, so `region-order` is canonical before the parallel engine
-  ;; reads it.
-  (let [machine (normalise-region-order
-                  (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine)))]
-    (try
-      (if (parallel? machine)
-        (do (require-occupiable-regions! machine (:state snapshot))
-            (parallel-machine-transition machine snapshot event))
-        (rf.machines.transition/machine-transition-single machine snapshot event))
-      (catch #?(:clj Throwable :cljs :default) e
-        (if (rf.machines.transition/guard-threw-signal? e)
-          (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
-          (throw e))))))
+  (try
+    (if (parallel? machine)
+      (do (require-occupiable-regions! machine (:state snapshot))
+          (parallel-machine-transition machine snapshot event))
+      (rf.machines.transition/machine-transition-single machine snapshot event))
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.machines.transition/guard-threw-signal? e)
+        (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
+        (throw e)))))
 
 ;; ---- birth-time `:always` + raise settle ----------------------------------
 ;;
@@ -1951,6 +1943,10 @@
   paths (eager `[:rf.machine/start]` and lazy first-event); the lifecycle
   handler's `maybe-boot` calls it once.
 
+  `machine` is normalised (`normalise-definition`), so an initial state's
+  `:timeout` arms at birth through the `:after` it lowers onto, and a
+  transient initial `:choice` leaf settles past on start.
+
    1. `run-initial-cascade` — the initial-descent `:entry` actions
       (per-region broadcast for parallel machines).
    2. `settle-birth` — the raise drain + `:always` fixed-point loop on the
@@ -1983,21 +1979,12 @@
   boundary — the second pure-engine entry point alongside
   `machine-transition` — and converted to a `rf.machines.result/fail`."
   [machine initial-snapshot]
-  ;; Desugar `:timeout` / `:on-timeout` so an initial state's
-  ;; timeout arms at birth via the same `:after`-schedule fx the cascade
-  ;; emits, and `:type :choice` / `:choice` so a transient
-  ;; INITIAL choice leaf resolves on start via the birth-time `:always`
-  ;; settle. Idempotent — a spec already desugared at registration is
-  ;; unaffected. Mirrors the desugar + region-order normalisation at the
-  ;; `machine-transition` entry so the birth cascade reads canonical order.
-  (let [machine (normalise-region-order
-                  (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine)))]
-    (try
-      (apply-initial-entry-cascade* machine initial-snapshot)
-      (catch #?(:clj Throwable :cljs :default) e
-        (if (rf.machines.transition/guard-threw-signal? e)
-          (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
-          (throw e))))))
+  (try
+    (apply-initial-entry-cascade* machine initial-snapshot)
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.machines.transition/guard-threw-signal? e)
+        (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
+        (throw e)))))
 
 (defn- apply-initial-entry-cascade*
   "Inner body of `apply-initial-entry-cascade` — wrapped by it for the
@@ -2080,7 +2067,7 @@
     (if (parallel? machine)
       ;; Normalise region order (idempotent for a registered
       ;; machine) — the destroy exit cascade is a public engine
-      ;; entry NOT behind the transition desugar seam, so
+      ;; entry a caller may hand an un-normalised definition, so
       ;; canonicalise here too before `reduce-regions` reads it.
       (reduce-regions (normalise-region-order machine) snapshot region-exit-step)
       (rf.machines.transition/run-active-exit-cascade machine snapshot))))

@@ -153,7 +153,8 @@
   module-level state; JVM- and CLJS-runnable. `re-frame.machines` is the
   only namespace a caller needs."
   [definition snapshot event]
-  (public-result (rf.machines.parallel/machine-transition definition snapshot event)))
+  (public-result (rf.machines.parallel/machine-transition
+                   (rf.machines.parallel/normalise-definition definition) snapshot event)))
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;

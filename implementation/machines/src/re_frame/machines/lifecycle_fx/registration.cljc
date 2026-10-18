@@ -5,13 +5,14 @@
   `reg-machine` macro (one-event surface — a single
   `(cofx, event) -> effects-map-or-nil` handler, no `reg-event-fx` /
   `reg-event-db` split); `reg-machine*` is the plain-fn surface used by
-  the late-bind table and by REPL workflows. The factory decomposes
+  the late-bind table and by REPL workflows. Registration validates the
+  definition as written (`validate-machine!` — every registration-time
+  check, in `re-frame.machines.lifecycle-fx.validation`: parallel shape,
+  `:spawn-all` shape, dropped `:timeout-ms` slots, guard/action ref
+  resolution, final-state shape), then normalises it once
+  (`rf.machines.parallel/normalise-definition`). The factory decomposes
   into:
 
-    - `validate-machine!` — every registration-time check (extracted to
-      `re-frame.machines.lifecycle-fx.validation`: parallel shape,
-      `:spawn-all` shape, dropped `:timeout-ms` slots, guard/action
-      ref resolution, final-state shape).
     - `rf.machines.parallel/build-initial-snapshot` — initial-state
       cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
       stamping (lazily, on first event). Single source of truth shared
@@ -927,8 +928,11 @@
   closes over no global state and does not know its own id, which is what
   keeps singleton registration and spawned actors symmetric.
 
+  `machine` is a registered definition — validated as written and
+  normalised once by `registered-definition` — so no transition the
+  handler drives normalises it again.
+
   The body is decomposed into:
-    - `rf.machines.lifecycle-fx.validation/validate-machine!` — every registration-time check.
     - `rf.machines.parallel/build-initial-snapshot` — initial-state cascade, `:data` /
       `:meta` seeding, `:rf/spawn-counter` seeding, tag union stamping
       (unified with the spawn path).
@@ -942,16 +946,9 @@
   `run-step` → `commit-or-finalize` — with the intercept-spawn-all-
   event short-circuit branching off after step 1."
   [machine]
-  ;; Consumer attachment. Run FIRST so
-  ;; the inline-fn restriction (`:rf.error/machine-cofx-requires-inline`) and
-  ;; the named-entry `:rf.cofx/requires` parse (`:rf.error/cofx-request-invalid`
-  ;; / `-name-collision`) surface as their OWN precise categories before
-  ;; `validate-machine!`'s guard/action ref resolution would otherwise paint a
-  ;; bare-entry-map-with-requires-no-`:fn` as the generic
-  ;; `:rf.error/machine-unresolved-guard`. The indexed spec carries
-  ;; `:rf/cofx-ensure-index` for the dispatch-time `ensure-ctx-cofx` to read.
+  ;; Consumer attachment: the indexed spec carries `:rf/cofx-ensure-index`
+  ;; for the dispatch-time `ensure-ctx-cofx` to read.
   (let [machine (rf.machines.cofx-attach/index-ensure-sets machine)]
-  (rf.machines.lifecycle-fx.validation/validate-machine! machine)
   ;; `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
@@ -963,8 +960,8 @@
   ;; to the handler keeps registration tolerant of such specs.
   ;;
   ;; `machine` already carries the consumer-attachment index
-  ;; (`:rf/cofx-ensure-index`, stamped above by `rf.machines.cofx-attach/index-ensure-sets`
-  ;; ahead of `validate-machine!`), so the handler closure captures it and
+  ;; (`:rf/cofx-ensure-index`, stamped above by
+  ;; `rf.machines.cofx-attach/index-ensure-sets`), so the handler closure captures it and
   ;; `prepare-machine-ctx` threads it onto the machine def — the dispatch-time
   ;; `ensure-ctx-cofx` reads it to derive the per-(state × event-type)
   ;; ensure-set (incl. the `:always` closure).
@@ -1198,6 +1195,29 @@
 
 ;; ---- the single registration home -----------------------------------------
 
+(defn registered-definition
+  "Validate `machine` as written, then normalise it ONCE
+  (`rf.machines.parallel/normalise-definition` — `:timeout` onto `:after`,
+  `:type :choice` onto `:always`, the canonical `:region-order`) with the
+  region-machine cache attached. The registrar publishes this definition and
+  the handler closes over it, so no transition normalises it again.
+
+  The checks read the definition as written, so each diagnostic names the
+  keys the author wrote. The region order settles first, under its own
+  categories. The consumer-attachment sweep (`index-ensure-sets`) runs before
+  `validate-machine!`, so the inline-fn restriction
+  (`:rf.error/machine-cofx-requires-inline`) and the named-entry
+  `:rf.cofx/requires` parse (`:rf.error/cofx-request-invalid` /
+  `-name-collision`) surface as their own categories before guard/action ref
+  resolution would paint a bare entry map with requires and no `:fn` as the
+  generic `:rf.error/machine-unresolved-guard`."
+  [machine]
+  (let [machine (rf.machines.parallel/normalise-region-order machine)]
+    (rf.machines.lifecycle-fx.validation/validate-machine!
+      (rf.machines.cofx-attach/index-ensure-sets machine))
+    (rf.machines.parallel/install-region-cache
+      (rf.machines.parallel/normalise-definition machine))))
+
 (defn- register-machine-event!
   "THE single home for registering a machine as an event handler. It
   stamps the `:rf/machine?` / `:rf/machine` registration metadata
@@ -1261,13 +1281,12 @@
    ;; per actor instance at spawn / first-boot — so a shape fault must be
    ;; caught at definition, like every other registration-shape fault.
    (rf.machines.classification/validate-machine-classification! machine-id machine)
-   ;; Install a per-machine region-machine cache before
-   ;; the machine value is threaded through the handler closure and
-   ;; published to the registrar. The type's spawned actors run this same
-   ;; handler, so they share the cache. Re-registration replaces the machine
-   ;; map and its attached cache atom, so no separate invalidation step
-   ;; is needed.
-   (let [machine    (rf.machines.parallel/install-region-cache machine)
+   ;; The handler closes over the registered definition and the registrar
+   ;; publishes it, so both hold one value, region-machine cache included.
+   ;; The type's spawned actors run this same handler, so they share the
+   ;; cache. Re-registration replaces the machine map and its attached cache
+   ;; atom, so no separate invalidation step is needed.
+   (let [machine    (registered-definition machine)
         handler-fn (make-machine-handler machine)
         ;; Stamp the framework-owned discriminator keys LAST so they win over
         ;; any (rejected-above, but defensive) opts collision.

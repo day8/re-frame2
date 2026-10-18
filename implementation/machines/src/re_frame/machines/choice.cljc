@@ -37,8 +37,8 @@
   what `:always` already implements: on entry (or any transition that lands
   in the state) the runtime walks the candidate vector leaf→root, takes the
   first guard-pass, and settles it within the macrostep drain (Spec 005
-  §Eventless `:always` / §Drain semantics). So `:choice` DESUGARS — at
-  registration / transition normalisation time — into an `:always` slot
+  §Eventless `:always` / §Drain semantics). So `:choice` DESUGARS — once,
+  at registration — into an `:always` slot
   carrying the same candidate vector, dropping the `:type :choice` / `:choice`
   keys. The whole `:always` machinery (the leaf→root candidate walk, the
   first-guard-pass select, the macrostep microstep loop, the birth-time
@@ -99,8 +99,8 @@
 ;; ---- desugaring `:choice` → `:always` -------------------------------------
 ;;
 ;; `:choice` is a distinct authoring concept that lowers onto the existing
-;; `:always` eventless-transition mechanism. The desugar runs during
-;; registration and transition normalisation, so the runtime never sees
+;; `:always` eventless-transition mechanism. The desugar runs once, at
+;; registration, so the runtime never sees
 ;; `:type :choice` / `:choice`
 ;; directly — it sees the equivalent `:always` candidate vector. The grammar
 ;; (the `:type :choice` marker + the `:choice` slot, with its own validation)
@@ -141,7 +141,8 @@
   region root + its states) declares `:type :choice`. A cheap
   short-circuiting structural scan that lets `desugar-choices` return the
   input UNCHANGED (no map rebuild) for the overwhelmingly common
-  choice-free machine on the hot per-transition path."
+  choice-free machine — which the pure `machine-transition` entry
+  normalises on every call."
   [machine]
   (letfn [(scan-states [states]
             (some (fn [[_ n]]
@@ -163,13 +164,15 @@
   state-node with its own `:states`).
 
   Fast-path: a machine with NO `:type :choice` anywhere is returned
-  UNCHANGED (no map rebuild), so the choice-free common case on the hot
-  per-transition path pays only one short-circuiting scan.
+  UNCHANGED (no map rebuild), so the choice-free common case pays only one
+  short-circuiting scan.
 
-  This is the single normalisation seam the registration parser and the
-  pure `machine-transition` / birth-cascade entries all apply, so
-  registration validation, the transition engine, and the conformance
-  `:machine-transition` op all observe the SAME desugared `:always` form
+  This is the single choice-lowering seam. Registration validation applies
+  it, and so does `rf.machines.parallel/normalise-definition` — run once at
+  registration and on the definition the pure `machine-transition` is
+  handed — so registration validation, the transition engine, and the
+  conformance `:machine-transition` op all observe the SAME desugared
+  `:always` form
   (they can never drift). It runs AFTER the `:timeout` desugar — a choice
   state cannot carry `:timeout` (validation rejects it), so the order is
   immaterial for correctness, but choice runs second so a future grammar
