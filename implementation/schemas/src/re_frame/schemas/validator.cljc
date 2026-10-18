@@ -23,7 +23,7 @@
 
     :humanize (fn [explanation] readable)
               — turns an `:explain` value into the operator-readable
-              `:explain-humanized` payload (Spec 010 §Humanize). nil =
+              `:explain-humanized` payload (Spec 010 §Humanize-hook). nil =
               the failure trace carries `:explain` alone.
 
     :print    (fn [schema-value] canonical-string)
