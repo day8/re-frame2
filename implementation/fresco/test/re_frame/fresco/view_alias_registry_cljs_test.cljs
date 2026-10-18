@@ -152,9 +152,7 @@
 ;; The HOOK is the seam asserted here rather than the trace bus, and it
 ;; covers both surfaces: `register!` binds `different?` ONCE and hands the
 ;; same value to every replacement hook and to the
-;; `:rf.registry/handler-replaced` `:tags`. A hook also fires on EVERY
-;; re-registration, where the trace emit is additionally dedup-by-shape gated
-;; — so the hook can witness the idempotent row below, and the trace cannot.
+;; `:rf.registry/handler-replaced` `:tags`.
 
 (defonce ^:private recorded
   ;; nil except while a row below is recording. The registrar has no

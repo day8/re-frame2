@@ -338,6 +338,17 @@
   (when-let [restore! (rf.late-bind/get-fn :epoch/restore-epoch!)]
     (restore! frame-id epoch-id)))
 
+(defn current-epoch-id
+  "The id of the epoch whose state `frame-id` holds — `re-frame.epoch/
+  current-epoch-id`, the cursor `restore-epoch!` moves, read through its
+  `:epoch/current-epoch-id` late-bind hook so Story carries no hard
+  dependency on the epoch artefact. A restore records no epoch, so after one
+  the ring's newest record is the undone step's and this is the state's id.
+  nil when the artefact is not loaded or nothing has settled."
+  [frame-id]
+  (when-let [read-cursor (rf.late-bind/get-fn :epoch/current-epoch-id)]
+    (read-cursor frame-id)))
+
 (defn record-error!
   "Append an error record to the variant frame's `[:rf.story/assertions]`
   accumulator. Per `002-Runtime.md` §Error projection errors continue the play sequence

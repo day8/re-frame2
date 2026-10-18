@@ -32,10 +32,13 @@
 
   The runtime substrate only steps FORWARD (`step-once!`). To support
   step-back we leverage the same `restore-epoch!` substrate the
-  scrubber uses: BEFORE each forward step we capture the variant frame's
-  current `:epoch-id` (the head of `epoch-history`) and push it onto
-  `:epoch-stack`. A step-back POPS the stack and `restore-epoch`s the
-  previous frame state, then decrements `:cursor` so the UI tracks the
+  scrubber uses: BEFORE each forward step we capture the id of the epoch
+  the variant frame holds (`rf.story.runtime/current-epoch-id`, the cursor
+  a restore moves) and push it onto `:epoch-stack`. The head of
+  `epoch-history` would not do: a restore records no epoch, so after a
+  step-back the newest record is still the undone step's. A step-back
+  POPS the stack and `restore-epoch`s the previous frame state, then
+  decrements `:cursor` so the UI tracks the
   position. This gives true step-back without modifying the runtime.
 
   Rewind = repeated step-back to step 0. We implement it as a single
@@ -51,7 +54,6 @@
   unmounts, or when the stepper hits the end of the play sequence.
   Clears the interval and the per-frame play state."
   (:require [reagent.core                                 :as r]
-            [re-frame.story.assertions                    :as rf.story.assertions]
             [re-frame.story.play                          :as rf.story.play]
             [re-frame.story.runtime                       :as rf.story.runtime]
             [re-frame.story.ui.test-mode.state            :as rf.story.ui.test-mode.state]
@@ -64,13 +66,6 @@
 (def ^:const default-tick-ms 600)
 
 ;; ---- helpers -------------------------------------------------------------
-
-(defn- current-epoch-id
-  "Read the variant frame's current epoch-id (the head of its history).
-  Returns nil when the history is empty (production elision / disabled
-  ring buffer)."
-  [variant-id]
-  (-> (rf.story.assertions/epoch-history variant-id) last :epoch-id))
 
 (defn- recompute-statuses
   "Pure: re-derive the enriched step list from a slot. Called after every
@@ -159,7 +154,7 @@
                            :play-steps     (vec play-steps)
                            :statuses       []
                            :breakpoints    #{}
-                           :epoch-stack    [(current-epoch-id variant-id)]
+                           :epoch-stack    [(rf.story.runtime/current-epoch-id variant-id)]
                            :interval-id    nil
                            :tick-ms        default-tick-ms})
                    (swap! results-atom update variant-id recompute-statuses)
@@ -192,7 +187,7 @@
   (let [slot (get @results-atom variant-id)]
     (when (rf.story.ui.test-mode.stepper-pure/can-step? slot)
       ;; Capture the pre-step epoch-id so step-back can restore it.
-      (let [pre-id (current-epoch-id variant-id)]
+      (let [pre-id (rf.story.runtime/current-epoch-id variant-id)]
         (rf.story.play/step-once! variant-id)
         (swap! results-atom update variant-id
                (fn [s]

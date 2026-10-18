@@ -64,7 +64,7 @@
 ;;
 ;;   * `epoch-history`, `current-epoch-id`, `restore-epoch!`, `replay-epoch!`
 ;;     and `replace-frame-state!` are this namespace's public surface, tiered
-;;     `:tooling`. All but `current-epoch-id` are also published under their
+;;     `:tooling`. All five are also published under their
 ;;     `:epoch/*` late-bind hooks (the block at the foot of this file), which
 ;;     `re-frame.core`'s `epoch-history` forwards through and which tools that
 ;;     treat the artefact as optional call instead of requiring this namespace.
@@ -836,6 +836,7 @@
    ;; Read by `re-frame.core/epoch-history` and by tools that treat this
    ;; artefact as optional, which call the hook rather than require this ns.
    :epoch/epoch-history       epoch-history
+   :epoch/current-epoch-id    current-epoch-id
    :epoch/restore-epoch!      restore-epoch!
    :epoch/replay-epoch!       replay-epoch!
    :epoch/replace-frame-state! replace-frame-state!

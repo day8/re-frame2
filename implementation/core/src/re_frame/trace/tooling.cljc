@@ -34,14 +34,6 @@
     rings entirely** (B3); they stream live to registered listeners
     only.
 
-  ## B4 hot-reload dedup-by-shape
-
-  A dev-only process-scoped dedup table tracks the last-emitted
-  `:rf.registry/*` shape per `(kind, id)`. Identical shape on re-emit
-  = suppress; changed shape = exactly one trace fires. The table is
-  cleared by `clear-listeners!` and `clear-trace-rings!`. Per Spec
-  009 §Hot-reload dedup — re-emits suppressed by shape.
-
   `re-frame.trace` itself carries only the hot emit fast
   path (`emit!` / `emit-error!` / `*handler-scope*` + bracket macros).
   The listener registry + ring storage + filter predicate are tooling
@@ -50,8 +42,6 @@
   Wiring: at ns load this ns publishes the following hooks through
   `re-frame.late-bind`:
     - `:trace.tooling/deliver!`            (emit-time fan-out)
-    - `:trace.tooling/dedup-allow?`        (B4 dedup check at registrar
-                                            emit sites)
     - `:trace.tooling/release-frame-ring!` (frame-destroy cleanup)
     - `:trace.tooling/configure-trace-buffer!` /
       `:trace.tooling/current-trace-buffer-config` (the write / read pair
@@ -98,16 +88,40 @@
   (swap! listeners dissoc id)
   nil)
 
-(declare clear-dedup-table!)
+;; ---- per-run :rf.view/rendered budget (dev-only) -------------------------
+;;
+;; Per Spec 009 §`:rf.view/rendered`, a frame emits at most
+;; `re-frame.views`' cap of `:rf.view/rendered` per run. The count is kept
+;; here, on core's own run state, so the cap holds whether or not the
+;; optional epoch artefact is loaded. A frame's count resets when a run
+;; starts in it (`:rf.event/run-start`, seen by `deliver-to-tooling!`), and
+;; renders after the run settles — React's post-settle batch, the common
+;; browser case — keep counting against that run until the next one starts.
+
+(defonce ^:private rendered-counts (atom {}))
+
+(defn claim-render!
+  "Count one `:rf.view/rendered` against `frame-id`'s current run and
+  return how many renders the run had claimed before this one."
+  [frame-id]
+  (get (first (swap-vals! rendered-counts update frame-id (fnil inc 0)))
+       frame-id 0))
+
+(defn- reset-render-budget!
+  "Start a fresh render budget for the frame `event` names when `event` is
+  a run start. Dev-only, so production keeps no `:rf.event/run-start`
+  literal."
+  [event]
+  (when rf.interop/debug-enabled?
+    (when (= :rf.event/run-start (:operation event))
+      (swap! rendered-counts dissoc (get-in event [:tags :frame])))))
 
 (defn clear-listeners!
-  "Drop every registered listener. Also clears the B4 hot-reload
-  dedup-by-shape table per Spec 009 §Hot-reload dedup — the dedup
-  table is dev-only state, process-scoped, and `clear-listeners!` /
-  test-runtime reset fixtures are the canonical clearance points."
+  "Drop every registered listener and every frame's render budget. The
+  test-runtime reset calls this between scenarios."
   []
   (reset! listeners {})
-  (clear-dedup-table!)
+  (reset! rendered-counts {})
   nil)
 
 ;; ---- per-frame run-keyed trace rings (dev-only) ---------------------
@@ -230,7 +244,8 @@
   trace rings."
   [frame-id]
   (when rf.interop/debug-enabled?
-    (swap! trace-rings dissoc frame-id))
+    (swap! trace-rings dissoc frame-id)
+    (swap! rendered-counts dissoc frame-id))
   nil)
 
 (defn- push-to-ring!
@@ -303,108 +318,6 @@
                                :override?         override?
                                :run-order     order''
                                :runs          runs''}))))))))))
-
-;; ---- B4 hot-reload dedup-by-shape (process-scoped) ----------------------
-;;
-;; Per Spec 009 §Hot-reload dedup — re-emits suppressed by shape.
-;; The dedup table is `{(kind, id) → <shape>}` and is consulted by the
-;; registrar via the `:trace.tooling/dedup-allow?` late-bind hook.
-;; Identical shape on re-emit → suppressed; changed shape (or no prior
-;; entry) → allowed.
-;;
-;; Shape composition:
-;;   - For `:rf.registry/handler-registered`: the registration's
-;;     `:handler-fn` identity + the metadata fields that affect the
-;;     observable contract (`:doc`, `:schema`, `:interceptors`, `:tags`,
-;;     plus per-kind extras carried directly on the meta map).
-;;   - For `:rf.registry/handler-replaced`: same shape composed from the
-;;     new metadata. Re-emit suppressed iff matches the prior entry.
-;;   - For `:rf.registry/handler-cleared`: the shape is the sentinel
-;;     `::cleared` (= `:re-frame.trace.tooling/cleared`). A second clear-of-a-cleared id
-;;     (e.g. a double-clear) is suppressed.
-;;
-;; The same dedup keys both `:rf.registry/handler-registered` and
-;; `:rf.registry/handler-replaced` (the registrar already routes
-;; first-time vs re-registration to the right operation). Hot-reload
-;; that re-evaluates a namespace with unchanged handlers emits ZERO
-;; trace events from the registrar.
-
-(defonce ^:private dedup-table (atom {}))
-
-(defn- handler-shape
-  "Compute a value representing the observable shape of a registration's
-  metadata. Used to decide whether a re-emit is genuinely a change.
-
-  Excludes source-coord keys (`:ns` / `:file` / `:line` / `:column`) —
-  source-coord drift across a hot-reload is expected and not a
-  user-visible change. Includes everything that affects the runtime
-  contract (`:handler-fn` identity, `:doc`, `:schema`, `:interceptors`,
-  `:tags`, plus the full set of remaining meta keys as a hash).
-
-  Returns a small map suitable for `=` comparison."
-  [meta]
-  (let [strip (dissoc meta :ns :file :line :column)
-        ;; Hash the residual meta-map (after pulling out the high-signal
-        ;; slots) so semantically-equivalent meta maps compare equal
-        ;; without an O(n) compare each time.
-        residual (dissoc strip :handler-fn :doc :schema :interceptors :tags)]
-    {:handler-fn   (:handler-fn meta)
-     :doc          (:doc meta)
-     :schema       (:schema meta)
-     :interceptors (:interceptors meta)
-     :tags         (:tags meta)
-     :residual     (hash residual)}))
-
-(defn dedup-allow?
-  "Return true iff emitting `operation` for `[kind id]` is a genuine
-  change (or has no prior entry). Updates the dedup table side-effecting:
-
-  - `:rf.registry/handler-registered` / `:rf.registry/handler-replaced` —
-    compute the new shape; allow iff the stored shape differs (or absent).
-    On allow, record the new shape under `[kind id]`.
-  - `:rf.registry/handler-cleared` — allow iff the stored shape is NOT
-    already `::cleared`. On allow, record `::cleared` so a subsequent
-    re-clear is suppressed.
-
-  Dev-only — no-op (returns true, allow-by-default) in production. The
-  registrar's emit sites stay gated on `rf.interop/debug-enabled?` so prod
-  never reaches this fn at all.
-
-  Per Spec 009 §Hot-reload dedup."
-  [operation kind id meta]
-  (cond
-    (not rf.interop/debug-enabled?) true
-
-    (or (= operation :rf.registry/handler-registered)
-        (= operation :rf.registry/handler-replaced))
-    (let [k         [kind id]
-          new-shape (handler-shape meta)
-          prev      (get @dedup-table k)]
-      (if (= prev new-shape)
-        false
-        (do (swap! dedup-table assoc k new-shape)
-            true)))
-
-    (= operation :rf.registry/handler-cleared)
-    (let [k    [kind id]
-          prev (get @dedup-table k)]
-      (if (= prev ::cleared)
-        false
-        (do (swap! dedup-table assoc k ::cleared)
-            true)))
-
-    :else true))
-
-(defn clear-dedup-table!
-  "Reset the B4 dedup-by-shape table to empty. Called by
-  `clear-listeners!` and `clear-trace-rings!` so test-runtime reset
-  fixtures don't leak dedup state across runs.
-
-  Per Spec 009 §Hot-reload dedup — \"the dedup table is cleared by
-  `clear-listeners!` / test-runtime reset fixtures\"."
-  []
-  (reset! dedup-table {})
-  nil)
 
 ;; ---- trace-buffer reader -------------------------------------------------
 ;;
@@ -581,9 +494,8 @@
   A DATA clear, not a fixture reset. Each ring is re-emptied at its own
   effective `:rf.trace/events-retained` cap, so the process default set by
   `(configure! {:trace-buffer {:events-retained N}})` and every frame's
-  explicit override both survive, and the hot-reload registration dedup
-  table is untouched. `clear-trace-rings!` is the fixture-grade reset that
-  additionally drops all three.
+  explicit override both survive. `clear-trace-rings!` is the fixture-grade
+  reset that additionally drops both.
 
   No-op for an unknown frame, no-op in production. Per Spec 009
   §`trace-buffer` API."
@@ -607,8 +519,7 @@
 
 (defn clear-trace-rings!
   "Drop EVERY frame's ring + reset the process-default
-  events-retained back to its initial value + clear the B4 dedup
-  table. Test-fixture / `clear-all!`-shaped helper — symmetric with
+  events-retained back to its initial value. Test-fixture / `clear-all!`-shaped helper — symmetric with
   the listener registry's `clear-listeners!`. Production no-op.
 
   This resets retention POLICY as well as data. A clear that should leave
@@ -618,7 +529,7 @@
   (when rf.interop/debug-enabled?
     (reset! trace-rings {})
     (reset! process-events-retained default-events-retained)
-    (clear-dedup-table!))
+    (reset! rendered-counts {}))
   nil)
 
 (defn current-trace-buffer-config
@@ -1009,7 +920,6 @@
     :rf.warning/failure-swallowed
     :rf.warning/resource-load-more-owner-ignored
     :rf.warning/trace-buffer-unrecognised-opts
-    :rf.warning/schema-validator-unavailable
     :rf.warning/can-leave-subs-artefact-missing})
 
 (defn- print-unobserved-warning!
@@ -1304,6 +1214,7 @@
   callback is re-entered. The ring push happens inline (emission order)."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
+   (reset-render-budget! event)
    (when retain? (push-to-ring! event))
    ;; SSR's dev error capture rides this late-bind hook, not the listener
    ;; registry: it sees every event a listener would, synchronously and
@@ -1378,12 +1289,9 @@
 (rf.late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
 (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config current-trace-buffer-config)
 
-;; Published hooks for B4 dedup-by-shape
-;; (consulted by the registrar at emit time) and frame-destroy ring
-;; cleanup (consulted by `destroy-frame!` per Spec 002 §Destroy).
+;; Published hooks for frame-destroy ring cleanup (consulted by
+;; `destroy-frame!` per Spec 002 §Destroy) and frame retention policy.
 
-(rf.late-bind/set-fn! :trace.tooling/dedup-allow?        dedup-allow?)
-(rf.late-bind/set-fn! :trace.tooling/clear-dedup-table!  clear-dedup-table!)
 (rf.late-bind/set-fn! :trace.tooling/release-frame-ring! release-frame-ring!)
 (rf.late-bind/set-fn! :trace.tooling/apply-frame-events-retained-policy!
                    apply-frame-events-retained-policy!)

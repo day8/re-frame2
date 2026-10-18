@@ -52,8 +52,10 @@
                        :a {} :b {}}}]]]
     (is (= :rf.error/machine-cofx-requires-inline (registration-error-id machine)) label)))
 
-;; A `:timeout` / `:on-timeout` lowers onto `:after`, but the refusal names the
-;; key the author wrote; an authored `:after` is the control.
+;; Every transition slot refuses an inline declaration under the key the author
+;; wrote: a `:timeout` / `:on-timeout` lowers onto `:after`, and a `:spawn`'s
+;; `:on-error` / transition-shaped `:on-done` are slots apart from `:on`. An
+;; authored `:on` and `:after` are the controls.
 (deftest inline-requires-refusal-names-the-authored-key
   (let [inline {:rf.cofx/requires [:rf/time-ms] :target :done}]
     (doseq [[where machine]
@@ -64,11 +66,28 @@
               {:initial :idle
                :states  {:idle {:spawn {:machine-id :x/child :timeout 100 :on-timeout inline}}
                          :done {}}}]
+             ["state :idle :spawn :on-error"
+              {:initial :idle
+               :states  {:idle {:spawn {:machine-id :x/child :on-error inline}} :done {}}}]
+             ["state :idle :spawn :on-done"
+              {:initial :idle
+               :states  {:idle {:spawn {:machine-id :x/child :on-done [inline]}} :done {}}}]
              [":rf/root :on-timeout"
               {:type       :parallel
                :timeout    100
                :on-timeout (assoc inline :target [:a :done])
                :regions    {:a {:initial :idle :states {:idle {} :done {}}}}}]
+             [":rf/root :spawn :on-error"
+              {:initial :idle
+               :spawn   {:machine-id :x/child :on-error inline}
+               :states  {:idle {} :done {}}}]
+             [":rf/root :spawn :on-done"
+              {:initial :idle
+               :spawn   {:machine-id :x/child :on-done inline}
+               :states  {:idle {} :done {}}}]
+             ["state :idle :on"
+              {:initial :idle
+               :states  {:idle {:on {:go inline}} :done {}}}]
              ["state :idle :after"
               {:initial :idle
                :states  {:idle {:after {100 inline}} :done {}}}]]]

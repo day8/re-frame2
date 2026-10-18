@@ -676,6 +676,7 @@
   nil)
 
 (rf.late-bind/set-fn! :resources/on-frame-registered! on-frame-registered!)
+(rf.frame/add-config-keys! #{:revalidate-on})
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;; `re-frame.core` MUST NOT `:require [re-frame.resources]` — the artefact

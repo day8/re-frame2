@@ -291,15 +291,18 @@
   reads its `:choice` vector — the choice lowers to `:always`); the diagnostic
   labels them `:choice` so the author sees the slot they actually wrote. A
   state- or spawn-level `:on-timeout` lowers onto `:after` the same way, so it
-  is swept, and labelled, as `:on-timeout`."
+  is swept, and labelled, as `:on-timeout`. A `:spawn`'s `:on-error` and
+  transition-shaped `:on-done` are transition slots apart from `:on`, swept
+  under their own keys; a fn `:on-done` is the `:data` fold and carries none."
   [machine]
   (let [roots (if (and (map? (:regions machine)) (seq (:regions machine)))
                 (cons machine (filter map? (vals (:regions machine))))
                 [machine])
-        check-on-timeouts!
+        check-timeout-and-spawn-slots!
         (fn [where node]
           (check-no-inline-requires! (str where " :on-timeout") (:on-timeout node))
-          (check-no-inline-requires! (str where " :spawn :on-timeout") (get-in node [:spawn :on-timeout])))
+          (doseq [slot [:on-timeout :on-error :on-done]]
+            (check-no-inline-requires! (str where " :spawn " slot) (get-in node [:spawn slot]))))
         check-node!
         (fn [path node]
           (let [where       (str "state " (if (seq path) (peek path) :rf/root))
@@ -308,7 +311,7 @@
                 always-label (if (rf.machines.choice/choice-node? node) " :choice" " :always")]
             (doseq [[_ev v] (clause-entries node :on)]    (check-no-inline-requires! (str where " :on") v))
             (doseq [[_d v]  (clause-entries node :after)] (check-no-inline-requires! (str where " :after") v))
-            (check-on-timeouts! where node)
+            (check-timeout-and-spawn-slots! where node)
             (doseq [e (always-entries node)] (check-no-inline-requires! (str where always-label) e))
             (when (contains? node :on-done)
               (check-no-inline-requires! (str where " :on-done") (:on-done node)))
@@ -319,7 +322,7 @@
     (doseq [root roots]
       (doseq [[_ev v] (clause-entries root :on)]    (check-no-inline-requires! ":rf/root :on" v))
       (doseq [[_d v]  (clause-entries root :after)] (check-no-inline-requires! ":rf/root :after" v))
-      (check-on-timeouts! ":rf/root" root)
+      (check-timeout-and-spawn-slots! ":rf/root" root)
       (when (contains? root :on-done)
         (check-no-inline-requires! ":rf/root :on-done" (:on-done root))))))
 

@@ -74,6 +74,20 @@ the observation port's probe discipline. Every one of those is
 substrate-routed, and what they route to is the installed adapter's
 `make-derived-value`.
 
+> **Amended 2026-10-19 (rf2-74g9q) — the collector reaches the cache through
+> core's seam now.** `wire-cell!` makes one call,
+> `re-frame.subs/acquire-watched-reaction!`, which subscribes, activates the
+> result through `interop/activate-derived-value!` and arms
+> `interop/add-on-dispose!` inside core; the collector still takes its own
+> watch. A cold read derefs a reaction the sub cache already holds, through
+> `subs/peek-cache-reaction`, and otherwise computes through
+> `subs/compute-sub-with-memo` as above. Those are the same substrate-routed
+> calls, so the one-door reading above and the choice this page makes both
+> stand; the ratom-only activation line that
+> [§2](#the-correctness-axis-which-is-one-sided-and-total) and
+> [§6](#6-what-this-page-does-not-decide) place in `wire-cell!` runs in that
+> seam.
+
 **[DERIVED] There are two implementations of that function in the reference, and
 they are materially different.**
 

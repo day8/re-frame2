@@ -23,6 +23,7 @@
             [re-frame.story.play :as rf.story.play]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.runtime :as rf.story.runtime]
+            #?@(:cljs [[re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]])
             #?@(:clj [[re-frame.story.async :as rf.story.async]
                       [re-frame.story.config :as rf.story.config]
                       [re-frame.trace :as rf.trace]])))
@@ -48,6 +49,7 @@
   (reset! rf.story.play/stepper-state {})
   (reset! rf.story.play.runner-events/run-state {})
   (reset! rf.story.play.runner-events/step-boundaries {})
+  #?(:cljs (reset! rf.story.ui.test-mode.stepper-state/results-atom {}))
   (rf.story.runtime/reset-run-owner!)
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
@@ -129,6 +131,35 @@
           (is (not= undone (rf.epoch/current-epoch-id vid)))
           (is (= (newest) (rf.epoch/current-epoch-id vid))
               "the re-run step advances the cursor to its own record"))))))
+
+;; The debugger's own controls over the same frame. The slot is seeded as
+;; `begin!` seeds it once its promise settles; that promise is why `begin!`
+;; itself is not called here (an `async` test needs map fixtures).
+#?(:cljs
+   (deftest a-second-step-back-restores-the-state-its-cursor-names
+     (testing "each step's pre-image is the state the frame holds, so after
+               step, step, step-back, step, the next step-back lands on
+               step 1's state rather than the undone step 2's"
+       (let [vid  :story.stepper/mutating
+             fwd  rf.story.ui.test-mode.stepper-state/step!
+             back rf.story.ui.test-mode.stepper-state/step-back!
+             at   #(vector (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))
+                           (count-of vid))]
+         (reg-mutating! vid)
+         (start! vid)
+         (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc vid
+                {:variant-id  vid
+                 :active?     true
+                 :cursor      0
+                 :total       3
+                 :play-steps  (vec (rf.story.play/variant-play-steps vid))
+                 :breakpoints #{}
+                 :epoch-stack [(rf.epoch/current-epoch-id vid)]})
+         (is (= [[0 0] [1 1] [2 2] [1 1] [2 2] [1 1] [0 0]]
+                (into [(at)]
+                      (map (fn [control] (control vid) (at)))
+                      [fwd fwd back fwd back back]))
+             "[cursor :count] after Start and after each control")))))
 
 (deftest reset-variant-still-runs-the-whole-script
   (testing "only Start uses the pre-play seam; `reset-variant` (the Re-run

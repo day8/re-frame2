@@ -114,7 +114,8 @@
   AND performs the artefact's load-time side-effects: the
   `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
   publications that `re-frame.core` reaches through."
-  (:require [re-frame.fx                   :as rf.fx]
+  (:require [re-frame.frame                :as rf.frame]
+            [re-frame.fx                   :as rf.fx]
             [re-frame.http.handlers        :as rf.http.handlers]
             [re-frame.http.machine-wrapper :as rf.http.machine-wrapper]
             [re-frame.http.middleware      :as rf.http.middleware]
@@ -233,6 +234,7 @@
 ;; and the raw install/uninstall helpers are called directly from
 ;; `re-frame.http.test-support`, which is also the canned effects' require gate.
 
+(rf.frame/add-config-keys! #{:http-interceptors})
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
 ;; abort suppresses app replies and records stale-suppression facts. This is

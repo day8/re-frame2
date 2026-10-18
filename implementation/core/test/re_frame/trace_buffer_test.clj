@@ -1,7 +1,7 @@
 (ns re-frame.trace-buffer-test
   "Per-frame event-keyed trace rings: bundle reads, eviction, retention
   policy, clears, filters, dispatch correlation defaults, the frame-level
-  emission gate and hot-reload dedup. Per Spec 009 §Per-frame trace rings
+  emission gate and hot-reload re-registration. Per Spec 009 §Per-frame trace rings
   (event-keyed, dev-only) and §Dispatch correlation. JVM-only by intent —
   the ring and router are platform-agnostic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -282,7 +282,7 @@
     (rf/unregister-listener! :trace ::untagged)
     (is (= [] @seen))))
 
-;; ---- hot-reload dedup-by-shape (Spec 009 §Hot-reload dedup) ----------------
+;; ---- hot-reload re-registration (Spec 009 §Hot-reload) ---------------------
 
 (deftest ^:requires-debug hot-reload-changed-handler-emits-one-trace
   (let [recv (atom [])]
@@ -295,17 +295,26 @@
     (rf/unregister-listener! :trace ::probe)
     (is (= [:ev/hot] (mapv #(get-in % [:tags :id]) @recv)))))
 
-(deftest ^:requires-debug hot-reload-dedup-clears-on-reset
-  (testing "clear-listeners! resets the dedup table, so an identical re-registration emits again"
-    (let [handler-fn (fn [{:keys [db]} _] {:db db})
-          recv       (atom [])]
+(defn- record-replacements!
+  "Run `f`, returning the `[kind id different-fn?]` of every
+  `:rf.registry/handler-replaced` it emits."
+  [f]
+  (let [recv (atom [])]
+    (rf/register-listener! :trace ::probe
+                           (fn [ev]
+                             (when (= :rf.registry/handler-replaced (:operation ev))
+                               (swap! recv conj ((juxt :kind :id :different-fn?) (:tags ev))))))
+    (try (f) (finally (rf/unregister-listener! :trace ::probe)))
+    @recv))
+
+(deftest ^:requires-debug identical-re-registration-emits-handler-replaced
+  (testing "an unchanged fn-bearing re-registration emits, with :different-fn? false"
+    (let [handler-fn (fn [{:keys [db]} _] {:db db})]
       (rf/reg-event :ev/cycle {:doc "doc"} handler-fn)
-      (rf.trace.tooling/clear-listeners!)
-      (rf/register-listener! :trace ::probe
-                             (fn [ev]
-                               (when (and (= :rf.registry (:op-type ev))
-                                          (= :ev/cycle (-> ev :tags :id)))
-                                 (swap! recv conj ev))))
-      (rf/reg-event :ev/cycle {:doc "doc"} handler-fn)
-      (rf/unregister-listener! :trace ::probe)
-      (is (seq @recv)))))
+      (is (= [[:event :ev/cycle false]]
+             (record-replacements! #(rf/reg-event :ev/cycle {:doc "doc"} handler-fn))))))
+  (testing "an identical non-fn registration emits on every re-registration"
+    (rf.registrar/register! :route :route/cycle {:doc "slot"})
+    (is (= [[:route :route/cycle false] [:route :route/cycle false]]
+           (record-replacements! #(do (rf.registrar/register! :route :route/cycle {:doc "slot"})
+                                      (rf.registrar/register! :route :route/cycle {:doc "slot"})))))))
