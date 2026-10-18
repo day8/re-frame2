@@ -1927,7 +1927,7 @@ There is **no silent default scope**. Every resource declares an explicit scope 
 
 ### Resource cache lives in runtime-db, not app-db — `:resolved` ([EP-0001](../docs/EP/EP-0001-frame-partitions.md))
 
-Cache lives only at `:rf.runtime/resources` inside `:rf.db/runtime`; there is no interim app-db location, and a stray `:rf/runtime` app-db root is a hard error. Load-bearing prose: [§Cache home and write authority](#cache-home-and-write-authority).
+Cache lives only at `:rf.runtime/resources` inside `:rf.db/runtime`; there is no interim app-db location, and a `:rf/runtime` key in app-db is ordinary app data, not a fallback. Load-bearing prose: [§Cache home and write authority](#cache-home-and-write-authority).
 
 ### Lifecycle is a compact transition fn, not a spawned machine — `:resolved`
 
