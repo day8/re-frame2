@@ -38,8 +38,7 @@
                           "&return-to=/dashboard") {:rf.route/cause :link}])
   (let [payload (rf.ssr.payload-policy/build-payload
                   :rf/default {:public/page :callback}
-                  {:version    1
-                   :runtime-db (rf.ssr.payload-policy/project-runtime-db
+                  {:runtime-db (rf.ssr.payload-policy/project-runtime-db
                                  (rf.frame/frame-runtime-db-value :rf/default) :rf/default)})]
     ;; The large value rides whole (the hydration wire applies no size
     ;; elision); the unclassified sibling rides verbatim.

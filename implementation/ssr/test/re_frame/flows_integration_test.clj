@@ -216,7 +216,7 @@
     (rf/reg-event :cart/seed (fn [_ _] {:db {:cart {:subtotal 9700 :rate 0.1}}}))
     (rf/reg-event :cart/set-subtotal
       (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:cart :subtotal] v)}))
-    (let [policy {:version 1 :payload [:cart]}]
+    (let [policy {:payload [:cart]}]
       (rf/make-frame {:id :ssr/server :platform :server :flows [:cart/total]})
       (rf/dispatch-sync [:cart/seed] {:frame :ssr/server})
       (let [server-db (rf/app-db-value :ssr/server)

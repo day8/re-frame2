@@ -13,10 +13,9 @@
   `:rf/runtime-db` slice contains serializable durable runtime facts;
   transient side channels are excluded.
 
-  Version resolution (`:rf/version`) and the canonical payload
-  assembly live once in `re-frame.ssr.payload-policy`. This namespace
-  owns only the Ring wrapper: project the handed-in `app-db` +
-  runtime-db, then assemble."
+  The `:rf/version` stamp and the canonical payload assembly live once
+  in `re-frame.ssr.payload-policy`. This namespace owns only the Ring
+  wrapper: project the handed-in `app-db` + runtime-db, then assemble."
   (:require [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
 (set! *warn-on-reflection* true)
@@ -25,10 +24,9 @@
   "Per Spec 011 §The hydration payload — emit `:rf/version` and
   `:rf/app-db`, plus the optional `:rf/frame-id`, `:rf/runtime-db` and
   `:rf/schema-digest`. Schema-digest is supplied by the caller when their app participates in the schema-digest
-  check; nil otherwise. Version source-of-truth:
-  `re-frame.ssr.payload-policy/resolve-version` — caller opt wins,
-  falling back to the SSR-owned `payload-policy/pattern-protocol-version`
-  constant so server and client read from the same source.
+  check; nil otherwise. `:rf/version` is the SSR-owned
+  `payload-policy/pattern-protocol-version` constant, so server and client
+  read from the same source.
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy`: callers MUST declare `:payload`

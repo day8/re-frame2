@@ -150,7 +150,7 @@
   (testing "a payload stamped for another frame throws rather than picking a side"
     (let [client-frame (client-frame!)
           other-frame  (rf.frame/make-anon-frame-record! {:platform :server})
-          policy       {:version 1 :payload [:count]}
+          policy       {:payload [:count]}
           payload      (rf.ssr.payload-policy/build-payload
                          other-frame
                          (rf.ssr.payload-policy/apply-policy {:count 7} policy)
