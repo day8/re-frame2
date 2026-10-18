@@ -210,22 +210,22 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 
 ## Validator bundle
 
-The default validator is Malli's `validate` / `explain` pair, plus an EDN printer that canonicalises schemas for the digest. To use a different schema library, install your own bundle: one map whose `:validate` decides whether a value is valid, `:explain` describes a failure, and `:print` gives each schema a stable canonical string for the digest. `set-schema-fns!` installs a bundle, `schema-fns` reads the installed one, and `default-schema-fns` is the framework's own. See [Swap the validator](../core/how-to/validate-with-schemas.md#swap-the-validator-malli-is-the-default).
+The default validator is Malli's `validate` / `explain` pair, with Malli's humanizer in development builds, plus an EDN printer that canonicalises schemas for the digest. The default `:validate` compiles each schema once and keeps the compiled validator only while the schema itself is alive, so there is nothing to configure or clear. To use a different schema library, install your own bundle: one map whose `:validate` decides whether a value is valid, `:explain` describes a failure, `:humanize` turns that description into readable messages, and `:print` gives each schema a stable canonical string for the digest. `set-schema-fns!` installs a bundle, `schema-fns` reads the installed one, and `default-schema-fns` is the framework's own. See [Swap the validator](../core/how-to/validate-with-schemas.md#swap-the-validator-malli-is-the-default).
 
 ### `set-schema-fns!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn}) → {:validate … :explain … :print …}
+  (set-schema-fns! {:validate validate-fn :explain explain-fn :humanize humanize-fn :print print-fn}) → {:validate … :explain … :humanize … :print …}
   ```
-- **Description**: Installs any subset of the validator, explainer and printer from one map. It is the only way to change them.
-    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate` or `:explain` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
+- **Description**: Installs any subset of the validator, explainer, humanizer and printer from one map. It is the only way to change them.
+    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate`, `:explain` or `:humanize` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
     - A `nil` `:print` falls back to the default EDN canonicaliser, so the digest always has a printer.
-    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
+    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `humanize-fn` is `(fn [explanation] readable)`, the `malli.error/humanize` shape, and fills a failure trace's `:explain-humanized`. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
     - Last write wins per key; a call is not transactional.
-    - Returns the installed bundle `{:validate … :explain … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
-    - Install all three in one call at boot so they never disagree mid-boot. The same call restores a saved bundle: pass it a value from `schema-fns` or `default-schema-fns`.
+    - Returns the installed bundle `{:validate … :explain … :humanize … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
+    - Install them in one call at boot so they never disagree mid-boot. The same call restores a saved bundle: pass it a value from `schema-fns` or `default-schema-fns`.
 - **Example**:
   ```clojure
   ;; install validator + explainer together (e.g. a clojure.spec or Zod port)
@@ -247,11 +247,11 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (schema-fns) → {:validate fn|nil :explain fn|nil :print fn}
+  (schema-fns) → {:validate fn|nil :explain fn|nil :humanize fn|nil :print fn}
   ```
-- **Description**: Returns the installed validator, explainer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
+- **Description**: Returns the installed validator, explainer, humanizer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
     - `(set-schema-fns! (schema-fns))` changes nothing.
-    - `:validate` and `:explain` may be `nil`; `:print` never is.
+    - `:validate`, `:explain` and `:humanize` may be `nil`; `:print` never is.
     - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. Registered schemas are registrar state, so `re-frame.test-support`'s registrar snapshot restores them after each test, and its reset clears them for the test's length.
 - **Example**:
   ```clojure
@@ -269,11 +269,11 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
 - **Kind**: var
 - **Signature**:
   ```clojure
-  default-schema-fns → {:validate fn :explain fn :print fn}
+  default-schema-fns → {:validate fn :explain fn :humanize fn|nil :print fn}
   ```
-- **Description**: The framework's own bundle: the map installed before an app installs anything, with exactly `:validate`, `:explain` and `:print`.
+- **Description**: The framework's own bundle: the map installed before an app installs anything.
     - `(set-schema-fns! default-schema-fns)` restores the defaults.
-    - `:validate` and `:explain` call Malli; `:print` is the framework's EDN canonicaliser, which Malli does not supply.
+    - `:validate` and `:explain` call Malli, `:validate` compiling each schema once. `:humanize` is Malli's humanizer in development builds and `nil` in production. `:print` is the framework's EDN canonicaliser, which Malli does not supply.
 - **Example**:
   ```clojure
   ;; restore the framework defaults after a test swapped them out
@@ -488,16 +488,7 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
 
 ### Test support
 
-These functions reset the artefact's once-per-process latches between tests, so each test case starts with no remembered warnings. Registered schemas need no reset of their own: [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) clears every one before each test and its registrar snapshot restores them afterwards, so a test checks only the schemas it registers, and a schema registered in a test body is rolled back after it like any other registration.
-
-#### `clear-validator-unavailable-warned!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-validator-unavailable-warned!)
-  ```
-- **Description**: Resets the once-per-process `:rf.warning/schema-validator-unavailable` latch, so each test case can see the warning afresh. The first `reg-app-schema` emits that warning when the Malli adapter is unbound and the framework-default validator is still installed, so every check passes.
+This function resets the artefact's once-per-process warning latch between tests, so each test case starts with no remembered warning. Registered schemas need no reset of their own: [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) clears every one before each test and its registrar snapshot restores them afterwards, so a test checks only the schemas it registers, and a schema registered in a test body is rolled back after it like any other registration.
 
 #### `clear-walker-opaque-warned!`
 
