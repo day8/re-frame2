@@ -654,7 +654,9 @@ step-back without modifying the runtime, the local-state layer
 threads the variant frame's epoch history (per
 [spec/Tool-Pair.md](../../../spec/Tool-Pair.md)
 §Time-travel: epoch snapshots and undo): BEFORE each forward step it captures the current
-`:epoch-id` (the head of `epoch-history`) and pushes it onto an
+`:epoch-id` (`re-frame.epoch/current-epoch-id`, the cursor a restore
+moves — after a step-back the head of `epoch-history` is still the undone
+step's record) and pushes it onto an
 `:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch!`s
 against the new head, then decrements the cursor. Rewind restores
 against the bottom-of-stack epoch and resets the cursor to 0 — that

@@ -8,7 +8,6 @@
   by redef-ing the substrate calls so the slot transitions can be
   observed deterministically without booting the runtime."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.play :as rf.story.play]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]))
@@ -51,8 +50,7 @@
       (seed-slot! vid events)
       (with-redefs [rf.story.play/step-once!    (fn [v]
                                          (swap! dispatched conj v))
-                    rf.story.assertions/epoch-history (fn [_]
-                                                        [{:epoch-id :epoch/before-a}])]
+                    rf.story.runtime/current-epoch-id (fn [_] :epoch/before-a)]
         (rf.story.ui.test-mode.stepper-state/step! vid)
         (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
           (is (= [vid] @dispatched) "rf.story.play/step-once! is called with the variant id")
@@ -67,7 +65,7 @@
       (seed-slot! vid [[:e/a]])
       (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc-in [vid :cursor] 1)
       (with-redefs [rf.story.play/step-once!    (fn [v] (swap! dispatched conj v))
-                    rf.story.assertions/epoch-history (fn [_] [{:epoch-id :x}])]
+                    rf.story.runtime/current-epoch-id (fn [_] :x)]
         (rf.story.ui.test-mode.stepper-state/step! vid)
         (is (empty? @dispatched) "rf.story.play/step-once! is NOT called")
         (is (= 1 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid)))
