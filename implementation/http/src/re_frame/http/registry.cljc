@@ -230,9 +230,34 @@
     (abort-record! superseded :request-id-superseded)
     superseded))
 
+;; ---- per-frame stub transports -------------------------------------------
+;;
+;; A demo runs on a fake backend by installing a stub transport on its frame
+;; (`re-frame.http.stub-transport/install-transport!`). The install is the
+;; frame's own HTTP state, held here beside its issuance counter and dropped
+;; with it when the frame is destroyed, so a frame later created under the same
+;; id starts on the host adapter.
+
+(defonce ^:private frame-transports
+  ;; frame-id → the stub transport the frame's requests go out through.
+  (atom {}))
+
+(defn install-frame-transport!
+  "Send every managed request `frame-id` issues through `transport`, or, with
+  `transport` nil, through the host adapter again. Returns nil."
+  [frame-id transport]
+  (swap! frame-transports #(if transport (assoc % frame-id transport) (dissoc % frame-id)))
+  nil)
+
+(defn frame-transport
+  "The stub transport installed on `frame-id`, or nil."
+  [frame-id]
+  (get @frame-transports frame-id))
+
 (defn clear-all-in-flight!
   "Test-time helper: cancel every in-flight managed request, then drop every
-  frame's issuance counter. Test fixtures use this between runs.
+  frame's issuance counter and installed stub transport. Test fixtures use
+  this between runs.
 
   Symmetric with `:machines/reset-timers!`: a request sleeping in its retry
   backoff holds an armed `js/setTimeout` / `ScheduledFuture` that would
@@ -246,6 +271,7 @@
     (doseq [record (all-records registry)]
       (abort-record! record :test-reset)))
   (reset! issuance-counters {})
+  (reset! frame-transports {})
   nil)
 
 (defn in-flight-snapshot
@@ -452,12 +478,14 @@
   core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
   work gets its more specific `:actor-destroyed` semantics and resource-owned
   work its ledger/owner cleanup first; this sweep then catches the remaining
-  requests. Then drops the destroyed frame's issuance counter: every id it
-  minted is terminal by then, and the counter map stays bounded by the live
-  frames. Idempotent; returns nil."
+  requests. Then drops the destroyed frame's issuance counter and installed
+  stub transport: every id it minted is terminal by then, both maps stay
+  bounded by the live frames, and a frame later made under the same id starts
+  on the host adapter. Idempotent; returns nil."
   [frame-id]
   (abort-frame-records! frame-id :frame-destroyed :suppressed-on-frame-destroy)
   (swap! issuance-counters dissoc frame-id)
+  (swap! frame-transports dissoc frame-id)
   nil)
 
 ;; ---- spawned-actor detection ----------------------------------------------
