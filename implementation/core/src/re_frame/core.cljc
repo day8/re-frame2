@@ -1423,6 +1423,13 @@
         (ws/subscribe! (fn [msg] (dispatch [:ws/incoming msg])))
         [:div \"streaming…\"]))
 
+  The frame api is pinned to the frame INCARNATION live at capture, not
+  merely to its id: once that incarnation is destroyed, the dispatch ops
+  do nothing and `:subscribe` returns nil, each emitting
+  `:rf.error/frame-destroyed` — even after a new frame is created under
+  the same id. Capturing an id with no live frame pins nothing: its ops
+  follow whichever frame holds the id when they run.
+
   A per-call `:frame` in the dispatch opts MUST NOT override the
   captured frame — the frame api is LOCKED to one frame. It is a bundle
   of ops, not a container: read the frame's app-db value via
