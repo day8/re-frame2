@@ -78,8 +78,8 @@
   (rf/compute-sub [:rf/resource query] (rf/frame-state-value :rf/default)))
 
 (defn- preview-frame []
-  (rf.frame/make-anon-frame-record! {:url-bound? true
-                                     :fx-overrides {:rf.nav/push-url :rf/no-op}}))
+  ;; not URL-bound: the fixture's :rf/default owns the URL
+  (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.nav/push-url :rf/no-op}}))
 
 (deftest article-detail-route-threads-the-url-slug-into-resource-params
   (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/article-detail :params {:slug "owners-vs-causes"}}])
