@@ -472,15 +472,19 @@ Chrome figure.
 
 ```bash
 cd implementation
-npx shadow-cljs release ui-bench --config-merge \
-  '{:main re-frame.bench.read-attribution-cljs/-main
-    :output-to "out/read-attribution-cljs.js"
-    :compiler-options {:optimizations :advanced :infer-externs :auto
-                       :closure-defines {goog.DEBUG false}}}'
+node scripts/lib/shadow.cjs --clean out/read-attribution-cljs.js release node-test --config-merge '{:main re-frame.bench.read-attribution-cljs/-main :ns-regexp "^$" :output-to "out/read-attribution-cljs.js" :compiler-options {:infer-externs :auto :warnings-as-errors false :closure-defines {goog.DEBUG false}}}'
 RA_N=300 node --expose-gc out/read-attribution-cljs.js               # forward
 RA_N=300 RA_ORDER=rev node --expose-gc out/read-attribution-cljs.js  # reversed
 ```
 
-`shadow-cljs.edn` is unchanged — the same `--config-merge` route onto the existing
-`:ui-bench` build id that `write_attribution.cljs` takes. Exit code 2 means the
-arm-order guard refused and nothing in that run may be quoted.
+`shadow-cljs.edn` declares no build for this probe, so the recipe rides the
+`:node-test` build id through `--config-merge`: `:main` names the probe, an
+`:ns-regexp` that matches no namespace keeps the test suites out, and `release`
+compiles `:advanced`. The externs-inference warnings `:infer-externs :auto`
+reports would fail the build under `:node-test`'s `:warnings-as-errors true`, so
+the merge turns that off. The
+merged EDN stays on one line because shadow-cljs's CLI splits a `--config-merge`
+holding a newline on whitespace. `scripts/lib/shadow.cjs` takes the machine-wide
+build lane before it compiles, and `--clean` deletes the previous bundle first, so
+a failed build leaves nothing stale to run. Exit code 2 means the arm-order guard
+refused and nothing in that run may be quoted.
