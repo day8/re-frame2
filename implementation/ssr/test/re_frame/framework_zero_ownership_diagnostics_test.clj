@@ -25,7 +25,6 @@
 
 (def ^:private ownership-diagnostics
   #{:rf.warning/app-handler-runtime-effect
-    :rf.error/legacy-runtime-root
     :rf.error/effect-map-shape})
 
 (defn- record-ownership-diagnostics! [listener-id]
