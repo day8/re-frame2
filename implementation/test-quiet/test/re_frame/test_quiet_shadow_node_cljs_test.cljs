@@ -77,16 +77,37 @@
   this process's memory."
   (* 8 1024 1024))
 
+(def ^:private lagging-reader-relay
+  "Node source for `node -e <this> <bundle> <args...>`: run the bundle and
+  copy its stdout on, but only from a second after its first byte is
+  readable. Meanwhile the pipe fills, so a runner that leaves output queued
+  when it exits loses it, while one that writes synchronously waits.
+
+  It holds back with a `readable` listener rather than a paused stream:
+  Node resumes a paused child stdout when the child exits, discarding what
+  is buffered, whereas a `readable` listener keeps it until read."
+  (str "const c=require('child_process').spawn(process.execPath,"
+       "process.argv.slice(1),{stdio:['ignore','pipe','inherit']});"
+       "let open=false,timer=null;"
+       "const drain=()=>{let d;while((d=c.stdout.read())!==null)process.stdout.write(d);};"
+       "c.stdout.on('readable',()=>{if(open)drain();"
+       "else if(!timer)timer=setTimeout(()=>{open=true;drain();},1000);});"
+       "c.on('exit',(code)=>{process.exitCode=(code===null?1:code);});"))
+
 (defn- spawn-runner
-  "Run this bundle in a child without inherited verbose output."
+  "Run this bundle in a child without inherited verbose output, behind
+  `lagging-reader-relay` when `lagging-reader?`."
   ([runner-args] (spawn-runner runner-args {}))
-  ([runner-args {:keys [env]}]
+  ([runner-args {:keys [env lagging-reader?]}]
    (let [child-environment (doto (js/Object.assign #js {} js/process.env)
                              (js-delete "RF2_VERBOSE_TESTS")
                              (js/Object.assign (clj->js env)))
          spawn-result (.spawnSync node-child-process
                                   (aget js/process.argv 0) ; the node binary
-                                  (apply array (aget js/process.argv 1) runner-args)
+                                  (apply array
+                                         (concat (when lagging-reader? ["-e" lagging-reader-relay])
+                                                 [(aget js/process.argv 1)]
+                                                 runner-args))
                                   #js {:encoding  "utf8"
                                        :timeout   spawn-timeout-ms
                                        :maxBuffer spawn-max-buffer-bytes
@@ -153,6 +174,23 @@
     (is (every? #(str/includes? combined %)
                 ["RED-REPLAY-VOLUME-0" "RED-REPLAY-TAIL-MARKER"])
         "large replay keeps its head and tail")))
+
+(deftest large-red-fail-block-and-summary-are-not-truncated
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" red-warn-fixture-ns)]
+                      {:env             {:RF2_TQ_RED_FAIL_VOLUME "1"}
+                       :lagging-reader? true})
+        ;; Asserted as booleans so a red prints this evidence, not the
+        ;; megabyte of stdout an `includes?` form would carry.
+        tail-arrived?    (str/includes? stdout "RED-FAIL-VOLUME-TAIL-MARKER")
+        summary-arrived? (str/includes? stdout "1 failures, 0 errors.")
+        evidence         (str (count stdout) " stdout chars, ending: "
+                              (subs stdout (max 0 (- (count stdout) 400)))
+                              "\nstderr: " stderr
+                              (when error (spawn-error-explanation error)))]
+    (is (= [nil 1] [error status]) evidence)
+    (is tail-arrived? (str "the FAIL block arrives whole; " evidence))
+    (is summary-arrived? (str "the summary after it arrives too; " evidence))))
 
 (def ^:private exit-integrity-fixture-ns
   "re-frame.test-quiet-exit-integrity-fixture-cljs-test")
