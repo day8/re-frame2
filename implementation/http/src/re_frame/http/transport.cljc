@@ -21,7 +21,8 @@
   `:rf.http/http-5xx` with the raw body-text). Per Spec 014 §Retry and
   backoff `maybe-retry!` decides between retry and final failure from the
   failing attempt's failure category and the request's `:retry` config."
-  (:require [re-frame.error             :as rf.error]
+  (:require [clojure.string             :as str]
+            [re-frame.error             :as rf.error]
             [re-frame.http.decode       :as rf.http.decode]
             [re-frame.http.encoding     :as rf.http.encoding]
             [re-frame.http.middleware   :as rf.http.middleware]
@@ -69,6 +70,76 @@
   (when-let [f @test-interleave-hook]
     (f point ctx))
   nil)
+
+;; ---- the transport seam -----------------------------------------------------
+;;
+;; An attempt goes out through the HOST adapter (`cljs-fetch` / `jvm-fetch`)
+;; unless the request was issued with a stub transport in scope. A stub stands
+;; exactly where the host adapter does: below `:before`, normalisation and body
+;; preparation, and above `handle-response!`. So status classification,
+;; `:decode`, `:accept`, retry, the privacy scrub, the envelope's work id,
+;; attempt and completed-at, every cancellation path and the reply-tail fence
+;; all run as they do for a real exchange. `re-frame.http.stub-transport` builds
+;; stubs and installs them; this namespace finds the one in scope at issue and
+;; drives it.
+;;
+;; A transport is `(fn [wire-request {:keys [respond fail]}])`, returning a
+;; cancel fn or nil:
+;;
+;;   wire-request  `{:method :url :headers :body :timeout-ms}` — the attempt as
+;;                 the host adapter would send it: `:params` merged into the url,
+;;                 the body encoded, the inferred `Content-Type` on the headers.
+;;   respond       answers with what a host adapter yields: `{:status
+;;                 :status-text :headers :body-text}`, or `:body-binary` in place
+;;                 of `:body-text` for a binary read.
+;;   fail          ends the attempt as a network failure: a map whose `:kind` is
+;;                 `:rf.http/transport` (the default) or `:rf.http/timeout`.
+;;   cancel fn     called with no arguments when the attempt is aborted or times
+;;                 out, so the stub can drop whatever it was holding.
+;;
+;; `respond` and `fail` may be called inline, from inside the transport call, or
+;; later from any thread. The first call settles the attempt and each returns
+;; whether it did; a call after that, or after an abort or a timeout, delivers
+;; nothing. The request's `:timeout-ms` bounds the attempt here exactly as the
+;; host adapters bound theirs.
+
+(def ^:dynamic *transport*
+  "The stub transport a `re-frame.http.stub-transport/with-transport` scope
+  binds, or nil. Read once, at issue: a request keeps the transport it was
+  issued under for every attempt, so a reply that completes after the scope
+  has exited — a delayed answer, a retry, a held request answered later —
+  still goes through it. Not part of the user-facing API."
+  nil)
+
+(defn- stub-response
+  "A stub's answer as the normalised response `handle-response!` takes: header
+  names lower-cased as both host adapters deliver them, `:status-text`
+  defaulting to the empty string, and `:ok?` derived from the status."
+  [{:keys [status status-text headers body-text body-binary]}]
+  (let [status (or status 200)]
+    (cond-> {:ok?         (and (>= status 200) (< status 300))
+             :status      status
+             :status-text (or status-text "")
+             :headers     (into {} (map (fn [[k v]] [(str/lower-case (name k)) v])) headers)}
+      (some? body-binary) (assoc :body-binary body-binary)
+      (nil? body-binary)  (assoc :body-text (or body-text "")))))
+
+(defn- stub-failure
+  "A stub's `fail` as the classified failure the matching host classifier
+  produces. Only the two network outcomes are a transport's to report — every
+  other kind is decided above it from a response — so any other `:kind` is
+  refused rather than delivered in a shape the live path never produces."
+  [failure timeout-ms elapsed-ms]
+  (let [kind (or (:kind failure) :rf.http/transport)]
+    (case kind
+      :rf.http/transport (merge {:message "the stub transport failed the request"}
+                                failure {:kind kind})
+      :rf.http/timeout   (merge {:elapsed-ms elapsed-ms :limit-ms timeout-ms}
+                                failure {:kind kind})
+      (throw (ex-info (str "a stub transport fails a request with :kind :rf.http/transport or "
+                           ":rf.http/timeout; " (pr-str kind) " is decided from a response — "
+                           "`respond` with that response instead")
+                      {:kind kind})))))
 
 (def ^:private reply-suppressing-abort-reasons
   "Abort reasons whose `:rf.http/aborted` failure is NOT dispatched to the app
@@ -1226,6 +1297,95 @@
                :cause   #?(:clj (.getName (class e))
                            :cljs (some-> (.-name ^js e)))}})))
 
+(defn- send-via-transport!
+  "`send!` for a request issued under a stub transport (see the transport
+  seam above): the same guarded `:preparing` → `:in-flight` step, with the
+  stub standing in for the host call.
+
+  A stub may answer INLINE — call `respond` or `fail` before it returns — which
+  is what lets a `dispatch-sync` drain deliver the reply before it returns. But
+  the call happens inside the record's guard, and the outcome runs user code
+  (`:decode`, `:accept`, `:after`, the reply dispatch) that must never run under
+  it. So an outcome reported while the guard is held is parked in `handoff`
+  and handled the moment the guard is released; one reported later is handled
+  where it arrives. The handoff is one atomic swap on each side, so an outcome
+  reported from another thread just as the guard is released is handled
+  exactly once, by whichever side sees it.
+
+  The first outcome settles the attempt. The cancel the step publishes settles
+  it too — the abort, or the `:timeout-ms` timer armed here, as the host
+  adapters arm theirs — so an answer that arrives afterwards is fenced and
+  delivers nothing."
+  [record ctx {:keys [enc-body headers]}]
+  (interleave! :issue/before-send ctx)
+  (let [{:keys [request timeout-ms transport]} ctx
+        wire         {:method     (or (:method request) :get)
+                      :url        (:url ctx)
+                      :headers    headers
+                      :body       enc-body
+                      :timeout-ms timeout-ms}
+        started-ms   (rf.interop/now-ms)
+        elapsed-ms   #(let [d (- (rf.interop/now-ms) started-ms)]
+                        #?(:clj (long d) :cljs (js/Math.round d)))
+        settled      (atom false)
+        handoff      (atom ::inside)
+        timer        (atom nil)
+        stub-cancel  (atom nil)
+        cancel-stub! (fn []
+                       (when-let [c @stub-cancel]
+                         (try (c) (catch #?(:clj Throwable :cljs :default) _ nil))))
+        handle!      (fn [[tag x]]
+                       (complete-fenced! record ctx
+                                         #(if (= :response tag)
+                                            (handle-response! record ctx x)
+                                            (maybe-retry! record ctx x))))
+        settle!      (fn [outcome]
+                       (when (compare-and-set! settled false true)
+                         (some-> @timer rf.interop/clear-timeout!)
+                         (let [[before _] (swap-vals! handoff #(if (= ::inside %) outcome %))]
+                           (when-not (= ::inside before)
+                             (handle! outcome)))
+                         true))
+        callbacks    {:respond (fn respond [response]
+                                 (boolean (settle! [:response (stub-response response)])))
+                      :fail    (fn fail [failure]
+                                 (boolean (settle! [:failure (stub-failure failure timeout-ms (elapsed-ms))])))}]
+    (guarded record
+      (fn []
+        (when (current? @record ctx #{:preparing})
+          ;; Published before the stub runs, so an abort re-entering from
+          ;; inside the call finds it.
+          (commit! record assoc :phase :in-flight
+                   :cancel (fn [_reason]
+                             (when (compare-and-set! settled false true)
+                               (some-> @timer rf.interop/clear-timeout!)
+                               (cancel-stub!))))
+          (try
+            (let [c (transport wire callbacks)]
+              (when (fn? c)
+                (reset! stub-cancel c)
+                ;; Aborted while the stub was still running: its cancel
+                ;; arrives only now.
+                (when (and @settled (= ::inside @handoff))
+                  (cancel-stub!))))
+            (catch #?(:clj Throwable :cljs :default) e
+              (settle! [:failure {:kind    :rf.http/transport
+                                  :message (rf.error/ex-message-safe e)
+                                  :cause   #?(:clj  (.getName (class e))
+                                              :cljs (some-> (.-name ^js e)))}])))
+          (when (and timeout-ms (pos? timeout-ms) (not @settled))
+            (reset! timer
+                    (rf.interop/set-timeout!
+                      #(when (settle! [:failure {:kind       :rf.http/timeout
+                                                 :elapsed-ms (elapsed-ms)
+                                                 :limit-ms   timeout-ms}])
+                         (cancel-stub!))
+                      timeout-ms))))))
+    ;; The guard is released: handle an outcome the stub reported inline.
+    (let [[parked _] (reset-vals! handoff ::outside)]
+      (when (vector? parked)
+        (handle! parked)))))
+
 (defn- send!
   "`:preparing` → `:in-flight`. The phase check, the host send and the
   publication of the send's cancel run as ONE guarded step, so cancellation
@@ -1353,13 +1513,18 @@
   exactly like a network failure, so `:on-failure`, the retry policy, abort
   precedence and redaction all apply to it. A request no longer preparing — an
   external `:abort-signal` already aborted at issuance, or an abort landing as
-  the backoff timer fired — is skipped before any body thunk runs."
+  the backoff timer fired — is skipped before any body thunk runs.
+
+  A request issued under a stub transport sends through it
+  (`send-via-transport!`) rather than the host adapter; everything above and
+  below the send is the same."
   [record ctx]
   (when (current? @record ctx #{:preparing})
     (let [prep (prepare-body! (:request ctx))]
-      (if-let [failure (:error prep)]
-        (maybe-retry! record ctx failure)
-        (send! record ctx (:ok prep))))))
+      (cond
+        (:error prep)     (maybe-retry! record ctx (:error prep))
+        (:transport ctx)  (send-via-transport! record ctx (:ok prep))
+        :else             (send! record ctx (:ok prep))))))
 
 (defn- fire!
   "The backoff timer fired: `:backoff` → `:preparing` for attempt n+1, then
@@ -1391,10 +1556,17 @@
   The external `:abort-signal` (CLJS) is bound here, once, to the request's
   abort, so it reaches whichever phase is current; retirement detaches it. An
   already-aborted signal aborts the request on the spot, and attempt 1 then
-  never prepares a body or issues anything."
+  never prepares a body or issues anything.
+
+  The stub transport the request goes out through, if any, is resolved here,
+  once, for every attempt: a `with-transport` scope's, else the one installed
+  on the issuing frame (`registry/frame-transport`), else none — the host
+  adapter."
   [ctx]
   (let [{:keys [request]} ctx
-        ctx    (assoc ctx :url (rf.http.encoding/merge-params (:url request) (:params request)))
+        ctx    (assoc ctx
+                      :url       (rf.http.encoding/merge-params (:url request) (:params request))
+                      :transport (or *transport* (rf.http.registry/frame-transport (:frame ctx))))
         record (atom nil)]
     (reset! record
             (cond-> {:token        (rf.http.registry/next-token!)
