@@ -581,7 +581,9 @@ Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fr
 
 ---
 
-### M-15b. A full-`app-db`-replace boot / initialise event is safe — but strip any retired `:rf/runtime` key (now a hard error)
+<a id="m-15b-a-full-app-db-replace-boot--initialise-event-is-safe--but-strip-any-retired-rfruntime-key-now-a-hard-error"></a>
+
+### M-15b. A full-`app-db`-replace boot / initialise event is safe — drop any leftover `:rf/runtime` key
 
 **Type B** (semantic flag — the rewrite depends on whether the boot intended to seed runtime state).
 
@@ -594,28 +596,28 @@ In v1, framework runtime did **not** live in `app-db`, so the ubiquitous full-db
 
 In v2 framework runtime lives in a **separate partition — the runtime-db** (`:rf.db/runtime`, children under `:rf.runtime/*`): machine snapshots at `[:rf.runtime/machines :snapshots <id>]`, the current route at `[:rf.runtime/routing :current]`, plus elision and SSR state (per [Conventions §Reserved partition keys](../../spec/Conventions.md#reserved-partition-keys) and [§Reserved runtime-db keys](../../spec/Conventions.md#reserved-runtime-db-keys)). An ordinary `:db` return replaces **only** the app-db partition and **cannot touch** runtime-db — so the **same** wholesale-replace idiom is now **safe**: any boot machine, the current route, every live snapshot survives. The v1-era "wholesale `{:db fresh}` boot wipes the runtime" footgun is **structurally gone** — nothing to preserve, nothing to clobber (per [002 §The two-partition frame contract](../../spec/002-Frames.md#the-two-partition-frame-contract)).
 
-The one residual hazard is the **retired app-db root `:rf/runtime`**. The former single reserved app-db root is gone; a stray top-level `:rf/runtime` key in a `:db` value — whether v1-shaped, hand-rolled, or threaded forward by an older v2-preview rewrite — is now a **hard error**: it throws `:rf.error/legacy-runtime-root` at the event-commit boundary (the always-on post-commit guard, per [Conventions §The legacy `:rf/runtime` root](../../spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). This is the final form (EP-0001); there is no migration warning and no app-db root to preserve.
+A top-level `:rf/runtime` key in a `:db` value is ordinary app data: there is no app-db runtime root (per [Conventions §There is no `:rf/runtime` app-db root](../../spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). So a v1-shaped `fresh-db`, or an early-preview "preserve the runtime" stopgap, that still stashes runtime state under `:rf/runtime` raises nothing, but it seeds nothing either: the stash is dead app data.
 
-**What to look for:** any event handler — `:initialize-db`, `:bootstrap`, `:app/reset`, a logout-to-clean-state event — that returns a *wholesale* `app-db` value (`(reg-event-db … (fn [_ _] fresh-db))` or `{:db fresh-db}` where `fresh-db` is built from scratch rather than threaded from the incoming `db`). The migration risk is narrow: a `fresh-db` (or an explicit `assoc`) that **carries a top-level `:rf/runtime` key** — the v1-shaped runtime stash, or the old "preserve the runtime" stopgap an early-preview rewrite may have introduced.
+**What to look for:** any event handler — `:initialize-db`, `:bootstrap`, `:app/reset`, a logout-to-clean-state event — whose `:db` value carries a top-level `:rf/runtime` key: the v1-shaped runtime stash, or the old "preserve the runtime" stopgap an early-preview rewrite may have introduced.
 
-**What to do — strip any `:rf/runtime` key (always).** The wholesale reset itself needs no change; just ensure the returned `:db` carries **no** `:rf/runtime` key (it would hard-error). If a v1-shaped `fresh-db` or an older preview rewrite still stashes runtime state there, drop it:
+**What to do — drop the `:rf/runtime` key.** The wholesale reset itself needs no change:
 
 ```clojure
-;; BEFORE — an early-preview "preserve the runtime" stopgap (now hard-errors)
+;; BEFORE — an early-preview "preserve the runtime" stopgap (copies dead app data)
 (rf/reg-event-fx :bootstrap
   (fn [{:keys [db]} _]
-    {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))   ; throws :rf.error/legacy-runtime-root
+    {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))
 
 ;; AFTER — just return the fresh db; the runtime-db partition is left untouched
 (rf/reg-event :bootstrap                              ;; the one public event form (EP-0018)
-  (fn [_ _] {:db fresh-db}))   ; fresh-db carries NO :rf/runtime — machines/routing/SSR survive in runtime-db
+  (fn [_ _] {:db fresh-db}))   ; machines/routing/SSR survive in runtime-db
 ```
 
 **If you genuinely need to seed runtime state**, emit the `:rf.db/runtime` effect (never an app-db key) — but a routine boot/reset does not need it; the runtime owns runtime-db.
 
 **Rule of thumb:** a wholesale `{:db fresh}` is fine, even from *inside* a machine-driven cascade — the machine's own state lives in runtime-db, which the `:db` replace does not reach. The only thing to remove is a leftover `:rf/runtime` app-db root.
 
-**Why:** v2 splits framework runtime into its own runtime-db partition for atomic revertibility *without* the v1→early-v2 ownership footgun (per [002 §The two-partition frame contract](../../spec/002-Frames.md#the-two-partition-frame-contract) and [000 Goal 2](../../spec/000-Vision.md#frame-state-revertibility)); the "just return a fresh map" boot idiom is safe again, and the retired `:rf/runtime` app-db root is a loud hard error rather than a silent clobber.
+**Why:** v2 splits framework runtime into its own runtime-db partition for atomic revertibility *without* the v1→early-v2 ownership footgun (per [002 §The two-partition frame contract](../../spec/002-Frames.md#the-two-partition-frame-contract) and [000 Goal 2](../../spec/000-Vision.md#frame-state-revertibility)); the "just return a fresh map" boot idiom is safe again, and an app-db `:rf/runtime` key is plain data rather than a silent clobber.
 
 ---
 

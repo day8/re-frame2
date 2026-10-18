@@ -201,6 +201,6 @@ Some coeffects are backed by a **generator**: an app-registered, recordable `reg
 ;; => "Buy milk"
 ```
 
-Supply the fact in `:rf.cofx`, which is almost always what you want. When a fresh value per run is intended, pass `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
+Supply the fact in `:rf.cofx`, which is almost always what you want. When a fresh value per run is intended, pass `{:rf.cofx/mint-policy :live}` as a dispatch opt.
 
 `{:preset :test}` also redirects `:rf.http/managed` to a canned stub; [Test a pipeline run](pipeline-runs.md#the-test-preset) lists the whole expansion and how it combines with your own `:fx-overrides`.

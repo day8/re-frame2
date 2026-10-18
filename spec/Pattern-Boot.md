@@ -278,7 +278,7 @@ Under the **two-partition frame contract** (the canonical definition is [002 §T
      :fx  [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 ```
 
-The one boot-time rule: **never put a `:rf/runtime` key in a `:db` value** — a `:db` carrying a single-root `:rf/runtime` key is the hard error `:rf.error/legacy-runtime-root` (the contract is owned by [Conventions §The legacy `:rf/runtime` root](Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). Carrying `:rf/runtime` across the replace to preserve the snapshot is both unnecessary (the partition is already untouched) and forbidden (it throws). To seed or replace runtime-db state, emit the reserved `:rf.db/runtime` effect (or use `replace-frame-state!` with a `:rf.db/runtime` key), never an app-db key. The [MIGRATION guide](../migration/from-re-frame-v1/README.md) makes the same correction for any v1 full-db-replace boot event adopted into v2.
+The one boot-time rule: **seed runtime-db through its own effect, never an app-db key.** A `:db` carrying a `:rf/runtime` key writes ordinary app data — there is no app-db runtime root ([Conventions §There is no `:rf/runtime` app-db root](Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)) — and carrying it across the replace to preserve the snapshot is unnecessary, since the partition is already untouched. To seed or replace runtime-db state, emit the reserved `:rf.db/runtime` effect (or use `replace-frame-state!` with a `:rf.db/runtime` key). The [MIGRATION guide](../migration/from-re-frame-v1/README.md) makes the same correction for any v1 full-db-replace boot event adopted into v2.
 
 #### 4. The eager kick commits the birth snapshot before the entry `:fx` run
 

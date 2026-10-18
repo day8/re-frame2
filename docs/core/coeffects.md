@@ -328,8 +328,8 @@ starts processing. Whether generation is allowed is the **mint policy**:
 - `:strict`: nothing is generated, so a declared fact that wasn't supplied raises
   `:rf.error/missing-required-cofx`. Replay always uses it, and so does the `:test`
   frame preset.
-- `:explicit-live`: a test opts back into generation.
 
+A test on a `:strict` frame opts back into generation with `:live`.
 Choose per dispatch with the `:rf.cofx/mint-policy` option, or per frame.
 [Testing event handlers](testing/event-handlers.md) uses the strict policy.
 

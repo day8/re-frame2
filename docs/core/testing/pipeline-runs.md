@@ -260,7 +260,7 @@ Every opt on this page changes something around the handler, never the handler f
 |---|---|
 | `:frame` | which frame the event runs in |
 | `:rf.cofx` | the facts the handler receives |
-| `:rf.cofx/mint-policy` | whether an unsupplied generated fact is produced (`:explicit-live`) or raises an error (`:strict`) |
+| `:rf.cofx/mint-policy` | whether an unsupplied generated fact is produced (`:live`) or raises an error (`:strict`) |
 | `:fx-overrides` | what performs the effects the handler returns |
 | `:interceptor-overrides` | which interceptors are removed or replaced for this dispatch |
 

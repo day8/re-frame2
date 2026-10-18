@@ -440,8 +440,7 @@
   present classification payload is well-shaped. Does NOT throw; the caller
   (the router's FINAL-effects boundary) emits
   `:rf.error/classification-effect-shape` in-band and aborts the event
-  pre-commit, mirroring the `legacy-runtime-root` rejection (so the abort never
-  escapes the drain).
+  pre-commit (so the abort never escapes the drain).
 
   A payload is well-shaped iff its value is a vector (`[[path] …]`) AND every
   entry is a valid concrete `:rf/path` (EP-0012 — sequential and

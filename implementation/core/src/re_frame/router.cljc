@@ -330,8 +330,8 @@
         ;; EP-0017 §6: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
         ;; `:strict` (so an incomplete record fails loudly rather than minting
-        ;; a fresh value); a nondeterminism-declaring test supplies
-        ;; `:explicit-live`. nil here ⇒ `assemble-initial-ctx` falls back to
+        ;; a fresh value); a test that wants a fresh value on a `:strict`
+        ;; frame supplies `:live`. nil here ⇒ `assemble-initial-ctx` falls back to
         ;; the frame config's policy (the `:test` preset's `:strict`), else the
         ;; router's `:live` default. Carried UNCONDITIONALLY (a correctness
         ;; lever that gates durable generation, not a dev diagnostic) and only
@@ -1289,7 +1289,7 @@
   `commit-and-flow!` —
   the schema-validation candidate REJECTION (the only state the
   rejection restores is this transient flow bookkeeping; the container was
-  never written) and the pre-commit aborts (legacy-runtime-root /
+  never written) and the pre-commit aborts (effect-map-shape /
   classification-effect-shape) — the boundaries `run-flows-on-db`'s own
   throw arm cannot reach. Frame-scoped and idempotent: a no-op when no flow
   ran (the snapshot key is absent) or the flows artefact never loaded (the
@@ -1852,47 +1852,13 @@
         (some? failed-id) (assoc :flow-id failed-id)
         (some? phase)     (assoc :phase phase)))))
 
-(defn- emit-legacy-runtime-root!
-  "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on
-  error-emit substrate AND the dev-only trace surface — the FINAL-effects
-  boundary counterpart of the in-chain
-  `rf.events/reject-legacy-runtime-root!` throw.
-
-  Why a SEPARATE in-band emit rather than re-throwing: the in-chain guard
-  runs inside the handler-wrapping interceptor's `:before`, so a
-  handler-RETURNED legacy root is caught by `execute-chain` and surfaced as
-  `:rf.error/handler-exception`. But a legacy `:rf/runtime` root inserted
-  into `[:effects :db]` by a user / framework `:after` interceptor lands
-  AFTER that guard has run, in the FINAL effects map the router consumes.
-  Detecting it here and THROWING would escape `process-event!` into
-  `drain-emergency-release!` — which re-throws, abandoning the rest of the
-  drained queue. So
-  we emit in-band and abort THIS event only (`:error`
-  outcome, NO commit, NO `:fx`), preserving the no-partial-commit promise
-  while keeping the drain alive.
-
-  Always-on: the corpus-wide listener observes the
-  rejection in production where the trace surface DCEs."
-  [event event-id frame start-ms]
-  (let [end-ms     (rf.interop/now-ms)
-        elapsed-ms (elapsed-ms-from start-ms end-ms)
-        tags       (rf.events/legacy-runtime-root-ex-data event)]
-    ;; Fan out along BOTH channels (shared helper). Axis 1 — the
-    ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
-    ;; under `:advanced` + `goog.DEBUG=false`). No exception object: this is an
-    ;; invalid-write rejection, not a host throw.
-    (rf.error-emit/emit-error-both!
-      :rf.error/legacy-runtime-root
-      event event-id frame nil elapsed-ms end-ms
-      (assoc tags :frame frame))))
-
 (defn- emit-classification-effect-shape!
   "Surface `:rf.error/classification-effect-shape` (EP-0025) through BOTH the
   always-on error-emit substrate AND the dev-only trace surface — the
   FINAL-effects boundary rejection of a malformed commit-plane classification
   effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`).
 
-  Like `emit-legacy-runtime-root!`, this is an IN-BAND rejection, not a throw:
+  This is an IN-BAND rejection, not a throw:
   the FINAL effects map may carry a malformed classification payload from a
   handler return OR an `:after` interceptor; throwing here would escape into
   `drain-emergency-release!` and abandon the rest of the queue. So we emit
@@ -1963,7 +1929,7 @@
   boundary REFUSAL of a malformed effect-map ENVELOPE: a foreign top-level key
   (case a) or a non-sequential `:fx` value (case b).
 
-  Like `emit-legacy-runtime-root!` / `emit-classification-effect-shape!`, this
+  Like `emit-classification-effect-shape!`, this
   is an IN-BAND rejection, not a throw: the FINAL effects map may carry the
   offending key from a handler return OR from an `:after` interceptor, and
   throwing here would escape into `drain-emergency-release!` and abandon the
@@ -2464,7 +2430,7 @@
           flow-error event event-id frame start-ms)
         :flow-error)
 
-      ;; The ENVELOPE check comes first among the three effect rejections:
+      ;; The ENVELOPE check comes first among the two effect rejections:
       ;; if the effect map's top level is malformed, no diagnosis of what
       ;; is INSIDE it is trustworthy, and the programmer's first fix is
       ;; the envelope.
@@ -2472,12 +2438,6 @@
       (do
         (emit-effect-map-shape!
           shape-defect event event-id frame start-ms)
-        (restore!)
-        :error)
-
-      (rf.events/legacy-runtime-root? (:db effects))
-      (do
-        (emit-legacy-runtime-root! event event-id frame start-ms)
         (restore!)
         :error)
 

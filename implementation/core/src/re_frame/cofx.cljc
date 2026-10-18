@@ -484,7 +484,7 @@
 ;; its `reg-cofx` carries a value-returning supplier. The mint policy (§6)
 ;; decides what happens —
 ;;
-;;   - `:live` / `:explicit-live` → run the generator at PROCESSING-START
+;;   - `:live` → run the generator at PROCESSING-START
 ;;     (the declaration is only knowable once the handler is resolved — late
 ;;     registration is legal), emit the dev-only `:rf.cofx/generated` trace
 ;;     op, validate the produced value against the registration's `:schema`
@@ -950,11 +950,11 @@
 
 (def default-mint-policy
   "The mint policy when no binding point selects one — the router's `:live`
-  default (EP-0017 §6). The valid mint policies are `:live`, `:strict`, and
-  `:explicit-live`. `:live` generates declared-absent generator-backed
-  recordable values; the binding points (`resolve-mint-policy`) select
-  `:strict` (the `:test` preset default; hard-wired for replay) or
-  `:explicit-live` (the declared-nondeterminism escape). An unrecognised value
+  default (EP-0017 §6). The valid mint policies are `:live` and `:strict`.
+  `:live` generates declared-absent generator-backed recordable values; the
+  binding points (`resolve-mint-policy`) select `:strict` (the `:test` preset
+  default; hard-wired for replay) or a per-call `:live` (the escape from a
+  `:strict` frame). An unrecognised value
   is treated CONSERVATIVELY as non-generating (see `mint-policy-generates?`) —
   an unknown policy must never silently mint a nondeterministic value into the
   durable ledger."
@@ -965,8 +965,8 @@
   (EP-0017 §6 binding points):
 
     1. `per-call`   — the `:rf.cofx/mint-policy` dispatch opt (a Tool-Pair
-                      replay supplies `:strict`; a nondeterminism-declaring
-                      test supplies `:explicit-live`);
+                      replay supplies `:strict`; a test that wants a fresh
+                      value on a `:strict` frame supplies `:live`);
     2. `frame-cfg`  — the `:rf.cofx/mint-policy` key on the frame's config
                       (the `:test` preset expands to `:strict`);
     3. `:live`      — the router default, when neither is present.
@@ -983,13 +983,13 @@
 
 (defn- mint-policy-generates?
   "True when `policy` runs a generator for a declared-absent generator-backed
-  recordable fact — `:live` (router default) and `:explicit-live`
-  (declared-nondeterminism test escape) generate; `:strict` does not (an
+  recordable fact — only `:live` (the router default) generates; `:strict`
+  does not (an
   absent fact is missing-required, no host read). An unrecognised policy is
   treated CONSERVATIVELY as non-generating (strict) — an unknown policy must
   not silently mint a nondeterministic value into the durable ledger."
   [policy]
-  (or (= policy :live) (= policy :explicit-live)))
+  (= policy :live))
 
 ;; ---- sub-valued recordable source delivery (machines-only) ----------------
 ;;    (EP-0017 Option A rider)
@@ -1013,8 +1013,8 @@
 (defn- deliver-sub-source
   "Deliver a sub-valued recordable source (`fact-id` / `query-v`, machines-only)
   into `acc`. Present on the token (replay, or a prior ensure this macrostep) →
-  re-present verbatim. Absent + the mint policy generates (`:live` /
-  `:explicit-live`) → evaluate `query-v` against the committed pre-cascade
+  re-present verbatim. Absent + the mint policy generates (`:live`) →
+  evaluate `query-v` against the committed pre-cascade
   frame-state via the `:cofx/eval-recordable-sub` hook, structural-EDN-check the
   value, write it back into `:rf.cofx` under `fact-id` (epoch captures it),
   deliver. Absent + `:strict` (replay / the `:test` preset) →
@@ -1060,7 +1060,7 @@
       `:rf.error/cofx-value-invalid`), then deliver the recorded value
       verbatim (no host read);
     - **recordable, absent, generator-backed** → consult the mint policy
-      (EP-0017 §6): `:live` / `:explicit-live` run the generator at
+      (EP-0017 §6): `:live` runs the generator at
       processing-start (emit `:rf.cofx/generated`, validate against `:schema`,
       write the value back into the returned `:rf.cofx` record so the epoch
       captures the post-generation token), `:strict` fails with
@@ -1069,7 +1069,7 @@
       (every mode);
     - **sub-valued recordable source** (`{:rf/sub query-v :as fact-id}`,
       machines-only) → present on the token: re-present verbatim; absent under
-      `:live` / `:explicit-live`: evaluate `query-v` against the committed
+      `:live`: evaluate `query-v` against the committed
       pre-cascade frame-state (via the `:cofx/eval-recordable-sub` hook),
       structural-EDN-check, write the value back into the returned `:rf.cofx`
       under `fact-id`; absent under `:strict`: `:rf.error/missing-required-cofx`
@@ -1123,8 +1123,8 @@
                  (validate-recordable-value! id value meta failing-id frame-id)
                  (assoc-in acc [:coeffects id] value))
 
-               ;; Absent + generator-backed → consult the mint policy. `:live` /
-               ;; `:explicit-live` run the generator at processing-start, write
+               ;; Absent + generator-backed → consult the mint policy. `:live`
+               ;; runs the generator at processing-start, write
                ;; the value into BOTH the delivered spread AND the in-flight
                ;; `:rf.cofx` record (so the epoch captures it and replay
                ;; re-presents it); `:strict` (and any unrecognised policy) fails

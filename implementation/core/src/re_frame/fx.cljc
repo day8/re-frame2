@@ -509,7 +509,7 @@
 ;; nondeterministic value, the exact silent-fallback EP-0017 §6 forbids. The
 ;; envelope carries `:rf.cofx/mint-policy` ONLY when it was supplied per-call
 ;; (`build-envelope` stamps it conditionally), so inheriting it carries forward
-;; exactly the per-call `:strict` / `:explicit-live` override — the frame-config
+;; exactly the per-call `:strict` / `:live` override — the frame-config
 ;; tier is untouched (the child reads its own frame's policy fresh) and the
 ;; override-free hot path inherits nothing (the key is absent on the parent).
 (def ^:private inheritable-envelope-keys
