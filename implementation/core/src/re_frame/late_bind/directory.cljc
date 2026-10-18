@@ -616,6 +616,9 @@
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
     :description "Return the committed-epoch ring buffer (introspection). Behind re-frame.core/epoch-history, and read directly by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
+   {:key         :epoch/current-epoch-id
+    :producer-ns 're-frame.epoch
+    :description "Return the id of the epoch whose :frame-state-after the frame holds — the restore cursor. A restore records no epoch, so after one the ring's newest record is not the frame's state and this read is. Read by Story's step-debugger, which treats the epoch artefact as optional and so calls the hook when it is set rather than requiring re-frame.epoch."}
    {:key         :epoch/restore-epoch!
     :producer-ns 're-frame.epoch
     :description "Restore a frame's whole frame-state to a retained epoch, returning the {:ok? …} write-result envelope. Read by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
