@@ -233,7 +233,7 @@
   []
   ;; Sticky hook — published when the adapter is installed; called per
   ;; Reagent render path that consults its component identity.
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/current-component)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/current-component)]
     (hook)))
 
 ;; ---- frame resolution at render time -------------------------------------

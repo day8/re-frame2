@@ -304,10 +304,10 @@
   this ns depends on nothing but `elision` / `error` / `late-bind` — and its
   absence is inert."
   [event elision-opts]
-  (if-let [redact (rf.late-bind/get-fn-cached :classification/redact-event-by-registration)]
+  (if-let [redact (rf.late-bind/get-fn :classification/redact-event-by-registration)]
     (let [owner      (:frame elision-opts)
           with-owner (when (some? owner)
-                       (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+                       (rf.late-bind/get-fn :live-frame/call-with-frame-resolution))]
       (if with-owner
         (with-owner owner #(redact event))
         (redact event)))

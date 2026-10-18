@@ -138,14 +138,14 @@
   ;; the flow is a declaration whose exact token is delegated to the
   ;; registered validator below; only an ABSENT key means no declaration.
   (when (contains? flow :schema)
-    (when-let [validate (rf.late-bind/get-fn-cached
+    (when-let [validate (rf.late-bind/get-fn
                           :schemas/validate-with-registered-fn)]
       (let [schema (:schema flow)]
         (when-not (validate schema new-output)
-          (let [explain     (rf.late-bind/get-fn-cached
+          (let [explain     (rf.late-bind/get-fn
                               :schemas/explain-with-registered-fn)
                 explanation (when explain (explain schema new-output))
-                redact      (rf.late-bind/get-fn-cached
+                redact      (rf.late-bind/get-fn
                               :schemas/redact-validation-tags)
                 elided      (rf.elision/elide-wire-value
                               new-output

@@ -516,7 +516,7 @@
   ;; cascade, so skipping the flush in production would freeze that frame's
   ;; view of the registration pool at construction time and turn every
   ;; later-registered handler into `:rf.error/no-such-handler`.
-  (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+  (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
     (flush!))
   (call-with-record-resolution (rf.frame/frame (rf.frame/frame-value->id frame-target))
                                thunk))

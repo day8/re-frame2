@@ -43,7 +43,7 @@
   `:error-emit/emit-error-both` hook, like [[handle-no-handler!]]."
   [ex event-id event frame]
   (when-let [emit-error-both!
-             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (let [{:keys [registration namespaces reason]} (ex-data ex)]
       (emit-error-both!
         :rf.error/ambiguous-registration
@@ -92,7 +92,7 @@
   ;; Reached via the `:error-emit/emit-error-both` hook (this diagnostics ns
   ;; cannot static-require error-emit — load cycle).
   (when-let [emit-error-both!
-             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (emit-error-both!
       :rf.error/no-such-handler
       event

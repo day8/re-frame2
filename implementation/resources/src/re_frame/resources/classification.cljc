@@ -533,7 +533,7 @@
   walker hooks are unbound. Pure: the hooks walk unmemoised."
   [schema]
   (let [extract (fn [hook]
-                  (if-let [f (and schema (rf.late-bind/get-fn-cached hook))]
+                  (if-let [f (and schema (rf.late-bind/get-fn hook))]
                     (or (f schema []) {})
                     {}))]
     {:sensitive (extract :schemas/extract-sensitive-paths-from-schema)
@@ -545,7 +545,7 @@
   marks the extract hooks return reach every marked slot of the params. False
   when the walker's hook is unbound: nothing can then show it."
   [schema]
-  (if-let [opaque-child? (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)]
+  (if-let [opaque-child? (rf.late-bind/get-fn :schemas/schema-has-opaque-child?)]
     (not (opaque-child? schema))
     false))
 
@@ -579,7 +579,7 @@
   redaction hook)."
   [params error spec]
   (let [schema     (:params-schema spec)
-        redact-fn  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+        redact-fn  (rf.late-bind/get-fn :schemas/redact-validation-tags)
         {:keys [sensitive large]} (validation-failure-params-marks schema)
         ;; The failing params slot is the validator's own failure product — redact
         ;; the schema's `:sensitive?` / `:large?` slots per-slot (the

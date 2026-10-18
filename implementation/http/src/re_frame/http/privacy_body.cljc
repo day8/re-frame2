@@ -116,8 +116,8 @@
   reference, so the marks the extract hooks return reach every marked slot of
   the body. False when either hook is unbound: nothing can then show it."
   [decode]
-  (let [opaque-child?  (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)
-        qualified-ref? (rf.late-bind/get-fn-cached :schemas/schema-has-qualified-ref?)]
+  (let [opaque-child?  (rf.late-bind/get-fn :schemas/schema-has-opaque-child?)
+        qualified-ref? (rf.late-bind/get-fn :schemas/schema-has-qualified-ref?)]
     (boolean
       (and opaque-child? qualified-ref?
            (not (opaque-child? decode))
@@ -224,7 +224,7 @@
   is unknown, and reporting it as empty would ride the marked slot verbatim."
   [hook schema]
   (if (declares-marks? schema)
-    (let [extract (or (rf.late-bind/get-fn-cached hook)
+    (let [extract (or (rf.late-bind/get-fn hook)
                       (rf.error/throw-error!
                         :rf.error/schemas-artefact-missing
                         'rf.http/classify-response-body

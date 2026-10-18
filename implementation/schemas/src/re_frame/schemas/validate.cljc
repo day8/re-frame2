@@ -511,7 +511,7 @@
 
   Returns nil."
   [registered-path event-id frame-id leaf-value]
-  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error           :rf.error/schema-validation-failure
@@ -575,7 +575,7 @@
   never a static require into core's error-emit namespace. A nil hook is a
   silent skip. Returns nil."
   [registered-path event-id frame-id]
-  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error           :rf.error/malformed-schema

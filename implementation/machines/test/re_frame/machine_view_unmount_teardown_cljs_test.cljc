@@ -36,7 +36,7 @@
 (defn- fire-view-unmounted!
   [view-id render-key frame-id]
   #?(:cljs (rf.views/emit-view-unmounted! view-id render-key frame-id)
-     :clj  (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
+     :clj  (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
              (emit! :rf.view :rf.view/unmounted
                     {:rf.view/render-key render-key
                      :rf.view/id         view-id

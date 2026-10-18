@@ -122,7 +122,7 @@
   [[register-error-listener!]]), which is the console fallback's arm (a)."
   [record]
   (let [claimed? ((:fan-out registry) record)]
-    (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-record)]
+    (when-some [capture (rf.late-bind/get-fn :ssr/capture-error-record)]
       (try
         (capture record)
         (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -497,7 +497,7 @@
                            (rf.frame/frame-value->id
                              (rf.frame/current-event-owner-frame-id))))]
     (if-let [with-owner (when (and (some? frame-id) (not own-scope?))
-                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+                          (rf.late-bind/get-fn :live-frame/call-with-frame-resolution))]
       (with-owner frame-id read)
       (read))))
 
@@ -782,7 +782,7 @@
          claimed?   (fan-out! record)
          sink-attrs (cond-> attribution
                       source-coord (assoc :source-coord source-coord))
-         routed (if-some [route-error! (rf.late-bind/get-fn-cached
+         routed (if-some [route-error! (rf.late-bind/get-fn
                                          :observability/route-error)]
                   (route-error! error-kw event event-id frame-id exception
                                 elapsed-ms time nil raw-identity-event?
@@ -948,7 +948,7 @@
   the same arm: they too reach the process default."
   [record route-frame?]
   (let [claimed? (fan-out! record)
-        routed   (if-some [route-error-record! (rf.late-bind/get-fn-cached
+        routed   (if-some [route-error-record! (rf.late-bind/get-fn
                                                  :observability/route-error-record)]
                    (route-error-record! record route-frame?)
                    0)]

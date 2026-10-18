@@ -41,7 +41,7 @@
   goes ENTIRELY through the late-bound `:schemas/validate-with-registered-fn`
   hook: an app that registers a Malli (or any other) adapter validates; an
   app that registers none pays zero cost (the hot path short-circuits at
-  `(rf.late-bind/get-fn-cached ...)` returning nil). The declaration grammar and
+  `(rf.late-bind/get-fn ...)` returning nil). The declaration grammar and
   the optional validator adapter are therefore fully decoupled — machine core
   requires neither Malli nor JS Standard Schema.
 
@@ -54,7 +54,7 @@
   hooks (`:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn`) so an app that ships no
   schemas artefact pays zero validation cost — the hot path
-  short-circuits at `(rf.late-bind/get-fn-cached ...)` returning nil.
+  short-circuits at `(rf.late-bind/get-fn ...)` returning nil.
 
   Per Spec 009 §Production builds the hot-path body lives inside
   `(when rf.interop/debug-enabled? ...)` so `:advanced` +
@@ -131,7 +131,7 @@
 
   Returns nil."
   [machine-id frame-id phase]
-  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error      :rf.error/schema-validation-failure
@@ -197,10 +197,10 @@
   that ran it, so the hook is bound whenever a failure can fire; the
   `(or redact ...)` fallthrough is belt-and-braces."
   [machine-id frame-id where phase value schema explanation rollback? reason]
-  (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+  (let [explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
         explanation (or explanation
                         (when explain-fn (explain-fn schema value)))
-        redact      (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+        redact      (rf.late-bind/get-fn :schemas/redact-validation-tags)
         tags        {:where      where
                      :failing-id machine-id
                      :machine-id machine-id
@@ -255,7 +255,7 @@
    (validate-snapshot-data! machine-id snapshot schema phase
                             (rf.frame/current-event-owner-frame-id)))
   ([machine-id snapshot schema phase frame-id]
-   (if-let [validate-fn (rf.late-bind/get-fn-cached
+   (if-let [validate-fn (rf.late-bind/get-fn
                           :schemas/validate-with-registered-fn)]
      (let [data (:data snapshot)]
        (if (validate-fn schema data)
@@ -288,11 +288,11 @@
   invoked FROM the loaded facade) the resolver short-circuits to nil = no
   validation."
   [machine-id snapshot]
-  (or (some-> (when-let [meta-fn (rf.late-bind/get-fn-cached :machines/machine-meta)]
+  (or (some-> (when-let [meta-fn (rf.late-bind/get-fn :machines/machine-meta)]
                 (meta-fn machine-id))
               (get :schemas)
               (find :data))
-      (some-> (when-let [spec-fn (rf.late-bind/get-fn-cached :machines/spec-from-snapshot)]
+      (some-> (when-let [spec-fn (rf.late-bind/get-fn :machines/spec-from-snapshot)]
                 (spec-fn snapshot))
               (get :schemas)
               (find :data))))
@@ -427,7 +427,7 @@
     (if-not (contains? (get spec :schemas) :output)
       true
       (let [schema (get-in spec [:schemas :output])]
-        (if-let [validate-fn (rf.late-bind/get-fn-cached
+        (if-let [validate-fn (rf.late-bind/get-fn
                                :schemas/validate-with-registered-fn)]
           ;; A MALFORMED `[:schemas :output]` schema (a bad Malli form) makes the
           ;; registered validator THROW at validate-time (Malli validates forms

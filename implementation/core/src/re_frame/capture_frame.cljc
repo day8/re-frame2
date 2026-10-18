@@ -150,7 +150,7 @@
   time, so a `with-redefs` on `re-frame.core/dispatch-impl` reaches an op
   captured before it."
   [hook-key default]
-  (or (rf.late-bind/get-fn-cached hook-key) default))
+  (or (rf.late-bind/get-fn hook-key) default))
 
 (defn make-capture-frame
   "Build a frame api locked to `frame` — the constructor behind

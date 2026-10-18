@@ -165,7 +165,7 @@
   [event-id event handler-meta frame]
   (if-not (rf.events/boundary-guarded-handler? handler-meta)
     true
-    (let [validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+    (let [validate-fn (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (cond
         ;; An ABSENT `:schema` key can only mean the registry metadata was
         ;; mutated post-registration; no declaration, no check.
@@ -207,7 +207,7 @@
               ;; always-on record's structural-only contract in
               ;; `router/emit-boundary-rejection-record!`.
               (when rf.interop/debug-enabled?
-                (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                (let [explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
                       explanation (when explain-fn
                                     (try (explain-fn schema event)
                                          (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -217,7 +217,7 @@
                       ;; exactly as the dev-time step-1 path scrubs it. The
                       ;; artefact publishes this hook beside the validate hook;
                       ;; the guard below keeps an unbound one from throwing.
-                      redact-fn   (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+                      redact-fn   (rf.late-bind/get-fn :schemas/redact-validation-tags)
                       base-tags   (cond-> {:where      :event
                                            :event-id   event-id
                                            :failing-id event-id

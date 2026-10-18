@@ -481,7 +481,7 @@ egress to trace / epochs / SSR."})
      is that navigation's, never the page a later one landed on."
      [frame f]
      (if-not (and (rf.substrate.adapter/current-adapter)
-                  (rf.late-bind/get-fn-cached :adapter/after-render))
+                  (rf.late-bind/get-fn :adapter/after-render))
        (f)
        (let [nav (navigation-identity frame)]
          (rf.interop/after-render

@@ -517,7 +517,7 @@
                     "`:rf.cofx/requires`) so a supplier exists before the event "
                     "is dispatched."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        failing-id
@@ -545,7 +545,7 @@
                     "dispatch under `:live` so a generator-backed fact can mint "
                     "it."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        failing-id
@@ -572,7 +572,7 @@
   [cofx-id failing-id frame-id ^Throwable t]
   ;; Nil-safe extractor (a thrown non-Error value has no message).
   (let [msg (rf.error/ex-message-safe t)]
-    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        cofx-id
@@ -624,7 +624,7 @@
   `(when redact-fn …)` guard is belt-and-braces (no schemas artefact ⇒ no
   schema to redact against)."
   [cofx-id value explanation schema failing-id frame-id]
-  (let [redact-fn (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+  (let [redact-fn (rf.late-bind/get-fn :schemas/redact-validation-tags)
         ;; The off-box slots shared by the trace and the throw's ex-data.
         ;; Redaction scrubs `:value` / `:explain` and stamps `:sensitive?`
         ;; when `schema` declares any `:sensitive?` slot.
@@ -645,7 +645,7 @@
                         "this is a hard error in dev AND production. Fix the value "
                         "to satisfy the declared `:schema` (or correct the schema). "
                         "See `:explain` for the validation detail.")]
-    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        failing-id
@@ -692,7 +692,7 @@
   (if-not (contains? meta :schema)
     value
     (let [schema      (:schema meta)
-          validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+          validate-fn (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (if (nil? validate-fn)
         ;; No schemas artefact. A loaded artefact always publishes the seam
         ;; (a nil `:validate` passes THROUGH it), so this is never the
@@ -710,7 +710,7 @@
         (if (try (validate-fn schema value)
                  (catch #?(:clj Throwable :cljs :default) _ false))
           value
-          (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+          (let [explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
                 explanation (when explain-fn
                               (try (explain-fn schema value)
                                    (catch #?(:clj Throwable :cljs :default) _ nil)))]
@@ -1029,7 +1029,7 @@
     (assoc-in acc [:coeffects fact-id] (get (:rf.cofx acc) fact-id))
 
     (mint-policy-generates? mint-policy)
-    (let [eval-sub (rf.late-bind/get-fn-cached :cofx/eval-recordable-sub)
+    (let [eval-sub (rf.late-bind/get-fn :cofx/eval-recordable-sub)
           value    (eval-sub query-v frame-id)]
       ;; The resolved value rides the durable causal record — structural
       ;; recordable-EDN check at write-back (a sub yielding a host handle is
@@ -1202,7 +1202,7 @@
   ;; listener (production-survivable), axis 2 the dev trace (DCEs in CLJS prod).
   ;; Reached via the `:error-emit/emit-error-both` hook (cofx cannot
   ;; static-require error-emit — load cycle). `elapsed-ms 0`.
-  (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+  (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (emit-error-both! error-kw nil id nil nil 0 (rf.interop/now-ms)
                       (cond-> {:reason reason :recovery :no-recovery}
                         (some? id) (assoc id-key id))))

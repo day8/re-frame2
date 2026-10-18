@@ -93,7 +93,7 @@
   | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else |
   | `c-null-twin` | `c-local` again, at the slot whose kept-sample POSITION FOOTPRINT is `c-local`'s own | the POSITION null: any cost that is a function of sweep position cancels term by term between these two arms, so what it reads is error position cannot explain |
   | `c-null-curve` | `c-local` again, at a slot sharing `c-local`'s MEAN position on a different footprint | the CURVATURE null: a linear position drift cancels here too, a curved one does not |
-  | `c-noactivate` | `c-local` minus `rf.interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term; the substrate's capture run under a ratom host |
+  | `c-noactivate` | `c-local` minus `rf.interop/activate-derived-value!` | ON THIS HOST the hook resolution, a real term; the substrate's capture run under a ratom host |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
   | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge |
@@ -113,14 +113,12 @@
   spine: that spine wires one watch per source at construction, so there is
   nothing to activate and the routed call bottoms out at nil.
 
-  **But the LOOKUP that reaches that nil is real work, and it is the one
-  lookup that can never be cached.** `:adapter/activate-derived-value!` is
-  published by the ratom family ALONE, and `late-bind/get-fn-cached` memoises
-  positive resolutions only — its own docstring says nil resolutions are NOT
-  cached, deliberately, so that a deferred publication is visible on the next
-  call. A key no adapter on this host ever publishes therefore misses both
-  slots on every call: two atom derefs and two hash-map misses, once per key
-  of the read set, which is 141 calls per boundary commit in this arm's own
+  **But the LOOKUP that reaches that nil is real work.**
+  `:adapter/activate-derived-value!` is published by the ratom family ALONE,
+  and `late-bind/get-fn` reads the hooks map on every call, so a key no adapter
+  on this host ever publishes misses on every call: an atom deref and a
+  hash-map miss, once per key of the read set, which is 141 calls per boundary
+  commit in this arm's own
   loop. **That multiplier is the arm's and must not travel with the number.**
   `c-local` mints a fresh cell every iteration, so this arm genuinely runs the
   cold path 141 times per window; shipping code pays the same per-call cost

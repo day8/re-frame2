@@ -788,7 +788,7 @@
   (if-some [refusal *ambient-frame-refusal*]
     (carried-frame-admitted-by refusal)
     (frame-value->id
-      #?(:cljs (if-let [f (rf.late-bind/get-fn-cached :adapter/current-frame)]
+      #?(:cljs (if-let [f (rf.late-bind/get-fn :adapter/current-frame)]
                  (f)
                  (current-frame))
          :clj  (current-frame)))))
@@ -3416,7 +3416,7 @@
           ;; frame inherits the process-default. Routed via late-bind so
           ;; production CLJS bundles (where trace.tooling is not loaded)
           ;; short-circuit cleanly — the trace-ring machinery is dev-only.
-          (when-let [apply-retention! (rf.late-bind/get-fn-cached
+          (when-let [apply-retention! (rf.late-bind/get-fn
                                        :trace.tooling/apply-frame-events-retained-policy!)]
             (apply-retention! id
                               (contains? applied-config :rf.trace/events-retained)

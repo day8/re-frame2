@@ -363,7 +363,7 @@
                        ;; the suppression. On the live path the slot is present, so
                        ;; `dispatch!` enqueues into the frame exactly once.
                        (when (contains? old k)
-                         (when-let [dispatch! (rf.late-bind/get-fn-cached :router/dispatch!)]
+                         (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
                            (dispatch! event opts)))))
                    ms)
           ;; PHASE 2 — publish the handle only if the reservation survived. The
@@ -601,7 +601,7 @@
       (arm-dispatch-later! frame-id ms event opts)
       ;; Sticky hook — `:router/dispatch!` is published once at
       ;; re-frame.router load and never withdrawn.
-      (when-let [f (rf.late-bind/get-fn-cached :router/dispatch!)]
+      (when-let [f (rf.late-bind/get-fn :router/dispatch!)]
         (f event opts)))))
 
 ;; ---- flow settle after a state-writing walk (Spec 013 §Sequencing) --------
@@ -630,7 +630,7 @@
   so the container is untouched."
   [frame-id state-at-walk-start]
   (and (not (identical? state-at-walk-start (rf.frame/frame-state-value frame-id)))
-       (if-let [has-flows? (rf.late-bind/get-fn-cached :flows/frame-has-flows?)]
+       (if-let [has-flows? (rf.late-bind/get-fn :flows/frame-has-flows?)]
          (boolean (has-flows? frame-id))
          false)))
 
@@ -814,7 +814,7 @@
    ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
    ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
    ;; surface, so in practice it is present).
-   (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+   (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
      (emit-error-both! category event event-id frame-id exception 0
                        (rf.interop/now-ms) trace-payload record-attrs))))
 
@@ -1166,7 +1166,7 @@
       ;; false `:schema` on the fx registration is a declaration — consult
       ;; `validate-fx!`, which delegates the exact token to the registered
       ;; validator. Only an ABSENT key short-circuits to pass.
-      (let [validate-fx! (rf.late-bind/get-fn-cached :schemas/validate-fx!)
+      (let [validate-fx! (rf.late-bind/get-fn :schemas/validate-fx!)
             fx-ok?       (if (and validate-fx!
                                   (contains? meta :schema))
                            (try

@@ -2201,7 +2201,7 @@
   impl is itself gated on `rf.interop/debug-enabled?`."
   [view-id render-key frame-id]
   (when rf.interop/debug-enabled?
-    (when-let [emit! (rf.late-bind/get-fn-cached :views/emit-view-unmounted!)]
+    (when-let [emit! (rf.late-bind/get-fn :views/emit-view-unmounted!)]
       (emit! view-id render-key frame-id))))
 
 (defn make-unmount-sentinel

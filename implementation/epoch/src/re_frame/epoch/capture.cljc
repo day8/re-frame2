@@ -249,7 +249,7 @@
           ;; the render falls through to the normal buffer path.
           (and (contains? render-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-render! (rf.late-bind/get-fn-cached :epoch/record-render!)]
+          (if-let [record-render! (rf.late-bind/get-fn :epoch/record-render!)]
             (record-render! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
@@ -260,7 +260,7 @@
           (and (or (contains? sub-run-ops operation)
                    (sub-schema-failure? operation event-tags))
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-sub-run! (rf.late-bind/get-fn-cached :epoch/record-sub-run!)]
+          (if-let [record-sub-run! (rf.late-bind/get-fn :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
@@ -279,7 +279,7 @@
           ;; window.
           (and (contains? unmount-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-unmount! (rf.late-bind/get-fn-cached :epoch/record-unmount!)]
+          (if-let [record-unmount! (rf.late-bind/get-fn :epoch/record-unmount!)]
             (record-unmount! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 

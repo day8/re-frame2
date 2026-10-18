@@ -147,11 +147,9 @@
 ;; ---- capability publication -----------------------------------------------
 ;;
 ;; An adapter's capabilities are optional keys on its map. Core reads each one
-;; through a late-bind slot — `(rf.late-bind/get-fn-cached :adapter/after-render)`
+;; through a late-bind slot — `(rf.late-bind/get-fn :adapter/after-render)`
 ;; and its siblings — because the readers sit in namespaces the adapter map
-;; never reaches and several run on every render, where a cached slot costs
-;; one lookup and a `(:k (current-adapter))` read would cost an atom deref and
-;; a map lookup per call. So `install-adapter!` publishes the installed map's
+;; never reaches. So `install-adapter!` publishes the installed map's
 ;; capabilities into those slots, and the generation's terminal teardown
 ;; clears them.
 ;;
@@ -633,12 +631,9 @@
   slot (Spec 006 §`make-derived-value`). A substrate whose reads capture
   dependencies carries it. On every other substrate a read captures nothing,
   so `read-container` is already untracked and this falls back to it when the
-  slot is absent.
-
-  On the per-dispatch hot path (the elision registry feeds every dispatch's
-  redaction paths), so the slot resolves through `get-fn-cached`."
+  slot is absent."
   [container]
-  (if-let [hook (rf.late-bind/get-fn-cached :adapter/read-container-untracked)]
+  (if-let [hook (rf.late-bind/get-fn :adapter/read-container-untracked)]
     (hook container)
     (read-container container)))
 

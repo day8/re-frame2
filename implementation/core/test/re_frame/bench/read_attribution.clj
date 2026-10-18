@@ -403,7 +403,7 @@
 
 (defn- arm-n-flush [n]
   (dotimes [_ n]
-    (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
       (flush!))
     (vreset! sink 1)))
 
