@@ -6,12 +6,13 @@
   through, its two error-capture hooks among them. It also eagerly loads the
   head namespace so its late-bound host hook is available.
 
-  The façade exposes pure HTML emission, client hydration,
-  per-frame request and response side channels, error projection, and the
-  headless adapter. Core reaches this optional artefact
+  The façade exposes pure HTML emission, the hydration payload, client
+  hydration, per-frame request and response side channels, error projection,
+  and the headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
   (:require [re-frame.cofx :as rf.cofx]
             [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
             ;; Loaded eagerly so both hydration boot re-exports resolve.
@@ -23,6 +24,7 @@
             ;; the home of the head READ (`head-model`).
             [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.response :as rf.ssr.response]
             ;; Plain-data schemas attached to the seven server effects.
@@ -170,6 +172,53 @@
                             default-blocking-pump!)
              :tick-ms     (or tick-ms 5)})
      {:settled? true :timed-out [] :route-blocking-failure nil})))
+
+;; ---- hydration payload ----------------------------------------------------
+;;
+;; Spec 011 §The hydration payload. A host that runs its own request lifecycle
+;; builds the payload here, so it ships what `re-frame.ssr.ring/ssr-handler`
+;; would rather than re-implementing a security-relevant projection.
+
+(defn hydration-payload
+  "Build the `:rf/hydration-payload` for the SSR frame `frame` (its id, or the
+  frame value `make-frame` returns): the map a host that runs its own request
+  lifecycle `pr-str`s into the page's `__rf_payload` script. It applies the
+  same policy and projections as `re-frame.ssr.ring/ssr-handler`, under this
+  frame's classification:
+
+    :rf/app-db     — the app-db keys the `:payload` policy allows, with any
+                     path the frame classifies `:sensitive` redacted;
+    :rf/runtime-db — only the durable slices (route, machine snapshots,
+                     resource entries), classified values redacted and the
+                     classification registry left out; absent when there is
+                     nothing durable to ship;
+    :rf/version    — the SSR pattern-protocol version.
+
+  `opts` are `ssr-handler`'s payload options:
+    :payload                   — REQUIRED. A vector of top-level app-db keys
+                                 (`[]` ships nothing), or
+                                 `:rf.ssr.payload/whole-app-db`. Absent, it
+                                 throws `:rf.error/ssr-missing-payload-policy`.
+    :payload-include-sensitive — app-db paths whose raw value may ship even
+                                 though the frame classifies it `:sensitive`.
+    :client-frame-id           — the stable client frame id to stamp as
+                                 `:rf/frame-id`. Leave it out for a
+                                 per-request frame: its id would fail the
+                                 client's frame-id check.
+    :schema-digest             — stamped as `:rf/schema-digest`.
+
+  Call it once the frame has settled and before `destroy-frame!`: a frame that
+  is not live projects as fully redacted."
+  [frame opts]
+  (let [frame-id                    (rf.frame/frame-target->id frame)
+        {:rf.db/keys [app runtime]} (rf.frame/frame-state-value frame-id)]
+    (rf.ssr.payload-policy/build-payload
+      (:client-frame-id opts)
+      (rf.ssr.payload-policy/project-app-db-egress
+        (rf.ssr.payload-policy/apply-policy app opts)
+        frame-id
+        (:payload-include-sensitive opts))
+      (assoc opts :runtime-db (rf.ssr.payload-policy/project-runtime-db runtime frame-id)))))
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
