@@ -25,7 +25,7 @@
      `https://api.realworld.show/api`, and drop the `install-transport!` call.
    - local reference backend — the upstream Node/Postgres backend on
      `http://localhost:3000/api`."
-  (:require [re-frame.http.stub-transport :as stub-transport]
+  (:require [re-frame.http.stub-transport :as rf.http.stub-transport]
             [realworld-shared.http :as wh]
             ;; The in-process Conduit demo backend shared by both RealWorld
             ;; examples — this app's transport onto it is `demo-transport`, at
@@ -254,5 +254,5 @@
    `demo/reply-delay-ms`. All the state and routing (including the refused
    session restore) lives in the shared backend; this is just the app-local
    seam. `core.cljs` installs it on the frame."
-  (stub-transport/route-transport #(demo/answer demo-state %)
-                                  {:delay-ms demo/reply-delay-ms}))
+  (rf.http.stub-transport/route-transport #(demo/answer demo-state %)
+                                          {:delay-ms demo/reply-delay-ms}))

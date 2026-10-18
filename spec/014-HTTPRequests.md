@@ -1117,8 +1117,8 @@ The canned stubs above replace the whole `:rf.http/managed` effect, so a stubbed
 A response is `{:status :headers :body}` (`:status` defaulting to 200), where a string `:body` rides verbatim and any other value is JSON-encoded with `Content-Type: application/json` unless `:headers` names one; `:body-binary` replaces `:body` for a binary read, and `{:failure {:kind …}}` is a network failure instead of a response:
 
 ```clojure
-(stub-transport/with-transport
-  (stub-transport/route-transport
+(rf.http.stub-transport/with-transport
+  (rf.http.stub-transport/route-transport
     {[:get "/articles/hello"]   {:body {:article hello-article}}
      [:get "/articles/missing"] {:status 404 :body {:errors {:body ["not found"]}}}})
   (fn [] (rf/dispatch-sync [:article/load {:slug "hello"}])))
