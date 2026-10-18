@@ -1414,10 +1414,9 @@
         ;; The transport correlation token is the frame-QUALIFIED
         ;; request-id, NOT the bare work-id: two frames can hold the same
         ;; work-id (a caller-supplied instance id is frame-local, and the
-        ;; generation is a recorded allocation value), and the out-of-cascade
-        ;; teardown aborts through HTTP's any-frame `:http/abort-in-flight!`
-        ;; hook, so the frame in the token keeps that abort on this frame's
-        ;; write. See `managed-request-id`.
+        ;; generation is a recorded allocation value), and the frame in the
+        ;; token keeps this frame's write distinct wherever request-ids are
+        ;; compared. See `managed-request-id`.
         request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
         ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps + EP-0017
         ;; declared-only delivery: `:rf.mutation/execute` writes the

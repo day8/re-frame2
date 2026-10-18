@@ -47,12 +47,9 @@
 ;; `:rf.http/managed-abort` effect shape; the caller's raw `:request-id` stays
 ;; the correlation value echoed in replies and traces.
 ;;
-;; The frame-less arities are documented ANY-FRAME seams that match the raw id
-;; in every frame. One is reached in production: resources' out-of-cascade
-;; teardown through the `:http/abort-in-flight!` late-bind hook, whose token is
-;; already frame-qualified (`[:rf.req frame-id work-id]`, Spec 016), so at most
-;; one frame can match. Every path that holds an issuing frame — the abort fx,
-;; supersession, both actor-destroy callers, the frame sweeps — uses it.
+;; Every cancellation path names the issuing frame: the abort fx, resources'
+;; out-of-cascade teardown, supersession, both actor-destroy callers and the
+;; frame sweeps.
 
 (defonce requests
   ;; frame-id → (sorted-map token record-cell). Process-global, frame-scoped.
@@ -139,21 +136,12 @@
   nil)
 
 (defn lookup-in-flight
-  "Return the in-flight record value under `request-id`, or nil (when absent,
-  or when `request-id` is nil). Read-only.
-
-   - 2-arg `[frame-id request-id]` — the FRAME-SCOPED form, which every
-     managed-HTTP lifetime path uses. A sibling frame's identical id is
-     invisible.
-   - 1-arg `[request-id]` — the ANY-FRAME form, for a caller holding a token
-     that is already frame-qualified (resources' `[:rf.req frame-id
-     work-id]`). Do not reach for it from a call site that HAS a frame."
-  ([request-id]
-   (when request-id
-     (some #(when (= request-id (:request-id %)) %) (all-records @requests))))
-  ([frame-id request-id]
-   (when request-id
-     (some #(when (= request-id (:request-id %)) %) (frame-records @requests frame-id)))))
+  "Return the in-flight record value `frame-id` issued under `request-id`, or
+  nil (when absent, or when `request-id` is nil). Read-only. A sibling frame's
+  identical id is invisible."
+  [frame-id request-id]
+  (when request-id
+    (some #(when (= request-id (:request-id %)) %) (frame-records @requests frame-id))))
 
 (defn- abort-record!
   "Fire `record`'s `:abort-fn` with `reason`, defensively, then take the
@@ -170,28 +158,13 @@
         (clear-in-flight! (:request-id record) record)
         ran?))))
 
-(defn abort-in-flight!
-  "Best-effort abort the in-flight managed request under `request-id` in ANY
-  frame, firing its `:abort-fn` with `reason` (default `:user`). No-op when
-  nothing is in flight under the id. Never throws; returns true iff a request
-  was found and its abort-fn ran.
-
-  The ANY-FRAME abort seam: resources' out-of-cascade teardown reaches it
-  through the published `:http/abort-in-flight!` late-bind hook, with a token
-  that already carries the frame. The `:rf.http/managed-abort` fx uses
-  `abort-in-flight-in-frame!` instead, because an app's raw `:request-id` is
-  frame-LOCAL."
-  ([request-id] (abort-in-flight! request-id :user))
-  ([request-id reason]
-   (abort-record! (lookup-in-flight request-id) reason)))
-
 (defn abort-in-flight-in-frame!
   "Best-effort abort the in-flight managed request `frame-id` issued under
   `request-id`, firing its `:abort-fn` with `reason` (default `:user`). The
-  FRAME-SCOPED counterpart of `abort-in-flight!` and the seam the
-  `:rf.http/managed-abort` fx routes through: a sibling frame that used the
-  same raw id is invisible here. Never throws; returns true iff a request was
-  found and its abort-fn ran."
+  one abort-by-request-id seam: the `:rf.http/managed-abort` fx and resources'
+  out-of-cascade teardown both route through it, and a sibling frame that used
+  the same id is invisible here. No-op when nothing is in flight under the id.
+  Never throws; returns true iff a request was found and its abort-fn ran."
   ([frame-id request-id] (abort-in-flight-in-frame! frame-id request-id :user))
   ([frame-id request-id reason]
    (abort-record! (lookup-in-flight frame-id request-id) reason)))

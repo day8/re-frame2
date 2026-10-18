@@ -567,15 +567,9 @@
   The request's abort owns cancellation and its retirement from the
   registry, so this handler only resolves the request and aborts it.
 
-  Routes through `registry/abort-in-flight-in-frame!`,
-  the FRAME-SCOPED sibling of the `registry/abort-in-flight!` seam the
-  resources out-of-cascade teardown reaches through the
-  `:http/abort-in-flight!` late-bind hook. Both fire identical abort semantics
-  and differ only in scope, and the difference is forced by what each caller
-  holds: resources carries a token that is already frame-qualified
-  (`[:rf.req frame-id work-id]`, Spec 016), whereas this fx receives the
-  caller's RAW `:request-id` — a frame-LOCAL name that reusable app code
-  reuses across frames by design. Aborting by that raw id process-globally would
+  Routes through `registry/abort-in-flight-in-frame!`, scoped to the issuing
+  frame. The caller's `:request-id` is a frame-LOCAL name that reusable app
+  code reuses across frames by design, so aborting by it process-globally would
   let a `[:rf.http/managed-abort :articles/load]` dispatched in one frame cancel a
   sibling frame's live request; scoping to the issuing frame is what makes the
   effect obey the frame-isolation contract (Spec 014 §`:request-id`).
