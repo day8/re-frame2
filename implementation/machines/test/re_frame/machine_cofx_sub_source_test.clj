@@ -39,7 +39,7 @@
            ["a bare (unqualified) :as"       {:rf/sub [:a/x] :as :bare}]
            ["a key other than :rf/sub / :as" {:rf/sub [:a/x] :as :app/x :bogus 1}]]]
     (is (= :rf.error/cofx-request-invalid
-           (error-id #(rf.machines.lifecycle-fx.registration/make-machine-handler (capturing [source] :app/x (atom nil)))))
+           (error-id #(rf.machines.lifecycle-fx.registration/registered-definition (capturing [source] :app/x (atom nil)))))
         label)))
 
 (deftest sub-fact-resolves-live-and-replays-verbatim

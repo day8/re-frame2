@@ -25,7 +25,7 @@
   \"this state (or child) must finish before this time\" fact more clearly.
 
   re-frame2 keeps ONE timer mechanism. `:timeout` / `:on-timeout`
-  DESUGARS — at registration / transition normalisation time — into an
+  DESUGARS — once, at registration — into an
   `:after` entry keyed by the resolved-ms duration, mapping to the
   `:on-timeout` transition. The whole downstream `:after` machinery
   (scheduling, per-decl-path epoch staleness, cancel-on-exit, the
@@ -164,8 +164,8 @@
 ;; ---- desugaring `:timeout` / `:on-timeout` → `:after` ---------------------
 ;;
 ;; `:timeout` / `:on-timeout` is a distinct authoring concept that lowers
-;; onto the existing `:after` timer mechanism. The desugar runs during
-;; registration and transition normalisation, so the runtime never sees
+;; onto the existing `:after` timer mechanism. The desugar runs once, at
+;; registration, so the runtime never sees
 ;; `:timeout` / `:on-timeout`
 ;; directly — it sees the equivalent `:after` entry. The grammar (separate
 ;; keys, separate validation, separate duration rules) is what the AUTHOR
@@ -246,8 +246,8 @@
   every region root + its states) declares a `:timeout` / `:on-timeout`.
   A cheap-as-possible structural scan — short-circuits on the first hit —
   that lets `desugar-timeouts` return the input UNCHANGED (no map rebuild)
-  for the overwhelmingly common timeout-free machine on the hot
-  per-transition path."
+  for the overwhelmingly common timeout-free machine — which the pure
+  `machine-transition` entry normalises on every call."
   [machine]
   (letfn [(scan-states [states]
             (some (fn [[_ n]]
@@ -272,13 +272,15 @@
   `:after`), which is desugared onto the root `:after`.
 
   Fast-path: a machine with NO `:timeout` / `:on-timeout` anywhere is
-  returned UNCHANGED (no map rebuild), so the timeout-free common case on
-  the hot per-transition path pays only one short-circuiting scan.
+  returned UNCHANGED (no map rebuild), so the timeout-free common case pays
+  only one short-circuiting scan.
 
-  This is the single normalisation seam the registration parser and the
-  pure `machine-transition` entry both apply, so registration validation,
-  the transition engine, and the conformance `:machine-transition` op all
-  observe the SAME desugared `:after` form (they can never drift)."
+  This is the single timeout-lowering seam. Registration validation applies
+  it, and so does `rf.machines.parallel/normalise-definition` — run once at
+  registration and on the definition the pure `machine-transition` is
+  handed — so registration validation, the transition engine, and the
+  conformance `:machine-transition` op all observe the SAME desugared
+  `:after` form (they can never drift)."
   [machine]
   (if-not (any-timeout? machine)
     machine

@@ -28,7 +28,7 @@
                   (rf.machines.cofx-attach/index-ensure-sets m) snap event))))
 
 (defn- registration-error-id [machine]
-  (try (rf.machines.lifecycle-fx.registration/make-machine-handler machine) nil
+  (try (rf.machines.lifecycle-fx.registration/registered-definition machine) nil
        (catch ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest inline-requires-is-refused-at-registration
@@ -182,3 +182,28 @@
                       :after   {1000 {:target [[:a :two] [:b :two]] :action :g}}
                       :regions {:a two :b two}}
                      {:state {:a :one :b :one}} [:rf.machine.timer/after-elapsed 1000 1 []])))
+
+;; A state-level :timeout lowers onto :after at registration, so the timer
+;; event that fires it ensures its :on-timeout guard's and action's facts as it
+;; would an :after transition's.
+(deftest on-timeout-guard-and-action-facts-are-ensured
+  (reg-roll!)
+  (rf/reg-cofx :test/token {:recordable? true} (fn [] :GENERATED))
+  (doseq [[id on-timeout] [[:attach/timeout-guard  {:guard :rolled-six? :target :done}]
+                           [:attach/timeout-action {:action :capture :target :done}]]]
+    (rf/reg-machine id
+      {:initial :idle
+       :data    {}
+       :guards  {:rolled-six? rolled-six}
+       :actions {:capture {:rf.cofx/requires [:test/token]
+                           :fn (fn [{:keys [data] cofx :rf.cofx}]
+                                 {:data (assoc data :captured (:test/token cofx))})}}
+       :states  {:idle    {:on {:go :waiting}}
+                 :waiting {:timeout 5000 :on-timeout on-timeout}
+                 :done    {}}})
+    (rf/dispatch-sync [id [:go]])
+    (let [epoch (get-in (rf.machines.test-support/snapshot id) [:data :rf/after-epoch [:waiting]])]
+      (rf/dispatch-sync [id [:rf.machine.timer/after-elapsed 5000 epoch [:waiting]]]))
+    (is (= :done (machine-state id)) (str id " took its :on-timeout transition")))
+  (is (= :GENERATED (get-in (rf.machines.test-support/snapshot :attach/timeout-action) [:data :captured]))
+      "the :on-timeout action read its ensured fact"))
