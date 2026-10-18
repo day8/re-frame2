@@ -143,7 +143,7 @@
         created (rf/make-frame {:id :counter/one :images [img]} pool)
         cfg     (rf/make-frame {:id :counter/cfg :images [img] :doc "configured" :preset :test} pool)]
     (is (= [true :counter/one "configured"]
-           [(rf.live-frame/frame-object? created)
+           [(rf.live-frame/frame-value? created)
             (rf.frame/frame-value->id created)
             (:doc (rf/frame-meta :counter/cfg))]))
     (rf/destroy-frame! created)

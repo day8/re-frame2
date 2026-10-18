@@ -3571,14 +3571,14 @@
           ;; in the hook: the acquire would resolve the ambient frame and take
           ;; a real +1 on its reaction, while the hook stored nil in
           ;; `stable-key` — so `release-provisional!` and the commit cleanup
-          ;; would both release against a nil frame, `frame-target->id` would
+          ;; would both release against a nil frame, `frame-value->id` would
           ;; normalize it to nil, the registry lookup would find nothing, and
           ;; both would no-op. The reference would never be balanced: a leak,
           ;; invisible, behind a contract that promises a refusal.
           ;;
           ;; So the arm resolves ONE CONCRETE TARGET before any
           ;; acquisition, with the machinery that exists for exactly
-          ;; this — `frame-target->id` normalizes the one frame-target grammar
+          ;; this — `frame-value->id` normalizes the one frame-target grammar
           ;; (a frame-id keyword or a live frame value) to the id its record is
           ;; keyed by, and `require-frame-stamp!` is the framework's standing
           ;; answer to "a token reached a frame-scoped operation carrying no
@@ -3607,7 +3607,7 @@
           ([query-v opts]
            (use-subscribe-2
              (rf.frame/require-frame-stamp!
-               (rf.frame/frame-target->id (:frame opts))
+               (rf.frame/frame-value->id (:frame opts))
                :subscribe
                {:where    're-frame.substrate.spine/use-sub
                 :event-id (first query-v)})

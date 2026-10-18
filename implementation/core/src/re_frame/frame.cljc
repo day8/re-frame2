@@ -3748,7 +3748,7 @@
   no-op outside any drain."
   [where]
   (when (some? *run-frame-state-before*)
-    (let [frame-id (frame-target->id *current-frame*)]
+    (let [frame-id (frame-value->id *current-frame*)]
       (rf.error/throw-error!
        :rf.error/flush-in-open-epoch where
        (str where " was called while frame " (pr-str frame-id)
@@ -4513,7 +4513,7 @@
 
   EP-0024: the target may be a frame-id KEYWORD or a frame VALUE
   (`rf/make-frame`'s return token). A value is normalized to its id via
-  `frame-target->id` so the whole recipe keys the ONE registry's record;
+  `frame-value->id` so the whole recipe keys the ONE registry's record;
   `dissoc-frame!` IS the forget (the resolved generation rides the
   record, dropped with it — one registry, no separate forget hook).
 
@@ -4545,7 +4545,7 @@
    ;; ADDRESS-directed — pin whatever incarnation is currently live under the id.
    (if-let [carried (frame-value-incarnation-token target)]
      (destroy-frame! target carried)
-     (let [id (frame-target->id target)]
+     (let [id (frame-value->id target)]
        (when-let [expected-token (frame-incarnation-token id)]
          (destroy-frame! target expected-token)))))
   ([target expected-incarnation-token]
@@ -4554,7 +4554,7 @@
    ;; unchanged. The registry is keyed by the bare frame-id, so every keyed
    ;; teardown step (the in-flight guard, `mark-frame-destroyed!`,
    ;; `dissoc-frame!`) targets the frame-id-keyed record directly.
-   (let [id (frame-target->id target)]
+   (let [id (frame-value->id target)]
      ;; `claim-frame-destroy!` acquires the shared per-id transaction and
      ;; records the DESTROYING incarnation's token (the live record's
      ;; `:drain-lock`) under that SAME lock, after revalidating the expected

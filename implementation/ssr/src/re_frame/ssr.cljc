@@ -210,7 +210,7 @@
   Call it once the frame has settled and before `destroy-frame!`: a frame that
   is not live projects as fully redacted."
   [frame opts]
-  (let [frame-id                    (rf.frame/frame-target->id frame)
+  (let [frame-id                    (rf.frame/frame-value->id frame)
         {:rf.db/keys [app runtime]} (rf.frame/frame-state-value frame-id)]
     (rf.ssr.payload-policy/build-payload
       (:client-frame-id opts)

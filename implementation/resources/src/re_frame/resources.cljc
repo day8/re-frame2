@@ -182,7 +182,7 @@
   (let [;; A live frame VALUE is accepted wherever its id is (Spec 002):
         ;; normalize it to the id both frame readers below are keyed by, or a
         ;; value would read a live entry as a silent nil.
-        frame      (rf.frame/frame-target->id frame)
+        frame      (rf.frame/frame-value->id frame)
         ;; A `{:from-db <id>}` scope on the introspection target resolves
         ;; against the frame's app-db value (the same db the
         ;; reactive sub resolves against), so `resource-state` and a live
@@ -224,7 +224,7 @@
        :extra    {:opts (dissoc opts :frame)}}))
   (let [;; A live frame VALUE reads the same row as its id, exactly
         ;; as in `resource-state` above.
-        runtime-db (rf.frame/frame-runtime-db-value (rf.frame/frame-target->id frame))]
+        runtime-db (rf.frame/frame-runtime-db-value (rf.frame/frame-value->id frame))]
     (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance))))
 
 ;; A resource / mutation state read is a subscription VECTOR —

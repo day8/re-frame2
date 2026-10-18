@@ -81,7 +81,7 @@
   "True when a pinned `captured-incarnation` no longer identifies the capture
   TARGET's live frame — the exact captured incarnation was destroyed, whether the
   id is now unclaimed or a same-id successor incarnation reseated. `frame-target`
-  is NORMALIZED to its frame id (`frame-target->id`) before the liveness lookup so
+  is NORMALIZED to its frame id (`frame-value->id`) before the liveness lookup so
   a frame VALUE's carried token is compared against the current live incarnation
   under its id — the id-keyed token lookup does not accept a value map, so without
   this a pinned value would read nil-live and be spuriously superseded on every
@@ -90,7 +90,7 @@
   [frame-target captured-incarnation]
   (and (some? captured-incarnation)
        (not (rf.frame/frame-incarnation-live?
-              (rf.frame/frame-target->id frame-target) captured-incarnation))))
+              (rf.frame/frame-value->id frame-target) captured-incarnation))))
 
 (defn- capture-dispatch!
   "Route a captured `:dispatch`/`:dispatch-sync` op through the incarnation fence:
@@ -107,7 +107,7 @@
   [dispatch-fn op frame-target captured-incarnation event opts]
   (if (capture-target-superseded? frame-target captured-incarnation)
     (rf.router/emit-captured-frame-superseded!
-      event (rf.frame/frame-target->id frame-target) op opts)
+      event (rf.frame/frame-value->id frame-target) op opts)
     ;; The `capture-target-superseded?` pre-check above and the
     ;; ordinary address-directed dispatch below are SEPARATE operations. On the
     ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
@@ -139,7 +139,7 @@
   [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
   (if (capture-target-superseded? frame-target captured-incarnation)
     (rf.router/emit-captured-frame-superseded!
-      query-v (rf.frame/frame-target->id frame-target) :subscribe
+      query-v (rf.frame/frame-value->id frame-target) :subscribe
       {:rf.trace/call-site subscribe-call-site})
     (subscribe-thunk)))
 

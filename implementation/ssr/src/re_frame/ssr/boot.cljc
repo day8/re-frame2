@@ -242,7 +242,7 @@
         ;; check, the install ledger and the incarnation check all key on
         ;; the id, and a value would match none of them.
         frame   (rf.frame/require-frame-stamp!
-                  (rf.frame/frame-target->id frame)
+                  (rf.frame/frame-value->id frame)
                   :rf.ssr/hydrate {:where 'rf.ssr/hydrate!})
         payload (or payload
                     #?(:cljs (read-server-payload
@@ -434,7 +434,7 @@
       (catch #?(:clj Throwable :cljs :default) t
         (report-root-boot-failed!
          {:where     'rf.ssr/hydrate-page!
-          :frame     (rf.frame/frame-target->id (:frame opts))
+          :frame     (rf.frame/frame-value->id (:frame opts))
           :root-id   root-id
           :phase     @phase
           :exception t})

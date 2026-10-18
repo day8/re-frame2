@@ -302,7 +302,7 @@
         ;; EP-0023: the explicit `:frame` opt may be a frame-id
         ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
         ;; `(rf/dispatch-sync [...] {:frame frame})`). Normalize an object to its
-        ;; runnable-id ADDRESS via `rf.frame/frame-target->id` so the envelope
+        ;; runnable-id ADDRESS via `rf.frame/frame-value->id` so the envelope
         ;; carries a keyword `:frame` for every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
         ;; the commit path, the sub-cache). The
@@ -310,8 +310,8 @@
         ;; of a frame made without `:images`) off the record by this id, so an
         ;; object target and a child dispatch carrying the same id BOTH route the
         ;; frame's own view. A keyword target (and the scope/hold-resolved frame) passes
-        ;; through `frame-target->id` unchanged.
-         frame              (rf.frame/frame-target->id
+        ;; through `frame-value->id` unchanged.
+         frame              (rf.frame/frame-value->id
                                (or (:frame opts)
                                    (rf.frame/require-current-frame!
                                      :dispatch

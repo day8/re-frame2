@@ -6361,7 +6361,7 @@
   "The other half of resolving ONE concrete target: a live frame
   VALUE (`make-frame`'s return token) is a legal explicit target, and it must
   acquire and release the SAME entry a keyword target does. The arm normalizes
-  through `rf.frame/frame-target->id` before acquisition, so the hook's stable
+  through `rf.frame/frame-value->id` before acquisition, so the hook's stable
   key, its escrow token and its release all name the record's id.
 
   cfg keys: reuses the nil-frame probe surface

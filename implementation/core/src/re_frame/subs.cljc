@@ -1789,7 +1789,7 @@
   "INTERNAL worker for `subscribe` (and the layer-2+ recursive input
   resolution inside `compute-and-cache!`). `target` may be a frame-id
   KEYWORD or a live frame VALUE (`rf/make-frame`'s return value);
-  normalized here to its runnable-id ADDRESS via `rf.frame/frame-target->id`
+  normalized here to its runnable-id ADDRESS via `rf.frame/frame-value->id`
   so the sub-cache lookup (`(rf.frame/frame frame-id)`), the override seam,
   and the error payloads all key the backing record unchanged — a keyword
   passes through. The generation-resolution seam
@@ -1821,7 +1821,7 @@
   read, and every layer-2+ recursive input resolution — is unfenced."
   ([target query-v] (subscribe-in-frame target query-v nil))
   ([target query-v expected-incarnation]
-   (let [frame-id (rf.frame/frame-target->id target)]
+   (let [frame-id (rf.frame/frame-value->id target)]
    ;; (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
    ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
@@ -2796,12 +2796,12 @@
   `unsubscribe` would. Everything else calls `(unsubscribe r)`.
 
   Frame resolution and cache-keying are this facade's — a frame-id keyword or
-  a live frame value, normalized through `rf.frame/frame-target->id`, exactly
+  a live frame value, normalized through `rf.frame/frame-value->id`, exactly
   as `subscribe` normalizes it; ref-counting and disposal are
   `re-frame.subs.cache/unsubscribe-if-reaction!`'s. Returns nil; a destroyed
   or unknown frame is a no-op."
   [frame-id query-v reaction]
-  (let [frame-id (rf.frame/frame-target->id frame-id)]
+  (let [frame-id (rf.frame/frame-value->id frame-id)]
     (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
       (rf.subs.cache/unsubscribe-if-reaction! cache (cache-key query-v)
                                            reaction frame-id))))
