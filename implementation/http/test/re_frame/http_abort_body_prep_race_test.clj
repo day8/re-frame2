@@ -88,7 +88,7 @@
       (let [worker (future (rf/dispatch-sync [:issue]))]
         (try
           (is (true? (deref thunk-entered 5000 false)) "preparation is in progress")
-          (is (true? (rf.http.registry/abort-in-flight! :prep-race :user)))
+          (is (true? (rf.http.registry/abort-in-flight-in-frame! :rf/default :prep-race :user)))
           (deliver release true)
           (is (not= ::timeout (deref worker 5000 ::timeout))
               "the attempt ran to its end after release, so the zero below is final")
@@ -117,7 +117,7 @@
                        (= :issuance-boundary (:request-id ctx))
                        (= ::not-fired @abort-result))
               (reset! abort-result
-                      (rf.http.registry/abort-in-flight! :issuance-boundary :user)))))
+                      (rf.http.registry/abort-in-flight-in-frame! :rf/default :issuance-boundary :user)))))
         (rf/dispatch-sync [:issue])
         (is (= [true 0] [@abort-result @fetch-calls]))
         (await-condition! #(seq @replies))
@@ -147,7 +147,7 @@
                                ^Runnable
                                (fn []
                                  (reset! abort-result
-                                         (rf.http.registry/abort-in-flight! :handshake :user)))
+                                         (rf.http.registry/abort-in-flight-in-frame! :rf/default :handshake :user)))
                                "rf2-rsv2n-aborter")]
                       (reset! returned-cf cf)
                       (reset! aborter t)

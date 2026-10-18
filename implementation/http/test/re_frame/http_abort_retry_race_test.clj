@@ -94,7 +94,7 @@
           (when (and (= point inject-point)
                      (= :race (:request-id ctx))
                      (compare-and-set! fired? false true))
-            (rf.http.registry/abort-in-flight! (:request-id ctx) :user))))
+            (rf.http.registry/abort-in-flight-in-frame! :rf/default (:request-id ctx) :user))))
       (rf/dispatch-sync [:issue])
       (await-condition! #(seq @replies))
       (is (true? @fired?) "the hook fired the abort in-window")

@@ -220,7 +220,7 @@
                               (assoc :carried (get-in tags [:rf.reply/carried :work/id])
                                      :current (get-in tags [:rf.reply/current :work/id]))))))))
       (is (= [:rf.work/http :search 2 1]
-             (some-> (rf.http.registry/lookup-in-flight :search) rf.http.reply/work-id))
+             (some-> (rf.http.registry/lookup-in-flight :rf/default :search) rf.http.reply/work-id))
           "issuance 2 owns the in-flight slot before anything is released")
       (.countDown release)
       (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS))

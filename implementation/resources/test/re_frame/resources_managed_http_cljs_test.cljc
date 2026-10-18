@@ -308,24 +308,25 @@
 ;; ===========================================================================
 ;;
 ;; `clear-resource` and frame destroy run no cascade, so they route through
-;; `rf.resources.work-ledger/abort-handle!`, which for a managed-HTTP slot fires
-;; the abort-by-request-id seam (`:http/abort-in-flight!`) by the same
-;; frame-qualified request-id the lowering registered. A managed slot carries no
-;; `:abort-fn` (the transport owns the AbortController), so dropping only the
-;; side-table slot would leave the request alive.
+;; `rf.resources.work-ledger/abort-handle!`, which for a managed-HTTP slot aborts
+;; the slot's frame's request under the frame-qualified request-id the lowering
+;; registered (`re-frame.http.registry/abort-in-flight-in-frame!`). A managed
+;; slot carries no `:abort-fn` (the transport owns the AbortController), so
+;; dropping only the side-table slot would leave the request alive.
 
 (defn- seed-in-flight!
-  "Seed the REAL in-flight registry under `request-id`, as the live transport
-  does, with an `:abort-fn` that records its reason into the returned atom and
-  clears the registry as production's abort does: by the stamped handle,
-  published to a cell after registration."
-  [request-id]
+  "Seed the REAL in-flight registry with a request `frame-id` issued under
+  `request-id`, as the live transport does, with an `:abort-fn` that records its
+  reason into the returned atom and clears the registry as production's abort
+  does: by the stamped handle, published to a cell after registration."
+  [frame-id request-id]
   (let [recorder    (atom [])
         handle-cell (atom nil)]
     (reset! handle-cell
             (rf.http.registry/record-in-flight!
               request-id nil
-              {:abort-fn (fn [reason]
+              {:frame    frame-id
+               :abort-fn (fn [reason]
                            (swap! recorder conj [request-id reason])
                            (rf.http.registry/clear-in-flight! request-id @handle-cell))}))
     recorder))
@@ -335,14 +336,15 @@
   (let [k          (ensure-article! :crab/article)
         wid        (:current-work (entry k))
         request-id (rf.resources.work-ledger/managed-request-id :rf/default wid)
-        aborted    (seed-in-flight! request-id)]
+        aborted    (seed-in-flight! :rf/default request-id)]
     (is (= [true :rf.http/managed request-id nil]
-           (into [(some? (rf.http.registry/lookup-in-flight request-id))]
+           (into [(some? (rf.http.registry/lookup-in-flight :rf/default request-id))]
                  ((juxt :transport :request-id :abort-fn) (rf.resources.work-ledger/get-handle :rf/default wid))))
         "FIXTURE — in flight, the slot recording the frame-qualified request id and no direct abort-fn")
     (rf.resources.registry/clear-resource :crab/article)
     (is (= [[[request-id :resource-superseded]] nil nil]
-           [@aborted (rf.http.registry/lookup-in-flight request-id) (rf.resources.work-ledger/get-handle :rf/default wid)])
+           [@aborted (rf.http.registry/lookup-in-flight :rf/default request-id)
+            (rf.resources.work-ledger/get-handle :rf/default wid)])
         "exactly one abort fires by request id, leaving no live in-flight entry and no slot")))
 
 (deftest frame-destroy-aborts-managed-http-in-flight
@@ -354,14 +356,46 @@
     (let [k          (ensure-article! :fdab/article [:app :fdab 1] fa)
           wid        (:current-work (entry fa k))
           request-id (rf.resources.work-ledger/managed-request-id fa wid)
-          aborted    (seed-in-flight! request-id)
+          aborted    (seed-in-flight! fa request-id)
           high-water (rf.resources.state/generation-snapshot)]
       (is (= [true true true]
-             [(some? (rf.http.registry/lookup-in-flight request-id)) (some? (rf.resources.work-ledger/get-handle fa wid))
+             [(some? (rf.http.registry/lookup-in-flight fa request-id)) (some? (rf.resources.work-ledger/get-handle fa wid))
               (pos? high-water)])
           "FIXTURE — in flight, with a handle and a generation high-water")
       (rf.frame/destroy-frame! fa)
       (is (= [[[request-id :resource-superseded]] nil nil high-water]
-             [@aborted (rf.http.registry/lookup-in-flight request-id) (rf.resources.work-ledger/get-handle fa wid)
+             [@aborted (rf.http.registry/lookup-in-flight fa request-id) (rf.resources.work-ledger/get-handle fa wid)
               (rf.resources.state/generation-snapshot)])
           "exactly one abort fires by request id; no in-flight entry or handle survives, and the high-water does"))))
+
+(deftest frame-destroy-leaves-a-sibling-frames-requests-alone
+  ;; Two frames hold the same work id when both run on the same recorded
+  ;; generation allocation. Frame A's teardown aborts by frame A's id, so nothing
+  ;; frame B issued is reachable from it: neither B's own request for that work
+  ;; id nor a B request filed under A's exact request id.
+  (rf/reg-resource :sib/article (article-spec) article-spec-request)
+  (let [fa :sib/frame-a
+        fb :sib/frame-b
+        k  (article-key :sib/article)]
+    (doseq [f [fa fb]]
+      (rf/make-frame {:id f :doc "sibling teardown frame"})
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :sib/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:app f 1]}]
+                        {:frame f
+                         :rf.cofx {:rf.resource/generation-allocation {:generation 1 :counter 1}}}))
+    (let [wid       (:current-work (entry fa k))
+          a-request (rf.resources.work-ledger/managed-request-id fa wid)
+          b-request (rf.resources.work-ledger/managed-request-id fb wid)
+          b-own     (seed-in-flight! fb b-request)
+          b-alias   (seed-in-flight! fb a-request)]
+      (is (= [wid true nil]
+             [(:current-work (entry fb k))
+              (some? (rf.resources.work-ledger/get-handle fa wid))
+              (rf.http.registry/lookup-in-flight fa a-request)])
+          "FIXTURE — both frames hold the work id, and frame A's slot is recorded while its own request has left the registry")
+      (rf.frame/destroy-frame! fa)
+      (is (= [[] [] true true]
+             [@b-own @b-alias
+              (some? (rf.http.registry/lookup-in-flight fb b-request))
+              (some? (rf.http.registry/lookup-in-flight fb a-request))])
+          "frame A's teardown aborts nothing frame B issued"))))
