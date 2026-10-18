@@ -23,6 +23,9 @@
     (is (true? (rf.schemas/schema-has-opaque-child? s)) (pr-str s))))
 
 (deftest nested-registry-ref-warns-walker-opaque-as-unknown
+  ;; the token is opaque to the default Malli compiler, so registration
+  ;; skips the compile here
+  (rf.schemas/set-schema-fns! {:compile nil})
   (with-trace-recorder! [recorded]
     (rf/reg-app-schema [:account] [:map [:home [:ref :fixture/user]]])
     (is (= [{:schema-kind :unknown :path [:account]}]

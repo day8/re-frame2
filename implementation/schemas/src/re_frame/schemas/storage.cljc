@@ -612,12 +612,18 @@
 
   The path must be a sequential collection of concrete path segments, with
   `[]` naming the whole app-db root. Path validation happens before anything
-  is registered. Returns the canonical vector path."
+  is registered. So, in development builds, does compiling the schema
+  through the validator port's `:compile`: a malformed schema such as a
+  childless `[:vector]` throws here and registers nothing. Returns the
+  canonical vector path."
   ([path schema] (reg-app-schema path nil schema))
   ([path metadata schema]
    (let [metadata (normalize-app-schema-metadata path metadata)]
      ;; Reject malformed and runtime-db paths before registering.
      (assert-app-schema-path! path)
+     ;; A malformed schema throws here, at the call that wrote it.
+     (when rf.interop/debug-enabled?
+       (rf.schemas.validator/run-compiler schema))
      (let [;; Registration, resolution and digesting share one canonical
            ;; vector identity.
            path        (rf.path/normalize-concrete path)
@@ -658,7 +664,8 @@
   source-coords captured from this call site. A frame — a frame-id or frame
   value as the second argument, or a `:frame` key in it — throws
   `:rf.error/app-schema-frame-target`, as the singular form does. The whole
-  batch is validated (its shape, every path, the second argument) before any
+  batch is validated (its shape, every path, the second argument, and in
+  development builds every schema, through the port's `:compile`) before any
   entry registers.
 
   A bulk entry has no slot for a per-path `:doc`, so this form never emits
@@ -679,6 +686,8 @@
    ;; Validate every path before registering so an invalid entry cannot leave
    ;; a partially registered batch.
    (run! assert-app-schema-path! (keys path->schema))
+   (when rf.interop/debug-enabled?
+     (run! rf.schemas.validator/run-compiler (vals path->schema)))
    (binding [*bulk-entry?* true]
      (mapv (fn [[path schema]] (reg-app-schema path schema))
            path->schema))))

@@ -27,7 +27,7 @@
             [re-frame.late-bind :as rf.late-bind]
             ;; optional artefacts reached through late-bind hooks: without these
             ;; requires every deftest would pass vacuously
-            [re-frame.schemas]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -216,9 +216,12 @@
 
 (defn- register-malformed-app! []
   (rf/make-frame {:id malformed-frame-id})
-  ;; a childless [:vector] registers cleanly (Malli checks forms lazily) and
-  ;; then throws on the first candidate validation
-  (rf/reg-app-schema [:broken] [:vector])
+  ;; a childless [:vector] registers with the port's :compile off (Malli
+  ;; checks forms lazily) and then throws on the first candidate validation
+  (let [installed (rf.schemas/schema-fns)]
+    (rf.schemas/set-schema-fns! {:compile nil})
+    (rf/reg-app-schema [:broken] [:vector])
+    (rf.schemas/set-schema-fns! installed))
   (rf/reg-event :vkn8/malformed-write
     (fn [_ _] {:db {:broken [1 2 3] :note planted-value}}))
   nil)

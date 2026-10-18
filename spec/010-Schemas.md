@@ -97,7 +97,7 @@ This fits re-frame's grain — code already accesses `app-db` via paths; schemas
 
 The `path` must be a `get-in`/`assoc-in`-shaped path — a **sequential collection of keys** (a vector is canonical; any sequential seq is accepted), or the **empty vector `[]`** for the whole-`app-db` root (per [§A schema for the whole `app-db`](#a-schema-for-the-whole-app-db)). A non-sequential scalar — a bare keyword, string, number, nil, map, or set — is rejected at registration time with `:rf.error/app-schema-bad-path`, thrown *before* anything registers so nothing lands. This shape check is mandatory and always-on (not dev-only): the candidate validator walks every registered path with `(get-in db path)`, and a non-sequential path would make that call throw at validate-time — a registration bug the authoring boundary catches up front rather than surfacing as a per-dispatch validator throw. `reg-app-schemas` validates every key up front and rejects the whole batch atomically if any is malformed, so a single bad key cannot half-register the batch.
 
-**Malformed schema VALUE — the symmetric fail-closed.** The same lazy-throw hazard is reachable through the `schema` argument, not just the `path`. Malli validates schema *forms* lazily — at validate-time, not registration-time — so a structurally malformed schema (a childless `[:vector]`, an unknown op) registers cleanly and then makes the registered validator THROW on the first candidate validation. The candidate validator therefore isolates that throw **per-entry**: it surfaces a distinct `:rf.error/malformed-schema` trace (so the throw can never masquerade as a clean validate), fails CLOSED (REJECTS the candidate transition — the unvalidated state is never installed, `:rollback? true` = transaction rejected), and continues validating the frame's sibling schemas (so one bad schema cannot disable candidate validation — including the privacy-bearing redaction traces — frame-wide). A registration-time form check is NOT attempted; the per-entry catch is the robust fail-closed point. The router's defensive guard additionally emits the same `:rf.error/malformed-schema` category — **also fail-closed** (`:rollback? true`; the candidate is REJECTED — there is no treat-as-pass arm) — if a wholesale validator-machinery throw still reaches its catch, so a throwing validator can neither pass unvalidated state nor go invisible. Both of those sites also fan a structural-only record onto the always-on `:errors` stream in the build where they fire, exactly as the value-failure rejection in row 4 does (per [009 §The promotion criterion](009-Instrumentation.md#the-promotion-criterion)) — the same consequence, reached through the schema FORM or the validator rather than the value, so reported the same way. The record's `:reason` is a constant framework sentence and never the throwing validator's message, which is unbounded and may embed the value it choked on; that message stays on the dev trace.
+**Malformed schema VALUE — the symmetric fail-closed.** The same lazy-throw hazard is reachable through the `schema` argument, not just the `path`. Malli validates schema *forms* lazily — at validate-time, not registration-time — so a structurally malformed schema (a childless `[:vector]`, an unknown op) that reaches registration unchecked registers cleanly and then makes the registered validator THROW on the first candidate validation. The candidate validator therefore isolates that throw **per-entry**: it surfaces a distinct `:rf.error/malformed-schema` trace (so the throw can never masquerade as a clean validate), fails CLOSED (REJECTS the candidate transition — the unvalidated state is never installed, `:rollback? true` = transaction rejected), and continues validating the frame's sibling schemas (so one bad schema cannot disable candidate validation — including the privacy-bearing redaction traces — frame-wide). In development builds `reg-app-schema` and `reg-app-schemas` check the form first, through the port's optional `:compile` (per [§How the surface works](#how-the-surface-works)), so a malformed `app-db` schema throws at the call that wrote it and registers nothing; the per-entry catch is the backstop for a port with no `:compile`. The router's defensive guard additionally emits the same `:rf.error/malformed-schema` category — **also fail-closed** (`:rollback? true`; the candidate is REJECTED — there is no treat-as-pass arm) — if a wholesale validator-machinery throw still reaches its catch, so a throwing validator can neither pass unvalidated state nor go invisible. Both of those sites also fan a structural-only record onto the always-on `:errors` stream in the build where they fire, exactly as the value-failure rejection in row 4 does (per [009 §The promotion criterion](009-Instrumentation.md#the-promotion-criterion)) — the same consequence, reached through the schema FORM or the validator rather than the value, so reported the same way. The record's `:reason` is a constant framework sentence and never the throwing validator's message, which is unbounded and may embed the value it choked on; that message stays on the dev trace.
 
 #### `reg-app-schemas` — bulk plural form
 
@@ -609,10 +609,12 @@ Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-
 ;; porch — reach it through the owning namespace.
 (require '[re-frame.schemas :as schemas])
 
-;; (1) Install a whole port: validator, explainer and digest-printer in
-;;     one call so the three never drift mid-boot.
+;; (1) Install a whole port: validator, explainer, registration-time
+;;     compiler and digest-printer in one call so they never drift
+;;     mid-boot.
 (schemas/set-schema-fns! {:validate my-validator-fn
                           :explain  my-explainer-fn
+                          :compile  my-compile-fn
                           :print    my-printer-fn})
 
 ;; (2) Swap ONE fn: an omitted key leaves its existing registration in
@@ -630,18 +632,21 @@ Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-
 
 ;; (4) Hard no-op: an explicit nil :validate disables validation
 ;;     everywhere. Every validate-*! site short-circuits without
-;;     inspecting the schema. Apps that want zero validation surface
+;;     inspecting the schema, and a nil :compile stops registration
+;;     compiling it. Apps that want zero validation surface
 ;;     (and zero schema-library bundle cost) install nil at boot.
-(schemas/set-schema-fns! {:validate nil})
+(schemas/set-schema-fns! {:validate nil :compile nil})
 
 ;; (5) Read back what is installed, and restore the framework defaults.
-(schemas/schema-fns)                                ;; => {:validate … :explain … :humanize … :print …}
+(schemas/schema-fns)                                ;; => {:validate … :explain … :humanize … :compile … :print …}
 (schemas/set-schema-fns! schemas/default-schema-fns)
 ```
 
 Note the distinction (2) rests on: an **omitted** key leaves the live registration alone, while an **explicit nil** writes nil and disables that fn. Collapsing the two would make a partial install unsafe.
 
-`set-schema-fns!`, `schema-fns` and `default-schema-fns` are each rowed in [API.md §Schemas](API.md#schemas), and together they are the whole **public** validator-surface seam. They let a port (or an app) swap out Malli wholesale: validator + explainer + humanizer + printer = the entire schema-language surface the framework consults.
+**Registration-time compile.** The optional `:compile` key, `(fn [schema] _)`, is called with each schema a development-build `reg-app-schema` or `reg-app-schemas` declares, before anything registers, so a malformed schema throws at the call that wrote it rather than at its first validation. Its return is ignored, and production builds never call it. The CLJS reference's default compiles into the same cache `:validate` reads, so registering also warms the validator. A port that installs its own `:validate` installs its own `:compile` beside it, or nil; with no `:compile` a malformed schema registers and fails closed at its first validation (`:rf.error/malformed-schema`, per [§Malformed schema VALUE](#app-db-schemas--path-based)).
+
+`set-schema-fns!`, `schema-fns` and `default-schema-fns` are each rowed in [API.md §Schemas](API.md#schemas), and together they are the whole **public** validator-surface seam. They let a port (or an app) swap out Malli wholesale: validator + explainer + humanizer + compiler + printer = the entire schema-language surface the framework consults.
 
 ### Per-port default
 
@@ -676,7 +681,7 @@ Because the port is a value, a test (or fixture) captures the live bundle, insta
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-(let [installed (schemas/schema-fns)]        ;; the live {:validate :explain :humanize :print}
+(let [installed (schemas/schema-fns)]        ;; the live {:validate :explain :humanize :compile :print}
   (try
     (schemas/set-schema-fns! {:validate stub-validate :explain stub-explain})
     ;; ... exercise the validation path against the stub ...
@@ -689,7 +694,7 @@ Restoring the framework **defaults** specifically — rather than an arbitrary c
 
 This is the **bundle-level** counterpart to the registrar snapshot `re-frame.test-support` takes and restores (`snapshot-registrar` / `restore-registrar!`, and every `make-reset-runtime-fixture`): app-db schemas are registrar state, so that snapshot restores them after a test, and the reset clears every one for the test's length, so a test validates only against the schemas it registers. The registry side captures *which schemas are registered*; the bundle side captures *which validator/explainer/printer is installed*, and needs no dedicated pair, because its state is the value `set-schema-fns!` installs. The two compose: capturing and reinstating both puts the whole schema runtime back through public API. The bundle names are rowed in [API.md §Schemas](API.md#schemas) — not part of the `re-frame.core` front-porch facade.
 
-> **The raw atoms are private (encapsulated-only contract).** The atoms behind the pluggable `validator-fn` / `explainer-fn` / `humanizer-fn` / `printer-fn` bundle are **not** re-exported as public Vars on `re-frame.schemas`. The supported surface is `schema-fns` / `set-schema-fns!` above; tests and fixtures capture-and-restore through it rather than reaching the atoms. This is deliberate: the `printer-fn` atom must never be set to `nil` (the setters coerce `nil → default-edn-print` so the digest path's never-nil invariant holds without a read-site guard — a raw `(reset! printer-fn nil)` would defeat it). A port should expose the encapsulated read/install surface and keep the underlying atoms internal to its schemas module.
+> **The raw atoms are private (encapsulated-only contract).** The atoms behind the pluggable `validator-fn` / `explainer-fn` / `humanizer-fn` / `compiler-fn` / `printer-fn` bundle are **not** re-exported as public Vars on `re-frame.schemas`. The supported surface is `schema-fns` / `set-schema-fns!` above; tests and fixtures capture-and-restore through it rather than reaching the atoms. This is deliberate: the `printer-fn` atom must never be set to `nil` (the setters coerce `nil → default-edn-print` so the digest path's never-nil invariant holds without a read-site guard — a raw `(reset! printer-fn nil)` would defeat it). A port should expose the encapsulated read/install surface and keep the underlying atoms internal to its schemas module.
 
 ### Schema implies validation on CLJS (Malli wired by the artefact)
 
@@ -721,8 +726,9 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; Install the no-op BEFORE the first reg-app-schema / :schema metadata.
 ;; The setter lives on re-frame.schemas, not the re-frame.core facade.
 ;; Any (fn [schema value] truthy?) that returns true unconditionally
-;; passes every value; nil disables the call site even faster.
-(schemas/set-schema-fns! {:validate nil})
+;; passes every value; nil disables the call site even faster. A nil
+;; :compile stops registration compiling the schemas as well.
+(schemas/set-schema-fns! {:validate nil :compile nil})
 
 ;; Schemas attach as usual — they're inert data the framework still
 ;; surfaces via app-schemas / app-schemas-digest, but no validate

@@ -26,6 +26,14 @@
               `:explain-humanized` payload (Spec 010 §Humanize-hook). nil =
               the failure trace carries `:explain` alone.
 
+    :compile  (fn [schema] _)
+              — called with each schema a development-build
+              `reg-app-schema` / `reg-app-schemas` declares, before anything
+              registers, so a malformed schema throws at the call that wrote
+              it. The return is ignored. nil = registration does not check
+              the schema, and a malformed one surfaces at its first
+              validation instead.
+
     :print    (fn [schema-value] canonical-string)
               — per Spec 010 §Schema digest line 491, the registered
               validator's `schema-print` companion. Serialises a
@@ -200,6 +208,7 @@
   (`re-frame.schemas.malli/bundle`) completed with the EDN schema printer.
 
     {:validate …                    ;; Malli, compiled once per schema value
+     :compile  …                    ;; compiles into the same cache; throws on a malformed schema
      :explain  malli.core/explain
      :humanize malli.error/humanize ;; development builds; nil in production
      :print    default-edn-print}   ;; the EDN canonicaliser the digest hashes
@@ -235,6 +244,14 @@
   (atom (:humanize default-schema-fns)))
 
 (defonce
+  ^{:doc "The currently-registered schema compiler — `(fn [schema] _)`,
+          called at development registration so a malformed schema throws
+          at the call that wrote it. Default compiles through the Malli
+          bundle's cache; nil skips the check."}
+  compiler-fn
+  (atom (:compile default-schema-fns)))
+
+(defonce
   ^{:doc "The currently-registered schema-print fn — `(fn [schema-value]
           canonical-string)`. Per Spec 010 §Schema digest line 491,
           the registered validator's `schema-print` companion. The
@@ -250,11 +267,12 @@
 
 (defn set-schema-fns!
   "THE DOOR. Install any subset of the validator / explainer / humanizer /
-  printer bundle from a single map.
+  compiler / printer bundle from a single map.
 
     (set-schema-fns! {:validate validate-fn
                       :explain  explain-fn
                       :humanize humanize-fn
+                      :compile  compile-fn
                       :print    print-fn})
 
   Each key is optional; a key that is absent leaves the existing
@@ -269,6 +287,10 @@
                failure trace's `:explain` slot nil.
     :humanize  (fn [explanation] readable) | nil — nil leaves the failure
                trace without `:explain-humanized`.
+    :compile   (fn [schema] _) | nil — called at development registration
+               so a malformed schema throws there; nil skips the check. A
+               port that installs its own `:validate` installs its own
+               `:compile` (or nil) beside it.
     :print     (fn [schema-value] canonical-string) | nil — the schema-print
                companion the digest pipeline hashes. nil coerces
                to the default EDN canonicaliser, so `printer-fn` is
@@ -287,20 +309,23 @@
   quiescent at boot.
 
   Returns the installed bundle as a map — `{:validate @validator-fn
-  :explain @explainer-fn :humanize @humanizer-fn :print @printer-fn}` —
+  :explain @explainer-fn :humanize @humanizer-fn :compile @compiler-fn
+  :print @printer-fn}` —
   reflecting the live state of every function after this call. A bundle setter returns
   its bundle: the return mirrors this fn's own input shape, so a caller
   observes everything now installed, including keys it did NOT touch and
   the nil-printer coercion of `:print`. `:validate` / `:explain` /
-  `:humanize` may be nil (each disables that fn); `:print` is never nil
+  `:humanize` / `:compile` may be nil (each disables that fn); `:print` is
+  never nil
   (always at least `default-edn-print`).
 
   Restoring is the same call: install a value captured by `schema-fns`,
   or `default-schema-fns` to return to the framework defaults."
-  [{:keys [validate explain humanize print] :as m}]
+  [{:keys [validate explain humanize compile print] :as m}]
   (when (contains? m :validate) (reset! validator-fn validate))
   (when (contains? m :explain)  (reset! explainer-fn explain))
   (when (contains? m :humanize) (reset! humanizer-fn humanize))
+  (when (contains? m :compile)  (reset! compiler-fn compile))
   ;; Establish the printer-never-nil invariant at every write site.
   (when (contains? m :print)
     (reset! printer-fn (or print default-edn-print)))
@@ -309,16 +334,18 @@
   {:validate @validator-fn
    :explain  @explainer-fn
    :humanize @humanizer-fn
+   :compile  @compiler-fn
    :print    @printer-fn})
 
 (defn schema-fns
   "THE READ. Return the installed validator / explainer / humanizer /
-  printer as one value, in the SAME shape `set-schema-fns!` accepts and
-  returns:
+  compiler / printer as one value, in the SAME shape `set-schema-fns!`
+  accepts and returns:
 
     {:validate @validator-fn   ;; may be nil (validation disabled)
      :explain  @explainer-fn   ;; may be nil (no explanation)
      :humanize @humanizer-fn   ;; may be nil (no humanized explanation)
+     :compile  @compiler-fn    ;; may be nil (no registration-time check)
      :print    @printer-fn}    ;; never nil (always at least default-edn-print)
 
   so it round-trips: `(set-schema-fns! (schema-fns))` is a no-op. That
@@ -337,6 +364,7 @@
   {:validate @validator-fn
    :explain  @explainer-fn
    :humanize @humanizer-fn
+   :compile  @compiler-fn
    :print    @printer-fn})
 
 (defn run-validator
@@ -364,6 +392,19 @@
   [explanation]
   (when-let [f @humanizer-fn]
     (f explanation)))
+
+(defn run-compiler
+  "Invoke the registered schema compiler against `schema` at registration,
+  so a malformed schema throws at the call that wrote it. A no-op when none
+  is registered (nil). Returns nil.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`: the
+  check is a development aid, and production registration stays a plain
+  write."
+  [schema]
+  (when-let [f @compiler-fn]
+    (f schema))
+  nil)
 
 (defn run-printer
   "Hot-path entry — invoke the registered schema-print companion against

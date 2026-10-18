@@ -265,7 +265,8 @@ Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps op
 | `:rf.error/app-schemas-bad-batch` | `reg-app-schemas` got something other than a `{path schema}` map | Pass a map of vector paths |
 | `:rf.error/app-schema-runtime-path` | The path starts with `:rf.db/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
 | `:rf.error/app-schema-frame-target` at registration | The registration names a frame: `:frame` in the metadata map, a frame value in its place, or a frame as `reg-app-schemas`' second argument | Register at the top level with no frame; to validate one frame differently, shadow the path in a later [image](../glossary.md#image) |
-| `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form (a childless `[:vector]`, an unknown op) registers cleanly because Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
+| A Malli exception from `reg-app-schema` (development builds) | A broken schema form (a childless `[:vector]`, an unknown op); registration compiles each schema through the validator's `:compile` | Fix the form |
+| `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form registered without that check (an installed validator with no `:compile`), and Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
 | Every commit rejected against `[]`, naming a key the handler never wrote | A root schema requires a key nothing has seeded yet, and `[]` is checked on every write | Seed the keys it requires in one `:db` write, before other events write app-db ([above](#what-a-path-schema-checks)) |
 | `:rf.schema/violation` warning (Xray Issues panel) at registration or after a hot reload | A schema registered for the first time, or tightened, doesn't match the value already in app-db; the warning carries `:post-reload-schema` and `:mismatching-value`, plus `:pre-reload-schema` when it replaced a schema | Dispatch the event that rewrites the slice, or reload the page. For a root schema at boot, register it before the frame exists ([above](#what-a-path-schema-checks)) |
 
@@ -334,13 +335,14 @@ The runtime never inspects a `:schema` itself; every check goes through a regist
 
 (schemas/set-schema-fns! {:validate my-validate-fn   ;; (fn [schema value] truthy?)
                           :explain  my-explain-fn    ;; (fn [schema value] explanation)
+                          :compile  nil              ;; or (fn [schema] _), run at registration
                           :print    my-print-fn})    ;; (fn [schema-value] canonical-string), feeds the digest
 
 ;; Each key is optional; an absent key keeps the current function.
 (schemas/set-schema-fns! {:explain my-explain-fn})
 
-;; Disable validation: every check passes.
-(schemas/set-schema-fns! {:validate nil})
+;; Disable validation: every check passes, and registration checks nothing.
+(schemas/set-schema-fns! {:validate nil :compile nil})
 ```
 
 One set of functions is in force per process, and the last call wins. `(schemas/set-schema-fns! schemas/default-schema-fns)` restores the Malli defaults.

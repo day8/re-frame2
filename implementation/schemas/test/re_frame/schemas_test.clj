@@ -248,7 +248,8 @@
       (rf.schemas/set-schema-fns! {:validate v-fn :print p-fn})
       (let [installed (rf.schemas/set-schema-fns! {:explain nil})]
         (is (= {:validate v-fn :explain nil :print p-fn
-                :humanize (:humanize rf.schemas/default-schema-fns)}
+                :humanize (:humanize rf.schemas/default-schema-fns)
+                :compile  (:compile rf.schemas/default-schema-fns)}
                installed (rf.schemas/schema-fns)))
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
         (is (= rf.schemas/default-schema-fns (rf.schemas/schema-fns)))

@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -32,6 +33,9 @@
       (is (re-find #"vector form" (:reason (first warnings)))))))
 
 (deftest warning-fires-once-from-reg-app-schemas-bulk
+  ;; the token is opaque to the default Malli compiler, so registration
+  ;; skips the compile here
+  (rf.schemas/set-schema-fns! {:compile nil})
   (with-trace-recorder! [recorded]
     (rf/reg-app-schemas {[:user]    {:malli/schema :user}
                          [:cart]    {:malli/schema :cart}
@@ -49,6 +53,9 @@
            (kinds (opaque-warnings recorded))))))
 
 (deftest warning-suppressed-on-introspectable-schemas
+  ;; the token is opaque to the default Malli compiler, so registration
+  ;; skips the compile here
+  (rf.schemas/set-schema-fns! {:compile nil})
   (with-trace-recorder! [recorded]
     (rf/reg-app-schema [:user]    [:map [:id :int] [:name :string]])
     (rf/reg-app-schema [:profile] :my/user-schema)

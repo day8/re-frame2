@@ -21,9 +21,10 @@
   cost under static CLJS compilation, since requiring the facade loads
   this ns's body) either:
 
-    - Calls `(schemas/set-schema-fns! {:validate my-validator-fn})` at
-      boot to install a custom validator, or
-    - Calls `(schemas/set-schema-fns! {:validate nil})` for a hard no-op.
+    - Calls `(schemas/set-schema-fns! {:validate my-validator-fn
+      :compile nil})` at boot to install a custom validator, or
+    - Calls `(schemas/set-schema-fns! {:validate nil :compile nil})` for a
+      hard no-op.
 
   `:validate` compiles each schema once. `malli.core/validate` builds a
   fresh validator on every call, which costs more than the check itself, so
@@ -31,7 +32,9 @@
   schema value: an entry lives exactly as long as something else holds its
   schema — in practice the registration that declared it — and installing a
   different `:validate` leaves the cache to the collector with the bundle
-  that owns it. Nothing needs configuring or clearing.
+  that owns it. Nothing needs configuring or clearing. `:compile` compiles
+  into the same cache, so development registration rejects a malformed
+  schema at the call that wrote it and warms the validator it will use.
 
   `malli.error` is the one Malli namespace this adapter keeps off the
   production path. The framework's only reader of the humanizer is the
@@ -95,10 +98,13 @@
           v))))
 
 (defn- bundle-over
-  "The Malli bundle whose `:validate` compiles through `cache`."
+  "The Malli bundle whose `:validate` and `:compile` compile through `cache`."
   [cache]
   {:validate (fn validate [schema value]
                ((cached-validator cache schema) value))
+   :compile  (fn compile-schema [schema]
+               (cached-validator cache schema)
+               nil)
    :explain  malli.core/explain
    :humanize (when rf.interop/debug-enabled? malli.error/humanize)})
 
@@ -108,6 +114,7 @@
   with its EDN schema printer as `default-schema-fns`.
 
     {:validate (fn [schema value] truthy?)   ;; cached compiled validators
+     :compile  (fn [schema] nil)             ;; compiles into the cache; throws if malformed
      :explain  malli.core/explain
      :humanize malli.error/humanize}         ;; development builds; nil in production"
   (bundle-over (weak-cache)))

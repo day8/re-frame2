@@ -155,6 +155,9 @@
   (testing "a malformed registered schema fails closed with its own
             :rf.error/malformed-schema trace instead of throwing, and the
             schemas after it in the frame are still validated"
+    ;; :compile would refuse [:vector] at registration; off, the schema
+    ;; reaches the runtime backstop this test pins
+    (rf.schemas/set-schema-fns! {:compile nil})
     (rf/reg-app-schema [:broken] [:vector])
     (rf/reg-app-schema [:good] [:int])
     (with-trace-recorder! [traces]
@@ -169,6 +172,21 @@
         {:good "not-an-int" :broken [1]} :bad/ev :rf/default)
       (is (= [[:good]] (map #(-> % :tags :path)
                             (ops @traces :rf.error/schema-validation-failure)))))))
+
+(deftest a-malformed-schema-throws-at-its-registration
+  (testing "development registration compiles each schema through the port's
+            :compile, so a malformed one throws at the call that wrote it and
+            registers nothing"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (rf/reg-app-schema [:broken] [:vector])))
+    (is (nil? (rf.schemas/app-schema-meta {:frame :rf/default :path [:broken]}))))
+  (testing "one malformed entry stops the whole batch"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (rf/reg-app-schemas {[:ok] [:int] [:broken] [:vector]})))
+    (is (= {} (rf.schemas/app-schemas {:frame :rf/default}))))
+  (testing "with :compile off, the same schema registers"
+    (rf.schemas/set-schema-fns! {:compile nil})
+    (is (= [:broken] (rf/reg-app-schema [:broken] [:vector])))))
 
 ;; ---- frames come and go; registrations stay -------------------------------
 

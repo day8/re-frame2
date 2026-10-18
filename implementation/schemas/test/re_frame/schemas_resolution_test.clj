@@ -58,10 +58,10 @@
   (testing "with no frame in scope, reg-app-schema registers :app-schema
             under the canonical path"
     (let [returned (binding [rf.frame/*current-frame* nil]
-                     (rf/reg-app-schema (list :cart) [:map [:items :vector]]))]
+                     (rf/reg-app-schema (list :cart) [:map [:items [:vector :any]]]))]
       (is (= [:cart] returned))
       (is (vector? returned))
-      (is (= [:map [:items :vector]]
+      (is (= [:map [:items [:vector :any]]]
              (:schema (rf/handler-meta {:source :store :kind :app-schema :id [:cart]}))))
       (is (= #{[:cart]}
              (set (keys (rf/registrations {:source :store :kind :app-schema})))))
@@ -134,8 +134,8 @@
 ;; ---- AC5: an ambiguous path fails loudly ------------------------------------
 
 (deftest a-path-registered-by-two-namespaces-fails-loudly
-  (rf/reg-app-schema [:cart] {:ns 'probe.a} [:map [:items :vector]])
-  (rf/reg-app-schema [:cart] {:ns 'probe.b} [:map [:items :vector]])
+  (rf/reg-app-schema [:cart] {:ns 'probe.a} [:map [:items [:vector :any]]])
+  (rf/reg-app-schema [:cart] {:ns 'probe.b} [:map [:items [:vector :any]]])
   (rf/reg-event :cart/set (fn [{:keys [db]} [_ cart]] {:db (assoc db :cart cart)}))
   (rf/reg-event :other/touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
   (let [frame (rf/make-frame {:id :test/live})]
