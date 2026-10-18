@@ -35,6 +35,20 @@
       (Thread/sleep 20)
       (recur (inc attempt)))))
 
+(defn- settled-size
+  "The cache's size once the collector's cleared references have reached the
+  reference queue. A `WeakHashMap` drops an entry only when it finds the
+  entry's reference queued, which trails the clearing `collect!` waits for,
+  so poll briefly before reading a size."
+  [^Map cache]
+  (loop [attempt 0]
+    (let [n (.size cache)]
+      (if (or (zero? n) (<= 50 attempt))
+        n
+        (do (System/gc)
+            (Thread/sleep 20)
+            (recur (inc attempt)))))))
+
 (defn- register-replace-destroy!
   "One cycle: register a fresh schema at [:n] and validate a write against
   it, replace it with another fresh schema and validate again, then
@@ -66,7 +80,7 @@
       (collect! refs)
       (is (every? #(nil? (.get ^WeakReference %)) refs)
           "nothing the cache holds keeps a schema alive")
-      (is (zero? (.size ^Map cache))
+      (is (zero? (settled-size cache))
           "no entry for a collected schema remains"))))
 
 (deftest swapping-the-port-drops-the-cache
