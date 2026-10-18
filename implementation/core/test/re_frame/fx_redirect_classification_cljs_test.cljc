@@ -16,10 +16,8 @@
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            ;; Loading the http artefact binds the `:http/project-managed-fx-args` hook…
+            ;; Loading the http artefact binds the `:http/project-managed-fx-args` hook.
             [re-frame.http.managed]
-            ;; …and registers the `:rf.http/managed-canned-*` stub fxs.
-            [re-frame.http.test-support]
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -87,12 +85,12 @@
           (is (not (some #(leaks? pw-sentinel %) @traces))
               "no emitted trace event leaks the token"))))))
 
-(deftest live-canned-stub-redirect-redacts-sensitive-managed-request
-  (testing "a :sensitive? true :rf.http/managed request keyword-redirected to the
-            canned-success stub — the canned reply lands, and the stub's own
+(deftest live-stub-redirect-redacts-sensitive-managed-request
+  (testing "a :sensitive? true :rf.http/managed request keyword-redirected to an
+            unclassified stub — the stub receives the RAW args, and its own
             :rf.fx/handled redacts the body through the ORIGINAL id's dynamic case"
-    (let [reply (atom ::none)]
-      (rf/reg-event ::got (fn [{:keys [db]} [_ r]] (reset! reply r) {:db db}))
+    (let [got (atom ::none)]
+      (rf/reg-fx ::managed-stub (fn [_ args] (reset! got args)))
       (rf/reg-event ::issue
         (fn [_ _]
           {:fx [[:rf.http/managed
@@ -102,21 +100,16 @@
                                :request-content-type :json
                                :sensitive? true}
                   :decode     :json
-                  :value      {:ok true}
                   :on-success [::got]
                   :on-failure [::got]}]]}))
       (let [traces (record-traces!)]
-        (rf/dispatch-sync [::issue]
-                          {:fx-overrides {:rf.http/managed
-                                          :rf.http/managed-canned-success}})
+        (rf/dispatch-sync [::issue] {:fx-overrides {:rf.http/managed ::managed-stub}})
         (rf/unregister-listener! :trace ::probe)
-        (is (= {:status :ok :value {:ok true}} @reply)
-            "the redirect resolved to the canned stub, whose reply completed the cascade")
+        (is (= {:password pw-sentinel} (get-in @got [:request :body]))
+            "the redirect resolved to the stub, which received the RAW args")
         (when rf.interop/debug-enabled?
-          (let [handled (filter #(= :rf.http/managed-canned-success
-                                    (get-in % [:tags :rf.fx/id]))
-                                @traces)]
-            (is (seq handled) "the canned stub emitted its own :rf.fx/handled")
+          (let [handled (filter #(= ::managed-stub (get-in % [:tags :rf.fx/id])) @traces)]
+            (is (seq handled) "the stub emitted its own :rf.fx/handled")
             (doseq [ev handled]
               (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from])))
               (is (= rf.privacy/redacted-sentinel
@@ -126,8 +119,7 @@
                   "shape retained — the url survives")))
           (is (some #(and (= :rf.fx/override-applied (:operation %))
                           (= :rf.http/managed (get-in % [:tags :rf.fx/from]))
-                          (= :rf.http/managed-canned-success
-                             (get-in % [:tags :rf.fx/to])))
+                          (= ::managed-stub (get-in % [:tags :rf.fx/to])))
                     @traces)
               ":rf.fx/override-applied records the redirect pair")
           (is (not (some #(leaks? pw-sentinel %) @traces))

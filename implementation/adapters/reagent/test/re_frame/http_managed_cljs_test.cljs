@@ -1,42 +1,26 @@
 (ns re-frame.http-managed-cljs-test
   "CLJS smoke for Spec 014 — `:rf.http/managed` under the Reagent
-  reactive substrate.
-
-  The CLJS impl uses Fetch under the hood; this test covers the
-  framework-shipped surfaces using the canned-stub fxs and the
-  `with-request-stubs` helper — no real network IO.
+  reactive substrate, answered by a stub transport
+  (`re-frame.http.stub-transport`): the real pipeline runs, and nothing
+  reaches the network.
 
   Surfaces exercised:
 
-  - `:rf.http/managed-canned-success` — synthesised success reply
-  - `:rf.http/managed-canned-failure` — synthesised failure reply
   - unified `:reply-to` addressing (envelope appended as the last arg)
-  - explicit `:on-success` target
-  - explicit `:on-failure` target
-  - silenced `:on-success nil`
-  - decode-pipeline shapes (`:json`, `:text`, fn, Malli — only static
-    shape exercised; the live transport runs through them when fetch is
-    available, which the JVM smoke and the conformance fixtures cover
-    end-to-end)
-  - `with-request-stubs` — scope/run/unwind
+  - explicit `:on-success` and `:on-failure` targets
+  - a silenced reply (`:on-success nil` / `:on-failure nil`)
+  - `with-transport` answering a frame made before the scope, including
+    one that sealed an image generation then
+  - 4xx / 5xx statuses classified from the stub's response
+  - an unmatched route failing as `:rf.http/transport`
 
   Per Spec 014 §Implementation status — CLJS is the reference target;
-  this smoke locks that the canned-stub fxs and the public test seam
-  resolve under the Reagent adapter the same way they do on the JVM."
+  this smoke locks that a stub transport answers under the Reagent adapter
+  the same way it does on the JVM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ;; The Malli adapter, whose bundle is the default
-            ;; validator. The http-managed CLJS smoke exercises
-            ;; schema-shaped `:decode` values that route through the
-            ;; registered validator.
-            [re-frame.schemas.malli]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.http.managed :as rf.http.managed]
-            ;; Canned-stub fxs (`:rf.http/managed-canned-success`,
-            ;; `:rf.http/managed-canned-failure`) gate on explicit
-            ;; test-support require. This file uses :fx-overrides into
-            ;; both fx ids throughout, so we opt in here.
-            [re-frame.http.test-support :as rf.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
@@ -53,10 +37,19 @@
       test-fn)
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- 1. canned-success: unified :reply-to addressing ----------------------
+(defn- answering
+  "Run `thunk` with every managed request answered from `routes`. A route
+  answers inline, so each reply has landed when the issuing `dispatch-sync`
+  returns."
+  [routes thunk]
+  (rf.http.stub-transport/with-transport
+    (rf.http.stub-transport/route-transport routes)
+    thunk))
 
-(deftest canned-success-reply-to-addressing-cljs
-  (testing "the canned-success stub dispatches the reply to the unified :reply-to target"
+;; ---- 1. unified :reply-to addressing ---------------------------------------
+
+(deftest reply-to-addressing-cljs
+  (testing "the reply is dispatched to the unified :reply-to target"
     (rf/reg-event :article/load
       (fn [_ [_ msg reply]]
         (if reply
@@ -66,15 +59,14 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
-    (rf/dispatch-sync [:article/load {:slug "hello"}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= {:stubbed true} (:article db))
-          ":reply-to routed the synthesised reply back to :article/load"))))
+    (answering {[:get "/articles/hello"] {:body {:slug "hello"}}}
+      #(rf/dispatch-sync [:article/load {:slug "hello"}]))
+    (is (= {:slug "hello"} (:article (rf/app-db-value :rf/default)))
+        ":reply-to routed the decoded reply back to :article/load")))
 
-;; ---- 2. canned-failure: explicit on-failure -------------------------------
+;; ---- 2. explicit on-failure -------------------------------------------------
 
-(deftest canned-failure-explicit-on-failure-cljs
+(deftest explicit-on-failure-cljs
   (testing "explicit :on-failure routes the failure reply to the named handler"
     (rf/reg-event :auth/login
       (fn [_ _]
@@ -85,32 +77,33 @@
     (rf/reg-event :auth/login-error
       (fn [{:keys [db]} [_ payload]]
         {:db (assoc db :auth-error payload)}))
-    (rf/dispatch-sync [:auth/login]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+    (answering {[:post "/auth/login"] {:failure {:kind :rf.http/transport}}}
+      #(rf/dispatch-sync [:auth/login]))
     (let [db (rf/app-db-value :rf/default)]
       (is (= [:error :rf.http/transport]
              [(get-in db [:auth-error :status]) (get-in db [:auth-error :error :kind])])
-          "default canned-failure classifies as :rf.http/transport under :error"))))
+          "a network failure classifies as :rf.http/transport under :error"))))
 
-;; ---- 3. canned-success: explicit on-success -------------------------------
+;; ---- 3. explicit on-success -------------------------------------------------
 
-(deftest canned-success-explicit-on-success-cljs
+(deftest explicit-on-success-cljs
   (testing "explicit :on-success routes the success reply to the named handler"
     (rf/reg-event :article/load
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :get :url "/articles/hello"}
+                :decode     :json
                 :on-success [:article/loaded]
                 :on-failure nil}]]}))
     (rf/reg-event :article/loaded
       (fn [{:keys [db]} [_ payload]]
         {:db (assoc db :article payload)}))
-    (rf/dispatch-sync [:article/load]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= {:status :ok :value {:stubbed true}} (select-keys (:article db) [:status :value]))))))
+    (answering {[:get "/articles/hello"] {:body {:id 1}}}
+      #(rf/dispatch-sync [:article/load]))
+    (is (= {:status :ok :value {:id 1}}
+           (select-keys (:article (rf/app-db-value :rf/default)) [:status :value])))))
 
-;; ---- 4. silenced reply ----------------------------------------------------
+;; ---- 4. silenced reply ------------------------------------------------------
 
 (deftest silenced-reply-on-success-nil-cljs
   (testing "explicit :on-success nil swallows the reply silently"
@@ -122,146 +115,60 @@
                  {:request    {:url "/ping"}
                   :on-success nil
                   :on-failure nil}]]}))
-      (rf/dispatch-sync [:ping]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+      (answering {[:get "/ping"] {:body {}}}
+        #(rf/dispatch-sync [:ping]))
       ;; Only the initial dispatch fired :ping; no reply re-entered.
       (is (= 1 @seen) "no reply was dispatched when :on-success is nil"))))
 
-;; ---- 5. with-request-stubs helper -----------------------------------------
-
-;; ---- 5a. bare thunk INTERCEPTS, never reaching the real fx ----------------
+;; ---- 5. a frame made before the scope ---------------------------------------
 ;;
-;; CLJS counterpart of the JVM interception test. The documented
-;; `with-request-stubs` form must route `:rf.http/managed` through
-;; the stub by ITSELF; otherwise the thunk's bare dispatch would reach the
-;; real production Fetch transport. We shadow `:rf.http/managed` with a sentinel
-;; — reaching it proves the override was absent.
+;; The transport is found when the request issues, below `:rf.http/managed`,
+;; so a frame made before the scope is answered by it whether it resolves the
+;; registration store live (`make-frame {}`) or sealed an image generation
+;; when it was made. The dispatch targets the frame VALUE, so the frame's own
+;; resolution path is the one exercised.
 
-(deftest with-request-stubs-intercepts-without-manual-override-cljs-rf2-rzqan
-  (testing "inside with-request-stubs, a plain dispatch-sync
-            (NO per-call :fx-overrides) is intercepted by the stub and the real
-            :rf.http/managed fx slot is NEVER invoked"
-    (let [real-fx-invoked? (atom false)]
-      (rf.fx/reg-fx :rf.http/managed
-                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event :rzqan/load
-        (fn [_ [_ msg reply]]
-          (if reply
-            {:db {:result reply}}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:rzqan/load msg] :request {:method :get :url "/rzqan"}
-                    :decode  :json}]]})))
-      (rf.http.test-support/with-request-stubs
-        {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
-        (fn []
-          (rf/dispatch-sync [:rzqan/load])
-          (let [db (rf/app-db-value :rf/default)]
-            (is (= [:ok {:stubbed true} false]
-                   [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?])
-                "the stubbed reply landed via the route-map stub, and the real
-                 :rf.http/managed fx was NEVER invoked — the helper intercepted
-                 (otherwise this would fire the real Fetch transport)")))))))
+(deftest a-frame-made-before-the-scope-is-answered-cljs
+  (rf/reg-event :bxc8kf/load
+    (fn [{:keys [db]} [_ msg reply]]
+      (if reply
+        {:db (assoc db :result reply)}
+        {:fx [[:rf.http/managed
+               {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
+                :decode  :json}]]})))
+  (doseq [[label f] [["make-frame {}" (rf/make-frame {})]
+                     ["a frame with :images"
+                      (rf/make-frame {:images [(rf/image {:select-ns {:include ["re-frame.http-managed-cljs-test"]}})]})]]]
+    (testing label
+      (answering {[:get "/x"] {:body {:n 1}}}
+        #(rf/dispatch-sync [:bxc8kf/load] {:frame f}))
+      (is (= [:ok {:n 1}]
+             ((juxt :status :value) (:result (rf/app-db-value f))))))))
 
-;; ---- 5b. stubs work inside a PRE-CREATED frame ----------------------------
-;;
-;; CLJS counterparts of the JVM pre-created-frame tests. `rf/make-frame {}`
-;; makes a frame without `:images`, which seals no image generation: a
-;; dispatch into that frame value resolves `(kind, id)` through a live view of
-;; the registration store. A frame made with `:images` seals its generation
-;; when it is made. `with-request-stubs` registers ONE stable override
-;; target at ns-load and carries the per-scope route map on the
-;; `*scope-stubs*` dynamic var, so a frame created BEFORE the scope was
-;; entered resolves the target, including one that sealed its image
-;; generation then: that generation could not resolve an fx-id minted and
-;; registered INSIDE the scope. A sentinel shadows `:rf.http/managed` —
-;; reaching it proves the override was absent. The dispatch targets the frame
-;; VALUE explicitly (`{:frame f}`), so the frame's own resolution path, live
-;; store or sealed generation, is exercised.
+;; ---- 6. statuses outside 2xx ------------------------------------------------
 
-(deftest stubs-intercept-inside-pre-created-frame-cljs-rf2-bxc8kf
-  (testing "inside with-request-stubs, a dispatch-sync into
-            a PRE-CREATED make-frame {} frame routes through the stub and
-            NEVER invokes the real :rf.http/managed transport"
-    (let [real-fx-invoked? (atom false)]
-      (rf.fx/reg-fx :rf.http/managed
-                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event :bxc8kf/load
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :result reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
-                    :decode  :json}]]})))
-      ;; Create the frame first, THEN enter the stub scope.
-      (let [f (rf/make-frame {})]
-        (rf.http.test-support/with-request-stubs
-          {[:get "/x"] {:reply {:ok {:stubbed true}}}}
-          (fn []
-            (rf/dispatch-sync [:bxc8kf/load] {:frame f})
-            (let [db (rf/app-db-value f)]
-              (is (= [:ok {:stubbed true} false]
-                     [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?])
-                  "the configured :ok value rode the synthesised reply of the
-                   load-time-registered scope stub, and the real
-                   :rf.http/managed fx was NEVER invoked in the pre-created
-                   frame (otherwise this would fire the real Fetch transport)"))))))))
-
-(deftest stubs-intercept-inside-pre-created-image-frame-cljs-rf2-bxc8kf
-  (testing "inside with-request-stubs, a dispatch-sync into a PRE-CREATED
-            frame made with :images, its generation sealed before the scope
-            began, routes through the stub and NEVER invokes the real
-            :rf.http/managed transport"
-    (let [real-fx-invoked? (atom false)]
-      (rf.fx/reg-fx :rf.http/managed
-                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event :bxc8kf/load
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :result reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
-                    :decode  :json}]]})))
-      ;; Seal the frame's generation first, THEN enter the stub scope.
-      (let [f (rf/make-frame {:images [(rf/image {:select-ns {:include ["re-frame.http-managed-cljs-test"]}})]})]
-        (rf.http.test-support/with-request-stubs
-          {[:get "/x"] {:reply {:ok {:stubbed true}}}}
-          (fn []
-            (rf/dispatch-sync [:bxc8kf/load] {:frame f})
-            (let [db (rf/app-db-value f)]
-              (is (= [:ok {:stubbed true} false true]
-                     [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?
-                      (some? (rf/frame-generation f))])
-                  "the frame sealed a generation, the configured :ok value rode
-                   the synthesised reply of the load-time-registered scope
-                   stub, and the real :rf.http/managed fx was NEVER invoked
-                   (otherwise this would fire the real Fetch transport)"))))))))
-
-;; ---- 6. with-request-stubs — failure mapping -----------------------------
-
-(deftest with-request-stubs-failure-cljs
-  (testing "with-request-stubs synthesises a failure reply when {:reply {:failure ...}}"
+(deftest error-statuses-are-classified-cljs
+  (testing "a 4xx and a 5xx answer classify as :rf.http/http-4xx / -5xx"
     (rf/reg-event :articles/list
-      (fn [_ [_ msg reply]]
+      (fn [{:keys [db]} [_ url reply]]
         (if reply
-          {:db {:result reply}}
+          {:db (assoc-in db [:result url] reply)}
           {:fx [[:rf.http/managed
-                 {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
+                 {:reply-to [:articles/list url] :request {:method :get :url url}
                   :decode  :json}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/articles"] {:reply {:failure {:kind   :rf.http/http-4xx
-                                             :status 404}}}}
-      (fn []
-        ;; Auto-routing — no manual :fx-overrides.
-        (rf/dispatch-sync [:articles/list])
-        (let [db (rf/app-db-value :rf/default)]
-          (is (= [:error :rf.http/http-4xx 404]
-                 [(get-in db [:result :status]) (get-in db [:result :error :kind])
-                  (get-in db [:result :error :status])])))))))
+    (answering {[:get "/missing"] {:status 404}
+                [:get "/busy"]    {:status 503 :status-text "Service Unavailable" :body {:err true}}}
+      #(doseq [url ["/missing" "/busy"]] (rf/dispatch-sync [:articles/list url])))
+    (let [classified (fn [reply] [(:status reply) (get-in reply [:error :kind]) (get-in reply [:error :status])])
+          result     (:result (rf/app-db-value :rf/default))]
+      (is (= {"/missing" [:error :rf.http/http-4xx 404]
+              "/busy"    [:error :rf.http/http-5xx 503]}
+             (into {} (map (fn [[url reply]] [url (classified reply)])) result))))))
 
-;; ---- 7. unmatched-stub falls through to a transport failure --------------
+;; ---- 7. an unmatched route is a transport failure ---------------------------
 
-(deftest with-request-stubs-unmatched-cljs
-  (testing "an unmatched [method url] under stubs synthesises a :rf.http/transport failure"
+(deftest an-unmatched-route-fails-as-transport-cljs
+  (testing "a request no route matches fails as :rf.http/transport"
     (rf/reg-event :unmatched/load
       (fn [_ [_ msg reply]]
         (if reply
@@ -269,37 +176,8 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:unmatched/load msg] :request {:method :get :url "/never"}
                   :decode  :json}]]})))
-    (rf.http.test-support/with-request-stubs
-      ;; Configure stubs that do NOT match the request URL.
-      {[:get "/articles"] {:reply {:ok []}}}
-      (fn []
-        ;; Auto-routing — no manual :fx-overrides. The unmatched
-        ;; route still routes THROUGH the stub (which then synthesises the
-        ;; no-match transport failure), never reaching the real client.
-        (rf/dispatch-sync [:unmatched/load])
-        (let [db (rf/app-db-value :rf/default)]
-          (is (= [:error :rf.http/transport]
-                 [(get-in db [:result :status]) (get-in db [:result :error :kind])])))))))
-
-;; ---- 8. canned-failure: explicit :kind / :tags shape ---------------------
-
-(deftest canned-failure-custom-kind-cljs
-  (testing ":rf.http/managed-canned-failure honours :kind and :tags args"
-    (rf/reg-event :flaky/load
-      (fn [_ _]
-        {:fx [[:rf.http/managed-canned-failure
-               {:on-success nil
-                :on-failure [:flaky/load-error]
-                :kind       :rf.http/http-5xx
-                :tags       {:status      503
-                             :status-text "Service Unavailable"
-                             :body        {:err true}
-                             :headers     {}}}]]}))
-    (rf/reg-event :flaky/load-error
-      (fn [{:keys [db]} [_ payload]]
-        {:db (assoc db :error payload)}))
-    (rf/dispatch-sync [:flaky/load])
+    (answering {[:get "/articles"] {:body []}}
+      #(rf/dispatch-sync [:unmatched/load]))
     (let [db (rf/app-db-value :rf/default)]
-      (is (= [:error :rf.http/http-5xx 503]
-             [(get-in db [:error :status]) (get-in db [:error :error :kind])
-              (get-in db [:error :error :status])])))))
+      (is (= [:error :rf.http/transport]
+             [(get-in db [:result :status]) (get-in db [:result :error :kind])])))))
