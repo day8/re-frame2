@@ -1,8 +1,8 @@
 (ns ^:requires-debug re-frame.epoch-run-cause-test
   "`re-frame.epoch.capture/run-cause`, the `:epoch/run-cause` hook that
   `:rf.view/rendered` and `:rf.sub/run` emit sites call to attribute a render
-  or recompute to the event run in flight, and to enforce the per-run render
-  cap. It walks the frame's capture buffer, which these tests seed directly.
+  or recompute to the event run in flight. It walks the frame's capture
+  buffer, which these tests seed directly.
 
   ## Production gate
 
@@ -39,12 +39,6 @@
     :operation :rf.sub/run
     :tags      {:rf.sub/id sub-id :rf.sub/value-changed? value-changed?}}))
 
-(def ^:private rendered
-  {:op-type :rf.view :operation :rf.view/rendered :tags {}})
-
-(def ^:private rendered-cap-reached
-  {:op-type :rf.view :operation :rf.view/rendered-cap-reached :tags {}})
-
 (defn- run-cause-of
   "Seed a fresh frame's capture buffer with `events`, then call run-cause."
   [events & args]
@@ -54,20 +48,18 @@
 
 (deftest run-cause-summarises-the-in-flight-buffer
   (doseq [[events expected]
-          [;; Outside any run: only the render count, every other slot omitted.
-           [[] {:rendered-so-far 0}]
+          [;; Outside any run: every slot omitted.
+           [[] {}]
            ;; No run-start: no :cause-event-id, but the subs still surface.
            [[(sub-run :a true)]
-            {:rendered-so-far 0 :cause-subs [:a] :value-changed-subs #{:a}}]
+            {:cause-subs [:a] :value-changed-subs #{:a}}]
            ;; No sub changed value (a structural re-render): the slot is omitted.
            [[(run-start :ev) (sub-run :a) (sub-run :b)]
-            {:rendered-so-far 0 :cause-event-id :ev :cause-subs [:a :b]}]
-           ;; The first run-start wins; subs dedup in first-seen order; the
-           ;; cap marker counts as a render so the emit site keeps suppressing.
+            {:cause-event-id :ev :cause-subs [:a :b]}]
+           ;; The first run-start wins; subs dedup in first-seen order.
            [[(run-start :ev) (sub-run :a true) (sub-run :b) (sub-run :a)
-             (sub-run :c true) (sub-run :b) (run-start :child)
-             rendered rendered rendered-cap-reached]
-            {:rendered-so-far 3 :cause-event-id :ev :cause-subs [:a :b :c]
+             (sub-run :c true) (sub-run :b) (run-start :child)]
+            {:cause-event-id :ev :cause-subs [:a :b :c]
              :value-changed-subs #{:a :c}}]]]
     (is (= expected (run-cause-of events)) (pr-str events))))
 

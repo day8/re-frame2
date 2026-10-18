@@ -591,7 +591,7 @@
     :description "Capture an event into the in-flight epoch buffer."}
    {:key         :epoch/run-cause
     :producer-ns 're-frame.epoch
-    :description "Walk a frame's in-flight event-run buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution — the event-pipeline-run (one traversal), keyed off the buffer's :rf.event/run-start marker (run sense, not the reactive graph). Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
+    :description "Walk a frame's in-flight event-run buffer and return {:cause-event-id :cause-subs :value-changed-subs} for :rf.view/rendered attribution — the event-pipeline-run (one traversal), keyed off the buffer's :rf.event/run-start marker (run sense, not the reactive graph). Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
    {:key         :epoch/record-render!
     :producer-ns 're-frame.epoch
     :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
