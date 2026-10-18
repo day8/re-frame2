@@ -3,8 +3,9 @@
 
   Mirrors `shadow.test.node/main` shape but installs the quiet
   reporter overrides on `cljs.test/report` before invoking the test
-  runner.  Wired into `implementation/shadow-cljs.edn`'s `:node-test`
-  build via `:main re-frame.test-quiet.shadow-node/main`.
+  runner.  Wired into every `:node-test` build in
+  `implementation/shadow-cljs.edn` by its `:target-defaults`
+  `:main re-frame.test-quiet.shadow-node/main`.
 
   Requiring `re-frame.test-quiet` at the top is the install — the
   CLJS `defmethod`s install at load time.  By the time shadow's
