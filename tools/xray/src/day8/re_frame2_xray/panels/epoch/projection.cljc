@@ -3723,7 +3723,6 @@
     - COEFFECT INJECTION (`:coeffect`) — before the handler ran."
   {:rf.error/effect-map-shape            :side-effects
    :rf.error/classification-effect-shape :side-effects
-   :rf.error/reserved-fx-override        :side-effects
    :rf.error/override-fallthrough        :side-effects
    :rf.error/sub-exception               :subscriptions
    :rf.error/no-such-sub                 :subscriptions
