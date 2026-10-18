@@ -50,6 +50,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ARTEFACT_ROOT = os.path.dirname(HERE)
@@ -161,7 +162,7 @@ def _kondo(paths, config_dir=EXPORT_DIR):
             % (proc.returncode, out[:2000], proc.stderr[:2000]))
 
 
-def check(export_dir=EXPORT_DIR):
+def check(export_dir=EXPORT_DIR, fixture=FIXTURE):
     """Every failure this gate can report, as a list of strings."""
     failures = []
 
@@ -207,7 +208,7 @@ def check(export_dir=EXPORT_DIR):
             "unwitnessed")
 
     # --- the smoke: correct declarations, and exactly the sentinel --------
-    findings = _kondo([FIXTURE], config_dir=export_dir)
+    findings = _kondo([fixture], config_dir=export_dir)
     expected = [f for f in findings
                 if f.get("type") == SENTINEL["type"]
                 and f.get("row") == SENTINEL["row"]
@@ -233,8 +234,39 @@ def check(export_dir=EXPORT_DIR):
 # The self-test -- proving the gate's red, not merely its green
 # ---------------------------------------------------------------------------
 
+def _mutated_copy(target, old, new):
+    """Copy the export and the fixture into a fresh temporary directory and
+    apply one mutation to the copy of `target` ("config" or "fixture").
+
+    Returns `(root, export_dir, fixture)`, or `None` with `root` already
+    removed when `old` is not in the target. The caller removes `root`.
+
+    Copies, never the shipped files: a run killed mid-case would otherwise
+    leave the checkout's config or fixture broken, and restoring saved text
+    afterwards would overwrite any edit made while the self-test ran. The
+    fixture keeps its `lint-fixtures/` file name, so path-derived findings
+    read the same as on the shipped fixture.
+    """
+    root = tempfile.mkdtemp(prefix="check-lint-export-")
+    export_dir = os.path.join(root, "export")
+    shutil.copytree(EXPORT_DIR, export_dir)
+    fixture = os.path.join(root, "lint-fixtures", os.path.basename(FIXTURE))
+    os.makedirs(os.path.dirname(fixture))
+    shutil.copyfile(FIXTURE, fixture)
+    path = os.path.join(export_dir, "config.edn") if target == "config" else fixture
+    with open(path, encoding="utf-8") as fh:
+        source = fh.read()
+    if old not in source:
+        shutil.rmtree(root, ignore_errors=True)
+        return None
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(source.replace(old, new, 1))
+    return root, export_dir, fixture
+
+
 def self_test():
-    """Break the export one way at a time and prove the gate reds on each.
+    """Break a copy of the export one way at a time and prove the gate reds
+    on each.
 
     A gate that has only ever been observed green is a gate nobody has tested.
     The first three cases are the negative control: each of the three
@@ -262,24 +294,24 @@ def self_test():
         # hook registration from the shipped config is exactly what a consumer
         # with a broken copy would have, and every name that macro defines or
         # binds must go back to reading as unresolved.
-        ("the defview rewrite unavailable reds", CONFIG_FILE,
+        ("the defview rewrite unavailable reds", "config",
          "re-frame.fresco/defview hooks.re-frame.fresco/defview\n   ", "",
          "unresolved-symbol"),
-        ("the event rewrite unavailable reds", CONFIG_FILE,
+        ("the event rewrite unavailable reds", "config",
          "re-frame.fresco/event   hooks.re-frame.fresco/event\n   ", "",
          "unresolved-symbol"),
-        ("the defhost rewrite unavailable reds", CONFIG_FILE,
+        ("the defhost rewrite unavailable reds", "config",
          "re-frame.fresco/defhost hooks.re-frame.fresco/defhost", "",
          "unresolved-symbol"),
         # The sentinel gone silent: read the unread prop and no finding is
         # left, which must red rather than pass -- pure silence is also what
         # linting nothing at all produces.
-        ("a silent fixture reds", FIXTURE,
+        ("a silent fixture reds", "fixture",
          "[:p shown])", "[:p shown unread])",
          "sentinel"),
         # The floor: a behavioral linter riding into the shipped config
         # reds without needing a fixture to witness it.
-        ("a behavioral linter riding back in reds", CONFIG_FILE,
+        ("a behavioral linter riding back in reds", "config",
          "{;; `re-frame.fresco.native`",
          "{:linters {:re-frame.fresco/direct-view-call {:level :error}}\n"
          " ;; `re-frame.fresco.native`",
@@ -287,23 +319,21 @@ def self_test():
     ]
 
     ok = True
-    for label, path, old, new, expect in cases:
-        with open(path, encoding="utf-8") as fh:
-            source = fh.read()
-        if old not in source:
+    for label, target, old, new, expect in cases:
+        copy = _mutated_copy(target, old, new)
+        if copy is None:
             # A mutation whose target has moved proves nothing, and would
             # otherwise report a cheerful `ok` forever.
             print("  FAIL %s: the mutation target is gone from %s"
-                  % (label, os.path.basename(path)))
+                  % (label, os.path.basename(
+                      CONFIG_FILE if target == "config" else FIXTURE)))
             ok = False
             continue
+        root, export_dir, fixture = copy
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(source.replace(old, new, 1))
-            failures = check()
+            failures = check(export_dir, fixture)
         finally:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(source)
+            shutil.rmtree(root, ignore_errors=True)
 
         hit = any(expect in f for f in failures)
         print("  %s %s" % ("ok  " if hit else "FAIL", label))
