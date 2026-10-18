@@ -36,8 +36,9 @@
   the variant frame holds (`rf.story.runtime/current-epoch-id`, the cursor
   a restore moves) and push it onto `:epoch-stack`. The head of
   `epoch-history` would not do: a restore records no epoch, so after a
-  step-back the newest record is still the undone step's. A step-back POPS the stack and `restore-epoch`s the
-  previous frame state, then decrements `:cursor` so the UI tracks the
+  step-back the newest record is still the undone step's. A step-back
+  POPS the stack and `restore-epoch`s the previous frame state, then
+  decrements `:cursor` so the UI tracks the
   position. This gives true step-back without modifying the runtime.
 
   Rewind = repeated step-back to step 0. We implement it as a single
