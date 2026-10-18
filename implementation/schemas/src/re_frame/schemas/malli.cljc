@@ -59,8 +59,7 @@
   (:require [malli.core]
             [malli.error]
             #?(:cljs [malli.transform])
-            [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]))
+            [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -112,17 +111,3 @@
      :explain  malli.core/explain
      :humanize malli.error/humanize}         ;; development builds; nil in production"
   (bundle-over (weak-cache)))
-
-;; ---- late-bind publication ------------------------------------------------
-;;
-;; The same functions are also published under late-bind keys, which the
-;; late-bind directory and the schemas-bundle gate both name. The bundle above
-;; is what validation reads.
-
-(rf.late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
-(rf.late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
-
-;; Development only, so a production build keeps no reference to
-;; `malli.error`: `:advanced` + `goog.DEBUG=false` folds the form away.
-(when rf.interop/debug-enabled?
-  (rf.late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize))

@@ -314,15 +314,6 @@
    {:key         :schemas/redact-validation-tags
     :producer-ns 're-frame.schemas
     :description "THE shared schema-aware redaction seam for every validation-failure trace emitted outside the schemas artefact (production boundary interceptor, machine :data validation, the :sub-override path, flow-output validation): scrubs the value-bearing slots (:value/:received/:explain/:explain-humanized/:rf.fx/args/:rf.sub/query-v) and stamps :sensitive? true when the schema declares any :sensitive? slot — the same redaction the dev-time validate-*! hot path applies. Falls through verbatim when the schemas artefact is absent (no schema to redact against)."}
-   {:key         :schemas/malli-validate
-    :producer-ns 're-frame.schemas.malli
-    :description "Default-installed Malli validator (malli.core/validate)."}
-   {:key         :schemas/malli-explain
-    :producer-ns 're-frame.schemas.malli
-    :description "Default-installed Malli explainer (malli.core/explain)."}
-   {:key         :schemas/humanize-explain!
-    :producer-ns 're-frame.schemas.malli
-    :description "Humanize the raw m/explain output into operator-readable shape. The only in-tree publisher is re-frame.schemas.malli, which installs (malli.error/humanize ...); per-validator ports install their own humanizer from their own ns. Absent the hook, the substrate ships only :explain (raw); Xray's violation block falls back to the raw map. Consulted by validate.cljc's emit-validation-failure! helper when building the :rf.error/schema-validation-failure trace payload — augments tags with :explain-humanized when present."}
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
     :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}

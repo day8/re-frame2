@@ -51,12 +51,9 @@
  * every time — Closure's output is not byte-stable across runs here, so
  * read the last two digits of any figure in this file as noise.
  *
- * Both directions of the humanizer assertion fire: ungating the adapter's
- * publication puts the keyword back
- * (probe 128485 B, margin 41634 B, exit 1), and an application that
- * calls `malli.error/humanize` itself, the login example's posture, is
- * left alone (keyword still absent, margin 41635 B — the app pays the
- * ~750 B the gate does not charge everyone — exit 0).
+ * Both directions of the humanizer assertion fire: making the bundle's
+ * `:humanize` unconditional puts the humanizer's marker into the probe
+ * and the gate exits 1; gated, the marker is absent and it exits 0.
  *
  * Composition of that margin, from `shadow.cljs.build-report` optimized
  * bytes (post-Closure, uncompressed): Malli 120.0 KB (`malli.core` 88.6,
@@ -73,18 +70,16 @@
  * the control rooted that the probe does not would make the margin
  * UNDERSTATE the cost, and that is the direction that loosens a gate.
  *
- * THE HUMANIZER, AND WHAT CLOSURE KEEPS OF `malli.error`. The adapter
- * publishes `malli.error/humanize` under `:schemas/humanize-explain!`
- * only when `interop/debug-enabled?` is true — the hook's
- * sole reader, the `:explain-humanized` enrichment of dev traces, sits
- * behind the same gate. Under `:advanced` + `goog.DEBUG=false` the
- * publication folds away, so this gate asserts the hook keyword is
- * ABSENT from the probe (a `set-fn!` that survived would leave its
- * keyword literal behind) and PRESENT for the sibling
- * `:schemas/malli-validate` publication from the same ns-load, which is
- * what proves the blob inspected is the probe's and that a surviving
- * publication does leave a keyword. Measured on the same control, same
- * day: unconditional publication 41595 B margin, gated 40845 B (-750 B;
+ * THE HUMANIZER, AND WHAT CLOSURE KEEPS OF `malli.error`. The adapter's
+ * bundle carries `malli.error/humanize` as `:humanize` only when
+ * `interop/debug-enabled?` is true — its sole reader, the
+ * `:explain-humanized` enrichment of dev traces, sits behind the same
+ * gate. Under `:advanced` + `goog.DEBUG=false` the reference folds away,
+ * so this gate asserts the humanizer's marker is ABSENT from the probe
+ * and the schema compiler's marker PRESENT, which is what proves the blob
+ * inspected is the probe's and that reachable Malli code does leave its
+ * keyword literals (the markers are named below). Measured on the same
+ * control, same day: a reachable humanizer 41595 B margin, gated 40845 B (-750 B;
  * `malli.error` 12.0 -> 10.5 KB optimized), and with the adapter's
  * `[malli.error]` require deleted outright 38333 B (-3262 B; every
  * `malli.error` literal gone). The difference between the last two is
@@ -105,8 +100,8 @@
  * 9976 B (9.7 KB) — 10.3 KB below the floor, exit 1. The invariant's
  * PRIMARY owner is the behavioural test
  * `implementation/schemas/test/re_frame/schemas_implies_validation_test.clj`
- * (the `:schemas/malli-validate` hook is bound by requiring the facade
- * alone, and a bad write to a registered slot fires
+ * (requiring the facade alone installs the Malli bundle, and a bad write
+ * to a registered slot fires
  * `:rf.error/schema-validation-failure`); this gate is the bundle-shaped
  * corroboration.
  *
@@ -191,15 +186,16 @@ const MARGIN_MIN_BYTES = 20 * 1024;
 
 // ----- the humanizer contract ------------------------------------------------
 
-// The late-bind keyword the adapter publishes the humanizer under, and the
-// one it publishes the validator under. A `set-fn!` call that survives
-// Closure leaves its keyword literal in the bundle (`new Keyword("schemas",
-// "malli-validate", "schemas/malli-validate", …)`), so the fully-qualified
-// name is a direct marker for "this publication reached production".
-// The humanizer's must be absent from the probe; the validator's must be
-// present, or the absence check inspected nothing.
-const HUMANIZE_HOOK = 'schemas/humanize-explain!';
-const VALIDATE_HOOK = 'schemas/malli-validate';
+// Two keyword markers. Reachable code leaves its keyword literals in the
+// bundle (`new Keyword("malli", "error", "malli/error", …)`), so a
+// fully-qualified name is a direct marker for "this code reached
+// production". `:malli/error` has one literal in Malli, in
+// `malli.error/-push-in`, which only `malli.error/humanize` calls: it must
+// be absent from the probe. `:malli.core/invalid-schema` is thrown by the
+// schema compiler every `:validate` call reaches: it must be present, or
+// the absence check inspected nothing.
+const HUMANIZE_MARKER = 'malli/error';
+const VALIDATE_MARKER = 'malli.core/invalid-schema';
 
 // ----- helpers ---------------------------------------------------------------
 
@@ -302,12 +298,12 @@ function main() {
   // ----- the humanizer assertion --------------------------------------------
   //
   // The dev-only humanizer must not reach the production probe, and the
-  // check must be shown to be looking at the probe: the validator hook the
-  // same ns-load publishes unconditionally has to be there.
-  const humanizeInProbe   = countSubstring(blobs[PROBE], HUMANIZE_HOOK);
-  const validateInProbe   = countSubstring(blobs[PROBE], VALIDATE_HOOK);
-  const humanizeInControl = countSubstring(blobs[CONTROL], HUMANIZE_HOOK);
-  const validateInControl = countSubstring(blobs[CONTROL], VALIDATE_HOOK);
+  // check must be shown to be looking at the probe: the schema compiler's
+  // marker, which every `:validate` call reaches, has to be there.
+  const humanizeInProbe   = countSubstring(blobs[PROBE], HUMANIZE_MARKER);
+  const validateInProbe   = countSubstring(blobs[PROBE], VALIDATE_MARKER);
+  const humanizeInControl = countSubstring(blobs[CONTROL], HUMANIZE_MARKER);
+  const validateInControl = countSubstring(blobs[CONTROL], VALIDATE_MARKER);
 
   const humanizerLeaked = humanizeInProbe > 0 || humanizeInControl > 0;
   const validatorAbsent = validateInProbe === 0;
@@ -315,9 +311,9 @@ function main() {
   const humanizerOk     = !humanizerLeaked && !validatorAbsent && !controlTainted;
 
   report.detail('');
-  report.detail(`  [${humanizerOk ? 'OK' : 'FAIL'}] humanizer publication is dev-only (Spec 010 §Humanize-hook)`);
-  report.detail(`        \`${HUMANIZE_HOOK}\`: probe ${humanizeInProbe}, control ${humanizeInControl} (both must be 0)`);
-  report.detail(`        \`${VALIDATE_HOOK}\`:    probe ${validateInProbe}, control ${validateInControl} (probe > 0, control 0)`);
+  report.detail(`  [${humanizerOk ? 'OK' : 'FAIL'}] humanizer is dev-only (Spec 010 §Humanize-hook)`);
+  report.detail(`        \`${HUMANIZE_MARKER}\`: probe ${humanizeInProbe}, control ${humanizeInControl} (both must be 0)`);
+  report.detail(`        \`${VALIDATE_MARKER}\`:    probe ${validateInProbe}, control ${validateInControl} (probe > 0, control 0)`);
 
   report.detail('');
   if (marginOk && humanizerOk) {
@@ -325,7 +321,7 @@ function main() {
       'schemas-bundle',
       `${CONTROL}=${fmtKb(control)}; ${PROBE}=${fmtKb(probe)}; ` +
         `margin=${fmtKb(margin)} within ${fmtKb(MARGIN_MIN_BYTES)}…${fmtKb(MARGIN_MAX_BYTES)}; ` +
-        `humanizer hook absent from the probe`
+        `humanizer absent from the probe`
     );
     process.exit(0);
   }
@@ -335,25 +331,25 @@ function main() {
   console.error('');
   if (humanizeInProbe > 0) {
     console.error('THE HUMANIZER REACHED THE PRODUCTION PROBE. The');
-    console.error(`\`${HUMANIZE_HOOK}\` keyword survived Closure, which means`);
-    console.error('something published or read the hook outside the');
-    console.error('`interop/debug-enabled?` gate. Check the adapter\'s');
-    console.error('`(when interop/debug-enabled? (late-bind/set-fn! …))` form in');
-    console.error('`re-frame.schemas.malli`, and every `get-fn` of the key in');
-    console.error('`re-frame.schemas.validate` — each must sit inside a gated body.');
+    console.error(`\`${HUMANIZE_MARKER}\` keyword survived Closure, which means`);
+    console.error('`malli.error/humanize` is reachable outside the');
+    console.error('`interop/debug-enabled?` gate. Check the bundle\'s');
+    console.error('`:humanize (when rf.interop/debug-enabled? …)` entry in');
+    console.error('`re-frame.schemas.malli`, and every reader of `malli.error` on');
+    console.error('the schemas path — each must sit inside a gated body.');
     console.error('');
   }
   if (validatorAbsent) {
-    console.error(`THE VALIDATOR HOOK IS MISSING FROM THE PROBE. \`${VALIDATE_HOOK}\``);
-    console.error('is published unconditionally by the same ns-load, so its absence');
-    console.error('means the adapter never loaded (a facade without its adapter require,');
+    console.error(`THE VALIDATOR MARKER IS MISSING FROM THE PROBE. \`${VALIDATE_MARKER}\``);
+    console.error('comes from the Malli schema compiler every `:validate` call reaches, so');
+    console.error('its absence means the adapter never loaded (a facade without its adapter require,');
     console.error('which the floor also catches) or the blob inspected is not the probe.');
     console.error('The humanizer check above proves nothing until this is fixed.');
     console.error('');
   }
   if (humanizeInControl > 0 || controlTainted) {
-    console.error(`THE CONTROL CARRIES A SCHEMAS PUBLICATION. \`${CONTROL}\` must`);
-    console.error('require `re-frame.core` and nothing else; a schemas keyword in');
+    console.error(`THE CONTROL CARRIES MALLI. \`${CONTROL}\` must`);
+    console.error('require `re-frame.core` and nothing else; a Malli keyword in');
     console.error('it means it stopped being a control.');
     console.error('');
   }

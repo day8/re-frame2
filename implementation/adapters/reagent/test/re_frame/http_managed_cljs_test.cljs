@@ -24,13 +24,10 @@
   this smoke locks that the canned-stub fxs and the public test seam
   resolve under the Reagent adapter the same way they do on the JVM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ;; The canonical CLJS opt-in for Malli
-            ;; validation. Publishes :schemas/malli-validate /
-            ;; :schemas/malli-explain into the late-bind hook table so
-            ;; the default validator delegates to Malli on CLJS. The
-            ;; http-managed CLJS smoke exercises schema-shaped `:decode`
-            ;; values that route through the registered validator;
-            ;; without this require they'd soft-pass.
+            ;; The Malli adapter, whose bundle is the default
+            ;; validator. The http-managed CLJS smoke exercises
+            ;; schema-shaped `:decode` values that route through the
+            ;; registered validator.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
