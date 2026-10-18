@@ -1216,7 +1216,7 @@ below covers the one that runs inside one. The third closer in the enumeration a
 explicit headless/test flush — is a caller's door, and the doors that exist are narrow
 ones. The headless (plain-atom / SSR) adapters have no live host commit and so ship no
 flush at all: `render-to-string` is their only render path
-([§`flush-render!`](#flush-render-f--nil)). The three React adapters ship `flush-views!`,
+([§`flush-render!`](#flush-render-f--nil)). The two React adapters, Reagent and UIx, ship `flush-views!`,
 a dev/test-scoped boundary around direct React 19 `act` that returns nil, and whose
 production counterpart is `flush-render!`.
 
@@ -1471,12 +1471,15 @@ This section is the **bridging pseudocode** for both. For each contract function
 ### Per-contract-fn pseudocode
 
 ```clojure
+;; A sketch, one fn per contract slot. The shipped adapter is
+;; implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs, which
+;; builds most of these fns through the shared ratom spine
+;; (`make-ratom-spine` in implementation/core/src/re_frame/substrate/spine.cljs).
 (ns re-frame.adapter.reagent
   (:require [reagent.core       :as r]
             [reagent.ratom      :as ratom]
             [reagent.dom.client :as rdc]
-            [re-frame.frame-context :as fc]            ;; the frame-keyword React Context
-            [re-frame.render.hiccup-to-html :as hiccup]
+            [re-frame.views     :as views]              ;; the Reagent frame-provider
             [re-frame.subs.cache :as sub-cache]))
 
 ;; -- 1. make-state-container ------------------------------------------------
@@ -1536,19 +1539,24 @@ This section is the **bridging pseudocode** for both. For each contract function
         (fn unmount [] (rdc/unmount root))))))
 
 ;; -- 7. render-to-string ----------------------------------------------------
-;; Pure JVM-runnable walk over the hiccup render-tree per [011-SSR
-;; §The render-tree → HTML emitter (CLJS reference)]. No Reagent, no React;
-;; the same pure emitter the plain-atom adapter uses.
+;; Delegates to the hiccup → HTML emitter re-frame.ssr installs when it loads,
+;; through the late-bound set-hiccup-emitter! hook, so the adapter never
+;; requires the SSR artefact. The emitter is the pure JVM-runnable walk per
+;; [011-SSR §The render-tree → HTML emitter (CLJS reference)]: no Reagent, no
+;; React, and the same emitter the plain-atom adapter uses.
 (defn render-to-string [render-tree opts]
-  (hiccup/emit render-tree opts))
+  (if-let [emit @hiccup-emitter]
+    (emit render-tree opts)
+    (throw (ex-info "no hiccup emitter bound; require re-frame.ssr"
+                    {:rf.error/id :rf.error/no-hiccup-emitter-bound}))))
 
 ;; -- 8. register-context-provider -------------------------------------------
 ;; Returns the frame-provider component (a React Context Provider whose value
 ;; is the frame keyword, never the frame record — see [002 §Reading the frame
 ;; from React context]). Re-registering a frame is picked up on next render
 ;; because the context value is a keyword resolved against the registry.
-(defn register-context-provider [frame-keyword]
-  (fc/provider frame-keyword))
+(defn register-context-provider [_frame-keyword]
+  (views/build-frame-provider))
 
 ;; -- 9. dispose-adapter! ----------------------------------------------------
 ;; The adapter's own teardown. The core has already disposed every live
@@ -1662,7 +1670,7 @@ What this gives:
 
 ### Frame-provider via React context
 
-`register-context-provider` returns the **frame-provider** component. The CLJS implementation lives in `re-frame.frame-context`; the design is owned by [002 §Reading the frame from React context](002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail) — this section names the adapter-side hook into it.
+`register-context-provider` returns the **frame-provider** component. The CLJS implementation lives in `re-frame.adapter.context` (the shared React Context) and, for Reagent, `re-frame.views.provider` (the provider component); the design is owned by [002 §Reading the frame from React context](002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail) — this section names the adapter-side hook into it.
 
 ```clojure
 ;; The single React Context. The default value is the NO-PROVIDER
@@ -1671,7 +1679,7 @@ What this gives:
 ;; tier returns nil and a public frame-scoped op fails loudly rather than
 ;; synthesise a default frame from nothing.
 (defonce ^:private frame-context
-  (.createContext js/React ::no-provider))
+  (.createContext js/React :rf.frame/no-provider))
 
 (defn provider []
   ;; Returns a Reagent component the user includes in their tree:
@@ -1752,8 +1760,11 @@ The **plain-atom adapter** is the same adapter contract realised against `clojur
 How it differs from the Reagent adapter:
 
 ```clojure
-(ns re-frame.substrate.plain-atom
-  (:require [re-frame.render.hiccup-to-html :as hiccup]))
+;; A sketch; the shipped adapter is
+;; implementation/core/src/re_frame/substrate/plain_atom.cljc.
+(ns re-frame.substrate.plain-atom)
+
+(defonce hiccup-emitter (atom nil))                   ;; re-frame.ssr installs its emitter here when it loads
 
 (defn make-state-container [initial-value]
   (atom initial-value))                               ;; clojure.core/atom; reactivity via add-watch (see subscribe-container)
@@ -1798,7 +1809,10 @@ How it differs from the Reagent adapter:
                   {:rf.error/id :rf.error/render-on-headless-adapter})))
 
 (defn render-to-string [render-tree opts]
-  (hiccup/emit render-tree opts))                     ;; same emitter as Reagent
+  (if-let [emit @hiccup-emitter]                      ;; same emitter as Reagent
+    (emit render-tree opts)
+    (throw (ex-info "no hiccup emitter bound; require re-frame.ssr"
+                    {:rf.error/id :rf.error/no-hiccup-emitter-bound}))))
 
 ;; No React, no context concept. The pattern's explicit-frame addressing
 ;; (per [002 §Routing]) handles frame routing without a context provider.
@@ -1912,7 +1926,7 @@ The adapter contract is identical across adapters, but the three **view-author-f
 | **`nil` `:frame`** (scope shape) | CONFIGURATION ERROR: the SCOPE-only `frame-provider {:frame …}` REQUIRES a `:frame` — a frame-id keyword OR the live frame value `make-frame` returns (normalized one way to its id before React Context is written; the same one frame-target grammar `dispatch` / `subscribe` teach). A `nil` `:frame` emits + throws `:rf.error/no-frame-context` — no `:rf/default` floor (see [§Frame-provider via React context](#frame-provider-via-react-context)); a non-nil target that is *neither* a keyword nor a live frame value is the distinct `:rf.error/bad-frame-provider-arg`. | Same — raises `:rf.error/no-frame-context`. | Same — `h/frame-provider` requires a `:frame` and a `nil` raises `:rf.error/no-frame-context`. |
 | **Frame keyword fidelity under the mount idiom** | `:r>` interop head bypasses Reagent prop conversion, so a namespaced frame keyword survives the React-context round trip. | The native `defui` routes props through UIx's lossless `argv` channel (and folds native trailing children onto `:children` via `glue-args`) — keyword frame-ids survive intact by construction. | Not applicable: a frame-boundary head's props cross as the author's CLJS map (the codec's own head kind, not a `defhost` crossing), so a namespaced frame keyword never meets a React prop conversion. |
 | **Hold the ambient frame's ops** (capture-frame's per-substrate spelling) | `reg-view` injection — the lexically-bound `dispatch` / `subscribe` (internally the same `make-capture-frame` ops); `(rf/capture-frame)` directly for async holds outside the injected bindings. | `(use-frame)` — React hook returning EXACTLY the `(rf/capture-frame)` ops map for the ambient provider frame; reference-stable per resolved frame *incarnation* — a same-id destroy-and-recreate retargets it, because the bundle is pinned to the incarnation and not to the address. | `(rf/capture-frame)` called directly in an `h/defview` body — a body is ordinary CLJS, so the hold primitive needs no substrate spelling; `(n/use-frame)` in a React island. |
-| **Flush pending renders in a test** | `rf.adapter.reagent/flush-views!` (wraps React's `act()` — the canonical cross-substrate test-flush hook); Reagent's own `r/flush!` also works. | `(rf.adapter.uix/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | No published test-flush surface. The shared React spine's `flush-views!` is reachable only through `re-frame.fresco.substrate/spine-fns`, which is `^:no-doc` and carries no manifest row. |
+| **Flush pending renders in a test** | `rf.adapter.reagent/flush-views!` (wraps React's `act()` — the canonical cross-substrate test-flush hook); Reagent's own `r/flush` also works. | `(rf.adapter.uix/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | No published test-flush surface. The shared React spine's `flush-views!` is reachable only through `re-frame.fresco.substrate/spine-fns`, which is `^:no-doc` and carries no manifest row. |
 | **`reg-view` macro** | Available (canonical view-registration surface). | `reg-view*` (plain-fn) when registry addressing is needed; most components are bare `defui`. | `h/defview` — Fresco's own view-authoring macro, and the shape a Fresco view is written in; core's `reg-view` registry is a separate concern. |
 
 > **One primitive, three faces.** `capture-frame` is THE hold primitive; `reg-view` injection and `use-frame` are its two ergonomic spellings. The hold row above adds no second primitive: each substrate spells `capture-frame` in its own idiom — Reagent injects its ops lexically at `reg-view` registration, UIx returns them from a hook — and every spelling yields the same frame-locked ops map defined in [002 §`capture-frame` — the keystone affordance](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference).
@@ -1996,18 +2010,7 @@ Per-host adapters for non-CLJS implementations ship as separate packages, implem
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): these items are **post-v1, untracked notes** — design directions in scope for re-frame2 beyond v1 but with no concrete tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Cooperative rendering substrate" is deferred to a later cycle's benefits-vs-cost evaluation; "Multi-adapter coexistence" is additive on the v1 single-adapter contract once a concrete use case emerges; "CEDN-float cache-key extension" is a flagged reconciliation for review (see [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching)). A tracking bead is filed for each only when the reconsideration trigger below fires; until then they remain notes, not committed work.
-
-### Cooperative rendering substrate (post-v1)
-
-A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
-
-#### Post-v1 Tracking
-
-- **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
-- **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with the live React view adapters (Reagent, UIx).
-- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (xray / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
-- **Out of scope for this note.** Building the cooperative substrate itself — this note tracks the *decision*, not the implementation. A tracking bead (and a separate implementation bead) is filed if the evaluation lands "yes".
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): these items are **post-v1, untracked notes** — design directions in scope for re-frame2 beyond v1 but with no concrete tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Multi-adapter coexistence" is additive on the v1 single-adapter contract once a concrete use case emerges; "CEDN-float cache-key extension" is a flagged reconciliation for review (see [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching)). A tracking bead is filed for each only when the reconsideration trigger below fires; until then they remain notes, not committed work.
 
 ### Multi-adapter coexistence (post-v1)
 
