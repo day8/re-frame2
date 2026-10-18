@@ -451,6 +451,7 @@
 ;; Core cannot statically require this optional artefact. Keep each publication
 ;; as a literal call so the late-bind drift gate can discover it.
 
+(rf.frame/add-config-keys! #{:flows})
 (rf.late-bind/set-fn! :flows/reg-flow           reg-flow)
 (rf.late-bind/set-fn! :flows/clear-flow         rf.flows.registry/clear-flow)
 (rf.late-bind/set-fn! :flows/check-activation!  rf.flows.registry/check-activation!)

@@ -41,6 +41,7 @@
   - `re-frame.routing.link`           — :route/link registered view"
   (:require [re-frame.cofx :as rf.cofx]
             [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
             #?(:clj [re-frame.registrar :as rf.registrar])
@@ -491,6 +492,7 @@
 ;; previous frame untouched (re-registration). Published on BOTH hosts — the
 ;; JVM validates its two host-agnostic legs the same way.
 (rf.late-bind/set-fn! :routing/preflight-frame-config! rf.routing.strategy/preflight-frame-config!)
+(rf.frame/add-config-keys! #{:url-bound? :url-strategy})
 
 ;; Route classifications are stored at runtime-db-absolute paths, while route
 ;; subscriptions return projections below those paths. These hooks let core's

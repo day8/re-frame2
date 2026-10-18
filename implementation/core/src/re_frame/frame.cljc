@@ -2947,6 +2947,58 @@
                " at app boot, BEFORE the frame is constructed."))
         {:extra {:flows ids}}))))
 
+;; ---- the frame-config key vocabulary (dev-only) ----------------------------
+;;
+;; Per Conventions §No silent swallow: a frame config is open for NAMESPACED
+;; extension keys only. A bare key nothing reads is a likely typo
+;; (`:fx-overides`), so `make-frame` warns about it in dev.
+
+(def ^:private core-config-keys
+  "The bare frame-config keys core reads (Spec-Schemas §`:rf/frame-meta`),
+  with the registration-metadata base a frame config shares. An optional
+  artefact adds the bare keys it reads through `add-config-keys!`."
+  #{:id :doc :schema :tags :platforms :ns :line :column :file
+    :preset :initial-events :on-destroy :fx-overrides :interceptor-overrides
+    :interceptors :drain-depth :platform :observability})
+
+(defonce ^:private artefact-config-keys (atom #{}))
+
+(defn add-config-keys!
+  "Name the bare frame-config keys an optional artefact reads, so
+  `make-frame` recognises them. An artefact calls this once at load with a
+  plain set. The vocabulary exists only for the dev warning, so production
+  builds keep none."
+  [ks]
+  (when rf.interop/debug-enabled?
+    (swap! artefact-config-keys into ks))
+  nil)
+
+(defn- warn-unknown-config-keys!
+  "Emit one `:rf.warning/unknown-frame-config-key` for a frame config that
+  carries bare keys outside the recognised vocabulary, naming every such
+  key. Namespaced keys pass. Dev-only."
+  [id config]
+  (when rf.interop/debug-enabled?
+    (let [known   (into core-config-keys @artefact-config-keys)
+          unknown (into []
+                        (comp (remove qualified-keyword?) (remove known))
+                        (keys config))]
+      (when (seq unknown)
+        (rf.trace/emit! :warning :rf.warning/unknown-frame-config-key
+                        {:frame        id
+                         :unknown-keys unknown
+                         :known        (vec (sort known))
+                         :recovery     :warned
+                         :reason
+                         (str "make-frame for `" id "` declares unknown config "
+                              (if (= 1 (count unknown)) "key " "keys ")
+                              (pr-str unknown)
+                              " — a bare key outside the recognised set is a likely typo, "
+                              "or belongs to an artefact that is not loaded, and is never "
+                              "read. App extension keys must be NAMESPACED (e.g. "
+                              "`:myapp/feature`). Recognised bare keys: "
+                              (pr-str (vec (sort known))) ".")})))))
+
 (def ^:private frame-registered-hook-keys
   "The ORDERED roster of optional-artefact POST-(RE-)REGISTRATION hook keys
   `fire-frame-registered-hook!` consults, in the order it consults them. A
@@ -3321,6 +3373,9 @@
                                   "lifecycle can install the host focus/reconnect "
                                   "listeners."))
                            {:extra {:frame-id id}}))
+        ;; Every refusal above has had its turn, so a retired or
+        ;; artefact-missing key fails loud rather than being warned about.
+        _              (warn-unknown-config-keys! id config)
         ;; One identity token per attempted config commit. Only a successful
         ;; create/re-register installs it. Auxiliary policy stores consult the
         ;; installed token inside their own atomic updates, so teardown and exact

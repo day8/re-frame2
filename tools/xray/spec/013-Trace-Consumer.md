@@ -8,8 +8,8 @@ the suppressed-events counter, the frameless secondary ring, the
 task-coalesced mirror sync, and the retroactive-scrub-on-toggle-
 off behaviour.
 
-The framework owns the data plane: per-frame event-keyed rings with
-B4 dedup, depth knob via `(rf/configure! {:trace-buffer
+The framework owns the data plane: per-frame event-keyed rings, a
+depth knob via `(rf/configure! {:trace-buffer
 {:events-retained N}})`, oldest-first event bundles via
 `(rf/trace-buffer frame-id opts)`. Per [Spec 009 §Per-frame trace
 rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
@@ -22,8 +22,8 @@ This doc is the Xray-specific consumer contract on top.
 Pre-rf2-43koh Xray ran its own 1000-event process-global ring (`tools/
 xray/src/day8/re_frame2_xray/trace_bus.cljc`) parallel to the
 framework's. The "two rings" architecture predated the per-frame
-event-keyed rings (`rf2-g1b2m` / `rf2-8uwce`) and the B4 dedup
-contract; both ate the original motivation for a separate Xray ring
+event-keyed rings (`rf2-g1b2m` / `rf2-8uwce`), which ate the original
+motivation for a separate Xray ring
 (depth independence + pre-shaping). The retire bundle is:
 
 - `trace_bus.cljc` deleted.

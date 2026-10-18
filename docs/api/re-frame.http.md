@@ -72,7 +72,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
         - `:json`, `:text`, `:blob`, `:array-buffer` or `:form-data` forces one.
         - A Malli schema parses JSON and validates it. It decodes only a response whose `Content-Type` is JSON or absent; any other type fails as `:rf.http/decode-failure`. It needs Malli at run time, and `day8/re-frame2-http` does not bring it: add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot. Without Malli, a request with a schema `:decode` is refused at dispatch with `:rf.error/schemas-artefact-missing`, before anything is sent. See [Response-body classification](#response-body-classification) for the schema's `:sensitive?` and `:large?` props.
         - A fn `(fn [body-text headers] → value)` does it all. It receives the raw body text (`""` for an empty body), and a throw fails as `:rf.http/decode-failure`.
-    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
+    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` is required in a `:retry` map and counts the first attempt, so `3` means up to two retries; a `:retry` map without it is refused rather than defaulted, because every extra attempt re-sends the request. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
     - `:request-id`: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
 
     The `:request` envelope:
@@ -99,7 +99,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
     - `:cache`: `:default` uses normal HTTP freshness rules; `:no-store` bypasses the cache; `:reload` fetches and updates it; `:no-cache` revalidates a cached response; `:force-cache` accepts a cached response regardless of freshness; `:only-if-cached` requires one and requires `:mode :same-origin`. These are [Fetch options](https://fetch.spec.whatwg.org/#concept-request-cache-mode), separate from a re-frame resource cache. The browser validates their combinations. Although Fetch defines a navigation mode, application requests cannot use `:mode :navigate`.
 - **Errors**, all raised at dispatch, before the request is sent. The effect throws: the request is not sent, no reply is dispatched, the event's other effects still run, and error listeners receive `:rf.error/fx-handler-exception`, whose `:exception` carries the id below:
     - `:rf.error/http-bad-request` — the final `:url`, after the `:before` interceptor chain, is missing, `nil`, non-string or blank.
-    - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set drawn from the retryable kinds.
+    - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set drawn from the retryable kinds, or a `:retry` map has no `:max-attempts`.
     - `:rf.error/http-bad-reply-target` — a reply-target value that is neither an event vector nor `nil`, or `:reply-to` beside `:on-success` / `:on-failure` (`:reason :mixed-addressing`).
     - `:rf.error/http-no-reply-target` — none of `:reply-to`, `:on-success` or `:on-failure` is present.
     - `:rf.error/schemas-artefact-missing` — the `:decode` is a schema but Malli is not loaded, so the response could not be validated; or the schema carries a `:sensitive?` or `:large?` prop but `re-frame.schemas` is not loaded, so the response could not be classified. Add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot.
@@ -175,7 +175,7 @@ A timeout is a failure: `:status :error` with `:kind :rf.http/timeout`. The repl
 A reply from a real request (not a [test stub](#testing-without-a-network)) adds:
 
 - `:rf.reply/work-status` — `:completed` (`:ok`), `:failed` (`:error`), `:timed-out` (a `:rf.http/timeout` failure) or `:cancelled`.
-- `:rf.reply/work-id` — `[:rf.work/http logical-id issuance attempt]`, the join to the trace stream, and `:rf.reply/work-kind :http`.
+- `:rf.reply/work-id` — `[:rf.work/http issuance attempt]`, the join to the trace stream, and `:rf.reply/work-kind :http`.
 - `:rf.frame/id` — the issuing frame.
 - `:completed-at` — the completion time in epoch milliseconds. The reply event's `:rf/time-ms` coeffect carries the same value.
 - On `:cancelled`, `:rf.reply/cancel-reason` is `:user` (`:rf.http/managed-abort` or `:abort-signal`) or `:actor-destroyed`. Supersession, frame destroy and epoch restore deliver no reply.
