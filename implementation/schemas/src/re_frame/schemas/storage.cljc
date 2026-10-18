@@ -203,16 +203,16 @@
 (defn runtime-app-schema-path?
   "True when `path`'s FIRST segment reaches into the runtime-db partition
   — a keyword in the reserved `:rf.runtime/*` namespace (`:rf.runtime/
-  machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, …), the
+  machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, …) or the
   runtime-db CONTAINER root `:rf.db/runtime` (the epoch / restore path
-  prefix), OR the legacy app-db `:rf/runtime` root. Such a path is
-  a category error for `reg-app-schema`, which validates only app-db.
+  prefix). Such a path is a category error for `reg-app-schema`, which
+  validates only app-db. A `:rf/runtime` key is ordinary app data, so a
+  path rooted there is an app-db path like any other.
 
   Mirrors the canonical runtime-path detection used across the core
   conformance reader (`(= \"rf.runtime\" (namespace (first path)))`) and
-  also catches the `:rf.db/runtime` container root and the legacy
-  `:rf/runtime` segment. A non-sequential or empty `path` is NOT runtime
-  — `valid-app-schema-path?` owns the shape check and the empty `[]` root
+  also catches the `:rf.db/runtime` container root. A non-sequential or
+  empty `path` is NOT runtime — `valid-app-schema-path?` owns the shape check and the empty `[]` root
   is a legitimate whole-app-db schema."
   [path]
   (boolean
@@ -220,8 +220,7 @@
       (let [head (first path)]
         (and (keyword? head)
              (or (= "rf.runtime" (namespace head))
-                 (= :rf.db/runtime head)
-                 (= :rf/runtime head)))))))
+                 (= :rf.db/runtime head)))))))
 
 (defn assert-app-schema-path!
   "Throw a framework error (per Spec 009 error catalogue) when `path` is
@@ -234,7 +233,7 @@
       hot path's `(get-in db path)`.
     - `:rf.error/app-schema-runtime-path` — the shape is fine but the
       FIRST segment reaches into the runtime-db partition (`:rf.runtime/*`
-      or the legacy `:rf/runtime` root). App schemas validate only app-db;
+      or the `:rf.db/runtime` root). App schemas validate only app-db;
       the runtime-db partition is framework-owned (the framework validates
       it — machine `:snapshots` refined per-machine from each machine's
       `[:schemas :data]` schema) and is NOT a user schema-registration
@@ -262,8 +261,8 @@
       'rf/reg-app-schema
       (str "app schemas validate only app-db; a "
            "path whose first segment is a "
-           ":rf.runtime/* keyword (or the legacy "
-           ":rf/runtime root) reaches into the "
+           ":rf.runtime/* keyword (or the "
+           ":rf.db/runtime root) reaches into the "
            "runtime-db partition. The runtime-db "
            "partition is framework-owned and "
            "validated by the framework (machine "

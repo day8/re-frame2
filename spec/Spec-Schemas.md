@@ -1841,8 +1841,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def AppSchemaRuntimePathTags
   ;; `reg-app-schema` / `reg-app-schemas` was called with a
   ;; well-SHAPED path whose FIRST segment reaches into the runtime-db
-  ;; partition (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container
-  ;; root, or the legacy `:rf/runtime` root). App schemas validate only
+  ;; partition (a `:rf.runtime/*` keyword or the `:rf.db/runtime` container
+  ;; root). App schemas validate only
   ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
   ;; gate — distinct from the SHAPE error `:rf.error/app-schema-bad-path`.
   ;; `:received` carries the offending path; `:reason` states

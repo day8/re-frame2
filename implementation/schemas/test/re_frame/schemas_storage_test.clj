@@ -97,15 +97,19 @@
     (is (= {} (rf/registrations {:source :store :kind :app-schema})))))
 
 (deftest reg-app-schema-rejects-runtime-path-with-distinct-error
-  (testing "a path whose head reaches runtime-db — any :rf.runtime/* key, the
-            :rf.db/runtime root or the legacy :rf/runtime root — throws
+  (testing "a path whose head reaches runtime-db — any :rf.runtime/* key or
+            the :rf.db/runtime root — throws
             :rf.error/app-schema-runtime-path naming the path"
     (doseq [path [[:rf.runtime/machines :snapshots]
-                  [:rf.db/runtime :rf.runtime/machines]
-                  [:rf/runtime :legacy]]]
+                  [:rf.db/runtime :rf.runtime/machines]]]
       (is (= [:rf.error/app-schema-runtime-path path]
              ((juxt :rf.error/id :received)
               (thrown-data #(rf/reg-app-schema path [:map]))))))))
+
+(deftest reg-app-schema-accepts-a-path-rooted-at-an-rf-runtime-key
+  (testing "a :rf/runtime key is ordinary app data, so a path rooted there registers"
+    (rf/reg-app-schema [:rf/runtime :legacy] :int)
+    (is (= {[:rf/runtime :legacy] :int} (schemas-in :rf/default)))))
 
 (deftest reg-app-schemas-rejects-a-bad-batch-atomically
   (testing "one bad key rejects the whole batch: the well-formed entries
