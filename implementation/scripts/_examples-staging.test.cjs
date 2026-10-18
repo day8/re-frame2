@@ -17,11 +17,13 @@ const assert = require('assert');
 const {
   buildNsIndex,
   listStandaloneExamples,
+  parseExampleBuilds,
   cleanStageDirs,
   stageExample,
   stagePerExampleAssets,
   EXAMPLES_ROOT,
 } = require('../../examples/scripts/examples-staging.cjs');
+const { EdnReadError } = require('./lib/edn.cjs');
 
 const {
   decideRunnerExit,
@@ -82,6 +84,16 @@ function httpRequest({ port, method = 'GET', path: reqPath, accept }) {
 console.log('examples-staging tests');
 
 // ---- parser ----------------------------------------------------------------
+
+it('parseExampleBuilds reads a build declared mid-line, and refuses a form it cannot read', () => {
+  const edn =
+    '{:builds {:examples/new {:target :browser :output-dir "out/examples/new"\n' +
+    '  :modules {:main {:init-fn new.core/run}}}}}';
+  assert.deepStrictEqual(parseExampleBuilds(edn), [
+    { build: 'examples/new', target: ':browser', outputDir: 'out/examples/new', initFn: 'new.core/run' },
+  ]);
+  assert.throws(() => parseExampleBuilds('{:builds {:examples/new #shadow/env "X"}}'), EdnReadError);
+});
 
 // ---- FAIL-CLOSED ns-index enumeration --------------------------------------
 //

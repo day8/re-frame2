@@ -9,7 +9,6 @@
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.validator :as rf.schemas.validator]
             [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.spec :as rf.spec]
@@ -248,12 +247,11 @@
           p-fn (fn [_] "::P::")]
       (rf.schemas/set-schema-fns! {:validate v-fn :print p-fn})
       (let [installed (rf.schemas/set-schema-fns! {:explain nil})]
-        (is (= {:validate v-fn :explain nil :print p-fn} installed (rf.schemas/schema-fns)))
+        (is (= {:validate v-fn :explain nil :print p-fn
+                :humanize (:humanize rf.schemas/default-schema-fns)}
+               installed (rf.schemas/schema-fns)))
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
         (is (= rf.schemas/default-schema-fns (rf.schemas/schema-fns)))
-        ;; `using-default-validator?` is an identity check, so the defaults
-        ;; must be the very fn objects the atoms were seeded with.
-        (is (true? (rf.schemas.validator/using-default-validator?)))
         (is (= installed (rf.schemas/set-schema-fns! installed)))))))
 
 (deftest validate-with-registered-fn-bypasses-debug-gate

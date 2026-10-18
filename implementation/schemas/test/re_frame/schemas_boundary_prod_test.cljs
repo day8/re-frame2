@@ -46,11 +46,9 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.late-bind :as rf.late-bind]
-            ;; The CLJS default validator routes through the
-            ;; late-bind hook `:schemas/malli-validate`, published at load
-            ;; time by the `re-frame.schemas.malli` adapter ns — which the
-            ;; facade below `:require`s in its own ns-form. Requiring
+            ;; The CLJS default validator is the Malli bundle of the
+            ;; `re-frame.schemas.malli` adapter ns — which the facade below
+            ;; `:require`s in its own ns-form. Requiring
             ;; `re-frame.schemas` is the whole opt-in,
             ;; so the boundary arm sees real Malli verdicts here
             ;; with no second require at app boot.
@@ -229,23 +227,22 @@
       (finally
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-;; ---- the humanizer is NOT published in production ------------------------
+;; ---- the humanizer is NOT in the production bundle -----------------------
 ;;
-;; The adapter publishes `malli.error/humanize` under
-;; `:schemas/humanize-explain!` inside `(when interop/debug-enabled? ...)`.
-;; Under this build's `:advanced` + `goog.DEBUG=false` that form folds
-;; away, so the hook is unbound while the validator hook from the same
-;; ns-load is bound. `schemas_cljs_test.cljs` pins the dev dual (bound, and
-;; a failure carries `:explain-humanized`); `scripts/check-schemas-bundle.cjs`
-;; pins the bundle shape (the keyword never survives into the probe).
+;; The Malli bundle carries `malli.error/humanize` as `:humanize` only under
+;; `interop/debug-enabled?`. Under this build's `:advanced` +
+;; `goog.DEBUG=false` that reference folds away, so the default port has no
+;; humanizer while its validator is present. `schemas_cljs_test.cljs` pins the
+;; dev dual (present, and a failure carries `:explain-humanized`);
+;; `scripts/check-schemas-bundle.cjs` pins the bundle shape.
 
 (deftest humanizer-unpublished-in-prod-cljs
-  (testing "under `:advanced` + `goog.DEBUG=false` the humanize
-            hook is unbound while the validator hook is bound"
-    (is (nil? (rf.late-bind/get-fn :schemas/humanize-explain!))
+  (testing "under `:advanced` + `goog.DEBUG=false` the default port has no
+            humanizer while its validator is present"
+    (is (nil? (:humanize rf.schemas/default-schema-fns))
         "no humanizer in a production build")
-    (is (fn? (rf.late-bind/get-fn :schemas/malli-validate))
-        "the validator from the same adapter ns-load IS bound — the absence above is the gate, not a missing adapter")))
+    (is (fn? (:validate rf.schemas/default-schema-fns))
+        "the validator from the same bundle IS present — the absence above is the gate, not a missing adapter")))
 
 ;; ---- a present NIL :schema cannot run a boundary handler -----------------
 ;;

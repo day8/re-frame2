@@ -6,7 +6,7 @@
 
     - validate-event!        — pre-handler (event vector vs handler :schema)
     - validate-fx!           — pre-fx-handler (fx args vs fx :schema)
-    - validate-app-schema!   — post-handler-commit (frame's app-schemas)
+    - validate-app-schema!   — pre-install (candidate app-db vs frame's app-schemas)
     - validate-sub!          — post-sub-recompute (return value vs sub :schema)
 
   Event, effect, and subscription validation share `run-validation`.
@@ -69,9 +69,9 @@
   validate-time (Malli validates schema forms lazily). `validate-app-schema!`
   isolates that throw PER-ENTRY, emits the distinct
   `:rf.error/malformed-schema` category, fails CLOSED (in-band `false` →
-  the router rolls back; it does NOT install the unvalidated commit), and
-  keeps validating the frame's sibling schemas so one bad registration
-  cannot disable frame-wide post-commit validation."
+  the router rejects the candidate, which never installs), and keeps
+  validating the frame's sibling schemas so one bad registration cannot
+  disable the frame's pre-install app-db validation."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -205,8 +205,7 @@
   per the Spec 010 §`:sensitive?` redaction-shape list. Three are per-surface /
   conditional names carried only on a subset of emit-sites (`:rf.fx/args` on
   `:where :fx-args`; `:rf.sub/query-v` on `:where :sub-return`;
-  `:explain-humanized` only when the `:schemas/humanize-explain!` hook is
-  installed); the `contains?` guards make those clauses no-ops on the surfaces
+  `:explain-humanized` only when a humanizer is installed); the `contains?` guards make those clauses no-ops on the surfaces
   whose tag maps don't carry the slot.
 
   `:rf.sub/query-v` (the caller-supplied
@@ -338,10 +337,10 @@
 (defn- humanize-explain
   "Compute the operator-readable `:explain-humanized` payload from a
   raw explainer output (per Spec 010 §Humanize-hook).
-  Returns the humanized shape when the `:schemas/humanize-explain!`
-  late-bind hook is installed and `explanation` is non-nil; nil
-  otherwise (no hook installed — non-Malli validator / adapter ns not
-  required — or the explainer produced nothing).
+  Returns the humanized shape when the installed port carries a
+  `:humanize` fn and `explanation` is non-nil; nil otherwise (no
+  humanizer — a port without one, or a production build — or the
+  explainer produced nothing).
 
   Call this before privacy redaction so sensitive failures retain a present
   but redacted `:explain-humanized` slot rather than losing the slot entirely.
@@ -351,9 +350,8 @@
   failure trace itself)."
   [explanation]
   (when (some? explanation)
-    (when-let [humanize-fn (rf.late-bind/get-fn :schemas/humanize-explain!)]
-      (try (humanize-fn explanation)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))))
+    (try (rf.schemas.validator/run-humanizer explanation)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- emit-validation-failure!
   "Single emit seam for `:rf.error/schema-validation-failure` traces.
@@ -885,7 +883,7 @@
              no schemas resolved for the frame / debug elided).
     false  — at least one schema failed; a trace event was emitted
              for every failing entry. The router consumes this signal
-              to roll back the :db effect to the pre-handler value.
+             to reject the candidate, leaving the pre-handler value live.
 
   Structurally distinct from the three meta-bearing validate-*! fns
   (event / fx / sub): walks N schemas in a loop, has no
@@ -903,9 +901,9 @@
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
    ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
    ;; keyword, validator deref, and trace call. Production builds
-   ;; return `true` unconditionally — the rollback path is dev-only
-   ;; (post-commit validation is gated by debug-enabled?, so no
-   ;; failure is observable to roll back against). The `@validator-fn`
+   ;; return `true` unconditionally — candidate rejection is dev-only
+   ;; (pre-install validation is gated by debug-enabled?, so no
+   ;; failure is observable to reject on). The `@validator-fn`
    ;; check is a runtime atom deref and must NOT be combined into the
    ;; gate predicate (the deref defeats Closure's reachability proof).
    ;;
@@ -940,8 +938,8 @@
 
                ;; Malformed registered schema (validator threw). Surface a
                ;; DISTINCT `:rf.error/malformed-schema` trace and fail
-               ;; CLOSED (`ok? false` → the router rolls back; we do NOT
-               ;; install blind). Continue to the sibling entries so one
+               ;; CLOSED (`ok? false` → the router rejects the candidate; it
+               ;; never installs blind). Continue to the sibling entries so one
                ;; bad schema does not disable validation frame-wide.
                (and (vector? validation-result)
                     (= :malformed (first validation-result)))

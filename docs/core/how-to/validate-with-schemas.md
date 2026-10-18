@@ -263,7 +263,7 @@ Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps op
 |---|---|---|
 | `:rf.error/app-schema-bad-path` at registration (every build) | The path is a keyword, string or map, not a vector of keys; in `reg-app-schemas`, one bad key rejects the whole batch | Pass a vector, or `[]` for the root |
 | `:rf.error/app-schemas-bad-batch` | `reg-app-schemas` got something other than a `{path schema}` map | Pass a map of vector paths |
-| `:rf.error/app-schema-runtime-path` | The path starts with `:rf/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
+| `:rf.error/app-schema-runtime-path` | The path starts with `:rf.db/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
 | `:rf.error/app-schema-frame-target` at registration | The registration names a frame: `:frame` in the metadata map, a frame value in its place, or a frame as `reg-app-schemas`' second argument | Register at the top level with no frame; to validate one frame differently, shadow the path in a later [image](../glossary.md#image) |
 | `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form (a childless `[:vector]`, an unknown op) registers cleanly because Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
 | Every commit rejected against `[]`, naming a key the handler never wrote | A root schema requires a key nothing has seeded yet, and `[]` is checked on every write | Seed the keys it requires in one `:db` write, before other events write app-db ([above](#what-a-path-schema-checks)) |

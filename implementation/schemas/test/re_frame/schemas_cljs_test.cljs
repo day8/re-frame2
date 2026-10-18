@@ -1,11 +1,10 @@
 (ns re-frame.schemas-cljs-test
   "CLJS checks for Spec 010 schema validation under the Reagent substrate:
-  Malli's late-bound validator is wired on this host, an unbound hook
-  soft-passes, and a development build publishes the humanizer. The
-  platform-neutral validation surface is covered by re-frame.schemas-test."
+  the default Malli bundle validates on this host, and a development build
+  carries its humanizer. The platform-neutral validation surface is covered
+  by re-frame.schemas-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas :as rf.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support])
@@ -20,21 +19,6 @@
 
 (defn- failures [traces]
   (filterv #(= :rf.error/schema-validation-failure (:operation %)) @traces))
-
-(deftest cljs-unbound-validate-hook-soft-passes
-  (testing "Per Spec 010 §Recommended soft-pass: with `:schemas/malli-validate`
-            unbound (a substitute port that never published it) the default
-            validator passes every value"
-    (let [prior (rf.late-bind/get-fn :schemas/malli-validate)]
-      (rf.late-bind/set-fn! :schemas/malli-validate nil)
-      (try
-        (rf/reg-app-schema [:n] :int)
-        (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
-        (with-trace-recorder! [traces]
-          (rf/dispatch-sync [:n/break])
-          (is (empty? (failures traces))))
-        (finally
-          (rf.late-bind/set-fn! :schemas/malli-validate prior))))))
 
 ;; The schema shape of the schema_violation testbed: a `:cat` whose tail is a
 ;; bare predicate fn, under a frame that also carries an app-db schema.
@@ -54,10 +38,10 @@
         (is (= 1 (count (filter #(= :event (-> % :tags :where)) (failures traces))))
             "exactly one :where :event violation fired")))))
 
-;; The dual, the hook unbound under `:advanced` + `goog.DEBUG=false`, is pinned
-;; in schemas_boundary_prod_test.cljs.
+;; The dual, no humanizer under `:advanced` + `goog.DEBUG=false`, is pinned in
+;; schemas_boundary_prod_test.cljs.
 (deftest humanizer-published-in-dev-cljs
-  (testing "under goog.DEBUG=true the adapter has published the humanizer, so
+  (testing "under goog.DEBUG=true the default bundle carries the humanizer, so
             an app-db failure carries Malli's :explain-humanized payload"
     (rf/reg-app-schema [:auth :token] [:string])
     (with-trace-recorder! [traces]

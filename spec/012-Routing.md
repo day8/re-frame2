@@ -237,7 +237,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
        ))
 ```
 
-**`:rf/route-rank`** is registered as a spec-internal schema (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank)) so tooling can read each route's rank vector via `(rf/handler-meta {:source :store :kind :route :id route-id})` (under a `:rf.route/rank` slot the registrar attaches at registration time).
+**`:rf/route-rank`** is a spec-internal schema, specified in [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank) and not registered at runtime. Tooling reads each route's rank vector via `(rf/handler-meta {:source :store :kind :route :id route-id})` (under a `:rf.route/rank` slot the registrar attaches at registration time).
 
 **Conformance.** Fixture `route-ranking-precedence.edn` exercises every cascade rule with overlapping registrations and asserts the same winner across implementations. Hosts that register routes in a different *internal* order MUST sort by registration *time* (the order user code called `reg-route`) for rule 6, not by hash-map iteration order. The corpus harness registers a fixture's routes in ascending id order ([conformance README §Fixture lifecycle](conformance/README.md#fixture-lifecycle)), so a fixture's rule-6 rows follow from its route ids, never from the order a reader yields the registry map.
 

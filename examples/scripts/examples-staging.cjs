@@ -28,6 +28,13 @@ const fs = require('fs');
 const path = require('path');
 const { stagedAssetsByBuild } = require('./examples-asset-manifest.cjs');
 const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
+const {
+  EdnReadError,
+  readEdn,
+  isMap,
+  mapGetKeyword,
+  shadowBuildEntries,
+} = require('../../implementation/scripts/lib/edn.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -220,33 +227,38 @@ function stageExample(entry, opts = {}) {
 // ---------------------------------------------------------------------------
 // Standalone-example manifest, derived from shadow-cljs.edn.
 //
-// We hand-roll a focused scan rather than pull in an EDN dependency — the only
-// shapes we read are the `:examples/<name> { ... :output-dir "..." ...
-// :init-fn <ns>/run }` build defs. This mirrors the parser style the compile
-// gate (check-examples-compile.cjs) uses on the same file.
+// The file is read as STRUCTURE with the shared EDN reader
+// (implementation/scripts/lib/edn.cjs), as the compile gate
+// (check-examples-compile.cjs) reads it: a build is a key of the top-level
+// `:builds` map wherever on a line it sits, and nothing a comment, a string, a
+// `#_` discard or a nested map holds is mistaken for one.
 // ---------------------------------------------------------------------------
 
 function readShadowEdn() {
   return fs.readFileSync(path.join(IMPL_ROOT, 'shadow-cljs.edn'), 'utf8');
 }
 
-// Strip `;`-to-EOL line comments so a commented-out build def can't be read as
-// live (same approach as check-examples-compile.cjs).
-function stripEdnComments(edn) {
-  return edn
-    .split('\n')
-    .map((line) => {
-      const i = line.indexOf(';');
-      return i === -1 ? line : line.slice(0, i);
-    })
-    .join('\n');
+// The value of `key` in `form` (a build or module map of build `build`) when it
+// is an EDN `type`, or null when the key is absent. Any other value throws: a
+// mis-typed field read as an absent one would drop the build from the manifest
+// in silence.
+function buildField(form, build, key, type) {
+  const value = mapGetKeyword(form, key);
+  if (value === undefined) return null;
+  if (value === null || typeof value !== 'object' || value.edn !== type) {
+    throw new EdnReadError(`build :${build} has a :${key} that is not a ${type}`);
+  }
+  return value;
 }
 
 // Parse every `:examples/<name>` build def into { build, target, outputDir,
 // initFn }. `build` is the colon-stripped coord shadow-cljs's CLI expects
 // (`examples/counter-uix`); `target` is the build's `:target` keyword, COLON
 // INCLUDED (`:browser`); `outputDir` is the build's `:output-dir`; `initFn` is
-// the `<ns>/run` symbol the build mounts.
+// the `<ns>/run` symbol the build mounts, the `:init-fn` of the first of its
+// `:modules` to name one. An absent field is null. Throws EdnReadError on
+// anything it cannot read: an unsupported form, a missing `:builds` map, a
+// build that is not a map, or a field of the wrong type.
 //
 // `target` is what separates a PAGE build from a server-side one. Not every
 // `:examples/*` build is a page: a `:node-library` (the Fresco login arm's
@@ -256,43 +268,29 @@ function stripEdnComments(edn) {
 // check-examples-compile.cjs compiles it — but it is legitimately absent from
 // the runnable manifest listStandaloneExamples derives, and the out+init
 // invariant is asserted of `:browser` builds only.
-//
-// Line-based block scan: a build def opens with a two-space-indented
-// `  :examples/<name>` key (the opening `{` is on the SAME or the FOLLOWING
-// line in shadow-cljs.edn). Its body runs until the NEXT two-space top-level
-// key (`  :something`) or EOF. This avoids the consume-the-delimiter bug a
-// single non-greedy regex with a lookahead hits (it silently skips every
-// other entry when the lookahead eats the next key's opening char).
 function parseExampleBuilds(edn) {
-  const lines = stripEdnComments(edn).split('\n');
-  // Any two-space-indented keyword key ends the previous build's body.
-  const topKeyRe = /^\s{2}:[\w.-]+(?:\/[\w.-]+)?\b/;
-  const exampleKeyRe = /^\s{2}:(examples\/[\w.-]+)\s*$|^\s{2}:(examples\/[\w.-]+)\s*\{/;
-  const builds = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(exampleKeyRe);
-    if (!m) continue;
-    const build = m[1] || m[2];
-    // Gather the body: this line plus every following line until the next
-    // two-space top-level key (a sibling build / map entry) or EOF.
-    const bodyLines = [lines[i]];
-    for (let j = i + 1; j < lines.length; j++) {
-      if (topKeyRe.test(lines[j])) break;
-      bodyLines.push(lines[j]);
-    }
-    const body = bodyLines.join('\n');
-    const targetMatch = body.match(/:target\s+(:[\w.\-]+)/);
-    const outMatch = body.match(/:output-dir\s+"([^"]+)"/);
-    const initMatch = body.match(/:init-fn\s+([\w.\-]+\/[\w.\-]+)/);
-    builds.push({
-      build,
-      target: targetMatch ? targetMatch[1] : null,
-      outputDir: outMatch ? outMatch[1] : null,
-      initFn: initMatch ? initMatch[1] : null,
+  return shadowBuildEntries(readEdn(edn))
+    .filter(([build]) => build.startsWith('examples/'))
+    .map(([build, def]) => {
+      const target = buildField(def, build, 'target', 'keyword');
+      const outputDir = buildField(def, build, 'output-dir', 'string');
+      const modules = buildField(def, build, 'modules', 'map');
+      let initFn = null;
+      for (const [, mod] of modules ? modules.entries : []) {
+        if (!isMap(mod)) throw new EdnReadError(`build :${build} has a module that is not a map`);
+        const fn = buildField(mod, build, 'init-fn', 'symbol');
+        if (fn) {
+          initFn = fn.name;
+          break;
+        }
+      }
+      return {
+        build,
+        target: target && `:${target.name}`,
+        outputDir: outputDir && outputDir.value,
+        initFn,
+      };
     });
-  }
-  return builds;
 }
 
 // Locate the example source folder that declares `ns` by scanning the
@@ -389,7 +387,6 @@ module.exports = {
   isStrictlyUnder,
   cleanStageDirs,
   readShadowEdn,
-  stripEdnComments,
   parseExampleBuilds,
   buildNsIndex,
   listStandaloneExamples,

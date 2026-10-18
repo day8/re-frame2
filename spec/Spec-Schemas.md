@@ -1091,24 +1091,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:overrides-map [:map-of :keyword :any]]
    [:looked-up-id  :keyword]])
 
-(def ReservedFxOverrideTags
-  ;; A `:fx-overrides` entry targeted a REJECT-tier reserved
-  ;; fx-id (state-installing lifecycle fx / nav-token threader). The
-  ;; override is ignored and the reserved body runs. `:where` discriminates
-  ;; the dev per-call reject (`:handle-one-fx`) from the production prod-strip
-  ;; (`:production-strip`). `:rf.fx/id` and `:failing-id` both name the
-  ;; rejected reserved fx-id; `:override` carries the offending override value
-  ;; (fn or keyword). Per Spec 009 §Error catalogue (`:rf.error/reserved-fx-
-  ;; override`) + Conventions §Reserved fx-id override tiering.
-  [:map
-   [:category   [:= :rf.error/reserved-fx-override]]
-   [:failing-id :keyword]
-   [:rf.fx/id   :keyword]
-   [:override   :any]
-   [:where      [:enum :handle-one-fx :production-strip]]
-   [:frame      {:optional true} :keyword]
-   [:reason     :string]])
-
 (def UnwrapBadEventShapeTags
   [:map
    [:category :keyword]
@@ -1859,8 +1841,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def AppSchemaRuntimePathTags
   ;; `reg-app-schema` / `reg-app-schemas` was called with a
   ;; well-SHAPED path whose FIRST segment reaches into the runtime-db
-  ;; partition (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container
-  ;; root, or the legacy `:rf/runtime` root). App schemas validate only
+  ;; partition (a `:rf.runtime/*` keyword or the `:rf.db/runtime` container
+  ;; root). App schemas validate only
   ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
   ;; gate — distinct from the SHAPE error `:rf.error/app-schema-bad-path`.
   ;; `:received` carries the offending path; `:reason` states
@@ -3572,7 +3554,7 @@ Productions (per 012):
 | `{/:name}?` or `{/literal}?` | Optional segment group; the `/` lives INSIDE the braces (slash-inside). May lead, trail, or sequence; not nested. |
 | `/*name` | Catch-all (splat); must be the final segment; at most one per pattern. `/*` (unnamed) is the bare catch-all. |
 
-Implementations register this schema via `reg-app-schema [:rf/route-pattern]` so a route's `:path` value can be validated at registration time and the conformance harness can lint route tables.
+Like every schema on this page, `:rf/route-pattern` is specified here and not registered at runtime (per [§Schema convention](#schema-convention)). Route registration enforces the grammar itself — `validate-route-pattern!` checks each route's `:path` as it registers — and a tool or harness that lints route tables reads the schema's form from here.
 
 ### `:rf/route-rank`
 
