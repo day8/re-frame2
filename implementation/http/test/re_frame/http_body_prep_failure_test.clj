@@ -45,6 +45,31 @@
       (is (= [{:kind :rf.http/transport :stage :request-prep}] (map prep-failure @replies))
           "exactly one reply, carrying the request-prep transport failure"))))
 
+(deftest throwing-body-thunk-is-not-retried-without-a-retry-policy
+  (testing "with no `:retry`, a throwing body thunk runs once and the request
+            fails :rf.http/transport without a second attempt"
+    (let [replies     (atom [])
+          invocations (atom 0)]
+      (rf/reg-event :reply/recorder
+        (fn [_ [_ payload]] (swap! replies conj payload) {}))
+      (rf/reg-event :issue/once-thunk
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url    "http://127.0.0.1:0/x"
+                               :method :post
+                               :body   (fn []
+                                         (swap! invocations inc)
+                                         (throw (ex-info "boom-once" {})))}
+                  :request-id :prep-once
+                  :on-failure [:reply/recorder]
+                  :on-success [:reply/recorder]}]]}))
+      (rf/dispatch-sync [:issue/once-thunk])
+      (rf.test-support/poll-until #(seq @replies)
+                                  {:timeout-ms 4000 :label "prep-failure reply"})
+      (is (= 1 @invocations) "the thunk ran once: an omitted :retry never retries")
+      (is (= [{:kind :rf.http/transport :stage :request-prep}] (map prep-failure @replies))
+          "exactly one reply, carrying the request-prep transport failure"))))
+
 (deftest throwing-body-thunk-retries-when-configured
   (testing "with `:retry {:on #{:rf.http/transport} …}`, a throwing body thunk
             is re-invoked per attempt, then fails :rf.http/transport once the

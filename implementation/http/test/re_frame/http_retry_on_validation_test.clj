@@ -2,8 +2,9 @@
   "Spec 014 §Closed-set `:retry :on` validation. `:rf.http/managed` validates
   `:retry :on` at fx-call time, before the middleware chain and before any
   attempt: a member outside the closed retryable set, or an `:on` that is not
-  a set, throws `:rf.error/http-bad-retry-on`. The test-support stand-ins
-  refuse the same args the same way."
+  a set, throws `:rf.error/http-bad-retry-on`, and so does a `:retry` map
+  without `:max-attempts` (Spec 014 §Retry and backoff). The test-support
+  stand-ins refuse the same args the same way."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -56,6 +57,16 @@
     {:on closed-set :max-attempts 3}
     {:max-attempts 3}
     {:on nil :max-attempts 3}))
+
+(deftest a-retry-map-without-max-attempts-is-refused
+  ;; The transport retries only under :max-attempts, so these would validate
+  ;; and then never retry.
+  (are [retry] (= {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed
+                   :recovery :no-recovery :received retry}
+                  (select-keys (call-managed! retry) [:rf.error/id :where :recovery :received]))
+    {:on #{:rf.http/transport :rf.http/http-5xx}}
+    {:on closed-set :max-attempts nil}
+    {}))
 
 (deftest the-stubs-refuse-a-bad-retry-on-as-the-live-fx-does
   ;; The stand-ins replace :rf.http/managed as :fx-overrides targets, so a test

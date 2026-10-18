@@ -50,7 +50,8 @@
 (defn validate-retry!
   "Per Spec 014 §Closed-set `:retry :on` validation, a
   `:retry :on` value, when present and non-nil, MUST be a SET drawn
-  exclusively from `retryable-categories`. Two failure shapes both throw
+  exclusively from `retryable-categories`, and a `:retry` map MUST carry
+  `:max-attempts` (Spec 014 §Retry and backoff). Three failure shapes throw
   `:rf.error/http-bad-retry-on` at fx-call time (before `run-attempt!`),
   so the misuse surfaces at the dispatch site rather than downstream:
 
@@ -63,14 +64,20 @@
     `:rf.http/accept-failure`) or any keyword outside the `:rf.http/*`
     retryable subset.
 
-  Both throw `:rf.error/http-bad-retry-on` per Spec 009 §Error event
-  catalogue, distinguished by ex-data (`:bad-shape` vs `:bad-members`).
+  - CEILING: a `:retry` map without `:max-attempts`. The transport retries
+    only under that ceiling, so such a map would validate and never retry.
+    No ceiling is defaulted, because an extra attempt re-sends a request
+    that may not be idempotent.
 
-  Intentional no-retry shapes that pass untouched: absent `:retry`,
-  absent `:on`, explicit `:on nil`, and the empty set `#{}`. A caller
-  who supplies `:retry` with one of these already disables retry (the
-  transport loop's `(contains? on-set kind)` gate is false for every
-  kind), so we do not force `:on` to be non-empty here.
+  All three throw `:rf.error/http-bad-retry-on` per Spec 009 §Error event
+  catalogue, distinguished by ex-data (`:bad-shape`, `:bad-members`, or
+  `:received` carrying the ceiling-less map).
+
+  Intentional no-retry shapes that pass untouched: absent `:retry`, and,
+  beside `:max-attempts`, an absent `:on`, an explicit `:on nil` or the
+  empty set `#{}`. The transport loop's `(contains? on-set kind)` gate is
+  false for every kind under those, so we do not force `:on` to be
+  non-empty here.
 
   Public so the test-support stubs, which stand in for `:rf.http/managed`
   as `:fx-overrides` targets, refuse the same args map with the same error
@@ -98,7 +105,16 @@
                        :rf.error/http-bad-retry-on :rf.http/managed
                        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
                        {:extra {:bad-members   bad-members
-                                :retryable-set retryable-categories}})))))))))
+                                :retryable-set retryable-categories}})))))))
+    ;; CEILING: the transport retries only under `:max-attempts`, so a map
+    ;; without it would validate and then never retry. It is refused rather
+    ;; than defaulted: a default would add re-sends to a request that may not
+    ;; be idempotent.
+    (when (and (map? retry) (nil? (:max-attempts retry)))
+      (throw (rf.error/thrown-ex-info
+               :rf.error/http-bad-retry-on :rf.http/managed
+               "a `:retry` map must carry `:max-attempts` (total attempts, including the first) per Spec 014 §Retry and backoff; without it no attempt is ever retried, and none is defaulted because an extra attempt re-sends a request that may not be idempotent. Add `:max-attempts`, or omit `:retry` for no retry"
+               {:extra {:received retry}})))))
 
 (defn validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
