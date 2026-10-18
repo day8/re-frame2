@@ -5,27 +5,27 @@
    `examples/capabilities/ssr/ssr/core.cljc`. This file is the app-specific half of the
    story — the part every real app has to write for itself:
    - decide which slices are safe to ship in the hydration payload
-   - carry the route slice across so the client wakes up on the server's route
+   - keep the session's credential out of it
    - offer a small client-side bootstrap for `:rf/hydrate`
 
+   The projection itself is the framework's: `rf.ssr/hydration-payload` applies
+   the allowlist, redacts what the frame classifies `:sensitive`, and ships only
+   the durable runtime-db slices — the route and the machine snapshots — so the
+   client wakes up on the server's route with any machines still mid-flow.
    Splitting it this way keeps the reusable SSR machinery in the generic
    example, while this one shows where a larger app draws its own payload
    boundary — which is to say, what it's willing to send down the wire."
   (:require [re-frame.core :as rf]
-            ;; Requiring it registers the `:rf/hydrate` handler that
-            ;; `hydrate-client!` dispatches.
-            [re-frame.ssr]
-            ;; The SSR artefact owns the hydration pattern-protocol version as a
-            ;; compiled-in constant; the payload sources `:rf/version` from it
-            ;; rather than pinning a literal, so a future bump reaches every
-            ;; producer for free.
-            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            ;; The payload builder. Requiring it also registers the
+            ;; `:rf/hydrate` handler that `hydrate-client!` dispatches.
+            [re-frame.ssr :as rf.ssr]
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-app-slice-keys
   "The top-level app-db slices the SSR payload ships. Application data only —
   the framework's own subsystem trees (routing, machines, elision) live in the
-  separate runtime-db partition and travel under :rf/runtime-db instead.
+  separate runtime-db partition, whose durable slices the framework ships under
+  :rf/runtime-db.
 
   Two deliberate absentees, since the hydrate policy is
   `:replace-frame-state` and an omission here is an absence on the client:
@@ -46,40 +46,27 @@
    :editor
    :comment-form])
 
-(def ssr-runtime-keys
-  "The serializable **runtime-db** children the SSR payload ships, so the client
-  resumes on the server's route and machine state. The current route and the
-  machine snapshots are durable facts worth sending; the transient stuff (host
-  handles, in-flight HTTP) is left behind — it wouldn't survive the trip
-  anyway."
-  [:rf.runtime/routing
-   :rf.runtime/machines])
-
-(defn exportable-app-db [app-db]
+(defn hydration-payload
+  "Build the hydration payload for the settled SSR frame `frame` (its id, or the
+  frame value `make-frame` returns), before the server destroys it. This is
+  what the server embeds and `hydrate-client!` reads back."
+  [frame]
   ;; No secrets in the SSR payload — full stop. The bearer JWT sits at
   ;; [:auth :token], and baking it into server-rendered HTML would spill a live
   ;; credential into the page source: visible in view-source, logged by
-  ;; proxies, possibly cached by a CDN. So we redact it right at the boundary.
-  ;; And it costs nothing, because the client reads [:auth :token] back out of
-  ;; its own localStorage at boot (`:auth/initialise` → `:auth.session/load` →
-  ;; `:auth/session-read`, auth.cljs). Dropping it here is free.
-  (cond-> (select-keys app-db ssr-app-slice-keys)
-    (contains? app-db :auth) (update :auth dissoc :token)))
-
-(defn exportable-runtime-db [runtime-db]
-  ;; Keep only the durable, serializable runtime-db children — the route slice
-  ;; and the machine snapshots — so the client picks up on the server's route
-  ;; with any machines still mid-flow.
-  (select-keys runtime-db ssr-runtime-keys))
-
-(defn hydration-payload
-  "Assemble the two-partition hydration payload from a frame-state value
-  (`{:rf.db/app … :rf.db/runtime …}`, e.g. `(rf/frame-state-value frame-id)`).
-  This is what the server embeds and the client reads back."
-  [{:rf.db/keys [app runtime]}]
-  {:rf/version    rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
-   :rf/app-db     (exportable-app-db app)
-   :rf/runtime-db (exportable-runtime-db runtime)})
+  ;; proxies, possibly cached by a CDN. The frame classifies that path
+  ;; `:sensitive` (`:auth/classify-token`, core.cljs), but a classification
+  ;; REDACTS: the payload would carry `:rf/redacted` in the token's place, and
+  ;; the payload's app-db becomes the client's whole app-db, so the client would
+  ;; boot holding a keyword where AuthSlice wants `[:maybe :string]` — and the
+  ;; bearer interceptor would send it. So the key is dropped outright. That
+  ;; costs nothing, because the client reads [:auth :token] back out of its own
+  ;; localStorage at boot (`:auth/initialise` → `:auth.session/load` →
+  ;; `:auth/session-read`, auth.cljs).
+  (let [payload (rf.ssr/hydration-payload frame {:payload ssr-app-slice-keys})]
+    (cond-> payload
+      (map? (get-in payload [:rf/app-db :auth]))
+      (update-in [:rf/app-db :auth] dissoc :token))))
 
 #?(:cljs
    (defn read-server-payload []

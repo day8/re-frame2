@@ -2,9 +2,10 @@
   "Integration tests against the example apps under ../examples/, driving the
   event → state → render pipeline the way a user wires it, which catches API
   ergonomics regressions unit tests miss. The example sources (`ssr.core`,
-  `resources-ssr.core`, `state-machine-walkthrough.core`)
+  `resources-ssr.core`, `state-machine-walkthrough.core`, `realworld-http.ssr`)
   live under
   ../examples/capabilities/{ssr/ssr,ssr/resources_ssr,machines/state_machine_walkthrough}/
+  and ../examples/real-apps/realworld_http/,
   and stay test-free: their tests live here, and each test re-`require`s only
   the production example source, so its ns-load registrations fire against the
   reset registrar.
@@ -654,6 +655,44 @@
         (is (= [true #{}] [(< elapsed 2000) (clojure.set/difference (frame-ids) before)])
             (str "terminal replies settle promptly, the deadline is bounded, and the request frame goes; took "
                  elapsed "ms"))))))
+
+;; ---- realworld_http: the app's own payload boundary ------------------------------
+;;
+;; `realworld-http.ssr` is the half of SSR a real app writes for itself, and its
+;; server half runs here, on the JVM. The JWT at [:auth :token] never ships: not
+;; raw, and not as the `:rf/redacted` sentinel the app's own `:sensitive`
+;; classification leaves, which hydration would install as the client's token.
+
+(deftest realworld-ssr-payload-never-ships-the-jwt
+  (testing "examples/real-apps/realworld_http — with the token classified (as the
+            app's :auth/classify-token does) or not, the server frame's payload
+            carries the allowlisted slices without [:auth :token], and hydrates
+            the client to exactly those slices"
+    (require 'realworld-http.ssr :reload)
+    (init-ssr!)
+    (rf/reg-event :realworld.ssr-test/classify-token
+      (fn [{:keys [db]} _] {:db db :sensitive [[:auth :token]]}))
+    (rf/reg-event :realworld.ssr-test/seed
+      (fn [_ _] {:db {:auth      {:user {:username "alice"} :token "jwt-secret"}
+                      :articles  {:status :loaded :data []}
+                      :transient {:popup true}}}))
+    (let [hydration-payload @(resolve 'realworld-http.ssr/hydration-payload)
+          shipped           {:auth     {:user {:username "alice"}}
+                             :articles {:status :loaded :data []}}]
+      (doseq [[label initial-events] [[:classified [[:realworld.ssr-test/classify-token]
+                                                    [:realworld.ssr-test/seed]]]
+                                      [:unclassified [[:realworld.ssr-test/seed]]]]]
+        (let [server  (keyword "realworld.ssr-test" (str "server-" (name label)))
+              client  (keyword "realworld.ssr-test" (str "client-" (name label)))
+              _       (rf/make-frame {:id server :platform :server :initial-events initial-events})
+              payload (hydration-payload server)]
+          (rf/make-frame {:id client :platform :client})
+          (is (= [shipped false payload shipped]
+                 [(:rf/app-db payload)
+                  (clojure.string/includes? (pr-str payload) "jwt-secret")
+                  (rf.ssr/hydrate! {:frame client :payload payload})
+                  (rf/app-db-value client)])
+              (str label)))))))
 
 ;; ---- state-machine-walkthrough: chapter §Headless testing --------------------------
 ;;

@@ -341,20 +341,17 @@
           (is (= [:realworld.profile/favorites 3] [(sub f [:rf.route/id]) (page)])))))))
 
 (deftest realworld-ssr
-  (testing "the hydration payload ships the app slices and durable runtime trees, and
-            never the JWT"
-    (let [payload (ssr/hydration-payload
-                    {:rf.db/app     {:auth      {:user {:username "alice"} :token "jwt"}
-                                     :articles  {:status :loaded :data []}
-                                     :transient {:popup true}}
-                     :rf.db/runtime {:rf.runtime/routing  {:current {:route-id :realworld/home}}
-                                     :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}
-                                     :rf.runtime/http     {:in-flight {}}}})]
-      (is (= {:rf/app-db     {:auth     {:user {:username "alice"}}
-                              :articles {:status :loaded :data []}}
-              :rf/runtime-db {:rf.runtime/routing  {:current {:route-id :realworld/home}}
-                              :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}}}
-             (select-keys payload [:rf/app-db :rf/runtime-db]))))))
+  (testing "a signed-in app frame's hydration payload ships the allowlisted slices and
+            the route, and never the JWT"
+    (with-held-fx
+      (fn [f _]
+        (visit! f "/")
+        (let [payload (ssr/hydration-payload f)]
+          (is (= [true "zed" false :realworld/home]
+                 [(every? (set ssr/ssr-app-slice-keys) (keys (:rf/app-db payload)))
+                  (get-in payload [:rf/app-db :auth :user :username])
+                  (contains? (get-in payload [:rf/app-db :auth]) :token)
+                  (get-in payload [:rf/runtime-db :rf.runtime/routing :current :route-id])])))))))
 
 (defn- home [f]
   [(sub f [:articles.home/render]) (mapv :slug (sub f [:articles.home/active-articles]))])
