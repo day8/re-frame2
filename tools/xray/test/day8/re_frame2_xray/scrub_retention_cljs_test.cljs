@@ -10,11 +10,10 @@
   `clear-trace-buffer!`, which empties a ring at its own effective cap and
   preserves the `:override?` flag — not with
   `re-frame.trace.tooling/clear-trace-rings!`, the FIXTURE-grade reset,
-  which does three things: drops every frame's ring, resets the
-  process-default `:events-retained` back to the built-in 50, and clears the
-  hot-reload registration dedup table.
+  which drops every frame's ring and render budget and resets the
+  process-default `:events-retained` back to the built-in 50.
 
-  The middle one is the hazard. The Buffer tab writes that very knob
+  That reset of `:events-retained` is the hazard. The Buffer tab writes that very knob
   (`(rf/configure! {:trace-buffer {:events-retained N}})`), so a fixture
   reset would make the button beside it silently revert the user's own
   setting — and the ring's retention has no reader, so nothing would show
