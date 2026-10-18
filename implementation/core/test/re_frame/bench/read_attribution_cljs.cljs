@@ -287,10 +287,12 @@
             [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.spine :as rf.substrate.spine]))
@@ -1247,14 +1249,27 @@
   ;; real application writes `(rf/reg-sub ...)` in a namespace that does get the
   ;; macro, so its slots carry `:ns` / `:file` / `:line`. The DEFAULT hands the
   ;; registrar the production meta explicitly.
+  ;;
+  ;; Either way every registration carries the provenance namespace the frame's
+  ;; image selects on. The control gets it the way the production macro gives
+  ;; it, through `*pending-coords*`, which a `goog.DEBUG false` build keeps out
+  ;; of the slot — so the control's slot stays coord-less.
   (let [sub-ids (mapv #(keyword "ra" (str "s" %)) (range n))
         qs      (mapv vector sub-ids)]
     (doseq [[i id] (map-indexed vector sub-ids)]
       (let [body (fn [db _] (get-in db [:items i]))]
         (if coords?
           (rf/reg-sub id prod-sub-meta body)
-          (rf/reg-sub id body))))
-    (rf.live-frame/make-frame {:id fid})
+          (binding [rf.source-coords/*pending-coords* prod-sub-meta]
+            (rf/reg-sub id body)))))
+    ;; Made WITH `:images`, so the frame seals a generation and
+    ;; `call-with-frame-resolution` takes its BINDING branch — the branch
+    ;; S3-CWFR prices and N-BINDONLY binds. A frame made without `:images`
+    ;; seals nothing and resolves the registration store live instead.
+    (rf.live-frame/make-frame
+      {:id     fid
+       :images [(rf.image/image {:id        :ra/image
+                                 :select-ns {:include [(str (:ns prod-sub-meta))]}})]})
     (rf.frame/replace-app-db! fid (db-of n))
     (let [src   (rf.frame/app-db-container fid)
           cache (:sub-cache (rf.frame/frame fid))
