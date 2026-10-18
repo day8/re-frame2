@@ -333,7 +333,7 @@ Finish `core.cljs` with the boot function your build invokes:
 
 It's the setup page's boot with one addition: `:url-bound? true`, which declares that *this* frame owns the browser URL. Nothing owns the URL by default, so without the flag the address bar never changes. The flag also syncs the initial URL into route state when the frame is created, so deep links work on first paint, and turns Back/Forward into the same kind of route-change event a link click produces.
 
-Only one frame may claim the URL. A second `:url-bound? true` frame doesn't throw: the first keeps the URL, the second's navigation effects do nothing, and the runtime reports `:rf.error/duplicate-url-binding` naming both frames.
+Only one frame may claim the URL. Creating a second `:url-bound? true` frame throws `:rf.error/duplicate-url-binding`, naming both frames.
 
 ## See it move
 

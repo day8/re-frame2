@@ -128,5 +128,5 @@ listener behaviour that a pure encode/decode check cannot cover.
 | A deployed link leaves `/reader` | The frame uses the default strategy without a base | Wrap the strategy with `with-base-path` |
 | `/reader` appears twice, or a URL lands on not-found | A route pattern or app address already includes the deployment prefix | Keep route patterns and app addresses in app-path form |
 | The page renders but scripts or styles return 404 | Asset URLs are relative to the wrong directory | Set the asset base in the build or HTML |
-| The address bar does not change | The frame is not the URL owner | Set `:url-bound? true` on the app frame and resolve any `:rf.error/duplicate-url-binding` |
+| The address bar does not change | No frame is the URL owner | Set `:url-bound? true` on the app frame |
 | `make-frame` throws `:rf.error/invalid-url-strategy` | A declared strategy is `nil` or lacks required functions | Omit the key for the default, or use a shipped strategy; custom contracts are in the [reference](../../api/re-frame.routing.md#a-custom-strategy) |

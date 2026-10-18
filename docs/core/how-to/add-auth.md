@@ -278,7 +278,7 @@ If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-a
 
 !!! warning "Gotcha: exactly one frame owns the URL"
 
-    `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) makes this frame's navigation drive the browser address bar and Back/Forward. Only one frame may declare it; a second is still created, but the runtime reports `:rf.error/duplicate-url-binding` (an error record, not a throw) and the first keeps the URL. Leave any other frame on the page, such as [Xray](../glossary.md#xray), a story, or a second app instance, URL-unbound so it routes in memory.
+    `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) makes this frame's navigation drive the browser address bar and Back/Forward. Only one frame may declare it: `make-frame` throws `:rf.error/duplicate-url-binding` for a second. Leave any other frame on the page, such as [Xray](../glossary.md#xray), a story, or a second app instance, URL-unbound so it routes in memory.
 
 ## 5. Bounce back after login
 

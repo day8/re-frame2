@@ -663,8 +663,8 @@ At most one frame owns the browser URL at a time. A frame claims it by being cre
   ```
 - **Description**: Returns the frame that declared browser-history ownership with `(rf/make-frame {:id … :url-bound? true})`, or `nil` when none has.
     - Ownership is always declared: like any other frame, `:rf/default` owns the URL only when it is created with `{:url-bound? true}`.
-    - The owner is the first still-live frame that claimed `:url-bound? true`, so a later duplicate cannot take the URL. Creating the duplicate emits `:rf.error/duplicate-url-binding`, naming both frames; if the owner is destroyed, the next claimant takes over.
-    - Frames that claimed `:url-bound? true` before `re-frame.routing` loaded have no recorded order. One such frame becomes the owner; with two or more, the runtime emits `:rf.error/duplicate-url-binding` for each extra and no frame owns the URL until one of those frames is registered again or destroyed.
+    - At most one live frame carries `:url-bound? true`: creating or re-registering a second one throws `:rf.error/duplicate-url-binding`, naming both frames, and writes nothing. Destroying the owner, or re-registering it with `:url-bound? false`, leaves no owner until another frame declares the binding.
+    - A `:url-bound? true` frame needs `re-frame.routing` loaded first; without it, `make-frame` throws `:rf.error/routing-artefact-missing`.
     - With no owner, the outbound history effects do nothing and the inbound listener skips its dispatch.
 - **Example**:
   ```clojure
@@ -679,7 +679,7 @@ The browser `popstate` or `hashchange` listener is installed for you. When a `:u
 
 - Each browser-driven change is decoded to an app URL by the strategy's `:decode`, then dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)`, resolved when the change fires. With no `:url-bound? true` frame, nothing is dispatched.
 - The listener kind (`popstate` or `hashchange`) comes from the owning frame's `:url-strategy` when the listener is installed.
-- Installing is idempotent. A re-registration with the same owner and `:url-strategy` leaves the listener alone; a changed owner or strategy removes the old listener before installing the new one. A duplicate `:url-bound? true` frame that loses to the current owner never installs one.
+- Installing is idempotent. A re-registration with the same owner and `:url-strategy` leaves the listener alone; a changed owner or strategy removes the old listener before installing the new one.
 - ClojureScript only. On the JVM there is nothing to install; SSR passes the request URL to `:rf.route/handle-url-change`.
 
 ## Framework integration
@@ -783,7 +783,7 @@ The counters that allocate navigation tokens and pending-navigation ids are proc
 
 ### Test helpers
 
-Each of these resets process-wide routing state so it does not leak from one test into the next. The fixture built by [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) calls `reset-counters!`, `reset-nav-counters!` and `reset-url-claims!`.
+Each of these resets process-wide routing state so it does not leak from one test into the next. The fixture built by [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) calls `reset-counters!` and `reset-nav-counters!`.
 
 #### `reset-counters!`
 
@@ -811,15 +811,6 @@ Each of these resets process-wide routing state so it does not leak from one tes
   (reset-nav-counters!) → nil
   ```
 - **Description**: Clears the whole host navigation-counter cache.
-
-#### `reset-url-claims!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reset-url-claims!) → nil
-  ```
-- **Description**: Clears the URL-ownership claim order, so the next test starts with no `:url-bound?` claim.
 
 ## See also
 
