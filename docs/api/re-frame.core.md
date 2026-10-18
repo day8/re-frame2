@@ -782,7 +782,6 @@ Any other top-level key rejects the event before anything commits, so a valid `:
     - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
     - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
     - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
-    - `:rf.machine/spawn`, `:rf.machine/destroy` and `:rf.route/with-nav-token` cannot be overridden: the override is ignored, the real effect runs, and `:rf.error/reserved-fx-override` is emitted.
     - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
     - See [Asserting on what would dispatch](../core/testing/pipeline-runs.md#asserting-on-what-would-dispatch).
 - **Example**:
@@ -939,7 +938,6 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
 - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
 - `:preset :test` sets `:drain-depth 1000` and `:rf.cofx/mint-policy :strict` and redirects `:rf.http/managed` to `:rf.http/managed-canned-success`; `:preset :story` sets `:drain-depth 16` and the same redirect. Keys you pass win over the preset's. The redirect needs `re-frame.http.test-support` loaded.
-- An `:fx-overrides` entry for `:rf.machine/spawn`, `:rf.machine/destroy` or `:rf.route/with-nav-token` is refused with `:rf.error/reserved-fx-override`, and the real effect runs.
 - A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the [`make-frame`](#make-frame) example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - Any other key is stored with the frame and returned by `frame-meta`; nothing reads it, and nothing warns.
 - The errors a malformed config raises are listed under [`make-frame`](#make-frame).

@@ -364,7 +364,7 @@ _As-of 2026-07-04._
 
 ### G-C. The override seam is id-based and canonical-reference-matched — RESOLVED
 
-The pattern contract is id-based, and the CLJS reference also accepts function values. **[008-Testing §Disabling a logging interceptor in tests](008-Testing.md#disabling-a-logging-interceptor-in-tests) keeps the two separate**: `:interceptor-overrides` is **reference-based** (a bare keyword matches the registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), matched by the canonical (CEDN-1) reference — the id-valued (portable) form leads the primary examples, and function values appear only as the one-off `:fx-overrides` HTTP-stub lambdas. [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering) adds the complementary tiering (reserved fx tiered OVERRIDABLE vs REJECT by the state-installation criterion, with a dedicated `Override tier` column in the reserved-fx table).
+The pattern contract is id-based, and the CLJS reference also accepts function values. **[008-Testing §Disabling a logging interceptor in tests](008-Testing.md#disabling-a-logging-interceptor-in-tests) keeps the two separate**: `:interceptor-overrides` is **reference-based** (a bare keyword matches the registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), matched by the canonical (CEDN-1) reference — the id-valued (portable) form leads the primary examples, and function values appear only as the one-off `:fx-overrides` HTTP-stub lambdas. [Conventions §Reserved fx-ids under `:fx-overrides`](Conventions.md#reserved-fx-id-override-tiering) adds that a reserved fx takes an override exactly as a user fx does.
 
 ### G-D. The plain-Reagent-fn footgun — RESOLVED (EP-0002)
 
