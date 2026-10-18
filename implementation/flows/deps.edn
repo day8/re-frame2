@@ -35,6 +35,7 @@
   :slow-test
   {:extra-paths ["test"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                 day8/re-frame2-epoch      {:local/root "../epoch"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
