@@ -1195,6 +1195,10 @@
   ;; No façade rows: the stub family, `with-request-stubs` plus the raw
   ;; install/uninstall pair, has no app / tool consumers and is reached only
   ;; through the home namespace, which the generator does not introspect.
+  ;; The stub transports (`route-transport`, `pending-transport`,
+  ;; `with-transport`, `install-transport!`) are catalogued the same way: their
+  ;; home namespace `re-frame.http.stub-transport` is required directly by a
+  ;; test or a demo, is not introspected, and carries no rows.
   ;; Observation listeners: ONE stream-parameterized verb, whose closed
   ;; vocabulary is the TWO RAW DEV STREAMS `:trace` / `:epoch`.
   ;; There are no per-channel `register-(event|error)-listener!` facade pairs
