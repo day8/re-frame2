@@ -205,8 +205,7 @@
   per the Spec 010 §`:sensitive?` redaction-shape list. Three are per-surface /
   conditional names carried only on a subset of emit-sites (`:rf.fx/args` on
   `:where :fx-args`; `:rf.sub/query-v` on `:where :sub-return`;
-  `:explain-humanized` only when the `:schemas/humanize-explain!` hook is
-  installed); the `contains?` guards make those clauses no-ops on the surfaces
+  `:explain-humanized` only when a humanizer is installed); the `contains?` guards make those clauses no-ops on the surfaces
   whose tag maps don't carry the slot.
 
   `:rf.sub/query-v` (the caller-supplied
@@ -337,11 +336,11 @@
 
 (defn- humanize-explain
   "Compute the operator-readable `:explain-humanized` payload from a
-  raw explainer output (per Spec 010 §Humanize-hook).
-  Returns the humanized shape when the `:schemas/humanize-explain!`
-  late-bind hook is installed and `explanation` is non-nil; nil
-  otherwise (no hook installed — non-Malli validator / adapter ns not
-  required — or the explainer produced nothing).
+  raw explainer output (per Spec 010 §Humanize).
+  Returns the humanized shape when the installed port carries a
+  `:humanize` fn and `explanation` is non-nil; nil otherwise (no
+  humanizer — a port without one, or a production build — or the
+  explainer produced nothing).
 
   Call this before privacy redaction so sensitive failures retain a present
   but redacted `:explain-humanized` slot rather than losing the slot entirely.
@@ -351,9 +350,8 @@
   failure trace itself)."
   [explanation]
   (when (some? explanation)
-    (when-let [humanize-fn (rf.late-bind/get-fn :schemas/humanize-explain!)]
-      (try (humanize-fn explanation)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))))
+    (try (rf.schemas.validator/run-humanizer explanation)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- emit-validation-failure!
   "Single emit seam for `:rf.error/schema-validation-failure` traces.

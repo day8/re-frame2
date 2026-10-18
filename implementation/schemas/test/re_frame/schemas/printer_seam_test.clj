@@ -39,5 +39,6 @@
           p-fn (fn [_] "::P::")]
       (rf.schemas/set-schema-fns! {:validate v-fn})
       (rf.schemas/set-schema-fns! {:explain e-fn})
-      (is (= {:validate v-fn :explain e-fn :print p-fn}
+      (is (= {:validate v-fn :explain e-fn :print p-fn
+              :humanize (:humanize rf.schemas/default-schema-fns)}
              (rf.schemas/set-schema-fns! {:print p-fn}))))))

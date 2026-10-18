@@ -21,7 +21,6 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
-  (rf.schemas/clear-validator-unavailable-warned!)
   (rf.schemas/clear-walker-opaque-warned!)
   (rf.registrar/clear-warning-caches!)
   (rf/init! rf.substrate.plain-atom/adapter)
