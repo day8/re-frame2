@@ -199,15 +199,6 @@
   (EP-0024 Term: Frame value)."
   rf.frame/frame-value?)
 
-;; `frame-object?` is a second spelling of `frame-value?` (EP-0024: a frame is
-;; a value, not an object) for the internal callers that use it
-;; (`re-frame.core/resolve-live-frame-object`).
-(def ^{:doc "Internal alias of `frame-value?` (EP-0024: frame VALUE); the
-  dispatch/subscribe resolution-target helpers spell it `frame-object?`.
-  Pure."}
-  frame-object?
-  rf.frame/frame-value?)
-
 (defn frame-generation
   "The resolved image GENERATION a frame target is running (EP-0024). Accepts
   EITHER a frame VALUE or a frame id: the generation lives on the record in the

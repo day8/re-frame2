@@ -184,19 +184,6 @@
   (when (frame-value? x)
     (get x incarnation-token-key)))
 
-(defn frame-target->id
-  "Normalize a public frame TARGET — a frame-id KEYWORD or a frame VALUE — to the
-  frame id its record is keyed by in the one `frames` registry (EP-0024). A
-  frame VALUE (carrying `:rf.frame/object true`) yields its
-  `:rf.frame/runnable-id`; any other target (a keyword id, or a nil / malformed
-  value) is returned UNCHANGED — so every keyword-target caller is
-  byte-identical. The internal normalization seam dispatch / subscribe / destroy
-  / app-db-read / frame-provider funnel a frame value through before keying
-  `frames`; the value is accepted EVERYWHERE a keyword id is. Pure — the
-  same normalization as `frame-value->id`."
-  [target]
-  (frame-value->id target))
-
 (defn anon-frame-id
   "Mint a process-unique anonymous frame-id under the reserved `:rf.frame/`
   namespace — the address a no-id frame's record is keyed by. So tooling that
