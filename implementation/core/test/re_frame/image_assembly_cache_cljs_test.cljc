@@ -34,6 +34,25 @@
     (is (identical? (rf.image-assembly/assemble [(rf.image/image spec)])
                     (rf.image-assembly/assemble [(rf.image/image spec)])))))
 
+(deftest a-cache-hit-never-flattens-the-store
+  ;; the descriptor pool is read only on a miss, so a hit is a key build and a
+  ;; lookup; the miss after a registration is the instrument's control
+  (record! "shop.cart" :event :cart/add ::add)
+  (let [img      (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
+        sealed   (rf.image-assembly/assemble [img])
+        default  (rf.image-assembly/assemble [])
+        flattens (atom 0)
+        kinds    rf.source-store/kinds-present]
+    (with-redefs [rf.source-store/kinds-present (fn [] (swap! flattens inc) (kinds))]
+      (let [hits [(identical? sealed (rf.image-assembly/assemble [img]))
+                  (identical? default (rf.image-assembly/assemble []))
+                  @flattens]]
+        (record! "shop.cart" :sub :cart/items ::items)
+        (reset! flattens 0)
+        (rf.image-assembly/assemble [img])
+        (is (= [[true true 0] 1] [hits @flattens])
+            "both hits skip the flattener; the miss after a registration calls it once")))))
+
 (deftest changed-selected-descriptor-invalidates
   (record! "shop.cart" :event :cart/add ::add)
   (let [img (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})]
