@@ -2464,7 +2464,7 @@ The conformance-corpus DSL evaluator runs the cross-port conformance fixtures. T
 
 ### Schemas
 
-Each category's `:tags` shape is registered as a Malli schema so consumers can validate without ad-hoc parsing. The full set of per-category `:tags` schemas is canonicalised in [Spec-Schemas §Per-category `:tags` schemas](Spec-Schemas.md#per-category-tags-schemas) — one schema per category enumerated in the [§Error event catalogue](#error-event-catalogue) above. Two examples (the rest follow the same shape):
+Each category's `:tags` shape is specified as a Malli schema in Spec-Schemas (not registered at runtime), so consumers can validate without ad-hoc parsing. The full set of per-category `:tags` schemas is canonicalised in [Spec-Schemas §Per-category `:tags` schemas](Spec-Schemas.md#per-category-tags-schemas) — one schema per category enumerated in the [§Error event catalogue](#error-event-catalogue) above. Two examples (the rest follow the same shape):
 
 ```clojure
 ;; Conceptual; the actual registration mechanism is implementation-specific.
