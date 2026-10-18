@@ -112,7 +112,7 @@
   unbound. Returns nil."
   [tags]
   (when-let [dispatch-error-record!
-             (rf.late-bind/get-fn-cached :error-emit/dispatch-error-record)]
+             (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       (assoc tags
              :error :rf.error/no-such-handler
@@ -156,7 +156,7 @@
   returns false — no schema to walk, nothing to redact."
   [route-meta]
   (boolean
-    (when-let [redact (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)]
+    (when-let [redact (rf.late-bind/get-fn :schemas/redact-validation-tags)]
       (some (fn [slot]
               (when-let [schema (get route-meta slot)]
                 (true? (:sensitive? (redact schema {})))))

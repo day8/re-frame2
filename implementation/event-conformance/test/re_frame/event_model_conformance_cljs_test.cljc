@@ -68,8 +68,7 @@
 (defn- restore-hook! [hook-id previous]
   (if previous
     (rf.late-bind/set-fn! hook-id previous)
-    (swap! rf.late-bind/hooks dissoc hook-id))
-  (rf.late-bind/invalidate-cache! hook-id))
+    (swap! rf.late-bind/hooks dissoc hook-id)))
 
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
   ;; Exercise the schema seam without the schemas artefact.

@@ -69,9 +69,9 @@
     (rf.resources.state/reject-non-edn! params where :params id)
     ;; schema conformance (pluggable; no-op when no validator is registered)
     (when schema
-      (let [validate (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
         (when (and validate (not (validate schema params)))
-          (let [explain  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+          (let [explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
                  ;; Thrown error data and downstream egress must not leak a
                  ;; `:sensitive?` params slot (nor ride a `:large?`
                 ;; slot raw). Route `:params` + the explainer `:error` through the

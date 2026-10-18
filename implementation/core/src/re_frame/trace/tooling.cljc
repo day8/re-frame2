@@ -1222,7 +1222,7 @@
    ;; before any deferral, owns neither dev print, and survives
    ;; `clear-listeners!`. Its body is a pure `swap!` on SSR's buffer, so it
    ;; is safe inside a drain-owned delivery.
-   (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-trace)]
+   (when-some [capture (rf.late-bind/get-fn :ssr/capture-error-trace)]
      (try
        (capture event)
        (catch #?(:clj Throwable :cljs :default) _ nil)))

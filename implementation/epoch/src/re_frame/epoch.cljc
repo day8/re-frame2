@@ -138,7 +138,7 @@
   before the depth was lowered; see `configure!`). `frame-id` is the frame's
   id or the frame value `rf/make-frame` returns."
   [frame-id]
-  (rf.epoch.state/history-for (rf.frame/frame-target->id frame-id)))
+  (rf.epoch.state/history-for (rf.frame/frame-value->id frame-id)))
 
 (defn current-epoch-id
   "Return the id of the epoch whose `:frame-state-after` the frame holds, or
@@ -155,7 +155,7 @@
   settled into. `frame-id` is the frame's id or the frame value
   `rf/make-frame` returns."
   [frame-id]
-  (rf.epoch.state/last-settled-epoch-id (rf.frame/frame-target->id frame-id)))
+  (rf.epoch.state/last-settled-epoch-id (rf.frame/frame-value->id frame-id)))
 
 (defn clear-history!
   "Drop every recorded epoch for every frame. Test fixtures use this.
@@ -414,7 +414,7 @@
   ([frame-id epoch-id opts]
    (if-not rf.interop/debug-enabled?
      false
-     (let [frame-id (rf.frame/frame-target->id frame-id)
+     (let [frame-id (rf.frame/frame-value->id frame-id)
            to       (or (:to opts) :after)
            {:keys [outcome epoch op tags incarnation-token]}
            (rf.epoch.tool-pair/check-restore-preconditions! frame-id epoch-id to)]
@@ -496,7 +496,7 @@
   ([frame-id epoch-id opts]
    (if-not rf.interop/debug-enabled?
      false
-     (let [frame-id (rf.frame/frame-target->id frame-id)
+     (let [frame-id (rf.frame/frame-value->id frame-id)
            {:keys [outcome epoch reason tags incarnation-token]}
            (rf.epoch.tool-pair/check-replay-preconditions! frame-id epoch-id)]
        (case outcome
@@ -698,7 +698,7 @@
   [frame-id new-frame-state]
   (if-not rf.interop/debug-enabled?
     false
-    (let [frame-id (rf.frame/frame-target->id frame-id)
+    (let [frame-id (rf.frame/frame-value->id frame-id)
           {:keys [outcome op tags incarnation-token]}
           (rf.epoch.tool-pair/check-replace-frame-state-preconditions! frame-id new-frame-state)]
       (case outcome

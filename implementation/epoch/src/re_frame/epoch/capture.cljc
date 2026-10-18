@@ -249,7 +249,7 @@
           ;; the render falls through to the normal buffer path.
           (and (contains? render-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-render! (rf.late-bind/get-fn-cached :epoch/record-render!)]
+          (if-let [record-render! (rf.late-bind/get-fn :epoch/record-render!)]
             (record-render! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
@@ -260,7 +260,7 @@
           (and (or (contains? sub-run-ops operation)
                    (sub-schema-failure? operation event-tags))
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-sub-run! (rf.late-bind/get-fn-cached :epoch/record-sub-run!)]
+          (if-let [record-sub-run! (rf.late-bind/get-fn :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
@@ -279,7 +279,7 @@
           ;; window.
           (and (contains? unmount-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-unmount! (rf.late-bind/get-fn-cached :epoch/record-unmount!)]
+          (if-let [record-unmount! (rf.late-bind/get-fn :epoch/record-unmount!)]
             (record-unmount! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
@@ -359,22 +359,16 @@
                       own read-set whose value changed (the precise
                       per-view re-render cause). Empty when no sub changed
                       value (a structural re-render).
-    :rendered-so-far — count of :rf.view/rendered already emitted into
-                      this run. Used by the views.cljs emit site to
-                      enforce the per-run view-render cap.
 
   Empty buffer (render outside any run — e.g. headless direct
-  invocations, or React's post-settle async batch) yields a map with
-  `:rendered-so-far 0` and the other slots omitted."
+  invocations, or React's post-settle async batch) yields an empty map."
   ([frame-id]
    (run-cause frame-id 100))
   ([frame-id sub-cap]
    (when rf.interop/debug-enabled?
      (let [buffered-events (rf.epoch.state/buffer-for frame-id)
-           ;; Single reduce: capture first :rf.event/run-start, accumulate
-           ;; distinct sub-ids in first-seen order up to `sub-cap`, and
-           ;; count the existing :rf.view/rendered emits so the views.cljs
-           ;; emit site can enforce the per-run view-render cap.
+           ;; Single reduce: capture first :rf.event/run-start, and
+           ;; accumulate distinct sub-ids in first-seen order up to `sub-cap`.
            cause-state (reduce
                          (fn [cause-state trace-event]
                            (let [operation  (:operation trace-event)
@@ -410,24 +404,13 @@
                                     (some? (:rf.sub/id event-tags))
                                     (true? (:rf.sub/value-changed? event-tags))
                                     (< (count (:value-changed-subs cause-state)) sub-cap))
-                               (update :value-changed-subs conj (:rf.sub/id event-tags))
-
-                               ;; Count both :rf.view/rendered AND the one-shot
-                               ;; :rf.view/rendered-cap-reached marker: once
-                               ;; the marker fires for a cascade, n-so-far
-                               ;; remains > cap so the emit site's `:else nil`
-                               ;; branch suppresses subsequent emits (the
-                               ;; marker is one-shot per cascade).
-                               (or (= :rf.view/rendered operation)
-                                   (= :rf.view/rendered-cap-reached operation))
-                               (update :rendered-so-far inc))))
+                               (update :value-changed-subs conj (:rf.sub/id event-tags)))))
                      {:cause-event-id     nil
                       :subs               []
                       :seen               #{}
-                      :value-changed-subs #{}
-                      :rendered-so-far    0}
+                      :value-changed-subs #{}}
                      buffered-events)]
-       (cond-> {:rendered-so-far (:rendered-so-far cause-state)}
+       (cond-> {}
          (:cause-event-id cause-state)
          (assoc :cause-event-id (:cause-event-id cause-state))
          (seq (:subs cause-state))

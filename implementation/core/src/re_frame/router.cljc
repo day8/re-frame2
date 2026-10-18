@@ -302,7 +302,7 @@
         ;; EP-0023: the explicit `:frame` opt may be a frame-id
         ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
         ;; `(rf/dispatch-sync [...] {:frame frame})`). Normalize an object to its
-        ;; runnable-id ADDRESS via `rf.frame/frame-target->id` so the envelope
+        ;; runnable-id ADDRESS via `rf.frame/frame-value->id` so the envelope
         ;; carries a keyword `:frame` for every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
         ;; the commit path, the sub-cache). The
@@ -310,8 +310,8 @@
         ;; of a frame made without `:images`) off the record by this id, so an
         ;; object target and a child dispatch carrying the same id BOTH route the
         ;; frame's own view. A keyword target (and the scope/hold-resolved frame) passes
-        ;; through `frame-target->id` unchanged.
-         frame              (rf.frame/frame-target->id
+        ;; through `frame-value->id` unchanged.
+         frame              (rf.frame/frame-value->id
                                (or (:frame opts)
                                    (rf.frame/require-current-frame!
                                      :dispatch
@@ -480,10 +480,7 @@
   drives the cascade with, identical to a registered handler) or nil. Nil
   — when the hook is unregistered (machines artefact absent) OR the
   resolver itself declines (no live snapshot for the event-id) — falls
-  through to the genuine `:rf.error/no-such-handler` path. The hook
-  lookup uses `get-fn-cached`: the machines artefact publishes it once at
-  boot and never withdraws it, so the cache hits after the first miss; on
-  a machines-free build the cached miss falls straight through.
+  through to the genuine `:rf.error/no-such-handler` path.
 
   Sticky-resolver try/catch (mirrors `validate-event!` /
   `run-candidate-validation!`'s hook isolation): a throw from the resolver must not abort
@@ -491,7 +488,7 @@
   propagates."
   [event frame]
   (or (get @framework-private-handler-metas (first event))
-      (when-let [resolve! (rf.late-bind/get-fn-cached :machines/resolve-actor-handler-meta)]
+      (when-let [resolve! (rf.late-bind/get-fn :machines/resolve-actor-handler-meta)]
         (try
           (resolve! event frame)
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
@@ -782,7 +779,7 @@
     ;; Sticky hook — `:schemas/validate-event!` is published
     ;; once at re-frame.schemas load and never withdrawn in dev; fires
     ;; per-dispatch.
-    (if-let [validate! (rf.late-bind/get-fn-cached :schemas/validate-event!)]
+    (if-let [validate! (rf.late-bind/get-fn :schemas/validate-event!)]
       (try (validate! event-id event handler-meta frame)
            (catch #?(:clj Throwable :cljs :default) _
              true))
@@ -1209,7 +1206,7 @@
         ;; passes the pre-event app-db, the machine-data arm nothing.
         (fn [effect? hook-key partition-value where & before]
           (if effect?
-            (if-let [validate (rf.late-bind/get-fn-cached hook-key)]
+            (if-let [validate (rf.late-bind/get-fn hook-key)]
               (try
                 (let [result (apply validate partition-value event-id frame before)]
                   (if (nil? result) true result))
@@ -1296,7 +1293,7 @@
   restore hook is nil)."
   [ctx frame]
   (when (contains? ctx :rf/flow-last-inputs-before)
-    (when-let [restore-li (rf.late-bind/get-fn-cached :flows/restore-last-inputs!)]
+    (when-let [restore-li (rf.late-bind/get-fn :flows/restore-last-inputs!)]
       (restore-li frame (:rf/flow-last-inputs-before ctx)))))
 
 (defn- commit-frame-effects!
@@ -1670,7 +1667,7 @@
               ;; the runtime-db is resolved independently of whether the handler
               ;; touched app-db.
               has-runtime-effect? (contains? effects :rf.db/runtime)
-              run-on-db   (rf.late-bind/get-fn-cached :flows/run-flows-on-db)
+              run-on-db   (rf.late-bind/get-fn :flows/run-flows-on-db)
               ;; When the handler returned no partition effect, the chain-start
               ;; coeffects are the pending transition inputs.
               pending-db  (if has-db?
@@ -1741,7 +1738,7 @@
                     ;; snapshot is a persistent map (pointer-sized to stash); the
                     ;; hook is nil only when the flows artefact never loaded, in
                     ;; which case there are no rows and nothing to restore.
-                     snapshot-li (rf.late-bind/get-fn-cached :flows/snapshot-last-inputs)
+                     snapshot-li (rf.late-bind/get-fn :flows/snapshot-last-inputs)
                      li-before   (when snapshot-li
                                    (snapshot-li frame))
                     ;; EP-0001 §535-551: hand the flow transform
@@ -2620,7 +2617,7 @@
                    (assoc :rf.event/after-deltas after-deltas)))
     ;; Sticky hook — always-on per-event observability fan-out;
     ;; survives `:advanced` + `goog.DEBUG=false`.
-    (let [emit-event!     (rf.late-bind/get-fn-cached :event-emit/dispatch-on-event)
+    (let [emit-event!     (rf.late-bind/get-fn :event-emit/dispatch-on-event)
       ;; EP-0015 §9: the frame-owned observability sink
       ;; route — the NORMAL production observation stream (Spec 015
       ;; §The three observation streams, stream 3). Parallel to the
@@ -2630,7 +2627,7 @@
       ;; classification + the sink's egress profile. Also always-on
       ;; (survives `:advanced` + `goog.DEBUG=false`); late-bound so the
       ;; router carries no static dependency on `re-frame.observability`.
-      route-handled! (rf.late-bind/get-fn-cached :observability/route-handled-event)]
+      route-handled! (rf.late-bind/get-fn :observability/route-handled-event)]
   (when (or emit-event! route-handled!)
     (let [end-ms     (rf.interop/now-ms)
           elapsed-ms (elapsed-ms-from start-ms end-ms)]
@@ -2920,7 +2917,7 @@
           ;; handler would dispatch as `:rf.error/no-such-handler`. The consult is by
           ;; late-bind KEYWORD and its publisher is rooted from `make-frame`,
           ;; so a bundle that never constructs a frame still DCEs the graph.
-          (when-let [flush! (rf.late-bind/get-fn-cached
+          (when-let [flush! (rf.late-bind/get-fn
                               :live-frame/flush-projection!)]
             (flush!))
           ;; Resolve through the dequeuing incarnation's own record, never the
@@ -3129,8 +3126,8 @@
     ;; frame's resolution scope (as `rf.error-emit` does for the always-on
     ;; record), so the record's `:trigger-event` holds what every `:ok`
     ;; record's does. Replay refuses halted records, so no raw copy is needed.
-    (when-let [commit-halt! (rf.late-bind/get-fn-cached :epoch/commit-halt-record!)]
-      (let [redact  (rf.late-bind/get-fn-cached
+    (when-let [commit-halt! (rf.late-bind/get-fn :epoch/commit-halt-record!)]
+      (let [redact  (rf.late-bind/get-fn
                       :classification/redact-event-by-registration)
             trigger (if redact
                       (rf.live-frame/call-with-frame-resolution
@@ -3172,7 +3169,7 @@
   coeffects, not an ambient assembly-time host-clock read."
   [frame-id frame-state-before frame-state-after committed-at
    settling-dispatch-id]
-  (when-let [settle! (rf.late-bind/get-fn-cached :epoch/settle!)]
+  (when-let [settle! (rf.late-bind/get-fn :epoch/settle!)]
     (settle! frame-id frame-state-before frame-state-after committed-at
              settling-dispatch-id)))
 
@@ -3350,7 +3347,7 @@
   event never ran, so no run-start trace classified it."
   [frame-id envelope]
   (let [event  (:event envelope)
-        redact (rf.late-bind/get-fn-cached
+        redact (rf.late-bind/get-fn
                  :classification/redact-event-by-registration)]
     (if (and redact event)
       (rf.live-frame/call-with-frame-resolution frame-id #(redact event))

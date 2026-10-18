@@ -38,8 +38,7 @@
   [before]
   (if-let [f (get before hook-key)]
     (rf.late-bind/set-fn! hook-key f)
-    (do (swap! rf.late-bind/hooks dissoc hook-key)
-        (rf.late-bind/invalidate-cache! hook-key)))
+    (swap! rf.late-bind/hooks dissoc hook-key))
   nil)
 
 (deftest teardown-hook-re-arms-on-live-frame-reload-rf2-cq0yi
@@ -51,7 +50,6 @@
         ;; a live process: a frame has been constructed, so the flag is latched
         (rf/destroy-frame! (rf/make-frame {:id :cq0yi-reload/warm}))
         (swap! rf.late-bind/hooks dissoc hook-key)
-        (rf.late-bind/invalidate-cache! hook-key)
         (is (= [true nil] [(once-flag) (rf.late-bind/get-fn hook-key)])
             "precondition: once-flag latched, teardown key absent")
         (require 're-frame.live-frame :reload)

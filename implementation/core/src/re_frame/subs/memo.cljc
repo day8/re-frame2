@@ -109,7 +109,7 @@
   ;; delegates the exact token. Only an ABSENT key skips the consult.
   (if (and sub-meta (contains? sub-meta :schema))
     ;; Sticky hook — fires per-sub recompute.
-    (if-let [validate (rf.late-bind/get-fn-cached :schemas/validate-sub!)]
+    (if-let [validate (rf.late-bind/get-fn :schemas/validate-sub!)]
       (if (try (validate sub-id query-v value sub-meta frame-id)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value
@@ -316,7 +316,7 @@
                 ;; not whatever cascade is settling when a mount-burst tail
                 ;; commits. Resolved through late-bind so this .cljc subs
                 ;; layer stays free of a require on the CLJS-only views ns.
-                reader-rk (when-let [f (rf.late-bind/get-fn-cached
+                reader-rk (when-let [f (rf.late-bind/get-fn
                                          :views/reading-render-key)]
                             (f))
                 ;; `:rf.sub/cause-event-id` names the
@@ -339,7 +339,7 @@
                 ;; only when meaningful. Inside the
                 ;; `rf.interop/debug-enabled?` gate so the lookup + lift
                 ;; DCE under :advanced + goog.DEBUG=false.
-                cause-fn        (rf.late-bind/get-fn-cached :epoch/run-cause)
+                cause-fn        (rf.late-bind/get-fn :epoch/run-cause)
                 run-cause       (when cause-fn (cause-fn frame-id))
                 cause-event-id  (:cause-event-id run-cause)]
             (rf.trace/emit! :rf.sub :rf.sub/run
@@ -467,7 +467,7 @@
           ;; `:error-emit/emit-error-both` hook (this subs layer cannot
           ;; static-require error-emit — load cycle). `elapsed-ms 0`.
           (when-let [emit-error-both!
-                     (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+                     (rf.late-bind/get-fn :error-emit/emit-error-both)]
             (emit-error-both!
               :rf.error/sub-exception
               query-v                             ;; failing query-vector (as :event)

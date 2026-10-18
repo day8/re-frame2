@@ -184,19 +184,6 @@
   (when (frame-value? x)
     (get x incarnation-token-key)))
 
-(defn frame-target->id
-  "Normalize a public frame TARGET — a frame-id KEYWORD or a frame VALUE — to the
-  frame id its record is keyed by in the one `frames` registry (EP-0024). A
-  frame VALUE (carrying `:rf.frame/object true`) yields its
-  `:rf.frame/runnable-id`; any other target (a keyword id, or a nil / malformed
-  value) is returned UNCHANGED — so every keyword-target caller is
-  byte-identical. The internal normalization seam dispatch / subscribe / destroy
-  / app-db-read / frame-provider funnel a frame value through before keying
-  `frames`; the value is accepted EVERYWHERE a keyword id is. Pure — the
-  same normalization as `frame-value->id`."
-  [target]
-  (frame-value->id target))
-
 (defn anon-frame-id
   "Mint a process-unique anonymous frame-id under the reserved `:rf.frame/`
   namespace — the address a no-id frame's record is keyed by. So tooling that
@@ -788,7 +775,7 @@
   (if-some [refusal *ambient-frame-refusal*]
     (carried-frame-admitted-by refusal)
     (frame-value->id
-      #?(:cljs (if-let [f (rf.late-bind/get-fn-cached :adapter/current-frame)]
+      #?(:cljs (if-let [f (rf.late-bind/get-fn :adapter/current-frame)]
                  (f)
                  (current-frame))
          :clj  (current-frame)))))
@@ -3416,7 +3403,7 @@
           ;; frame inherits the process-default. Routed via late-bind so
           ;; production CLJS bundles (where trace.tooling is not loaded)
           ;; short-circuit cleanly — the trace-ring machinery is dev-only.
-          (when-let [apply-retention! (rf.late-bind/get-fn-cached
+          (when-let [apply-retention! (rf.late-bind/get-fn
                                        :trace.tooling/apply-frame-events-retained-policy!)]
             (apply-retention! id
                               (contains? applied-config :rf.trace/events-retained)
@@ -3748,7 +3735,7 @@
   no-op outside any drain."
   [where]
   (when (some? *run-frame-state-before*)
-    (let [frame-id (frame-target->id *current-frame*)]
+    (let [frame-id (frame-value->id *current-frame*)]
       (rf.error/throw-error!
        :rf.error/flush-in-open-epoch where
        (str where " was called while frame " (pr-str frame-id)
@@ -4513,7 +4500,7 @@
 
   EP-0024: the target may be a frame-id KEYWORD or a frame VALUE
   (`rf/make-frame`'s return token). A value is normalized to its id via
-  `frame-target->id` so the whole recipe keys the ONE registry's record;
+  `frame-value->id` so the whole recipe keys the ONE registry's record;
   `dissoc-frame!` IS the forget (the resolved generation rides the
   record, dropped with it — one registry, no separate forget hook).
 
@@ -4545,7 +4532,7 @@
    ;; ADDRESS-directed — pin whatever incarnation is currently live under the id.
    (if-let [carried (frame-value-incarnation-token target)]
      (destroy-frame! target carried)
-     (let [id (frame-target->id target)]
+     (let [id (frame-value->id target)]
        (when-let [expected-token (frame-incarnation-token id)]
          (destroy-frame! target expected-token)))))
   ([target expected-incarnation-token]
@@ -4554,7 +4541,7 @@
    ;; unchanged. The registry is keyed by the bare frame-id, so every keyed
    ;; teardown step (the in-flight guard, `mark-frame-destroyed!`,
    ;; `dissoc-frame!`) targets the frame-id-keyed record directly.
-   (let [id (frame-target->id target)]
+   (let [id (frame-value->id target)]
      ;; `claim-frame-destroy!` acquires the shared per-id transaction and
      ;; records the DESTROYING incarnation's token (the live record's
      ;; `:drain-lock`) under that SAME lock, after revalidating the expected

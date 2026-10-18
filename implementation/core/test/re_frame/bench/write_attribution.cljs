@@ -222,20 +222,23 @@
 
   ## The registration shape is part of the instrument
 
-  The ladder's subscriptions carry SOURCE COORDS by default, because that is
-  what a consumer's application has: `reg-sub` reached through its macro
-  captures `:ns` / `:file` / `:line`, and those coords are what make
+  The ladder's subscriptions carry SOURCE COORDS by default because the rig
+  hands every `reg-sub` EXPLICIT `:ns` / `:file` / `:line` user metadata
+  (`explicit-sub-meta`). Those coords are what make
   `handler-scope-from-meta` build a cumulative coord map AND a three-key
   trigger map on top of the `HandlerScope` record. Without them
   `trigger-handler-from-meta` returns nil and the record is all there is.
   The same ladder reads **120.1 B/sub coord-less against 744.2 B/sub
-  coord-carrying — a factor of six** — so a coord-less figure understates a
-  real application.
+  coord-carrying — a factor of six** — so the registration a figure ran
+  under is part of the figure.
 
-  So the default is the coord-carrying shape and every figure quoted from
-  this harness comes off it. `WA_COORDS=0` runs the coord-less ladder: it is
-  the cleanest way to isolate what the coords themselves cost. It is a
-  labelled CONTROL, not a figure to publish.
+  An optimised application's slot carries those keys only when its own
+  metadata names them: under `goog.DEBUG false` `merge-coords` returns user
+  metadata unchanged, so the call site the `reg-sub` macro captures stays out
+  of the slot. `WA_COORDS=0` registers with no metadata, which is that
+  ordinary optimised shape and the cleanest way to isolate what the coords
+  themselves cost. Either run is quotable on the guard's terms; quote a
+  figure with the registration it ran under.
 
   ## What a byte count here is, and is not
 
@@ -281,8 +284,10 @@
   measured round, default 6), WA_WARMUP (bare calls before calibration,
   default 3), WA_TOLERANCE (the guard's relative-median tolerance, default
   0.25), WA_ORDER=rev (reverse the base plan before scheduling — a knob,
-  not the mitigation), WA_COORDS=0 (register the ladder's subs WITHOUT
-  source coords — the control arm, not the default)."
+  not the mitigation), WA_COORDS (which registration the rig builds: 1, the
+  default, hands every `reg-sub` EXPLICIT `:ns` / `:file` / `:line` user
+  metadata; 0 registers with no metadata, the ordinary optimised shape,
+  whose slot carries no coordinates)."
   (:require [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
@@ -867,14 +872,14 @@
 
 ;; The handler-scope bracket, in BOTH spellings, one process, the same
 ;; sub-ids. `P-SCOPE` above passes nil meta, so its 120.8 B figure is a fixed
-;; reference, but nil meta is not the production shape: a macro-registered
-;; sub carries `:ns` / `:file` / `:line` (`:column` is dev-only and absent
-;; under `:advanced` + goog.DEBUG=false), and those are what make
+;; reference for a slot with no coordinates — the ordinary optimised
+;; registration. Metadata naming `:ns` / `:file` / `:line` is what makes
 ;; `trigger-handler-from-meta` build a coord map AND a three-key trigger map
-;; on top of the record. So:
+;; on top of the record, and an application's slot carries it only when its
+;; own metadata names it. So:
 ;;
-;;   P-SCOPEM  the RETIRED spelling with REALISTIC registration meta — build
-;;             the scope per recompute
+;;   P-SCOPEM  the RETIRED spelling with EXPLICIT coordinate metadata
+;;             (`explicit-sub-meta`) — build the scope per recompute
 ;;   P-SCOPEH  the SHIPPED spelling — the scope built ONCE per cache entry and
 ;;             closed over, so the per-recompute cost is the `binding` and
 ;;             `inherit-scope` alone
@@ -892,17 +897,22 @@
 ;; P-INHER − P-INHERH is therefore a saving the ladder here CANNOT show and a
 ;; real application does get. It is quoted separately rather than folded in.
 
-(def ^:private prod-sub-meta
-  "What `reg-sub`'s macro path leaves in the registrar slot for a PRODUCTION
-  build: `:ns` / `:file` / `:line` are the locked coord keys; `:column` is
-  dev-only (`source-coords/prod-coords-form`) so it is absent here."
+(def ^:private explicit-sub-meta
+  "EXPLICIT user metadata naming source coordinates, handed to every `reg-sub`
+  and `reg-frame-state-sub` by the default (WA_COORDS=1) registration and to
+  `handler-scope-from-meta` by the scope arms. Under `goog.DEBUG false`
+  `merge-coords` returns user metadata unchanged, so these keys reach the
+  registrar slot only because they are passed here: an optimised
+  application's slot carries `:ns` / `:file` / `:line` only when its own
+  metadata names them. Those three are the locked coord keys; `:column` is
+  an optional refinement and is left out."
   {:ns 'wa.bench :file "wa/bench.cljs" :line 42})
 
 (defn- arm-p-scope-m []
   (let [{:keys [n qids]} @rig]
     (dotimes [k n]
       (rf.trace/with-handler-scope
-        (rf.trace/handler-scope-from-meta :sub (nth qids k) prod-sub-meta)
+        (rf.trace/handler-scope-from-meta :sub (nth qids k) explicit-sub-meta)
         (keep! true)))))
 
 (defn- arm-p-scope-h []
@@ -1170,21 +1180,22 @@
   ;; is not a detail. This ns requires `re-frame.core` WITHOUT
   ;; `:include-macros true`, so `rf/reg-sub` here is the plain FUNCTION and no
   ;; call site is captured — left alone, the registrar slot comes out
-  ;; `{}`. A real application writes `(rf/reg-sub …)` in a namespace that does
-  ;; get the macro, so its slots carry `:ns` / `:file` / `:line` (`:column` is
-  ;; dev-only and absent under `:advanced` + goog.DEBUG=false). That is the
-  ;; difference between `P-SCOPE` and `P-SCOPEM` — a factor of six.
+  ;; `{}`. An optimised application's macro registration comes out the same:
+  ;; under goog.DEBUG=false `merge-coords` keeps the captured call site out of
+  ;; the slot, which carries `:ns` / `:file` / `:line` only when the app's own
+  ;; metadata names them. That is the difference between `P-SCOPE` and
+  ;; `P-SCOPEM` — a factor of six.
   ;;
-  ;; So the DEFAULT hands the registrar the production meta explicitly, which
-  ;; is the shape a consumer's application actually registers. `WA_COORDS=0`
-  ;; runs the coord-less ladder instead: a labelled CONTROL that isolates what
-  ;; the coords cost, and not an arm any published figure comes off. The
-  ;; header prints which arm ran, either way.
+  ;; So the DEFAULT (WA_COORDS=1) passes `explicit-sub-meta` as EXPLICIT user
+  ;; metadata, the shape an application has only when its own metadata names
+  ;; the coords. `WA_COORDS=0` registers with no metadata, the ordinary
+  ;; optimised shape, which also isolates what the coords cost. The header
+  ;; prints which registration ran, either way.
   (doseq [i (range cells-n)]
     (let [body (fn [db _] (get-in db [:cells i]))
           qid  (keyword "wa" (str "cell" i))]
       (if coords?
-        (rf/reg-sub qid prod-sub-meta body)
+        (rf/reg-sub qid explicit-sub-meta body)
         (rf/reg-sub qid body))))
   ;; The `:frame-state` ladder's subs. Same fixed-arity-1 memo wrapper as the
   ;; `:db` ladder's, same registration shape; the ONE difference
@@ -1196,7 +1207,7 @@
     (let [body (fn [fs _] (get-in fs [rf.frame/app-partition-key :cells i]))
           qid  (keyword "wa" (str "fscell" i))]
       (if coords?
-        (rf.subs/reg-frame-state-sub qid prod-sub-meta body)
+        (rf.subs/reg-frame-state-sub qid explicit-sub-meta body)
         (rf.subs/reg-frame-state-sub qid body))))
   (let [qids  (mapv #(keyword "wa" (str "cell" %)) (range cells-n))
         qvs   (mapv vector qids)
@@ -1346,10 +1357,10 @@
               ;; parent whose inheritable slots are both nil, which is what a
               ;; production build always presents to `inherit-scope`.
               :sub-scopes   (mapv #(rf.trace/handler-scope-from-meta
-                                     :sub % prod-sub-meta)
+                                     :sub % explicit-sub-meta)
                                   qids)
               :parent-scope (rf.trace/handler-scope-from-meta
-                              :event :wa/parent prod-sub-meta)
+                              :event :wa/parent explicit-sub-meta)
               ;; the shipped memo wrapper, one per subscription. The trailing
               ;; source is the RAW container — a source that publishes no
               ;; movement witness, so `P-MEMO` measures the unwitnessed
@@ -1388,9 +1399,9 @@
         per-round (max 1 (js/Math.ceil (/ samples rounds)))
         tolerance (env-num "WA_TOLERANCE" 0.25)
         rev?     (= "rev" (env "WA_ORDER" ""))
-        ;; The coord-carrying registration is the DEFAULT, because
-        ;; that is what a consumer's macro-registered subs give the registrar.
-        ;; `WA_COORDS=0` selects the coord-less control.
+        ;; The DEFAULT registration hands every sub EXPLICIT coordinate
+        ;; metadata; `WA_COORDS=0` selects the ordinary optimised
+        ;; registration, whose slots carry none.
         coords?  (not= "0" (env "WA_COORDS" "1"))
         ns-per-frame [0 (js/Math.round (/ n 4)) (js/Math.round (/ n 2)) n]]
     (rf/init! (rf.substrate.spine/make-react-adapter
@@ -1421,8 +1432,8 @@
                      (.toFixed (* 100.0 tolerance) 0)))
     (println (gstring/format ";; registration = %s"
                      (if coords?
-                       "COORD-CARRYING (default — the shape a real application registers)"
-                       "COORD-LESS (WA_COORDS=0 — the CONTROL arm; do not quote a figure from this run)")))
+                       "EXPLICIT USER METADATA (WA_COORDS=1, default — every reg-sub is handed :ns/:file/:line; an optimised app's slot carries them only when its own metadata names them)"
+                       "COORD-FREE (WA_COORDS=0 — the ordinary optimised registration; no coords reach the slot)")))
     ;; PROVENANCE, not decoration. `handler-scope-from-meta`'s cost
     ;; is dominated by whether the registrar slot carries source coords: with
     ;; `:ns` / `:file` / `:line` it builds a coord map AND a trigger map on top
@@ -1687,7 +1698,7 @@
                          (fmt fs-slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
-        (println ";;   P-SCOPE is the COORD-LESS control; P-SCOPEM is the production shape")
+        (println ";;   P-SCOPE is the coord-free slot (the ordinary optimised registration); P-SCOPEM passes explicit coordinate metadata")
         (doseq [l ["P-BODY" "P-EQDB" "P-EQDBF" "P-SCOPE" "P-SCOPEM" "P-SCOPEH" "P-INHER" "P-INHERH"
                    "P-EMIT" "P-MEMO" "P-MEMOW" "P-MEMOWC" "P-MEMOF" "P-MEMOFI"
                    "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
@@ -1700,7 +1711,7 @@
         (println ";;")
         (println ";; THE HANDLER-SCOPE BRACKET, PAIRED")
         (println (gstring/format
-                   ";;   P-SCOPEM (retired, prod meta)   %10s B/sub" (fmt (/ (b "P-SCOPEM") n))))
+                   ";;   P-SCOPEM (retired, explicit)    %10s B/sub" (fmt (/ (b "P-SCOPEM") n))))
         (println (gstring/format
                    ";;   P-SCOPEH (shipped, hoisted)     %10s B/sub" (fmt (/ (b "P-SCOPEH") n))))
         (println (gstring/format

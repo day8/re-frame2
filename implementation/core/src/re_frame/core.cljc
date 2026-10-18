@@ -1203,7 +1203,7 @@
 ;; 2-arity — `(dispatch frame event-vec)`: every sig is
 ;; `[payload]` / `[payload opts]`, no `vector?` shape-discrimination on the
 ;; first arg. `re-frame.router/build-envelope` normalizes an object
-;; `:frame` opt to its runnable-id via `rf.frame/frame-target->id`, so a value or
+;; `:frame` opt to its runnable-id via `rf.frame/frame-value->id`, so a value or
 ;; a keyword target both route correctly.
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
@@ -1732,7 +1732,7 @@
   lists both kinds of frame; `rf/frame-generation` needs a generation, so its
   diagnostic lists only the frames carrying one."
   [frame-target where-sym reads-live-store?]
-  (let [frame-object (if (rf.live-frame/frame-object? frame-target)
+  (let [frame-object (if (rf.live-frame/frame-value? frame-target)
                        frame-target
                        (rf.live-frame/live-frame frame-target))]
     (if (some? (rf.live-frame/frame-resolution-generation frame-object))
@@ -2112,7 +2112,7 @@
   Accepts a frame-id keyword or a live frame value; values are normalized to
   their runnable id. Per Spec 002 §The public registrar query API."
   [frame-id]
-  (rf.frame/frame-app-db-value (rf.frame/frame-target->id frame-id)))
+  (rf.frame/frame-app-db-value (rf.frame/frame-value->id frame-id)))
 
 (defn frame-state-value
   "Return the coherent frame-state projection for the named frame —
@@ -2129,7 +2129,7 @@
   frame-id keyword or a live frame value. Per Spec 002 §The two-partition
   frame contract."
   [frame-id]
-  (rf.frame/frame-state-value (rf.frame/frame-target->id frame-id)))
+  (rf.frame/frame-state-value (rf.frame/frame-value->id frame-id)))
 
 ;; The public construction model is `rf/image` — the selected registration-set
 ;; value a frame loads — supplied to `make-frame` via `:images`. A feature

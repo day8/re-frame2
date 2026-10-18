@@ -178,7 +178,7 @@
     ;; listener (survives CLJS `:advanced` + `goog.DEBUG=false`), axis 2 the
     ;; dev trace (DCE'd there). `elapsed-ms 0` — this is not a timed path;
     ;; `(rf.interop/now-ms)` is the emit instant. Mirrors `fx/emit-fx-error!`.
-    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/http-reply-tail-failed
                         origin-event (first origin-event) (:frame ctx) e 0
                         (rf.interop/now-ms) trace-tags)))

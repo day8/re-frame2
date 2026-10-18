@@ -790,11 +790,9 @@
   (let [snap @rf.late-bind/hooks]
     (try
       (swap! rf.late-bind/hooks dissoc :epoch/epoch-history)
-      (rf.late-bind/invalidate-cache! :epoch/epoch-history)
       (f)
       (finally
-        (reset! rf.late-bind/hooks snap)
-        (rf.late-bind/invalidate-cache! :epoch/epoch-history)))))
+        (reset! rf.late-bind/hooks snap)))))
 
 (defn- run-tape-variant [vid body]
   (rf.story/reg-variant vid body)

@@ -177,7 +177,7 @@
 
     S1-CURFRM  `(or (resolve-current-frame) (require-current-frame! ...))`
                — the SHIPPED reader-then-require spelling
-    S2-TGTID   + `frame-target->id`
+    S2-TGTID   + `frame-value->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk — the
                flush consult, the generation read, and THE BINDING
     S4-PRELOOK + `(rf.frame/frame id)` + `(get @cache k)`
@@ -227,10 +227,10 @@
   nothing about WHERE the bytes go. The H arms walk the route:
 
     H-FVID     `frame-value->id` on the result
-    H-CACHE    `rf.late-bind/get-fn-cached` — the hook lookup alone
+    H-CACHE    `rf.late-bind/get-fn` — the hook lookup alone
     H-IMPL     `function-component-current-frame` — the installed adapter's
                `:current-frame` capability alone
-    H-HOOK     `((get-fn-cached :adapter/current-frame))` — the whole shipped
+    H-HOOK     `((get-fn :adapter/current-frame))` — the whole shipped
                hook call
 
   `H-HOOK` strictly contains `H-CACHE + H-IMPL`, so the residual is the call
@@ -573,13 +573,13 @@
 (defn- arm-s2-tgtid []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
-      (keep! (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))))
+      (keep! (rf.frame/frame-value->id (shipped-current-frame! (nth qs k)))))
     nil))
 
 (defn- arm-s3-cwfr []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
-      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+      (let [fid* (rf.frame/frame-value->id (shipped-current-frame! (nth qs k)))]
         (rf.live-frame/call-with-frame-resolution fid* (fn [] (keep! true)))))
     nil))
 
@@ -587,7 +587,7 @@
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
       (let [q    (nth qs k)
-            fid* (rf.frame/frame-target->id (shipped-current-frame! q))]
+            fid* (rf.frame/frame-value->id (shipped-current-frame! q))]
         (rf.live-frame/call-with-frame-resolution
           fid*
           (fn []
@@ -702,7 +702,7 @@
 (defn- arm-n-flush []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+      (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
         (flush!))
       (keep! true))
     nil))
@@ -764,7 +764,7 @@
   "`rf.live-frame/call-with-frame-resolution`'s body, verbatim. Its twin below
   differs in one token; do not let them drift apart."
   [frame-target thunk]
-  (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+  (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
     (flush!))
   (if-let [gen (rf.live-frame/frame-resolution-generation frame-target)]
     (binding [rf.registrar/*generation* gen]
@@ -774,7 +774,7 @@
 (defn- cwfr-nobind
   "`cwfr-bind` with the `binding` removed and NOTHING else changed."
   [frame-target thunk]
-  (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+  (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
     (flush!))
   (if-let [_gen (rf.live-frame/frame-resolution-generation frame-target)]
     (thunk)
@@ -938,7 +938,7 @@
 ;; nothing about WHERE. The route has three steps and each is a candidate:
 ;;
 ;;   (frame-value->id                                    <- H-FVID
-;;     (if-let [f (rf.late-bind/get-fn-cached               <- H-CACHE
+;;     (if-let [f (rf.late-bind/get-fn                      <- H-CACHE
 ;;                  :adapter/current-frame)]
 ;;       (f)                                             <- H-HOOK (the whole call)
 ;;       (current-frame)))
@@ -958,7 +958,7 @@
 
 (defn- arm-h-cache []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (rf.late-bind/get-fn-cached :adapter/current-frame)))
+    (dotimes [_ n] (keep! (rf.late-bind/get-fn :adapter/current-frame)))
     nil))
 
 (defn- arm-h-impl []
@@ -972,7 +972,7 @@
 (defn- arm-h-hook []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (keep! ((rf.late-bind/get-fn-cached :adapter/current-frame))))
+      (keep! ((rf.late-bind/get-fn :adapter/current-frame))))
     nil))
 
 
@@ -1673,7 +1673,7 @@
                            ["  of S1: + the CLJS context hook (S0-SCOPE-S0-VAR)"
                             (- (net* "S0-SCOPE") (net* "S0-VAR"))]
                            ["require-current-frame! (S1)"       (net* "S1-CURFRM")]
-                           ["+ frame-target->id     (S2-S1)"    (- (net* "S2-TGTID") (net* "S1-CURFRM"))]
+                           ["+ frame-value->id      (S2-S1)"    (- (net* "S2-TGTID") (net* "S1-CURFRM"))]
                            ["+ call-with-frame-res  (S3-S2)"    (- (net* "S3-CWFR") (net* "S2-TGTID"))]
                            ["+ frame + cache get    (S4-S3)"    (- (net* "S4-PRELOOK") (net* "S3-CWFR"))]
                            ["+ the REF-COUNT ATTACH (RGSUB-S4)" (- (net* "RGSUB") (net* "S4-PRELOOK"))]
@@ -1734,7 +1734,7 @@
                (- (net* "S0-SCOPE") (net* "S0-VAR")) nil)
           (println ";;   and the route, part by part:")
           (row "H-FVID    frame-value->id on the result"   (net* "H-FVID")   "H-FVID")
-          (row "H-CACHE   rf.late-bind/get-fn-cached, lookup only" (net* "H-CACHE") "H-CACHE")
+          (row "H-CACHE   rf.late-bind/get-fn, lookup only" (net* "H-CACHE") "H-CACHE")
           (row "H-IMPL    function-component-current-frame" (net* "H-IMPL")  "H-IMPL")
           (row "H-HOOK    the SHIPPED hook: lookup + call" (net* "H-HOOK") "H-HOOK")
           (println ";;")
@@ -1761,7 +1761,7 @@
                 call  (- (net* "H-HOOK") (net* "H-CACHE") (net* "H-IMPL"))]
             (println (gstring/format
                        ";;   VERDICT — of the %s B/read CLJS-only consult:" (fmt whole)))
-            (println (gstring/format ";;     the hook lookup (get-fn-cached)              %10s  %s"
+            (println (gstring/format ";;     the hook lookup (get-fn)                     %10s  %s"
                              (fmt (net* "H-CACHE")) (pctof (net* "H-CACHE"))))
             (println (gstring/format ";;     the impl itself (function-component-…)       %10s  %s"
                              (fmt (net* "H-IMPL")) (pctof (net* "H-IMPL"))))
@@ -1870,7 +1870,7 @@
                       (- (net* "S4-PRELOOK") (net* "S3-CWFR"))]
                      ["call-with-frame-resolution (S3 - S2)"
                       (- (net* "S3-CWFR") (net* "S2-TGTID"))]
-                     ["frame-target->id (S2 - S1)"
+                     ["frame-value->id (S2 - S1)"
                       (- (net* "S2-TGTID") (net* "S1-CURFRM"))]]]
           (doseq [[lbl v] (sort-by (comp - second) terms)]
             (println (gstring/format ";;   %-52s %10s B/read  %6.1f%%"

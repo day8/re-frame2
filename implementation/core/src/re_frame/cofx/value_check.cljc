@@ -92,7 +92,7 @@
       ;; `:advanced` + `goog.DEBUG=false`). Reached via the
       ;; `:error-emit/emit-error-both` hook (this ns cannot static-require
       ;; error-emit — load cycle). `elapsed-ms 0`.
-      (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
         (emit-error-both! :rf.error/cofx-value-invalid
                           event failing-id frame-id nil 0 (rf.interop/now-ms)
                           (cond-> {:rf.cofx/id        cofx-id

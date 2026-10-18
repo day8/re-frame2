@@ -45,10 +45,8 @@
 ;;
 ;; The `:adapter/*` reactive hooks below are published from the installed
 ;; adapter's map when it is installed (see Spec 006 §The adapter API
-;; contract). They are read on every render /
-;; subscribe / reaction tear-down — sticky-cache via
-;; `rf.late-bind/get-fn-cached` so the resolution is one
-;; per-key atom slot rather than a `@hooks` map walk per call.
+;; contract), and read through `rf.late-bind/get-fn` on every render /
+;; subscribe / reaction tear-down.
 
 ;; ---- after-render hook ----------------------------------------------------
 
@@ -56,7 +54,7 @@
   "Schedule f to run after the next render. Returns nil when the installed
   adapter carries no `:after-render` capability."
   [f]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/after-render)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/after-render)]
     (hook f)))
 
 ;; ---- mutable cells (used by the runtime, opaque to user code) -------------
@@ -64,14 +62,14 @@
 (defn ratom
   "Construct a reactive atom seeded with v."
   [v]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/ratom)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/ratom)]
     (hook v)))
 
 (defn ratom?
   "True if x is a reactive atom (per the installed adapter's substrate).
   Returns false when the installed adapter carries no `:ratom?`."
   [x]
-  (if-let [hook (rf.late-bind/get-fn-cached :adapter/ratom?)]
+  (if-let [hook (rf.late-bind/get-fn :adapter/ratom?)]
     (hook x)
     false))
 
@@ -80,7 +78,7 @@
 (defn make-reaction
   "Build a reaction that recomputes f when its dependencies change."
   [f]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/make-reaction)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/make-reaction)]
     (hook f)))
 
 (defn activate-derived-value!
@@ -114,27 +112,27 @@
   and the call is a no-op; the ratom impls no-op on an already-activated
   reaction and on any container that is not one of their derived values."
   [derived]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/activate-derived-value!)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/activate-derived-value!)]
     (hook derived))
   nil)
 
 (defn add-on-dispose!
   "Register a teardown callback on a-ratom."
   [a-ratom f]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/add-on-dispose!)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/add-on-dispose!)]
     (hook a-ratom f)))
 
 (defn dispose!
   "Tear down a reactive atom / reaction."
   [a-ratom]
-  (when-let [hook (rf.late-bind/get-fn-cached :adapter/dispose!)]
+  (when-let [hook (rf.late-bind/get-fn :adapter/dispose!)]
     (hook a-ratom)))
 
 (defn reactive?
   "True when called from inside a reactive context (e.g. a render).
   Returns false when the installed adapter carries no `:reactive?`."
   []
-  (if-let [hook (rf.late-bind/get-fn-cached :adapter/reactive?)]
+  (if-let [hook (rf.late-bind/get-fn :adapter/reactive?)]
     (hook)
     false))
 

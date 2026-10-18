@@ -133,7 +133,7 @@ The functions are **six required, three optional, and one lifecycle**; the capab
 
 #### Capability keys
 
-**Capabilities (optional keys):** hooks the core calls from its own hot paths — reactive primitives, frame resolution, view composition, disposal. Each is a key on the map, published by `install-adapter!` into the matching `:adapter/<key>` late-bind slot, where the core reads it with one cached lookup. A key the map lacks is published as absent, and the core falls back as the last column says.
+**Capabilities (optional keys):** hooks the core calls from its own hot paths — reactive primitives, frame resolution, view composition, disposal. Each is a key on the map, published by `install-adapter!` into the matching `:adapter/<key>` late-bind slot, where the core reads it with one late-bind lookup. A key the map lacks is published as absent, and the core falls back as the last column says.
 
 | Key | Purpose | When absent |
 |---|---|---|

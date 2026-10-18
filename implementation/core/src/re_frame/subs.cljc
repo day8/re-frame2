@@ -707,7 +707,7 @@
     ;; case. Reached via the `:error-emit/emit-error-both` hook (subs cannot
     ;; static-require error-emit — load cycle). `elapsed-ms 0`.
     (when-let [emit-error-both!
-               (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+               (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both!
         error-kw
         query-v                       ;; attempted query-vector (as :event)
@@ -1009,7 +1009,7 @@
   resolves to no sink anyway)."
   [frame-id query-v route-frame?]
   (when-let [emit-error-both!
-             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (emit-error-both!
       :rf.error/frame-destroyed
       query-v                       ;; attempted query-vector (as :event)
@@ -1127,7 +1127,7 @@
                         ;; `:error-emit/emit-error-both` hook (subs cannot
                         ;; static-require error-emit — load cycle).
                         (when-let [emit-error-both!
-                                   (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+                                   (rf.late-bind/get-fn :error-emit/emit-error-both)]
                           (emit-error-both!
                             :rf.error/no-such-sub
                             query-v               ;; attempted query-vector (as :event)
@@ -1623,12 +1623,9 @@
    (defn- reactive-owner
      "The substrate reaction currently capturing derefs — a component's render
      Reaction, or a sub's own reaction while its body runs — or nil outside any
-     reactive context.
-
-     `get-fn-cached` rather than `get-fn`: this runs on every cache hit of every
-     render, which is the hottest read in the artefact."
+     reactive context."
      []
-     (when-let [hook (rf.late-bind/get-fn-cached :adapter/reactive-owner)]
+     (when-let [hook (rf.late-bind/get-fn :adapter/reactive-owner)]
        (hook))))
 
 ;; WHY A HOLDING DIES WITH EITHER END. A holding joins two
@@ -1792,7 +1789,7 @@
   "INTERNAL worker for `subscribe` (and the layer-2+ recursive input
   resolution inside `compute-and-cache!`). `target` may be a frame-id
   KEYWORD or a live frame VALUE (`rf/make-frame`'s return value);
-  normalized here to its runnable-id ADDRESS via `rf.frame/frame-target->id`
+  normalized here to its runnable-id ADDRESS via `rf.frame/frame-value->id`
   so the sub-cache lookup (`(rf.frame/frame frame-id)`), the override seam,
   and the error payloads all key the backing record unchanged — a keyword
   passes through. The generation-resolution seam
@@ -1824,7 +1821,7 @@
   read, and every layer-2+ recursive input resolution — is unfenced."
   ([target query-v] (subscribe-in-frame target query-v nil))
   ([target query-v expected-incarnation]
-   (let [frame-id (rf.frame/frame-target->id target)]
+   (let [frame-id (rf.frame/frame-value->id target)]
    ;; (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
    ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
@@ -2214,7 +2211,7 @@
   [memo query-v]
   (when-let [{:keys [frame]} (get @memo observation-opts-key)]
     (when-let [emit-error-both!
-               (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+               (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both!
         :rf.error/no-such-sub
         query-v               ;; attempted query-vector (as :event)
@@ -2441,7 +2438,7 @@
                               ;; hook (subs cannot static-require error-emit —
                               ;; load cycle). `elapsed-ms 0`.
                               (when-let [emit-error-both!
-                                         (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+                                         (rf.late-bind/get-fn :error-emit/emit-error-both)]
                                 (emit-error-both!
                                   :rf.error/sub-exception
                                   query-v                   ;; failing query-vector (as :event)
@@ -2693,7 +2690,7 @@
                  :recovery    :supply-reaction
                  :reason      "unsubscribe takes the reaction subscribe returned — (rf/unsubscribe r) — not a query vector; keep the value of (rf/subscribe q opts) and pass it back."}]
     (when-let [emit-error-both!
-               (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+               (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both!
         :rf.error/bad-unsubscribe-arg
         nil                   ;; no event — a release misuse, not a dispatch
@@ -2799,12 +2796,12 @@
   `unsubscribe` would. Everything else calls `(unsubscribe r)`.
 
   Frame resolution and cache-keying are this facade's — a frame-id keyword or
-  a live frame value, normalized through `rf.frame/frame-target->id`, exactly
+  a live frame value, normalized through `rf.frame/frame-value->id`, exactly
   as `subscribe` normalizes it; ref-counting and disposal are
   `re-frame.subs.cache/unsubscribe-if-reaction!`'s. Returns nil; a destroyed
   or unknown frame is a no-op."
   [frame-id query-v reaction]
-  (let [frame-id (rf.frame/frame-target->id frame-id)]
+  (let [frame-id (rf.frame/frame-value->id frame-id)]
     (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
       (rf.subs.cache/unsubscribe-if-reaction! cache (cache-key query-v)
                                            reaction frame-id))))

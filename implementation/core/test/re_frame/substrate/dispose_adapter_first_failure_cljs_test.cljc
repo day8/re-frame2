@@ -37,8 +37,7 @@
       (finally
         (if prior
           (rf.late-bind/set-fn! :fresco/drain-client-roots! prior)
-          (do (swap! rf.late-bind/hooks dissoc :fresco/drain-client-roots!)
-              (rf.late-bind/invalidate-cache! :fresco/drain-client-roots!)))))))
+          (swap! rf.late-bind/hooks dissoc :fresco/drain-client-roots!))))))
 
 (defn- dispose-thrown [adapter drain!]
   (rf.substrate.adapter/dispose-adapter!)

@@ -187,7 +187,7 @@
   [f]
   #?(:clj  (rf.trace.tooling/call-with-deferred-fanout f call-with-ordinary-delivery-scope)
      :cljs (if-let [defer (and rf.interop/debug-enabled?
-                               (rf.late-bind/get-fn-cached
+                               (rf.late-bind/get-fn
                                  :trace.tooling/call-with-deferred-fanout))]
              (defer f call-with-ordinary-delivery-scope)
              (f))))
@@ -429,7 +429,7 @@
   Sharing the reader is what keeps the two from drifting on HOW the
   ambient frame is resolved; they differ only on WHEN it applies."
   []
-  (when-let [current-frame (rf.late-bind/get-fn-cached :frame/current-frame-id)]
+  (when-let [current-frame (rf.late-bind/get-fn :frame/current-frame-id)]
     (current-frame)))
 
 (defn- tagged-frame-trace-disabled?
@@ -531,7 +531,7 @@
   ;; Sticky hook — `:epoch/capture-event` is published once
   ;; at re-frame.epoch load and never withdrawn; this fires on every
   ;; trace emit during a cascade.
-  (when-let [capture (rf.late-bind/get-fn-cached :epoch/capture-event)]
+  (when-let [capture (rf.late-bind/get-fn :epoch/capture-event)]
     (try
       (capture event)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
@@ -744,7 +744,7 @@
   ;; Epoch capture is a separate callback-bearing publication. If it destroys
   ;; A, do not deliver the same stale event into tooling/rings/listeners.
   (when (continuing?)
-    (when-let [deliver-tooling (rf.late-bind/get-fn-cached :trace.tooling/deliver!)]
+    (when-let [deliver-tooling (rf.late-bind/get-fn :trace.tooling/deliver!)]
       ;; Capture the outer envelope's ring-retention decision AND the caller's
       ;; exact continuation predicate BEFORE restoring ordinary defaults. The
       ;; tooling hook (in the sibling ns, which cannot see these vars) reads
@@ -826,7 +826,7 @@
   [event]
   ;; Sticky hook — `:classification/project-trace-event` is
   ;; published once at re-frame.classification load and never withdrawn.
-  (if-let [project (rf.late-bind/get-fn-cached :classification/project-trace-event)]
+  (if-let [project (rf.late-bind/get-fn :classification/project-trace-event)]
     (hoist-projected-sensitive (project event))
     event))
 

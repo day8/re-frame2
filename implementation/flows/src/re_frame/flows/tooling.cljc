@@ -81,7 +81,7 @@
                                   m))
                               {}
                               ids))]
-        (if-let [with-frame-view (rf.late-bind/get-fn-cached
+        (if-let [with-frame-view (rf.late-bind/get-fn
                                    :live-frame/call-with-frame-resolution)]
           (with-frame-view frame-id resolve)
           (resolve))))))

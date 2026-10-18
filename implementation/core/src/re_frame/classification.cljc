@@ -899,7 +899,7 @@
                                       :rf.sub/value   v}
                                      frame-id))]
     (if-let [with-owner (when (some? frame-id)
-                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+                          (rf.late-bind/get-fn :live-frame/call-with-frame-resolution))]
       (with-owner frame-id project)
       (project))))
 

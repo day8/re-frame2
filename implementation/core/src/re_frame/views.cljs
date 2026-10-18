@@ -223,7 +223,7 @@
     ;; Sticky hook — `:trace/emit!` is published once at
     ;; re-frame.trace load and never withdrawn; this fires per render
     ;; under dev builds.
-    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
+    (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :rf.view :rf.view/render
              {:rf.view/render-key render-key
               :frame              frame-id}))))
@@ -291,11 +291,11 @@
   against that run."
   [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
   (when rf.interop/debug-enabled?
-    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
+    (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       ;; :rf.view/rendered carries run-attribution (event-run sense).
       ;; Resolved via the epoch capture's in-flight buffer; absent
       ;; (or returns nil) when re-frame.epoch is not on the classpath.
-      (let [cause-fn (rf.late-bind/get-fn-cached :epoch/run-cause)
+      (let [cause-fn (rf.late-bind/get-fn :epoch/run-cause)
             cause    (when cause-fn (cause-fn frame-id))
             n-so-far (rf.trace.tooling/claim-render! frame-id)
             ;; The per-view re-render cause: the first sub in
@@ -378,7 +378,7 @@
   production DCEs the body."
   [view-id render-key frame-id]
   (when rf.interop/debug-enabled?
-    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
+    (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :rf.view :rf.view/unmounted
              {:rf.view/render-key render-key
               :rf.view/id         view-id
@@ -456,11 +456,10 @@
   it declines, and a head fixed at registration would silently skip the
   substrate wrap)."
   [id metadata render-fn]
-  ;; Per the sticky-hook convention: `:adapter/wrap-view` is
-  ;; published when its adapter is installed and cleared at teardown, and
-  ;; each publication goes through `rf.late-bind/set-fn!`, which invalidates
-  ;; the cached resolution — so the next derivation re-resolves.
-  (let [hook    (rf.late-bind/get-fn-cached :adapter/wrap-view)
+  ;; `:adapter/wrap-view` is published when its adapter is installed and
+  ;; cleared at teardown, and `get-fn` reads the current publication on every
+  ;; call — so the next derivation sees the installed adapter's hook.
+  (let [hook    (rf.late-bind/get-fn :adapter/wrap-view)
         wrapped (when hook (hook id metadata render-fn))]
     (if (some? wrapped)
       [wrapped true]
@@ -491,7 +490,7 @@
   `:adapter/wrap-view` above: nil means \"this substrate needs no
   componentization\" — keep the wrapper as the head."
   [id metadata wrapped]
-  (let [hook (rf.late-bind/get-fn-cached :adapter/componentize-view)
+  (let [hook (rf.late-bind/get-fn :adapter/componentize-view)
         head (when hook (hook id metadata wrapped))]
     (if (some? head) head wrapped)))
 

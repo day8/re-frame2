@@ -1261,12 +1261,12 @@
   (let [schema (get route-meta slot)]
     (if-not schema
       [false nil]
-      (let [validate (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
         (if-not validate
           [false nil]
           (if (validate schema value)
             [false nil]
-            (let [explain  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+            (let [explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
                   details  (when explain (explain schema value))]
               [true details])))))))
 
@@ -1466,7 +1466,7 @@
   `re-frame.router.diagnostics`. Returns nil."
   [ex]
   (when-let [emit-error-both!
-             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (let [{:keys [registration namespaces reason]} (ex-data ex)
           frame (rf.frame/current-event-owner-frame-id)
           event (:event (rf.frame/current-event-envelope frame))]

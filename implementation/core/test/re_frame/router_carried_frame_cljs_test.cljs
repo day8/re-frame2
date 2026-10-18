@@ -21,8 +21,6 @@
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
   (reset! provider-frame nil)
-  ;; `set-fn!` invalidates the sticky `get-fn-cached` slot, so resolution
-  ;; sees this hook.
   (rf.late-bind/set-fn! :adapter/current-frame
                         (fn [] (or rf.frame/*current-frame* @provider-frame)))
   (try

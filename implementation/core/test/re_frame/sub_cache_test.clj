@@ -254,11 +254,11 @@
                   (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))))))
 
 ;; A frame OBJECT normalizes to its runnable-id ADDRESS through
-;; `rf.frame/frame-target->id`, so `subscribe` caches under that address, and a
+;; `rf.frame/frame-value->id`, so `subscribe` caches under that address, and a
 ;; release, which finds the slot by its reaction alone, reaches it there.
 
 (defn- object-cache-keys [frame-obj]
-  (set (keys @(:sub-cache (rf.frame/frame (rf.frame/frame-target->id frame-obj))))))
+  (set (keys @(:sub-cache (rf.frame/frame (rf.frame/frame-value->id frame-obj))))))
 
 (defn- make-n-frame
   "A no-id frame OBJECT (gensym runnable-id) running an inline image with a

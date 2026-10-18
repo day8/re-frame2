@@ -905,11 +905,11 @@
      2. `(rf.frame/current-frame)` — picks up `with-frame` / `with-new-frame`
         bindings and the fixture's ambient scope; nil when no scope is
         established.
-  The result is normalised through `frame-target->id`, because
+  The result is normalised through `frame-value->id`, because
   `with-new-frame` binds the frame OBJECT and the registry is keyed by
   id — an object would match no record and read as a nil app-db."
   [opts]
-  (rf.frame/frame-target->id (or (:frame opts) (rf.frame/current-frame))))
+  (rf.frame/frame-value->id (or (:frame opts) (rf.frame/current-frame))))
 
 (defn assert-path-equals
   "Assert `(= expected-val (get-in app-db path))` against the resolved

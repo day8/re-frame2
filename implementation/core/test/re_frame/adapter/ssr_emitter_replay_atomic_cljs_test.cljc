@@ -22,8 +22,7 @@
 (defn- restore-hook! [k orig]
   (if (some? orig)
     (rf.late-bind/set-fn! k orig)
-    (do (swap! rf.late-bind/hooks dissoc k)
-        (rf.late-bind/invalidate-cache! k))))
+    (swap! rf.late-bind/hooks dissoc k)))
 
 (defn- isolate-emitter-hooks [test-fn]
   (let [saved (into {} (map (fn [k] [k (rf.late-bind/get-fn k)])) touched-hooks)]

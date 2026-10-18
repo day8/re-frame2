@@ -18,7 +18,7 @@
 
     S1-CURFRM  `require-current-frame!` on the happy path — the SHIPPED
                reader-then-require spelling
-    S2-TGTID   + `frame-target->id`
+    S2-TGTID   + `frame-value->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk —
                the flush consult, the generation read, the `binding`
     S4-PRELOOK + `(rf.frame/frame id)` + `(get @cache q)` inside the thunk:
@@ -253,13 +253,13 @@
 (defn- arm-s2-tgtid [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+      (let [fid* (rf.frame/frame-value->id (shipped-current-frame! (nth qs k)))]
         (vreset! sink (if fid* 1 0))))))
 
 (defn- arm-s3-cwfr [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+      (let [fid* (rf.frame/frame-value->id (shipped-current-frame! (nth qs k)))]
         (rf.live-frame/call-with-frame-resolution
           fid*
           (fn [] (vreset! sink 1)))))))
@@ -268,7 +268,7 @@
   (let [qs (:qs @rig)]
     (dotimes [k n]
       (let [q    (nth qs k)
-            fid* (rf.frame/frame-target->id (shipped-current-frame! q))]
+            fid* (rf.frame/frame-value->id (shipped-current-frame! q))]
         (rf.live-frame/call-with-frame-resolution
           fid*
           (fn []
@@ -403,7 +403,7 @@
 
 (defn- arm-n-flush [n]
   (dotimes [_ n]
-    (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (when-let [flush! (rf.late-bind/get-fn :live-frame/flush-projection!)]
       (flush!))
     (vreset! sink 1)))
 
@@ -600,7 +600,7 @@
           (println ";;")
           (println ";; INSIDE subscribe's cache-HIT path (prefix ladder)")
           (doseq [[lbl v] [["require-current-frame! (S1)"            (net "S1-CURFRM")]
-                           ["+ frame-target->id     (S2-S1)"         (- (net "S2-TGTID") (net "S1-CURFRM"))]
+                           ["+ frame-value->id      (S2-S1)"         (- (net "S2-TGTID") (net "S1-CURFRM"))]
                            ["+ call-with-frame-res  (S3-S2)"         (- (net "S3-CWFR") (net "S2-TGTID"))]
                            ["+ frame + cache get    (S4-S3)"         (- (net "S4-PRELOOK") (net "S3-CWFR"))]
                            ["+ the REF-COUNT ATTACH (RGSUB-S4)"      (- (net "RGSUB") (net "S4-PRELOOK"))]

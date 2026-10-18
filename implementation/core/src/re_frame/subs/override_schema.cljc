@@ -59,16 +59,16 @@
   (if-not (contains? sub-meta :schema)
     value
     (let [schema (:schema sub-meta)]
-      (if-let [validate (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (if-let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
         (if (try (validate schema value)
                  (catch #?(:clj Throwable :cljs :default) _ true))
           value
           (let [sub-id  (first query-v)
-                explain (when-let [exp (rf.late-bind/get-fn-cached
+                explain (when-let [exp (rf.late-bind/get-fn
                                          :schemas/explain-with-registered-fn)]
                           (try (exp schema value)
                                (catch #?(:clj Throwable :cljs :default) _ nil)))
-                redact  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+                redact  (rf.late-bind/get-fn :schemas/redact-validation-tags)
                 tags    (cond-> {:where          :sub-override
                                  :rf.sub/id      sub-id
                                  :failing-id     sub-id

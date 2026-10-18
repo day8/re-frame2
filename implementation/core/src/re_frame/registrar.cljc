@@ -398,8 +398,7 @@
 ;; The four :registry trace sites below share the late-bind lookup of
 ;; `:trace/emit!` (re-frame.trace depends on re-frame.registrar, so
 ;; `:require` would cycle). `:trace/emit!` is published once at
-;; re-frame.trace load and never withdrawn, so the resolution is sticky
-;; — `rf.late-bind/get-fn-cached` memoises it.
+;; re-frame.trace load and never withdrawn.
 ;;
 ;; Each call site keeps its OUTERMOST `(when rf.interop/debug-enabled? ...)`
 ;; gate. That gate is the load-bearing condition Closure constant-folds
@@ -410,14 +409,13 @@
 ;; elision-probe sentinels.
 
 (defn- emit!
-  "Invoke `:trace/emit!` with the `:rf.registry` op-type, memoising the
-  late-bind resolution through `rf.late-bind/get-fn-cached` (the shared
-  memoisation pattern lives in `re-frame.late-bind`). Callers MUST
+  "Invoke `:trace/emit!` with the `:rf.registry` op-type, resolved through
+  `rf.late-bind/get-fn`. Callers MUST
   wrap invocations in `(when rf.interop/debug-enabled? ...)` so Closure
   DCE elides the call and its literal args under `:advanced +
   goog.DEBUG=false`."
   [operation tags]
-  (when-let [f (rf.late-bind/get-fn-cached :trace/emit!)]
+  (when-let [f (rf.late-bind/get-fn :trace/emit!)]
     (f :rf.registry operation tags)))
 
 (defn- emit-warning!
@@ -426,7 +424,7 @@
   `(when rf.interop/debug-enabled? ...)` so Closure DCE elides the call
   and its literal args under `:advanced + goog.DEBUG=false`."
   [operation tags]
-  (when-let [f (rf.late-bind/get-fn-cached :trace/emit!)]
+  (when-let [f (rf.late-bind/get-fn :trace/emit!)]
     (f :warning operation tags)))
 
 ;; ---- warn-once caches (Spec 001 §`:doc` is dev-warned when absent,
