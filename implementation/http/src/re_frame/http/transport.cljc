@@ -189,7 +189,7 @@
   chain (REVERSE registration order) BEFORE handing off to the
   late-bind router for `:on-success` / `:on-failure` dispatch. The branch
   is chosen from the FINAL envelope's `:status`, after the chain, so both
-  branch descriptors travel to the shared tail
+  branch targets travel to the shared tail
   (`middleware/run-after-then-dispatch!`) and the transport outcome never
   picks the target.
 
@@ -224,32 +224,30 @@
   hangs). The fence catches it and routes it to a NON-retrying,
   once-observable `:rf.error/http-reply-tail-failed` emit — never the
   transport-rejection classifier. Per Spec 014 §Failure mode."
-  [{:keys [origin-event explicit-on-success explicit-on-failure
+  [{:keys [origin-event success-target failure-target
            reply-payload frame middleware-ctx interceptor-chain
-           url sensitive? completed-at]
+           completed-at]
     :as   ctx}]
   ;; Live and canned replies share this `:after` + late-bind path. The
   ;; `:after` chain is skipped when no middleware-ctx is present
   ;; (synthetic / test-path callers).
   (try
     (rf.http.middleware/run-after-then-dispatch!
-      {:frame               frame
-       :middleware-ctx      middleware-ctx
+      {:frame          frame
+       :middleware-ctx middleware-ctx
        ;; The chain this request captured at issue, carried on
        ;; the normalised ctx beside `:middleware-ctx` through every
        ;; attempt. The `:after` walk uses it instead of a
        ;; response-time registry deref.
-       :chain               interceptor-chain
-       :origin-event        origin-event
-       :explicit-on-success explicit-on-success
-       :explicit-on-failure explicit-on-failure
-       :reply-payload       reply-payload
-       :url                 url
-       :sensitive?          sensitive?
+       :chain          interceptor-chain
+       :origin-event   origin-event
+       :success-target success-target
+       :failure-target failure-target
+       :reply-payload  reply-payload
        ;; EP-0010 / EP-0017: the host completion time
        ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
        ;; reads it as causal data, never a fresh clock.
-       :completed-at        completed-at})
+       :completed-at   completed-at})
     ;; Reply-tail fence. Post-transport-success throw → a
     ;; non-retrying, observable `:rf.error/http-reply-tail-failed`, NOT the
     ;; transport-rejection classifier (no CLJS retry-storm, no JVM swallow).
@@ -272,12 +270,13 @@
 ;; The same canonical reply is delivered to the app target verbatim:
 ;; `rf.http.encoding/build-reply-event` appends it as the last argument of the
 ;; target event vector. `:reply-to` addresses both branches, and
-;; `:on-success` / `:on-failure` are pure ROUTING sugar addressing one branch
-;; each (an explicit `nil` silences that branch). Every form receives the same
-;; canonical map, so no addressing form selects a second payload dialect. A
-;; request that addresses no reply at all never reaches this path:
-;; `handlers/validate-reply-target!` refuses it at dispatch with
-;; `:rf.error/http-no-reply-target`.
+;; `:on-success` / `:on-failure` are pure ROUTING sugar, supplied as a pair,
+;; addressing one branch each (an explicit `nil` silences that branch). Every
+;; form receives the same canonical map, so no addressing form selects a second
+;; payload dialect. A request that leaves a branch unaddressed never reaches
+;; this path: `handlers/validate-reply-target!` refuses it at dispatch, with
+;; `:rf.error/http-no-reply-target` when nothing is addressed and
+;; `:rf.error/http-bad-reply-target` when one split key lacks its partner.
 
 (defn- reply-ctx
   "Project the transport ctx onto the data-only correlation/identity facts
@@ -514,9 +513,7 @@
   row is emitted from those canonical facts, and the SAME canonical reply
   threads through the `:after` chain to the late-bind dispatch. The final
   envelope's `:status` picks the target, so an `:after` that turns the
-  failure into `:ok` delivers it to the success target; a non-aborted reply
-  routed to a failure branch with no target surfaces the one-shot
-  `:rf.warning/failure-swallowed` from the shared tail."
+  failure into `:ok` delivers it to the success target."
   [ctx failure]
   (let [reply (rf.http.reply/failure-reply (reply-ctx ctx) failure)]
     (emit-reply-trace! ctx reply)
@@ -583,14 +580,13 @@
 
 (defn- reply-target-id
   "The head (event-id) of the reply event an abort would dispatch: the
-  explicit `:on-failure` vector's head when supplied, else the originating
+  failure target's head when it is an event vector, else the originating
   event-id (`resolve-origin-event`'s head). Used to decide whether an
   actor-destroy abort's reply target is obsolete."
   [ctx]
-  (let [explicit (:explicit-on-failure ctx)
-        value    (:value explicit)]
-    (if (and (:supplied? explicit) (vector? value))
-      (first value)
+  (let [target (:failure-target ctx)]
+    (if (vector? target)
+      (first target)
       (first (:origin-event ctx)))))
 
 (defn- emit-failure-trace!

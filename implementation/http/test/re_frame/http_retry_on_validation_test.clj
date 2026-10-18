@@ -72,7 +72,7 @@
   ;; The stand-ins replace :rf.http/managed as :fx-overrides targets, so a test
   ;; must not go green on a call site production rejects.
   (let [url        "http://localhost/x"
-        args       {:request {:method :get :url url} :on-success nil :retry {:on #{:rf.http/aborted}}}
+        args       {:request {:method :get :url url} :on-success nil :on-failure nil :retry {:on #{:rf.http/aborted}}}
         call-stub  (fn [stub] (try (stub {:frame :rf/default :event [:no-op]} args) nil
                                    (catch clojure.lang.ExceptionInfo e (ex-data e))))
         scope-stub (rf.registrar/handler :fx :rf.test/managed-http-scope-stub)]

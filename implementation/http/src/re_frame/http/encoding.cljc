@@ -253,51 +253,60 @@
   [:reply-to :on-success :on-failure])
 
 (defn validate-reply-addressing!
-  "Per Spec 014 §Reply addressing — the two authoring styles are EXCLUSIVE.
-  Throws `:rf.error/http-bad-reply-target` when an args map carries
-  `:reply-to` beside `:on-success` or `:on-failure`.
+  "Per Spec 014 §Reply addressing — a request addresses its reply in ONE of two
+  styles, and either style addresses BOTH branches. Throws
+  `:rf.error/http-bad-reply-target` when an args map carries:
 
-  The test is key PRESENCE, not value: `{:reply-to [:a] :on-failure nil}` is
-  a mixture. Values are irrelevant because there is nothing coherent for a
-  mixture to mean — `:reply-to` already addresses BOTH branches, so a branch
-  key beside it is either a redundant restatement or a contradiction, and the
-  reader cannot tell which was intended.
+  - `:reply-to` beside `:on-success` or `:on-failure` (`:reason
+    :mixed-addressing`). `:reply-to` already addresses both branches, so a
+    branch key beside it is either a redundant restatement or a contradiction,
+    and the reader cannot tell which was intended.
+  - one split key without its partner (`:reason :unpaired-split`). The branch
+    left out would drop every outcome routed to it with no handler, and a
+    request that loses its failures that way leaves no trace.
+
+  The test is key PRESENCE, not value. An explicit `nil` is present: it is the
+  deliberate silence, so `{:on-success [:a] :on-failure nil}` is a complete
+  pair, while `{:reply-to [:a] :on-failure nil}` is still a mixture.
 
   Called from `handlers/validate-reply-target!`, which the live fx and the
   `re-frame.http.test-support` stubs both run, so the refusal is the same
   wherever a managed args map is interpreted."
   [args-map]
-  (when (and (map? args-map) (contains? args-map :reply-to))
-    (let [mixed (filterv #(contains? args-map %) [:on-success :on-failure])]
-      (when (seq mixed)
+  (when (map? args-map)
+    (let [split (filterv #(contains? args-map %) [:on-success :on-failure])]
+      (cond
+        (and (contains? args-map :reply-to) (seq split))
         (throw (rf.error/thrown-ex-info
                  :rf.error/http-bad-reply-target :rf.http/managed
                  "`:reply-to` and `:on-success` / `:on-failure` are EXCLUSIVE reply-addressing styles per Spec 014 §Reply addressing — `:reply-to` already addresses BOTH branches, so a branch key beside it has no meaning. Supply either the unified `:reply-to` or the split pair, never both. Rejected on key PRESENCE, so an explicit `nil` branch is a mixture too; to silence a reply, use `:reply-to nil`"
-                 {:extra {:keys   (into [:reply-to] mixed)
-                          :reason :mixed-addressing}}))))))
+                 {:extra {:keys   (into [:reply-to] split)
+                          :reason :mixed-addressing}}))
+
+        (= 1 (count split))
+        (throw (rf.error/thrown-ex-info
+                 :rf.error/http-bad-reply-target :rf.http/managed
+                 "`:on-success` and `:on-failure` address one reply together per Spec 014 §Reply addressing — supplying one without the other leaves the other outcome with no handler, so it would be dropped without a trace. Supply both (an explicit `nil` silences a branch), or address both branches at once with `:reply-to`"
+                 {:extra {:keys   split
+                          :reason :unpaired-split}}))))))
 
 (defn reply-target
-  "Lower an args map's reply addressing to the ONE internal
-  `{:supplied? :value}` descriptor `build-reply-event` consumes, for
-  `branch-key` (`:on-success` or `:on-failure`).
+  "Lower an args map's reply addressing to the ONE target `build-reply-event`
+  consumes for `branch-key` (`:on-success` or `:on-failure`): an event vector,
+  or `nil` for a silenced branch.
 
-  Per Spec 014 §Reply addressing, with the two styles exclusive:
-
-  - `:reply-to` present → that one target addresses BOTH branches.
-  - else the branch's own key, when present.
-  - else `{:supplied? false}` — this branch has no target, which after
-    `validate-reply-addressing!` means only that the OPPOSITE sugar was
-    supplied alone. Omitting every key fails loud upstream
-    (`:rf.error/http-no-reply-target`); there is no co-located default.
+  Per Spec 014 §Reply addressing, `:reply-to` addresses BOTH branches, and
+  otherwise the branch's own split key does. Only an args map
+  `validate-reply-addressing!` accepted reaches here, so every branch is
+  addressed — by `:reply-to` or by its own key.
 
   One fn rather than a precedence rule restated at each interpreting site
-  (the live fx and both canned stubs) — a copy is where a precedence rule
+  (the live fx and the canned stubs) — a copy is where a precedence rule
   drifts."
   [args-map branch-key]
-  (cond
-    (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
-    (contains? args-map branch-key)  {:supplied? true  :value (get args-map branch-key)}
-    :else                            {:supplied? false :value nil}))
+  (if (contains? args-map :reply-to)
+    (:reply-to args-map)
+    (get args-map branch-key)))
 
 (declare build-reply-event)
 
@@ -336,48 +345,30 @@
 
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch for
-  ONE branch (`:success` / `:failure`), or nil when the branch has no
-  target. `reply-payload` is the CANONICAL reply envelope
-  (`{:status :ok/:error/:cancelled …}`). The three authoring
-  keys (`:reply-to` / `:on-success` / `:on-failure`) all normalise upstream
-  (`handlers/normalise-args`) to the ONE `explicit-on` descriptor
-  (`{:supplied? :value}`) this fn consumes — never a second dialect.
+  ONE branch (`:success` / `:failure`), or nil when the branch is silenced.
+  `reply-payload` is the CANONICAL reply envelope
+  (`{:status :ok/:error/:cancelled …}`). The three authoring keys
+  (`:reply-to` / `:on-success` / `:on-failure`) all lower upstream
+  (`reply-target`) to the ONE `target` this fn consumes — never a second
+  dialect.
 
-  - supplied event vector: append the canonical reply map as its last arg.
-  - supplied `nil`: silenced (fire-and-forget).
-  - NOT supplied: nil — the branch has no target. There is no co-located
-    default (reply merged under `:rf/reply` back to the originating event);
-    omitting EVERY reply target fails loud at fx-call time (`handlers/validate-reply-target!` →
-    `:rf.error/http-no-reply-target`), so a WHOLLY-unaddressed request never
-    reaches here. A PARTIALLY-addressed one (only the opposite branch's
-    sugar, no `:reply-to`) silences this branch — a silenced FAILURE
-    surfaces the one-shot `:rf.warning/failure-swallowed`
-    (`middleware/run-after-then-dispatch!`)."
-  [{:keys [explicit-on reply-payload]}]
-  (let [supplied? (:supplied? explicit-on)
-        value     (:value explicit-on)]
-    (cond
-      ;; explicit nil — silenced (caller passed :on-success nil / :on-failure nil)
-      (and supplied? (nil? value))
-      nil
-
-      ;; explicit event vector — append payload
-      (and supplied? (vector? value))
-      (conj value reply-payload)
-
-      ;; An explicitly supplied non-vector non-nil reply target
-      ;; (e.g. a bare keyword or a map) is malformed: Spec 014 §Reply
-      ;; addressing types the reply target as "event vector or nil". Reject it
-      ;; at the dispatch site rather than swallow the misuse.
-      supplied?
-      (rf.error/throw-error!
-        :rf.error/http-bad-reply-target :rf.http/managed
-        "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
-        {:extra {:value value}})
-
-      ;; NOT supplied — there is no co-located default; the
-      ;; branch has no target, so no event is dispatched.
-      :else nil)))
+  - an event vector: append the canonical reply map as its last arg.
+  - `nil`: silenced (fire-and-forget), which the caller chose by writing an
+    explicit `nil`.
+  - anything else is malformed. `handlers/validate-reply-target!` refuses it
+    at dispatch, before the request issues; this check is belt-and-braces."
+  [{:keys [target reply-payload]}]
+  (cond
+    (nil? target)    nil
+    (vector? target) (conj target reply-payload)
+    ;; Spec 014 §Reply addressing types the reply target as "event vector or
+    ;; nil". Reject a malformed one at the dispatch site rather than swallow
+    ;; the misuse.
+    :else
+    (rf.error/throw-error!
+      :rf.error/http-bad-reply-target :rf.http/managed
+      "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
+      {:extra {:value target}})))
 
 ;; ---- backoff --------------------------------------------------------------
 

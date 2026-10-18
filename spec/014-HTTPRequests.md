@@ -145,8 +145,8 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member, or a `:retry` map without `:max-attempts` → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
 | `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
 | `:reply-to` | none | Unified reply target — one event vector for **both** the success and the failure reply; the app branches on the canonical envelope's `:status`. Lowers to the same internal descriptor as the sugar below, and is **exclusive** with it. `nil` is the fire-and-forget spelling. See [§Reply addressing](#reply-addressing). | — (`:reply-to` does not itself fail; it routes the reply.) |
-| `:on-success` | none | Where to dispatch the success reply — the split routing sugar. `nil` silences it. **Not together with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
-| `:on-failure` | none | Where to dispatch the failure reply — the split routing sugar. `nil` swallows silently. **Not together with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-failure` does not itself fail; it routes the reply.) |
+| `:on-success` | none | Where to dispatch the success reply — the split routing sugar. `nil` silences it. **Supplied together with `:on-failure`, never with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
+| `:on-failure` | none | Where to dispatch the failure reply — the split routing sugar. `nil` silences it. **Supplied together with `:on-success`, never with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-failure` does not itself fail; it routes the reply.) |
 | `:request-id` | none | Stable `=`-comparable id for abort + correlation. Keywords / strings / vectors / uuids all work. See [§`:request-id` (internal)](#request-id-internal). | Superseded by a later request with the same id → in-flight request aborts with `:rf.http/aborted :reason :request-id-superseded` on the trace stream. |
 | `:abort-signal` | none | External `AbortController.signal` handle. **May be supplied together with `:request-id`** — both attach a cancellation source to the one managed request, which reaches exactly one terminal outcome (per [§`:abort-signal` (external)](#abort-signal-external)). CLJS-only; on the JVM the external signal is ignored, so only the `:request-id` path is portable there. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
@@ -597,11 +597,13 @@ Each issuance also emits one **issuance row**, `:rf.http/issued` (`:info`, dev-o
 Every `:rf.http/managed` request **must address its reply**. Two authoring styles, both lowering to the one internal reply-target descriptor (`:rf/reply-to`):
 
 - **`:reply-to`** — the unified spelling: **one** event vector for **both** the success and the failure reply. The app branches on the canonical envelope's `:status`. This is the same call-site key resources / mutations use ([Spec 016](016-Resources.md)).
-- **`:on-success` / `:on-failure`** — the split routing sugar: a named target per branch.
+- **`:on-success` / `:on-failure`** — the split routing sugar: a named target per branch, supplied as a **pair**.
 
 The two styles are **exclusive**. A map carrying `:reply-to` beside `:on-success` or `:on-failure` is refused at dispatch time with [`:rf.error/http-bad-reply-target`](009-Instrumentation.md#error-event-catalogue), tagged `:reason :mixed-addressing` and `:keys` naming the colliding keys. `:reply-to` already addresses **both** branches, so a branch key beside it is either a redundant restatement or a contradiction and the reader cannot tell which was meant.
 
-The refusal is on key **presence**, not value — `{:reply-to [:a] :on-failure nil}` is a mixture. To silence a reply, use `:reply-to nil` (see [§Silenced](#silenced)).
+The split keys travel as a **pair**. `:on-success` without `:on-failure`, or `:on-failure` without `:on-success`, is refused at dispatch time with [`:rf.error/http-bad-reply-target`](009-Instrumentation.md#error-event-catalogue), tagged `:reason :unpaired-split` and `:keys` naming the key supplied, before the request issues. A branch left out would drop every reply routed to it with no handler, and a request that lost its failures that way would leave no trace, so the pair is mandatory and that request cannot be written.
+
+Both refusals are on key **presence**, not value. `{:reply-to [:a] :on-failure nil}` is a mixture, and `{:on-success [:a] :on-failure nil}` is a complete pair: an explicit `nil` is the deliberate silence (see [§Silenced](#silenced)). To silence the whole reply, use `:reply-to nil`.
 
 Omitting **every** reply target (no `:reply-to`, no `:on-success`, no `:on-failure`) fails loud at fx-call time with [`:rf.error/http-no-reply-target`](009-Instrumentation.md#error-event-catalogue) — the framework never silently routes an unaddressed reply back to the dispatching event (see [§Unified one-handler form](#unified-one-handler-form-reply-to)).
 
@@ -645,9 +647,9 @@ One handler branches on `(:status reply)`. See [§Unified one-handler form (`:re
 
 Fire-and-forget — the **one** spelling for "deliberately no receiver". Useful for telemetry beacons. The reply is still explicitly addressed (at nothing), so this does **not** fail loud; only omitting every key does.
 
-An explicit `nil` on a single branch (`:on-failure nil` with `:on-success` supplied) remains valid — that is the split form silencing one of its two branches, which is a different statement from silencing the whole reply.
+An explicit `nil` on one branch of the pair (`:on-success [:x] :on-failure nil`) is the split form silencing one of its two branches, which is a different statement from silencing the whole reply.
 
-A silenced `:on-failure` (an explicit `nil`, or a failure branch left unaddressed while the success branch was addressed) drops, with no handler, every reply whose final `:status` is not `:ok`. To keep this honest against the no-silent-swallow principle, the runtime emits a **one-shot `:rf.warning/failure-swallowed`** trace (per runtime, dev-only) the first time a NON-aborted failure (`:rf.http/transport` / `:rf.http/http-5xx` / `:rf.http/timeout` / `:rf.http/decode-failure` / `:rf.http/accept-failure` / an error an `:after` returned / …) is dropped — the silence is observable rather than invisible. Aborted requests (`:rf.http/aborted`, any reason) are excluded: a cancelled request that no longer wants its reply is correct silence, not a swallowed error. The warning is informational; there is no `:rf.error/*` for the path.
+A branch silenced with `nil` drops, with no handler, every reply routed to it — for `:on-failure nil`, every reply whose final `:status` is not `:ok`. The runtime drops it quietly, with no warning: the silence is written at the call site, and no branch can be left out by accident, because [§Reply addressing](#reply-addressing) refuses an unpaired split key at dispatch.
 
 ## Aborts
 
@@ -1364,7 +1366,7 @@ Handler-meta `:sensitive?` is **not** a source — there is no handler-level `:s
 
 ### 4. Trace-event redaction + stamping rules
 
-For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the seven `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/failure-swallowed`), and for the error rows of the interceptor chain and the reply tail (`:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return`, `:rf.error/http-reply-tail-failed`), implementations MUST:
+For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the seven `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set)), and for the error rows of the interceptor chain and the reply tail (`:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return`, `:rf.error/http-reply-tail-failed`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
 2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag. Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token. The same names written as keys of a request-side `:params` map (the key's wire name — `name` of a keyword, else `str`) have their values replaced by `:rf/redacted` too, and such a hit counts toward the stamp in rule 6, so a parameter gets one treatment whichever spelling carries it.
@@ -1415,7 +1417,8 @@ Header and query-param policy covers the request carriers; the **response body**
             :decode  [:map
                       [:token {:sensitive? true} :string]
                       [:user-id :int]]
-            :on-success [:auth/logged-in]}]]}))
+            :on-success [:auth/logged-in]
+            :on-failure [:auth/login-failed]}]]}))
 ```
 
 Rules:
@@ -1536,7 +1539,7 @@ Route / navigation staleness for a **plain** request is not one of these — it 
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
 - [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:spawn`.
 - [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
-- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/failure-swallowed`, and the `:rf.http/*` failure-category traces follow it.
+- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt` and the `:rf.http/*` failure-category traces follow it.
 - [Spec 010 §Schemas](010-Schemas.md) — the schema language `:decode <schema>` consumes. Spec 010 standardises the schema-attachment surface (`:schema` metadata, `reg-app-schema`, `app-schemas-digest`) and the pluggable validator seam (Malli is the CLJS reference's default); the `:rf.http/managed` decode step parses the response body and applies the registered schema language's decode-or-validate primitive (on CLJS reference: `malli.core/decode` + `malli.transform/json-transformer`). There is no separate "Spec 010 decode pipeline" — the decode contract belongs to this Spec; Spec 010 provides the schema language.
 - [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.http/*` namespace is reserved for this Spec.

@@ -155,7 +155,8 @@
   request MUST address its reply. A reply is addressed by `:reply-to` (the
   unified target for BOTH success and failure — the app branches on the
   canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
-  split routing sugar; an explicit `nil` silences that branch).
+  split routing sugar, supplied as a pair; an explicit `nil` silences that
+  branch).
 
   Three dispatch-time guards, all fired BEFORE `run-attempt!` (matching the
   other args-map guards — `validate-retry!` → `:rf.error/http-bad-retry-on`;
@@ -167,10 +168,12 @@
      `:rf.error/http-no-reply-target` rather than silently routing the reply
      back to the dispatching event.
 
-  2. EXCLUSIVITY — the unified `:reply-to` and the split
-     `:on-success` / `:on-failure` sugar are alternate STYLES, and a map
-     carrying both is refused with `:rf.error/http-bad-reply-target`
-     (`:reason :mixed-addressing`). The check is
+  2. STYLE — the unified `:reply-to` and the split
+     `:on-success` / `:on-failure` sugar are alternate STYLES, and each
+     addresses BOTH branches. A map carrying both styles is refused with
+     `:rf.error/http-bad-reply-target` (`:reason :mixed-addressing`), and so
+     is one split key without its partner (`:reason :unpaired-split`), which
+     would leave the other outcome with no handler. The check is
      `encoding/validate-reply-addressing!`, shared with the canned stubs so
      one map is judged identically on every path that interprets it.
 
@@ -182,8 +185,7 @@
      bare keyword (`:on-success :items/loaded`) would issue the request and
      then throw `:rf.error/http-bad-reply-target` async in the reply tail.
      Validating the shape here fails fast, BEFORE the network call.
-     `build-reply-event`'s guard is belt-and-braces for any non-args-map
-     descriptor path.
+     `build-reply-event`'s guard is belt-and-braces.
 
   Public so the test-support stubs, which stand in for `:rf.http/managed`
   as `:fx-overrides` targets, refuse the same args map with the same error
@@ -306,20 +308,16 @@
         ;; Spec 014 §Decoding.
         max-keys     (:rf.http/max-decoded-keys args-map)
         ;; Reply addressing (Spec 014 §Reply addressing). Three
-        ;; authoring keys lower to the ONE internal reply-target descriptor
-        ;; (`{:supplied? :value}`) `build-reply-event` consumes — never a
-        ;; second dialect. `:reply-to` is the UNIFIED spelling: a single
-        ;; target for BOTH the success and the failure reply (the app branches
-        ;; on the canonical envelope's `:status`), mirroring the resources /
-        ;; mutation call-site `:reply-to`. `:on-success` / `:on-failure` are
-        ;; the split routing sugar, EXCLUSIVE with it (a mixed
-        ;; map is refused at `validate-reply-target!` above). The lowering
-        ;; itself is `encoding/reply-target`, shared with the canned stubs.
-        ;; There is no co-located default (reply merged under `:rf/reply` back
-        ;; to the originating event when NO target was given) —
-        ;; omitting every target fails loud, so a branch is
-        ;; `{:supplied? false}` only under partial addressing (the opposite
-        ;; sugar alone).
+        ;; authoring keys lower to the ONE per-branch target (an event vector
+        ;; or `nil`) `build-reply-event` consumes — never a second dialect.
+        ;; `:reply-to` is the UNIFIED spelling: a single target for BOTH the
+        ;; success and the failure reply (the app branches on the canonical
+        ;; envelope's `:status`), mirroring the resources / mutation call-site
+        ;; `:reply-to`. `:on-success` / `:on-failure` are the split routing
+        ;; sugar, supplied as a pair and EXCLUSIVE with `:reply-to` (a mixed or
+        ;; unpaired map is refused at `validate-reply-target!` above), so every
+        ;; branch has a target. The lowering itself is `encoding/reply-target`,
+        ;; shared with the canned stubs.
         reply-target #(rf.http.encoding/reply-target args-map %)]
     {:request           request
      :decode            decode
@@ -328,8 +326,8 @@
      :timeout-ms        timeout-ms
      :max-decoded-keys  max-keys
      :origin-event      origin-event
-     :explicit-on-success (reply-target :on-success)
-     :explicit-on-failure (reply-target :on-failure)
+     :success-target    (reply-target :on-success)
+     :failure-target    (reply-target :on-failure)
      :request-id        request-id
      :actor-id          actor-id
      :abort-signal      abort-signal
@@ -359,11 +357,11 @@
   [{:keys [request request-id frame sensitive?] :as normalised}]
   (let [reply-to (into {}
                        (keep (fn [[branch k]]
-                               (let [{:keys [supplied? value]} (get normalised k)]
-                                 (when (and supplied? (vector? value))
-                                   [branch (first value)]))))
-                       [[:on-success :explicit-on-success]
-                        [:on-failure :explicit-on-failure]])]
+                               (let [target (get normalised k)]
+                                 (when (vector? target)
+                                   [branch (first target)]))))
+                       [[:on-success :success-target]
+                        [:on-failure :failure-target]])]
     (rf.trace/emit! :info :rf.http/issued
       (rf.http.privacy/prepare-emit-tags
         (cond-> {:rf.reply/work-id   (rf.http.reply/work-id normalised)

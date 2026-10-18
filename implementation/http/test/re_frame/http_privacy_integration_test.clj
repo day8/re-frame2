@@ -90,6 +90,7 @@
     (reg-carriers! {:query-params ["shop_token"]})
     (let [[ev base] (managed-trace! (respond 500 "text/plain" "boom" {"Set-Cookie" "sid=secret"})
                                     (fn [base] {:request    {:url (str base "/x?api_key=SECRET&shop_token=abc&page=2")}
+                                                :on-success nil
                                                 :on-failure nil})
                                     :rf.http/http-5xx)]
       (is (= :rf/redacted (find-header (get-in ev [:tags :headers]) "Set-Cookie")))
@@ -102,6 +103,7 @@
     (let [[ev base] (managed-trace! (respond 500 "text/plain" "boom")
                                     (fn [base] {:request    {:url (str base "/x?user_id=42&page=2")}
                                                 :sensitive? true
+                                                :on-success nil
                                                 :on-failure nil})
                                     :rf.http/http-5xx)]
       (is (true? (:sensitive? ev)))
@@ -211,7 +213,8 @@
   (let [[ev] (managed-trace! (respond 200 "application/json" "\"opaque-token-value\"")
                              (fn [base] {:request    {:url (str base "/refresh")}
                                          :decode     [:string {:sensitive? true}]
-                                         :on-success [:test/ok]})
+                                         :on-success [:test/ok]
+                                         :on-failure nil})
                              :rf.http/replied)]
     (is (= :rf/redacted (get-in ev [:tags :value])))))
 
@@ -219,7 +222,7 @@
   (testing "an unschematized body is stamped :omit for the off-box projector
             while the on-box value rides raw for the local operator"
     (let [[ev] (managed-trace! (respond 200 "application/json" "{\"opaque\":\"raw-token\"}")
-                               (fn [base] {:request {:url (str base "/opaque")} :on-success [:test/ok]})
+                               (fn [base] {:request {:url (str base "/opaque")} :on-success [:test/ok] :on-failure nil})
                                :rf.http/replied)]
       (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
       (is (= {:opaque "raw-token"} (get-in ev [:tags :value]))))))
@@ -228,7 +231,7 @@
 ;; runs before decode), so it is stamped :omit whatever the per-call flag.
 (deftest http-5xx-stamps-off-box-omit-on-raw-body-non-sensitive
   (let [[ev] (managed-trace! (respond 500 "text/plain" "error: token=bearer-abc123 rejected")
-                             (fn [base] {:request {:url (str base "/data")} :on-failure nil})
+                             (fn [base] {:request {:url (str base "/data")} :on-success nil :on-failure nil})
                              :rf.http/http-5xx)]
     (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
     (is (= "error: token=bearer-abc123 rejected" (get-in ev [:tags :body]))
@@ -237,7 +240,7 @@
 
 (deftest decode-failure-stamps-off-box-omit-on-raw-body-text
   (let [[ev] (managed-trace! (respond 200 "application/json" "not-json: leaked-token=xyz")
-                             (fn [base] {:request {:url (str base "/data")} :decode :json :on-failure nil})
+                             (fn [base] {:request {:url (str base "/data")} :decode :json :on-success nil :on-failure nil})
                              :rf.http/decode-failure)]
     (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))))
 
@@ -248,6 +251,7 @@
                              (fn [base] {:request    {:url (str base "/login")}
                                          :decode     [:map [:token {:sensitive? true} :string] [:status :string]]
                                          :accept     (fn [_] {:failure {:reason :domain-rejected}})
+                                         :on-success nil
                                          :on-failure [:test/ok]})
                              :rf.http/accept-failure)]
     (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))

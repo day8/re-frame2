@@ -122,13 +122,15 @@
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/1"}
                         :request-id :req-a
-                        :on-success [:user/loaded]}}}
+                        :on-success [:user/loaded]
+                        :on-failure nil}}}
    {:id 4 :op-type :rf.fx :operation :rf.fx/handled
     :tags {:rf.trace/dispatch-id dispatch-id
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/2"}
                         :request-id :req-b
-                        :on-success [:user/loaded]}}}])
+                        :on-success [:user/loaded]
+                        :on-failure nil}}}])
 
 (defn- records
   "The composite sub's records vector, read the way the boundary reads it."

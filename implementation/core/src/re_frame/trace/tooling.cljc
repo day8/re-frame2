@@ -918,7 +918,6 @@
     :rf.warning/unknown-configure-key
     :rf.warning/unknown-registration-key
     :rf.warning/unknown-frame-config-key
-    :rf.warning/failure-swallowed
     :rf.warning/resource-load-more-owner-ignored
     :rf.warning/trace-buffer-unrecognised-opts
     :rf.warning/can-leave-subs-artefact-missing})

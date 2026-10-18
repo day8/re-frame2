@@ -333,7 +333,7 @@ Instead of `:on-success` and `:on-failure`, a request can name one event, `:repl
         (is (= "Walk the dog" (get-in (rf/app-db-value f) [:todos 2 :title])))))))
 ```
 
-A request must address its reply: one with no `:reply-to`, `:on-success` or `:on-failure` raises `:rf.error/http-no-reply-target`. An explicit `:on-failure nil` drops failures on purpose (a telemetry beacon, say), and the runtime emits a one-shot dev-only `:rf.warning/failure-swallowed` when a live request's failure is dropped that way.
+A request must address its reply: one with no `:reply-to`, `:on-success` or `:on-failure` raises `:rf.error/http-no-reply-target`, and one split key without the other raises `:rf.error/http-bad-reply-target` (`:reason :unpaired-split`). An explicit `:on-failure nil` drops failures on purpose (a telemetry beacon, say), quietly: the `nil` is the decision.
 
 ### Removing noisy interceptors: `:interceptor-overrides`
 

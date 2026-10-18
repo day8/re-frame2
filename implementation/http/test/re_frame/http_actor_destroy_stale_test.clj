@@ -42,6 +42,7 @@
                               {:request    {:url "http://example.invalid/slow"}
                                :decode     :json
                                :request-id [:worker/proc :slow]
+                               :on-success nil
                                :on-failure [:worker/proc#1 [:self/failed]]}]]})}
      :states  {:idle    {:on {:start :running}}
                :running {:entry :fire}}})
