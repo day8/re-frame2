@@ -292,7 +292,6 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.spine :as rf.substrate.spine]))
@@ -1243,33 +1242,32 @@
   ;; application's n boundaries have.
   ;;
   ;; `coords?` decides whether those registrations carry SOURCE COORDS, and it
-  ;; is not a detail. This ns requires `re-frame.core` WITHOUT `:include-macros
-  ;; true`, so `rf/reg-sub` here is the plain FUNCTION and no call site is
-  ;; captured — left alone the registrar slot comes out `{}`. A
-  ;; real application writes `(rf/reg-sub ...)` in a namespace that does get the
-  ;; macro, so its slots carry `:ns` / `:file` / `:line`. The DEFAULT hands the
-  ;; registrar the production meta explicitly.
+  ;; is not a detail. `rf/reg-sub` here is the macro, but this harness builds
+  ;; with `goog.DEBUG false`, where `merge-coords` keeps the call site it
+  ;; captures out of the slot — left alone the registrar slot comes out `{}`.
+  ;; The DEFAULT hands the registrar the production meta explicitly.
   ;;
-  ;; Either way every registration carries the provenance namespace the frame's
-  ;; image selects on. The control gets it the way the production macro gives
-  ;; it, through `*pending-coords*`, which a `goog.DEBUG false` build keeps out
-  ;; of the slot — so the control's slot stays coord-less.
+  ;; The captured call site still stamps each registration's PROVENANCE
+  ;; namespace, and that is what the frame's image selects on: `ra.bench` when
+  ;; the meta names it, this namespace for the coord-less control.
   (let [sub-ids (mapv #(keyword "ra" (str "s" %)) (range n))
         qs      (mapv vector sub-ids)]
     (doseq [[i id] (map-indexed vector sub-ids)]
       (let [body (fn [db _] (get-in db [:items i]))]
         (if coords?
           (rf/reg-sub id prod-sub-meta body)
-          (binding [rf.source-coords/*pending-coords* prod-sub-meta]
-            (rf/reg-sub id body)))))
+          (rf/reg-sub id body))))
     ;; Made WITH `:images`, so the frame seals a generation and
     ;; `call-with-frame-resolution` takes its BINDING branch — the branch
     ;; S3-CWFR prices and N-BINDONLY binds. A frame made without `:images`
     ;; seals nothing and resolves the registration store live instead.
     (rf.live-frame/make-frame
       {:id     fid
-       :images [(rf.image/image {:id        :ra/image
-                                 :select-ns {:include [(str (:ns prod-sub-meta))]}})]})
+       :images [(rf.image/image
+                  {:id        :ra/image
+                   :select-ns {:include [(if coords?
+                                           (str (:ns prod-sub-meta))
+                                           (namespace ::rig))]}})]})
     (rf.frame/replace-app-db! fid (db-of n))
     (let [src   (rf.frame/app-db-container fid)
           cache (:sub-cache (rf.frame/frame fid))
