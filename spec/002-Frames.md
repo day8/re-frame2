@@ -2797,11 +2797,9 @@ See [MIGRATION.md](../migration/from-re-frame-v1/README.md) for the migration ru
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
-> **Status: post-v1.** v1 ships the drain loop; the Spec-level design of a transducer-shaped router lives at [Design-TransducerRouter.md](Design-TransducerRouter.md). The design is non-normative for v1 and nothing implements it.
+> **Status: post-v1.** v1 ships the drain loop, and nothing implements an alternative.
 
-pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed. The full v1.1 design — primitive contract, reducing-function presets (`sync-rf` / `queued-rf` / `batch-rf`), driver model, two-stage compatibility plan with the v1 drain loop, and interactions with Specs 005 / 009 / 011 / 012 — lives at [Design-TransducerRouter.md](Design-TransducerRouter.md).
-
-A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API; v1 keeps the drain loop because the design is non-trivial. It does not overlap [012-Routing.md](012-Routing.md) (URL routing) — the two specs live on orthogonal axes.
+The direction is a router split in two: a **pure per-event step** (resolve the handler, run the interceptor pipeline, produce the new state and effects) and a **driver** that decides when the next step runs — the host's task queue, a manually ticked test pump, a replay clock. SSR, test harnesses and replay would then share one step, and scheduling would stay off the public API. It is orthogonal to [012-Routing.md](012-Routing.md) (URL routing).
 
 ## Resolved decisions
 
