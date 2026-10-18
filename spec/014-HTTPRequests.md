@@ -142,7 +142,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
 | `:decode` | `:auto` | Response-body decoder: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Runs only on 2xx. See [§Decoding](#decoding). | `:rf.http/decode-failure` (schema reject, JSON parse, custom-fn throw). |
 | `:accept` | `{:ok decoded}` | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. Runs only after a successful 2xx decode (non-2xx classifies by status before decode, so `:accept` never sees it). See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
-| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
+| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member, or a `:retry` map without `:max-attempts` → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
 | `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
 | `:reply-to` | none | Unified reply target — one event vector for **both** the success and the failure reply; the app branches on the canonical envelope's `:status`. Lowers to the same internal descriptor as the sugar below, and is **exclusive** with it. `nil` is the fire-and-forget spelling. See [§Reply addressing](#reply-addressing). | — (`:reply-to` does not itself fail; it routes the reply.) |
 | `:on-success` | none | Where to dispatch the success reply — the split routing sugar. `nil` silences it. **Not together with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
@@ -370,12 +370,14 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 | Key | Type | Purpose |
 |---|---|---|
 | `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation) below. |
-| `:max-attempts` | int | Total attempts including the first. `1` = no retry. Absent ⇒ no retry (equivalently `1`). |
+| `:max-attempts` | int | **Required.** Total attempts including the first. `1` = no retry. |
 | `:backoff` | map | Exponential backoff config. |
 | `:backoff.:base-ms` | int | Initial delay (ms). |
 | `:backoff.:factor` | num | Multiplier per attempt. |
 | `:backoff.:max-ms` | int | Cap on delay. |
 | `:backoff.:jitter` | bool | Add random ±25% jitter to each delay. |
+
+A `:retry` map without `:max-attempts` is rejected at fx-call time with `:rf.error/http-bad-retry-on` (ex-data `:received`, the map). The runtime supplies no default: every attempt after the first re-sends the request, and a request that is not idempotent must not gain one the caller did not ask for. An omitted `:retry` never retries.
 
 #### Closed-set `:retry :on` validation
 
