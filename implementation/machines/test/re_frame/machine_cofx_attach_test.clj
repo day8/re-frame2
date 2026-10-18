@@ -2,7 +2,8 @@
   "A named guard / action's `:rf.cofx/requires` is ensured before transition
   selection on every slot the runtime selects from; an inline declaration is
   refused at registration."
-  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.machines]
@@ -50,6 +51,31 @@
                                            {:target :b}]}
                        :a {} :b {}}}]]]
     (is (= :rf.error/machine-cofx-requires-inline (registration-error-id machine)) label)))
+
+;; A `:timeout` / `:on-timeout` lowers onto `:after`, but the refusal names the
+;; key the author wrote; an authored `:after` is the control.
+(deftest inline-requires-refusal-names-the-authored-key
+  (let [inline {:rf.cofx/requires [:rf/time-ms] :target :done}]
+    (doseq [[where machine]
+            [["state :idle :on-timeout"
+              {:initial :idle
+               :states  {:idle {:timeout 100 :on-timeout inline} :done {}}}]
+             ["state :idle :spawn :on-timeout"
+              {:initial :idle
+               :states  {:idle {:spawn {:machine-id :x/child :timeout 100 :on-timeout inline}}
+                         :done {}}}]
+             [":rf/root :on-timeout"
+              {:type       :parallel
+               :timeout    100
+               :on-timeout (assoc inline :target [:a :done])
+               :regions    {:a {:initial :idle :states {:idle {} :done {}}}}}]
+             ["state :idle :after"
+              {:initial :idle
+               :states  {:idle {:after {100 inline}} :done {}}}]]]
+      (let [e (try (rf/reg-machine (keyword "attach" (str (gensym "inline-"))) machine) nil
+                   (catch ExceptionInfo e e))]
+        (is (= :rf.error/machine-cofx-requires-inline (:rf.error/id (ex-data e))) where)
+        (is (str/includes? (str (ex-message e)) (str "Found at: " where ".")) where)))))
 
 (deftest candidate-action-and-always-closure-facts-are-ensured
   ;; :go's action, :b's :always action and :c's :always guard (two hops past
