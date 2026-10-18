@@ -22,8 +22,8 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
-            ;; Publishes the `:schemas/malli-validate` hook; without it
-            ;; `reg-app-schema` validation soft-passes.
+            ;; Malli, the default validator the schema assertions here
+            ;; run against; the `re-frame.schemas` facade already loads it.
             [re-frame.schemas.malli]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
