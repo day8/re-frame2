@@ -1038,8 +1038,8 @@
 
   `mint-policy` (EP-0017 §6) gates the declared-absent generator-backed
   branch — `:strict` (replay / the `:test` preset) refuses to mint and
-  surfaces `:rf.error/missing-required-cofx`, `:live` / `:explicit-live`
-  generate. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
+  surfaces `:rf.error/missing-required-cofx`, `:live`
+  generates. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
   the EVENT path uses; threading the resolved policy here gives the machine
   ensure path the SAME mint semantics rather than the 5-arity `:live` default."
   [ensure-set recorded frame-id failing-id mint-policy]
@@ -1070,7 +1070,7 @@
   `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
   SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
   a declared-absent generator-backed fact (surfacing missing-required), `:live`
-  / `:explicit-live` generate.
+  generates.
 
   A no-op (returns `recorded`) when the ensure-set is empty."
   [machine snapshot event recorded frame-id failing-id mint-policy]
