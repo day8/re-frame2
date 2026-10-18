@@ -65,8 +65,7 @@
   (let [epoch-hook (rf.late-bind/get-fn :epoch/current-config)
         trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
         drop-hook! (fn [k]
-                     (swap! rf.late-bind/hooks dissoc k)
-                     (rf.late-bind/invalidate-cache! k))]
+                     (swap! rf.late-bind/hooks dissoc k))]
     (try
       (drop-hook! :trace.tooling/current-trace-buffer-config)
       (let [cfg (rf/current-config)]

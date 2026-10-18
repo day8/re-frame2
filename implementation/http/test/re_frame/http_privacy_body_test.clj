@@ -89,15 +89,12 @@
 (defn- with-hooks-unbound
   "Run `f` with the late-bind hooks `hook-keys` removed; restore them after."
   [hook-keys f]
-  (let [saved     (select-keys @rf.late-bind/hooks hook-keys)
-        refresh!  #(doseq [k hook-keys] (rf.late-bind/invalidate-cache! k))]
+  (let [saved (select-keys @rf.late-bind/hooks hook-keys)]
     (try
       (swap! rf.late-bind/hooks #(apply dissoc % hook-keys))
-      (refresh!)
       (f)
       (finally
-        (swap! rf.late-bind/hooks merge saved)
-        (refresh!)))))
+        (swap! rf.late-bind/hooks merge saved)))))
 
 (defn- with-walker-unbound
   "Run `f` with every shared schema-walker hook removed; restore them after."

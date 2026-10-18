@@ -45,8 +45,6 @@
           (test-fn))
         (finally
           (reset! rf.late-bind/hooks hooks-before)
-          (rf.late-bind/invalidate-cache! :schemas/validate-app-schema!)
-          (rf.late-bind/invalidate-cache! :flows/run-flows-on-db)
           (rf.test-support/restore-registrar! registrar-before))))))
 
 (use-fixtures :each reset-runtime)

@@ -59,13 +59,11 @@
       (swap! @registration-hooks
              (fn [hs] (vec (remove #{rf.live-frame/reproject-on-registration-change!} hs))))
       (swap! rf.late-bind/hooks #(apply dissoc % published-keys))
-      (run! rf.late-bind/invalidate-cache! published-keys)
       (reset! @installed-flag false)
       (test-fn)
       (finally
         (reset! @registration-hooks hooks-before)
         (reset! rf.late-bind/hooks late-bind-before)
-        (run! rf.late-bind/invalidate-cache! published-keys)
         (reset! @installed-flag flag-before)
         (rf.registrar/clear-all!)
         (reset! rf.frame/frames {})))))

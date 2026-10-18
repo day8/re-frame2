@@ -199,7 +199,6 @@
   (let [orig (rf.late-bind/get-fn :router/dispatch-sync!)]
     (try
       (rf.late-bind/set-fn! :router/dispatch-sync! nil)
-      (rf.late-bind/invalidate-cache! :router/dispatch-sync!)
       (let [data (err-data
                    #(rf/make-frame {:id :unavailable/main :initial-events [[:test/set-db {:n 0}]
                                                                            [:test/inc]]}))]
@@ -208,8 +207,7 @@
       (rf/make-frame {:id :unavailable/empty :initial-events []})
       (is (some? (rf.frame/frame :unavailable/empty)))
       (finally
-        (rf.late-bind/set-fn! :router/dispatch-sync! orig)
-        (rf.late-bind/invalidate-cache! :router/dispatch-sync!)))))
+        (rf.late-bind/set-fn! :router/dispatch-sync! orig)))))
 
 (deftest construction-rollback-keeps-same-id-admission-closed
   ;; A setup-step rollback keeps the reservation through its exact-incarnation

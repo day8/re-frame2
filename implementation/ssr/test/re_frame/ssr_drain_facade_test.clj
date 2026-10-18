@@ -13,15 +13,13 @@
 (defn- restore-hook! [prev]
   (if prev
     (rf.late-bind/set-fn! drain-key prev)
-    (do (swap! rf.late-bind/hooks dissoc drain-key)
-        (rf.late-bind/invalidate-cache! drain-key))))
+    (swap! rf.late-bind/hooks dissoc drain-key)))
 
 (deftest hook-absent-returns-the-settled-fast-path-shape
   (let [prev    (rf.late-bind/get-fn drain-key)
         settled {:settled? true :timed-out [] :route-blocking-failure nil}]
     (try
       (swap! rf.late-bind/hooks dissoc drain-key)
-      (rf.late-bind/invalidate-cache! drain-key)
       (is (= [settled settled]
              [(rf.ssr/drain-blocking-resources! :ssr/some-frame)
               (rf.ssr/drain-blocking-resources!

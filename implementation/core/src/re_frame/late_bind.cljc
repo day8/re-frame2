@@ -31,96 +31,13 @@
   hooks
   (atom {}))
 
-;; ---- sticky resolution cache ----------------------------------------------
-;;
-;; `get-fn-cached` is a sticky variant of `get-fn` for hooks that are
-;; published once at boot and never withdrawn in production
-;; (`:schemas/validate-*!`, `:flows/run-flows-on-db`, `:epoch/settle!`,
-;; `:epoch/capture-event`, `:event-emit/dispatch-on-event`,
-;; `:router/dispatch!`, …). These run on every dispatch — the dispatch
-;; drain reads ~6+ keys per event, so uncached a 100-event drain would be
-;; 600+ identical atom-derefs of `hooks` plus 600+ identical map lookups.
-;;
-;; The cache memoises the resolution: first hit reads `hooks`, populates
-;; `fn-cache`, and returns; subsequent hits read `fn-cache` directly. On
-;; the JVM the gain is bounded (atom-deref is JIT-friendly); on V8 the
-;; relevant pressure is megamorphic-IC busting at the `@hooks` site,
-;; which the per-key dedicated slot avoids.
-;;
-;; Invariant: `set-fn!` and `chain-fn!` invalidate the slot for the key
-;; they re-publish. Production registers each hook once at boot and
-;; never again — cache hits 100%. Dev hot-reload of an artefact
-;; re-registers — the next cached lookup re-resolves through `hooks`.
-;; The pattern mirrors `re-frame.registrar/emit!-cache`, which memoises
-;; `:trace/emit!` under the same logic.
-
-(defonce ^:private fn-cache
-  ;; hook-key → resolved-fn. Distinct from `hooks` so the cache slot
-  ;; semantics are clean: only positive resolutions are cached, and
-  ;; `set-fn!` / `chain-fn!` clear the slot atomically. Nil resolutions
-  ;; (key not yet published) fall through to the `hooks` lookup every
-  ;; call so a deferred publication is visible the next dispatch.
-  (atom {}))
-
-(defn- cache-generation
-  "The `fn-cache` value's invalidation counter — bumped by every
-  `invalidate-cache!`, read by `cache-resolution!` to reject a memo resolved
-  before that invalidation. Lives under a namespaced key IN the
-  cache map, so no hook key can collide with it and every invalidation
-  necessarily produces a distinct map value."
-  [cache]
-  (::generation cache 0))
-
-(defn invalidate-cache!
-  "Drop the cached resolution for `hook-key`. Called from `set-fn!` and
-  `chain-fn!` so the next `get-fn-cached` re-resolves through `hooks`.
-  Public so test fixtures and dev-time refresh tooling can force a
-  re-resolve."
-  [hook-key]
-  (swap! fn-cache (fn [c]
-                    (-> c
-                        (dissoc hook-key)
-                        (assoc ::generation (inc (cache-generation c))))))
-  nil)
-
-(defn- cache-resolution!
-  "Memoise `resolved` under `hook-key` — but ONLY while the cache is still on
-  `generation`, the generation the caller read BEFORE it resolved through
-  `hooks`.
-
-  A cache miss is two steps: read `hooks`, then insert. `set-fn!` publishes
-  into `hooks` and THEN invalidates, so a reader whose two steps straddle a
-  publication holds a SUPERSEDED fn and, inserting it unconditionally, would
-  repopulate the very slot the publication had just cleared — permanently,
-  until some later invalidation. The stale entry would then serve every
-  subsequent lookup while an uncached `get-fn` returned the replacement.
-
-  Every invalidation bumps the generation, so this `swap!` sees it in one of
-  two ways and both are coherent: the bump landed BEFORE the successful
-  CAS — the generations differ and nothing is written — or it lands AFTER,
-  and its `dissoc` removes what was written. The counter rides IN the cache
-  map rather than in a second atom precisely so an invalidation always yields
-  a distinct value: a `dissoc` of an absent key returns the identical map, so
-  a racing reader's CAS would otherwise succeed straight over it."
-  [hook-key generation resolved]
-  (swap! fn-cache (fn [c]
-                    (if (= generation (cache-generation c))
-                      (assoc c hook-key resolved)
-                      c)))
-  nil)
-
 (defn set-fn!
   "Register a fn under hook-key. The producing namespace calls this at
-  the bottom of its file; consumers look it up via `get-fn` (one-shot)
-  or `get-fn-cached` (sticky / hot-path).
-
-  Invalidates the sticky resolution cache for `hook-key` so any
-  previously-cached resolution is dropped — the next `get-fn-cached`
-  call re-resolves through `hooks`. This guarantees hot-reload of an
-  artefact swaps the resolved fn on the very next dispatch."
+  the bottom of its file; consumers look it up via `get-fn`, which reads
+  `hooks` on every call, so a re-publication — hot-reload of an artefact
+  — is visible on the very next dispatch."
   [hook-key f]
   (swap! hooks assoc hook-key f)
-  (invalidate-cache! hook-key)
   nil)
 
 (defn set-fns!
@@ -131,9 +48,7 @@
   of identical imperative side-effects. Feature artefacts (epoch, flows,
   schemas, machines, routing, http, ssr) publish ~15+ keys each at the
   bottom of their facade ns; the map form makes the contract scannable.
-
-  Each entry invalidates its own slot in the resolution cache, identical
-  to repeated `set-fn!` calls. Returns nil."
+  Returns nil."
   [m]
   (doseq [[hook-key f] m]
     (set-fn! hook-key f))
@@ -142,40 +57,9 @@
 (defn get-fn
   "Return the fn registered under hook-key, or nil if no producer has
   registered it yet. Callers MUST handle the nil case (the common
-  pattern is `(when-let [f (late-bind/get-fn ...)] (f args))`).
-
-  Use `get-fn-cached` instead at hot-path call sites that read the
-  same key on every dispatch — `get-fn` re-derefs `hooks` and re-walks
-  the map every call; `get-fn-cached` memoises the resolution."
+  pattern is `(when-let [f (late-bind/get-fn ...)] (f args))`)."
   [hook-key]
   (get @hooks hook-key))
-
-(defn get-fn-cached
-  "Sticky variant of `get-fn` — memoises the resolved fn
-  for `hook-key` so subsequent calls read a per-key atom slot rather
-  than re-deref'ing the global `hooks` map.
-
-  Returns the resolved fn, or nil when no producer has published the
-  key yet. Nil resolutions are NOT cached — a deferred publication is
-  visible on the next call.
-
-  The cache is invalidated on `set-fn!` / `chain-fn!` for the key, so
-  dev-time hot-reload of an artefact re-resolves on the next dispatch.
-  Use at hot-path call sites — every dispatch reads
-  `:schemas/validate-event!`, `:schemas/validate-app-schema!`,
-  `:flows/run-flows-on-db`, `:epoch/settle!`, `:epoch/capture-event`,
-  `:event-emit/dispatch-on-event`, `:router/dispatch!` — where a
-  100-event drain would otherwise resolve each key ~100 times."
-  [hook-key]
-  (or (get @fn-cache hook-key)
-      ;; Read the generation BEFORE resolving through `hooks`: a publication
-      ;; that lands after this read is guaranteed to bump past it, so the
-      ;; memo insert below is rejected rather than resurrecting the fn this
-      ;; call resolved.
-      (let [generation (cache-generation @fn-cache)]
-        (when-let [resolved (get @hooks hook-key)]
-          (cache-resolution! hook-key generation resolved)
-          resolved))))
 
 (defn chain-fn!
   "Wire `step-fn` into the chained hook under `hook-key` so calling the
