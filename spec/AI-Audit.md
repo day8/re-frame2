@@ -407,8 +407,8 @@ Every schema-bearing section except `:rf/event` names its canonical owning spec 
 
 [SPEC-AUTHORING.md §SA-8](SPEC-AUTHORING.md) commits the AI-Audit pass to "produce a corpus-wide report enumerating every `## Open questions` heading across the per-Spec docs, with each item's SA-4 classification (one of `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking`) and its required cross-link." SA-8 names this report's home as the AI-Audit doc; this section is that home.
 
-_As-of 2026-07-04._
+_As-of 2026-10-19._
 
-**Current state.** Fifteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — does **not exist**; generating it is the open SA-8 obligation. SA-4 compliance is verified per-Spec by narrative review, not mechanically through this table.
+**Current state.** Fourteen numbered docs carry a `## Open questions` heading (000, 001, 002, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — does **not exist**; generating it is the open SA-8 obligation. SA-4 compliance is verified per-Spec by narrative review, not mechanically through this table.
 
 **Audit cadence.** This report is regenerated per AI-Audit run. A `:resolved` item still sitting under `## Open questions`, or a `:post-v1 tracked` item lacking its "deferred to …" framing, is an SA-4 violation surfaced here once the per-item enumeration is in place.
