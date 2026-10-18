@@ -175,7 +175,7 @@ A timeout is a failure: `:status :error` with `:kind :rf.http/timeout`. The repl
 A reply from a real request (not a [test stub](#testing-without-a-network)) adds:
 
 - `:rf.reply/work-status` — `:completed` (`:ok`), `:failed` (`:error`), `:timed-out` (a `:rf.http/timeout` failure) or `:cancelled`.
-- `:rf.reply/work-id` — `[:rf.work/http logical-id issuance attempt]`, the join to the trace stream, and `:rf.reply/work-kind :http`.
+- `:rf.reply/work-id` — `[:rf.work/http issuance attempt]`, the join to the trace stream, and `:rf.reply/work-kind :http`.
 - `:rf.frame/id` — the issuing frame.
 - `:completed-at` — the completion time in epoch milliseconds. The reply event's `:rf/time-ms` coeffect carries the same value.
 - On `:cancelled`, `:rf.reply/cancel-reason` is `:user` (`:rf.http/managed-abort` or `:abort-signal`) or `:actor-destroyed`. Supersession, frame destroy and epoch restore deliver no reply.
