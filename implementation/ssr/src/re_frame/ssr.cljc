@@ -175,7 +175,7 @@
 
 ;; ---- hydration payload ----------------------------------------------------
 ;;
-;; Spec 011 §The hydration payload. A host that runs its own request lifecycle
+;; Spec 011 §Hydration is a defined protocol. A host that runs its own request lifecycle
 ;; builds the payload here, so it ships what `re-frame.ssr.ring/ssr-handler`
 ;; would rather than re-implementing a security-relevant projection.
 
