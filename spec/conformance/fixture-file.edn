@@ -953,8 +953,7 @@
   [:cat [:= :view-ref] :keyword [:* [:schema [:ref :conformance/value]]]]
 
   ;; The builtins `[:fn …]` names. `:inc` and `:dec` start a nil slot at 0;
-  ;; `:count` throws on a string, a char or nil; `:item-amount` is
-  ;; (* (:qty item) (:price item)).
+  ;; `:count` throws on a string, a char or nil.
   :conformance/builtin
   [:enum :inc :dec :+ :- :* :/ :>= :<= :> :< := :not= :and :or :not
-   :identity :conj :assoc :dissoc :count :item-amount]}}
+   :identity :conj :assoc :dissoc :count]}}

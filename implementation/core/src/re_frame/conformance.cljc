@@ -47,15 +47,14 @@
     [:fn :keyword arg1 ...]         partial application of a builtin
 
   Builtins (the reserved `:fn` set, grouped by purpose — the canonical
-  fixture-spec-1.0 vocabulary; spec/conformance/README.md §Handler-body DSL
-  builtins and spec/Spec-Schemas.md carry the same set):
+  fixture-spec-1.0 vocabulary, declared as `:conformance/builtin` in
+  spec/conformance/fixture-file.edn):
     numeric     :inc :dec :+ :- :* :/
     comparison  :>= :<= :> :<
     equality    :=  :not=
     boolean     :and :or :not
     collection  :conj :assoc :dissoc :count
-    identity    :identity
-    fixture     :item-amount"
+    identity    :identity"
   (:require [re-frame.error :as rf.error]
             ;; `[:view-ref id]` in a fixture view body resolves
             ;; to the registered handler-fn, so the DSL reads the registry.
@@ -123,7 +122,6 @@
                                                     :where    'rf/conformance-eval
                                                     :recovery :no-recovery}))
                    :else          (count x)))
-    :item-amount (fn [item] (* (:qty item) (:price item)))
     (rf.error/throw-error!
       :rf.error/conformance-unknown-fn-builtin
       'rf/conformance-eval
@@ -698,7 +696,7 @@
 ;; Sub bodies in the corpus take a few shapes:
 ;;
 ;;   [[:get [:path]]]                                      ;; layer-1
-;;   [[:reduce-input :other-sub [:fn :+] [:fn :item-am.]]] ;; layer-2 fold
+;;   [[:reduce-input :other-sub [:fn :+] [:fn :count]]]    ;; layer-2 fold
 ;;   [[:reduce-input :other-sub [:fn :+]]]                 ;; layer-2 sum
 ;;
 ;; realise-sub returns a map describing the registration the runner should
