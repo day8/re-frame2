@@ -87,8 +87,8 @@
           (is (= [:rf.req :rf/default :rf.work/resource :secret/article]
                  [(nth (:request-id err) 0) (nth (:request-id err) 1)
                   (get-in err [:request-id 2 0]) (get-in err [:request-id 2 1])]))
-          (is (= [:rf.work/http (:request-id err)] (subvec (:work/id err) 0 2))
-              "the HTTP work id wraps that request id"))
+          (is (= [:rf.work/http 1 1] (:work/id err))
+              "the HTTP work id is the frame's issuance number and the attempt, never the request id"))
         (testing "AC3 — neither the failure map's request id nor its work id holds the scope or params"
           (is (not (carries-identity? (:request-id err))))
           (is (not (carries-identity? (:work/id err)))))

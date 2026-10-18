@@ -73,7 +73,7 @@
                :request    {:method :get :url "/api/search"}
                :request-id request-id
                :attempt    1
-               :work/id    [:rf.work/http request-id 1 1]
+               :work/id    [:rf.work/http 1 1]
                :url        "/api/search"}})
 
 (defn- http-actor-destroy-aborted-ev
@@ -289,7 +289,7 @@
    :op-type   :info
    :id        id
    :time      1000
-   :tags      {:rf.reply/work-id [:rf.work/http :app/load 1 1] :rf.reply/work-kind :http
+   :tags      {:rf.reply/work-id [:rf.work/http 1 1] :rf.reply/work-kind :http
                :request-id :app/load :url "/api/load" :method :get :frame :rf/default
                :reply-to {:on-success :app/done :on-failure :app/done}
                :rf.trace/dispatch-id 7}})
@@ -304,7 +304,7 @@
    :tags      {:rf.frame/id :rf/default :meta {:status 200 :status-text ""}
                :rf.reply/work-kind :http :correlation {:request-id :app/load}
                :value {:v 1} :rf.reply/work-status :completed :status :ok
-               :rf.reply/work-id [:rf.work/http :app/load 1 1] :attempt 1}})
+               :rf.reply/work-id [:rf.work/http 1 1] :attempt 1}})
 
 (defn- ovr-bundle [effects other]
   {:dispatch-id 7 :frame :rf/default :event [:app/load] :effects effects :other other})

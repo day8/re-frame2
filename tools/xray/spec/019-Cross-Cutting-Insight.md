@@ -614,15 +614,15 @@ afterwards comes from a transport callback with no handler scope, or from
 a different run's drain. So the record JOINS its outcome from the whole
 trace buffer, on an exact key the runtime already stamps: the
 `:rf.http/issued` row in the issuing bundle carries the attempt's
-`:rf.reply/work-id` `[:rf.work/http logical-id issuance attempt]`, every
+`:rf.reply/work-id` `[:rf.work/http issuance attempt]`, every
 terminal row carries the work id of the attempt that completed, and the
-two are matched within the frame on the three-element issuance prefix —
+two are matched within the frame on the two-element issuance prefix —
 never on full equality, since a retried request completes on a later
 attempt. The record takes the FIRST terminal row after its own issued
-row by trace id (a named id is legitimately reused once its request has
-completed, so "the latest" would hand an earlier record a later
-request's outcome), and a stale-suppression row is read by the attempt
-it CARRIED, never the one that superseded it. What it then draws:
+row by trace id (a frame destroyed and created again under the same id
+starts its issuance numbers again, so "the latest" could hand an earlier
+record a later request's outcome), and a stale-suppression row is read by
+the attempt it CARRIED, never the one that superseded it. What it then draws:
 
 - **Status** — the framework's closed reply statuses, `✓ OK`, `✗ ERROR`,
   `◌ CANCELLED` and `⊘ STALE`, with the HTTP status where the reply
@@ -638,8 +638,8 @@ it CARRIED, never the one that superseded it. What it then draws:
 - **→ reply ↗** — focuses the `:source :http` bundle that delivered THIS
   completion's reply: the first whose reply map carries the same work id
   after the terminal row and before the next completion under the same
-  issuance. The bound matters because a reused named id puts the identical
-  work id on a later request's reply too. Only a DELIVERED reply has a
+  issuance. The bound matters because a frame re-created under the same id
+  can put the identical work id on a later request's reply too. Only a DELIVERED reply has a
   link: a stale outcome delivers nothing, and neither does a silenced
   reply (`:on-failure nil`, `:reply-to nil`), whatever its status.
 - **`ISSUED · no completion in this capture`** when the issued row is in

@@ -14,10 +14,11 @@
 
   `re-frame.http.transport` owns the record's lifecycle (its four transitions)
   and retires it from here when it finishes. This namespace owns the registry
-  itself and every question asked of it: lookup and abort by `:request-id`,
-  supersession, actor destroy, the frame-lifecycle sweeps, and the issuance
-  counters behind work ids. Each is a filter over the one registry, so a
-  request can never be visible to one question and invisible to another.
+  itself and every question asked of it — lookup and abort by `:request-id`,
+  supersession, actor destroy and the frame-lifecycle sweeps, each a filter
+  over the one registry, so a request can never be visible to one question
+  and invisible to another — and the per-frame issuance counter behind work
+  ids.
 
   The `:token` is internal and unique per request, so two requests never share
   a record even when their frame ids, request ids or work tuples recur — a
@@ -169,150 +170,46 @@
   ([frame-id request-id reason]
    (abort-record! (lookup-in-flight frame-id request-id) reason)))
 
-;; ---- per-request-id issuance generation ------------------------------------
+;; ---- the per-frame issuance counter ----------------------------------------
 ;;
-;; EP-0011 §Work-id correlation: "one attempt has one work id". HTTP has no
-;; generation counter of its own — supersession is keyed on `:request-id`
-;; equality — so two requests issued under the SAME `:request-id` both reset
-;; their retry `:attempt` to 1 and, without this counter, would compute the SAME
-;; work-id `[:rf.work/http logical-id 1]`. Tooling and conformance could then
-;; not distinguish the superseded attempt from the superseding one by
-;; `:work/id`, breaking EP-0011's single-attempt identity for HTTP
-;; supersession (Managed-Effects §Work-id correlation — §184: "one attempt has
-;; one work id").
+;; One HTTP attempt has one work id (Managed-Effects §Work-id correlation):
+;; `[:rf.work/http issuance attempt]`. `issuance` comes from ONE monotone
+;; counter per issuing frame — every `:rf.http/managed` issuance in the frame,
+;; named or anonymous, takes the next number — and `attempt` numbers the
+;; transport retries within it. So no two requests a frame issues share a work
+;; id: not two loads of one `:request-id` in sequence, not a superseded attempt
+;; and its superseder, not two anonymous requests of one event. The caller's
+;; `:request-id` rides the reply's `:correlation`, not the work id.
 ;;
-;; This monotonic per-request-id ISSUANCE counter discriminates them: each
-;; fresh issuance under a given request-id bumps the counter, so the
-;; superseded request (issuance N) and the superseding one (issuance N+1) get
-;; distinct work-id tuples. The retry `:attempt` still discriminates retries
-;; WITHIN one issuance; the issuance discriminates re-issuances ACROSS
-;; supersessions.
-;;
-;; An ANONYMOUS request (no `:request-id`) never supersedes, but
-;; its logical id is the originating event-id, so two anonymous requests of one
-;; event in one frame would otherwise share a work id and their completion rows
-;; could not be told apart. They take their issuance from a SEPARATE
-;; per-(frame, event-id) counter, `anonymous-issuance-counters`, below.
+;; The counter is host state, outside frame-state, so an epoch restore cannot
+;; rewind it: a request issued after a restore never takes a number the
+;; unwound timeline already used. Completion leaves it alone too. It goes only
+;; when its frame is destroyed — after the frame's in-flight requests have been
+;; aborted, so every id it minted is terminal — which keeps the map bounded by
+;; the live frames; a frame later created under the same id starts again at 1.
 
 (defonce ^:private issuance-counters
-  ;; [frame-id request-id] → highest issuance number allocated so far.
-  ;;
-  ;; Keyed by the issuing frame as well as the id, because the counter exists
-  ;; to discriminate a supersession, and supersession is frame-scoped. Keyed by
-  ;; the raw id alone, a request in frame B would take its FIRST issuance number
-  ;; from frame A's counter, perturbing B's `:work/id` for a supersession that
-  ;; never happened to it.
-  ;;
-  ;; Monotonic per (frame, request-id) WHILE THE ID IS LIVE: `next-issuance!`
-  ;; only ever advances it,
-  ;; so a superseded attempt (issuance N) and its superseder (N+1) carry
-  ;; distinct `:work/id`s, and a late completion of an old attempt cannot reuse
-  ;; a live issuance. The entry is EVICTED (not decremented) when
-  ;; the id's final attempt terminates with the counter still AT that attempt's
-  ;; issuance (`evict-issuance-on-completion!`), so an app minting an UNBOUNDED
-  ;; distinct-id space (e.g. `[:load-item item-id]` over an unbounded item
-  ;; space) does not accumulate one permanent entry per id ever requested on
-  ;; a long-running JVM. A re-issuance after a full eviction restarts at 1 —
-  ;; safe because the prior attempt is already terminal (its trace/reply
-  ;; emitted), so there is no live work-id collision to discriminate.
-  (atom {}))
-
-(defonce ^:private anonymous-issuance-counters
-  ;; [frame-id origin-event-id] → highest issuance number allocated so far to
-  ;; an ANONYMOUS request (nil `:request-id`) of that event in that frame.
-  ;;
-  ;; Held apart from `issuance-counters` so `issuance-counter-count` (the
-  ;; leak instrument for the UNBOUNDED request-id space) keeps its
-  ;; meaning, and NEVER evicted on completion: the compare-and-drop eviction
-  ;; protects only a supersession's newer live successor, so with two live
-  ;; anonymous siblings (1 and 2) the second completing first would drop the
-  ;; counter and hand the next request 1 while the first was still live — a
-  ;; live work-id collision. For an ordinary event the key space is (frames ×
-  ;; registered event-ids), which is bounded. A request issued from inside a
-  ;; spawned actor is keyed by the actor's ADDRESS (`<prefix>#<n>`, n only
-  ;; rises), which is not, so `abort-on-actor-destroy` drops the address's
-  ;; entry when the actor goes; a destroyed frame's entries
-  ;; are dropped by `abort-in-flight-on-frame-destroyed!`.
+  ;; frame-id → the highest issuance number that frame has allocated.
   (atom {}))
 
 (defn next-issuance!
-  "Allocate and return the next monotonic issuance number for `request-id`
-  AS ISSUED BY `frame-id`. The FIRST
-  issuance under a (frame, request-id) pair is 1; each subsequent re-issuance
-  in THAT frame (the caller bumps this before `supersede!`) returns the next
-  integer, so the superseded and superseding attempts carry distinct
-  `:work/id`s. A sibling frame reusing the same raw id keeps its own sequence
-  and starts at 1.
-
-  For a nil `request-id` (an ANONYMOUS request, whose logical id is
-  the originating event-id) the number comes from the per-(frame, event-id)
-  anonymous counter instead, keyed by `(first origin-event)`: the first
-  anonymous request of an event in a frame is 1, the next 2, and so on, never
-  reset by completion — so two anonymous requests of one event never share a
-  work id. The count restarts only when its owner goes: the frame, or the
-  spawned actor whose address is the event-id."
-  ([frame-id request-id] (next-issuance! frame-id request-id nil))
-  ([frame-id request-id origin-event]
-   (if (nil? request-id)
-     (let [k [frame-id (first origin-event)]]
-       (get (swap! anonymous-issuance-counters update k (fnil inc 0)) k))
-     (let [k [frame-id request-id]]
-       (get (swap! issuance-counters update k (fnil inc 0)) k)))))
-
-(defn evict-issuance-on-completion!
-  "Evict `request-id`'s issuance counter when the attempt that carried
-  `issuance` reaches a TERMINAL completion, bounding the
-  `issuance-counters` map for apps minting UNBOUNDED distinct request-ids.
-
-  Eviction is CONDITIONAL and atomic: the counter is dropped ONLY when it
-  still equals `issuance` — no fresh request has re-issued under the same id
-  since this attempt was allocated. That single-`swap!` compare-and-drop is
-  what preserves the anti-collision invariant the monotonic counter
-  exists for: when a supersede is in flight, `next-issuance!` has ALREADY
-  bumped the counter PAST the superseded attempt's `issuance` (it bumps before
-  `supersede!`, handlers.cljc), so this evict sees `counter > issuance`, skips,
-  and the counter survives for the live successor. A single-issuance request
-  (the leak vector) satisfies `counter == issuance`, so it evicts cleanly on
-  completion. A `nil` `request-id` is an anonymous request, whose counter
-  lives in `anonymous-issuance-counters` and is deliberately never evicted on
-  completion — no-op.
-
-  Called when a request is retired — never between attempts, where the
-  attempt continues under the same issuance.
-
-  `frame-id` is the ISSUING frame, so an eviction can only ever drop the
-  counter this attempt was allocated from and never a sibling frame's live
-  one."
-  [frame-id request-id issuance]
-  (when (and (some? request-id) (some? issuance))
-    (let [k [frame-id request-id]]
-      (swap! issuance-counters
-             (fn [counters]
-               (if (= issuance (get counters k))
-                 (dissoc counters k)
-                 counters)))))
-  nil)
+  "Allocate and return `frame-id`'s next issuance number: 1 for the frame's
+  first managed request, then 2, 3, … for every later one, named or
+  anonymous. A sibling frame runs its own sequence."
+  [frame-id]
+  (get (swap! issuance-counters update frame-id (fnil inc 0)) frame-id))
 
 (defn reset-issuance-counters-for-test!
-  "Test-time helper: drop the per-request-id issuance counters so
-  a fresh test run starts every request-id at issuance 1. Not part of the
-  user-facing API."
+  "Test-time helper: drop every frame's issuance counter, so a fresh test run
+  starts every frame at issuance 1. Not part of the user-facing API."
   []
   (reset! issuance-counters {})
-  (reset! anonymous-issuance-counters {})
   nil)
 
-(defn anonymous-issuance-counter-count
-  "Test/introspection helper: the number of resident
-  per-(frame, event-id) anonymous issuance counters. Not part of the
-  user-facing API."
-  []
-  (count @anonymous-issuance-counters))
-
 (defn issuance-counter-count
-  "Test/introspection helper: the number of resident per-request-id
-  issuance counters. Lets a leak test assert the map does not grow unbounded
-  across completed requests. Not part of the user-facing API."
+  "Test/introspection helper: the number of frames holding an issuance
+  counter. Lets a leak test assert that a destroyed frame's counter goes. Not
+  part of the user-facing API."
   []
   (count @issuance-counters))
 
@@ -334,8 +231,8 @@
     superseded))
 
 (defn clear-all-in-flight!
-  "Test-time helper: cancel every in-flight managed request, then drop the
-  issuance counters. Test fixtures use this between runs.
+  "Test-time helper: cancel every in-flight managed request, then drop every
+  frame's issuance counter. Test fixtures use this between runs.
 
   Symmetric with `:machines/reset-timers!`: a request sleeping in its retry
   backoff holds an armed `js/setTimeout` / `ScheduledFuture` that would
@@ -349,7 +246,6 @@
     (doseq [record (all-records registry)]
       (abort-record! record :test-reset)))
   (reset! issuance-counters {})
-  (reset! anonymous-issuance-counters {})
   nil)
 
 (defn in-flight-snapshot
@@ -457,14 +353,7 @@
                             :actor-id   actor-id
                             :url        (:url record)}
                            (true? (:sensitive? record)))))
-       (abort-record! record :actor-destroyed))
-     ;; An anonymous request issued from inside this actor took its issuance
-     ;; from the counter keyed by the actor's ADDRESS (`<prefix>#<n>`, n only
-     ;; rises), so keeping the entry would leave one per spawn for the frame's
-     ;; lifetime. Every request the address issued is terminal once the aborts
-     ;; above have run, so restarting its count cannot collide, even if the
-     ;; address is later minted again.
-     (swap! anonymous-issuance-counters dissoc [frame-id actor-id]))
+       (abort-record! record :actor-destroyed)))
    nil))
 
 ;; ---- the frame-lifecycle sweeps --------------------------------------------
@@ -563,13 +452,12 @@
   core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
   work gets its more specific `:actor-destroyed` semantics and resource-owned
   work its ledger/owner cleanup first; this sweep then catches the remaining
-  requests. Also drops the destroyed frame's anonymous issuance counters — the
-  only other place those entries go is `abort-on-actor-destroy`, which drops a
-  destroyed actor's. Idempotent; returns nil."
+  requests. Then drops the destroyed frame's issuance counter: every id it
+  minted is terminal by then, and the counter map stays bounded by the live
+  frames. Idempotent; returns nil."
   [frame-id]
   (abort-frame-records! frame-id :frame-destroyed :suppressed-on-frame-destroy)
-  (swap! anonymous-issuance-counters
-         #(into {} (remove (fn [[[f _] _]] (= f frame-id))) %))
+  (swap! issuance-counters dissoc frame-id)
   nil)
 
 ;; ---- spawned-actor detection ----------------------------------------------

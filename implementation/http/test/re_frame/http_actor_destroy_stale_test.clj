@@ -79,7 +79,7 @@
             (is (= {:rf.reply/status       :stale
                     :rf.reply/work-status  :suppressed
                     :rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete
-                    :rf.reply/work-id      [:rf.work/http [:worker/proc :slow] 1 1]}
+                    :rf.reply/work-id      [:rf.work/http 1 1]}
                    (stale-tags @traces [:rf.reply/status :rf.reply/work-status
                                         :rf.reply/stale-reason :rf.reply/work-id])))
             (is (= before (self-dispatches @traces))

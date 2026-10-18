@@ -259,7 +259,7 @@
 ;; Every completion (success, failure, or abort) flows through one canonical
 ;; reply map built in `re-frame.http.reply` — `:status` (`:ok` / `:error` /
 ;; `:cancelled`), `:value` on `:ok`, the classified `:rf.http/*` failure map
-;; verbatim under `:error`, `:rf.reply/work-id` `[:rf.work/http logical-id issuance
+;; verbatim under `:error`, `:rf.reply/work-id` `[:rf.work/http issuance
 ;; attempt]`, `:rf.reply/work-kind :http`, `:rf.reply/work-status`, `:attempt`,
 ;; `:rf.frame/id`, `:completed-at`, and `:correlation {:request-id …}` (the
 ;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
@@ -297,8 +297,8 @@
   [ctx]
   {:request-id   (:request-id ctx)
    :origin-event (:origin-event ctx)
-   ;; The per-request-id issuance discriminator rides into the
-   ;; work-id so a superseded attempt and its superseder carry distinct ids.
+   ;; The frame's issuance number rides into the work-id, so no two
+   ;; requests the frame issued share one.
    :issuance     (:issuance ctx)
    :attempt      (:attempt ctx)
    :frame        (:frame ctx)
@@ -466,7 +466,7 @@
   / `:attempt` / `:frame` identity facts, published at issuance);
   `current-work-id` is the SUPERSEDING attempt's work-id (the new live
   `:work/id`). The carried (superseded) and current (superseding) work ids are
-  `=`-distinct because the per-request-id issuance counter bumped — so tooling
+  `=`-distinct because each took its own issuance number — so tooling
   and conformance can tell the suppressed attempt from its replacement by
   `:work/id` (the EP-0011 single-attempt-identity rule).
 
@@ -804,12 +804,10 @@
 (defn- retire!
   "Retire a finished request: take its record out of the registry (by its
   token, so a successor reusing its frame, request id or actor is never
-  touched), evict its named issuance counter (an anonymous one lives until its
-  owner goes), and detach its external `:abort-signal` listener, so a shared
+  touched), and detach its external `:abort-signal` listener, so a shared
   or parent controller retains nothing. Reached only through `commit!`."
   [r]
   (rf.http.registry/clear-in-flight! (:request-id r) r)
-  (rf.http.registry/evict-issuance-on-completion! (:frame r) (:request-id r) (:issuance r))
   #?(:cljs (rf.http.transport-cljs/detach-external-abort! (:external-abort r)))
   nil)
 

@@ -715,21 +715,21 @@
 ;; the WHOLE trace buffer. The framework already names the attempt:
 ;; `:rf.http/issued` (emitted inside the issuing fx handler, so it rides
 ;; the issuing bundle's `:other`) carries the attempt-1 work id
-;; `[:rf.work/http logical-id issuance 1]`, and every terminal row carries
-;; the work id of the attempt that COMPLETED. After a retry the two differ
-;; in the fourth (attempt) slot, so the join is on the frame plus the
-;; three-element ISSUANCE PREFIX, never on full work-id equality.
-;; An anonymous request's logical id is the tagged
-;; `[:rf.http/anonymous event-id]`, numbered per (frame,
-;; event-id) and never reset, so the prefix is exact for it too.
+;; `[:rf.work/http issuance 1]`, and every terminal row carries the work id
+;; of the attempt that COMPLETED. After a retry the two differ in the third
+;; (attempt) slot, so the join is on the frame plus the two-element ISSUANCE
+;; PREFIX, never on full work-id equality. The issuance is the frame's own
+;; monotone number, so within one frame's life no two requests share a
+;; prefix, named or anonymous.
 ;;
-;; A named id IS legitimately reused (`[x 1 1]` again once the first
-;; attempt completed and its counter was evicted), so "the latest row by
-;; time" would hand an earlier record a later request's outcome. The rule
-;; is POSITIONAL instead: the first terminal row whose trace `:id` is
-;; greater than the record's own issued row. Trace ids are monotonic
-;; (`re-frame.trace/next-event-id`), which is also why nothing here reads
-;; `:time` to ORDER rows — two rows routinely share a millisecond.
+;; A frame destroyed and created again under the same id starts its numbering
+;; again, so one capture can hold two requests under one `[frame prefix]`
+;; key, and "the latest row by time" would hand an earlier record a later
+;; request's outcome. The rule is POSITIONAL instead: the first terminal row
+;; whose trace `:id` is greater than the record's own issued row. Trace ids
+;; are monotonic (`re-frame.trace/next-event-id`), which is also why nothing
+;; here reads `:time` to ORDER rows — two rows routinely share a
+;; millisecond.
 
 (def ^:private http-canonical-terminal-ops
   "The canonical completion rows. `:rf.http/aborted` and the failure-kind
@@ -741,13 +741,13 @@
   #{:rf.http/replied :rf.http/stale-suppressed})
 
 (defn- issuance-prefix
-  "The three-element issuance prefix of an HTTP work id, or nil for
-  anything that is not one."
+  "The two-element issuance prefix `[:rf.work/http issuance]` of an HTTP
+  work id, or nil for anything that is not one."
   [wid]
   (when (and (vector? wid)
              (= :rf.work/http (first wid))
-             (<= 3 (count wid)))
-    (subvec wid 0 3)))
+             (<= 2 (count wid)))
+    (subvec wid 0 2)))
 
 (defn- terminal-work-id
   "The work id a terminal row speaks for. A stale-suppression row carries
@@ -803,12 +803,10 @@
   reading of reply maps off event args the `:http-correlation` matcher
   makes.
 
-  A VECTOR per key, because a work id is legitimately reused once its
-  attempt has terminated — an explicit
-  `[:rf.http/managed-abort :y]` evicts `:y`'s issuance counter, so a
-  same-id re-issue in the same run is `[:rf.work/http :y 1 1]` again, and
-  both replies carry it; so does any named id re-issued after it
-  completed. `reply-link-for` resolves by position.
+  A VECTOR per key, because a work id recurs when its frame is destroyed
+  and created again under the same id: the new frame starts its numbering
+  again, so both incarnations' replies can carry `[:rf.work/http 1 1]`.
+  `reply-link-for` resolves by position.
 
   `:source :http` is required, not decorative: an app handler that
   forwards the reply map to another event carries the same work id, and
@@ -917,7 +915,7 @@
         t1      (:time terminal)
         elapsed (when (and (number? t0) (number? t1) (<= t0 t1)) (- t1 t0))
         attempt (or (:attempt tags)
-                    (when (and (vector? wid) (< 3 (count wid))) (nth wid 3)))
+                    (when (and (vector? wid) (< 2 (count wid))) (nth wid 2)))
         error   (:error tags)
         http-code (case status
                   :ok    (get-in tags [:meta :status])
@@ -992,17 +990,15 @@
 
   In-bundle attribution. With an issued row, a same-bundle HTTP row
   belongs to this record exactly when it comes AFTER the issued row and
-  its work id shares the record's issuance prefix. Position is the half
+  its work id shares the record's issuance prefix. The prefix is the half
   that separates an explicit `[:rf.http/managed-abort :x]` beside a
   same-id re-issue from an already-aborted `:abort-signal` firing at THIS
-  attempt — two cases the request-id alone cannot tell apart
-  — because the explicit abort evicts `:x`'s
-  issuance counter and the re-issue reuses the SAME work id, so the ids
-  agree and only the order differs: that abort fires before the re-issue's
-  issued row, a same-attempt abort after it. The prefix is the half that
-  rejects the abort a supersession fires, which lands after the issued
-  row but names the superseded issuance. Without an issued row,
-  attribution falls back to `http-row-for-this-record?`.
+  attempt — two cases the request-id alone cannot tell apart — because the
+  explicit abort names the earlier request's issuance; it also rejects the
+  abort a supersession fires, which lands after the issued row but names
+  the superseded issuance. Position is the half that rejects a row from
+  before this record was issued. Without an issued row, attribution falls
+  back to `http-row-for-this-record?`.
 
   `opts` also carries `:sole-http-fx?` — whether this is the bundle's
   only HTTP effect, which the walker knows and the adapter cannot. The

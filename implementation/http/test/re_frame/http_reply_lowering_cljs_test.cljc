@@ -22,7 +22,7 @@
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= {:status :ok :value {:title "Welcome"} :meta meta*
               :rf.reply/work-status :completed :rf.reply/work-kind :http
-              :rf.reply/work-id [:rf.work/http :article/by-id 1 1] :rf.frame/id :app/main
+              :rf.reply/work-id [:rf.work/http 1 1] :rf.frame/id :app/main
               :completed-at 1781078400456 :correlation {:request-id :article/by-id}}
              (select-keys r [:status :value :meta :rf.reply/work-status :rf.reply/work-kind
                              :rf.reply/work-id :rf.frame/id :completed-at :correlation :request-id])))
@@ -48,7 +48,7 @@
   ;; The retry-exhausted, 4xx and aborted stamps are pinned end to end in
   ;; http-reply-lowering-test; this is the anonymous, no-retry shape.
   (is (= {:kind :rf.http/transport :message "boom" :request {:method :post :url "/x"}
-          :request-id nil :attempt 1 :work/id [:rf.work/http [:rf.http/anonymous :e] 1 1]}
+          :request-id nil :attempt 1 :work/id [:rf.work/http 1 1]}
          (select-keys (rf.http.reply/self-identify-failure
                         {:kind :rf.http/transport :message "boom"}
                         {:method :post :url "/x" :request-id nil :origin-event [:e] :attempt 1})
