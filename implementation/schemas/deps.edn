@@ -10,18 +10,13 @@
 ;;           day8/re-frame2-schemas {:mvn/version "..."}}}
 ;;
 ;; Requiring `re-frame.schemas`
-;; itself `:require`s `re-frame.schemas.malli`, which publishes Malli's
-;; validate / explain into the late-bind hook table at namespace load
-;; (and humanize too, in development builds). The default validator is
-;; therefore active when a schema is registered on both CLJS and the JVM.
+;; itself `:require`s `re-frame.schemas.malli`, whose Malli bundle is the
+;; default validator, so a registered schema validates on both CLJS and
+;; the JVM.
 ;;
 ;; Apps that want schemas-as-inert-data without the Malli validation
 ;; surface call `(set-schema-fns! {:validate nil})` at boot, which disables every
-;; validation site (Spec 010 §Worked example). The residual soft-pass arm
-;; in `re-frame.schemas.validator` is the defensive fallback for a non-Malli
-;; port that never bound the Malli hook (and for test harnesses that
-;; deliberately unbind it), not the default state after a plain
-;; `(:require [re-frame.schemas])`.
+;; validation site (Spec 010 §Worked example).
 ;;
 ;; Per Spec 006 §Adapter shipping convention, this artefact depends
 ;; on core; core never depends on this artefact. The cross-reference

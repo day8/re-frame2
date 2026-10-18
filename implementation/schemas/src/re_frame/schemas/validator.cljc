@@ -7,10 +7,11 @@
   This is the seam Malli plugs into by default. Applications may install a
   different validator bundle, or nil for no validation.
 
-  Three fns are registered separately so the validate hot path stays
-  cheap (validate returns truthy/falsey; explain is only invoked on
-  the failure branch to populate the trace's `:explain` key; print is
-  only invoked when the digest pipeline serialises a schema):
+  The fns are registered separately so the validate hot path stays
+  cheap (validate returns truthy/falsey; explain and humanize are only
+  invoked on the failure branch to populate the trace's `:explain` and
+  `:explain-humanized` keys; print is only invoked when the digest
+  pipeline serialises a schema):
 
     :validate (fn [schema value] truthy?)
               — same shape as Malli's `validate`. nil disables; the
@@ -19,6 +20,11 @@
     :explain  (fn [schema value] explanation)
               — same shape as Malli's `explain`. nil = no explanation
               attached to the failure trace.
+
+    :humanize (fn [explanation] readable)
+              — turns an `:explain` value into the operator-readable
+              `:explain-humanized` payload (Spec 010 §Humanize). nil =
+              the failure trace carries `:explain` alone.
 
     :print    (fn [schema-value] canonical-string)
               — per Spec 010 §Schema digest line 491, the registered
@@ -42,34 +48,11 @@
   captured value (or `default-schema-fns`) — so no separate reset,
   snapshot, or restore verb is needed.
 
-  The Malli adapter publishes its functions through late binding. The façade
-  loads that adapter automatically; the absent-hook soft-pass remains a
-  defensive contract for substitute ports and isolated tests."
-  (:require [re-frame.late-bind :as rf.late-bind]))
+  The default bundle is the Malli adapter's (`re-frame.schemas.malli`), so
+  loading this namespace loads Malli."
+  (:require [re-frame.schemas.malli :as rf.schemas.malli]))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-(defn- default-malli-validate
-  "The default validator — delegates to `malli.core/validate` via the
-  late-bind hook `:schemas/malli-validate` published by
-  `re-frame.schemas.malli`. Soft-passes (returns true) when
-  the adapter ns is not loaded, per Spec 010 §Recommended soft-pass.
-
-  Apps that want Malli-absent behaviour to be a hard fail install
-  a stricter validator via `set-schema-fns!`."
-  [schema value]
-  (if-let [v (rf.late-bind/get-fn :schemas/malli-validate)]
-    (v schema value)
-    true))
-
-(defn- default-malli-explain
-  "The default explainer — delegates to `malli.core/explain` via the
-  late-bind hook `:schemas/malli-explain` published by
-  `re-frame.schemas.malli`. Returns nil when the adapter
-  ns is not loaded — the failure trace's `:explain` slot then reads nil."
-  [schema value]
-  (when-let [e (rf.late-bind/get-fn :schemas/malli-explain)]
-    (e schema value)))
 
 (defn- compare-by-pr-str
   "Spec 010 §Digest algorithm step 1 ordering — total order on EDN
@@ -213,25 +196,17 @@
 
 (def default-schema-fns
   "The framework's own validator bundle, as a public VALUE — the state the
-  three atoms below hold before any app installs a port.
+  atoms below hold before any app installs a port: the Malli bundle
+  (`re-frame.schemas.malli/bundle`) completed with the EDN schema printer.
 
-    {:validate default-malli-validate   ;; late-binds to `:schemas/malli-validate`,
-                                        ;;   soft-passes while that hook is unbound
-     :explain  default-malli-explain    ;; late-binds to `:schemas/malli-explain`
-     :print    default-edn-print}       ;; the EDN canonicaliser the digest hashes
+    {:validate …                    ;; Malli, compiled once per schema value
+     :explain  malli.core/explain
+     :humanize malli.error/humanize ;; development builds; nil in production
+     :print    default-edn-print}   ;; the EDN canonicaliser the digest hashes
 
   Restore the framework defaults by installing it — `(set-schema-fns!
-  default-schema-fns)`. Because the map carries the same fn OBJECTS the
-  atoms were seeded with, `using-default-validator?` answers true again
-  afterwards.
-
-  Note the bundle is the FRAMEWORK default, not \"the Malli bundle\":
-  `:print` is the EDN canonicaliser rather than anything Malli supplies,
-  and `:validate` / `:explain` soft-pass when the Malli adapter has not
-  been loaded."
-  {:validate default-malli-validate
-   :explain  default-malli-explain
-   :print    default-edn-print})
+  default-schema-fns)`."
+  (assoc rf.schemas.malli/bundle :print default-edn-print))
 
 (defonce
   ^{:doc "The currently-registered validator fn — `(fn [schema value]
@@ -240,7 +215,7 @@
           disables validation everywhere (every `validate-*!` call
           returns true without inspecting the schema)."}
   validator-fn
-  (atom default-malli-validate))
+  (atom (:validate default-schema-fns)))
 
 (defonce
   ^{:doc "The currently-registered explainer fn — `(fn [schema value]
@@ -248,7 +223,16 @@
           key. Default delegates to Malli's `explain`; nil means no
           explanation is attached."}
   explainer-fn
-  (atom default-malli-explain))
+  (atom (:explain default-schema-fns)))
+
+(defonce
+  ^{:doc "The currently-registered humanizer fn — `(fn [explanation]
+          readable)`. Populates the failure trace's `:explain-humanized`
+          key from the explainer's output. Default is Malli's `humanize`
+          in development builds and nil in production; nil means the
+          trace carries `:explain` alone."}
+  humanizer-fn
+  (atom (:humanize default-schema-fns)))
 
 (defonce
   ^{:doc "The currently-registered schema-print fn — `(fn [schema-value]
@@ -265,11 +249,12 @@
   (atom default-edn-print))
 
 (defn set-schema-fns!
-  "THE DOOR. Install any subset of the validator / explainer / printer
-  bundle from a single map.
+  "THE DOOR. Install any subset of the validator / explainer / humanizer /
+  printer bundle from a single map.
 
     (set-schema-fns! {:validate validate-fn
                       :explain  explain-fn
+                      :humanize humanize-fn
                       :print    print-fn})
 
   Each key is optional; a key that is absent leaves the existing
@@ -282,6 +267,8 @@
                validation (every site soft-passes).
     :explain   (fn [schema value] explanation) | nil — nil leaves the
                failure trace's `:explain` slot nil.
+    :humanize  (fn [explanation] readable) | nil — nil leaves the failure
+               trace without `:explain-humanized`.
     :print     (fn [schema-value] canonical-string) | nil — the schema-print
                companion the digest pipeline hashes. nil coerces
                to the default EDN canonicaliser, so `printer-fn` is
@@ -296,23 +283,24 @@
   builds.
 
   Writes are last-write-wins per key and are NOT transactional — the
-  three `reset!`s are separate, and configuration is expected to be
+  `reset!`s are separate, and configuration is expected to be
   quiescent at boot.
 
   Returns the installed bundle as a map — `{:validate @validator-fn
-  :explain @explainer-fn :print @printer-fn}` — reflecting the live
-  state of all three functions after this call. A bundle setter returns
+  :explain @explainer-fn :humanize @humanizer-fn :print @printer-fn}` —
+  reflecting the live state of every function after this call. A bundle setter returns
   its bundle: the return mirrors this fn's own input shape, so a caller
   observes everything now installed, including keys it did NOT touch and
-  the nil-printer coercion of `:print`. `:validate` / `:explain` may be
-  nil (each disables that fn); `:print` is never nil (always at least
-  `default-edn-print`).
+  the nil-printer coercion of `:print`. `:validate` / `:explain` /
+  `:humanize` may be nil (each disables that fn); `:print` is never nil
+  (always at least `default-edn-print`).
 
   Restoring is the same call: install a value captured by `schema-fns`,
   or `default-schema-fns` to return to the framework defaults."
-  [{:keys [validate explain print] :as m}]
+  [{:keys [validate explain humanize print] :as m}]
   (when (contains? m :validate) (reset! validator-fn validate))
   (when (contains? m :explain)  (reset! explainer-fn explain))
+  (when (contains? m :humanize) (reset! humanizer-fn humanize))
   ;; Establish the printer-never-nil invariant at every write site.
   (when (contains? m :print)
     (reset! printer-fn (or print default-edn-print)))
@@ -320,14 +308,17 @@
   ;; nil-printer coercion. This is a boot-time configuration path.
   {:validate @validator-fn
    :explain  @explainer-fn
+   :humanize @humanizer-fn
    :print    @printer-fn})
 
 (defn schema-fns
-  "THE READ. Return the installed validator / explainer / printer as one
-  value, in the SAME shape `set-schema-fns!` accepts and returns:
+  "THE READ. Return the installed validator / explainer / humanizer /
+  printer as one value, in the SAME shape `set-schema-fns!` accepts and
+  returns:
 
     {:validate @validator-fn   ;; may be nil (validation disabled)
      :explain  @explainer-fn   ;; may be nil (no explanation)
+     :humanize @humanizer-fn   ;; may be nil (no humanized explanation)
      :print    @printer-fn}    ;; never nil (always at least default-edn-print)
 
   so it round-trips: `(set-schema-fns! (schema-fns))` is a no-op. That
@@ -345,16 +336,8 @@
   []
   {:validate @validator-fn
    :explain  @explainer-fn
+   :humanize @humanizer-fn
    :print    @printer-fn})
-
-(defn using-default-validator?
-  "True when `validator-fn` is still the framework-default
-  `default-malli-validate`. Used by the
-  `:rf.warning/schema-validator-unavailable` registration-time check to
-  distinguish 'app hasn't opted out of Malli' from
-  'app installed its own validator and knows what it's doing'."
-  []
-  (identical? @validator-fn default-malli-validate))
 
 (defn run-validator
   "Hot-path entry — invoke the registered validator fn against a
@@ -373,6 +356,14 @@
   [schema value]
   (when-let [f @explainer-fn]
     (f schema value)))
+
+(defn run-humanizer
+  "Invoke the registered humanizer fn against an explainer's output. Returns
+  nil when no humanizer is registered (nil); the failure trace then carries
+  `:explain` without `:explain-humanized`."
+  [explanation]
+  (when-let [f @humanizer-fn]
+    (f explanation)))
 
 (defn run-printer
   "Hot-path entry — invoke the registered schema-print companion against

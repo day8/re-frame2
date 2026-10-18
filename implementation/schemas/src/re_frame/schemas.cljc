@@ -18,7 +18,7 @@
   This namespace re-exports the supported entry points and publishes the
   hooks used by core and other optional artefacts."
   (:require [re-frame.late-bind :as rf.late-bind]
-            ;; Publishes the default validator bundle at namespace load.
+            ;; The default validator bundle.
             [re-frame.schemas.malli]
             [re-frame.schemas.digest :as rf.schemas.digest]
             [re-frame.schemas.storage :as rf.schemas.storage]
@@ -49,11 +49,9 @@
 (def app-schemas          rf.schemas.storage/app-schemas)
 (def app-schema-meta      rf.schemas.storage/app-schema-meta)
 
-;; Test-support clears for the once-per-process registration warnings. The
+;; Test-support clear for the once-per-process registration warning. The
 ;; registrations themselves are registrar state, which the registrar's own
 ;; snapshot / restore / clear covers.
-(def clear-validator-unavailable-warned!
-  rf.schemas.storage/clear-validator-unavailable-warned!)
 (def clear-walker-opaque-warned!
   rf.schemas.storage/clear-walker-opaque-warned!)
 

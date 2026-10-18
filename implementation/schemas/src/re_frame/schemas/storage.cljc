@@ -348,23 +348,6 @@
         (rf.frame/emit-no-frame-context! payload)
         (throw (rf.error/ex-info-from-data payload))))))
 
-;; ---- validator-unavailable warning ----------------------------------------
-;; The default validator deliberately soft-passes when its Malli hook is
-;; absent. Loading the facade normally installs that hook, so warn only when
-;; the default remains selected and the hook is nevertheless unavailable.
-;; Custom validators are an explicit opt-out and do not warn.
-
-(defonce ^:private validator-unavailable-warned
-  ;; Process-lifecycle one-shot. Reset by `clear-validator-unavailable-warned!`
-  ;; (used by the schemas test-fixture's `reset-runtime`).
-  (atom false))
-
-(defn clear-validator-unavailable-warned!
-  "Reset the one-shot `:rf.warning/schema-validator-unavailable` cache.
-  Used by test fixtures so each case starts from a clean diagnostic slate."
-  []
-  (reset! validator-unavailable-warned false))
-
 ;; ---- walker-opaque warning -------------------------------------------------
 ;; The pure-data walker can inspect vector-form Malli EDN but not compiled
 ;; schema objects. Warn once when any opaque descendant could hide per-slot
@@ -460,33 +443,6 @@
                      " handler/cofx/sub registration-meta.) Per"
                      " Spec 010 §The `:schema` value is opaque to"
                      " re-frame.")})))))
-
-(defn- maybe-warn-validator-unavailable!
-  "Emit `:rf.warning/schema-validator-unavailable` once per process when
-  `reg-app-schema` / `reg-app-schemas` is invoked AND the Malli adapter
-  is unloaded AND the framework-default validator is still installed.
-
-  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
-  so the production bundle DCEs the consult+emit branch (Spec 009
-  §Production builds). The keyword `:rf.warning/schema-validator-
-  unavailable` is a literal arg at the call site — moving the gate
-  inside this helper would leave the literal reachable from the
-  unconditional helper call and defeat the elision sentinel."
-  []
-  (when (and (not @validator-unavailable-warned)
-             (nil? (rf.late-bind/get-fn :schemas/malli-validate))
-             (rf.schemas.validator/using-default-validator?))
-    (when (compare-and-set! validator-unavailable-warned false true)
-      (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
-        (emit! :warning :rf.warning/schema-validator-unavailable
-               {:reason
-                (str "reg-app-schema was called but :schemas/malli-validate"
-                     " is unbound and the framework-default validator is"
-                     " still installed — every validation site soft-passes."
-                     " Require `re-frame.schemas.malli` at app boot to"
-                     " activate Malli validation, or call"
-                     " `set-schema-fns!` with a non-default `:validate` fn"
-                     " to suppress this warning.")})))))
 
 ;; ---- registration-time :rf.schema/violation trace -------------------------
 ;;
@@ -680,7 +636,6 @@
                            (rf.registrar/register! :app-schema path schema-meta))]
        ;; Read-only diagnostics are absent from production builds.
        (when rf.interop/debug-enabled?
-         (maybe-warn-validator-unavailable!)
          (maybe-warn-walker-opaque! schema path)
          (maybe-emit-schema-violations! path (some? was) (:schema was) schema))
        path))))
