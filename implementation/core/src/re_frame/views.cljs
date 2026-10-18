@@ -52,6 +52,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace :as rf.trace :include-macros true]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.views.provider :as rf.views.provider]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
 
@@ -192,8 +193,10 @@
 ;; event-pipeline sense). The Xray Reactive panel needs
 ;; run-attribution per re-render, but a
 ;; full-page re-render can fire hundreds of view-render emits and blow
-;; the per-run buffer's heap budget. The cap matches the
-;; run-cause sub-cap (100); when crossed, the view-render emission
+;; the per-run buffer's heap budget. The count is kept per frame on
+;; core's own run state (`re-frame.trace.tooling/claim-render!`), so the
+;; cap holds without the epoch artefact and for renders after a run
+;; settles; when crossed, the view-render emission
 ;; site fires a single :rf.view/rendered-cap-reached marker once per
 ;; run and skips subsequent :rf.view/rendered emits (the
 ;; :view/render emit is NOT capped — that op rides the per-view-render
@@ -278,13 +281,14 @@
     :cause-subs     — (when in-cascade) distinct sub-ids that ran in the
                       cascade, first-seen order, capped at 100.
 
-  Resolved via the epoch capture's in-flight buffer; the attribution
-  slots are absent (or the buffer returns nil) when re-frame.epoch is not
-  on the classpath — in that case the op fires without attribution slots
-  so consumers without the epoch artefact still see the marker. Capped at
-  100 `:rf.view/rendered` per cascade with a one-shot
-  `:rf.view/rendered-cap-reached` marker (carries `:frame` +
-  `:dropped-after`)."
+  The attribution slots are resolved via the epoch capture's in-flight
+  buffer and are absent when re-frame.epoch is not on the classpath — the
+  op still fires, without them. Capped at 100 `:rf.view/rendered` per
+  frame per run with a one-shot `:rf.view/rendered-cap-reached` marker
+  (carries `:frame` + `:dropped-after`). The budget is core's
+  (`re-frame.trace.tooling/claim-render!`), not epoch's: it resets when a
+  run starts in the frame, and renders after the run settles count
+  against that run."
   [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
   (when rf.interop/debug-enabled?
     (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
@@ -293,7 +297,7 @@
       ;; (or returns nil) when re-frame.epoch is not on the classpath.
       (let [cause-fn (rf.late-bind/get-fn-cached :epoch/run-cause)
             cause    (when cause-fn (cause-fn frame-id))
-            n-so-far (long (or (:rendered-so-far cause) 0))
+            n-so-far (rf.trace.tooling/claim-render! frame-id)
             ;; The per-view re-render cause: the first sub in
             ;; THIS view's read-set whose value changed in the run.
             ;; `deref-subs` are query-vectors `[query-id args]`;

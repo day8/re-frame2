@@ -88,10 +88,38 @@
   (swap! listeners dissoc id)
   nil)
 
+;; ---- per-run :rf.view/rendered budget (dev-only) -------------------------
+;;
+;; Per Spec 009 §`:rf.view/rendered`, a frame emits at most
+;; `re-frame.views`' cap of `:rf.view/rendered` per run. The count is kept
+;; here, on core's own run state, so the cap holds whether or not the
+;; optional epoch artefact is loaded. A frame's count resets when a run
+;; starts in it (`:rf.event/run-start`, seen by `deliver-to-tooling!`), and
+;; renders after the run settles — React's post-settle batch, the common
+;; browser case — keep counting against that run until the next one starts.
+
+(defonce ^:private rendered-counts (atom {}))
+
+(defn claim-render!
+  "Count one `:rf.view/rendered` against `frame-id`'s current run and
+  return how many renders the run had claimed before this one."
+  [frame-id]
+  (get (first (swap-vals! rendered-counts update frame-id (fnil inc 0)))
+       frame-id 0))
+
+(defn- reset-render-budget!
+  "Start a fresh render budget for the frame `event` names when `event` is
+  a run start."
+  [event]
+  (when (= :rf.event/run-start (:operation event))
+    (swap! rendered-counts dissoc (get-in event [:tags :frame]))))
+
 (defn clear-listeners!
-  "Drop every registered listener."
+  "Drop every registered listener and every frame's render budget. The
+  test-runtime reset calls this between scenarios."
   []
   (reset! listeners {})
+  (reset! rendered-counts {})
   nil)
 
 ;; ---- per-frame run-keyed trace rings (dev-only) ---------------------
@@ -214,7 +242,8 @@
   trace rings."
   [frame-id]
   (when rf.interop/debug-enabled?
-    (swap! trace-rings dissoc frame-id))
+    (swap! trace-rings dissoc frame-id)
+    (swap! rendered-counts dissoc frame-id))
   nil)
 
 (defn- push-to-ring!
@@ -497,7 +526,8 @@
   []
   (when rf.interop/debug-enabled?
     (reset! trace-rings {})
-    (reset! process-events-retained default-events-retained))
+    (reset! process-events-retained default-events-retained)
+    (reset! rendered-counts {}))
   nil)
 
 (defn current-trace-buffer-config
@@ -1183,6 +1213,7 @@
   callback is re-entered. The ring push happens inline (emission order)."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
+   (reset-render-budget! event)
    (when retain? (push-to-ring! event))
    ;; SSR's dev error capture rides this late-bind hook, not the listener
    ;; registry: it sees every event a listener would, synchronously and
