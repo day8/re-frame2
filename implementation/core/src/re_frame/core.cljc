@@ -805,26 +805,6 @@
                              doc-or-spec
                              spec-or-nil))))
 
-;; ---- public helpers re-exported for test access -------------------------
-;;
-;; Tests reach `re-frame.core/expand-reg-view` and
-;; `re-frame.core/parse-reg-view-args` directly; the helpers themselves
-;; live in `re-frame.core-reg-view-macro` (JVM-only — used at macro-
-;; expansion time).
-
-#?(:clj
-   (do
-     (def ^{:no-doc true
-            :doc "JVM-only macro-helper re-exposed for tests that reach
-  `re-frame.core/expand-reg-view` directly. Not part of the public
-  surface — see `re-frame.core-reg-view-macro/expand-reg-view`."}
-       expand-reg-view             rf.core-reg-view-macro/expand-reg-view)
-     (def ^{:no-doc true
-            :doc "JVM-only macro-helper re-exposed for tests that reach
-  `re-frame.core/parse-reg-view-args` directly. Not part of the public
-  surface — see `re-frame.core-reg-view-macro/parse-reg-view-args`."}
-       parse-reg-view-args         rf.core-reg-view-macro/parse-reg-view-args)))
-
 ;; ---- view registration ---------------------------------------------------
 
 (defn reg-view*

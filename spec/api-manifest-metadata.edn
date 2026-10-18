@@ -1802,8 +1802,8 @@
   ;;     replay-epoch!, replace-frame-state! — are called here, tiered
   ;;     :tooling. Only `epoch-history` also has a facade forwarder
   ;;     (`re-frame.core` row above, the same tier).
-  ;;   * FIVE implementation seams — hook targets `re-frame.core` reaches
-  ;;     through `re-frame.core-epoch`'s defwrappers — keep a row, tiered
+  ;;   * FIVE implementation seams — `:epoch/*` late-bind hook targets the
+  ;;     facade and the test-support reset reach — keep a row, tiered
   ;;     :implementation, following `settle!` rather than `^:no-doc` —
   ;;     the row is the only record they have, and this repo tiers a seam
   ;;     honestly rather than quieting it (see the note at the head of this
