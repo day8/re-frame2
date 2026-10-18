@@ -464,8 +464,8 @@
   ;; `implementation/fresco/src` is a `roster-covered-roots` entry, so every
   ;; namespace under it is classified: the five
   ;; OPTIONAL AUTHORING MODULES and the two TOOL-TIER namespaces below, plus
-  ;; the door and `.server` above, with the eighteen `re-frame.fresco.impl.*`
-  ;; namespaces recorded in the generator's `internal-namespaces`.
+  ;; the door and `.server` above, with every `re-frame.fresco.impl.*`
+  ;; namespace internal by the generator's `internal-namespace-prefix`.
   ;;
   ;; They land HERE rather than in `jvm-namespaces` for the same reason
   ;; `.server` does: every one is `.cljs` (or, for `.native`, a `.cljc` whose

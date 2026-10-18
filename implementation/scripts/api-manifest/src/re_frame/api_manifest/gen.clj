@@ -231,9 +231,10 @@
 ;; covered root has been ACCOUNTED FOR — named either in `jvm-namespaces`
 ;; above (a supported surface, introspected and rowed), in the sidecar's
 ;; `:cljs-only` rows (a surface the JVM cannot require), or in
-;; `internal-namespaces` below (plumbing nobody authors against). A new
-;; namespace is in none of the three, so it fails BY NAME with the
-;; ways to answer for it. Classification stays a human decision; only the
+;; `internal-namespaces` below (plumbing nobody authors against; the Fresco
+;; `impl` subtree is matched by `internal-namespace-prefix` instead of
+;; listed). A new namespace is in none of the three, so it fails BY NAME
+;; with the ways to answer for it. Classification stays a human decision; only the
 ;; OBLIGATION to make one is automated.
 ;;
 ;; WHY THESE ROOTS AND NOT EVERY TREE. Enrolling a tree is not free: every
@@ -283,8 +284,9 @@
 (def internal-namespaces
   "Source namespaces under `roster-covered-roots` that are deliberately NOT a
   supported surface: SSR pipeline internals, host-adapter plumbing and
-  emitters, the Fresco runtime beneath its door, and the per-concern siblings
-  the routing and resources façades compose. Nothing here is published,
+  emitters, and the per-concern siblings the routing and resources façades
+  compose; the Fresco runtime beneath its door is internal by NAME instead,
+  under `internal-namespace-prefix`. Nothing here is published,
   documented or rowed in the manifest — being on this list is the RECORD of
   that decision, not a consequence of it.
 
@@ -338,49 +340,6 @@
      re-frame.ssr.ring.pipeline
      re-frame.ssr.ring.shell
      re-frame.ssr.ring.trust
-     ;; --- implementation/fresco/src ---------------------------------------
-     ;; Everything under `re-frame.fresco.impl.*` and nothing else: the door
-     ;; (`re-frame.fresco`), its five optional authoring modules, its SSR
-     ;; module and its two tool-tier namespaces are all ENROLLED instead — nine
-     ;; namespaces of the tree's twenty-seven, leaving these eighteen. The `impl`
-     ;; segment is the artefact's own published boundary, stated in
-     ;; `docs/api/re-frame.fresco.md` and in spec/Conventions.md's artefact
-     ;; row: "everything else is `re-frame.fresco.impl.*` and is not a
-     ;; consumer surface". So the roster and the naming agree here, which the
-     ;; SSR trees above could not manage — but the roster is still written out
-     ;; rather than derived from the segment, because a prefix rule would
-     ;; silently absorb a future non-`impl` namespace that nobody classified,
-     ;; which is the exact failure this gate exists to prevent.
-     ;; The render pipeline: hiccup in, React elements out, and the commit
-     ;; fence that keeps one render pass on one commit.
-     re-frame.fresco.impl.codec
-     re-frame.fresco.impl.collector
-     re-frame.fresco.impl.generation
-     re-frame.fresco.impl.slot
-     ;; Props and callbacks: intent lowering, controlled-element converge.
-     re-frame.fresco.impl.controlled
-     re-frame.fresco.impl.intent
-     ;; Roots, mounting and the hydration adoption window.
-     re-frame.fresco.impl.mount
-     re-frame.fresco.impl.roots
-     ;; The two in-tree frame boundaries' shells, whose door re-exports them
-     ;; as `h/frame-root` / `h/frame-provider`.
-     re-frame.fresco.impl.frame-boundary
-     ;; Frame-locked ops and instance-key local state.
-     re-frame.fresco.impl.frames
-     re-frame.fresco.impl.state
-     ;; Refusals: the one constructor, the dev-only ledger, and the runtime's
-     ;; own error boundary component.
-     re-frame.fresco.impl.boundary
-     re-frame.fresco.impl.error
-     ;; The impure halves of the optional modules, whose doors are the
-     ;; enrolled `re-frame.fresco.overlay` / `.motion` namespaces, plus the
-     ;; portal and route-link markup shapes the door re-exports.
-     re-frame.fresco.impl.overlay
-     re-frame.fresco.impl.portal
-     re-frame.fresco.impl.presence
-     re-frame.fresco.impl.presence-react
-     re-frame.fresco.impl.route-link
      ;; --- implementation/routing/src ---------------------------------------
      ;; The door is `re-frame.routing`, enrolled above, and it says so in its
      ;; own docstring: "This namespace is the public boot point and facade for
@@ -584,6 +543,27 @@
      ;; fixture resets resource caches when the test requires it.
      re-frame.resources.test-support})
 
+(def internal-namespace-prefix
+  "The one subtree recorded as internal by its NAME rather than entry by
+  entry: every namespace under `re-frame.fresco.impl.`. The `impl` segment is
+  the Fresco artefact's own published boundary, stated in its
+  spec/Conventions.md artefact row: \"Everything else is
+  `re-frame.fresco.impl.*` and is not a consumer surface\". The rest of the
+  tree — the door (`re-frame.fresco`), its optional authoring modules, its SSR
+  module and its tool-tier namespaces — is enrolled as a public surface.
+
+  The rule absorbs only that subtree, so a new namespace beside it
+  (`re-frame.fresco.x`) is still unaccounted and fails by name, and a public
+  enrolment inside it is refused as contradictory. No other tree takes a
+  prefix: the SSR, routing and resources trees carry no such boundary in
+  their names, so each of their namespaces is classified in
+  `internal-namespaces` above."
+  "re-frame.fresco.impl.")
+
+(defn- internal-by-prefix?
+  [ns-sym]
+  (str/starts-with? (name ns-sym) internal-namespace-prefix))
+
 (defn- repo-file
   "Resolve a `/`-joined repo-relative path against `repo-root`, portably."
   [rel-path]
@@ -631,12 +611,11 @@
         enrolled (set/intersection (set jvm-namespaces) present)
         public   (set/union enrolled
                             (set/intersection (cljs-only-namespaces sidecar)
-                                              present))]
-    {:unaccounted   (vec (sort (set/difference present
-                                               (set/union public
-                                                          internal-namespaces))))
+                                              present))
+        internal (into internal-namespaces (filter internal-by-prefix?) present)]
+    {:unaccounted   (vec (sort (set/difference present (set/union public internal))))
      :stale         (vec (sort (set/difference internal-namespaces present)))
-     :contradictory (vec (sort (set/intersection public internal-namespaces)))}))
+     :contradictory (vec (sort (set/intersection public internal)))}))
 
 (defn assert-roster-complete!
   "Throw with an actionable message when `present` reveals roster drift.
@@ -672,7 +651,8 @@
               (str "Contradictory classification — these namespaces are BOTH "
                    "enrolled as a public surface (`jvm-namespaces`, or a "
                    "sidecar `:cljs-only` row) AND recorded as internal in "
-                   "`internal-namespaces`. A namespace is one or the other; "
+                   "`internal-namespaces` or under `internal-namespace-prefix`. "
+                   "A namespace is one or the other; "
                    "remove the wrong entry:\n  "
                    (str/join "\n  " contradictory))
               {:contradictory contradictory})))
