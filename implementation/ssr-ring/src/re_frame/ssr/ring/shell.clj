@@ -7,47 +7,18 @@
   first-time user gets a working SSR endpoint without writing string
   concatenation glue.
 
+  The envelope, the payload `<script>` tag and the `<html>` attribute bag
+  are the SSR artefact's (`re-frame.ssr.html-helpers/html-document`,
+  `payload-script-tag`, `html-attr-bag`), shared with Fresco's server
+  `document`; this namespace owns Ring's defaults.
+
   The hydration EDN is escaped with the EDN-aware script-body encoder:
   string content cannot close the script element, token content still
   round-trips through the EDN reader, and unsafe token-position breakout
   sequences fail loudly."
-  (:require [re-frame.ssr.constants :as rf.ssr.constants]
-            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
+  (:require [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
 (set! *warn-on-reflection* true)
-
-;; ---- shared <html> attribute bag (lang fallback) --------------------------
-
-(defn html-attr-bag
-  "Resolve the `<html>` attribute bag from the `:html-attrs` opt with a
-  `:lang` fallback. `:html-attrs` wins; when absent OR omitting `:lang`,
-  the `lang` argument is the fallback (an explicit `:lang` inside
-  `:html-attrs` takes precedence — the bag is used verbatim)."
-  [html-attrs lang]
-  (if (seq html-attrs)
-    (cond-> html-attrs
-      (not (contains? html-attrs :lang)) (assoc :lang lang))
-    {:lang lang}))
-
-;; ---- shared hydration-payload <script> envelope ---------------------------
-;;
-;; One helper holds the pinned id and the security-sensitive script-body
-;; escaping.
-
-(defn payload-script-tag
-  "Build the id-pinned `<script type=\"application/edn\">` carrying the
-  already-`pr-str`'d hydration payload EDN. `payload-edn` is escaped
-  through `html/escape-edn-script-body`: string content cannot close the
-  element, EDN token content remains readable, and unsafe token-position
-  breakout sequences fail loudly.
-
-  The id is pinned in `re-frame.ssr.constants/payload-script-id`
-  (`\"__rf_payload\"`) — the contract with the client bootstrap's
-  `document.getElementById(...)` read."
-  [payload-edn]
-  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
-       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
-       "</script>"))
 
 (defn default-html-shell
   "The default HTML envelope. Returns a string wrapping the rendered
@@ -99,26 +70,15 @@
    {:keys [head html-attrs body-attrs lang app-element-id body-end script-src]}]
   ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
   ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
-  (let [attr-bag       (html-attr-bag html-attrs (or lang "en"))
-        app-element-id (or app-element-id "app")]
-    (str "<!DOCTYPE html>"
-         "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
-         "<head>"
-         "<meta charset=\"utf-8\">"
-         (or head "")
-         "</head>"
-         "<body" (rf.ssr.html-helpers/attr-string body-attrs) ">"
-         ;; Attribute values are escaped; raw trust applies only to the
-         ;; `:head` and `:body-end` content hooks.
-         "<div id=\"" (rf.ssr.html-helpers/escape-attr app-element-id) "\">"
-         body-html
-         "</div>"
-         (payload-script-tag payload-edn)
-         (when-not (false? script-src)
-           ;; `:script-src` is an attribute value; `:body-end` is raw content.
-           (str "<script src=\""
-                (rf.ssr.html-helpers/escape-attr (or script-src "/main.js"))
-                "\"></script>"))
-         (or body-end "")
-         "</body>"
-         "</html>")))
+  ;; Attribute values are escaped by the envelope; raw trust applies only to
+  ;; the `:head` and `:body-end` content hooks.
+  (rf.ssr.html-helpers/html-document
+    {:html-attrs     (rf.ssr.html-helpers/html-attr-bag html-attrs (or lang "en"))
+     :head           head
+     :body-attrs     body-attrs
+     :app-element-id (or app-element-id "app")
+     :body           body-html
+     :payload-script (rf.ssr.html-helpers/payload-script-tag payload-edn)
+     ;; `false` writes no bootstrap script; nil takes the default.
+     :script-src     (when-not (false? script-src) (or script-src "/main.js"))
+     :body-end       body-end}))
