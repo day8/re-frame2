@@ -76,9 +76,10 @@
   would fall into its default branch and scroll nothing. A value the
   schema ACCEPTS and the runtime then silently ignores is the worst of
   both worlds: the author's code reads correctly, runs clean, and does
-  nothing. Spec 012 offers no map form, and the enum here is what makes
-  that enforceable at the `:fx-args` boundary — an unsupported
-  strategy is rejected (fx skipped, `:rf.error/schema-validation-failure
+  nothing. Spec 012 offers no map form, and the enum here enforces that at
+  the `:fx-args` boundary for an app that emits `:rf.nav/scroll` itself (a
+  navigation's `:scroll` is refused earlier, by the navigate gate or by
+  `reg-route`) — an unsupported strategy is rejected (fx skipped, `:rf.error/schema-validation-failure
   :where :fx-args`) BEFORE the handler runs. The handler's own default
   branch is the schemas-absent backstop: it emits
   `:rf.error/unsupported-scroll-strategy` rather than returning nil, so

@@ -497,9 +497,11 @@ egress to trace / epochs / SSR."})
   stay synchronous.
 
   The strategy vocabulary is CLOSED. A default branch returning nil would
-  make every unrecognised strategy a silent no-op on a schemas-less host:
-  carried through the planner and then ignored, with no
-  diagnostic and no scroll. There is no extension seam here (no registry,
+  make every unrecognised strategy a silent no-op on a schemas-less host,
+  with no diagnostic and no scroll. A navigation never hands the fx such a
+  value — the navigate gate refuses a bad per-call `:scroll` and `reg-route`
+  a bad route `:scroll` — so it arrives only when an app emits
+  `:rf.nav/scroll` itself. There is no extension seam here (no registry,
   callback, or late-bound hook interprets a strategy), so an unrecognised
   value is a caller bug, not an extension point. It emits a loud
   `:rf.error/unsupported-scroll-strategy` naming the supported set on both
