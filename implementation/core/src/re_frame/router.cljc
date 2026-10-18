@@ -1283,8 +1283,10 @@
   chain, so every NON-COMMIT outcome must undo the advance in lock-step with
   the discarded `:db` — else a fresh flow's output never re-materialises (its
   row stuck advanced past a write that never landed, Spec 013 §Failure
-  semantics rule 2) and a vacation the advanced memo no longer records is
-  lost. Shared by every in-band non-commit arm in `commit-and-flow!` —
+  semantics rule 2), and an output path the pass vacated keeps its stale
+  value (the vacation left with the discarded `:db`, and the advanced memo no
+  longer names the path). Shared by every in-band non-commit arm in
+  `commit-and-flow!` —
   the schema-validation candidate REJECTION (the only state the
   rejection restores is this transient flow bookkeeping; the container was
   never written) and the pre-commit aborts (legacy-runtime-root /
@@ -1639,17 +1641,18 @@
       ;; flows interceptor heads the chain, so it has always entered and its
       ;; `:after` is the LAST to fire; without this guard it would run the flow transform
       ;; against a DOOMED pending db — advancing the frame's flow memo
-      ;; (flows.cljc), and with it the output-path vacations its rows record —
-      ;; even though `commit-and-flow!` is about to abort THIS event
-      ;; (`:error`) WITHOUT committing. That poisons the dirty-check (a fresh
-      ;; flow's output never re-materialises), loses a queued vacation, and
-      ;; emits spurious `:rf.flow/computed` / t2 traces on an aborted event
-      ;; (Spec 013 §Failure semantics rule 2 / §clear-flow cleanup). When the
-      ;; chain already errored the event is over: return `ctx` untouched — no
-      ;; flow transform, no `last-inputs` advance, no vacation drain, no
-      ;; t1/t2. (A flow-eval throw is a DISTINCT category stashed under
-      ;; `:rf/flow-error`, NOT `:rf/interceptor-error`, so the flow-throw
-      ;; atomicity path below is unaffected.)
+      ;; (flows.cljc), which then no longer names the output paths the pass
+      ;; vacated in that same doomed db — even though `commit-and-flow!` is
+      ;; about to abort THIS event (`:error`) WITHOUT committing. That poisons
+      ;; the dirty-check (a fresh flow's output never re-materialises), loses
+      ;; those vacations (they leave with the discarded db, and no row names
+      ;; their paths any more), and emits spurious `:rf.flow/computed` / t2
+      ;; traces on an aborted event (Spec 013 §Failure semantics rule 2 /
+      ;; §Re-registration). When the chain already errored the event is over:
+      ;; return `ctx` untouched — no flow transform, no `last-inputs` advance,
+      ;; no output-path vacation, no t1/t2. (A flow-eval throw is a DISTINCT
+      ;; category stashed under `:rf/flow-error`, NOT `:rf/interceptor-error`,
+      ;; so the flow-throw atomicity path below is unaffected.)
       (if (:rf/interceptor-error ctx)
         ctx
         (let [frame       (:rf.frame/id (:coeffects ctx))
