@@ -6,7 +6,7 @@
 
     - validate-event!        — pre-handler (event vector vs handler :schema)
     - validate-fx!           — pre-fx-handler (fx args vs fx :schema)
-    - validate-app-schema!   — post-handler-commit (frame's app-schemas)
+    - validate-app-schema!   — pre-install (candidate app-db vs frame's app-schemas)
     - validate-sub!          — post-sub-recompute (return value vs sub :schema)
 
   Event, effect, and subscription validation share `run-validation`.
@@ -69,9 +69,9 @@
   validate-time (Malli validates schema forms lazily). `validate-app-schema!`
   isolates that throw PER-ENTRY, emits the distinct
   `:rf.error/malformed-schema` category, fails CLOSED (in-band `false` →
-  the router rolls back; it does NOT install the unvalidated commit), and
-  keeps validating the frame's sibling schemas so one bad registration
-  cannot disable frame-wide post-commit validation."
+  the router rejects the candidate, which never installs), and keeps
+  validating the frame's sibling schemas so one bad registration cannot
+  disable the frame's pre-install app-db validation."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -885,7 +885,7 @@
              no schemas resolved for the frame / debug elided).
     false  — at least one schema failed; a trace event was emitted
              for every failing entry. The router consumes this signal
-              to roll back the :db effect to the pre-handler value.
+             to reject the candidate, leaving the pre-handler value live.
 
   Structurally distinct from the three meta-bearing validate-*! fns
   (event / fx / sub): walks N schemas in a loop, has no
@@ -903,9 +903,9 @@
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
    ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
    ;; keyword, validator deref, and trace call. Production builds
-   ;; return `true` unconditionally — the rollback path is dev-only
-   ;; (post-commit validation is gated by debug-enabled?, so no
-   ;; failure is observable to roll back against). The `@validator-fn`
+   ;; return `true` unconditionally — candidate rejection is dev-only
+   ;; (pre-install validation is gated by debug-enabled?, so no
+   ;; failure is observable to reject on). The `@validator-fn`
    ;; check is a runtime atom deref and must NOT be combined into the
    ;; gate predicate (the deref defeats Closure's reachability proof).
    ;;
@@ -940,8 +940,8 @@
 
                ;; Malformed registered schema (validator threw). Surface a
                ;; DISTINCT `:rf.error/malformed-schema` trace and fail
-               ;; CLOSED (`ok? false` → the router rolls back; we do NOT
-               ;; install blind). Continue to the sibling entries so one
+               ;; CLOSED (`ok? false` → the router rejects the candidate; it
+               ;; never installs blind). Continue to the sibling entries so one
                ;; bad schema does not disable validation frame-wide.
                (and (vector? validation-result)
                     (= :malformed (first validation-result)))

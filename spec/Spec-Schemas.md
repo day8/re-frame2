@@ -3572,7 +3572,7 @@ Productions (per 012):
 | `{/:name}?` or `{/literal}?` | Optional segment group; the `/` lives INSIDE the braces (slash-inside). May lead, trail, or sequence; not nested. |
 | `/*name` | Catch-all (splat); must be the final segment; at most one per pattern. `/*` (unnamed) is the bare catch-all. |
 
-Implementations register this schema via `reg-app-schema [:rf/route-pattern]` so a route's `:path` value can be validated at registration time and the conformance harness can lint route tables.
+Like every schema on this page, `:rf/route-pattern` is specified here and not registered at runtime (per [§Schema convention](#schema-convention)). Route registration enforces the grammar itself — `validate-route-pattern!` checks each route's `:path` as it registers — and a tool or harness that lints route tables reads the schema's form from here.
 
 ### `:rf/route-rank`
 
