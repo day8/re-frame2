@@ -62,7 +62,7 @@
   (rf/reg-app-schema [:user :name] :string)
   (rf/reg-app-schema [:todos :filter] :keyword)
   (rf/reg-app-schema [:todos 1] :map)
-  (rf/reg-app-schema [:todos] :vector)
+  (rf/reg-app-schema [:todos] [:vector :any])
   (rf/reg-app-schema [:todos "label"] :string)
   (rf/reg-app-schema [:todos 0] :map)
   (rf/make-frame {:id :pair-live/main})
