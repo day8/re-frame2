@@ -2,7 +2,8 @@
   "Contract tests for the shared in-process Conduit demo backend
    (`realworld-shared.demo-backend`), which both RealWorld examples run offline
    against. Both apps step their own state atom through `demo/transition`, so
-   pinning `transition` pins both.
+   pinning `transition` pins both; `answer`, the stub-transport adapter the
+   managed-HTTP example runs on, is pinned at the wire.
 
    The property under test is temporal: every test writes something and then
    reads it back through a separate request, because a backend that threw
@@ -18,7 +19,7 @@
 
 (defn- send!
   "Step `world` through one request and return the reply (`{:ok …}` or
-   `{:failure …}`), as `demo/respond` does without the canned-fx tail."
+   `{:failure …}`), as both adapters do before shaping it for delivery."
   ([world method path] (send! world method path nil))
   ([world method path extra]
    (let [[next-state reply]
@@ -151,13 +152,29 @@
 
 (deftest session-restore-needs-a-token-this-world-issued
   (let [w (world)]
-    (is (= [:rf.http/decode-failure true]
-           ((juxt :kind (comp :schema-validation-failure? :tags)) (:failure (send! w :get "/user"))))
-        "a cold world has issued no token, so restore fails down the decode path, as a real refusal does")
+    (is (= [:rf.http/http-4xx 401]
+           ((juxt :kind (comp :status :tags)) (:failure (send! w :get "/user"))))
+        "a cold world has issued no token, so restore is refused with the 401 a Conduit server answers")
     (let [token (login! w)]
       (is (= demo-username
              (:username (:user (ok! w :get "/user" {:headers {"Authorization" (str "Token " token)}})))))
       (is (some? (:failure (send! w :get "/user" {:headers {"Authorization" "Token not-the-one"}})))))))
+
+(deftest answer-speaks-http-at-the-wire
+  (testing "the stub-transport adapter reads the request as it arrives on the
+            wire — its JSON body included — and answers with an HTTP response"
+    (let [w       (world)
+          answer! #(demo/answer w (merge {:method :get :headers {} :body nil} %))
+          token   (:token (:user (:body (answer! {:method :post
+                                                  :url    (str base "/users/login")
+                                                  :body   "{\"user\":{\"email\":\"demo@conduit.dev\",\"password\":\"x\"}}"}))))]
+      (is (= "stub.demo.jwt" token))
+      (is (= {:status 200 :username demo-username}
+             (let [r (answer! {:url (str base "/user") :headers {"Authorization" (str "Token " token)}})]
+               {:status (:status r) :username (:username (:user (:body r)))})))
+      (is (= {:status 401} (select-keys (answer! {:url (str base "/user")}) [:status]))
+          "a restore with no session is the server's 401")
+      (is (= 404 (:status (answer! {:url (str base "/articles/no-such-slug")})))))))
 
 (deftest list-queries-are-applied-to-current-state
   (let [w (world)]
