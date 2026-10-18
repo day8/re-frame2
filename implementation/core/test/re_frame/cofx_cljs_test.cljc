@@ -445,3 +445,29 @@
       (rf/dispatch-sync [:cascade-test/live-parent])
       (is (= 1 @child-gen-calls))
       (is (= 11 @child-seen)))))
+
+;; ---------------------------------------------------------------------------
+;; A rejected supplied token is described by its shape
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn- cyclic-js-object
+     "A plain JS object that refers to itself. `pr-str` descends into it with no
+     seen-set and overflows the stack."
+     []
+     (let [o (js-obj)]
+       (set! (.-self o) o)
+       o)))
+
+#?(:cljs
+   (deftest cyclic-supplied-value-is-invalid-cofx-with-a-summarised-message
+     (testing "a cyclic host value rejected at the dispatch boundary yields
+               :rf.error/invalid-cofx naming its shape, never a RangeError"
+       (doseq [[label opts] [[":rf.cofx"    {:rf.cofx (cyclic-js-object)}]
+                             [":rf/time-ms" {:rf.cofx {:rf/time-ms (cyclic-js-object)}}]]]
+         (testing label
+           (let [ex (try (rf/dispatch-sync [:cofx-test/never-runs] opts) nil
+                         (catch :default e e))]
+             (is (= :rf.error/invalid-cofx (:rf.error/id (ex-data ex)))
+                 (str label " must throw :rf.error/invalid-cofx; got " (some-> ex .-name)))
+             (is (.includes (str (ex-message ex)) "{:type :scalar}"))))))))
