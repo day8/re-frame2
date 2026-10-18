@@ -64,29 +64,22 @@
   the detailed cause with the coarse summary.
 
   Shared by the per-event clean/halt settle (`re-frame.epoch/commit-record!`)
-  and the mid-drain destroy commit (`re-frame.epoch.listeners/on-frame-
-  destroyed!`) so the two-op trailer shape lives in one place — a future
-  trailer tag lands on both surfaces at once. Both ops are catalogued in
+  and the frame-destroy commit (`re-frame.epoch.listeners/on-frame-destroyed!`)
+  so the two-op trailer shape lives in one place — a future trailer tag
+  lands on both surfaces at once. Both ops are catalogued in
   `re-frame.epoch.capture/skip-ops` (they fire after the buffer is
   harvested, outside any cascade)."
-  ([frame-id epoch-id event-id outcome]
-   (emit-snapshotted+outcome! frame-id epoch-id event-id outcome
-                              (constantly true)))
-  ([frame-id epoch-id event-id outcome continue?]
-   (when (continue?)
-     (rf.trace/emit! :rf.epoch :rf.epoch/snapshotted
+  [frame-id epoch-id event-id outcome]
+  (rf.trace/emit! :rf.epoch :rf.epoch/snapshotted
                   {:frame             frame-id
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
-                   :outcome           outcome}))
-   ;; Trace listeners are synchronous. A snapshotted listener may destroy the
-   ;; exact frame owner, in which case the paired outcome fact is suppressed.
-   (when (continue?)
-     (rf.trace/emit! :rf.epoch :rf.epoch/outcome
+                   :outcome           outcome})
+  (rf.trace/emit! :rf.epoch :rf.epoch/outcome
                   {:frame             frame-id
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
-                   :outcome           (outcome->consumer-facing outcome)}))))
+                   :outcome           (outcome->consumer-facing outcome)}))
 
 ;; ---- schema-digest --------------------------------------------------------
 
