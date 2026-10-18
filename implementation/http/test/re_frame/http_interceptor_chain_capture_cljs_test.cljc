@@ -9,18 +9,18 @@
   walk a chain its request never had, handing an `:after` a ctx its own
   `:before` never touched.
 
-  The tests hold a response OUTSTANDING without a clock: the canned path
-  splits into `capture-and-run-request-chain` (issue: capture, walk `:before`)
-  and `emit-canned-success!` (respond: walk `:after`, dispatch), and holding
-  the value between those calls is the outstanding response. The
-  live-transport counterpart is JVM-only and lives in `http-interceptors-test`.
+  The tests hold a response OUTSTANDING without a clock: a pending stub
+  transport receives the request once it has captured its chain and walked
+  `:before`, and holds it until the test answers it, which is the response
+  landing. The live-transport counterpart is JVM-only and lives in
+  `http-interceptors-test`.
 
   Replies are silenced with an explicit `:reply-to nil`, so the assertions
   observe the interceptor walks rather than app-db."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.test-support :as rf.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.test-support :as rf.test-support]
             #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
                 :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
@@ -34,7 +34,6 @@
 ;; on both hosts whatever the ambient scope.
 
 (def ^:private test-frame :v3f6/app)
-(def ^:private frame-ctx {:frame test-frame})
 
 (defn- name-chain! [ids]
   (rf/make-frame {:id test-frame :http-interceptors ids}))
@@ -51,17 +50,24 @@
              response)})
 
 (defn- issue!
-  "ISSUE a request: capture the chain, walk `:before`. The returned value
-  is the request's outstanding response — held by the caller until
-  `release!`."
-  [args]
-  (rf.http.test-support/capture-and-run-request-chain frame-ctx (assoc args :reply-to nil)))
+  "ISSUE a request from the test frame through a pending transport: it
+  captures its chain, walks `:before` and is held. Returns the held exchange,
+  the request's outstanding response, for `release!`."
+  []
+  (let [{:keys [transport exchanges]} (rf.http.stub-transport/pending-transport)]
+    (rf/reg-event ::issue
+      {:doc "Issues the request under test, its reply silenced."}
+      (fn [_ _] {:fx [[:rf.http/managed {:request  {:method :get :url "/v3f6"}
+                                         :reply-to nil}]]}))
+    (rf.http.stub-transport/with-transport transport
+      #(rf/dispatch-sync [::issue] {:frame test-frame}))
+    (first @exchanges)))
 
 (defn- release!
-  "RELEASE an outstanding response: walk `:after` over the chain that
-  request captured, then dispatch (silenced by `:reply-to nil`)."
-  [captured args]
-  (rf.http.test-support/emit-canned-success! frame-ctx (assoc args :reply-to nil) captured))
+  "RELEASE an outstanding response: answer the held exchange, so the request
+  walks `:after` over the chain it captured. Returns whether it settled."
+  [exchange]
+  ((:respond! exchange) {:body {}}))
 
 ;; Distinguishes real capture from LATE capture: a snapshot taken after the
 ;; `:before` walk returns would already hold the definition the walk itself
@@ -81,13 +87,13 @@
                    (swap! log conj [:opener (:opener ctx)])
                    response)})
       (name-chain! [:opener :swapped])
-      (let [a (issue! {:value :a})]
-        (release! a {:value :a})
+      (let [a (issue!)]
+        (is (true? (release! a)))
         (is (= [[:v1 :marked] [:opener :marked]] @log)
             "the request ran the :swapped it captured, not the replacement"))
       (reset! log [])
-      (let [b (issue! {:value :b})]
-        (release! b {:value :b})
+      (let [b (issue!)]
+        (is (true? (release! b)))
         (is (= [[:v2 :marked] [:opener :marked]] @log)
             "the NEXT request captures the replacement and runs both halves of it")))))
 
@@ -99,12 +105,12 @@
       (name-chain! [])
       (is (empty? (rf.http.managed/interceptors-snapshot test-frame))
           "control: the frame's chain really is empty at issue")
-      (let [a (issue! {:value :a})]
+      (let [a (issue!)]
         (rf/reg-http-interceptor :late (marking :late :late log))
         (name-chain! [:late])
         (is (seq (rf.http.managed/interceptors-snapshot test-frame))
             "control: the frame names a chain by the time the response lands")
-        (release! a {:value :a})
+        (is (true? (release! a)) "the response landed")
         (is (= [] @log)
             "an empty capture runs NO :after — it is a real snapshot, never a
              signal to resolve the frame's chain again")))))
