@@ -4,8 +4,8 @@
 
   The record rides `dispatch-on-error!`, which passes the positional `:event`
   through `elision/elide-wire-value` but merges `record-attrs` UNCHANGED, and
-  the listener registry is production-surviving and not privacy-gated. A
-  `:rf.route/navigate` call's `:scroll` opt is per-call runtime data that on a
+  the listener registry is production-surviving and not privacy-gated. The
+  `:strategy` of a directly emitted `:rf.nav/scroll` is runtime data that on a
   schemas-less host may be any map, string or collection, so a copy of it in
   `record-attrs` (or a `:reason` interpolating `(pr-str strategy)`) would ride
   off-box whole, with no bound. The record therefore carries the supported

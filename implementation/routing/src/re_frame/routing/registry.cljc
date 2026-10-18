@@ -273,6 +273,24 @@
                       (str ". For one event, wrap it: {:on-match [" (pr-str on-match) "]}")))
                {:route-id id :keys [:on-match] :value on-match})))))
 
+(defn- validate-scroll!
+  "Authoring-boundary guardrail for `reg-route`'s `:scroll`: a present value
+  must pass `rf.routing.address/valid-scroll?` — `:top` / `:restore` /
+  `:preserve`, `false`, or nil (Spec 012 §Scroll restoration). Throws
+  `:rf.error/route-bad-metadata` naming `:scroll` under `:keys` and carrying
+  the offending `:value`, rather than letting the value register and fail
+  later inside the `:rf.nav/scroll` fx."
+  [id metadata]
+  (let [scroll (:scroll metadata)]
+    (when-not (rf.routing.address/valid-scroll? scroll)
+      (throw (route-error
+               :rf.error/route-bad-metadata
+               'rf/reg-route
+               (str "route " id "'s :scroll must be one of "
+                    (str/join ", " rf.routing.address/scroll-strategies)
+                    " or false, got " (pr-str scroll))
+               {:route-id id :keys [:scroll] :value scroll})))))
+
 ;; ---- decimal-route rejection ---------------------------------------------
 ;; A `:double` / decimal-typed `:params` or `:query` slot is REJECTED at the
 ;; authoring boundary. Under the current CEDN rules a floating-point value has
@@ -517,6 +535,7 @@
         ;; `:on-match` is a vector of event vectors; a single event vector
         ;; is refused here rather than failing at the first navigation.
         _            (validate-on-match! id metadata)
+        _            (validate-scroll! id metadata)
         ;; EP-0025 route classification: a `:sensitive` / `:large`
         ;; projection-relative classification declaration is validated FAIL-LOUD
         ;; at the authoring boundary (a malformed path / wrong shape / non-EDN
