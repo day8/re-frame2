@@ -91,18 +91,19 @@
   (rf/dispatch-sync [:touch])
   (is (= {:n 5 :out-keep 35 :touched true} (db))))
 
-(deftest legacy-root-abort-restores-flow-dirty-check
-  ;; A user `:after` inserts the retired `:rf/runtime` root after the in-chain
-  ;; guard, so the flows `:after` runs cleanly and advances the row before the
-  ;; commit aborts at the final-effects boundary.
+(deftest final-effects-abort-restores-flow-dirty-check
+  ;; A user `:after` inserts a malformed classification effect after the
+  ;; handler ran, so the flows `:after` runs cleanly and advances the row
+  ;; before the commit aborts at the final-effects boundary.
   (rf/reg-event :seed (fn [_ _] {:db {:n 4}}))
   (rf/dispatch-sync [:seed])
   (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
   (run-flows! :derived)
-  (rf/reg-interceptor :test/insert-legacy-root
-                      {:after (fn [ctx] (update-in ctx [:effects :db] assoc :rf/runtime {}))})
-  (rf/reg-event :legacy {:interceptors [:test/insert-legacy-root]} (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:legacy])
+  (rf/reg-interceptor :test/insert-bad-classification
+                      {:after (fn [ctx] (assoc-in ctx [:effects :sensitive] :not-a-vector))})
+  (rf/reg-event :bad-classification {:interceptors [:test/insert-bad-classification]}
+    (fn [{:keys [db]} _] {:db db}))
+  (rf/dispatch-sync [:bad-classification])
   (is (= {:n 4} (db)))
   (rf/dispatch-sync [:seed])
   (is (= {:n 4 :out 40} (db))))

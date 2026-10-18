@@ -845,8 +845,8 @@
   the dev-trace tags — e.g. the flow-eval category lifts `{:flow-id … :where
   :flow-eval}` so its attribution survives an egress profile that drops
   `:exception`. It is NOT read from `trace-tags` (a `:where` there
-  would leak onto unrelated categories' records — e.g. legacy-root's `'rf/reg-
-  event`); the caller passes exactly the tight slots it wants lifted. `nil`
+  would leak onto unrelated categories' records); the caller passes exactly
+  the tight slots it wants lifted. `nil`
   (the default) adds nothing.
 
   Returns nil. Reached directly by `router.cljc` (static require) and via the
