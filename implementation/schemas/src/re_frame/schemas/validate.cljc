@@ -336,7 +336,7 @@
 
 (defn- humanize-explain
   "Compute the operator-readable `:explain-humanized` payload from a
-  raw explainer output (per Spec 010 §Humanize).
+  raw explainer output (per Spec 010 §Humanize-hook).
   Returns the humanized shape when the installed port carries a
   `:humanize` fn and `explanation` is non-nil; nil otherwise (no
   humanizer — a port without one, or a production build — or the
