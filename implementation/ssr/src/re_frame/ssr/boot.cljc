@@ -52,8 +52,8 @@
      "Read the EDN hydration payload baked into the page by the server's
      HTML shell. Reads the `<script>` element whose id is
      `re-frame.ssr.constants/payload-script-id` (`\"__rf_payload\"`) — the
-     SAME id the host adapter's `default-html-shell` /
-     `payload-script-tag` stamps (Spec 011 §Hydration payload script id).
+     SAME id `re-frame.ssr.html-helpers/payload-script-tag` stamps for
+     every host shell (Spec 011 §Hydration payload script id).
 
      Returns the parsed payload map, or `nil` when the page was not
      server-rendered (no payload script present) — the \"client-only

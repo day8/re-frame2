@@ -1,8 +1,10 @@
 (ns re-frame.ssr.html-helpers
   "HTML escape + attribute-serialisation helpers shared by the SSR emitter
   (`re-frame.ssr.emit`) and the head/meta emitter
-  (`re-frame.ssr.head.emit`). Both callsites `:require` this ns so the
-  entity-escape rules change in exactly one place.
+  (`re-frame.ssr.head.emit`), plus the document envelope pieces every host
+  shell composes over (the Ring shell and Fresco's server `document`). The
+  callsites `:require` this ns so the entity-escape rules — and the payload
+  `<script>`'s id and escaping — change in exactly one place.
 
   Escape semantics:
 
@@ -52,9 +54,18 @@
                                     `aria-*` / `data-*` / booleanish
                                     stringify `true` AND `false`; boolean
                                     and overloaded-boolean names keep
-                                    presence semantics; `nil` → omitted."
+                                    presence semantics; `nil` → omitted.
+    - `html-attr-bag` /
+      `payload-script-tag` /
+      `html-document`            — the document envelope: the `<html>`
+                                    attribute bag with its `:lang`
+                                    fallback, the id-pinned hydration
+                                    payload `<script>`, and the page
+                                    itself, from parts each host has
+                                    already resolved."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
+            [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.hash :as rf.ssr.hash]))
 
 (defn escape-html
@@ -677,7 +688,7 @@
   is called only from `attr-string` below, and `attr-string` is what the
   hiccup body emitter (`emit/emit-element`), the
   head emitter (`head.emit`'s `<meta>` / `<link>` / `<script>`) and the
-  Ring host shell (`ring.shell`'s `<html>` / `<body>`) all serialise
+  document envelope (`html-document`'s `<html>` / `<body>`) all serialise
   through. That is the whole reason the stripping lives HERE rather than
   as a `dissoc` local to one emitter: a second stripping roster is a
   drift surface, and a local `dissoc` would leave the other emitters
@@ -1449,3 +1460,74 @@
     (if (seq rendered)
       (str " " (str/join " " rendered))
       "")))
+
+;; ---------------------------------------------------------------------------
+;; The document envelope — shared by every host shell
+;; ---------------------------------------------------------------------------
+
+(defn html-attr-bag
+  "Resolve the `<html>` attribute bag from the `:html-attrs` opt with a
+  `:lang` fallback. `:html-attrs` wins; when absent OR omitting `:lang`,
+  the `lang` argument is the fallback (an explicit `:lang` inside
+  `:html-attrs` takes precedence — the bag is used verbatim)."
+  [html-attrs lang]
+  (if (seq html-attrs)
+    (cond-> html-attrs
+      (not (contains? html-attrs :lang)) (assoc :lang lang))
+    {:lang lang}))
+
+(defn payload-script-tag
+  "Build the id-pinned `<script type=\"application/edn\">` carrying the
+  already-`pr-str`'d hydration payload EDN. `payload-edn` is escaped
+  through `escape-edn-script-body`: string content cannot close the
+  element, EDN token content remains readable, and unsafe token-position
+  breakout sequences fail loudly.
+
+  The id is pinned in `re-frame.ssr.constants/payload-script-id`
+  (`\"__rf_payload\"`) — the contract with the client bootstrap's
+  `document.getElementById(...)` read. This is the one definition: the
+  Ring shell and Fresco's `re-frame.fresco.server/payload-script` both
+  write the payload through it."
+  [payload-edn]
+  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
+       (escape-edn-script-body payload-edn)
+       "</script>"))
+
+(defn html-document
+  "The SSR document envelope, from parts each host has already resolved:
+  the doctype, `<html>` with `:html-attrs`, a `<head>` holding the UTF-8
+  meta tag then `:head`, `<body>` with `:body-attrs`, the app element
+  `<div id=:app-element-id>` around `:body`, then `:payload-script`, the
+  bootstrap `<script src=:script-src>`, and `:body-end`.
+
+  It applies NO defaults, because the hosts' defaults differ on purpose:
+  the Ring shell (`re-frame.ssr.ring/default-html-shell`) resolves its head
+  and attribute bags from the route and defaults `:script-src` to
+  `/main.js`, while Fresco's `re-frame.fresco.server/document` takes a
+  `:title` and writes no bootstrap script unless asked. Each resolves its
+  own and hands the result here.
+
+  `:html-attrs` / `:body-attrs` are attribute maps, serialised through
+  `attr-string`. `:app-element-id` and `:script-src` are attribute values,
+  `escape-attr`'d; a nil `:script-src` writes no bootstrap `<script>`.
+  `:head`, `:body`, `:payload-script` and `:body-end` are markup written
+  verbatim, nil writing nothing — the raw content positions of Spec 011
+  §Trusted shell hook contract."
+  [{:keys [html-attrs head body-attrs app-element-id body payload-script script-src
+           body-end]}]
+  (str "<!DOCTYPE html>"
+       "<html" (attr-string html-attrs) ">"
+       "<head>"
+       "<meta charset=\"utf-8\">"
+       head
+       "</head>"
+       "<body" (attr-string body-attrs) ">"
+       "<div id=\"" (escape-attr app-element-id) "\">"
+       body
+       "</div>"
+       payload-script
+       (when script-src
+         (str "<script src=\"" (escape-attr script-src) "\"></script>"))
+       body-end
+       "</body>"
+       "</html>"))
