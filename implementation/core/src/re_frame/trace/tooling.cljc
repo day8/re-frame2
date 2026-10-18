@@ -109,10 +109,12 @@
 
 (defn- reset-render-budget!
   "Start a fresh render budget for the frame `event` names when `event` is
-  a run start."
+  a run start. Dev-only, so production keeps no `:rf.event/run-start`
+  literal."
   [event]
-  (when (= :rf.event/run-start (:operation event))
-    (swap! rendered-counts dissoc (get-in event [:tags :frame]))))
+  (when rf.interop/debug-enabled?
+    (when (= :rf.event/run-start (:operation event))
+      (swap! rendered-counts dissoc (get-in event [:tags :frame])))))
 
 (defn clear-listeners!
   "Drop every registered listener and every frame's render budget. The
