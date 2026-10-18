@@ -38,7 +38,7 @@ every term.
 | — of which the generation read | 16–40 | ~2% | 48.0 | 2.8% | holds |
 | — of which the harness's own thunk | — | — | 64.0–128.1 | 3.8% | instrument, not product — and **bimodal**, see below |
 | `(frame/frame id)` + `(get @cache k)` | 0–8 | 0% | 96.7 | 5.7% | appears, small |
-| `frame-target->id` | 0 | 0% | 0.0 | 0.0% | free in both |
+| `frame-value->id` | 0 | 0% | 0.0 | 0.0% | free in both |
 | **= `subscribe`, cache hit, no deref** | **1220–1364** | | **1698.1** | | |
 | + the deref of a cached node | *not comparable — see below* | | **0.0–0.1 ≤ floor** | 0.0% | **free** |
 | **= `@(subscribe [:q])`** | | | **1698.1** | | |
@@ -371,11 +371,11 @@ JVM: the same fix, roughly four times the payoff on the target runtime.
 
 On the JVM `frame/resolve-current-frame` is a plain `*current-frame*` var read. On
 CLJS it reads the `:adapter/current-frame` late-bind slot so the React-context
-tier is live — one cached slot lookup, then the `:current-frame` reader the
+tier is live — one late-bind slot lookup, then the `:current-frame` reader the
 installed adapter's map publishes, with `frame/current-frame` the fallback when
 no adapter publishes one. The paired arms price it, measured while that lookup
 still walked a per-call routing chain, so re-run `S0-SCOPE` before quoting the
-figure for the cached slot read:
+figure for the slot read:
 
 | arm | B/read |
 |---|---:|
@@ -436,7 +436,7 @@ much larger than the JVM said.**
 **4.5× the JVM figure.** But the reopen condition asks whether the lookup site is
 "materially on the target-runtime profile", and for the **read path the answer is
 no**: `subscribe`'s cache-HIT branch performs no `registrar/lookup` at all — it
-goes ambient reader → `frame-target->id` → `cwfr` → `frame` → cache `get` →
+goes ambient reader → `frame-value->id` → `cwfr` → `frame` → cache `get` →
 attach. The lookup runs per dispatch, per fx, per cofx and per subscribe **miss**.
 Those are real paths and 408–444 B/read is a real number on them, but **this
 measurement is of the read path and does not price them.** Reopening on this would
