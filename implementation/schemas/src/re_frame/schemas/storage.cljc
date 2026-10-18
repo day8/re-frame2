@@ -125,7 +125,7 @@
   Reached through the late-bound `:live-frame/call-with-frame-resolution`
   seam; with it absent, `thunk` runs against each id's latest registration."
   [frame-target thunk]
-  (if-let [with-frame (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution)]
+  (if-let [with-frame (rf.late-bind/get-fn :live-frame/call-with-frame-resolution)]
     (with-frame frame-target thunk)
     (thunk)))
 
@@ -322,7 +322,7 @@
   [opts where-sym]
   (let [target (when (map? opts) (:frame opts))]
     (if (some? target)
-      (let [frame-id (rf.frame/frame-target->id target)]
+      (let [frame-id (rf.frame/frame-value->id target)]
         (when-not (keyword? frame-id)
           (rf.error/throw-error!
             :rf.error/app-schemas-bad-arg
