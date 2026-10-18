@@ -13,93 +13,56 @@ const fs = require('fs');
 const path = require('path');
 const { DEV_HTTP, resolveArgs, urlsForBuild } = require('./dev-testbed.cjs');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
+const { readEdn, isMap, mapGetKeyword, shadowBuildEntries } = require('./lib/edn.cjs');
 
 // shadow-cljs.edn is the source of truth for which builds are served on a
-// :dev-http port, and nothing else ties DEV_HTTP to it. A focused hand-rolled
-// parser reads the two simple shapes needed: the port -> roots map and each
-// build's :output-dir.
+// :dev-http port, and nothing else ties DEV_HTTP to it. It is read as
+// STRUCTURE with the shared EDN reader, which throws on anything it cannot read
+// rather than hand back a short roster.
 
 function readShadowEdn() {
   return fs.readFileSync(path.join(IMPL_ROOT, 'shadow-cljs.edn'), 'utf8');
 }
 
-// shadow-cljs.edn carries no `;` inside the strings parsed here.
-function stripEdnComments(edn) {
-  return edn
-    .split('\n')
-    .map((line) => {
-      const i = line.indexOf(';');
-      return i === -1 ? line : line.slice(0, i);
-    })
-    .join('\n');
-}
-
-// { port -> [roots] }. A port's value is a bare roots vector or a map whose
-// leading :roots key holds one, so the first `[...]` after each port is its roots.
-function parseDevHttp(edn) {
-  const src = stripEdnComments(edn);
-  const start = src.indexOf(':dev-http');
-  assert.ok(start !== -1, 'shadow-cljs.edn must contain a :dev-http map');
-  const open = src.indexOf('{', start);
-  assert.ok(open !== -1, ':dev-http must be followed by a map');
-  let depth = 0;
-  let end = -1;
-  for (let i = open; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        end = i;
-        break;
-      }
-    }
-  }
-  assert.ok(end !== -1, ':dev-http map must be balanced');
-  const body = src.slice(open + 1, end);
-  // A port is a 2-5 digit integer directly followed by its value's `[` or `{`.
+// { port -> [roots] }. A port's value is a root string, a roots vector, or a
+// map whose :roots (or :root) key holds one of those.
+function parseDevHttp(config) {
+  const devHttp = mapGetKeyword(config, 'dev-http');
+  assert.ok(isMap(devHttp), 'shadow-cljs.edn must contain a :dev-http map');
   const entries = {};
-  const portRe = /(\d{2,5})\s*[[{]/g;
-  const ports = [];
-  let pm;
-  while ((pm = portRe.exec(body)) !== null) {
-    ports.push({ port: Number(pm[1]), at: pm.index });
-  }
-  for (let i = 0; i < ports.length; i++) {
-    const from = ports[i].at;
-    const to = i + 1 < ports.length ? ports[i + 1].at : body.length;
-    const slice = body.slice(from, to);
-    const vec = slice.match(/\[([^\]]*)\]/);
-    if (!vec) continue;
-    const roots = (vec[1].match(/"([^"]*)"/g) || []).map((s) => s.slice(1, -1));
-    entries[ports[i].port] = roots;
+  for (const [port, value] of devHttp.entries) {
+    assert.ok(port && port.edn === 'number', 'a :dev-http key is not a port number');
+    const spec = isMap(value)
+      ? mapGetKeyword(value, 'roots') ?? mapGetKeyword(value, 'root')
+      : value;
+    const roots = spec && spec.edn === 'vector' ? spec.items : [spec];
+    assert.ok(
+      roots.every((r) => r && r.edn === 'string'),
+      `:dev-http port ${port.raw} has no readable roots`,
+    );
+    entries[port.raw] = roots.map((r) => r.value);
   }
   return entries;
 }
 
-// { outputDir -> buildId } over the top-level `:<group>/<name> { ... }` build defs.
-function parseBuildOutputDirs(edn) {
-  const src = stripEdnComments(edn);
+// { outputDir -> buildId } over every build in :builds. A build with no
+// :output-dir (a :node-test build writes :output-to) serves nothing.
+function parseBuildOutputDirs(config) {
   const map = {};
-  const idRe = /(:[a-zA-Z][\w.-]*\/[\w.-]+)\s*\{/g;
-  const ids = [];
-  let m;
-  while ((m = idRe.exec(src)) !== null) {
-    ids.push({ id: m[1], at: m.index });
-  }
-  for (let i = 0; i < ids.length; i++) {
-    const from = ids[i].at;
-    const to = i + 1 < ids.length ? ids[i + 1].at : src.length;
-    const slice = src.slice(from, to);
-    const od = slice.match(/:output-dir\s+"([^"]*)"/);
-    if (od) map[od[1]] = ids[i].id;
+  for (const [id, build] of shadowBuildEntries(config)) {
+    const od = mapGetKeyword(build, 'output-dir');
+    if (od === undefined) continue;
+    assert.ok(od && od.edn === 'string', `build :${id} has a :output-dir that is not a string`);
+    map[od.value] = `:${id}`;
   }
   return map;
 }
 
 // { buildId -> port }, matching each port's `out/...` root to a build def.
 function servedBuildPorts(edn) {
-  const devHttp = parseDevHttp(edn);
-  const byOutputDir = parseBuildOutputDirs(edn);
+  const config = readEdn(edn);
+  const devHttp = parseDevHttp(config);
+  const byOutputDir = parseBuildOutputDirs(config);
   const result = {};
   for (const [port, roots] of Object.entries(devHttp)) {
     const outRoot = roots.find((r) => r.startsWith('out/'));
@@ -154,6 +117,15 @@ it('urlsForBuild: the live URL, plus /#/stories for a Story build, and [] with n
 it('DEV_HTTP mirrors every :dev-http-served build in shadow-cljs.edn, port for port (drift guard)', () => {
   const devHttpPorts = Object.fromEntries(Object.entries(DEV_HTTP).map(([id, info]) => [id, info.port]));
   assert.deepStrictEqual(devHttpPorts, servedBuildPorts(readShadowEdn()));
+});
+
+// A build id need not carry a namespace, so a port serving `:solo` maps to it
+// like any other.
+it('servedBuildPorts reads a served build whose id has no namespace', () => {
+  const edn =
+    '{:dev-http {8099 {:roots ["src/solo" "out/solo"]}}\n' +
+    ' :builds {:solo {:target :browser :output-dir "out/solo"}}}';
+  assert.deepStrictEqual(servedBuildPorts(edn), { ':solo': 8099 });
 });
 
 if (failed > 0) {

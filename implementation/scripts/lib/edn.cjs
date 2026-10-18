@@ -13,6 +13,10 @@
  *   .github/scripts/verify-version-lockstep.sh            — version lockstep
  *   implementation/scripts/check-examples-compile.cjs     — the swept build
  *     roster, the keys of shadow-cljs.edn's `:builds` map
+ *   implementation/scripts/dev-testbed.test.cjs           — the `:dev-http`
+ *     ports and the builds whose `:output-dir` each one serves
+ *   examples/scripts/examples-staging.cjs                 — the runnable
+ *     standalone-example manifest, from the `:examples/*` builds
  *
  * Where a balanced-brace byte scan cannot tell a real `}` from one that sits
  * inside a `; comment`, a "string", or a `#_` reader-discarded form, this
@@ -288,10 +292,29 @@ function mapGetKeyword(mapForm, name) {
   return undefined;
 }
 
+// The `:builds` map of a shadow-cljs.edn config form (as readEdn returns it),
+// as `[[id, build], …]` in file order, where `id` is the build key without its
+// colon (`examples/login-uix`) and `build` is the build's EDN map form. A build
+// is a key of that map wherever on a line it sits. Throws EdnReadError on
+// anything that is not that shape — a config that is not a map, a missing
+// `:builds` map, a key that is not a keyword, a build that is not a map — so a
+// caller refuses rather than guess at a roster.
+function shadowBuildEntries(config) {
+  if (!isMap(config)) throw new EdnReadError('the top-level form is not a map');
+  const builds = mapGetKeyword(config, 'builds');
+  if (!isMap(builds)) throw new EdnReadError('there is no :builds map');
+  return builds.entries.map(([key, build]) => {
+    if (!isKeyword(key)) throw new EdnReadError('a :builds key is not a keyword');
+    if (!isMap(build)) throw new EdnReadError(`build :${key.name} is not a map`);
+    return [key.name, build];
+  });
+}
+
 module.exports = {
   EdnReadError,
   readEdn,
   isMap,
   isKeyword,
   mapGetKeyword,
+  shadowBuildEntries,
 };
