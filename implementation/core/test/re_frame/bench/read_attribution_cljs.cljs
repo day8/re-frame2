@@ -276,8 +276,11 @@
   calls before calibration, default 3),
   RA_TOLERANCE (the guard's relative-median tolerance, default 0.25),
   RA_ORDER=rev (reverse the base plan before scheduling — a knob, not the
-  mitigation), RA_COORDS=0 (register WITHOUT source coords — a labelled
-  control, not the default)."
+  mitigation), RA_COORDS (which registration the rig builds: 1, the
+  default, hands every `reg-sub` EXPLICIT `:ns` / `:file` / `:line` user
+  metadata; 0 registers through the macro alone, the ordinary optimised
+  shape, whose slot carries no coordinates). Either run is quotable on the
+  guard's terms; quote a figure with the registration it ran under."
   (:require [clojure.string :as str]
             [goog.object :as gobj]
             [goog.string :as gstring]
@@ -436,10 +439,15 @@
 
 (def ^:private fid :ra/frame)
 
-(def ^:private prod-sub-meta
-  "What `reg-sub`'s macro path leaves in the registrar slot for a PRODUCTION
-  build: `:ns` / `:file` / `:line` are the locked coord keys; `:column` is
-  dev-only (`source-coords/prod-coords-form`) so it is absent here."
+(def ^:private explicit-sub-meta
+  "EXPLICIT user metadata naming source coordinates, handed to every
+  `reg-sub` by the default (RA_COORDS=1) registration. Under `goog.DEBUG
+  false` `merge-coords` returns user metadata unchanged and drops the call
+  site the macro captured, so these keys reach the registrar slot only
+  because they are passed here: an optimised application's slot carries
+  `:ns` / `:file` / `:line` only when its own metadata names them. Those
+  three are the locked coord keys; `:column` is an optional refinement and
+  is left out."
   {:ns 'ra.bench :file "ra/bench.cljs" :line 42})
 
 ;; ---------------------------------------------------------------------------
@@ -1244,18 +1252,21 @@
   ;; `coords?` decides whether those registrations carry SOURCE COORDS, and it
   ;; is not a detail. `rf/reg-sub` here is the macro, but this harness builds
   ;; with `goog.DEBUG false`, where `merge-coords` keeps the call site it
-  ;; captures out of the slot — left alone the registrar slot comes out `{}`.
-  ;; The DEFAULT hands the registrar the production meta explicitly.
+  ;; captures out of the slot. The MACRO-ONLY registration (RA_COORDS=0) is
+  ;; therefore the ordinary optimised one, and its slot comes out `{}`. The
+  ;; DEFAULT (RA_COORDS=1) passes `explicit-sub-meta` as EXPLICIT user
+  ;; metadata, the shape an application has only when its own metadata names
+  ;; the coords.
   ;;
   ;; The captured call site still stamps each registration's PROVENANCE
   ;; namespace, and that is what the frame's image selects on: `ra.bench` when
-  ;; the meta names it, this namespace for the coord-less control.
+  ;; the explicit metadata names it, this namespace for the macro-only one.
   (let [sub-ids (mapv #(keyword "ra" (str "s" %)) (range n))
         qs      (mapv vector sub-ids)]
     (doseq [[i id] (map-indexed vector sub-ids)]
       (let [body (fn [db _] (get-in db [:items i]))]
         (if coords?
-          (rf/reg-sub id prod-sub-meta body)
+          (rf/reg-sub id explicit-sub-meta body)
           (rf/reg-sub id body))))
     ;; Made WITH `:images`, so the frame seals a generation and
     ;; `call-with-frame-resolution` takes its BINDING branch — the branch
@@ -1266,7 +1277,7 @@
        :images [(rf.image/image
                   {:id        :ra/image
                    :select-ns {:include [(if coords?
-                                           (str (:ns prod-sub-meta))
+                                           (str (:ns explicit-sub-meta))
                                            (namespace ::rig))]}})]})
     (rf.frame/replace-app-db! fid (db-of n))
     (let [src   (rf.frame/app-db-container fid)
@@ -1378,8 +1389,8 @@
                        (.toFixed (* 100.0 tolerance) 0)))
       (println (gstring/format ";; registration = %s"
                        (if coords?
-                         "COORD-CARRYING (default — the shape a real application registers)"
-                         "COORD-LESS (RA_COORDS=0 — a labelled CONTROL; do not quote a figure from this run)")))
+                         "EXPLICIT USER METADATA (RA_COORDS=1, default — every reg-sub is handed :ns/:file/:line; an optimised app's slot carries them only when its own metadata names them)"
+                         "MACRO-ONLY (RA_COORDS=0 — the ordinary optimised registration; the macro's captured coords stay out of the slot)")))
       (let [slot (rf.registrar/lookup :sub (first (first (:qs @rig))))]
         (println (gstring/format ";; registered sub-meta coord keys = %s"
                          (pr-str (select-keys slot [:ns :file :line :column])))))
