@@ -920,7 +920,6 @@
     :rf.warning/failure-swallowed
     :rf.warning/resource-load-more-owner-ignored
     :rf.warning/trace-buffer-unrecognised-opts
-    :rf.warning/schema-validator-unavailable
     :rf.warning/can-leave-subs-artefact-missing})
 
 (defn- print-unobserved-warning!
