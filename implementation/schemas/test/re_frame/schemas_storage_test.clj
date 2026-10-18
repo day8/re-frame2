@@ -107,9 +107,15 @@
               (thrown-data #(rf/reg-app-schema path [:map]))))))))
 
 (deftest reg-app-schema-accepts-a-path-rooted-at-an-rf-runtime-key
-  (testing "a :rf/runtime key is ordinary app data, so a path rooted there registers"
-    (rf/reg-app-schema [:rf/runtime :legacy] :int)
-    (is (= {[:rf/runtime :legacy] :int} (schemas-in :rf/default)))))
+  (testing "a :rf/runtime key is ordinary app data, so scalar and bulk
+            registrations rooted there land and validate the app-db value"
+    (rf/reg-app-schema [:rf/runtime] :map)
+    (rf/reg-app-schemas {[:rf/runtime :n] :int})
+    (is (= {[:rf/runtime] :map [:rf/runtime :n] :int} (schemas-in :rf/default)))
+    (is (true? (rf.schemas.validate/validate-app-schema!
+                 {:rf/runtime {:n 42}} :ok/ev :rf/default)))
+    (is (false? (rf.schemas.validate/validate-app-schema!
+                  {:rf/runtime {:n "42"}} :bad/ev :rf/default)))))
 
 (deftest reg-app-schemas-rejects-a-bad-batch-atomically
   (testing "one bad key rejects the whole batch: the well-formed entries
