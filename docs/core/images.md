@@ -207,6 +207,52 @@ body reads app-db as `(fn [db query] …)`. Each entry is parsed by the same cod
     definition win over a selected one, put it in a later image (see
     [Composing images: the later one wins](#composing-images-the-later-one-wins)).
 
+### Generated registrations
+
+A `reg-*` form records the namespace it is written in, so a loop of `reg-*` calls
+registers everything under the generator's namespace. A registration made through
+the function instead, such as `rf/reg-event` handed as a value to `apply`, `map` or
+`run!`, records no namespace at all. No explicit image selects it, and nothing
+reports the gap.
+
+When code generates registrations, stamp the namespace in their metadata. `:ns` (or
+the qualified `:rf.provenance/ns`) wins over whatever the macro captured, so the
+registration lands in that namespace however it was made:
+
+```clojure
+(ns app.todos.fields
+  (:require [re-frame.core :as rf]))
+
+(def fields {:todo/set-title :title
+             :todo/set-notes :notes})
+
+(doseq [[id k] fields]
+  (rf/reg-event id
+    {:ns "app.todos.fields"}
+    (fn [{:keys [db]} [_ v]]
+      {:db (assoc-in db [:draft k] v)})))
+```
+
+Name the namespace the generator is written in, never one derived from the id.
+`(namespace id)` is `"todo"` here, which is no source namespace, so an image
+selecting `app.todos.**` would miss every one of these.
+
+When a generator owns the whole registration set, skip provenance and hand its
+output to an image as inline `:registrations` tuples instead:
+
+```clojure
+(def fields-image
+  (rf/image
+    {:id :app/todo-fields
+     :registrations
+     {:reg-event (vec (for [[id k] fields]
+                        [id (fn [{:keys [db]} [_ v]]
+                              {:db (assoc-in db [:draft k] v)})]))}}))
+```
+
+The image carries these registrations itself, so they need no source namespace and
+reach exactly the frames whose `:images` include it.
+
 ## Registration ids and frame ids
 
 Two examples on one page can share ids because there are two id spaces with
@@ -397,7 +443,7 @@ save a file and the live frames pick up the change without losing state.
 | `:rf.error/ambiguous-registration` from a frame with no `:images` | Two loaded namespaces register the same `(kind, id)`, often a handler moved between namespaces | Rename one id, give each frame its own image, or clear a stale registration ([When two registrations collide](#when-two-registrations-collide)) |
 | `:rf.error/image-within-image-collision` after adding a test double | The fake is in the same image as the registration it replaces | Put the fake in a later image |
 | `:rf.error/image-zero-match` | An `:include` glob matches no loaded namespace: a typo, a missing `require`, or a namespace removed as dead code | Fix the glob, or require the namespace |
-| An explicit image is missing a registration | It was made through a function alias or generated code, so it has no source namespace | Add `:ns` to its metadata |
+| An explicit image is missing a registration | It was made through a function alias or generated code, so it has no source namespace | Add `:ns` to its metadata ([Generated registrations](#generated-registrations)) |
 | `:rf.error/image-standard-replacement-forbidden` | An image registers a framework standard such as `:rf/set-db` | Use your own id; only [replaceable defaults](#framework-standards-and-the-defaults-youre-meant-to-replace) can be replaced |
 
 ## Advanced
