@@ -344,7 +344,7 @@
                          be overridden — the renderer OWNS its server
                          identity rather than asking every caller to
                          remember it.
-      :version           :schema-digest   passed to `build-payload`.
+      :schema-digest     passed to `build-payload`.
       :payload-include-sensitive
                          optional: a vector of app-db PATHS the frame
                          classifies `:sensitive` whose raw value may ride the
@@ -367,7 +367,7 @@
   destroyed in a `finally`, in that order, so a render that threw leaks no
   more than one that returned."
   [{:keys [hiccup snapshot initial-events payload payload-include-sensitive frame-opts
-           client-frame-id identifier-prefix version schema-digest app-element-id
+           client-frame-id identifier-prefix schema-digest app-element-id
            script-src title]}]
   (let [frame-id  (fresh-frame-id)
         ;; Per REQUEST and reachable from nothing else — never a
@@ -420,7 +420,6 @@
                                           frame-id first-record n))
         (let [policy-opts (cond-> {:payload payload}
                             (some? client-frame-id) (assoc :client-frame-id client-frame-id)
-                            (some? version)         (assoc :version version)
                             (some? schema-digest)   (assoc :schema-digest schema-digest))
               payload-map (rf.ssr.payload-policy/build-payload
                             ;; WIRE id — the caller's stable one or nil.

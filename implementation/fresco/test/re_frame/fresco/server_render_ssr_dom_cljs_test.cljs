@@ -443,17 +443,13 @@
           "the seed is the module's snapshot")
       (is (not (str/includes? document "hijacked"))
           "and the frame-opts' events vector never ran")))
-  (testing "`:version` and `:schema-digest` ride the payload under the
-            wire keys the hydrate side reads — the version COERCED to the
-            schema's integer (Spec-Schemas pins `:rf/version` as `:int`,
-            and a whole-number string is parsed rather than rejected)"
+  (testing "`:schema-digest` rides the payload under the wire key the
+            hydrate side reads"
     (let [{:keys [payload]}
-          (rf.fresco.server/render (request :version "7" :schema-digest "digest-abc"))]
-      (is (= 7 (:rf/version payload)))
+          (rf.fresco.server/render (request :schema-digest "digest-abc"))]
       (is (= "digest-abc" (:rf/schema-digest payload))))
-    (testing "an omitted `:version` still ships the slot — the SSR
-              artefact's own protocol constant, so both wire ends agree
-              with no host wiring"
+    (testing "`:rf/version` always ships — the SSR artefact's own protocol
+              constant, so both wire ends agree with no host wiring"
       (let [{:keys [payload]} (rf.fresco.server/render (request))]
         (is (pos-int? (:rf/version payload)))))
     (testing "while an omitted `:schema-digest` omits the KEY — the

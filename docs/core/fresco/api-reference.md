@@ -238,7 +238,7 @@ Its `opts`:
 | `:identifier-prefix` | React's `identifierPrefix`. The hydrating root must be handed the same string |
 | `:app-element-id`, `:script-src`, `:title` | the document envelope's |
 | `:frame-opts` | extra `rf/make-frame` options for the request frame, such as `:images`, `:url-strategy` or `:fx-overrides`. `:id`, `:platform` (always `:server`) and `:initial-events` belong to this module and cannot be overridden |
-| `:version`, `:schema-digest` | passed to the payload builder |
+| `:schema-digest` | passed to the payload builder |
 | `:payload-include-sensitive` | optional vector of app-db paths classified `:sensitive` whose raw value may ride the payload (a CSRF token, say). Absent, every classified value arrives as `:rf/redacted` |
 
 If the runtime recorded an error during the render, even one it recovered
