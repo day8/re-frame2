@@ -427,6 +427,8 @@ explicitly."
 ;; nothing on the façade to late-bind.
 
 (rf.late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
+;; `make-frame` recognises the `:ssr` frame-config key this artefact reads.
+(rf.frame/add-config-keys! #{:ssr})
 ;; Frame teardown looks up this hook and clears the SSR side-channel atoms
 ;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
 ;; destroyed frame.
