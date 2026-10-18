@@ -154,11 +154,11 @@
                             (caller-supplied `:rf/time-ms` + owner-qualified
                             facts; the router fills `:rf/time-ms` when absent)
     :rf.cofx/mint-policy    EP-0017 §6 per-call cofx mint policy
-                            (`:live` / `:strict` / `:explicit-live`); the
-                            most-specific binding point — a Tool-Pair replay
-                            supplies `:strict`, a nondeterminism-declaring test
-                            supplies `:explicit-live`. Absent ⇒ the frame
-                            config's policy, else the router's `:live` default
+                            (`:live` / `:strict`); the most-specific binding
+                            point — a Tool-Pair replay supplies `:strict`, a
+                            test that wants a fresh value supplies `:live`.
+                            Absent ⇒ the frame config's policy, else the
+                            router's `:live` default
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
                             framework-private `[:rf/settle-flows]` child a

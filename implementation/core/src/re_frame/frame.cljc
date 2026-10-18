@@ -2283,10 +2283,9 @@
   ;;                  missing-required rather than freshly minted, so a test's
   ;;                  path of least resistance is supply-the-fact, not a silent
   ;;                  per-run random; the determinism feature stays core, not
-  ;;                  polish). A test that DECLARED it accepts nondeterminism
-  ;;                  opts back into generation with
-  ;;                  `{:rf.cofx/mint-policy :explicit-live}` (per-call or
-  ;;                  per-frame).
+  ;;                  polish). A test that wants a fresh value opts back
+  ;;                  into generation with `{:rf.cofx/mint-policy :live}`
+  ;;                  (per-call or per-frame).
   ;;   :story      -> same HTTP redirect as :test; tighter :drain-depth 16
   ;;                  so a runaway dispatch cascade fails fast under a story.
   ;;                  NOT strict-by-default — a story is a live demo, not a
@@ -2316,10 +2315,10 @@
                  ;; per-run value. Strict-by-default tests are core: a
                  ;; determinism feature whose path of least resistance is a
                  ;; fresh random per run would degrade the test culture it
-                 ;; exists to serve. A test that has DECLARED it accepts
-                 ;; nondeterminism opts back in with
-                 ;; `{:rf.cofx/mint-policy :explicit-live}` (per-call dispatch
-                 ;; opt or a per-frame override — user keys win on conflict).
+                 ;; exists to serve. A test that wants a fresh value opts
+                 ;; back in with `{:rf.cofx/mint-policy :live}` (per-call
+                 ;; dispatch opt or a per-frame override — user keys win on
+                 ;; conflict).
                  :rf.cofx/mint-policy :strict}
     :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                  :drain-depth  16}

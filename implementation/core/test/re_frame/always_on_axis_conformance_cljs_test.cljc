@@ -61,7 +61,6 @@
     :rf.error/safe-redirect-host-disallowed
     :rf.error/schema-validation-failure
     :rf.error/classification-effect-shape
-    :rf.error/legacy-runtime-root
     :rf.error/effect-map-shape
     :rf.ssr/hydration-mismatch})
 

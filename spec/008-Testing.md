@@ -373,10 +373,10 @@ A test frame declares its intent — and gets the deterministic defaults — wit
 
 **Strict mint is the failure mode that matters in tests.** Under `:rf.cofx/mint-policy :strict`, a handler that **declares** a generator-backed recordable coeffect (`:rf.cofx/requires [:app/new-id]` where `:app/new-id` is a `reg-cofx` with a value-returning supplier) but for which the token carries **no** supplied value is **`:rf.error/missing-required-cofx`** — the generator does **not** run, no fresh per-run value is minted (per [002 §Mint policies](002-Frames.md#mint-policies)). The deterministic path is the default; nondeterminism is opt-in:
 
-- A test that genuinely wants a fresh generated value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}` — a per-call dispatch opt, or a per-frame override (user-supplied keys win over the preset expansion).
+- A test that genuinely wants a fresh generated value per run opts back in with `{:rf.cofx/mint-policy :live}` — a per-call dispatch opt, or a per-frame override (user-supplied keys win over the preset expansion).
 - `:rf/time-ms` always succeeds even under `:strict` (the router stamp guarantees it); the strict failure fires only for *declared-absent, generator-backed* facts.
 
-This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/missing-required-cofx` rather than a silently-green test that minted a different value than production will — supply the fact in `:rf.cofx` (above) or opt into `:explicit-live`.
+This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/missing-required-cofx` rather than a silently-green test that minted a different value than production will — supply the fact in `:rf.cofx` (above) or opt into `:live`.
 
 ### Stubbing an HTTP fx for an entire frame
 

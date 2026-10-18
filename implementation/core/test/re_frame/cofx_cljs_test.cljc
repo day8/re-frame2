@@ -401,8 +401,8 @@
         (is (zero? @gen-calls))
         (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex))))))))
 
-(deftest explicit-live-overrides-strict-frame-generates
-  (testing "the per-call :explicit-live opt overrides a :test frame's :strict
+(deftest per-call-live-overrides-strict-frame-generates
+  (testing "the per-call :live opt overrides a :test frame's :strict
             default, so the generator runs"
     (let [gen-calls (atom 0)
           seen      (atom nil)]
@@ -413,7 +413,7 @@
         (fn [{:keys [mint-test/escape-delta]} _] (reset! seen escape-delta) {}))
       (rf/dispatch-sync [:mint-test/escape-evt]
                         {:frame               :mint-test/escape-frame
-                         :rf.cofx/mint-policy :explicit-live})
+                         :rf.cofx/mint-policy :live})
       (is (= 1 @gen-calls))
       (is (= 9 @seen)))))
 
