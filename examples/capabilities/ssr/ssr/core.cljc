@@ -22,8 +22,8 @@
    - The pure hiccup -> HTML emitter, rf.ssr/render-to-string. No DOM, just data
      in and a string out.
    - The hydration payload: the server's finished state, run through the
-     framework's payload projection and packed into the page for the client
-     to adopt verbatim.
+     framework's payload projection (rf.ssr/hydration-payload) and packed into
+     the page for the client to adopt verbatim.
    - Hydration the app never has to write. The client boots through
      `rf.ssr/hydrate!`, which dispatches the reserved `:rf/hydrate` event;
      re-frame2 owns the handler. `:rf/hydrate` *replaces* the client's
@@ -64,7 +64,8 @@
             [re-frame.http.test-support]
             ;; The SSR machinery: the `:rf.server/*` server-only effects, the
             ;; framework-owned `:rf/hydrate` event, the default error
-            ;; projector, and the render hooks the calls below ride on.
+            ;; projector, the render hooks the calls below ride on, and the
+            ;; hydration-payload builder.
             [re-frame.ssr :as rf.ssr]
             ;; Server-side only: a `<script>`-body escaper that understands
             ;; EDN. `handle-request` drops the payload, `pr-str`'d, inside a
@@ -74,11 +75,6 @@
             ;; inside EDN string literals — so the payload still reads back
             ;; byte-for-byte on the client.
             #?(:clj [re-frame.ssr.html-helpers :as rf.ssr.html-helpers])
-            ;; Server-side only: the payload policy — the allowlist, the
-            ;; egress projections of both partitions, and the payload
-            ;; assembler, which sources `:rf/version` from the SSR artefact's
-            ;; compiled-in constant rather than a pinned literal.
-            #?(:clj [re-frame.ssr.payload-policy :as rf.ssr.payload-policy])
             #?(:cljs [re-frame.adapter.reagent :as rf.adapter.reagent])
             ;; The client mount step — the payload-vs-client-only React-root
             ;; branch — factored into a registration-free helper so the browser
@@ -337,8 +333,8 @@
 ;;      up as a finished empty page.
 ;;   5. Render the settled state to a string with the pure hiccup -> HTML
 ;;      emitter.
-;;   6. Project that same state through the framework's payload policy,
-;;      serialise it, and tuck it into the HTML as the payload.
+;;   6. Build the payload from that same state with rf.ssr/hydration-payload,
+;;      serialise it, and tuck it into the HTML.
 ;;   7. destroy-frame!, in a `finally`. This step isn't optional bookkeeping —
 ;;      on a server that runs for weeks, it's what stops you leaking a frame
 ;;      per request. It drops the frame record and fires
@@ -372,9 +368,7 @@
               :headers {"Content-Type" "text/plain; charset=utf-8"
                         "Cache-Control" "no-store"}
               :body    (str "Articles unavailable (" (name outcome) ").")}
-             (let [final-db      (rf/app-db-value f)                         ;; the app-db partition
-                   final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; the RAW runtime-db partition — never shipped as-is
-                   ;; No `:doctype?` here — this handler wraps a *fragment*
+             (let [;; No `:doctype?` here — this handler wraps a *fragment*
                    ;; (`<div id='app'>…</div>`) inside its own hand-written
                    ;; document envelope below, which already opens with
                    ;; `<!DOCTYPE html>`. `:doctype?` is for a root view that
@@ -395,37 +389,28 @@
                    ;; is exactly what this output and the static `index.html`
                    ;; both use. A deployment that *does* want to carry one stamps
                    ;; a stable id both sides agree on ahead of time — never a
-                   ;; per-request gensym. That is the `nil` handed to
-                   ;; `build-payload` below.
+                   ;; per-request gensym. That is the `:client-frame-id` option
+                   ;; this call leaves out.
                    ;;
-                   ;; And the payload is PROJECTED, never the raw partitions —
-                   ;; the same three steps the Ring host (`re-frame.ssr.ring`)
-                   ;; runs, each under this request's frame, which is still live:
-                   ;;   - `apply-policy` is the fail-closed allowlist. The client
+                   ;; And the payload is PROJECTED, never the raw partitions.
+                   ;; `hydration-payload` runs the same projection the Ring host
+                   ;; (`re-frame.ssr.ring`) does, under this request's frame,
+                   ;; which is still live:
+                   ;;   - `:payload` is the fail-closed allowlist. The client
                    ;;     reads `:articles`; `:articles/load-state` is the
                    ;;     server's own wait signal, so it stays home.
-                   ;;   - `project-app-db-egress` redacts any path the app
-                   ;;     classified `:sensitive` inside what the allowlist let
-                   ;;     through.
-                   ;;   - `project-runtime-db` keeps only the durable route and
-                   ;;     machine slices, redacts their classified values, and
-                   ;;     leaves out the frame's classification registry.
+                   ;;   - Any path the app classified `:sensitive` inside what
+                   ;;     the allowlist let through is redacted.
+                   ;;   - The runtime-db keeps only the durable route and
+                   ;;     machine slices, with their classified values redacted
+                   ;;     and the frame's classification registry left out.
                    ;;     Shipping the raw partition instead would put a route's
                    ;;     `:sensitive` query token, and that registry, into
                    ;;     cacheable HTML.
-                   ;; This page's runtime-db is empty, so the projection is nil
-                   ;; and `build-payload` omits `:rf/runtime-db` — a present
-                   ;; nil would be a malformed slice that `:rf/hydrate` refuses.
-                   ;; `build-payload` also sources `:rf/version` from the
-                   ;; SSR-owned constant, so no producer pins a literal.
-                   policy   {:payload [:articles]}
-                   payload  (rf.ssr.payload-policy/build-payload
-                              nil                                                 ;; no wire :rf/frame-id
-                              (rf.ssr.payload-policy/project-app-db-egress
-                                (rf.ssr.payload-policy/apply-policy final-db policy)
-                                fid)
-                              {:runtime-db (rf.ssr.payload-policy/project-runtime-db
-                                             final-runtime fid)})]
+                   ;; This page's runtime-db is empty, so the payload has no
+                   ;; `:rf/runtime-db` at all — a present nil would be a
+                   ;; malformed slice that `:rf/hydrate` refuses.
+                   payload  (rf.ssr/hydration-payload fid {:payload [:articles]})]
                {:status  200
                 :headers {"Content-Type" "text/html"}
                 :body

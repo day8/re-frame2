@@ -32,7 +32,7 @@
     identity (what public reads look up under); `:resource/key` = the scoped
     resource fact (what the reverse indexes and refetch plan re-key from). It
     is NOT an app-db value. This is exactly the shape
-    `payload-policy/project-runtime-db` emits in `handle-request`: only the
+    `rf.ssr/hydration-payload` emits in `handle-request`: only the
     durable `:entries` are serialized; the `:tag-index` / `:owner-index` are
     EXCLUDED (recomputed from `:entries` on install — Spec 016 §SSR / §Restore
     part 5), `:current-work` is stripped on the wire, and host handles never

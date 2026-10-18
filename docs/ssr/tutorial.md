@@ -206,14 +206,13 @@ When the browser's JavaScript boots, it needs the state the server finished in, 
 would re-fetch everything. So the server ships the HTML and a serialized **payload**
 of that state in the same page.
 
-Add two JVM-only requires:
+Add a JVM-only require for the escaper:
 
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.ssr  :as ssr]
-            #?(:clj [re-frame.ssr.html-helpers   :as html])              ;; the escaper
-            #?(:clj [re-frame.ssr.payload-policy :as payload-policy])))  ;; the payload builder
+            #?(:clj [re-frame.ssr.html-helpers :as html])))  ;; the escaper
 ```
 
 Then replace the `rf/with-frame` block in `handle-request` with this one, which
@@ -223,11 +222,7 @@ returns a Ring response:
 ;; cf. examples/capabilities/ssr/ssr/core.cljc — the render + payload half
 (rf/with-frame fid
   (let [page    (ssr/render-to-string ((rf/view :app/root)))
-        payload (payload-policy/build-payload                ;; stamps :rf/version from the SSR-owned constant
-                  nil                                        ;; no :rf/frame-id; the client names its own frame
-                  (rf/app-db-value fid)                      ;; your state (all of it; see below)
-                  {:runtime-db (payload-policy/project-runtime-db    ;; the framework's (route, machines),
-                                 (:rf.db/runtime (rf/frame-state-value fid)) fid)})]  ;; projected, never raw
+        payload (ssr/hydration-payload fid {:payload [:articles]})]  ;; the state the client may see
     {:status  200
      :headers {"Content-Type" "text/html"}
      :body    (str "<!DOCTYPE html><html><head><meta charset='utf-8'/></head><body>"
@@ -277,15 +272,21 @@ This handler writes its own `<!DOCTYPE html>` envelope around a fragment. When y
 root view renders the whole `[:html …]` document instead, pass `:doctype? true` to
 `render-to-string` and it prefixes the doctype itself.
 
-This version ships the whole app-db, which leaks any secret the app puts in state.
-Step 7's adapter makes you declare an allowlist instead; see
-[the fail-closed allowlist](concepts.md#payload--the-fail-closed-allowlist). The
-runtime-db half is never shipped raw, even here: `project-runtime-db` keeps only the
-durable route and machine slices, redacts any value the app classified `:sensitive`
-(such as a reset token in a query string), and leaves out the frame's classification
-registry. On this page the runtime-db is empty, so the projection is `nil` and
-`build-payload` leaves `:rf/runtime-db` out. A present `nil` would be a malformed
-slice that hydration rejects.
+`hydration-payload` builds the payload from the frame's finished state, and ships
+neither partition raw:
+
+- **`:payload` is an allowlist** of the top-level app-db keys the client may see.
+  `:articles/limit` stays on the server, and so does any key added later. Leave
+  `:payload` out and the call throws `:rf.error/ssr-missing-payload-policy`; see
+  [the fail-closed allowlist](concepts.md#payload--the-fail-closed-allowlist).
+- **Classified values are redacted.** A path the app classified `:sensitive` inside
+  an allowed key ships redacted.
+- **The runtime-db keeps only durable state**: the route and machine slices, with
+  classified values (such as a reset token in a query string) redacted and the frame's
+  classification registry left out. On this page the runtime-db is empty, so the
+  payload has no `:rf/runtime-db` at all.
+- **There is no `:rf/frame-id`.** The client names its own frame in Step 4, so the
+  server's per-request frame id stays off the wire.
 
 ## Step 4 — hydrate on the client
 
@@ -484,7 +485,7 @@ The server goes in its own JVM-only namespace, which loads `app.core`'s registra
     {:initial-events (fn [request]                      ;; Step 2's boot event, built per request
                        [[:app/server-init {:limit (app.core/request-limit request)}]])
      :root-view      (fn [] ((rf/view :app/root)))      ;; Step 2's render target
-     :payload        [:articles]}))                     ;; Step 3's payload, now an allowlist
+     :payload        [:articles]}))                     ;; Step 3's allowlist
 
 (def app
   (-> handler
