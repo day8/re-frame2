@@ -1,6 +1,6 @@
 # Spec 005 — State Machines
 
-> Status: Drafting. **Ergonomic library layered on the v1 foundation hooks — shipped and conformance-pinned.** The CLJS reference ships it as `implementation/machines/` (the capability matrix below is graded against the conformance corpus). Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md); the foundation-vs-library split is per [000 §Scope and roadmap](000-Vision.md#scope-and-roadmap).
+> Status: Drafting. **Ergonomic library layered on the v1 foundation hooks — shipped and conformance-pinned.** The CLJS reference ships it as `implementation/machines/`. Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md); the foundation-vs-library split is per [000 §Scope and roadmap](000-Vision.md#scope-and-roadmap).
 >
 > **Why this Spec exists:** state machines and actors are in the pattern because **constrained execution models are easier to reason about than Turing-complete control flow.** A finite state machine has an enumerable state space and a discrete transition relation; an actor system bounds concurrency to message-passing across well-defined boundaries with run-to-completion semantics. This is disproportionately valuable for AI use — an AI can fully simulate a finite machine; it cannot fully simulate a free-form imperative program. The cost is some expressiveness; the benefit is an execution model that survives mechanical reasoning.
 >
@@ -51,7 +51,7 @@ The runtime ALSO stamps a closed set of `:rf/*` slots inside the snapshot (some 
 - **Compound machines** — `:state` is a **vector path** from the root state-node to the active leaf (`[:authenticated :cart :browsing]`). The vector form is required when any state in the machine is a compound state (declares its own nested `:states`); it disambiguates "which `:browsing`?" when the same leaf-keyword could appear under multiple parents. See [§Hierarchical compound states](#hierarchical-compound-states).
 - **Parallel-region machines** — `:state` is a **map of region-name → that region's keyword-or-vector-path** (`{:data :loading :form :neutral :mode :active}`). The map form is required when the machine declares `:type :parallel`; every region is active simultaneously, and each region's value follows the flat-or-compound arms above. See [§Parallel regions](#parallel-regions).
 
-Implementations accept all three forms on read. The flat / compound arms normalise to a vector path internally for uniform manipulation; the parallel arm is preserved as a map (each region runs its own state-tree). The parallel-region arm is first-class (`:fsm/parallel-regions`, per [§Capability matrix](#capability-matrix)).
+Implementations accept all three forms on read. The flat / compound arms normalise to a vector path internally for uniform manipulation; the parallel arm is preserved as a map (each region runs its own state-tree). The parallel-region arm is first-class (`:fsm/parallel-regions`).
 
 Stability invariants — every conformant implementation upholds these so snapshots survive the wire (SSR hydration per [011](011-SSR.md)) and the time-axis (Tool-Pair epoch replay):
 
@@ -252,7 +252,7 @@ Every state in `:states` is a map, and so are `:states` and `:regions` themselve
  :meta    {<user-keys> ...}}                 ;; user-defined meta (NOT used for terminal marking — see §Final states)
 ```
 
-All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:spawn`, `:spawn-all`, `:states` / `:initial`, and the `:type :history` pseudo-state node (below) are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability rejects the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). A port may leave some of this grammar unclaimed; see [§Capability matrix](#capability-matrix).
 
 One sibling-of-a-substate node is **not** an ordinary state but a **history pseudo-state** — `{:type :history :deep? <bool> :default-target <target>}` declared under a compound's `:states`. It is never occupied; it is a transition target that resolves to the compound's recorded (or default) configuration. Its grammar and constraints are specified in [§History states](#history-states-type-history--shallow--deep--default-target); it declares none of the ordinary state-node keys above.
 
@@ -1651,7 +1651,7 @@ For the `:logout` row, the LCA of `[:authenticated :cart :paying]` and `[:unauth
 
 ### Capability scope
 
-Hierarchical compound states are claimed by the v1 CLJS reference per [§Capability matrix](#capability-matrix). What hierarchy gives you here:
+What hierarchy gives you here:
 
 - Nested `:states` and `:initial` cascading.
 - Vector and keyword `:target` forms.
@@ -1968,7 +1968,7 @@ The action is run by each region that handles the event; shared `:data` flows th
 
 ### Capability gating
 
-Parallel regions are claimed as `:fsm/parallel-regions` in the v1 CLJS reference per [§Capability matrix](#capability-matrix). Ports that don't claim it raise `:rf.error/machine-grammar-not-in-v1` on `:type :parallel` at registration time. The schema (`:rf/state-node`'s `:type` + `:regions`; `:rf/machine-snapshot`'s third `:state` arm) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
+Port capability `:fsm/parallel-regions`; see [§Capability matrix](#capability-matrix). The schema (`:rf/state-node`'s `:type` + `:regions`; `:rf/machine-snapshot`'s third `:state` arm) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
 
 ### Substitutes — when to use N machines instead
 
@@ -2350,14 +2350,13 @@ The view doesn't enumerate the three states. New `:loading`-flavoured states add
 
 ### Capability gating
 
-`:tags` is **`:fsm/tags`** in the capability matrix (per [§Capability matrix](#capability-matrix)) — claimed by the v1 CLJS reference. Ports that don't claim it raise `:rf.error/machine-grammar-not-in-v1` on `:tags` at registration time.
+Port capability `:fsm/tags`; see [§Capability matrix](#capability-matrix).
 
 ### Cross-references
 
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the motivating pattern.
 - [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) — the optional `:tags` snapshot key.
 - [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) — the `:tags` state-node slot.
-- [§Capability matrix](#capability-matrix) — `:fsm/tags` row.
 - [conformance/fixtures/tags-flat-machine.edn](conformance/fixtures/tags-flat-machine.edn),
   [tags-compound-active-path-union.edn](conformance/fixtures/tags-compound-active-path-union.edn),
   [tags-empty-when-no-declaration.edn](conformance/fixtures/tags-empty-when-no-declaration.edn),
@@ -2464,7 +2463,7 @@ A state with `:after` but no `:spawn` is a **pure timed-transition state** — t
   :main   {...}}}
 ```
 
-The `:after` slot is **independent** of the `:spawn` slot — neither requires the other; both are state-node-level keys per [§State nodes](#state-nodes). Pure timed-transition states are the simplest `:after` use case and are exercised by the conformance fixture [`after-single-delay.edn`](conformance/fixtures/after-single-delay.edn), whose `:loading` state carries `:after` and no `:spawn`, per [§Capability matrix](#capability-matrix).
+The `:after` slot is **independent** of the `:spawn` slot — neither requires the other; both are state-node-level keys per [§State nodes](#state-nodes). Pure timed-transition states are the simplest `:after` use case and are exercised by the conformance fixture [`after-single-delay.edn`](conformance/fixtures/after-single-delay.edn), whose `:loading` state carries `:after` and no `:spawn`.
 
 ### Epoch-based stale detection
 
@@ -3654,7 +3653,7 @@ Revertibility (Goal 3) is the *substrate* that makes history cheap — the recor
 
 ### Capability gating
 
-History states are claimed as **`:fsm/history`** in the v1 CLJS reference per [§Capability matrix](#capability-matrix). A port that does not claim `:fsm/history` rejects a `:type :history` node at registration time with `:rf.error/machine-grammar-not-in-v1` (the same reject-at-registration disposition every other unclaimed capability uses — per [§Error category for unclaimed grammar](#capability-matrix)). The schema (the `:rf/state-node` history-pseudo-state arm; the `:rf/machine-snapshot` `:rf/history` slot) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
+Port capability `:fsm/history`; see [§Capability matrix](#capability-matrix). The schema (the `:rf/state-node` history-pseudo-state arm; the `:rf/machine-snapshot` `:rf/history` slot) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
 
 ### Cross-references
 
@@ -4030,7 +4029,7 @@ The guard reads `:data`, not the join state at `[:rf.runtime/machines :spawned <
 
 ### Capability gating
 
-`:spawn-all` is gated under the `:actor/spawn-and-join` capability per [§Capability matrix](#capability-matrix). A port that doesn't claim it rejects `:spawn-all` at registration time with `:rf.error/machine-grammar-not-in-v1`. The v1 CLJS reference claims it.
+Port capability `:actor/spawn-and-join`; see [§Capability matrix](#capability-matrix).
 
 ### Errors
 
@@ -4575,83 +4574,10 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 
 **Modeling rule the example illustrates:** preview is *display* state, not domain state. The drag never persists into `:circles`; instead the `:drawer/circles-with-preview` sub merges `:preview-radius` from the editor's `:data` into the rendered circles at read time. Cancel is therefore a no-op on domain state — there is nothing to revert because nothing was persisted.
 
+<a id="how-conformance-is-graded"></a>
 ## Capability matrix
 
-Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities), implementations declare which capabilities they support; **conformance is graded against the claimed capability list** rather than an all-or-nothing pass/fail. The matrix names each capability, what coverage it requires (prose / schema / fixture), and the v1 CLJS reference's claim for each.
-
-### FSM-richness axis
-
-| Capability | Coverage required | v1 CLJS reference | Notes |
-|---|---|---|---|
-| **Flat FSM** — states, transitions, guards, actions, `:entry` / `:exit`, wildcard `:*` | Prose: §Transition table grammar, §Action effect map; Schema: `:rf/transition-table` (flat); Fixtures: `machine-transition.edn` and the flat-FSM family | ✓ claimed | The foundation. |
-| **Hierarchical compound states** — nested `:states` in a state node; entry/exit cascading along the LCA path; vector / keyword target resolution; deepest-wins transition resolution with parent fallthrough | Prose: [§Hierarchical compound states](#hierarchical-compound-states); Schema: `:rf/state-node` (recursive) + `:rf/transition-target`; Fixtures: `hierarchical-compound-transition`, `hierarchical-cross-level-transition`, `hierarchical-parent-fallthrough` | ✓ claimed (specified) | Snapshot dual-form, LCA-based cascading, and deepest-wins resolution are locked. |
-| **Eventless `:always` transitions** — fire as soon as a guard becomes true | Prose: [§Eventless `:always` transitions](#eventless-always-transitions); Schema: `:rf/state-node`'s `:always` slot (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `always-single-microstep`, `always-depth-exceeded` | ✓ claimed (specified) | Microstep loop inside drain Level 3; bounded depth (default 16); self-loop forbidden at registration; trace events at both per-microstep and macrostep granularity. |
-| **`:type :choice` transient / choice states** (`:fsm/choice`) — a routing node that resolves immediately on entry to the first guard-passing candidate | Prose: [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states); Schema: `:rf/state-node`'s `:type :choice` + `:choice` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `machine-choice-resolve`, `machine-reg-error-choice` | ✓ claimed (specified) | Sugar over `:always` — desugars at registration / normalisation into an ordinary state carrying the candidate vector under `:always`, so the candidate walk, the macrostep microstep loop, and the birth-time settle all drive it. DIVERGENCE: a declarative guarded-candidate ARRAY, NOT XState's `choice`-function (a function-valued `:choice` is rejected). A choice state only routes (no `:entry` / `:exit` / `:on` / `:after` / `:timeout` / `:spawn` / …) and must include an unguarded default candidate; a self-targeting candidate is rejected at registration. |
-| **Delayed `:after` transitions** — fire after a time delay | Prose: [§Delayed `:after` transitions](#delayed-after-transitions); Schema: `:rf/state-node`'s `:after` slot (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `after-single-delay`, `after-stale-detection`, `after-hierarchy` | ✓ claimed (specified) | Epoch-based stale detection — no `:cancel-dispatch-later` fx; clock primitives live in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`); SSR-mode no-ops timer scheduling; trace events at `:scheduled` / `:fired` / `:stale-after` granularity. |
-| **`:timeout` / `:on-timeout`** (`:fsm/timeout`) — a state, or a `:spawn` spec, names a deadline and the transition taken when it elapses | Prose: [§`:timeout` / `:on-timeout` (state + spawn)](#timeout--on-timeout-state--spawn); Schema: `:rf/state-node`'s `:timeout` + `:on-timeout`, and the same pair on the `:spawn` spec (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `machine-timeout-state-fire`, `machine-timeout-spawn-fire`, `machine-reg-error-timeout` | ✓ claimed (specified) | Desugars at registration onto the `:after` timer — one mechanism, and `:timeout` coexists with `:after` on a node; a spawn-level `:timeout` is anchored to the spawn-bearing state's entry and cancelled by child completion. The duration is a positive-integer ms or an ISO-8601 string (the `"5s"` shorthand is refused), and `:timeout` and `:on-timeout` each require the other. |
-| **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: the `:tags` slot of `:rf/state-node` and of `:rf/machine-snapshot` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | The snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf.machine/has-tag?` (`[:rf.machine/has-tag? id tag]`) covers the predicate query. Composes with hierarchical compound states (union along the active path) and with parallel regions (union across every active region). |
-| **Parallel regions** — `:type :parallel` with multiple concurrent regions | Prose: [§Parallel regions](#parallel-regions); Schema: `:rf/transition-table`'s `:type` + `:regions`, `:rf/state-node`'s parallel-region body, `:rf/machine-snapshot`'s third `:state` arm (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `parallel-flat-two-regions`, `parallel-compound-region`, `parallel-tags-union-across-regions`, `parallel-broadcast-event-both-regions`, `parallel-spawn-scoped-to-region`, `parallel-after-scoped-to-region`, `parallel-always-cascade-per-region`, `parallel-initial-state-per-region`, `parallel-snapshot-round-trip`, `parallel-ssr-hydration` | ✓ claimed (specified) | The third `:state` arm — a map of region-name → keyword-or-vector-path. Shared `:data` across regions per §9.4 (per-region encapsulation is a signal to use the N-machine substitute pattern from [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)). Composes with `:fsm/tags` (union across every active state in every region) and with `:fsm/eventless-always` / `:fsm/delayed-after` / `:actor/declarative-spawn` (per-region scoping; one region's `:after` timer doesn't fire transitions in sibling regions). |
-| **History states** — `:type :history` pseudo-state re-entering a compound's last-active substate; shallow / deep / default-target | Prose: [§History states](#history-states-type-history--shallow--deep--default-target); Schema: `:rf/state-node`'s history-pseudo-state arm, `:rf/machine-snapshot`'s `:rf/history` slot (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `history-shallow-restores-direct-child`, `history-deep-restores-leaf-path`, `history-default-target-on-first-entry`, `history-per-region-parallel`, `history-dangling-path-falls-back` | ✓ claimed (specified) | A targetable pseudo-state (`{:type :history :deep? bool :default-target <target>}`) under a compound's `:states`. Records last-active configuration on the compound's exit cascade into the revertible `:rf/history` snapshot slot (map keyed by compound declaration path, region-qualified under `:type :parallel`); restores via the LCA / entry-cascade machinery. Missing `:deep?` => shallow; missing `:default-target` => the compound's `:initial`; a dangling recorded path after hot reload falls back to `:default-target` / `:initial`. |
-| **Final states** — `:final?` on a leaf state terminates the machine; a `:spawn`d child's `:final?` fires the parent's `:on-done` with the child's `:output-key`-designated `:data` slot, then auto-destroys the child | Prose: [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key); Schema: `:rf/state-node`'s `:final?` + `:output-key`; `:rf/invoke-spec`'s `:on-done`; Fixtures: `final-state-singleton-auto-destroys`, `final-state-child-fires-on-done` | ✓ claimed (specified) | First-class `:final?` flag (loud, not `:meta`-buried). Auto-destroy is synchronous on entry to the final state. Singleton symmetry: a standalone machine reaching `:final?` also auto-destroys ("final means final"). |
-| **Public / private `:internal-events`** (`:fsm/internal-events`) — a root `:internal-events` set names events the machine raises and handles within its own run-to-completion logic; an external dispatch of one is refused | Prose: [§Public / private `:internal-events`](#public--private-internal-events); Schema: `:rf/transition-table`'s `:internal-events` slot (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `machine-internal-event-boundary`, `machine-reg-error-internal-events` | ✓ claimed (specified) | The refusal happens at the machine dispatch boundary: an external dispatch emits `:rf.error/machine-internal-event-external-dispatch` and leaves the snapshot untouched, while an internal `:raise` of the same event drains in the macrostep's queue as usual. The declaration is a set of non-reserved keywords; a vector, or a reserved `:rf/*` event, is refused at registration. |
-| **Registration-time validation** (`:fsm/registration-validation`) — `reg-machine` validates a definition as it registers, so a malformed one installs nothing and throws an `ex-info` whose `:rf.error/id` names a `:rf.error/machine-*` category | Prose: [§`reg-machine` — public registration surface](#reg-machine--public-registration-surface), each feature's *Registration validation (fail-loud)* rules, and [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract); Fixtures: the nine `machine-reg-error-*` fixtures, whose `:reg-machine` rows are described in [conformance §The `:reg-machine` op](conformance/README.md#the-reg-machine-op--registration-error-taxonomy) | ✓ claimed (specified) | A fixture carries it beside the capability whose malformed shape it exercises. A port that validates lazily leaves it unclaimed, so its `:reg-machine` rows skip. |
-
-### Actor-model axis
-
-| Capability | Coverage required | v1 CLJS reference | Notes |
-|---|---|---|---|
-| **Own state + message ports** — actor identity is the registered event id; the state lives in runtime-db at `[:rf.runtime/machines :snapshots <id>]` | Prose: §Where snapshots live, §Strict encapsulation; Schema: `:rf/machine-snapshot`, `:rf/runtime-db`; Fixtures: machine-transition, machine-actor-isolation | ✓ claimed | Specified above. |
-| **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (the canonical actor-lifecycle fx-ids; emitted by `:spawn` desugar and authored by hand inside a machine action's `:fx` or any user event handler's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot | ✓ claimed | Specified above. |
-| **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no mechanism of its own. |
-| **Declarative `:spawn`** (sugar over spawn) — a state's `:spawn` spawns a child actor on entry and destroys it on exit | Prose: [§Declarative `:spawn`](#declarative-spawn); Schema: `:rf/state-node`'s `:spawn` slot (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` | ✓ claimed (specified) | Pure sugar, no mechanics of its own: the transition reducer lowers `:spawn` into `:rf.machine/spawn` / `:rf.machine/destroy` fx on entry / exit (per [§Desugaring rules](#desugaring-rules)). Composes with user-supplied `:entry` / `:exit` (user runs first). The runtime tracks spawned ids at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` — the destroy cascade does not read the user's `:data`. |
-| **Spawn-and-join via `:spawn-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (a closed two-member enum: `:all` / `:any`), the runtime fires one of three parent events when the join resolves and unconditionally cancels surviving siblings | Prose: [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all); Schema: `:rf/state-node`'s `:spawn-all` slot (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-all-join-all-completes`, `spawn-all-join-any-fails-cancels` | ✓ claimed (specified) | Sugar over N parallel `:spawn`s plus a runtime-owned join-state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` (the direct map shape — `:children` / `:done` / `:failed` / `:cancelled` / `:resolved?` / `:spec` co-mingle at the root). Sibling cancellation on the join decision is unconditional (matches Dash8/rf8 boot-page-reload semantics). |
-| **Wall-clock timeout on `:spawn` / `:spawn-all`** | Covered by spawn-level `:timeout` / `:on-timeout` on a `:spawn` spec (the `:fsm/timeout` capability above), and by an `:after` or state-level `:timeout` on a `:spawn-all`-bearing state, all lowered onto the parent state's `:after` timer — see [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after). There is no `:timeout-ms` slot; [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) covers code written against it. | n/a | The `:after` capability subsumes this; one canonical primitive, not two. The `:fsm/delayed-after` capability above covers wall-clock-on-state semantics for both pure timed-transition states and `:spawn`-bearing states. |
-| **SCXML / Stately / XState JSON interop** — bidirectional schema parity or paste-and-render compatibility | SCXML: tool-side; XState JSON / Stately: deferred | ◑ partial (tool-side) | The **SCXML** half is a pure-data round-trip in the machines-viz tool (`day8.re-frame2-machines-viz.scxml` — `spec->scxml` / `scxml->spec`, exact round-trip over the supported topology subset), not in the runtime `machines` artefact. The **XState-JSON** (`machine->xstate-json`) and **Stately Inspector wire-format** halves are deferred to v1.1+. |
-
-### How conformance is graded
-
-A re-frame2 port declares its capability list in its conformance harness manifest:
-
-```clojure
-{:port-id    :re-frame-cljs
- :capabilities #{:fsm/flat
-                 :fsm/hierarchical
-                 :fsm/eventless-always
-                 :fsm/choice                           ;; :type :choice transient / choice states
-                 :fsm/delayed-after
-                 :fsm/timeout                          ;; :timeout / :on-timeout (state + spawn), lowered onto :after
-                 :fsm/tags
-                 :fsm/parallel-regions
-                 :fsm/final-states                    ;; :final? + :on-done + :output-key
-                 :fsm/history                          ;; :type :history pseudo-state — shallow / deep / default-target
-                 :fsm/internal-events                  ;; public / private :internal-events
-                 :fsm/registration-validation          ;; reg-machine rejects a malformed definition at registration
-                 :actor/own-state
-                 :actor/spawn-destroy
-                 :actor/cross-actor-fx
-                 :actor/declarative-spawn  ;; declarative spawn-on-entry / destroy-on-exit (the "Declarative :spawn" row) — see note below
-                 :actor/spawn-and-join}}    ;; no :actor/timeout — :fsm/delayed-after subsumes it
-```
-
-> **`:actor/declarative-spawn` names the declarative-`:spawn` capability; the user-facing grammar keys are `:spawn` / `:spawn-all`.** The capability id is spawn-rooted to mirror the `:spawn` / `:spawn-all` grammar and its imperative sibling `:actor/spawn-destroy`; the `declarative-` qualifier disambiguates it from that imperative sibling.
-
-The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
-
-**Error category for unclaimed grammar:** when registration encounters a key whose capability is not in the host's claimed capability list, it **rejects the registration** — the registration does not proceed, no handler is installed, and a single structured error trace event is emitted:
-
-```clojure
-{:operation :rf.error/machine-grammar-not-in-v1
- :op-type   :error
- :tags      {:category   :rf.error/machine-grammar-not-in-v1
-             :machine-id <machine-id>            ;; the registered TYPE — the machine family's attribution slot
-             :feature    <unsupported-key>             ;; e.g. :after, :type :history
-             :reason     "Transition-table feature `<X>` is not in this implementation's claimed capability list. See [§Capability matrix](#capability-matrix)."}
- :recovery  :no-recovery}                              ;; registration is rejected — the handler is not installed
-```
-
-The disposition is **reject-at-registration** (`:no-recovery`): an unsupported key is a hard error raised at the only construction site (registration), not a trace-and-continue. This matches the neighbouring capability rows above — parallel regions, `:tags`, and `:spawn-all` all "raise at registration" when unclaimed — and is the disposition the [009 §Error contract](009-Instrumentation.md#error-contract) catalogue (the error-id SSOT) records as canonical. The error is registered as a category in [009 §Error contract](009-Instrumentation.md#error-contract).
-
-Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) for the goal text; [conformance/README.md](conformance/README.md) for the fixture-tagging convention.
+Which of this grammar a port may leave unclaimed, how conformance is graded against its claim, and the `:rf.error/machine-grammar-not-in-v1` rejection an unclaimed key raises at registration are port contract, and live in [Implementor's Checklist §Machine capability matrix](Implementor-Checklist.md#machine-capability-matrix). The v1 CLJS reference claims every `:fsm/*` and `:actor/*` capability.
 
 ## Substitutes for skipped features
 
@@ -4661,7 +4587,7 @@ Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md), settled questions live under `## Resolved decisions` below; no question is open here. Stately.ai / XState JSON interop is out of scope for v1; see the interop row of [§Capability matrix](#capability-matrix) for the v1.1+ interop family.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md), settled questions live under `## Resolved decisions` below; no question is open here. Stately.ai / XState JSON interop is out of scope for v1; it belongs to the v1.1+ interop family.
 
 ## Resolved decisions
 
@@ -4757,7 +4683,7 @@ The transition table is data; rendering it as a diagram is straightforward. The 
 - **Mermaid — ships tool-side.** `day8.re-frame2-machines-viz.mermaid/emit` (in the machines-viz tool) emits a fenced Mermaid `stateDiagram-v2` block from a normalised machine definition, with the ergonomic `chart-as-mermaid` / `copy-mermaid-to-clipboard!` wrappers in `…machines-viz.export`. Lossy by design (`:after` rings + `:spawn-all` rows omitted; flagged inline). Renders inline in GitHub markdown, VS Code preview, AI-agent prompts. Apps that want Mermaid require the machines-viz jar; apps that don't pay nothing.
 - **D2 — post-v1.** A `machine->d2` emitter (parallel to the Mermaid lane) is a post-v1 candidate.
 
-XState/Stately JSON export (`machine->xstate-json`) is part of the v1.1+ interop family, not a v1 deliverable; its sibling, the SCXML round-trip, ships tool-side in machines-viz (per the capability matrix above).
+XState/Stately JSON export (`machine->xstate-json`) is part of the v1.1+ interop family, not a v1 deliverable; its sibling, the SCXML round-trip, ships tool-side in machines-viz.
 
 Mermaid/D2 are AI-fluent — LLMs read and write them confidently — which makes diagram export the cheapest way to extend AI-amenability of machine code.
 
@@ -4818,7 +4744,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` and the per-id `:rf/machine` registrar projection — discovery lens over the event registry per [§Querying machines](#querying-machines); neither has a per-kind accessor.
 - The framework-registered `:rf/machine` parametric sub — the canonical `[:rf/machine <id>]` read surface.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
-- The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
+- The v1 transition-table grammar per [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
 - Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/started`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list and [§Trace events — guard evaluations and action runs](#trace-events--guard-evaluations-and-action-runs) for the guard/action payload contract).
 - The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-always-unguarded-targetless`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-bad-target`, `:rf.error/machine-unresolved-target`, `:rf.error/machine-non-parallel-root-after-not-supported`, `:rf.error/machine-root-slot-not-supported`, `:rf.error/machine-bad-structure`, `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, and `:rf.error/machine-spawn-all-with-spawn` error categories. (The `:timeout` / `:on-timeout` registration categories — `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, `:rf.error/machine-timeout-after-collision` — are catalogued under [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn); there is no `:timeout-ms` slot — `:rf.error/spawn-timeout-ms-removed` rejects it.) Per [Spec-Schemas §TransitionTarget](Spec-Schemas.md#rfstate-node), every transition slot's `:target` (`:on` / `:after` / `:always` / a compound's `:on-done` / a `:spawn`-bearing state's `:spawn :on-error`) is validated at registration: a malformed-shape target (not a keyword / non-empty vector / the `:same-state` sentinel) raises `:rf.error/machine-bad-target`, and a keyword / vector target that resolves to no declared state (or `:type :history` pseudo-state) raises `:rf.error/machine-unresolved-target`. A keyword target names a SIBLING (a direct child of the declaring state's parent compound); a vector target is an absolute path from the (region) root.
@@ -4834,7 +4760,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 Richer scaffolding on top of the v1 foundation. None of the items below adds a substrate of its own — each desugars into the v1 surface:
 
-- **XState/Stately JSON interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping — deferred. (The **SCXML** half of this family ships tool-side as a pure-data round-trip in machines-viz, per the capability matrix above.)
+- **XState/Stately JSON interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping — deferred. (The **SCXML** half of this family ships tool-side as a pure-data round-trip in machines-viz.)
 - **Visualisation tooling:** the **Mermaid** exporter ships tool-side (`machines-viz.mermaid/emit`); a `machine->d2` exporter is a post-v1 candidate.
 - **Model-based testing harness:** `@xstate/test`-style graph traversal over the transition table.
 - **Recurring timers, wall-clock delays, pause/resume on `:after`** — explicitly out of scope for v1; see [§What `:after` does *not* include](#what-after-does-not-include).
