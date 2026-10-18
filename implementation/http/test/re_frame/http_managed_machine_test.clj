@@ -9,7 +9,6 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -176,43 +175,6 @@
         (finally
           (rf.trace.tooling/unregister-listener! ::ijm7-3)
           (stop-server! srv)))))
-
-(defn- live-wrapper-addresses []
-  (->> (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/machines :snapshots]))
-       (filter #(and (keyword? %) (= "rf.http" (namespace %))
-                     (.startsWith ^String (name %) "managed#")))))
-
-(deftest spawn-loop-leaves-no-anonymous-issuance-counters
-  ;; Each spawn issues one anonymous request under a fresh actor address, so the
-  ;; counter keyed by that address must go when the actor is destroyed.
-  (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-machine :app/poller
-          {:initial :idle
-           :states
-           {:idle     {:on {:go :fetching}}
-            :fetching {:spawn {:machine-id :rf.http/managed
-                               :data       {:request {:url    (str "http://127.0.0.1:" port "/poll")
-                                                      :method :get}
-                                            :decode  :json}}
-                       :on    {:succeeded :idle
-                               :failed    :idle}}}})
-        (rf/dispatch-sync [:app/poller [:go]])
-        (await-condition! #(and (= :idle (:state (snapshot :app/poller)))
-                                (empty? (live-wrapper-addresses))
-                                (empty? (rf.http.managed/actor-in-flight-snapshot))))
-        ;; The cascade that drops the counter runs on the event thread.
-        (try (rf.test-support/poll-until
-               #(zero? (rf.http.registry/anonymous-issuance-counter-count))
-               {:timeout-ms 1000 :interval-ms 10 :label "anonymous counters drained"})
-             (catch clojure.lang.ExceptionInfo _ nil))
-        (is (zero? (rf.http.registry/anonymous-issuance-counter-count))
-            "the completed spawn left no anonymous issuance counter behind")
-        (finally (stop-server! srv)))))
 
 (deftest spawn-data-reply-addressing-is-refused-at-spawn
   ;; The wrapper owns its reply, so reply addressing in the spawn :data is

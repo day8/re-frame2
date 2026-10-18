@@ -532,21 +532,9 @@
 
 ;; ---- issuance counters ----------------------------------------------------
 
-(deftest issuance-counter-eviction-preserves-live-successor
-  (testing "eviction drops a counter only while it still equals the
-            completing attempt's issuance, so a superseded attempt's
-            completion keeps its live successor's counter; counters are per
-            frame"
-    (let [rid [:search-box :q]
-          n1  (rf.http.registry/next-issuance! :frame/counters rid)
-          n2  (rf.http.registry/next-issuance! :frame/counters rid)]
-      (is (= [1 2] [n1 n2]))
-      (rf.http.registry/evict-issuance-on-completion! :frame/counters rid n1)
-      (is (= 3 (rf.http.registry/next-issuance! :frame/counters rid))
-          "the superseded attempt's eviction skipped, so the counter survived at 2")
-      (rf.http.registry/evict-issuance-on-completion! :frame/counters rid 3)
-      (is (zero? (rf.http.registry/issuance-counter-count))))
-    (is (= [1 1 2] [(rf.http.registry/next-issuance! :frame/a :shared)
-                    (rf.http.registry/next-issuance! :frame/b :shared)
-                    (rf.http.registry/next-issuance! :frame/a :shared)])
-        "a sibling frame reusing a raw id runs its own sequence")))
+(deftest issuance-counter-runs-per-frame
+  (testing "a frame's issuance numbers rise by one per request, and a sibling
+            frame's requests neither take nor perturb them"
+    (is (= [1 1 2] [(rf.http.registry/next-issuance! :frame/a)
+                    (rf.http.registry/next-issuance! :frame/b)
+                    (rf.http.registry/next-issuance! :frame/a)]))))

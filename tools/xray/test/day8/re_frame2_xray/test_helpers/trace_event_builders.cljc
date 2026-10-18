@@ -238,7 +238,7 @@
   Healthy success-path activity — never an issue."
   [request-id url]
   (ev :info :rf.http/issued
-      {:rf.reply/work-id   [:rf.work/http request-id 1 1]
+      {:rf.reply/work-id   [:rf.work/http 1 1]
        :rf.reply/work-kind :http
        :request-id         request-id
        :url                url
