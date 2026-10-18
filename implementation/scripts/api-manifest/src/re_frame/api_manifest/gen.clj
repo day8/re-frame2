@@ -674,9 +674,9 @@
       :else                      :var)))
 
 (defn- public-vars-of
-  "Live `{var-symbol -> kind}` for a namespace, minus the documented
-   `^:no-doc` internal carve-outs (per spec/API.md §Not-rowed internal
-   carve-outs). Returns a sorted seq of `[var-sym kind]`."
+  "Live `{var-symbol -> kind}` for a namespace, minus its `^:no-doc` vars,
+   which sit below the public surface and carry no row. Returns a sorted seq
+   of `[var-sym kind]`."
   [ns-sym]
   (require ns-sym)
   (->> (ns-publics ns-sym)

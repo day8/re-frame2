@@ -44,11 +44,3 @@
   {:hook :epoch/unregister-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
-(defwrapper clear-epoch-listeners!
-  "Drop every registered epoch-settled callback. Test-isolation only —
-  production code should never call this. Returns nil. No-op (returns
-  nil) when the `day8/re-frame2-epoch` artefact is not on the classpath.
-  Late-bound via `:epoch/clear-epoch-listeners!`."
-  {:hook :epoch/clear-epoch-listeners! :artefact epoch-artefact :on-absent :nil}
-  ([] :delegate))
-

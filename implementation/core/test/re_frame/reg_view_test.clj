@@ -5,7 +5,7 @@
   metadata."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.core-reg-view-macro]
+            [re-frame.core-reg-view-macro :as rf.core-reg-view-macro]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas]
@@ -75,8 +75,8 @@
   ;; A substrate detects Form-1 vs Form-2 at render time. Metadata on the
   ;; render (fn ...) form would make the CLJS analyzer wrap it in with-meta, a
   ;; MetaFn rather than a plain JS function.
-  (let [exp (rf/expand-reg-view {:line 1 :column 1} 'my.ns "my_ns.cljc"
-                                'plain '([n] [:p n]))
+  (let [exp (rf.core-reg-view-macro/expand-reg-view {:line 1 :column 1} 'my.ns "my_ns.cljc"
+                                                    'plain '([n] [:p n]))
         [_ id _slot-meta fn-form]
         (some #(when (and (seq? %) (= 're-frame.core/reg-view* (first %))) %)
               (tree-seq coll? seq exp))]

@@ -71,15 +71,6 @@ Story, Xray, and the MCP support namespaces ship their *own* public-var rows in 
 - **Xray panel-helper functions** (the per-panel render/projection helpers beneath the mount-fns) — **tooling** where they are a documented panel-author surface, otherwise unrowed-internal.
 - **pair-MCP support namespaces** — the trace/egress surfaces they consume (`sensitive?`, the registrar query API, the epoch query surface) are **tooling**, tiered at their `re-frame.core` / artefact home rows below.
 
-### Not-rowed internal carve-outs
-
-The only **internal** (unrowed, MUST-NOT-depend-on) carve-outs in `re-frame.core` are two JVM-only macro-helpers re-exposed purely so tests can reach them:
-
-- `re-frame.core/expand-reg-view` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/expand-reg-view`.
-- `re-frame.core/parse-reg-view-args` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/parse-reg-view-args`.
-
-Neither is rowed in this projection. Applications and tools MUST NOT depend on these re-exports; reach the canonical homes directly. These are *not* a tier — they are below the public surface entirely.
-
 ---
 
 ## Registration

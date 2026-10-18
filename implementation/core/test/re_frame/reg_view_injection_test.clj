@@ -12,6 +12,7 @@
   both postures."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.core-reg-view-macro :as rf.core-reg-view-macro]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -107,9 +108,9 @@
     :else nil))
 
 (deftest injected-args-ride-debug-gate-with-dev-and-prod-branches
-  (let [exp       (rf/expand-reg-view {:line 7 :column 4 :file "v.cljc"}
-                                      'my.ns "v.cljc" 'cv
-                                      '([] [:button {:on-click #(dispatch [:x])}]))
+  (let [exp       (rf.core-reg-view-macro/expand-reg-view {:line 7 :column 4 :file "v.cljc"}
+                                                          'my.ns "v.cljc" 'cv
+                                                          '([] [:button {:on-click #(dispatch [:x])}]))
         mfh-call  (find-form #(and (seq? %)
                                    (= 're-frame.capture-frame/make-capture-frame (first %)))
                              exp)
