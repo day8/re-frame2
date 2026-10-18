@@ -298,34 +298,33 @@
 (declare invalidate-cell!)
 
 (defn- wire-cell!
-  "Give `cell` a live subscription: subscribe, activate, take the one
-  baseline deref, arm the value-change watch, and arm the disposal hook
-  that routes to `invalidate-cell!`. The whole of a cell's attachment to
-  the substrate in one place, because it is performed twice — at birth,
-  and again when the substrate disposes the reaction out from under it.
+  "Give `cell` a live subscription: acquire it through core's seam
+  (`subs/acquire-watched-reaction!` — subscribe, activate, and arm the
+  disposal callback that routes to `invalidate-cell!`), take the one
+  baseline deref, and arm the value-change watch. The whole of a cell's
+  attachment to the substrate in one place, because it is performed
+  twice — at birth, and again when the substrate disposes the reaction out
+  from under it.
 
-  Activate FIRST, then watch, then observe: under the ratom family a
+  Activated BEFORE it is watched or observed: under the ratom family a
   reaction deref'd outside `*ratom-context*` watches nothing, so the
   watch would never fire and the runtime would paint once and go deaf
   (docs/design/fresco/product/substrate-decision.md, the ratom-only
-  line; a routed no-op on the React-hook spine). The disposal hook is an
-  event rather than a term in the epoch sum because the substrate says
+  line; a routed no-op on the React-hook spine). The disposal callback is
+  an event rather than a term in the epoch sum because the substrate says
   exactly when a held reaction dies, and it covers every transition that
   disposes — `first-registration!` carries the one that does not
   (docs/design/fresco/architecture.md, section The collector)."
   [^js cell]
-  (let [frame-kw (.-frameKw cell)
-        query-v  (.-queryV cell)
-        reaction (rf.subs/subscribe query-v {:frame frame-kw})]
+  (let [reaction (rf.subs/acquire-watched-reaction!
+                   (.-frameKw cell) (.-queryV cell)
+                   (fn [] (invalidate-cell! cell)))]
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
-      ;; On the substrate's PUSH path, before anything observes or watches it.
-      (rf.interop/activate-derived-value! reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
       (add-watch reaction cell-watch-key
-                 (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
-      (rf.interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
+                 (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell)))))
     cell))
 
 (defn- invalidate-cell!
@@ -351,8 +350,8 @@
     (js/queueMicrotask
       (fn []
         ;; `(nil? (.-reaction cell))`: `acquire-cell!` rewires a reused cell
-        ;; too, and wiring one that already holds a reaction would add a
-        ;; second `add-on-dispose!` hook, so the next disposal would
+        ;; too, and wiring one that already holds a reaction would arm a
+        ;; second disposal callback, so the next disposal would
         ;; invalidate twice, wire twice and compound.
         (when (and (not (.-disposed cell)) (nil? (.-reaction cell)))
           (if (nil? (rf.frame/frame-incarnation-token (.-frameKw cell)))
@@ -558,7 +557,8 @@
 
 (defn- cold-read!
   "Read a key no committed cell answers for. Reuses a live sub-cache
-  reaction by deref alone when one exists; otherwise computes pure
+  reaction by deref alone when one exists (`subs/peek-cache-reaction`,
+  which takes no reference); otherwise computes pure
   (`subs/compute-sub-with-memo`) against one frame-state snapshot per
   body run — the probe box on `rstate`, reset by `run-once` — memoised
   per run in the box's value map so a repeated key is a `find` (a
@@ -579,7 +579,7 @@
       (rf.live-frame/call-with-frame-resolution
         frame-kw
         (fn []
-          (if-some [reaction (:reaction (get @(:sub-cache frame-record) query-v))]
+          (if-some [reaction (rf.subs/peek-cache-reaction frame-kw query-v)]
             @reaction
             (let [^js probe (or (.-probe rstate)
                                 (when-some [frame-state (rf.frame/frame-state-value frame-kw)]
