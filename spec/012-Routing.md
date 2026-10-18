@@ -78,7 +78,9 @@ Both live in `re-frame.routing` — they are **not** on the `rf/` (`re-frame.cor
 - `:url-bound?` on the frame config. URL ownership is an explicit declaration — a frame owns the URL only with `:url-bound? true`; there is no `:rf/default`-owns-by-default floor. Only one frame may own the URL. See [§Multi-frame routing](#multi-frame-routing).
 - `:url-strategy` on the frame config. A map `{:encode :decode :push! :replace! :install-listener!}` that skins the router's path-form model onto the browser's chosen address-bar form. Default `history-url-strategy` (path-form); the framework also ships `hash-url-strategy` (`#`-prefixed). Consulted at exactly four egress/ingress points; `route-url` / `match-url` stay pure and path-form; SSR skips the strategy's browser side effects but honours its pure `:encode`, so a server-rendered `route-link` carries the same href the hydrated client renders. See [§URL strategies](#url-strategies).
 
-### Schemas registered with the framework
+### Schemas specified in Spec-Schemas
+
+These schemas are specified in [Spec-Schemas.md](Spec-Schemas.md) and not registered at runtime (per [Spec-Schemas §Schema convention](Spec-Schemas.md#schema-convention)). Where a shape is enforced, routing enforces it itself: route registration checks each `:path` against the pattern grammar, and the doors enforce the address's closure (per [§The extraction law](#the-extraction-law)).
 
 - `:rf/route-pattern` — path-pattern grammar (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-pattern)).
 - `:rf/route-rank` — structural rank tuple (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank)).
@@ -320,7 +322,7 @@ The framework reg-sub `[:rf/route]` reads against `[:rf.runtime/routing :current
 
 `:transition` (`:idle` / `:loading` / `:error`) and `:error` are **not** a runtime-driven FSM over the `:on-match` drain. They are the **resource-derived readiness projection** over the active route plan: `:loading` while a blocking first load is pending, `:error` when the plan could not be formed or a blocking first load failed, `:idle` otherwise (including when the route declares no resources). `:on-match` never moves them. They ride in the stored slice for ergonomic whole-route reads, but a runtime that caches them there keeps that cache reconstructible from the plan plus managed-resource state and reconciles it through one pure projector. See [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection) below.
 
-A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
+A canonical schema for the slice, `:rf/route-slice`, is specified in [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice).
 
 ### Route data classification
 

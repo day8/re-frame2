@@ -81,9 +81,9 @@ per-request, and the wire payload stays minimal.
 - An allowlist on the way out — never the whole cache. The resource
   cache is a rich runtime structure: entries, a tag-index, an
   owner-index, host fetch handles. Almost none of that should cross the
-  wire. `handle-request` projects the runtime-db through
-  `payload-policy/project-runtime-db`, which ships only the durable
-  resource `:entries` onto the payload's `:rf/runtime-db`. Per entry it
+  wire. `handle-request` builds the payload with
+  `rf.ssr/hydration-payload`, whose runtime-db projection ships only the
+  durable resource `:entries` onto the payload's `:rf/runtime-db`. Per entry it
   honours [data
   classification](../../../../docs/core/glossary.md#data-classification): a
   `:sensitive?` value is redacted, a `:large?` value is omitted.
@@ -92,7 +92,7 @@ per-request, and the wire payload stays minimal.
   so shipping them would just be sending data you're about to rebuild.
   Host handles never serialise. The
   [app-db](../../../../docs/core/glossary.md#app-db) slice rides the same
-  fail-closed policy (`apply-policy`) the real Ring host uses. It ships
+  fail-closed `:payload` policy the real Ring host uses. It ships
   `{}` here — on this page the resource is the state and app-db carries
   nothing of its own — but fail-closed means even "send nothing" must be
   said out loud, so the code passes an empty allowlist, `:payload []`.
