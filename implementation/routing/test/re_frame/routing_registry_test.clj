@@ -485,6 +485,19 @@
   (testing "a nil :on-match declares no events"
     (is (= :route/no-events (rf/reg-route :route/no-events {:on-match nil} "/no-events")))))
 
+(deftest reg-route-refuses-an-unsupported-scroll
+  (testing "a :scroll outside :top / :restore / :preserve / false is refused at
+            registration rather than failing inside the :rf.nav/scroll fx"
+    (doseq [v [{:behavior :smooth} :smooth true]]
+      (is (= {:rf.error/id :rf.error/route-bad-metadata :keys [:scroll] :value v}
+             (select-keys (thrown-data #(rf/reg-route :route/bad-scroll {:scroll v} "/bad-scroll"))
+                          [:rf.error/id :keys :value]))
+          (pr-str v))))
+  (testing "the vocabulary, false and nil register"
+    (is (= [:route/s0 :route/s1 :route/s2 :route/s3 :route/s4]
+           (map-indexed (fn [i v] (rf/reg-route (keyword "route" (str "s" i)) {:scroll v} (str "/s" i)))
+                        [:top :restore :preserve false nil])))))
+
 ;; Spec 001 §Production elision contract: a programmatic registration carries
 ;; no captured source ns, so stamping a bare `:ns` is how it becomes
 ;; `:select-ns`-selectable. `rf/reg-route` here is the MACRO, which captures

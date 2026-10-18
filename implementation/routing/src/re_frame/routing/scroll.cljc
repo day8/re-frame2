@@ -36,6 +36,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -307,6 +308,9 @@ egress to trace / epochs / SSR."})
    :sensitive [[:from :params] [:from :query]
                [:to :params]   [:to :query]
                [:fragment]]
+   ;; Kept beside the authoring-boundary checks in `reg-route` and the
+   ;; navigate gate: `:rf.nav/scroll` is a public fx id that user code can
+   ;; emit directly.
    :schema    rf.routing.nav-fx-schemas/scroll-args
    :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
 :to :saved-pos :fragment}. `:strategy` is the closed three-value enum
@@ -315,9 +319,11 @@ egress to trace / epochs / SSR."})
 
 (def supported-scroll-strategies
   "The CLOSED `:rf.nav/scroll` `:strategy` vocabulary, per Spec 012
-  §Scroll restoration. Ordered for the diagnostic message; the schema
+  §Scroll restoration — `rf.routing.address/scroll-strategies`, the same
+  vocabulary `reg-route` and the navigate gate check `:scroll` against.
+  Ordered for the diagnostic message; the schema
   (`rf.routing.nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
-  [:top :restore :preserve])
+  rf.routing.address/scroll-strategies)
 
 (def unsupported-strategy-reason
   "The human diagnosis for a rejected `:rf.nav/scroll` `:strategy`.
@@ -329,9 +335,9 @@ egress to trace / epochs / SSR."})
   value is not lost to a developer: it rides the dev-trace `:strategy` tag,
   one slot away, on the channel that stays on the box."
   (str "Unsupported :rf.nav/scroll strategy. Supported strategies are "
-       ":top, :restore and :preserve. Set the route's :scroll metadata "
-       "(or the :rf.route/navigate :scroll opt) to one of those, or to "
-       "false to suppress the scroll effect entirely."))
+       ":top, :restore and :preserve. Pass one of those as the effect's "
+       ":strategy; a route's :scroll and a navigation's :scroll are checked "
+       "where they are written, so a value reaching here was emitted directly."))
 
 (defn- emit-unsupported-strategy!
   "Fan the closed-vocabulary rejection out on BOTH error channels through the
@@ -377,7 +383,7 @@ egress to trace / epochs / SSR."})
   `:large?` seam, which FAILS CLOSED on an unknown / destroyed frame — but it
   merges `record-attrs` UNCHANGED, and contracts callers to keep them to tight
   identifiers precisely because the listener registry is production-surviving
-  and NOT privacy-gated. A `:rf.route/navigate` call's per-call `:scroll` opt
+  and NOT privacy-gated. The `:strategy` of a directly emitted `:rf.nav/scroll`
   is runtime data, not necessarily static author configuration, and on the
   schemas-less path it may be any map / string / collection / host value. So
   a raw copy would bypass the elision seam on the one channel that ships

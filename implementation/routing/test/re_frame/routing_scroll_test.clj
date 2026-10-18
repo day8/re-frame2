@@ -124,16 +124,12 @@
 (deftest scroll-strategy-opts-override-precedence
   (rf/reg-route :route/silent {:scroll false} "/silent")
   (rf/reg-route :route/loud   {:scroll :restore} "/loud")
-  (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
   (let [calls (record-scroll-fx!)]
     (doseq [[request strategies]
             [;; an opt beats the route's `false` before suppression is considered
              [{:to :route/silent :scroll :top} [:top]]
              ;; an opt `false` suppresses despite the route's strategy
-             [{:to :route/loud :scroll false} []]
-             ;; the planner carries a value it does not support to the fx,
-             ;; whose schema and handler reject it, rather than dropping it
-             [{:to :route/custom} [{:behavior :smooth :block :center}]]]]
+             [{:to :route/loud :scroll false} []]]]
       (reset! calls [])
       (rf/dispatch-sync [:rf.route/navigate request])
       (is (= strategies (map :strategy @calls)) (pr-str request)))))

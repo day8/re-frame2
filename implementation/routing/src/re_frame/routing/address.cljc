@@ -68,6 +68,19 @@
   entry bypass: entry is terminal, so there is nothing to skip past."
   #{:replace? :scroll :bypass-leave?})
 
+(def scroll-strategies
+  "The CLOSED scroll strategy vocabulary (Spec 012 §Scroll restoration),
+  ordered for diagnostics. The `:rf.nav/scroll` fx takes exactly these."
+  [:top :restore :preserve])
+
+(defn valid-scroll?
+  "True when `v` may stand as a `:scroll` policy, on a navigation request or
+  a route's metadata: a strategy from `scroll-strategies`, `false` to
+  suppress the scroll effect, or nil, which declares nothing and leaves the
+  resolution order to choose (Spec 012 §Scroll restoration)."
+  [v]
+  (or (nil? v) (false? v) (boolean (some #(= v %) scroll-strategies))))
+
 (def edit-keys
   "In-place EDIT key class — `:query` / `:query-merge` / `:fragment`. When no
   destination (`:to` / `:url`) is present these PATCH the current location and
@@ -215,6 +228,8 @@
   9. `:query-merge`'s VALUE is a map of query deltas — a present non-map
      (including nil) rejects `:reason :query-merge-not-map`. `{}`
      is a valid exact no-op; a nil INSIDE the map deletes a key.
+  10. `:scroll`'s VALUE passes `valid-scroll?` — a strategy, `false` or nil;
+      anything else rejects `:reason :bad-scroll`.
 
   This is the ONE definition every door's whole-roster
   closure is measured against."
@@ -270,6 +285,12 @@
       ;; merge".
       (and (contains? request :query-merge) (not (map? (:query-merge request))))
       {:reason :query-merge-not-map :keys [:query-merge]}
+
+      ;; `:scroll` is checked where it is authored, so a value outside the
+      ;; closed vocabulary refuses the navigation instead of committing it
+      ;; and failing later inside the `:rf.nav/scroll` fx.
+      (and (contains? request :scroll) (not (valid-scroll? (:scroll request))))
+      {:reason :bad-scroll :keys [:scroll]}
 
       (not (or dest? edit?))
       {:reason :no-destination-or-change :keys (sorted-keys ks)}

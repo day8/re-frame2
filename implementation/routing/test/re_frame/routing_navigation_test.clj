@@ -631,7 +631,9 @@
       (doseq [[event reason ks]
               [[[:rf.route/navigate {:query-merge [:page 2]}]             :query-merge-not-map [:query-merge]]
                [[:rf.route/navigate "/gate-b"]                            :request-not-a-map   []]
-               [[:rf.route/navigate {:to :route/gate-b} {:replace? true}] :bad-event-arity     []]]]
+               [[:rf.route/navigate {:to :route/gate-b} {:replace? true}] :bad-event-arity     []]
+               [[:rf.route/navigate {:to :route/gate-b :scroll :smooth}]  :bad-scroll          [:scroll]]
+               [[:rf.route/navigate {:query {} :scroll {:behavior :x}}]   :bad-scroll          [:scroll]]]]
         (let [tags (gate-reject event)]
           (is (= before (nav-slice)) (pr-str event))
           (when rf.interop/debug-enabled?
