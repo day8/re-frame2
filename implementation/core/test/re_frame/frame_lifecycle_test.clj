@@ -292,24 +292,25 @@
            [(rf/frame-meta :h1vqa4/owned) (rf.source-store/store-generation)]))))
 
 (deftest each-preset-expands-to-its-closed-v1-bundle
-  ;; [preset fx-overrides drain-depth mint-policy]; :default is {}, :test stubs
-  ;; managed HTTP with a strict mint policy, :story fails a runaway cascade fast
-  (doseq [[preset fx-overrides drain-depth mint-policy]
+  ;; [preset stub-only? drain-depth mint-policy]; :default is {}, :test keeps
+  ;; managed HTTP off the network with a strict mint policy, :story keeps it
+  ;; off the network and fails a runaway cascade fast
+  (doseq [[preset stub-only? drain-depth mint-policy]
           [[:default nil nil nil]
-           [:test {:rf.http/managed :rf.http/managed-canned-success} 1000 :strict]
-           [:story {:rf.http/managed :rf.http/managed-canned-success} 16 nil]]]
+           [:test true 1000 :strict]
+           [:story true 16 nil]]]
     (let [id (keyword "p" (name preset))]
       (rf/make-frame {:id id :preset preset})
-      (is (= [preset fx-overrides drain-depth mint-policy]
-             ((juxt :preset :fx-overrides :drain-depth :rf.cofx/mint-policy)
+      (is (= [preset stub-only? drain-depth mint-policy]
+             ((juxt :preset :rf.http/stub-only? :drain-depth :rf.cofx/mint-policy)
               (:config (rf.frame/frame id))))
           (str preset)))))
 
 (deftest preset-user-keys-win-on-conflict
   (rf/make-frame {:id :p/override :preset      :test
                   :drain-depth 5000})
-  (is (= [:test 5000 {:rf.http/managed :rf.http/managed-canned-success}]
-         ((juxt :preset :drain-depth :fx-overrides) (:config (rf.frame/frame :p/override))))
+  (is (= [:test 5000 true]
+         ((juxt :preset :drain-depth :rf.http/stub-only?) (:config (rf.frame/frame :p/override))))
       "the user's :drain-depth wins and the other expansion entries still apply"))
 
 (deftest preset-unknown-throws
@@ -668,13 +669,12 @@
   ;; lifecycle fields at the top level, no internal grouping
   (rf/make-frame {:id :tenants/acme :doc          "acme tenant"
                   :preset       :default
-                  :fx-overrides {:rf.http/managed
-                                 :rf.http/managed-canned-success}})
+                  :fx-overrides {:rf.http/managed :acme/http-stub}})
   (let [m (rf/frame-meta :tenants/acme)]
     (is (= [{:id           :tenants/acme
              :doc          "acme tenant"
              :preset       :default
-             :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
+             :fx-overrides {:rf.http/managed :acme/http-stub}
              :destroyed?   false}
             true false false]
            [(select-keys m [:id :doc :preset :fx-overrides :destroyed?])
