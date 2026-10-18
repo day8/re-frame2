@@ -9,7 +9,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [re-frame.views]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.http.test-support]
             [realworld-http.schema :as app-schema]
             [realworld-http.core]
@@ -1154,7 +1154,7 @@
     (async done
       (reset! rh/demo-state (demo/fresh-state))
       (let [f        (rf.frame/make-anon-frame-record! {})
-            _        (stub-transport/install-transport! f rh/demo-transport)
+            _        (rf.http.stub-transport/install-transport! f rh/demo-transport)
             _        (rf/dispatch-sync [:app/initialise] {:frame f})
             slug     "hello-conduit"
             comments #(sub f [:comments/data])

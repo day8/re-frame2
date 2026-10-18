@@ -7,7 +7,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.stub-transport :as stub]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -44,12 +44,12 @@
 
 (deftest a-retry-is-re-sent-through-the-stub
   (let [hits      (atom 0)
-        transport (stub/route-transport
+        transport (rf.http.stub-transport/route-transport
                     {[:get url] (fn [_] (if (= 1 (swap! hits inc))
                                           {:status 503 :body "busy"}
                                           {:body {:n 2}}))})
         traces    (capturing
-                    #(do (stub/with-transport transport
+                    #(do (rf.http.stub-transport/with-transport transport
                            (fn [] (fire! {:request {:url url}
                                           :decode  :json
                                           :retry   {:on           #{:rf.http/http-5xx}
@@ -64,8 +64,8 @@
         "the retry is counted on the trace")))
 
 (deftest the-requests-timeout-bounds-a-held-exchange
-  (let [{:keys [transport exchanges]} (stub/pending-transport)]
-    (stub/with-transport transport #(fire! {:request {:url url} :timeout-ms 30}))
+  (let [{:keys [transport exchanges]} (rf.http.stub-transport/pending-transport)]
+    (rf.http.stub-transport/with-transport transport #(fire! {:request {:url url} :timeout-ms 30}))
     (await-reply!)
     (let [{:keys [respond! cancelled?]} (first @exchanges)]
       (is (= [:error :rf.http/timeout 30]
@@ -75,22 +75,24 @@
       (is (empty? (rf.http.managed/in-flight-snapshot))))))
 
 (deftest a-routes-delay-defers-the-answer
-  (stub/with-transport (stub/route-transport {[:get url] {:body {:n 1} :delay-ms 40}})
+  (rf.http.stub-transport/with-transport
+    (rf.http.stub-transport/route-transport {[:get url] {:body {:n 1} :delay-ms 40}})
     #(fire! {:request {:url url} :decode :json}))
   (is (nil? (reply)) "not inside the dispatch-sync drain")
   (await-reply!)
   (is (= {:n 1} (:value (reply)))))
 
 (deftest a-binary-body-reaches-a-binary-decode
-  (stub/with-transport
-    (stub/route-transport {[:get url] {:headers     {"Content-Type" "application/octet-stream"}
-                                       :body-binary (byte-array [1 2 3])}})
+  (rf.http.stub-transport/with-transport
+    (rf.http.stub-transport/route-transport
+      {[:get url] {:headers     {"Content-Type" "application/octet-stream"}
+                   :body-binary (byte-array [1 2 3])}})
     #(fire! {:request {:url url} :decode :array-buffer}))
   (is (= [1 2 3] (vec (:value (reply))))))
 
 (deftest a-stub-fails-a-request-only-as-a-network-failure
-  (let [{:keys [transport exchanges]} (stub/pending-transport)]
-    (stub/with-transport transport
+  (let [{:keys [transport exchanges]} (rf.http.stub-transport/pending-transport)]
+    (rf.http.stub-transport/with-transport transport
       #(dotimes [_ 2] (fire! {:request {:url url} :timeout-ms 5000})))
     (let [[first-x second-x] @exchanges]
       (testing "a 5xx is a response, never a failure a transport reports"

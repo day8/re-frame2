@@ -45,7 +45,7 @@
             ;; The demo backend sits below `:rf.http/managed` as a stub
             ;; transport, installed on the frame in `mount!`. A real Conduit
             ;; backend drops this require and that call.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; SSR ships in its own artefact. Requiring it registers the
             ;; `:rf/hydrate` handler that `ssr.cljc`'s client bootstrap
             ;; dispatches.
@@ -422,7 +422,7 @@
     ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
     ;; WINDOW has the full sequence).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
-    (stub-transport/install-transport! :rf/default rh/demo-transport)
+    (rf.http.stub-transport/install-transport! :rf/default rh/demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id                :rf/default
                       :doc               "Realworld demo frame."
