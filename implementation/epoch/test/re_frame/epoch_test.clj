@@ -884,6 +884,28 @@
     (is (:ok? (rf.epoch/restore-epoch! :test/halt-anchor
                                   (rf.epoch.state/last-settled-epoch-id :test/halt-anchor))))))
 
+(deftest current-epoch-id-follows-a-restore-and-the-next-event
+  (let [frame (rf/make-frame {:id :test/cursor})]
+    (rf/reg-event :set-n (fn [_ [_ n]] {:db {:n n}}))
+    (is (nil? (rf.epoch/current-epoch-id :test/cursor)) "nothing has settled yet")
+    (doseq [n [1 2 3]] (rf/dispatch-sync [:set-n n] {:frame :test/cursor}))
+    (let [[e1 e2 e3] (mapv :epoch-id (rf.epoch/epoch-history :test/cursor))
+          newest     #(:epoch-id (peek (rf.epoch/epoch-history :test/cursor)))]
+      (is (= [e3 e3] [(rf.epoch/current-epoch-id :test/cursor)
+                      (rf.epoch/current-epoch-id frame)])
+          "the newest settled epoch, read by id or by frame value")
+      (testing "a restore to E moves the cursor to E and leaves the ring as it was"
+        (is (:ok? (rf.epoch/restore-epoch! :test/cursor e1)))
+        (is (= e1 (rf.epoch/current-epoch-id :test/cursor)))
+        (is (= e3 (newest)) "the ring's newest record is not the state the frame holds"))
+      (testing "the next event advances the cursor to its own record"
+        (rf/dispatch-sync [:set-n 4] {:frame :test/cursor})
+        (is (not (contains? #{e1 e2 e3} (newest))))
+        (is (= (newest) (rf.epoch/current-epoch-id :test/cursor))))
+      (testing "a :before restore installs a state no retained record settled into"
+        (is (:ok? (rf.epoch/restore-epoch! :test/cursor e2 {:to :before})))
+        (is (nil? (rf.epoch/current-epoch-id :test/cursor)))))))
+
 ;; ---- replace-frame-state! (runtime-db and both partitions) ----------------
 
 (deftest replace-frame-state!-records-undo-epoch-and-restore-rewinds-past

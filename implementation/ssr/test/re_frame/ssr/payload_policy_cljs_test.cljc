@@ -3,14 +3,9 @@
   top-level keys or the whole-app-db opt-in), the runtime-db projection and the
   payload assembly. Platform-neutral, so it runs on the JVM and Node.
 
-  It also runs in the production gate (`-Dre-frame.debug=false`). Only the
-  `:rf.ssr/invalid-version` trace assertion is dev-only; the rejection it
-  announces is asserted in both postures."
+  It also runs in the production gate (`-Dre-frame.debug=false`)."
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.interop :as rf.interop]
-            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
-            #?(:clj  [re-frame.test-support :refer [with-trace-recorder!]]
-               :cljs [re-frame.test-support :refer-macros [with-trace-recorder!]])))
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
 (def sample-app-db
   {:public/articles  [:a :b :c]
@@ -113,29 +108,16 @@
   ;; A nil optional value omits its key: a present-and-nil key is not a
   ;; spelling of absence in the `:rf/hydration-payload` schema.
   (let [rt {:rf.runtime/ssr {:hydration {:version 1}}}]
-    (is (= {:rf/version       7
+    (is (= {:rf/version       rf.ssr.payload-policy/pattern-protocol-version
             :rf/app-db        {:public/page :dashboard}
             :rf/frame-id      :app/main
             :rf/runtime-db    rt
             :rf/schema-digest "digest-abc"}
            (rf.ssr.payload-policy/build-payload
              :app/main {:public/page :dashboard}
-             {:version 7 :runtime-db rt :schema-digest "digest-abc"})))
+             {:runtime-db rt :schema-digest "digest-abc"})))
     (is (= {:rf/version 1 :rf/app-db {:public/page :dashboard}}
            (rf.ssr.payload-policy/build-payload
              nil {:public/page :dashboard}
              {:runtime-db nil :schema-digest nil})))))
 
-(deftest resolve-version-coerces-and-rejects-to-integer
-  (is (= 7 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} {:version "7"})))
-      "a whole-number string is coerced")
-  (with-trace-recorder! [traces]
-    (is (= 1 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} {:version "1.0.0"})))
-        "a semver string is rejected and falls back to v1")
-    (when rf.interop/debug-enabled?
-      (is (= [{:op-type :warning :value "1.0.0" :recovery :rejected-and-fell-back}]
-             (->> @traces
-                  (filter #(= :rf.ssr/invalid-version (:operation %)))
-                  (mapv (fn [t] {:op-type  (:op-type t)
-                                 :value    (-> t :tags :value)
-                                 :recovery (:recovery t)}))))))))

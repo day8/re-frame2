@@ -50,7 +50,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
-            [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
@@ -89,45 +88,35 @@
 
 (defn payload-script
   "The id-pinned `<script type=\"application/edn\">` carrying the
-  already-`pr-str`'d hydration payload.
-
-  Byte-for-byte the shape `re-frame.ssr.ring.shell/payload-script-tag`
-  emits, and it must stay that way: the id is
-  `re-frame.ssr.constants/payload-script-id`, the client bootstrap's
-  `getElementById` contract, and the body goes through the framework's
-  EDN-aware escaper, which keeps `<` readable in token position, escapes
-  it inside string literals, and fails loud on a genuine `</script`
-  breakout. That shell namespace is JVM-only, so the three lines are
-  re-spelled here on the two shared constants rather than required."
+  already-`pr-str`'d hydration payload: `re-frame.ssr.html-helpers/
+  payload-script-tag`, the one definition the Ring shell writes through
+  too, so the id (`re-frame.ssr.constants/payload-script-id`, the client
+  bootstrap's `getElementById` contract) and the EDN-aware escaping are
+  the same bytes on every host."
   [payload-edn]
-  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
-       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
-       "</script>"))
+  (rf.ssr.html-helpers/payload-script-tag payload-edn))
 
 (defn document
   "One page: the app root's inner `html`, then the payload script, then
-  the bootstrap `<script src>` last — the order `ssr-ring`'s
-  non-streaming shell writes. A `<title>` only when `:title` is given: the module does not know the
-  application's title, so it invents none."
+  the bootstrap `<script src>` last — `re-frame.ssr.html-helpers/
+  html-document`, the envelope the Ring shell writes too, under this
+  module's own defaults: `lang=\"en\"`, an `app` element id, a `<title>`
+  only when `:title` is given (the module does not know the application's
+  title, so it invents none), and no bootstrap script unless `:script-src`
+  names one."
   [{:keys  [html app-element-id script-src title]
     script :payload-script}]
   ;; `or`, not `:or` — a caller threading `nil` through for an option it
   ;; did not set supplies the KEY, so a destructuring default never fires
   ;; and the page would silently get `id=""`.
-  (str "<!DOCTYPE html>"
-       "<html lang=\"en\">"
-       "<head><meta charset=\"utf-8\">"
-       (when (some? title)
-         (str "<title>" (rf.ssr.html-helpers/escape-html title) "</title>"))
-       "</head>"
-       "<body>"
-       "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
-       html
-       "</div>"
-       script
-       (when script-src
-         (str "<script src=\"" (rf.ssr.html-helpers/escape-attr script-src) "\"></script>"))
-       "</body></html>"))
+  (rf.ssr.html-helpers/html-document
+    {:html-attrs     {:lang "en"}
+     :head           (when (some? title)
+                       (str "<title>" (rf.ssr.html-helpers/escape-html title) "</title>"))
+     :app-element-id (or app-element-id "app")
+     :body           html
+     :payload-script script
+     :script-src     script-src}))
 
 ;; ---------------------------------------------------------------------------
 ;; The render entry
@@ -344,7 +333,7 @@
                          be overridden — the renderer OWNS its server
                          identity rather than asking every caller to
                          remember it.
-      :version           :schema-digest   passed to `build-payload`.
+      :schema-digest     passed to `build-payload`.
       :payload-include-sensitive
                          optional: a vector of app-db PATHS the frame
                          classifies `:sensitive` whose raw value may ride the
@@ -367,7 +356,7 @@
   destroyed in a `finally`, in that order, so a render that threw leaks no
   more than one that returned."
   [{:keys [hiccup snapshot initial-events payload payload-include-sensitive frame-opts
-           client-frame-id identifier-prefix version schema-digest app-element-id
+           client-frame-id identifier-prefix schema-digest app-element-id
            script-src title]}]
   (let [frame-id  (fresh-frame-id)
         ;; Per REQUEST and reachable from nothing else — never a
@@ -420,7 +409,6 @@
                                           frame-id first-record n))
         (let [policy-opts (cond-> {:payload payload}
                             (some? client-frame-id) (assoc :client-frame-id client-frame-id)
-                            (some? version)         (assoc :version version)
                             (some? schema-digest)   (assoc :schema-digest schema-digest))
               payload-map (rf.ssr.payload-policy/build-payload
                             ;; WIRE id — the caller's stable one or nil.

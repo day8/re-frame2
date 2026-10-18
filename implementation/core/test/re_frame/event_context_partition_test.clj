@@ -1,21 +1,18 @@
 (ns re-frame.event-context-partition-test
   "Writes against the frame's two partitions (Spec 002 §Event context threads
-  both partitions; Conventions §The legacy :rf/runtime root):
+  both partitions; Conventions §There is no :rf/runtime app-db root):
 
     - an ordinary handler's `:rf.db/runtime` effect applies, and fires the
       dev diagnostic `:rf.warning/app-handler-runtime-effect` — reserved by
       convention, not enforced;
-    - a `:rf/runtime` root in app-db is rejected whole, whether the handler
-      returned it or an `:after` interceptor inserted it into the final
-      effects, and the drain carries on.
+    - a `:rf/runtime` key in app-db is ordinary app data.
 
-  The commits and rejections hold in every posture; the traces that report
-  them are dev-only and sit behind `rf.interop/debug-enabled?`."
+  The commits hold in every posture; the traces that report them are
+  dev-only and sit behind `rf.interop/debug-enabled?`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
-            [re-frame.interceptor :as rf.interceptor]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -55,45 +52,11 @@
                  (mapv #(select-keys (:tags %) [:rf.trace/event-id :rf.event/v :frame]) warns)))
           (is (= :warned (:recovery (first warns)))))))))
 
-(deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
-  (testing "a handler whose :db effect carries a :rf/runtime root is rejected:
-            the root never lands in app-db"
-    (rf/make-frame {:id :ctx/legacy-db})
-    (let [recorded (record-traces! ::legacy-db)]
-      (rf/reg-event :ctx/writes-legacy-root
-        (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/machines {:m 1}})}))
-      (rf/dispatch-sync [:ctx/writes-legacy-root] {:frame :ctx/legacy-db})
-      (is (not (contains? (rf/app-db-value :ctx/legacy-db) :rf/runtime)))
-      (when rf.interop/debug-enabled?
-        ;; The in-chain guard throws inside the handler wrapper, so the
-        ;; rejection surfaces as a captured handler-exception.
-        (is (= [:rf.error/legacy-runtime-root]
-               (mapv #(:rf.error/id (ex-data (get-in % [:tags :exception])))
-                     (trace-events recorded :error :rf.error/handler-exception))))))))
-
-(deftest after-interceptor-legacy-runtime-root-is-rejected
-  (testing "an :after interceptor inserting :rf/runtime into the final :db effect
-            is rejected whole at the final boundary, and the drain survives"
-    (rf/make-frame {:id :ctx/after-legacy})
-    (let [recorded (record-traces! ::after-legacy)]
-      (rf/reg-interceptor ::legacy
-        (rf.interceptor/->interceptor*
-          :id    ::legacy
-          :after (fn [ctx]
-                   (let [db (rf.interceptor/get-effect ctx :db)]
-                     (rf.interceptor/assoc-effect
-                       ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}}))))))
-      (rf/reg-event :ctx/clean-db
-        {:interceptors [::legacy]}
-        (fn [{:keys [db]} _] {:db (assoc db :user/id 7)}))
-      (rf/reg-event :ctx/after-legacy-downstream
-        (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
-      (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
-      (rf/dispatch-sync [:ctx/after-legacy-downstream] {:frame :ctx/after-legacy})
-      ;; Neither the root nor the legal :user/id beside it committed, and the
-      ;; next event still ran.
-      (is (= {:downstream? true} (rf/app-db-value :ctx/after-legacy)))
-      (when rf.interop/debug-enabled?
-        (is (= [:rf/runtime]
-               (mapv #(get-in % [:tags :offending-key])
-                     (trace-events recorded :error :rf.error/legacy-runtime-root))))))))
+(deftest a-rf-runtime-key-in-app-db-is-ordinary-data
+  (testing "a :db effect carrying a top-level :rf/runtime key commits like any
+            other app data"
+    (rf/make-frame {:id :ctx/app-runtime-key})
+    (rf/reg-event :ctx/writes-runtime-key
+      (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:m 1})}))
+    (rf/dispatch-sync [:ctx/writes-runtime-key] {:frame :ctx/app-runtime-key})
+    (is (= {:rf/runtime {:m 1}} (rf/app-db-value :ctx/app-runtime-key)))))

@@ -330,7 +330,7 @@ h1 { margin: 0 0 1em; }
 ;;
 ;; A test that intentionally exercises live generation can opt in per call:
 ;;
-;;     (rf/dispatch-sync [:order/place] {:rf.cofx/mint-policy :explicit-live})
+;;     (rf/dispatch-sync [:order/place] {:rf.cofx/mint-policy :live})
 ;;
 ;; The counter does not require generated coeffects; this default protects
 ;; future tests as handlers grow.

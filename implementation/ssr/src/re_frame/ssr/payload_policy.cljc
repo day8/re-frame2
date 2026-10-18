@@ -67,23 +67,21 @@
   boot rather than at first request — the canonical fail-closed
   pattern.
 
-  ---- Version resolution + payload assembly ----
+  ---- Payload assembly ----
 
-  This namespace is also the single home for the hydration-payload's
-  `:rf/version` resolution (`resolve-version`) and the canonical
-  four-key payload assembly (`build-payload`). Every SSR payload is the
-  identical `:rf/hydration-payload` shape and pins `:rf/version` from the
-  identical source-of-truth: the
-  caller's explicit `:version` opt, falling back to the SSR artefact's
-  compiled-in `pattern-protocol-version` constant — the SAME value the
-  client-side `:rf.ssr/check-version` fx reads, so both wire ends agree
-  with no host wiring."
+  This namespace is also the single home for the canonical payload
+  assembly (`build-payload`). Every SSR payload is the identical
+  `:rf/hydration-payload` shape and stamps `:rf/version` from one source:
+  the SSR artefact's compiled-in `pattern-protocol-version` constant — the
+  SAME value the client-side `:rf.ssr/check-version` fx reads, so both wire
+  ends agree with no host wiring. No host overrides it: the check exists to
+  catch a cached client bundle meeting a newer server, and any other stamp
+  could only manufacture a mismatch."
   (:refer-clojure :exclude [resolve])
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
-            [re-frame.trace :as rf.trace]
             ;; The numeric crossing rule, JVM-only: on CLJS
             ;; every number already crosses, and the client bundle (which
             ;; reaches this ns through `re-frame.ssr.hydrate`) never loads it.
@@ -701,93 +699,21 @@
                   slice)]
       (when (seq slice) slice)))))
 
-;; ---- version resolution + payload assembly -------------------------------
+;; ---- protocol version + payload assembly ---------------------------------
 ;;
-;; Single home for the hydration-payload `:rf/version` resolution and the
+;; Single home for the hydration-payload `:rf/version` constant and the
 ;; canonical payload assembly every SSR payload goes through.
 
 (def pattern-protocol-version
   "The hydration pattern-protocol version — the SSR artefact's compiled-in
   constant (v1 = 1, per Spec-Schemas §`:rf/hydration-payload` — \"integer;
   v1 = 1\"). The SSR artefact OWNS this fact: it is compiled into the wire
-  code both ends run, so `resolve-version` (server payload assembly) and
+  code both ends run, so `build-payload` (server payload assembly) and
   `re-frame.ssr.hydrate/runtime-version-lookup` (the client-side scalar
   `:rf.ssr/check-version` path) read this one source of truth and agree with
-  no host wiring. Also the terminal fallback in `resolve-version` so the
-  canonical `:rf/version` key is always present (Malli `:int` slot, not
-  `:optional`)."
+  no host wiring. Every payload carries it, so the canonical `:rf/version`
+  key is always present (Malli `:int` slot, not `:optional`)."
   1)
-
-(defn- coerce-version
-  "Coerce a candidate `:rf/version` source value to the canonical INTEGER
-  pattern-protocol version (per Spec-Schemas §`:rf/hydration-payload` —
-  `:rf/version` is `:int`, explicitly NOT a semver-style string).
-
-  Returns:
-    - the integer itself when `v` is already an int;
-    - the parsed integer when `v` is a whole-number-valued string
-      (`\"7\"` → 7) — a tolerant coercion for hosts that stamp the
-      version as a string of digits;
-    - `nil` when `v` is nil (the source is simply absent), OR when `v`
-      is a non-integer / non-numeric-string value (a semver `\"1.0.0\"`,
-      a float, a keyword) — REJECTED so the caller falls through to the
-      next source rather than shipping a schema-violating `:rf/version`.
-
-  A rejection (non-nil, non-coercible) emits a `:rf.ssr/invalid-version`
-  warning trace so the drift surfaces in dev/CI rather than silently
-  defaulting."
-  [v]
-  (cond
-    (nil? v) nil
-
-    (int? v) v
-
-    (and (string? v) (re-matches #"\d+" v))
-    #?(:clj  (Long/parseLong v)
-       :cljs (js/parseInt v 10))
-
-    :else
-    (do
-      ;; `trace/emit!` self-gates on `interop/debug-enabled?` (production
-      ;; CLJS bundles DCE the body), so no outer guard is needed here.
-      (rf.trace/emit! :warning :rf.ssr/invalid-version
-                   {:value    v
-                    :reason   (str "Hydration :rf/version must be an integer "
-                                   "pattern-protocol version (per Spec-Schemas "
-                                   "§:rf/hydration-payload), not "
-                                   (pr-str (type v)) " " (pr-str v)
-                                   "; rejected — falling back to the next "
-                                   "version source.")
-                    :recovery :rejected-and-fell-back})
-      nil)))
-
-(defn resolve-version
-  "Pick the canonical INTEGER `:rf/version` value to ship in the hydration
-  payload (per Spec-Schemas §`:rf/hydration-payload` — `:rf/version` is
-  `:int`, NOT a semver string). Each candidate source is coerced/validated
-  via `coerce-version`: an int is taken verbatim, a whole-number string is
-  parsed, and any other value (semver string, float, keyword) is REJECTED
-  (with a `:rf.ssr/invalid-version` warning) so resolution falls through to
-  the next source rather than shipping a schema-violating value.
-
-  The resolution order is:
-
-    1. An explicit `:version` opt from the caller (host-supplied stamp;
-       wins so test fixtures and apps that ship their own version source
-       stay in control) — when it coerces to an integer.
-    2. `pattern-protocol-version` (v1 = 1) — the SSR artefact's compiled-in
-       constant, the SAME value the client-side `:rf.ssr/check-version` fx
-       reads (`re-frame.ssr.hydrate/runtime-version-lookup`), so both wire
-       ends pin the same value with no host wiring. The canonical schema
-       slot is required (per Spec-Schemas §`:rf/hydration-payload`), so this
-       integer is also the terminal fallback — used whenever no explicit
-       `:version` supplied a coercible integer (absent, or rejected).
-
-  Both wire ends read the SSR-owned constant, so a host that doesn't pass
-  `:version` explicitly still pins the value the client agrees with."
-  [explicit-version]
-  (or (coerce-version explicit-version)
-      pattern-protocol-version))
 
 ;; ---- the numeric crossing rule --------------------------------------------
 ;;
@@ -948,9 +874,8 @@
 
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract)
-  and hand the result here. `:rf/version` is resolved via
-  `resolve-version` (caller's `:version` opt → the SSR-owned
-  `pattern-protocol-version` constant). Schema-digest is supplied by the
+  and hand the result here. `:rf/version` is always the SSR-owned
+  `pattern-protocol-version` constant. Schema-digest is supplied by the
   caller when their app participates in the schema-digest check; nil
   otherwise.
 
@@ -969,12 +894,12 @@
 
   Shared verbatim by `re-frame.ssr.ring.payload/build-payload` and
   Fresco's server render."
-  [wire-frame-id db-slice {:keys [version schema-digest runtime-db]}]
+  [wire-frame-id db-slice {:keys [schema-digest runtime-db]}]
   ;; On a JVM host both partitions obey the numeric crossing
   ;; rule before they are assembled. One site covers every SSR payload.
   #?(:clj (do (check-portable-numbers! :rf/app-db db-slice)
               (check-portable-numbers! :rf/runtime-db runtime-db)))
-  (cond-> {:rf/version (resolve-version version)
+  (cond-> {:rf/version pattern-protocol-version
            :rf/app-db  db-slice}
     ;; Stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
     ;; agreed wire id; a nil wire id omits it (anonymous per-request server

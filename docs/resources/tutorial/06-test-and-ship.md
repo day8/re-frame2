@@ -223,7 +223,7 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :ambient-frame nil}))
 
 (deftest favorite-button-shows-the-count-and-clicks-into-this-frame
-  (rf/with-new-frame [f (rf/make-frame {:preset :test :rf.cofx/mint-policy :explicit-live})]
+  (rf/with-new-frame [f (rf/make-frame {:preset :test :rf.cofx/mint-policy :live})]
     (rf/dispatch-sync [:rf/set-db {:auth {:user {:username "ada"}}}])   ;; a user is signed in
     (let [article {:slug "x" :favorited false :favoritesCount 7}
           tree    (favorite-button {:article article})]                ;; call the view-fn directly
@@ -237,7 +237,7 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
                                          (rf/frame-state-value f))))))))
 ```
 
-Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :explicit-live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
+Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
 
 !!! warning "Gotcha — a wrong testid fails loud, not soft"
 

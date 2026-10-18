@@ -52,8 +52,8 @@
      "Read the EDN hydration payload baked into the page by the server's
      HTML shell. Reads the `<script>` element whose id is
      `re-frame.ssr.constants/payload-script-id` (`\"__rf_payload\"`) — the
-     SAME id the host adapter's `default-html-shell` /
-     `payload-script-tag` stamps (Spec 011 §Hydration payload script id).
+     SAME id `re-frame.ssr.html-helpers/payload-script-tag` stamps for
+     every host shell (Spec 011 §Hydration payload script id).
 
      Returns the parsed payload map, or `nil` when the page was not
      server-rendered (no payload script present) — the \"client-only
@@ -380,24 +380,31 @@
 
   The always-on emit is deliberately OUTSIDE the debug gate. A page that
   quietly runs with N-1 roots and no signal is the failure mode this
-  whole contract exists to prevent, so the signal cannot be dev-only."
+  whole contract exists to prevent, so the signal cannot be dev-only.
+
+  The always-on record is STRUCTURAL ONLY: root id, frame, phase, category
+  and recovery. A boot exception's message can carry application text, and
+  this record reaches production error sinks, so the throwable and its
+  message ride the dev trace and the root's returned outcome, never the
+  record — the rule `re-frame.substrate.spine/dispatch-hydration-mismatch-record!`
+  keeps for the hydration-recovery record."
   [{:keys [where frame root-id phase exception]}]
-  (let [reason (str "root " (pr-str root-id) " failed to boot during "
-                    (name phase) " and was ISOLATED: the page's other "
-                    "roots hydrated and are running. This root is not "
-                    "mounted and will not respond to dispatch. "
-                    (exception-message exception))
-        record {:error     :rf.error/root-boot-failed
-                :frame     frame
-                :time      (rf.interop/now-ms)
-                :where     where
-                :root-id   root-id
-                :phase     phase
-                :reason    reason
-                :exception exception
-                :recovery  :warned-and-continued}]
+  (let [record {:error    :rf.error/root-boot-failed
+                :frame    frame
+                :time     (rf.interop/now-ms)
+                :where    where
+                :root-id  root-id
+                :phase    phase
+                :recovery :warned-and-continued}]
     (when rf.interop/debug-enabled?
-      (rf.trace/emit-error! :rf.error/root-boot-failed (dissoc record :error :time)))
+      (rf.trace/emit-error! :rf.error/root-boot-failed
+                            (assoc (dissoc record :error :time)
+                                   :reason    (str "root " (pr-str root-id) " failed to boot during "
+                                                   (name phase) " and was ISOLATED: the page's other "
+                                                   "roots hydrated and are running. This root is not "
+                                                   "mounted and will not respond to dispatch. "
+                                                   (exception-message exception))
+                                   :exception exception)))
     (when-let [dispatch-error-record!
                (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
       (dispatch-error-record! record)))

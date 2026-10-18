@@ -3,7 +3,7 @@
   source-ordered `[fx-id args]` and run NO fx body. Interception sits at the
   single effect executor (`do-fx`), before any per-fx resolution, so it covers
   fx that an enumeration of the `:fx` registrar would miss: image-only inline
-  fx and the reserved fx whose real body core always runs. The image-only and
+  fx and a reserved fx such as `:rf.machine/spawn`. The image-only and
   reserved-fx tests each carry a positive control showing the body does run
   without the sink."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -12,7 +12,7 @@
             [re-frame.fx                   :as rf.fx]
             [re-frame.image                :as rf.image]
             [re-frame.live-frame           :as rf.live-frame]
-            ;; Loaded for `:rf.machine/spawn`, the reject-tier reserved fx.
+            ;; Loaded for `:rf.machine/spawn`, a reserved fx.
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]))
@@ -43,9 +43,7 @@
     (rf/dispatch-sync [:do/it] {:frame :inline/main})
     (is (= [{:n 7}] @fired) "positive control: without the sink the inline fx fires")))
 
-(deftest dry-run-skips-and-records-reject-tier-reserved-fx
-  ;; `:rf.machine/spawn` is a reject-tier reserved fx: core runs its real body
-  ;; even over an override.
+(deftest dry-run-skips-and-records-a-reserved-fx
   (rf/make-frame {:id :rf/frame})
   (rf/reg-machine :dry/m {:initial :idle :states {:idle {}}})
   (rf/reg-event :rf/go

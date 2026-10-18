@@ -116,19 +116,6 @@
                       {:fx-overrides {:goum9x/prod-real-fx :goum9x/prod-missing}})
     (is (= :rf/default (:frame (first-of :rf.error/override-fallthrough seen))))))
 
-(deftest reserved-fx-override-listener-survives-prod
-  (testing "with the dev per-call reject compiled away, the router's production
-            strip of a reject-tier override is the emit site"
-    (let [seen (recording-listener!)]
-      ;; The strip runs over the override map ahead of an `:fx` walk, so the
-      ;; handler returns one.
-      (rf/reg-fx :uh5ic5/noop (fn [_ _] nil))
-      (rf/reg-event :uh5ic5/spawn (fn [_ _] {:fx [[:uh5ic5/noop]]}))
-      (rf/dispatch-sync [:uh5ic5/spawn]
-                        {:fx-overrides {:rf.machine/spawn (fn [_ _] :should-not-fire)}})
-      (is (= {:event-id :uh5ic5/spawn :frame :rf/default}
-             (select-keys (first-of :rf.error/reserved-fx-override seen) [:event-id :frame]))))))
-
 (deftest unregistered-cofx-listener-survives-prod
   (let [seen (recording-listener!)]
     (rf/reg-event :goum9x/prod-unknown-cofx

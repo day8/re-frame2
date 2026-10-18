@@ -373,10 +373,10 @@ A test frame declares its intent — and gets the deterministic defaults — wit
 
 **Strict mint is the failure mode that matters in tests.** Under `:rf.cofx/mint-policy :strict`, a handler that **declares** a generator-backed recordable coeffect (`:rf.cofx/requires [:app/new-id]` where `:app/new-id` is a `reg-cofx` with a value-returning supplier) but for which the token carries **no** supplied value is **`:rf.error/missing-required-cofx`** — the generator does **not** run, no fresh per-run value is minted (per [002 §Mint policies](002-Frames.md#mint-policies)). The deterministic path is the default; nondeterminism is opt-in:
 
-- A test that genuinely wants a fresh generated value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}` — a per-call dispatch opt, or a per-frame override (user-supplied keys win over the preset expansion).
+- A test that genuinely wants a fresh generated value per run opts back in with `{:rf.cofx/mint-policy :live}` — a per-call dispatch opt, or a per-frame override (user-supplied keys win over the preset expansion).
 - `:rf/time-ms` always succeeds even under `:strict` (the router stamp guarantees it); the strict failure fires only for *declared-absent, generator-backed* facts.
 
-This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/missing-required-cofx` rather than a silently-green test that minted a different value than production will — supply the fact in `:rf.cofx` (above) or opt into `:explicit-live`.
+This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/missing-required-cofx` rather than a silently-green test that minted a different value than production will — supply the fact in `:rf.cofx` (above) or opt into `:live`.
 
 ### Stubbing an HTTP fx for an entire frame
 
@@ -727,11 +727,11 @@ When you want to verify what *would* dispatch without actually running the drain
     (is (= [[:auth/check-credentials]] @dispatched))))
 ```
 
-`:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the drain does not run. This is the canonical "assert what would dispatch" affordance.
+`:dispatch` (and `:dispatch-later`) take an override like any reserved fx (per [Conventions §Reserved fx-ids under `:fx-overrides`](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the drain does not run. This is the canonical "assert what would dispatch" affordance.
 
 **Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (a record-config key on `make-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
 
-**State-installing reserved fxs cannot be stubbed.** The `:fx-overrides` map is tiered: the routing primitives (`:dispatch`, `:dispatch-later`) and the navigation primitives (`:rf.nav/*`) are OVERRIDABLE, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.route/with-nav-token` — are **HARD-REJECTED**. An override targeting one of those is ignored (the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body), because stubbing them would leave the frame's runtime-db in an inconsistent state that breaks later behaviour far from the override site (e.g. a spawned actor whose snapshot was never installed → every later actor dispatch is `:rf.error/no-such-handler`). To assert on *those* operations, drive the real fx and read the resulting runtime-db state (machine snapshot, route slice) directly.
+**Every reserved fx can be stubbed.** The state-installing reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.route/with-nav-token` — take an `:fx-overrides` entry just as `:dispatch` does, so a test can record what a handler would spawn without spawning it. The stub installs nothing: a stubbed spawn leaves no actor behind, so a later dispatch to it is `:rf.error/no-such-handler`. To assert on the effect itself, let the real fx run and read the resulting runtime-db state (machine snapshot, route slice) directly.
 
 ### Time travel — assertion after rewind
 

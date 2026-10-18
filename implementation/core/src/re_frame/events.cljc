@@ -340,8 +340,8 @@
   :reason <string>}` — or nil when the envelope is well-shaped. Does NOT throw
   and does NOT emit; the caller (the router's FINAL-effects boundary) emits
   `:rf.error/effect-map-shape` in-band and aborts the event pre-commit,
-  mirroring the `legacy-runtime-root` / `classification-effect-shape`
-  rejections at that same boundary.
+  mirroring the `classification-effect-shape` rejection at that same
+  boundary.
 
   Two defect cases, checked in that order:
 
@@ -449,81 +449,6 @@
                          "code should reach subsystem state through public framework "
                          "subscriptions and effects, and write application data via `:db`.")}))))
 
-;; ---- legacy :rf/runtime root — HARD ERROR (EP-0001) -----------------------
-;;
-;; Per Conventions §The legacy `:rf/runtime` root — hard error in final form
-;; + 009 §Error event catalogue: the `:rf/runtime` app-db root key is reserved
-;; and rejected. Framework durable state lives in the runtime-db partition
-;; (`:rf.db/runtime`), addressed by `:rf.runtime/*` children. A stray
-;; `:rf/runtime` root at the TOP of app-db is a HARD ERROR
-;; (`:rf.error/legacy-runtime-root`); there is no migration alias.
-;;
-;; Under the two-partition contract an ordinary `:db` return replaces ONLY
-;; app-db and CANNOT touch runtime-db (the clobber footgun is structurally
-;; absent), so the only way `:rf/runtime` reaches app-db is a handler that
-;; EXPLICITLY writes it — which this guard rejects loudly.
-
-(def ^:private legacy-runtime-root-key
-  "The reserved app-db root key this guard rejects. Framework durable state
-  lives in the runtime-db partition; a stray `:rf/runtime` at the top of
-  app-db is the legacy-shaped write this guard rejects."
-  :rf/runtime)
-
-(defn legacy-runtime-root?
-  "True iff `app-db` carries the reserved `:rf/runtime` root key at its top
-  level (per Conventions §The legacy `:rf/runtime` root). The
-  pure detector both `reject-legacy-runtime-root!` (the in-chain throw) and
-  the router's final-effects boundary (the in-band abort) share
-  so the rejection rule has a single definition. Cheap on the hot path — a
-  single `contains?` over the top-level keys."
-  [app-db]
-  (and (map? app-db) (contains? app-db legacy-runtime-root-key)))
-
-(defn legacy-runtime-root-ex-data
-  "The shared `:rf.error/legacy-runtime-root` ex-data / error-trace tag map
-  for the offending `event`. Used both by `reject-legacy-runtime-root!`
-  (carried on the thrown ex-info) and by the router's final-effects
-  boundary emit so the two rejection sites surface an identical
-  payload."
-  [event]
-  (let [event-id (when (vector? event) (first event))]
-    {:rf.error/id   :rf.error/legacy-runtime-root
-     :where         'rf/reg-event
-     :event-id      event-id
-     :event         event
-     :recovery      :no-recovery
-     :reason
-     (str "Event `" event-id "` returned a `:db` value carrying the "
-          "retired `:rf/runtime` app-db root. Framework runtime state "
-          "now lives in the runtime-db partition (the reserved "
-          "`:rf.db/runtime` effect, addressed by `:rf.runtime/*` "
-          "children) — NOT under an app-db `:rf/runtime` root, which "
-          "is retired. Move framework/runtime writes to the "
-          "`:rf.db/runtime` effect; keep application data under `:db`.")
-     :offending-key legacy-runtime-root-key}))
-
-(defn reject-legacy-runtime-root!
-  "Throw `:rf.error/legacy-runtime-root` (ex-info) when `app-db` carries the
-  reserved `:rf/runtime` root key at its top level. Per Conventions §The
-  legacy `:rf/runtime` root: a HARD ERROR — framework runtime state lives in
-  the runtime-db partition, never under an app-db `:rf/runtime` root. A no-op
-  (returns `app-db`) for any value that does not carry the key, so it is cheap
-  on the hot path.
-
-  Always-on (NOT dev-gated): a legacy-shaped write is a structural contract
-  violation that must surface in every build, not a dev-only advisory.
-
-  This is the IN-CHAIN guard (runs in the handler-wrapping interceptor's
-  `:before`, so a handler-RETURN legacy root is captured by the interceptor
-  machinery and surfaced as `:rf.error/handler-exception`). The symmetric
-  FINAL-effects boundary check — covering a legacy root inserted by an
-  `:after` interceptor AFTER this ran — lives in the router and
-  emits in-band rather than throwing, so the drain is not aborted."
-  [app-db event]
-  (when (legacy-runtime-root? app-db)
-    (throw (rf.error/ex-info-from-data (legacy-runtime-root-ex-data event))))
-  app-db)
-
 (defn- commit-fx-effects
   "fx-kind commit: project the handler's returned effect map into the context.
   Bad-return / nil-return policy lives here — `nil` is the documented legal
@@ -600,14 +525,8 @@
       (if (:rf/skip-handler? ctx)
         ctx
         (let [event   (rf.interceptor/get-coeffect ctx :event)
-              effects (handler-fn (rf.interceptor/get-coeffect ctx) event)
-              new-ctx (commit-fx-effects ctx event effects)]
-          ;; EP-0001: a `:db` effect carrying the reserved
-          ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
-          ;; the single post-commit chokepoint. No-op when absent.
-          (reject-legacy-runtime-root!
-            (rf.interceptor/get-effect new-ctx :db) event)
-          new-ctx)))))
+              effects (handler-fn (rf.interceptor/get-coeffect ctx) event)]
+          (commit-fx-effects ctx event effects))))))
 
 (defn event-handler-meta
   "Build the registrar-shaped handler-meta map for an event handler from a

@@ -27,7 +27,7 @@
 (defn- server-payload
   "The payload a server builds for frame `id`, stamped with its `:rf/frame-id`."
   [id]
-  (let [policy {:version 1 :payload [:count]}]
+  (let [policy {:payload [:count]}]
     (rf.ssr.payload-policy/build-payload
       id
       (rf.ssr.payload-policy/apply-policy {:count 7} policy)

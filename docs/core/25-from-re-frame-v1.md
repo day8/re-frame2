@@ -214,7 +214,7 @@ Inside that tree, a bare `dispatch` or `subscribe` finds the frame from the prov
 
 !!! warning "Gotcha"
 
-    A v1 `:initialize-db` or `:app/reset` handler often returns a whole fresh app-db. In v2 that can't overwrite framework state, which lives in a separate [runtime-db](glossary.md#runtime-db) partition a `:db` return can't reach. The one remaining hazard is a map that still carries an `:rf/runtime` key at the root of app-db: that raises `:rf.error/legacy-runtime-root` on dispatch, in production too. Delete the key; framework state isn't yours to seed.
+    A v1 `:initialize-db` or `:app/reset` handler often returns a whole fresh app-db. In v2 that can't overwrite framework state, which lives in a separate [runtime-db](glossary.md#runtime-db) partition a `:db` return can't reach. A map that still carries an `:rf/runtime` key at the root of app-db is just app data and seeds nothing, so delete the key; framework state isn't yours to seed.
 
 ### Async callbacks: capture a frame api
 

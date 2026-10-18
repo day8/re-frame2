@@ -1,206 +1,114 @@
 # `ssr-node` — the bounded Node/React SSR service
 
-The JVM owns the HTTP request. Node owns the React render. This package is
-the thing between them, and its whole job is to make that crossing
-bounded and fail-closed. A render that runs too long is killed rather
-than waited for. A request that says something the contract does not
-mention is refused rather than interpreted. One request's state is
-never reachable from another's.
+The JVM owns the HTTP request; Node owns the React render. This package is
+the service between them, and it keeps that crossing bounded and fail-closed:
+a render that runs too long is killed rather than waited for, a request that
+says something the contract does not name is refused rather than
+interpreted, and one request's state is never reachable from another's.
 
-It is a plain Node package. No ClojureScript, no npm dependencies, no
-build step, and no entry in any shadow-cljs build or in the top-level
-`deps.edn` — `node:worker_threads`, `node:http` and `node:crypto` are the
-whole dependency list, and its `package.json` declares none and links
-nowhere outside its own tree. That is a deliberate property and it is
-checked rather than asserted; see
-[Client v0 is unaffected](#client-v0-is-unaffected-when-the-service-is-absent).
-
-Status: v0, and wired. Built to the specification on `rf2-hic-056` under the
-operator ruling of 12 August 2026 (`rf2-xpq9`), which removed the "when a named
-caller activates it" condition. The caller now exists. `ssr-ring` grew a
-render-body seam — one construction opt, `:renderer` — and
-`re-frame.ssr.ring.node/renderer` is the JVM adapter that dials this service
-through it, both landed by the ssr-node crossing programme (`rf2-8arzr`).
-A `jvm-node-crossing` CI job renders one JVM → Node → JVM request end to end.
-What stayed on the JVM is unchanged, and is still the subject of
-[What this is not](#what-this-is-not).
-
----
+It is a plain Node package — no ClojureScript, no npm dependencies, no build
+step, and no entry in any shadow-cljs build or `deps.edn`. Its whole
+dependency list is `node:worker_threads`, `node:http` and `node:crypto`
+([checked](#a-client-that-never-starts-it-is-unaffected)). The JVM half is
+`ssr-ring`'s: `ssr-handler`'s `:renderer` opt takes
+`re-frame.ssr.ring.node/renderer`, which dials this service for the body
+markup.
 
 ## The five guarantees
-
-Everything below is one of these five, or it is the protocol that lets
-them be stated at all.
 
 | # | Guarantee | Where it lives | Witnessed by |
 |---|---|---|---|
 | 1 | **Per-request state isolation, via immutable snapshots** | `src/worker.cjs`, `src/isolate.cjs` | `test/isolation.test.cjs` |
-| 2 | **A closed request envelope, fail-closed** | `src/protocol.cjs` | `test/protocol.test.cjs` |
+| 2 | **A closed request envelope, fail-closed — and a closed response leg** | `src/protocol.cjs`, `src/worker.cjs` | `test/protocol.test.cjs`, `test/egress.test.cjs` |
 | 3 | **One in-flight render per isolate** | `src/isolate.cjs`, `src/pool.cjs` | `test/concurrency.test.cjs` |
 | 4 | **Timeout and hard termination** | `src/isolate.cjs`, `src/pool.cjs` | `test/timeout.test.cjs` |
 | 5 | **A pre-registered caller latency envelope** | `test/envelope.cjs` | `test/envelope.test.cjs` |
 
-Two further obligations ride alongside them: build identity, which the
-operator's ruling names beside the other 5, and the bytes reaching
-the client unaltered, which is what makes a hydration contract survive
-the crossing (`test/bytes.test.cjs`).
-
-Guarantee 2 has a response leg as well as a request one — application
-data cannot cross outside body markup — and it is witnessed separately,
-in `test/egress.test.cjs`, because a fail-closed door on the way in and an
-open one on the way out is not a fail-closed crossing.
+Beside them: the body bytes reach the caller unaltered, so a hydration
+contract survives the crossing (`test/bytes.test.cjs`), and a caller
+expecting another build is refused (`test/protocol.test.cjs`).
 
 ### 1. Per-request state isolation, via immutable snapshots
 
-A request's `state` never crosses as a reference. It crosses as a
-structured clone into a worker thread, which means the isolate holds its
-own copy and can no more reach the caller's object than a second process
-could. Inside the isolate the copy is deep-frozen before the render
-module sees it, so a module that tries to write to its own snapshot
-finds out.
+A request's `state` and `runtime` cross into a worker thread by structured
+clone, so the isolate holds its own copy and cannot reach the caller's object
+or another request's, whatever the render module does. The copy is frozen
+before the module sees it — a diagnostic: a strict-mode module, which any
+shadow-cljs output is, gets a `TypeError` at the write. Every value is EDN
+text, so a shallow freeze is a deep one.
 
-Those 2 mechanisms are not the same strength and the witness keeps them
-apart. The clone is the guarantee and does not depend on the render
-module behaving. The freeze is a diagnostic: a strict-mode module — any
-shadow-cljs output, any ES module — takes a `TypeError` at the write, while
-a sloppy-mode CommonJS module's write fails silently. The strict case is
-witnessed; the sloppy one is JavaScript's own behaviour once the snapshot
-is shown frozen.
-
-A shallow freeze is a deep freeze here by construction rather than by
-luck: every value in `state` is EDN text, and strings are immutable.
-There is no nested object to walk, which is the point of the wire carrying
-text per key rather than decoded application data.
-
-What the service does NOT guarantee is the per-request frame. That is
-the render module's, and it is the shape the Fresco render entry already
-has — a `gensym` frame id per request, seeded through `:rf/set-db`,
-destroyed in a `finally`. The split is the honest one: the service owns the
-process boundary, the module owns the framework.
+An isolate boots its render module once and serves requests one after
+another, so module-level state — a flag, a cache, a registrar — persists from
+one request to the next on that isolate. The per-request frame is the render
+module's to make and destroy. And worker threads are neither a sandbox for
+arbitrary application code nor a hard bound on process memory: the module
+runs with the Node process's full privileges, and every isolate shares that
+process's memory.
 
 ### 2. A closed request envelope, fail-closed
 
-Three closed lists, none with a permissive default, and a shape check and
-a byte ceiling on the state that crosses.
+Three closed lists, none with a permissive default. A request field the
+protocol does not name is refused (`:rf.ssr-node/unknown-request-field`); an
+`entry` the loaded bundle does not publish is refused
+(`:rf.ssr-node/unknown-entry`); and `COMPLETE_FIELDS` in `src/protocol.cjs`
+is the success response's whole field list — `type`, `html`, `renderMs`,
+`buildId` and the optional `requestId`, of which only `html` comes from the
+render module.
 
-The request's own fields. The protocol names every field a request may
-carry. A field it does not name is a refusal
-(`:rf.ssr-node/unknown-request-field`), not a shrug. This is a security
-posture and it is also a topology one — see
-[the protocol](#the-protocol) for the 3
-fields that are refused on purpose, each with its reason attached to the
-refusal so the message teaches instead of merely declining.
+Each partition maps top-level key text (a leading colon, no whitespace) to
+that key's value as EDN text; any other shape is refused
+(`:rf.ssr-node/bad-request-field`), and both share one byte ceiling
+(`:rf.ssr-node/request-too-large`). Which keys cross is the JVM's
+`:render-state` policy, applied by `re-frame.ssr.render-state/project`.
+`validateRequest` reads every field exactly once and hands on fresh
+partitions of the values it checked, so the structured clone sees what
+validation saw — a getter or a Proxy cannot answer differently the second
+time.
 
-The entry id. `entry` must be one of the ids in the table the loaded
-render module publishes. An id the bundle does not carry is refused per request
-(`:rf.ssr-node/unknown-entry`) — the per-request half of the skew detector
-the server-arm pricing named as row B5.
+**The response leg.** The string `render` returns is the module's only way
+out of the isolate, and `src/worker.cjs` is where that holds:
 
-The response leg's fields. A fail-closed request door with an open
-response door is not a fail-closed crossing. `COMPLETE_FIELDS` in
-`src/protocol.cjs` is the success response's field list and it is the same
-kind of object as `REQUEST_FIELDS` rather than a comment: `type`, `html`,
-`renderMs`, `buildId` and the optional `requestId`. `html` is the body
-markup the render module returned; every other member is a fact this
-service produced about the crossing it just performed — timed here, or
-read from the bundle's published table at boot — and `requestId` is the
-caller's own correlation token handed back. There is no other member the
-application's render module fills in, and no mechanism by which it could:
-the string `render` returns is a render module's only output channel, and
-a module that returns anything else is refused
-(`:rf.ssr-node/render-threw`) rather than having the value coerced or
-quietly dropped. `test/egress.test.cjs` is the witness.
+- a return that is not a string — `undefined`, `null`, an object, a promise
+  of one — is refused (`:rf.ssr-node/render-threw`) carrying the value's type
+  tag, never its content;
+- a throw is refused the same way, and the exception's `message`, `detail`
+  and `code` do not cross: a renderer exception is usually built from the
+  data being rendered, and a module-set `code` could pass an application bug
+  off as a caller fault or a deadline;
+- an exception that escapes the render call ends the worker thread and is
+  refused `:rf.ssr-node/isolate-lost`, with the service's own `detail`;
+- a replacement isolate that cannot boot tells waiting callers
+  `:rf.ssr-node/isolate-lost` and nothing the module wrote, and ends the
+  service rather than leaving it a smaller pool;
+- a rejection that is not a `Refusal` at all gets the `render-threw` wording.
 
-The property is enforced in `worker.cjs` — the one place where the
-topology can be enforced, because nothing downstream can carry what it
-never posts — and checked on the in-process `renderToString()` result
-rather than on the HTTP response, because "the current transport drops
-it" is a fact about `http.cjs` and not a guarantee about this package.
-
-The partition shape. A settled frame is two partitions — app-db and the
-framework's runtime-db (the route slice, the machine snapshots) — and a
-request carries both, as `state` and `runtime`. Each maps top-level key
-text (a leading colon, no whitespace) to that key's value as EDN text. A
-key of any other shape, or a value that is not a string, is refused
-(`:rf.ssr-node/bad-request-field`), and the two partitions together share
-one byte ceiling (`:rf.ssr-node/request-too-large`).
-
-Which keys cross is not decided here. The JVM decides it:
-`re-frame.ssr.render-state/project` projects the settled frame under the
-renderer's `:render-state` policy, which is required at construction,
-fail-closed per partition, and the one render-visibility policy on this
-path — so a key the JVM sends is a key the render may read. A
-`:render-state` given as a `fn` hands that selection, and the frame's
-classification, to the programmer who wrote it.
-
-**Every field is read exactly once.** `validateRequest` takes each field
-off the caller's object one time and returns what it took — the two
-partitions as fresh objects of the values it checked, never the caller's
-own. That is not tidiness: what it returns is what `postMessage`
-structured-clones, and a clone is a second read the validator has no say
-over. A field backed by an accessor — a getter, a Proxy, a lazily
-materialised row out of a serializer — could otherwise be well-formed EDN
-text when the checks read it and something else when the clone did, so the
-checks would have been about a value the wire never saw. Read-once removes
-the class rather than guarding the symptom: there is no second read left
-to disagree with the first, and so no defensive copy of the request, no
-re-check and no freeze to maintain.
+The full exception, with its stack, goes to the sidecar's stderr under the
+`[rf.ssr-node]` prefix, where the operator reads it.
 
 ### 3. One in-flight render per isolate
 
-An isolate accepts one render at a time. A second dispatch to a busy
-isolate is a programming error and is refused; the pool never makes one,
-because it only ever hands work to an idle isolate and answers
-`:rf.ssr-node/service-saturated` when the admission budget expires with
-none free, or at once when as many callers already wait as the pool has
-isolates. Waiting is bounded twice, in time by the admission budget and in
-length by the pool size, so a burst holds at most two validated requests
-per isolate, one rendering and one waiting, and refuses the rest.
-Back-pressure, not an unbounded queue: a request that waits forever for
-capacity is a request whose outcome is being decided by the caller's
-timeout, which is the wrong process deciding.
-
-The guarantee has a second half: an isolate that is marked busy is busy
-**with something**. `render()` hands the message to `postMessage` before it
-arms the deadline or sets the in-flight record, so a post that throws
-unwinds leaving the isolate exactly as free as it was — nothing to clear,
-and nothing that only the deadline could clear.
-
-The qualifier the bead attaches — "until proven otherwise" — is the honest
-state of it, and the reason is source-located. The Fresco render entry
-opens a module-level adoption-window flag around its `renderToString`
-and closes it in a `finally`, and that namespace's own docstring explains
-that a window left open would leave the whole process adopting. Two
-overlapping renders in one isolate would have one close the other's
-window. Today `renderToString` is synchronous so the overlap cannot arise
-by accident — but `render` may return a promise, and the moment one does
-it can, and a guarantee that only held because nothing had tried yet is
-the kind that fails silently the day someone does.
+An isolate takes one render at a time and refuses a second dispatch. The
+pool hands work only to an idle isolate; with none free a request waits up to
+the admission budget, then is refused `:rf.ssr-node/service-saturated` — at
+once if as many callers already wait as there are isolates. Back-pressure,
+not an unbounded queue. The message is posted before the deadline is armed,
+so a post that throws leaves the isolate free.
 
 ### 4. Timeout and hard termination
 
-Every render carries a deadline. On expiry the service does not wait, does
-not retry and does not reuse: it calls `worker.terminate()`, refuses with
-`:rf.ssr-node/render-timeout`, and the pool replaces the isolate.
-
-Termination is the load-bearing word. `renderToString` is synchronous, so
-a render that will not finish cannot be interrupted by anything
-cooperative — no promise rejection, no abort signal, no timer, because the
-timer's own callback is queued behind the loop. A worker thread can be
-interrupted, because `terminate()` reaches V8's execution terminator, and
-that is why an isolate here is a worker thread rather than a function
-call. A terminated isolate is never reused: after the interrupt its heap
-is in whatever state the stopped instruction left it.
+Every render carries a deadline. On expiry the service calls
+`worker.terminate()`, refuses with `:rf.ssr-node/render-timeout`, and replaces
+the isolate; a terminated isolate is never reused. `renderToString` is
+synchronous, so nothing cooperative can interrupt it — terminating a worker
+thread can, which is why an isolate is one.
 
 ### 5. A pre-registered caller latency envelope
 
-Stated before it was measured, in `test/envelope.cjs`, in its own commit
-with no measurement code in the tree — `git log --follow` on that file is
-the witness for the ordering. What is bounded is the service's own
-overhead: the time from the call to its response being delivered, minus
-the render module's own render duration — and explicitly not the render,
-because SSR speed is off this programme's bar (HD-012) and this package
-does not quietly re-open it.
+`test/envelope.cjs` states ceilings on the service's own overhead — time to
+a delivered response minus the module's `renderMs` — and
+`test/envelope.test.cjs` measures against them. They catch a structural
+change (an accidental serialisation, a synchronous read on the dispatch path,
+a clone that grew); a typical run clears them by two orders of magnitude.
 
 | Quantity | Ceiling |
 |---|---|
@@ -209,90 +117,25 @@ does not quietly re-open it.
 | worst single sample | **250 ms** |
 | samples | 200, sequential, warm pool, free isolate, `state` + `runtime` ≤ 64 KiB |
 
-The upper two are deliberately loose, and the reasoning is written where
-the numbers are.
-
-The size condition is one budget over **both** request partitions, keys
-and values, counted in UTF-8 bytes exactly as `src/protocol.cjs` counts
-them — the ceilings are not claimed for a request larger than that. It is
-the envelope's own sampling condition and not the service's refusal
-ceiling, which is `--max-request-bytes` and an order of magnitude higher.
-The condition originally named `state` alone, because that was the only
-partition a request carried when the envelope was registered; widening it
-to the request moved no ceiling and no sample count, and the amendment
-note in `test/envelope.cjs` records that separation.
-
-## The measured envelope
-
-Measured on 13 August 2026, Node v24.13.0, Windows 11, on a shared developer
-box with roughly 30 other checkouts in flight. Two isolates, 20
-warm-up renders discarded, then 200 sequential samples of
-
-    overhead = total elapsed for service.renderToString()
-             - the render module's own renderMs
-
-| | p50 | p95 | max |
-|---|---|---|---|
-| **Measured** | 0.04 ms | 0.08 ms | 0.65 ms |
-| **Registered ceiling** | 5 ms | 25 ms | 250 ms |
-
-Cleared by roughly two orders of magnitude, and the ceilings are not
-tightened to match. That is the whole discipline: a ceiling redrawn
-around a run is a description of the run, and the number's job is to catch
-a structural change — an accidental serialisation, a synchronous read on
-the dispatch path, a clone that grew — rather than to flatter the box it
-was taken on. Read the measured row as a shape claim and never as a figure
-to diff a future run against; this repo has already recorded 2 runs at
-one commit whose maxima differed by more than twofold.
-
-Cross-checked independently of the witness: 200 renders took 9.15 ms of
-wall time in total, of which the render module accounted for 2.67 ms, on
-worker thread 2 with the parent on thread 0 — so the crossing is real and
-its cost is about 32 µs a request.
-
----
-
 ## The protocol
 
-A response is one body string. The render module returns its body markup
-as a string — in a Fresco bundle, React's `renderToString` output — or a
-promise of one; the isolate posts it in one `complete` message;
-`service.renderToString()` resolves with it beside the service-owned facts;
-and the HTTP transport writes it once, with a byte-accurate
-`Content-Length`. One buffered body is all either side reads: the JVM
-adapter POSTs to `/render` and takes the whole body, and Spec 011
-specifies a whole-page response. A streaming render would be a separate,
-stream-returning form behind the JVM's `:renderer` seam, with flow control
-and cancellation of its own, added beside this one.
-
-The transport is a seam, not the protocol. `src/protocol.cjs` defines
-and validates the message shapes and knows nothing about HTTP, worker
-threads or JSON framing; `src/http.cjs` is one adapter over it. A Unix
-socket, a length-prefixed pipe or an in-process call are all the same
-protocol with a different envelope.
+`src/protocol.cjs` defines and validates the messages and knows nothing about
+HTTP, worker threads or JSON framing; `src/http.cjs` is one transport over
+it. A response is one body string, written once with a byte-accurate
+`Content-Length`; there is no streaming form.
 
 ### Node returns body markup and nothing else
 
-This is the ruled topology rather than a simplification, and it is what
-keeps the field list as short as it is.
-`docs/design/fresco/production-server-arm.md` §5 sets the compliant shape
-out arrow by arrow: `ssr-ring` drains the boot events and holds the request
-frame on the JVM; Node resolves an entry identifier against the table its
-own bundle publishes, seeds a per-request frame from the state projection,
-and renders; Node returns the body markup, and nothing else; the JVM
-assembles the page and writes the payload script from its own app-db.
-§11's tripwire states the alternative in as many words — "Anything beyond
-the body markup crossing the contract … is the host fork the adversarial
-review rejected, arriving by increments."
-
-So the hydration payload is on neither leg of this wire, and neither is
-the head model, the response accumulator, cookies or redirects. Three
-fields are therefore refused on purpose, each with its reason carried
-in the refusal message:
+The JVM drains the boot events, builds the hydration payload from its own
+app-db and writes the page. Node resolves an entry id against its bundle's
+table, seeds a per-request frame from the state projection, and returns the
+body markup. The payload, head model, response accumulator, cookies and
+redirects are on neither leg of this wire, so three request fields are
+refused on purpose, each carrying its reason:
 
 | Field | Why it is refused |
 |---|---|
-| `initialEvents` | The JVM drains the boot events. A Node side that drained them itself forks the event drain, which is the host fork this contract refuses. Send the drained state as `state`. |
+| `initialEvents` | The JVM drains the boot events. A Node side that drained them itself would fork the event drain. Send the drained state as `state`. |
 | `payloadPolicy` | The hydration payload is built on the JVM from its own app-db, so there is no payload here for a policy to govern. |
 | `head` | The head model, response accumulator, cookies and redirects are `ssr-ring`'s. |
 
@@ -317,18 +160,6 @@ in the refusal message:
 }
 ```
 
-`state` and `runtime` are maps of key text to value text, not one EDN
-blob. Every value is a string, so the worker's shallow freeze of a
-partition is a deep one, and the key-shape check and the byte ceiling have
-keys and values to count without parsing application state or carrying an
-EDN reader — a boundary that has to understand what it is guarding is a
-worse boundary. The two are the two
-partitions of one settled frame — `:rf/app-db` and `:rf/runtime-db`, the
-envelope the hydration payload already uses — projected on the JVM by
-`re-frame.ssr.render-state/project` under the handler's `:render-state`
-policy and serialised per key by `render-state/serialize`; one byte ceiling
-covers both.
-
 ### Response
 
 ```jsonc
@@ -336,23 +167,15 @@ covers both.
   "requestId": "…" }
 ```
 
-The `complete` response's field list is `COMPLETE_FIELDS`, and it is closed
-in the same sense the request's is. Nothing on it but `html` originates in
-the application's render module — see
-[the response leg](#2-a-closed-request-envelope-fail-closed). Over HTTP the body
-is `html` itself and the other fields ride as headers.
-
-or, instead of it:
+or, instead of the body:
 
 ```jsonc
 { "type": "refusal", "code": ":rf.ssr-node/unknown-entry",
   "message": "…", "detail": {…}, "requestId": "…" }
 ```
 
-A refusal arrives instead of the body. Every caller-fault refusal is
-delivered before an isolate is even acquired, and a render that fails —
-a throw, a deadline, a dead isolate — is refused before a byte of its body
-leaves, because there is only ever one body and it leaves whole.
+A caller fault is refused before an isolate is acquired, and a failed render
+before any of its body leaves.
 
 ### Refusal codes
 
@@ -372,51 +195,13 @@ leaves, because there is only ever one body and it leaves whole.
 | `:rf.ssr-node/service-closed` | the service is shutting down |
 | `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot, or its worker never became ready — past the boot deadline, or exiting before it |
 
-The `:rf.ssr-node/*` family is a reserved-namespace tenant, catalogued in
+The `:rf.ssr-node/*` family is a reserved namespace, catalogued in
 `spec/Conventions.md`.
-
-### The runtime partition, and the door the framework decided
-
-An earlier revision of this protocol carried `state` — app-db keys —
-alone, and said so openly: the frame's runtime-db (the route slice, the
-machine snapshots, the partition Spec 011 carries separately in its own
-payload) had no inbound door on this path, because the one existing
-"install a whole frame-state from serialised EDN" event was `:rf/hydrate`,
-the client's, and inventing a second one here would have been a framework
-decision made in a sidecar.
-
-The framework has now made that decision, by ruling (rf2-8arzr, shared
-contract S3/S4), and it lives where such a decision belongs:
-`re-frame.ssr.render-state`, in the SSR artefact. `project` reads the
-settled server frame under a `:render-state` policy — a fail-closed
-allowlist per partition, declared beside `:payload` and never derived
-from it, because what the render needs and what the browser may see are
-different lists — and produces both partitions in the hydration payload's
-own envelope, `{:rf/app-db {…} :rf/runtime-db {…}}`, with the frame's
-classification applied the way the payload applies it. `serialize` turns
-that into the per-key EDN text this wire carries. And `restore!` is the
-second install door: it seeds a FRESH per-request frame with both
-partitions in one atomic write, replaying no boot events (the JVM drained
-them; the projection IS the settled result) and running none of the
-client's hydration concerns.
-
-So `runtime` rides beside `state`, in the same shape and under the same
-checks, and the service never decodes application data in either. Which
-keys of either partition cross is the JVM's `:render-state` policy, the
-one render-visibility policy on this path. A value the projection cannot
-carry — a fn, a host object, a record,
-a JVM-only number — fails on the JVM at projection with a named error, so
-what reaches this wire is by construction what the far side reads back
-equal.
-
----
 
 ## The render module contract
 
-The service renders nothing itself. It loads the application's own
-server bundle, which is the shape the server-arm pricing describes: the
-bundle carries the app's compiled views, so it is per-application and the
-programmer owns its build. What the service requires of it is small.
+The service renders nothing itself. It loads the application's own server
+bundle, which publishes:
 
 ```js
 // my-app/out/server-bundle.cjs
@@ -428,147 +213,37 @@ module.exports = {
   // expected `buildId` disagrees.
   buildId: process.env.MY_APP_BUILD_ID,
 
-  // The entry table: the ids a JVM host may name. Only the bundle can
-  // resolve one back into a root form. Which state a render of it sees is
-  // the JVM's `:render-state` policy, not this table's.
+  // The entry table: the ids a JVM host may name. Which state a render of
+  // one sees is the JVM's `:render-state` policy, not this table's.
   entries: ['app/root'],
 
   // Once per isolate, before the first render. Install the substrate here
-  // — Spec 006 allows exactly one per process, so it is a boot decision
-  // and not a per-request one.
+  // — Spec 006 allows exactly one per process.
   boot() { /* rf.init!(adapter); registerViews(); */ },
 
-  // Once per request. `state` and `runtime` are frozen; writing to either
-  // throws. Return the body markup as a string, or a promise of one — the
-  // returned string is this module's only channel out of the isolate.
+  // Once per request. `state` and `runtime` are frozen. Return the body
+  // markup as a string, or a promise of one — the module's only channel out.
   render({ entry, state, runtime, args }) {
     return MY_APP_SSR.renderToString(entry, state, runtime, args);
   },
 };
 ```
 
-`render` may return a promise; the isolate awaits it under the same
-deadline. Whatever it resolves to must be a string — the empty string
-included — and anything else is refused (`:rf.ssr-node/render-threw`):
-`undefined` from falling off the end, `null`, a number, an object, or a
-promise of any of those. The refusal's wording is this contract's own and
-its `detail` is the entry and the returned value's type tag
-(`"[object Null]"`, say), never its content. That is the response leg's
-fail-closed door rather than fussiness — see
-[the response leg's fields](#2-a-closed-request-envelope-fail-closed) for what
-it is holding. `return { html, meta }` is a module reaching for a second
-way out, and coercing it with `String()` would publish whatever it prints
-as.
+`render` runs under the request's deadline and must resolve to a string, the
+empty string included; a module need do nothing about refusals — throw
+whatever is natural, and the boundary holds. Behind `MY_APP_SSR` sits a
+per-request frame made with no initial events, seeded by
+`re-frame.ssr.render-state/deserialize` and `restore!`, rendered under
+`react-dom/server`, and destroyed in a `finally`.
 
-And a module that THROWS is refused the same way, which is the other door
-out of a render and the one an author meets by accident rather than on
-purpose. The refusal is always `:rf.ssr-node/render-threw`, with this
-contract's own wording and a `detail` of the entry alone:
-**the exception's `message`, its `detail`, and any `code` it carried do
-not cross the wire**. That is not tidiness. A renderer exception is built
-from the value being processed in the normal case — React names the
-property that was undefined, a validator quotes the input, a template
-interpolates the row — so forwarding it is the response leg carrying
-application data, which is the thing this contract exists not to do. A
-module-set `code` is refused for a second reason: the refusal family is
-this service's, and believing one would let an application bug present
-itself as a caller fault (400), a saturation (503) or a deadline (504),
-sending an operator and a retry policy down the wrong path.
+## Running it
 
-Nothing is lost by it. The full exception, **with its stack**, is written
-to the sidecar's stderr under the usual `[rf.ssr-node]` prefix, which is
-where an operator already reads this service — so a render bug is
-diagnosed in the sidecar's log rather than over a contract published to
-another machine. Two audiences, two channels, and no flag to get wrong.
-There is nothing for a render module to do about any of this: throw
-whatever is natural, and the boundary holds. `test/egress.test.cjs` §4 is
-the witness, with planted sentinels on all three fields.
-
-An exception that **escapes the render call** — thrown from a callback the
-render scheduled, so it lands on a later tick with no `try` above it — is
-an uncaught exception in the worker thread, and Node terminates the thread
-rather than delivering it to the render. The law is the same and the
-outcome is honestly different: the refusal is `:rf.ssr-node/isolate-lost`,
-because the render did not finish *and* the isolate is not reusable, so
-the pool replaces it. The code is not smoothed into `render-threw` — a
-caller acts on the difference — but the wording is this contract's, the
-`detail` is the service's own (`isolate`, `threadId`), and the exception's
-message and stack stay off the wire. The stack matters twice over here: on
-top of the module's wording it names absolute paths in the deployment's
-filesystem. It goes to the same stderr, and on this path that is not
-merely the better channel but the only one — the worker never caught
-anything, so nothing inside it ever saw the fault. `test/egress.test.cjs`
-§5 is the witness, driving one Error down both routes as a matched pair.
-
-A **replacement isolate that will not boot** states the same law from a
-third place, and it is the one where the law nearly got away. A boot
-refusal is allowed to carry the module's own message, its stack and the
-module path, on the stated ground that boot fails before the service
-listens — so its reader is the operator standing at a process that would
-not start. That is true when the pool starts. It is false when the pool
-*replaces*: a replacement boots while the service is live, and the failure
-is delivered to whoever is queued waiting for capacity. Every boot refusal
-therefore stops at that boundary. A waiter, and every caller after it, is
-told `:rf.ssr-node/isolate-lost` with this contract's wording and a
-`detail` of `poolSize`, and the module's message, the module path and any
-`code` the module put on its boot error stay off the wire — the last of
-these mattering for the reason a module-set `code` always does, since the
-boot receiver builds its refusal without consulting the family. The failure
-itself goes to the sidecar's stderr **unconditionally**, because the
-refusal reaches only callers: a replacement that failed with nobody queued
-would otherwise tell no one why.
-
-A failed replacement — a boot failure, or a bundle that changed on disk and
-loads a different `buildId` — also **ends the service** rather than leaving
-it a smaller pool: the pool can never reach its configured size again, and
-a partly booted pool is not a state the service otherwise has. The
-remaining workers are terminated (in-flight renders on them are refused as
-on any shutdown), `/health` answers `503` with `status: "failed"`, and the
-launcher exits `1` so its supervisor restarts it.
-
-The last receiver is one no application can reach on purpose: a render that
-rejects with something that is **not a `Refusal` at all**. It is a fault in
-this package rather than in the application — every receiver between the
-module and the caller builds a refusal, so anything else got past all of
-them. It was once reachable, by an in-process caller whose request carried
-an accessor: validation read a partition value and the structured clone
-read it again, so a getter or a Proxy could be a string the first time and
-unclonable the second, and the resulting `DataCloneError` named the value
-it choked on. A caller's own value on a public refusal is the same egress
-as any other, so this arm carries the contract's `render-threw` wording and
-sends the real fault to the operator.
-
-**That route is closed** — the read-once rule under guarantee 2 means a
-request that passes validation is a request that can be cloned — and the
-arm stays anyway. It is what guarantees `renderToString` throws nothing but a
-`Refusal`, which is the property every transport is written against;
-removing it would let a raw `Error` reach `statusFor` with no code at all.
-`test/egress.test.cjs` §6 and §7 are the witnesses: §7's first row holds
-the closed route open to inspection by counting the reads, and the rest
-drive the arm at the seam it guards.
-
-The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
-per-request `gensym` frame made with no initial events,
-`re-frame.ssr.render-state/deserialize` over `state` and `runtime`,
-`render-state/restore!` to seed both partitions, the root element under
-`react-dom/server`, and `destroy-frame!` in a `finally`. This package
-does not reimplement any of it and does not depend on it.
-
----
-
-## Using it
-
-The package is `@day8/re-frame2-ssr-node`: private, and installed from
-its directory rather than a registry — `npm install <checkout>/implementation/ssr-node`,
-or a `file:` entry in the host's `package.json`. The install is a link
-and not a download, because the manifest declares no dependency. Its
-public surface is the serve command and the two entry points in its
-`exports` map; a path into `src/` is not part of it.
-
-### The serve command
-
-What a JVM host talks to. The manifest's `bin` is `re-frame2-ssr-node`,
-and `node bin/serve.cjs` from the package directory is the same program:
+The package is `@day8/re-frame2-ssr-node`, private and published nowhere.
+Install it from a checkout's directory (`npm install
+<checkout>/implementation/ssr-node`, or a `file:` entry), or copy the tree to
+the host — it resolves nothing, so the tree is the whole install. Its public
+surface is the serve command and the `./service` and `./http` entry points of
+its `exports` map.
 
 ```
 re-frame2-ssr-node --module /srv/my-app/out/server-bundle.cjs
@@ -584,138 +259,44 @@ re-frame2-ssr-node --module /srv/my-app/out/server-bundle.cjs
   --max-request-bytes <n>    ceiling on the body, and on state + runtime together   [1048576]
 ```
 
-`http://127.0.0.1:8148` is the default endpoint, and the one a JVM host
-assumes when told nothing else. The tests bind an ephemeral port (`0`)
-rather than a fixed one, so a run never collides with a developer's
-server or with a concurrent worker's.
-
-```
-POST /render          Content-Type: application/json   -> 200 text/html
-GET  /health                                           -> 200 application/json (503 once failed)
-```
-
-Response headers: `x-rf-ssr-build` (the build identity),
-`x-rf-ssr-render-ms`, and `x-rf-ssr-request` when the caller sent a
-`requestId`. A refusal answers with `application/json`, the refusal frame
-as its body, and `x-rf-ssr-refusal` carrying the code — 4xx for a caller
-fault, 503 for saturation or shutdown, 504 for a deadline, 500 for ours.
-
-Because that echo is a header, HTTP narrows `requestId` to what Node will
-put in one: a token carrying a control character, a CR/LF, or anything
-above U+00FF is refused `:rf.ssr-node/bad-request-field` (400, with
-`detail.field` `"requestId"`) before any render, rather than failing at the
-response it would have been echoed on. Printable ASCII is the portable
-choice. The in-process API takes any string. A request target that is not a
-valid URL is refused `:rf.ssr-node/malformed-request` (400), and the service
-keeps serving.
+`node bin/serve.cjs` is the same program. It serves `POST /render`
+(`application/json` in, `text/html` out) and `GET /health`. A response
+carries `x-rf-ssr-build`, `x-rf-ssr-render-ms` and, when the caller sent one,
+`x-rf-ssr-request`; a refusal is the refusal frame as `application/json` with
+`x-rf-ssr-refusal` naming the code — 4xx for a caller fault, 503 for
+saturation or shutdown, 504 for a deadline, 500 otherwise. Because
+`requestId` is echoed in a header, HTTP refuses one carrying a control
+character, CR/LF or anything above U+00FF before any render.
 
 ### The ready line
 
-Once the socket is listening the launcher writes one line to stdout, and
-nothing else, ever:
+Once listening, the launcher writes one line to stdout:
 
 ```json
 {"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"reference-build-1","protocol":1}
 ```
 
-One JSON object, these six keys in this order, newline-terminated. `host`
-and `port` are the address the socket is bound to as the OS reports it —
-so a supervisor that passed `--port 0` reads the real port here — and
-`url` is that address spelled for a dialler (an IPv6 host gets its
-brackets). `buildId` is the loaded bundle's identity, the same value
-`/health` and every render response carry; `protocol` is the version the
-service speaks. A reader should scan stdout for the line whose
-`"rf.ssr-node"` key is `"ready"` rather than assume it is the first one:
-the launcher itself never writes anything else there, but an application
-bundle that logs at boot does so through the same descriptor.
-
-Everything diagnostic goes to stderr. The exit code is `0` after SIGTERM
-or SIGINT and a graceful close, `1` when the service failed — it could not
-start (the module refused, the port is taken), or a terminated isolate
-could not be replaced — and `2` for a wrong command line, which also
-prints the usage. `test/serve.test.cjs` pins the line field by
-field.
-
-### In process
-
-A Node host that would rather not cross a socket imports through the
-exports map — `./service` for the service, `./http` for the transport the
-launcher runs:
-
-```js
-const { createService } = require('@day8/re-frame2-ssr-node/service');
-const { serve } = require('@day8/re-frame2-ssr-node/http');
-
-const service = await createService({
-  modulePath: '/srv/my-app/out/server-bundle.cjs',   // absolute
-  isolates: 4,
-  defaultTimeoutMs: 1000,
-  maxTimeoutMs: 5000,
-  admissionTimeoutMs: 250,
-  maxRequestBytes: 1 << 20,
-});
-
-const { html } = await service.renderToString({
-  protocol: 1,
-  entry: 'app/root',
-  state: { ':todos': '[]' },
-});
-
-// …or the transport, on a port of your choosing; 0 picks a free one:
-const http = await serve({ service, port: 8148 });
-
-await service.close();
-```
+`host` and `port` are the bound address, so a supervisor that passed
+`--port 0` reads the real port here. A bundle that logs at boot shares
+stdout, so scan for the line whose `"rf.ssr-node"` key is `"ready"`. The exit
+code is `0` after SIGTERM or SIGINT, `1` when the service failed — it could
+not start, or could not replace an isolate — and `2` for a wrong command line.
 
 ### Deployment
 
-The sidecar is a second production runtime, and the server-arm pricing is
-blunt that this is a real cost to a real operator. What it costs in
-practice:
-
-0. Get the package onto the host. There is no published artefact — this
-   package is not on npm, it has no Clojars coordinate, none is planned as
-   of this writing, and the repository publishes JVM artefacts only. It
-   comes from a checkout, by either route in [Using it](#using-it):
-   installed from its directory, or copied onto the host and run with
-   `node bin/serve.cjs`. Since the manifest resolves nothing, copying the
-   tree is the whole install, and the version deployed is the checkout it
-   came from — so pin that checkout as deliberately as the JVM artefact
-   versions in the same release.
-
-1. Build the server bundle with the application's own shadow-cljs
-   build, targeting `:node-script` or `:node-library`, publishing the
-   module contract above. It must be rebuilt and redeployed in the same
-   release as the JVM host — the bundle contains the application's own
-   compiled views, and a skew between the two is two different
-   applications answering one request.
-2. Run `re-frame2-ssr-node --module <bundle>` — or `node bin/serve.cjs`
-   with the same flags — behind a supervisor that restarts on exit and
-   stops it with SIGTERM, which closes the socket and the isolates and
-   exits 0. Every knob is a flag of [the serve command](#the-serve-command),
-   and the supervisor learns the port from [the ready line](#the-ready-line).
-   The service is stateless between requests; a restart loses nothing but
-   warm isolates.
-3. Size the pool. One isolate renders one request at a time, so the
-   pool size is the concurrency. Each isolate is a worker thread with its
-   own V8 heap and its own copy of the bundle, so memory scales with it.
-4. Set the deadline below the JVM caller's own read timeout, so the
-   service refuses before the caller gives up. A
-   `:rf.ssr-node/render-timeout` is a diagnosable event; a socket the
-   caller abandoned is not.
-5. Pin the runtime. The manifest's `engines` says `node >=24`, which is
-   the version CI runs this suite on. The package uses
-   `node:worker_threads`, `node:http` and `node:crypto` only, so the pin
-   records what has been witnessed rather than a feature it needs.
-6. Wire the JVM side. Hand `ssr-handler`'s `:renderer` opt a
-   `re-frame.ssr.ring.node/renderer`, configured with the `:endpoint` this
-   service binds, the `:entry` the bundle publishes, the `:build-id` it was
-   built with, and a `:render-state` policy naming the app-db and
-   runtime-db keys a render may see. Those opts are validated at
-   construction, so a misconfigured deployment fails at boot rather than at
-   first request. The adapter derives its own HTTP timeout from
-   `:timeout-ms` + `:admission-ms` + a wire margin, which is the other half
-   of step 4: this service refuses before the JVM stops waiting.
+- Build the server bundle with the application's own shadow-cljs build
+  (`:node-script` or `:node-library`), and ship it in the same release as the
+  JVM host: the bundle holds the application's compiled views.
+- Run the serve command under a supervisor that restarts it on exit and stops
+  it with SIGTERM. The service is stateless between requests.
+- The pool size is the concurrency, and each isolate holds its own V8 heap
+  and copy of the bundle, so memory scales with it.
+- Set the deadline below the JVM caller's read timeout. The JVM adapter takes
+  the `:endpoint`, `:entry`, `:build-id` and `:render-state` policy, validates
+  them at construction, and derives its HTTP timeout from `:timeout-ms` +
+  `:admission-ms` + a margin, so this service refuses before the JVM stops
+  waiting.
+- Node 24 or later, as the manifest's `engines` says.
 
 ### Health
 
@@ -726,40 +307,18 @@ practice:
                 "replacements": 0 } }
 ```
 
-`buildId` here and on every render response is the deploy-time half of the
-skew detector: a JVM host that records the id it deployed against can
-compare it, and the per-request `buildId` field turns that comparison into
-a refusal. `replacements` is the count of isolates the service has had to
-kill and respawn — a rising number is a service killing renders. Once a
-replacement fails to boot the service has closed for good: `/health`
-answers `503` with `status: "failed"` until the launcher exits.
-
----
+`replacements` counts isolates killed and respawned. Once a replacement
+fails to boot, `/health` answers `503` with `status: "failed"` and the
+launcher exits `1`.
 
 ## What this is not
 
-Not an HTTP host. Spec 011's response contract — the response
-accumulator, cookies, redirects, the head model, the CRLF fail-fast, the
-`#__rf_payload` script tag and the page shell — stays `ssr-ring`'s, on the
-JVM. This service returns body markup and nothing else.
-
-Not a renderer. It loads one and bounds it.
-
-Not the JVM half of the crossing. The render seam at
-`re-frame.ssr.ring.pipeline/build-full-response*` and the
-`re-frame.ssr.ring.node` adapter that dials this service both live in
-`ssr-ring`, not here. That is now built (`rf2-8arzr`) — what stays true is
-the direction of the arrow: this package answers a render request and
-knows nothing about its caller, which is what lets the whole thing be
-tested without a JVM in the room.
-
-No streaming render. A render module returns one string and the transport
-writes one buffered body, because one whole body is all either side reads.
-A streaming design would add a stream-returning form behind the JVM's
-`:renderer` seam, with its own flow control and cancellation, beside this
-one.
-
----
+Not an HTTP host: Spec 011's response contract — cookies, redirects, the
+head model, the `#__rf_payload` script, the page shell — stays `ssr-ring`'s.
+Not a renderer: it loads one and bounds it. Not the JVM half: it knows
+nothing about its caller, so it is tested without a JVM. Not a streaming
+renderer, and not a sandbox ([guarantee
+1](#1-per-request-state-isolation-via-immutable-snapshots)).
 
 ## Running the tests
 
@@ -767,165 +326,35 @@ one.
 node implementation/ssr-node/test/run.cjs
 ```
 
-No build, no npm install, no browser, roughly 8 seconds — the nine suites
-`test/run.cjs` names, each printing its own `pass`/`fail` tally as it
-goes. The total row count is deliberately NOT restated here: it moved
-twice while the sentence that carried it stood still (96 when the suite
-was written, 104 once the runtime partition landed), and a number nothing
-checks is a number that goes stale in silence. Read it off the run. Each
-suite runs in its own process, because several of
-them deliberately kill worker threads and a shared process would let one
-file's leaked isolate turn the next file's clean failure into a hang.
+No build, no install, no browser; each suite runs in its own process,
+because several kill worker threads on purpose. `npm run test:ssr-node` from
+`implementation/` runs the same file, and CI's `node-ssr-node` job runs it on
+every change under this directory.
 
-`npm run test:ssr-node` from `implementation/` runs the same file, and
-CI's `node-ssr-node` job runs it on every change under this directory
-(rf2-n8vp) — with no `npm ci` before it, because the package needs
-nothing installed. That lane is the empirical half of the absence claim
-below: the changed-surface classifier, which is the repo's own answer to
-"what can this diff affect", arms this one lane for this package's files
-and nothing else.
+The suites drive the service against render modules under `test/fixtures/`
+that misbehave on purpose — mutating, hanging, throwing inside the call and
+escaping it, byte-hostile, leaky, non-string-returning, boot-flaky — because
+a guard is only seen firing against a module that trips it. A fixture
+reports what it observed inside its own markup (`test/observations.cjs`),
+the one channel the contract leaves open. Controls are ordinary rows: a
+planted fault must be found, and a scenario shown to have happened, before a
+zero or a refusal is believed.
 
-The suite drives the service against reference render modules under
-`test/fixtures/` — well-behaved, mutating, hanging, throwing
-(inside the call and escaping it), byte-hostile, leaky, non-string-returning
-and boot-flaky — because every guarantee here is a
-property of the service, and a fixture that misbehaves on purpose is the
-only way to see a guard fire.
+## A client that never starts it is unaffected
 
-The boot-flaky one is the odd member and its oddity is the point: it boots
-the first time and refuses the next, which is the only way to reach a
-REPLACEMENT boot. Every other boot-failure fixture fails on its first boot,
-where the service never comes up and the reader of the refusal is the
-operator — so none of them can reach the receiver where that same refusal
-goes to a caller instead. Isolates share no module state, so the switch is
-an environment flag: a worker thread inherits a copy of `process.env` taken
-when it is constructed, which makes a flag set after the pool is up
-invisible to the isolates already running and visible to every replacement
-spawned afterwards.
+`test/absence.test.cjs` checks that a client which never starts this service
+is the client it would be without this package, three ways, each with a
+control row that plants its fault and requires the scan to find it:
 
-A fixture reports what it observed by rendering it, as a base64
-attribute on markup it was returning anyway, and the witnesses read it back
-out of the body (`test/observations.cjs`). That is not a workaround for a
-missing channel; it is the response contract holding, in the one place a
-suite would feel it. The observations used to ride the terminal frame,
-which is the egress described above — they were not deleted when it
-closed, because 4 of the 5 guarantees are witnessed through them.
-
-The controls are ordinary rows rather than a `--self-test` flag, so they
-cannot be skipped by anyone running the file the usual way. The reason the
-repo has already paid to learn: a green run against a fault that was never
-actually planted is a false proof of a real guard, which is worse than no
-proof. So the runaway render is shown still running after 400 ms before a
-200 ms refusal is called a termination, and the absence scan is shown
-finding a planted reference before its zero is believed.
-
-The replacement-boot rows carry a control about the SCENARIO rather than
-the fixture, and it is the kind that is easy not to write: every claim in
-that section is about what a *waiting* caller
-receives, so a run in which nobody happened to be queued, or in which the
-pool never tried to replace anything, would be green about a path it never
-took. Both facts are read off the service's own counters (`waiting`, and
-`replacements` rising to 1) before any refusal is inspected. The
-uncontracted-rejection rows carry controls of their own: the clone row
-asserts the partition value was read exactly *once*, because a second read
-would mean the caller's own object reached the structured clone, and the
-rejection row asserts the refusal came from the last-resort arm by its
-code.
-
-One of those controls is worth reading twice, because it guards against a
-row going quiet rather than against a row going wrong. The status-spoof
-rows drive a fixture that hard-codes real members of the refusal family as
-its `error.code`, the way an application would — it does not import the
-service's protocol module. Rename a member of `CODE` and those literals
-become codes the service has never heard of, which map to 500 all on their
-own: the rows stay green and stop testing a spoof. So the codes are
-asserted to be live members, and to map to a status other than
-`render-threw`'s, before any of them is trusted reading 500.
-
----
-
-## Client v0 is unaffected when the service is absent
-
-The claim is that a re-frame2 client that never starts this service is
-byte-for-byte the client it would have been if this package did not exist.
-It is checked by `test/absence.test.cjs`, in 3 readings of increasing
-strength:
-
-- no loader can reach it. A scan over every tracked file in
-  `implementation/`, `examples/`, `tools/`, `scripts/` and `.github/` —
-  tracked only, so generated output cannot pollute the reading — finds this
-  package's path at zero **loader positions** outside the package: the
-  static specifier of a `require`/`import`, the body of a ClojureScript
-  `ns` `:require`, the classpath and coordinate keys of an EDN build
-  config, and the linking fields of a package manifest. A format that
-  cannot resolve a module — YAML, shell, Markdown — offers no loader
-  position and so cannot host a hit. This reading was once an absolute zero
-  over raw file text, and moved (`rf2-6ovv`) when the package's own CI lane
-  necessarily wrote its path into four wiring files: what the claim needs
-  is that no client can *load* this package, not that no file may *name*
-  it. There is still no allowance list — no path or string is forgiven, the
-  needles were not widened by a character, and the refusal-code namespace
-  `:rf.ssr-node/` keeps its absolute zero on a row of its own
-- it is on no build's source path. `implementation/shadow-cljs.edn` and
-  the top-level `implementation/deps.edn` are read at their **loader
-  positions** — for an EDN config, the value form after each of
-  `:source-paths`, `:paths`, `:extra-paths`, `:replace-paths`, `:deps`,
-  `:extra-deps`, `:replace-deps`, `:local/root` and `:dependencies` — and
-  this package's path appears at none of them, so it is in no module graph
-  and there is no bundle it could be in. A `;;` comment is not one of
-  those keys, and `implementation/shadow-cljs.edn` does name the package
-  in one: a comment above the `:examples/login-fresco-server` build says
-  which sidecar loads the module that build emits. That is prose about a
-  build, in the file where prose about a build belongs, and it is not a
-  way into one. This reading was once a raw-text scan of the two configs,
-  which made it a claim about *mentioning* rather than the claim its own
-  failure message states; it moved (`rf2-8arzr.9`) — the sibling of the
-  move Reading 1 made under `rf2-6ovv`, not a second and softer one.
-  Nothing was forgiven to achieve it: there is no allowance list, no path
-  or string is named as an exception, and the needles were not widened by
-  a character. The loader-position control plants a real `:source-paths`
-  entry, a `:local/root` coordinate, a `:deps` coordinate and a `:paths`
-  entry, each beside a Markdown copy of the same text, and requires each
-  planted fault to be found and no Markdown copy to be — so the scoped scan
-  is shown walking past text a raw scan does hit. The row also fails
-  closed on its own instrument: each config
-  must exist and must yield at least one loader position, so a missing,
-  unparseable or key-less file is not a clean scan. That is what this row
-  adds over Reading 1's repo-wide sweep, which cannot speak for a config
-  that has gone missing. The package also contains no `.clj`/`.cljs`/`.cljc`
-  file for a build to pick up if one ever did. This is the strong reading:
-  absence from the graph is not a property anyone has to maintain by care
-- it adds no dependency. Every `require` in `src/` is a `node:` builtin
-  or a sibling file here, and the package's own `package.json` declares no
-  dependency of any kind and links — `exports`, `bin` — only to files
-  inside this tree, so it contributes nothing to `implementation/package.json`
-  and nothing to any consumer's closure
-
-Each of the 3 has a control row that plants exactly that fault in a
-scratch directory and requires the scan to find it; Readings 1 and 2 share
-the loader-position one. The first of those
-controls earned its keep immediately: a bare `ssr-node` substring scan
-reported the SSR spike driver, whose header explains at length that it
-deliberately did not mint a `:fresco-ssr-node` build id.
-
-The empirical half is that the client gates run green with this package in
-the tree, which is what the PR's quality-gate table records.
-
----
-
-## Provenance
-
-- `rf2-hic-056` — this package. Operator ruling of 12 August 2026
-  (`rf2-xpq9`) lifted the dormancy and set V0 scope. Reopened at P2 by the
-  merged-PR audit of #8028 for the response-contract escape described
-  under [guarantee 2](#2-a-closed-request-envelope-fail-closed); the remedy is
-  the response-leg field list and `test/egress.test.cjs`.
-- `rf2-hic-046` — the per-surface SSR/hydration witnesses this builds on.
-  The client-side hydration contract is that bead's and is already
-  mandatory; nothing here waits on this service.
-- `docs/design/fresco/production-server-arm.md` — the Arm A / Arm B
-  pricing. §5 is the contract this package implements; its B1a, B2 and B5
-  rows are what the entry table, the isolate pool and the build identity
-  discharge. B1b's render-visibility policy is the JVM's `:render-state`.
-- `docs/design/fresco/studio/ssr-spike-witness.md` — the X1–X5 render
-  evidence this package assumes rather than reproduces.
+- **No loader reaches it.** Across the tracked files of `implementation/`,
+  `examples/`, `tools/`, `scripts/` and `.github/`, this package's path sits
+  at no loader position outside the package — a `require`/`import`
+  specifier, an `ns` `:require`, an EDN classpath or coordinate key, a
+  manifest's linking field — and the `:rf.ssr-node/` namespace appears
+  nowhere outside it.
+- **No build's source path holds it.** `implementation/shadow-cljs.edn` and
+  `implementation/deps.edn` name it at none of their loader keys, and the
+  package holds no `.clj`/`.cljs`/`.cljc` file.
+- **It adds no dependency.** Every `require` in `src/` is a `node:` builtin
+  or a sibling, and the manifest declares no dependency and links only to
+  files it ships.

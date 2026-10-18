@@ -163,7 +163,6 @@
                       client's hydrate guard rejects a present-and-
                       different id as `:rf.error/hydration-frame-id-
                       mismatch`.
-    :version        — hydration payload's `:rf/version` (default 1).
     :schema-digest  — hydration payload's `:rf/schema-digest`, when
                       the app participates in the digest check.
     :renderer       — the render-body seam (Spec 011 §HTTP response

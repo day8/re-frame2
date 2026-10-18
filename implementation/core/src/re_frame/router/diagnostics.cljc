@@ -154,11 +154,11 @@
                             (caller-supplied `:rf/time-ms` + owner-qualified
                             facts; the router fills `:rf/time-ms` when absent)
     :rf.cofx/mint-policy    EP-0017 §6 per-call cofx mint policy
-                            (`:live` / `:strict` / `:explicit-live`); the
-                            most-specific binding point — a Tool-Pair replay
-                            supplies `:strict`, a nondeterminism-declaring test
-                            supplies `:explicit-live`. Absent ⇒ the frame
-                            config's policy, else the router's `:live` default
+                            (`:live` / `:strict`); the most-specific binding
+                            point — a Tool-Pair replay supplies `:strict`, a
+                            test that wants a fresh value supplies `:live`.
+                            Absent ⇒ the frame config's policy, else the
+                            router's `:live` default
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
                             framework-private `[:rf/settle-flows]` child a
@@ -292,6 +292,11 @@
   `contains?` + a `map?` / `int?` check on the dispatch path — no allocation
   unless the caller supplied a `:rf.cofx`.
 
+  Each message describes the rejected value by its `rf.error/diag-value-summary`
+  shape and never prints it: the printer overflows on a cyclic host object, which
+  would replace this error with a stack overflow. The ex-data carries the raw
+  value, since holding it prints nothing.
+
   Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
   `ensure-cofx` stamps `:rf/time-ms`, so an invalid token fails fast WITHOUT
   first reading the clock for a dispatch that cannot proceed. Per Spec 002
@@ -305,7 +310,7 @@
           (str ":rf.cofx must be nil or a MAP "
                "of recordable coeffect facts (Spec 002 "
                "§Recordable coeffects), got "
-               (pr-str supplied)
+               (pr-str (rf.error/diag-value-summary supplied))
                ". The map's `:rf/time-ms` (wall-clock "
                "epoch ms) is the durable causal token "
                "durable writes fold; a non-map value "
@@ -321,7 +326,7 @@
           (str ":rf.cofx :rf/time-ms must be an "
                "INTEGER (wall-clock epoch milliseconds "
                "— Spec-Schemas.md §:rf.cofx), "
-               "got " (pr-str (:rf/time-ms supplied))
+               "got " (pr-str (rf.error/diag-value-summary (:rf/time-ms supplied)))
                ". This value becomes the durable "
                "causal time the frame fold reads "
                "(epoch `:committed-at`, resource "
