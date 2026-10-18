@@ -109,6 +109,27 @@
       (is (= 0 (count-of vid)) "the bottom epoch is the :setup state, not the post-script one")
       (is (= 3 (count (:remaining (slot vid)))) "and every step is pending again"))))
 
+(deftest step-back-leaves-the-epoch-cursor-on-the-restored-step
+  (testing "after a step-back the ring's newest record is still the undone
+            step's, so the cursor, not the ring, names the next step's pre-image"
+    (let [vid    :story.stepper/mutating
+          newest #(-> (rf.epoch/epoch-history vid) last :epoch-id)]
+      (reg-mutating! vid)
+      (start! vid)
+      (rf.story.play/step-once! vid)
+      (let [after-one (rf.epoch/current-epoch-id vid)]
+        (rf.story.play/step-once! vid)
+        (let [undone (newest)]
+          (rf.epoch/restore-epoch! vid after-one)
+          (rf.story.play/stepper-step-back! vid)
+          (is (= 1 (count-of vid)) "precondition: the step-back landed on step 1")
+          (is (= [after-one undone] [(rf.epoch/current-epoch-id vid) (newest)]))
+          (rf.story.play/step-once! vid)
+          (is (= 2 (count-of vid)))
+          (is (not= undone (rf.epoch/current-epoch-id vid)))
+          (is (= (newest) (rf.epoch/current-epoch-id vid))
+              "the re-run step advances the cursor to its own record"))))))
+
 (deftest reset-variant-still-runs-the-whole-script
   (testing "only Start uses the pre-play seam; `reset-variant` (the Re-run
             button) runs the script"

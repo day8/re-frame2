@@ -91,7 +91,7 @@
         (when (and (= point :completed/before-commit)
                    (= :race (:request-id ctx))
                    (compare-and-set! fired? false true))
-          (rf.http.registry/abort-in-flight! :race :user))))
+          (rf.http.registry/abort-in-flight-in-frame! :rf/default :race :user))))
     (try
       (rf/dispatch-sync [:issue])
       (await-condition! #(seq @replies))

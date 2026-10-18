@@ -358,8 +358,11 @@ accumulator. None of it is reachable from Node, which is precisely why the
 spike's Node entry hand-writes its own:
 
 - the entry's `payload-script` re-spells the `#__rf_payload` script tag rather
-  than calling `re-frame.ssr.ring.shell/payload-script-tag`, with a docstring
-  obliging it to stay byte-identical to that function's output;
+  than calling the Ring shell's, with a docstring obliging it to stay
+  byte-identical to that function's output *(no longer: the tag's one definition
+  is now `re-frame.ssr.html-helpers/payload-script-tag`, in the `.cljc` SSR
+  artefact, and the Ring shell, Fresco's server and the bench entry all write
+  through it)*;
 - the entry's `document` hand-assembles the whole `<!DOCTYPE html>…` envelope,
   explicitly modelled on `ssr-ring`'s non-streaming shell and explicitly not it.
 

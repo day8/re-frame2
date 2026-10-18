@@ -157,9 +157,9 @@
         (is (= [{:rf.reply/status      :stale
                  :rf.reply/work-status :suppressed
                  :rf.reply/work-kind   :http
-                 :rf.reply/work-id     [:rf.work/http :shared 1 2]
-                 :carried              [:rf.work/http :shared 1 2]
-                 :current              [:rf.work/http :shared 2 1]}]
+                 :rf.reply/work-id     [:rf.work/http 1 2]
+                 :carried              [:rf.work/http 1 2]
+                 :current              [:rf.work/http 2 1]}]
                (->> @traces
                     (filter #(= :rf.http/stale-suppressed (:operation %)))
                     (mapv (fn [{:keys [tags]}]

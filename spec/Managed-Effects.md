@@ -96,7 +96,7 @@ On **live** completion the runtime dispatches the target event with the reply ma
  {:id 42}
  {:status           :ok
   :value            {:title "Welcome"}
-  :rf.reply/work-id [:rf.work/http :article/by-id 42 1]
+  :rf.reply/work-id [:rf.work/http 42 1]
   :completed-at     1781078400456}]
 ```
 
@@ -186,7 +186,7 @@ The tuple head is owned by each family, but the heads in use are:
 
 | Family | Work-id tuple | Owning spec |
 |---|---|---|
-| HTTP | `[:rf.work/http logical-id issuance attempt]` — `issuance` is the monotonic per-`request-id` re-issuance counter (a fresh request under the same `:request-id` bumps it, so a superseded attempt and its superseder carry distinct work ids; an anonymous request with no `request-id` takes the logical id `[:rf.http/anonymous event-id]` — tagged, so it can never equal a named request's `request-id` — and is numbered per originating event-id within the frame, never reset by completion, so two anonymous requests of one event never share a work id; the count is dropped only when its owner is destroyed — the frame, or, for a request issued from inside a spawned actor, that actor, whose address is the event-id); `attempt` discriminates transport retries within one issuance | [014](014-HTTPRequests.md) |
+| HTTP | `[:rf.work/http issuance attempt]` — `issuance` is the issuing frame's monotone issuance number: every request the frame issues, named or anonymous, takes the next one, so no two share a work id (a superseded attempt and its superseder, two loads of one `request-id` in sequence, two anonymous requests of one event); the counter is host state that neither completion nor an epoch restore resets, dropped when the frame is destroyed; `attempt` discriminates transport retries within one issuance | [014](014-HTTPRequests.md) |
 | Resource | `[:rf.work/resource resource-id generation]` — names the attempt, never its scope or params; the scoped key lives on the work record | [016](016-Resources.md) |
 | Mutation | `[:rf.work/resource [:rf.mutation instance-id] generation]` — mutation work reuses the resource head with a mutation-instance key; the ledger row distinguishes the writer with `:work/kind :mutation` | [016](016-Resources.md) |
 | Route loader | `[:rf.work/route route-id nav-token loader-id]` | [012](012-Routing.md) |

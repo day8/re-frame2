@@ -9,6 +9,7 @@
   The `-cljs-test` suffix puts this file on the `:node-test` lane too, so the
   order holds on both hosts."
   (:require [clojure.test :refer [deftest is]]
+            [re-frame.machines :as rf.machines]
             [re-frame.machines.parallel :as rf.machines.parallel]))
 
 (def ^:private r10
@@ -64,13 +65,13 @@
   (is (thrown-with-msg?
         #?(:clj Exception :cljs js/Error)
         #":rf.error/machine-parallel-region-order-required"
-        (rf.machines.parallel/machine-transition (go-machine r10 false) {:state {} :data {}} [:go]))))
+        (rf.machines/machine-transition (go-machine r10 false) {:state {} :data {}} [:go]))))
 
 (deftest mismatched-region-order-rejected
   ;; Same count as the regions, one duplicated: only the set comparison refuses it.
   (is (thrown-with-msg?
         #?(:clj Exception :cljs js/Error)
         #":rf.error/machine-parallel-region-order-mismatch"
-        (rf.machines.parallel/machine-transition
+        (rf.machines/machine-transition
           (assoc (go-machine r10 false) :region-order (assoc r10 9 :r0))
           {:state {} :data {}} [:go]))))

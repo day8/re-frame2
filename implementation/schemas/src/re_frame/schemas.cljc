@@ -3,8 +3,9 @@
 
   App-db schemas are an ordinary registrar kind, `:app-schema`, keyed by the
   canonical path: a frame-agnostic program registration that every frame
-  validates against when it resolves it. Validation runs at the event, effect, subscription, and post-commit
-  boundaries in development builds; the boundary interceptor can also
+  validates against when it resolves it. Validation runs at the event,
+  effect and subscription boundaries, and over each candidate app-db before
+  it installs, in development builds; the boundary interceptor can also
   invoke the registered validator in production.
 
   Loading this artefact also loads the Malli adapter, so registering a

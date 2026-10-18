@@ -235,7 +235,6 @@
 ;; `re-frame.http.test-support`, which is also the canned effects' require gate.
 
 (rf.frame/add-config-keys! #{:http-interceptors})
-(rf.late-bind/set-fn! :http/abort-in-flight!                 rf.http.registry/abort-in-flight!)
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
 ;; abort suppresses app replies and records stale-suppression facts. This is

@@ -1,9 +1,9 @@
 (ns re-frame.machines.lifecycle-fx.validation
   "Registration-time validators for the machine grammar.
 
-  Pure leaf functions called from
-  `re-frame.machines.lifecycle-fx.registration/make-machine-handler` at
-  the top of its body. Each validator throws an `ex-info` keyed on a
+  Pure leaf functions run at registration on the definition as written
+  (`re-frame.machines.lifecycle-fx.registration`), before it is normalised.
+  Each validator throws an `ex-info` keyed on a
   `:rf.error/machine-*` taxonomy member; consumers (the `reg-machine`
   macro, the registrar, Xray) inspect the `ex-data`. The validators
   in this namespace are:
@@ -810,7 +810,7 @@
 ;; Per Spec 005 §History states (`:type :history` — shallow / deep /
 ;; default-target) §Pseudo-state constraints: the v1 CLJS reference claims
 ;; `:fsm/history`, so a `:type :history` node is FIRST-CLASS grammar.
-;; `make-machine-handler` validates the pseudo-state's shape at registration
+;; Registration validates the pseudo-state's shape
 ;; (the same layer that rejects malformed compound states):
 ;;
 ;;   - a `:type :history` node MUST be declared inside a compound state's
@@ -2348,9 +2348,9 @@
                     :reserved reserved})))))))
 
 (defn validate-machine!
-  "Run every registration-time check the machine grammar requires.
-  Composed at the top of `make-machine-handler` so the registered handler
-  fn's body is exclusively about request processing.
+  "Run every registration-time check the machine grammar requires, on the
+  definition as written. Registration runs it before normalising the
+  definition the handler drives.
 
   Per Spec 005 §Transition table grammar, before any other check reads the
   definition: on the machine root, each region body and every state node,
@@ -2547,8 +2547,8 @@
       (validate-tags! rn body)))
   ;; DESUGAR both named-intent grammars onto their underlying mechanisms
   ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
-  ;; structural validator (transition targets, self-loop, after delays) and
-  ;; the runtime see the lowered form.
+  ;; structural validator (transition targets, self-loop, after delays) reads
+  ;; the lowered form the registered definition carries.
   (let [as-written machine
         machine    (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine))]
   (validate-history! machine)

@@ -1557,9 +1557,11 @@
   `[images pool-leg (standard-generation)]` (the live-store `pool-leg` is the
   `[store-identity store-generation]` pair, so distinct stores at the same
   generation never alias); on a MISS compute the sealed
-  generation via `assemble*` (against `descriptors`), cache it, and return it.
-  A cache HIT returns the SAME sealed object — this is the SSR no-re-seal
-  guarantee. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
+  generation via `assemble*` (against the pool `pool-fn` returns), cache it, and
+  return it. A cache HIT returns the SAME sealed object — this is the SSR
+  no-re-seal guarantee — and never calls `pool-fn`, so a hit on the live store
+  costs a key build and a lookup rather than a flattening of every retained
+  descriptor. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
   exception propagates and the slot stays empty, so a corrected input on the
   next call recomputes cleanly.
 
@@ -1568,13 +1570,13 @@
   the same store at an older store or standard generation, which can never hit
   again because both generations only move forward — so a dev session's hot
   reloads keep one sealed generation per composition, not one per reload."
-  ([images descriptors pool-leg]
-   (assemble-cached images descriptors pool-leg nil))
-  ([images descriptors pool-leg store]
+  ([images pool-fn pool-leg]
+   (assemble-cached images pool-fn pool-leg nil))
+  ([images pool-fn pool-leg store]
    (let [k (cache-key images pool-leg)]
      (if-let [hit (find @generation-cache k)]
        (val hit)
-       (let [gen         (assemble* images descriptors)
+       (let [gen         (assemble* images (pool-fn))
              superseded? (fn [[images' [store' _]]]
                            (and (some? store) (identical? store store') (= images images')))]
          ;; Cache only a successfully sealed generation (assemble* threw on a
@@ -1674,7 +1676,7 @@
        ;; distinct stores at the same generation from aliasing one sealed
        ;; generation.
        (assemble-cached images
-                        (source-store-descriptors)
+                        source-store-descriptors
                         [(rf.source-store/store-identity)
                          (rf.source-store/store-generation)]
                         (rf.source-store/store-identity)))))
@@ -1686,7 +1688,7 @@
        (assemble-default descriptors)
        ;; Explicit-pool arity: the pool leg is the descriptor pool value itself —
        ;; the live store generation does not describe a supplied pool.
-       (assemble-cached images descriptors descriptors)))))
+       (assemble-cached images (constantly descriptors) descriptors)))))
 
 (defn assemble-default
   "Resolve the DEFAULT image — the implicit selector over the WHOLE registration
@@ -1734,12 +1736,12 @@
    ;; the default generation of two distinct stores at the same generation never
    ;; aliases.
    (assemble-cached [default-image]
-                    (source-store-descriptors)
+                    source-store-descriptors
                     [(rf.source-store/store-identity)
                      (rf.source-store/store-generation)]
                     (rf.source-store/store-identity)))
   ([descriptors]
-   (assemble-cached [default-image] descriptors descriptors)))
+   (assemble-cached [default-image] (constantly descriptors) descriptors)))
 
 ;; ===========================================================================
 ;; The resolver READ API — the surface frame loading and frame-derived live

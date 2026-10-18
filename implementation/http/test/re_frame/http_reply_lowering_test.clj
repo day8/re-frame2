@@ -120,7 +120,7 @@
         ;; Status classification precedes decode: a non-JSON 404 under :decode
         ;; :json is an :rf.http/http-4xx carrying the raw body.
         (is (= {:kind :rf.http/http-4xx :request {:method :get :url url} :request-id :sid/get
-                :attempt 1 :work/id [:rf.work/http :sid/get 1 1] :status 404 :body "nope"}
+                :attempt 1 :work/id [:rf.work/http 1 1] :status 404 :body "nope"}
                (select-keys (:error reply) (conj identity-keys :body)))))
       (finally (stop-server! srv)))))
 
@@ -140,7 +140,7 @@
     (try
       (let [url (str "http://127.0.0.1:" (:port srv) "/down")]
         (is (= {:kind :rf.http/http-5xx :request {:method :get :url url} :request-id :sid/five-xx
-                :attempt 3 :max-attempts 3 :work/id [:rf.work/http :sid/five-xx 1 3] :status 503}
+                :attempt 3 :max-attempts 3 :work/id [:rf.work/http 1 3] :status 503}
                (select-keys (:error (fetch-failure-reply url {:request-id :sid/five-xx :max-attempts 3}))
                             identity-keys))))
       (finally (stop-server! srv)))))
@@ -169,7 +169,7 @@
         (let [reply (:reply (await-reply! #(some? (:reply %))))]
           (is (= :cancelled (:status reply)))
           (is (= {:kind :rf.http/aborted :request {:method :get :url url} :request-id :sid/abort
-                  :work/id [:rf.work/http :sid/abort 1 1]}
+                  :work/id [:rf.work/http 1 1]}
                  (select-keys (:error reply) [:kind :request :request-id :work/id])))))
       (finally (stop-server! srv)))))
 
@@ -209,9 +209,9 @@
                :rf.reply/work-status  :suppressed
                :rf.reply/stale-reason :rf.http/request-id-superseded
                :rf.reply/work-kind    :http
-               :rf.reply/work-id      [:rf.work/http :search 1 1]
-               :carried               [:rf.work/http :search 1 1]
-               :current               [:rf.work/http :search 2 1]}]
+               :rf.reply/work-id      [:rf.work/http 1 1]
+               :carried               [:rf.work/http 1 1]
+               :current               [:rf.work/http 2 1]}]
              (->> @traces
                   (filter #(= :rf.http/stale-suppressed (:operation %)))
                   (mapv (fn [{:keys [tags]}]
@@ -219,13 +219,13 @@
                                                  :rf.reply/work-kind :rf.reply/work-id])
                               (assoc :carried (get-in tags [:rf.reply/carried :work/id])
                                      :current (get-in tags [:rf.reply/current :work/id]))))))))
-      (is (= [:rf.work/http :search 2 1]
-             (some-> (rf.http.registry/lookup-in-flight :search) rf.http.reply/work-id))
+      (is (= [:rf.work/http 2 1]
+             (some-> (rf.http.registry/lookup-in-flight :rf/default :search) rf.http.reply/work-id))
           "issuance 2 owns the in-flight slot before anything is released")
       (.countDown release)
       (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS))
       (rf/dispatch-sync [:search/quiesce])
-      (is (= [[:ok [:rf.work/http :search 2 1]]] (mapv (juxt :status :rf.reply/work-id) @replies))
+      (is (= [[:ok [:rf.work/http 2 1]]] (mapv (juxt :status :rf.reply/work-id) @replies))
           "exactly one app reply, and it is the superseding issuance's")
       (rf.test-support/poll-until #(some (fn [ev] (= :rf.http/aborted (:operation ev))) @traces)
                                   {:timeout-ms 5000 :label "supersede aborted row"})
@@ -275,7 +275,7 @@
             tags         (->> @traces (filter #(= :rf.http/replied (:operation %))) first :tags)
             completed-at (:completed-at tags)]
         (is (number? completed-at))
-        (is (= {:status :ok :rf.reply/work-kind :http :rf.reply/work-id [:rf.work/http :svc/call 1 1]
+        (is (= {:status :ok :rf.reply/work-kind :http :rf.reply/work-id [:rf.work/http 1 1]
                 :correlation {:request-id :svc/call}}
                (select-keys tags [:status :rf.reply/work-kind :rf.reply/work-id :correlation]))
             "the :rf.http/replied row carries the canonical envelope facts")

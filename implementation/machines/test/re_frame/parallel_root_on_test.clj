@@ -18,7 +18,7 @@
    :b {:initial :one :states {:one {} :two {}}}})
 
 (defn- refusal-id [machine]
-  (try (rf.machines.lifecycle-fx.registration/make-machine-handler machine) :registered
+  (try (rf.machines.lifecycle-fx.registration/registered-definition machine) :registered
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (defn- step [m data event]

@@ -80,7 +80,7 @@
   trace). The two continuations are kept distinct: the ledger owns the
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
-  (:require [re-frame.late-bind :as rf.late-bind]
+  (:require [re-frame.http.registry :as rf.http.registry]
             [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -165,18 +165,17 @@
   needs a transport-facing suppression token distinct from the internal
   work-id, it must be justified as a deliberate second identity\").
 
-  WHY the frame is in it: the out-of-cascade teardown (`clear-resource`,
-  frame destroy) runs no cascade, so it aborts through the
-  `:http/abort-in-flight!` hook, and that hook matches the raw request-id
-  in ANY frame. The work-id alone does not name one frame — two frames can
-  hold the same one (see `resource-work-id`) — so the frame in the token is
-  what confines that abort to the issuing frame's request. Every other
-  managed-HTTP path is frame-scoped already: the in-flight registry keys by
-  `[frame-id request-id]`, and supersession and `:rf.http/managed-abort`
-  resolve within the issuing frame (Spec 014 §`:request-id`). Stale
-  suppression still keys on the work-id + generation (the durable
-  identity); this token governs only transport-level in-flight correlation.
-  Per Spec 016 §Transport / §Frame work ledger."
+  WHY the frame is in it: the work-id alone does not name one frame — two
+  frames can hold the same one (see `resource-work-id`) — while the request-id
+  is the correlation value every `:rf.http/*` trace row, failure map and
+  reply `:correlation` carries, so the frame in the token keeps one frame's
+  request from reading as a sibling's wherever those values are compared
+  across frames. Every abort is frame-scoped already: the in-flight registry
+  keys by `[frame-id request-id]`, and supersession, `:rf.http/managed-abort`
+  and the out-of-cascade teardown resolve within the issuing frame (Spec 014
+  §`:request-id`). Stale suppression still keys on the work-id + generation
+  (the durable identity); this token governs only transport-level
+  correlation. Per Spec 016 §Transport / §Frame work ledger."
   [frame-id work-id]
   [:rf.req frame-id work-id])
 
@@ -668,41 +667,41 @@
 
 ;; Forward declaration — `abort-handle!` reads the managed-HTTP transport
 ;; marker (`managed-abort-fx-transport`, defined below alongside the
-;; in-cascade `abort-fx` builder) to decide whether to fire the
-;; `:http/abort-in-flight!` hook for a recorded slot.
+;; in-cascade `abort-fx` builder) to decide whether a recorded slot is a
+;; managed-HTTP request.
 (declare managed-abort-fx-transport)
 
 (defn- abort-handle!
   "Best-effort abort the transport request a recorded side-table `handle`
-  describes, firing whatever abort capability the slot carries:
+  describes, firing whatever abort capability the slot carries. `frame-id` is
+  the slot's frame — the frame that issued the request:
 
    - a DIRECT host `:abort-fn` (a future transport that hands the runtime a
      live handle fills this slot — e.g. a non-HTTP transport), and/or
    - for MANAGED HTTP, the frame-qualified `:request-id` the slot records
-     (`[:rf.req frame-id work-id]`) routed through the `:http/abort-in-flight!`
-     late-bind hook the http artefact publishes.
+     (`[:rf.req frame-id work-id]`), aborted in `frame-id` through
+     `re-frame.http.registry/abort-in-flight-in-frame!`.
 
   The managed-HTTP arm is THE out-of-cascade teardown seam: the resource
   runtime does not itself hold the AbortController (the managed-HTTP
-  transport owns it, keyed by request-id), so the work-handle side-table
-  slot records ONLY the correlation `:request-id` and no live `:abort-fn`
-  (see `record-work-handle-handler`). The in-cascade lifecycle events
-  (`:rf.resource/remove`, clear-scope, refetch supersession, owner-release)
-  abort by emitting `:rf.http/managed-abort` via `abort-fx`; the
+  transport owns it, keyed by frame and request-id), so the work-handle
+  side-table slot records ONLY the correlation `:request-id` and no live
+  `:abort-fn` (see `record-work-handle-handler`). The in-cascade lifecycle
+  events (`:rf.resource/remove`, clear-scope, refetch supersession,
+  owner-release) abort by emitting `:rf.http/managed-abort` via `abort-fx`; the
   OUT-of-cascade lifecycle paths (`clear-resource`, frame destroy) run no
-  cascade, so they reach the SAME abort-by-request-id operation
-  (`re-frame.http.registry/abort-in-flight!`) through the published hook —
-  the same token the lower registered, so it resolves the right frame's
-  in-flight request rather than just clearing the side-table slot.
+  cascade, so they call the SAME frame-scoped abort-by-request-id operation
+  directly, with the token the lower registered — so it resolves the issuing
+  frame's in-flight request rather than just clearing the side-table slot,
+  and reaches nothing a sibling frame issued.
 
   Opportunistic — a no-op when no transport is holding the request (the
-  reply already landed, or the http artefact is not on the classpath, in
-  which case the hook resolves to nil). Correctness still rests on the
-  work-id + generation stale-suppression gate, NOT on the cancel landing.
-  Never throws (a throwing abort-fn / hook is swallowed — a failed cancel
-  must not strand the teardown). Returns true iff an abort capability was
-  found and fired (a hint for the caller's trace), false otherwise."
-  [handle]
+  reply already landed). Correctness still rests on the work-id + generation
+  stale-suppression gate, NOT on the cancel landing. Never throws (a throwing
+  abort-fn is swallowed — a failed cancel must not strand the teardown).
+  Returns true iff an abort capability was found and fired (a hint for the
+  caller's trace), false otherwise."
+  [frame-id handle]
   (let [direct? (boolean (when-let [abort-fn (:abort-fn handle)]
                            (try (abort-fn :resource-superseded) true
                                 (catch #?(:clj Throwable :cljs :default) _ false))))
@@ -710,15 +709,15 @@
                    (when (and (= (:transport handle) managed-abort-fx-transport)
                               (:request-id handle))
                      (try
-                       (when-let [abort! (rf.late-bind/get-fn :http/abort-in-flight!)]
-                         (boolean (abort! (:request-id handle) :resource-superseded)))
+                       (rf.http.registry/abort-in-flight-in-frame!
+                         frame-id (:request-id handle) :resource-superseded)
                        (catch #?(:clj Throwable :cljs :default) _ false))))]
     (or direct? managed?)))
 
 ;; ---- DETACH-then-abort ---------------------------------------------------
 ;;
 ;; Aborting a slot fires a CALLBACK (the transport's `:abort-fn`, or the
-;; `:http/abort-in-flight!` hook) — app / host code. Outside any drain (the
+;; managed request's own abort-fn) — app / host code. Outside any drain (the
 ;; restore clear, or a `clear-resource` call made outside an event) it can
 ;; synchronously churn frame incarnation A to a same-id successor B, and let B
 ;; record its own handle under the SAME `[frame-id work-id]` key; inside a frame
@@ -738,13 +737,19 @@
 
 (defn- detach-slots!
   "Atomically remove every side-table slot whose key satisfies `key-pred` and
-  return the DETACHED handle values. One `swap-vals!` — no host side effect runs
-  inside the retriable swap, and no callback can observe or re-seat the slots
-  between the decision and the removal."
+  return the DETACHED slots, as `[[frame-id work-id-id] handle]` entries. One
+  `swap-vals!` — no host side effect runs inside the retriable swap, and no
+  callback can observe or re-seat the slots between the decision and the
+  removal."
   [key-pred]
   (let [[old _new] (swap-vals! handle-table
                                (fn [m] (into {} (remove (comp key-pred key)) m)))]
-    (into [] (comp (filter (comp key-pred key)) (map val)) old)))
+    (filterv (comp key-pred key) old)))
+
+(defn- abort-slot!
+  "`abort-handle!` for one detached `[[frame-id work-id-id] handle]` slot."
+  [[[frame-id _] handle]]
+  (abort-handle! frame-id handle))
 
 (defn opportunistic-abort!
   "BEST-EFFORT drop the host handle for `[frame-id work-id]` from the side
@@ -753,8 +758,8 @@
   handle exists and can be cancelled; if it cannot, correctness still rests
   on the work-id + generation stale-suppression check (NOT on the cancel
   landing). For managed HTTP the slot records only the frame-qualified
-  `:request-id` (no live `:abort-fn`), so the abort rides the
-  `:http/abort-in-flight!` late-bind hook by that request-id —
+  `:request-id` (no live `:abort-fn`), so the abort goes to `frame-id`'s
+  request under that request-id —
   this is the out-of-cascade counterpart to the in-cascade `:rf.http/managed-abort`
   fx. Returns true iff an abort capability was found and fired (a hint for
   the caller's trace), false otherwise. Never throws (a throwing abort-fn is
@@ -765,20 +770,20 @@
   re-seated under the same key during that callback."
   [frame-id work-id]
   (let [slot-key [frame-id (work-id-id work-id)]]
-    (boolean (some abort-handle! (detach-slots! #{slot-key})))))
+    (boolean (some abort-slot! (detach-slots! #{slot-key})))))
 
 (defn- abort-detached!
-  "Best-effort abort every ALREADY-DETACHED handle in `handles`, in order.
-  Aborts managed HTTP by the recorded frame-qualified `:request-id` through the
-  `:http/abort-in-flight!` hook, so frame destroy cancels the
+  "Best-effort abort every ALREADY-DETACHED slot in `slots`, in order.
+  Aborts managed HTTP by the recorded frame-qualified `:request-id` in the
+  slot's frame, so frame destroy cancels the
   underlying in-flight request. A host reply that outlives the abort still
   never matches a future same-id frame, because the generation high-water is
-  process-wide and destroy leaves it alone. The handles are
+  process-wide and destroy leaves it alone. The slots are
   off the side table already (see `detach-slots!`), so an abort callback that
   churns the incarnation cannot have its successor's slot dropped by this tail.
   Never throws. Returns nil."
-  [handles]
-  (run! abort-handle! handles)
+  [slots]
+  (run! abort-slot! slots)
   nil)
 
 ;; ---- opportunistic abort via the transport fx (transport-neutral) ---------
@@ -786,9 +791,8 @@
 ;; The resource runtime does NOT itself hold the AbortController — the
 ;; managed-HTTP transport owns it, keyed (host-side) by the request-id
 ;; (the frame-QUALIFIED `managed-request-id`, NOT the bare work-id — see the
-;; WHY note on `managed-request-id`). The transport-neutral
-;; opportunistic-abort path is therefore an fx the runtime emits, late-bound
-;; so resources never statically depends on the HTTP transport. The
+;; WHY note on `managed-request-id`). Inside an event cascade the
+;; opportunistic abort is therefore an fx the runtime emits. The
 ;; side-table `:abort-fn` above is the slot a FUTURE transport that hands the
 ;; runtime a direct handle would fill; for managed HTTP the abort rides the
 ;; `:rf.http/managed-abort` fx keyed by the frame-qualified request-id.
@@ -924,7 +928,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   callback that records a fresh handle is not silently swallowed by a
   wholesale `reset!` afterwards. Returns nil."
   []
-  (abort-detached! (vals (first (reset-vals! handle-table {})))))
+  (abort-detached! (first (reset-vals! handle-table {}))))
 
 ;; ---- frame-stamped teardown entry (carried-frame invariant) ---------------
 ;;

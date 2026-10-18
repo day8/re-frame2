@@ -3,8 +3,9 @@
 
   Mirrors `shadow.test.node/main` shape but installs the quiet
   reporter overrides on `cljs.test/report` before invoking the test
-  runner.  Wired into `implementation/shadow-cljs.edn`'s `:node-test`
-  build via `:main re-frame.test-quiet.shadow-node/main`.
+  runner.  Wired into every `:node-test` build in
+  `implementation/shadow-cljs.edn` by its `:target-defaults`
+  `:main re-frame.test-quiet.shadow-node/main`.
 
   Requiring `re-frame.test-quiet` at the top is the install — the
   CLJS `defmethod`s install at load time.  By the time shadow's
@@ -74,18 +75,63 @@
   [warning-args]
   (swap! warn-buffer rf.test-quiet.warn-buffer/bound-conj warning-args))
 
+(def ^:private node-fs (js/require "fs"))
+
+(def ^:private eagain-wait-cell
+  "Something for `Atomics.wait` to wait on: the full pipe's reader is what
+  ends the wait, so the cell itself never changes."
+  (js/Int32Array. (js/SharedArrayBuffer. 4)))
+
+(defn- write-sync!
+  "Write all of string `s` to file descriptor `fd` before returning.
+
+  Every verdict this runner reaches ends in `js/process.exit`, which drops
+  whatever an asynchronous `process.stdout` / `process.stderr` write still
+  has queued, and on POSIX a pipe-backed stdio stream IS asynchronous: a red
+  run's FAIL blocks and summary, or a large warning replay, would reach a
+  piped reader cut off at the pipe's buffer size. So the runner's output is
+  written with `fs.writeSync` instead of through those streams.
+
+  One `fs.writeSync` call is not enough on its own. Once anything in the
+  process has touched `process.stdout` or `process.stderr`, Node has put
+  that pipe in non-blocking mode, and a write larger than the pipe's free
+  space comes back short, or fails with `EAGAIN` while the pipe is full.
+  So this loops until every byte is written, waiting a millisecond for the
+  reader on each `EAGAIN`."
+  [fd s]
+  (let [buffer (js/Buffer.from (str s) "utf8")
+        length (.-length buffer)]
+    (loop [offset 0]
+      (when (< offset length)
+        (recur (+ offset
+                  (try
+                    (.writeSync node-fs fd buffer offset (- length offset))
+                    (catch :default write-error
+                      (if (= "EAGAIN" (.-code write-error))
+                        (do (js/Atomics.wait eagain-wait-cell 0 0 1)
+                            0)
+                        (throw write-error))))))))))
+
+(defn- sync-print-fn
+  "A `*print-fn*` that writes through `write-sync!` to file descriptor `fd`.
+  It writes exactly the string it is handed, so it needs `*print-newline*`
+  true for `println` to end its line; cljs.core's console printing sets that
+  false, because `console.log` supplies the newline itself."
+  [fd]
+  (fn [s] (write-sync! fd s)))
+
 (defn- replay-buffer!
   "Replay one buffered channel's calls to fd 2 as `replay-buffered-warnings!`
   describes, labelled `console.<channel>`."
   [buffered channel]
   (when (seq buffered)
-    (let [fs (js/require "fs")]
-      (binding [*print-fn* (fn [s] (.writeSync fs 2 s))]
-        (println (str "[test-quiet] " (count buffered)
-                      " console." channel " message(s) buffered during this run"
-                      " (replayed because the run was RED):"))
-        (doseq [args buffered]
-          (apply println (str "[test-quiet] console." channel ":") args))))))
+    (binding [*print-fn*      (sync-print-fn 2)
+              *print-newline* true]
+      (println (str "[test-quiet] " (count buffered)
+                    " console." channel " message(s) buffered during this run"
+                    " (replayed because the run was RED):"))
+      (doseq [args buffered]
+        (apply println (str "[test-quiet] console." channel ":") args)))))
 
 (defn- replay-buffered-warnings!
   "Replay the buffered warnings, then the buffered `[re-frame2]` error
@@ -97,16 +143,13 @@
   Buffered argument values are rendered through `println`, not replayed
   through native `console.warn`; their formatting semantics therefore differ.
 
-  The replay writes synchronously to fd 2 via
-  `fs.writeSync`, NOT `js/process.stderr.write`.  On POSIX a pipe-backed
-  `process.stderr` is ASYNCHRONOUS, and the `:end-run-tests` reporter calls
-  `js/process.exit 1` IMMEDIATELY after this returns — `process.exit` forces
-  the process to exit with pending async stdout/stderr I/O still queued, so a
-  large red replay (up to `warn-buffer-cap` = 256 arbitrarily-sized entries)
-  could be TRUNCATED before it reached captured CI output, dropping the tail
-  of the diagnostic context the ns docstring promises a red run keeps.
-  `fs.writeSync` blocks until the bytes reach the fd, so the exit cannot drop
-  them. This matches the JVM runner's blocking stderr replay."
+  The replay goes to fd 2 through `write-sync!`, NOT `js/process.stderr.write`:
+  the `:end-run-tests` reporter calls `js/process.exit 1` IMMEDIATELY after
+  this returns, and a large red replay (up to `warn-buffer-cap` = 256
+  arbitrarily-sized entries) still queued on an asynchronous stderr would be
+  TRUNCATED, dropping the tail of the diagnostic context the ns docstring
+  promises a red run keeps. This matches the JVM runner's blocking stderr
+  replay."
   []
   (replay-buffer! @warn-buffer "warn")
   (replay-buffer! @error-buffer "error"))
@@ -349,7 +392,21 @@
           (seed-failure-exit!)
           (st/run-all-tests test-environment nil))))))
 
+(defn- print-run-output-synchronously!
+  "Route this run's `println` output (the FAIL and ERROR blocks, the
+  cljs.test summary and every refusal message) to stdout through
+  `write-sync!`, so `js/process.exit` cannot drop any of it.
+
+  It covers the whole run, green or red, because a FAIL block prints when
+  its assertion fails, before the run knows its verdict. Set in `main`,
+  after every namespace has loaded and cljs.core has installed its console
+  printing."
+  []
+  (set! *print-newline* true)
+  (set-print-fn! (sync-print-fn 1)))
+
 (defn main [& args]
+  (print-run-output-synchronously!)
   (reset-test-data!)
   (if env/UI-DRIVEN
     (js/console.log "Waiting for UI ...")

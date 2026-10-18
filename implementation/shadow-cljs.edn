@@ -649,20 +649,45 @@
  ;; one by one, as do `:browser-test`, `:fresco-release` and
  ;; `:fresco-modules-compile`. A blanket default would also catch the
  ;; builds whose warning counts nothing holds at zero.
+ ;;
+ ;; Every `:node-test` build also runs under the silent-on-success
+ ;; reporter: `re-frame.test-quiet.shadow-node/main` installs the
+ ;; cljs.test/report defmethod overrides before discovery. Its source lives
+ ;; at ../test-quiet/src/re_frame/test_quiet/shadow_node.cljs, on the
+ ;; classpath via the source-paths list above.
+ ;;
+ ;; And every one disables externs inference (and therefore the
+ ;; :infer-warning class). The cljs.test reporter is silent-on-success but
+ ;; the test classpath spans every artefact + every testbed + every tool's
+ ;; source tree, so unrelated externs-inference noise (~16 lines per
+ ;; warning, ~32 warnings on a green run ≈ 500 lines) drowns the green-run
+ ;; signal. Shadow defaults `:infer-externs :auto`, which root-binds
+ ;; `(:infer-warning ana/*cljs-warnings*)` to true for every non-from-jar
+ ;; source — overriding any `:warnings {:infer-warning false}` we'd set
+ ;; here (see shadow/build/compiler.clj). The only way to fully silence the
+ ;; class is `:infer-externs false`. Externs inference stays ON for the
+ ;; production :browser builds (where it catches real :advanced extern
+ ;; bugs); the :node-test builds run un-minified on Node so externs aren't
+ ;; relevant, and test code is allowed to be less type-disciplined.
+ ;;
+ ;; shadow-cljs deep-merges these under each build's own map, so a build
+ ;; adds to `:compiler-options` without repeating them.
  :target-defaults
- {:node-test {:compiler-options {:warnings-as-errors true}}}
+ {:node-test {:main             re-frame.test-quiet.shadow-node/main
+              :compiler-options {:warnings-as-errors true
+                                 :warnings           {:redef false}
+                                 :infer-externs      false}}}
 
  :builds
  {:node-test
   {:target    :node-test
    :output-to "out/node-test.js"
-   :ns-regexp "cljs-test$"
-   ;; DO NOT `shadow-cljs compile node-test --config-merge ...`
-   ;; (narrowing `:ns-regexp`, or any other override) against THIS build id
-   ;; for a focused/one-off compile. shadow-cljs derives the on-disk build
-   ;; cache directory from the build id alone, fixed BEFORE any
-   ;; `--config-merge` data is applied, so a focused compile and the always-on
-   ;; full compile below share ONE cache entry — the identical rule
+   ;; DO NOT compile THIS build id with a command-line override (narrowing
+   ;; `:ns-regexp`, or anything else) for a focused/one-off compile.
+   ;; shadow-cljs derives the on-disk build cache directory from the build
+   ;; id alone, fixed BEFORE any command-line config is merged, so a focused
+   ;; compile and the always-on full compile share ONE cache entry — the
+   ;; identical rule
    ;; `implementation/core/test/re_frame/bench/lane_cache.cjs`
    ;; already enforces for the fresco bench lane. Mixing configs against a
    ;; shared id risks leaving the next, unrelated compile mid-state; under
@@ -671,48 +696,13 @@
    ;; `shadow.build.compiler/par-compile-one`) with no root cause printed,
    ;; which reads like a compiler bug rather than what it is.
    ;;
-   ;; THE SAFE ALTERNATIVE, for both cases: select namespaces at RUNTIME
-   ;; instead of at compile time —
+   ;; THE SAFE ALTERNATIVE: select namespaces at RUNTIME instead of at
+   ;; compile time —
    ;;
    ;;     node out/node-test.js --test=<ns>[,<ns>...]
    ;;
    ;; — which needs no recompile at all and therefore cannot poison anything.
-   ;;
-   ;; If a focused COMPILE (not just a focused RUN) is genuinely required,
-   ;; go through `node scripts/compile-node-test.cjs node-test out/node-test.js
-   ;; --config-merge ...` rather than invoking shadow-cljs directly — it
-   ;; isolates the shared cache around a `--config-merge` compile (clears it
-   ;; before AND after) and, unconditionally for every invocation, deletes
-   ;; `:output-to` before compiling so an aborted compile can never leave the
-   ;; PREVIOUS successful bundle sitting in its place — otherwise a caller
-   ;; that doesn't chain the compile's exit code silently re-runs a stale
-   ;; bundle and reports a green that means nothing.
-   ;;
-   ;; Silent-on-success reporter. Custom runner installs
-   ;; the cljs.test/report defmethod overrides before discovery. Source
-   ;; ns lives at
-   ;; ../test-quiet/src/re_frame/test_quiet/shadow_node.cljs and is
-   ;; on the classpath via the source-paths list above.
-   :main      re-frame.test-quiet.shadow-node/main
-   ;; Disable externs inference (and therefore the
-   ;; :infer-warning class) in the test build. The cljs.test reporter is
-   ;; silent-on-success but the test classpath
-   ;; spans every artefact + every testbed + every tool's source tree,
-   ;; so unrelated externs-inference noise (~16 lines per warning, ~32
-   ;; warnings on a green run ≈ 500 lines) drowns the green-run signal.
-   ;;
-   ;; Shadow defaults `:infer-externs :auto`, which root-binds
-   ;; `(:infer-warning ana/*cljs-warnings*)` to true for every
-   ;; non-from-jar source — overriding any `:warnings {:infer-warning
-   ;; false}` we'd set here (see shadow/build/compiler.clj). The only
-   ;; way to fully silence the class is `:infer-externs false`.
-   ;;
-   ;; Externs inference stays ON for the production :browser builds
-   ;; (where it catches real :advanced extern bugs); the :node-test
-   ;; build runs un-minified on Node so externs aren't relevant, and
-   ;; test code is allowed to be less type-disciplined.
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   :ns-regexp "cljs-test$"}
 
   ;; Perf-emission nightly companion to `:node-test`.
   ;;
@@ -747,11 +737,8 @@
   {:target    :node-test
    :output-to "out/node-test-perf-nightly.js"
    :ns-regexp "-emit-nightly-test$"
-   :main      re-frame.test-quiet.shadow-node/main
    :compiler-options
-   {:warnings        {:redef false}
-    :infer-externs   false
-    ;; Flip the perf-bracket gate on so the call-site emissions
+   {;; Flip the perf-bracket gate on so the call-site emissions
     ;; actually land on the User-Timing stream. See
     ;; `implementation/core/src/re_frame/performance.cljc` for the
     ;; goog-define declarations.
@@ -785,10 +772,7 @@
   :node-test-security
   {:target    :node-test
    :output-to "out/node-test-security.js"
-   :ns-regexp "-security-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   :ns-regexp "-security-cljs-test$"}
 
   ;; FOCUSED node-test build for the tools/testbed-support slice.
   ;;
@@ -820,10 +804,7 @@
   :node-test-testbed-support
   {:target    :node-test
    :output-to "out/node-test-testbed-support.js"
-   :ns-regexp "^re-frame\\.testbed\\..+-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   :ns-regexp "^re-frame\\.testbed\\..+-cljs-test$"}
 
   ;; The Fresco PACKAGE's compile target. Mirrors
   ;; :node-test-testbed-support above: the ns-regexp selects
@@ -850,8 +831,9 @@
   {:target    :node-test
    :output-to "out/node-test-fresco.js"
    :ns-regexp "^re-frame\\.fresco\\..+-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   :compiler-options {:infer-externs false}}
+   ;; Redefinition warnings stay fatal here: the package graph has no
+   ;; redefinition to excuse, so this build overrides the default above.
+   :compiler-options {:warnings {:redef true}}}
 
   ;; The MANUAL-ONLY Xray epoch-delivery witness.
   ;; Same shape as the three focused `:node-test` siblings above; here the
@@ -882,10 +864,7 @@
   :node-test-xray-manual-epoch
   {:target    :node-test
    :output-to "out/node-test-xray-manual-epoch.js"
-   :ns-regexp "^day8\\.re-frame2-xray\\.manual-epoch-delivery-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   :ns-regexp "^day8\\.re-frame2-xray\\.manual-epoch-delivery-cljs-test$"}
 
   ;; The Fresco artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.

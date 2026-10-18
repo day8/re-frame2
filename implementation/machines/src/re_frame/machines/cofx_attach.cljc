@@ -73,14 +73,17 @@
   `subs` / `frame` / `late-bind`; `choice` is a leaf requiring only `error`,
   and none of subs / frame require the machines engine, so no cycle).
 
-  ## Pre-desugar surfaces (`:choice` / state-level `:after`)
+  ## Desugared surfaces (`:choice` / `:timeout` / state-level `:after`)
 
-  The index + ensure-set computation run on the RAW machine (before
-  `rf.machines.choice/desugar-choices` / `timeout/desugar-timeouts` lower the authoring
-  sugar at transition / birth time). So this ns settles the sugar the way the
-  runtime does: a `:type :choice` transient node's `:choice` candidate vector
-  is its `:always` candidate set (`always-entries`), and a state-level `:after`
-  table transition contributes to the ensure-set for its synthetic timer event
+  Registration sweeps the definition as written (`index-ensure-sets`, ahead
+  of `validate-machine!`), so a refusal names the slot the author wrote; there
+  a `:type :choice` transient node's `:choice` candidate vector is its
+  `:always` candidate set (`always-entries`). The dispatch-time ensure-set
+  walks the registered definition, which registration has already desugared
+  (`rf.machines.parallel/normalise-definition`): a choice node carries
+  `:always`, and a `:timeout` / `:on-timeout` is an `:after` entry. So a
+  state-level `:after` table transition, authored or lowered from a
+  `:timeout`, contributes to the ensure-set for its synthetic timer event
   (`after-diet-for-event`) — mirroring how the parallel ROOT `:after` is
   handled by `parallel-root-diet`.
 
@@ -238,8 +241,8 @@
 
   A `:type :choice` transient node carries its candidate vector under
   `:choice`, NOT `:always` — the choice lowers to `:always` only at
-  `rf.machines.choice/desugar-node-choice`, and the index + ensure-set run on the RAW
-  pre-desugar machine. Since a choice state routes through the
+  `rf.machines.choice/desugar-node-choice`, and the registration sweep reads the
+  definition as written. Since a choice state routes through the
   IDENTICAL `:always` cascade the runtime settles it into, treat a choice
   node's `:choice` vector as its `:always` candidates here; validation
   guarantees a choice node never ALSO declares `:always` (a reserved key), so
@@ -481,8 +484,9 @@
        declaration, IDENTICAL to the event-handler path) into a per-entry
        parsed-diet index the dispatch-time `ensure-set-for` reads.
 
-  Idempotent and pure (machine → machine'); called from
-  `make-machine-handler` before `validate-machine!`. A machine with no
+  Idempotent and pure (machine → machine'); called at registration on the
+  definition as written, before `validate-machine!`, and by
+  `make-machine-handler` on the registered definition. A machine with no
   `:rf.cofx/requires` anywhere stamps an empty index (cheap)."
   [machine]
   (check-inline-restriction! machine)
@@ -1034,8 +1038,8 @@
 
   `mint-policy` (EP-0017 §6) gates the declared-absent generator-backed
   branch — `:strict` (replay / the `:test` preset) refuses to mint and
-  surfaces `:rf.error/missing-required-cofx`, `:live` / `:explicit-live`
-  generate. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
+  surfaces `:rf.error/missing-required-cofx`, `:live`
+  generates. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
   the EVENT path uses; threading the resolved policy here gives the machine
   ensure path the SAME mint semantics rather than the 5-arity `:live` default."
   [ensure-set recorded frame-id failing-id mint-policy]
@@ -1066,7 +1070,7 @@
   `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
   SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
   a declared-absent generator-backed fact (surfacing missing-required), `:live`
-  / `:explicit-live` generate.
+  generates.
 
   A no-op (returns `recorded`) when the ensure-set is empty."
   [machine snapshot event recorded frame-id failing-id mint-policy]

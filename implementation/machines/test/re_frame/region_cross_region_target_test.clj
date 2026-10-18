@@ -14,7 +14,7 @@
 
 (deftest region-state-cross-region-target-rejected-with-a-region-aware-message
   (try
-    (rf.machines.lifecycle-fx.registration/make-machine-handler
+    (rf.machines.lifecycle-fx.registration/registered-definition
       {:type    :parallel
        :regions {:a {:initial :one
                      :states  {:one {:on {:go {:target [:b :two]}}}
@@ -32,7 +32,7 @@
   (is (thrown-with-msg?
         clojure.lang.ExceptionInfo
         #":rf.error/machine-unresolved-target"
-        (rf.machines.lifecycle-fx.registration/make-machine-handler
+        (rf.machines.lifecycle-fx.registration/registered-definition
           {:type    :parallel
            :regions {:a {:initial :one
                          :on      {:go {:target [:b :two]}}
@@ -41,7 +41,7 @@
                          :states  {:one {} :two {}}}}}))))
 
 (deftest in-region-target-shadowing-a-sibling-region-name-still-resolves
-  (is (fn? (rf.machines.lifecycle-fx.registration/make-machine-handler
+  (is (map? (rf.machines.lifecycle-fx.registration/registered-definition
              {:type    :parallel
               :regions {:a {:initial :one
                             :states  {:one {:on {:go {:target [:b :two]}}}

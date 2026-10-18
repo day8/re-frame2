@@ -1,27 +1,30 @@
 (ns re-frame.http-issued-trace-test
-  "The `:rf.http/issued` trace row and the numbering of ANONYMOUS issuances
-  (Managed-Effects §Tracing).
+  "The `:rf.http/issued` trace row and the numbering of issuances
+  (Managed-Effects §Tracing, §Work-id correlation).
 
     1. ISSUANCE ROW — every `:rf.http/managed` issuance emits exactly one
        `:rf.http/issued` `:info` row inside the issuing fx handler, so it sits
        in the issuing run's bundle and precedes every row the issuance causes.
        It carries the ATTEMPT-1 work-id; a completion carries the attempt that
-       completed, so the two join on the three-element issuance prefix
-       `[:rf.work/http logical-id issuance]`.
-    2. ANONYMOUS NUMBERING — a request with no `:request-id` is numbered by a
-       never-evicted per-(frame, event-id) counter, and its logical id is
-       TAGGED `[:rf.http/anonymous event-id]` so it never equals a named
-       request's `:request-id` (the two counters are independent)."
+       completed, so the two join on the two-element issuance prefix
+       `[:rf.work/http issuance]`.
+    2. ONE COUNTER PER FRAME — every issuance in a frame, named or anonymous,
+       takes the next number from the frame's one monotone counter, so no two
+       requests a frame issues share a work id `[:rf.work/http issuance
+       attempt]`. Completion and epoch restore leave the counter alone; frame
+       destroy drops it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
-           [java.util.concurrent CountDownLatch TimeUnit]))
+           [java.util.concurrent CompletableFuture CountDownLatch TimeUnit]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -70,7 +73,7 @@
 (defn- rows [traces op] (filterv #(= op (:operation %)) @traces))
 (defn- dispatch-id [row] (get-in row [:tags :rf.trace/dispatch-id]))
 (defn- work-id [row] (get-in row [:tags :rf.reply/work-id]))
-(defn- prefix [wid] (subvec wid 0 3))
+(defn- prefix [wid] (subvec wid 0 2))
 
 (defn- await-latch! [^CountDownLatch l]
   (.await l 30 TimeUnit/SECONDS))
@@ -96,7 +99,7 @@
                 handled          (first (filter #(= :rf.http/managed (get-in % [:tags :rf.fx/id]))
                                                 (rows traces :rf.fx/handled)))]
             (is (= 1 (count issued)) "exactly one :rf.http/issued row per issuance")
-            (is (= {:rf.reply/work-id   [:rf.work/http :t/load 1 1]
+            (is (= {:rf.reply/work-id   [:rf.work/http 1 1]
                     :rf.reply/work-kind :http
                     :request-id         :t/load
                     :method             :get
@@ -134,15 +137,45 @@
           (is (await-latch! done) "the superseding request's reply was delivered")
           (let [issued (rows traces :rf.http/issued)
                 ok     (filterv #(= :ok (get-in % [:tags :status])) (rows traces :rf.http/replied))]
-            (is (= [[:rf.work/http :search 1 1] [:rf.work/http :search 2 1]]
+            (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]]
                    (mapv work-id issued)))
             (is (< (:id (second issued)) (:id (first (rows traces :rf.http/stale-suppressed))))
                 "the superseder's issued row precedes the stale-suppression it causes")
-            (is (= [[:rf.work/http :search 2 1]] (mapv work-id ok))
+            (is (= [[:rf.work/http 2 1]] (mapv work-id ok))
                 "the delivered completion joins the SECOND issued row"))))
       (finally
         (.countDown release)
         (stop-server! srv)))))
+
+(deftest sequential-named-loads-carry-distinct-work-ids
+  (testing "the same request id loaded twice in sequence — the first completed
+            before the second is issued — takes two numbers, so the two
+            completions never share a work id"
+    (let [srv     (start-server! (constantly nil))
+          replies (atom [])]
+      (try
+        (with-traces
+          (fn [traces]
+            (rf/reg-event :seq/done
+              (fn [_ [_ latch reply]]
+                (swap! replies conj (:rf.reply/work-id reply))
+                (.countDown ^CountDownLatch latch)
+                {}))
+            (rf/reg-event :seq/load
+              (fn [_ [_ latch]]
+                {:fx [[:rf.http/managed {:request    {:url (url srv "/seq")}
+                                         :request-id :search
+                                         :decode     :json
+                                         :reply-to   [:seq/done latch]}]]}))
+            (doseq [latch [(CountDownLatch. 1) (CountDownLatch. 1)]]
+              (rf/dispatch-sync [:seq/load latch])
+              (is (await-latch! latch) "the load completed before the next was issued"))
+            (is (apply distinct? @replies) "the two loads' work ids differ")
+            (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]]
+                   (mapv work-id (rows traces :rf.http/issued))))
+            (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]] @replies)
+                "each completion carries its own load's work id")))
+        (finally (stop-server! srv))))))
 
 ;; Two overlapping anonymous requests of one event-id, completing in REVERSE
 ;; order: each takes the next number and keeps it whatever the completion order.
@@ -171,12 +204,11 @@
           (is (await-latch! got-b))
           (.countDown ^CountDownLatch (latches "/a"))
           (is (await-latch! got-a))
-          (is (= [[:rf.work/http [:rf.http/anonymous :anon/go] 1 1]
-                  [:rf.work/http [:rf.http/anonymous :anon/go] 2 1]]
+          (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]]
                  (mapv work-id (rows traces :rf.http/issued)))
-              "each anonymous issuance of one event-id in one frame takes the next number")
-          (is (= {"/a" [:rf.work/http [:rf.http/anonymous :anon/go] 1 1]
-                  "/b" [:rf.work/http [:rf.http/anonymous :anon/go] 2 1]}
+              "each anonymous issuance takes the frame's next number")
+          (is (= {"/a" [:rf.work/http 1 1]
+                  "/b" [:rf.work/http 2 1]}
                  @replies)
               "each completion carries its own issuance, whatever the completion order")))
       (finally
@@ -213,9 +245,9 @@
                       :reply-to   [:retry/done]}]]}))
           (rf/dispatch-sync [:retry/go])
           (is (await-latch! done))
-          (is (= [[:rf.work/http :retry/one 1 1]] (mapv work-id (rows traces :rf.http/issued)))
+          (is (= [[:rf.work/http 1 1]] (mapv work-id (rows traces :rf.http/issued)))
               "one issued row per issuance, however many attempts, carrying attempt 1")
-          (is (= [:rf.work/http :retry/one 1 2] (work-id (first (rows traces :rf.http/replied))))
+          (is (= [:rf.work/http 1 2] (work-id (first (rows traces :rf.http/replied))))
               "the completion carries its own attempt")))
       (finally (.stop server 0)))))
 
@@ -240,36 +272,53 @@
         (is (= [true "http://127.0.0.1:0/x?q=:rf/redacted"] [(:sensitive? issued) (get-in issued [:tags :url])])
             "a sensitive request's issued row is stamped and its query value scrubbed")))))
 
+(deftest a-restore-never-recycles-a-work-id
+  (testing "a request issued after an epoch restore takes the frame's NEXT
+            number, never one the unwound timeline already used — even though
+            the restore cancelled the earlier request"
+    (let [f :issued/restore]
+      (rf/make-frame {:id f})
+      (rf/reg-event :restore/seed (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
+      (rf/reg-event :restore/done (fn [_ _] {}))
+      (rf/reg-event :restore/load
+        (fn [_ _]
+          {:fx [[:rf.http/managed {:request    {:url "http://127.0.0.1:0/r"}
+                                   :request-id :search
+                                   :reply-to   [:restore/done]}]]}))
+      (with-traces
+        (fn [traces]
+          (with-redefs [rf.http.transport-jvm/jvm-fetch (fn [_] (CompletableFuture.))]
+            (rf/dispatch-sync [:restore/seed] {:frame f})
+            (let [before-load (:epoch-id (last (rf.epoch/epoch-history f)))]
+              (rf/dispatch-sync [:restore/load] {:frame f})
+              (is (:ok? (rf.epoch/restore-epoch! f before-load)))
+              (is (empty? (rf.http.registry/in-flight-snapshot f))
+                  "PRECONDITION: the restore cancelled the earlier request")
+              (rf/dispatch-sync [:restore/load] {:frame f})
+              (is (apply distinct? (mapv work-id (rows traces :rf.http/issued)))
+                  "the load after the restore did not reuse the cancelled load's work id")
+              (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]]
+                     (mapv work-id (rows traces :rf.http/issued))))))))
+      (rf/destroy-frame! f))))
+
 ;; ---- registry altitude --------------------------------------------------------
 
-(deftest anonymous-counter-is-never-evicted
-  (testing "anonymous a=1, b=2; b completes (evict called exactly as the
-  transport calls it, with a nil request-id); the next anonymous issuance
-  reads 3, not 1 — a compare-and-drop eviction would reissue 1 while a
-  is still live"
-    (rf.http.registry/reset-issuance-counters-for-test!)
-    (let [a (rf.http.registry/next-issuance! :frame/f nil [:ev/go])
-          b (rf.http.registry/next-issuance! :frame/f nil [:ev/go])]
-      (is (= [1 2] [a b]))
-      (rf.http.registry/evict-issuance-on-completion! :frame/f nil b)
-      (is (= 3 (rf.http.registry/next-issuance! :frame/f nil [:ev/go]))))))
-
-(deftest anonymous-counter-is-bounded-by-frame-x-event
-  (testing "N anonymous issuances of one event hold ONE entry, and never touch the named map"
-    (rf.http.registry/reset-issuance-counters-for-test!)
-    (dotimes [_ 50] (rf.http.registry/next-issuance! :frame/f nil [:ev/go]))
-    (is (= 1 (rf.http.registry/anonymous-issuance-counter-count))
-        "one entry per (frame, event-id), not one per request")
-    (is (zero? (rf.http.registry/issuance-counter-count))
-        "the named-counter leak instrument counts named requests only")))
-
-(deftest frame-destroy-drops-that-frames-anonymous-counters
+(deftest issuance-counter-is-one-monotone-sequence-per-frame
   (rf.http.registry/reset-issuance-counters-for-test!)
-  (rf.http.registry/next-issuance! :frame/gone nil [:ev/go])
-  (rf.http.registry/next-issuance! :frame/kept nil [:ev/go])
-  (is (= 2 (rf.http.registry/anonymous-issuance-counter-count)))
+  (is (= [1 2 1 3] [(rf.http.registry/next-issuance! :frame/f)
+                    (rf.http.registry/next-issuance! :frame/f)
+                    (rf.http.registry/next-issuance! :frame/g)
+                    (rf.http.registry/next-issuance! :frame/f)])
+      "every issuance takes its frame's next number; a sibling frame runs its own")
+  (is (= 2 (rf.http.registry/issuance-counter-count)) "one counter per frame"))
+
+(deftest frame-destroy-drops-that-frames-counter
+  (rf.http.registry/reset-issuance-counters-for-test!)
+  (rf.http.registry/next-issuance! :frame/gone)
+  (rf.http.registry/next-issuance! :frame/kept)
+  (is (= 2 (rf.http.registry/issuance-counter-count)))
   (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/gone)
-  (is (= 1 (rf.http.registry/anonymous-issuance-counter-count))
-      "only the destroyed frame's entries are dropped")
-  (is (= 2 (rf.http.registry/next-issuance! :frame/kept nil [:ev/go]))
+  (is (= 1 (rf.http.registry/issuance-counter-count))
+      "only the destroyed frame's counter is dropped")
+  (is (= 2 (rf.http.registry/next-issuance! :frame/kept))
       "the sibling frame's sequence is untouched"))

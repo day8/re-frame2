@@ -344,10 +344,10 @@
   the issuing run's dispatch-id and the row lands in the issuing bundle. Its
   `:rf.reply/work-id` is the ATTEMPT-1 work id; a completion row carries the
   work id of the attempt that completed, so after a retry the two differ in
-  the fourth (attempt) component. The join between issuance and
-  completion is therefore on the three-element issuance prefix
-  `[:rf.work/http logical-id issuance]` within the frame, never on full
-  work-id equality.
+  the third (attempt) component. The join between issuance and
+  completion is therefore on the two-element issuance prefix
+  `[:rf.work/http issuance]` within the frame, never on full work-id
+  equality.
 
   `:request-id` and the work id ride as given: a resource read's request id
   `[:rf.req <frame-id> [:rf.work/resource <resource-id> <generation>]]` names
@@ -510,23 +510,14 @@
                             :middleware-ctx    ctx
                             :interceptor-chain chain)
         request-id   (:request-id normalised0)
-        ;; Allocate this request's monotonic per-request-id
-        ;; ISSUANCE number BEFORE superseding the prior in-flight request, so
-        ;; the new attempt's `:work/id` `[:rf.work/http logical-id issuance
-        ;; attempt]` is `=`-distinct from the superseded one's (both reset
-        ;; their retry `:attempt` to 1; the issuance discriminates them). One
-        ;; attempt has one work id (EP-0007 / Managed-Effects §Work-id
-        ;; correlation §184).
-        ;;
-        ;; The counter is keyed by (issuing frame, request-id): a
-        ;; sibling frame reusing the same raw id runs its own sequence, so
-        ;; this frame's first issuance is 1 whatever the sibling has done.
-        ;;
-        ;; An anonymous request (nil request-id) never supersedes,
-        ;; but its logical id is the originating event-id, so it is numbered
-        ;; per (frame, event-id) instead: two anonymous requests of one event
-        ;; in one frame carry distinct work ids.
-        issuance     (rf.http.registry/next-issuance! frame-id request-id origin-event)
+        ;; Allocate this request's ISSUANCE number — the issuing frame's next
+        ;; — BEFORE superseding the prior in-flight request, so the new
+        ;; attempt's `:work/id` `[:rf.work/http issuance attempt]` is
+        ;; `=`-distinct from the superseded one's and from every other request
+        ;; this frame has issued. One attempt has one work id (EP-0007 /
+        ;; Managed-Effects §Work-id correlation §184). A sibling frame runs its
+        ;; own sequence.
+        issuance     (rf.http.registry/next-issuance! frame-id)
         normalised   (assoc normalised0 :issuance issuance)]
     ;; The issuance row, emitted BEFORE `supersede!` and
     ;; `issue!` so it precedes every row this issuance causes (the stale
@@ -554,10 +545,7 @@
       (when-let [superseded (rf.http.registry/supersede! frame-id request-id)]
         (rf.http.transport/emit-superseded-stale-trace!
           superseded
-          (rf.http.reply/work-id {:request-id   request-id
-                               :origin-event origin-event
-                               :issuance     issuance
-                               :attempt      1}))))
+          (rf.http.reply/work-id {:issuance issuance :attempt 1}))))
     (rf.http.transport/issue! normalised)
     nil))
 
@@ -567,15 +555,9 @@
   The request's abort owns cancellation and its retirement from the
   registry, so this handler only resolves the request and aborts it.
 
-  Routes through `registry/abort-in-flight-in-frame!`,
-  the FRAME-SCOPED sibling of the `registry/abort-in-flight!` seam the
-  resources out-of-cascade teardown reaches through the
-  `:http/abort-in-flight!` late-bind hook. Both fire identical abort semantics
-  and differ only in scope, and the difference is forced by what each caller
-  holds: resources carries a token that is already frame-qualified
-  (`[:rf.req frame-id work-id]`, Spec 016), whereas this fx receives the
-  caller's RAW `:request-id` — a frame-LOCAL name that reusable app code
-  reuses across frames by design. Aborting by that raw id process-globally would
+  Routes through `registry/abort-in-flight-in-frame!`, scoped to the issuing
+  frame. The caller's `:request-id` is a frame-LOCAL name that reusable app
+  code reuses across frames by design, so aborting by it process-globally would
   let a `[:rf.http/managed-abort :articles/load]` dispatched in one frame cancel a
   sibling frame's live request; scoping to the issuing frame is what makes the
   effect obey the frame-isolation contract (Spec 014 §`:request-id`).

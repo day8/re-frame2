@@ -75,7 +75,7 @@
 
 (defn- refusal
   [m]
-  (try (rf.machines.lifecycle-fx.registration/make-machine-handler m) nil
+  (try (rf.machines.lifecycle-fx.registration/registered-definition m) nil
        (catch clojure.lang.ExceptionInfo e (assoc (ex-data e) ::message (ex-message e)))))
 
 (deftest region-on-done-targets-are-checked-at-registration

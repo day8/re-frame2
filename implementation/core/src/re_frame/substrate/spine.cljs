@@ -52,7 +52,7 @@
 ;; ---- epoch scheduler (glitch-freedom; Spec 006 §Invalidation algorithm) ----
 ;;
 ;; Reagent realises the Phase 1/2/3 invalidation contract automatically:
-;; each `Reaction` re-runs once per `r/flush!` against settled inputs, so
+;; each `Reaction` re-runs once per `r/flush` against settled inputs, so
 ;; a multi-input layer-2+ reaction never sees a half-updated input set and
 ;; never notifies more than once per app-db change. The spine has no
 ;; reaction primitive, so it must satisfy the contract explicitly
@@ -74,7 +74,7 @@
 ;; downstream `notify` only fires on a `=`-change, which masks the storm
 ;; for `=`-stable bodies but not for the recompute work, the trace
 ;; emissions, or any body with observable per-call cost.) Reagent is
-;; immune (native batched `r/flush!`); the spine must satisfy the Phase
+;; immune (native batched `r/flush`); the spine must satisfy the Phase
 ;; 1/2/3 contract explicitly.
 ;;
 ;; The spine mirrors Reagent's batched flush. A single per-adapter
@@ -3940,7 +3940,7 @@
         ;; primitive and must coalesce multi-input derived recomputes glitch-
         ;; free explicitly (Spec 006 §Invalidation algorithm). The ratom
         ;; family is immune: Reagent's reactions are natively batched through
-        ;; `r/flush!`, so a multi-input Reaction already recomputes once per
+        ;; `r/flush`, so a multi-input Reaction already recomputes once per
         ;; coherent input epoch. There is no scheduler in this spine to bracket
         ;; against, so this CANNOT consolidate with the React-hook version.
         replace-container!

@@ -678,10 +678,9 @@
             work-id    (rf.resources.work-ledger/resource-work-id resource generation)
             ;; The transport correlation token is the
             ;; frame-QUALIFIED request-id, NOT the bare work-id: two frames
-            ;; can hold the same work-id, and the out-of-cascade teardown
-            ;; aborts through HTTP's any-frame `:http/abort-in-flight!` hook,
-            ;; so the frame in the token keeps that abort on this frame's
-            ;; request. See `managed-request-id`.
+            ;; can hold the same work-id, and the frame in the token keeps
+            ;; this frame's request distinct wherever request-ids are
+            ;; compared. See `managed-request-id`.
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
             ;; durable work-ledger `:started-at` is the TRIGGERING TOKEN'S

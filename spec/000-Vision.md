@@ -332,7 +332,7 @@ Goal 6 anticipates a richer FSM substrate than v1's flat-machine grammar. Two or
 
 The pattern admits a wide capability surface across both axes. **Implementations declare which capabilities they support, and conformance is graded against the claimed list** — a port targeting flat-FSM + actor-spawn is fully conformant for that capability set; a port claiming hierarchical states must pass the hierarchical-states fixtures too.
 
-The capability matrix and per-capability prose / schema / fixture coverage live in [005 §Capability matrix](005-StateMachines.md#capability-matrix). The v1 CLJS reference's claimed capability set, summarised:
+The capability matrix, with each capability's prose / schema / fixture coverage, lives in [Implementor's Checklist §Machine capability matrix](Implementor-Checklist.md#machine-capability-matrix). The v1 CLJS reference's claimed capability set, summarised:
 
 **FSM-richness — v1 includes:**
 

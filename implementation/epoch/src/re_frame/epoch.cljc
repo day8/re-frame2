@@ -62,12 +62,12 @@
 ;; feature namespace, not on the `re-frame.core` facade (spec/API.md
 ;; §Conventions, the role rule):
 ;;
-;;   * `epoch-history`, `restore-epoch!`, `replay-epoch!` and
-;;     `replace-frame-state!` are this namespace's public surface, tiered
-;;     `:tooling`. Each is also published under its `:epoch/*` late-bind hook
-;;     (the block at the foot of this file), which `re-frame.core`'s
-;;     `epoch-history` forwards through and which tools that treat the
-;;     artefact as optional call instead of requiring this namespace.
+;;   * `epoch-history`, `current-epoch-id`, `restore-epoch!`, `replay-epoch!`
+;;     and `replace-frame-state!` are this namespace's public surface, tiered
+;;     `:tooling`. All but `current-epoch-id` are also published under their
+;;     `:epoch/*` late-bind hooks (the block at the foot of this file), which
+;;     `re-frame.core`'s `epoch-history` forwards through and which tools that
+;;     treat the artefact as optional call instead of requiring this namespace.
 ;;   * `configure!`, `clear-history!`, `register-epoch-listener!`,
 ;;     `unregister-epoch-listener!` and `clear-epoch-listeners!` are
 ;;     IMPLEMENTATION SEAMS — hook targets for core's doors
@@ -139,6 +139,23 @@
   id or the frame value `rf/make-frame` returns."
   [frame-id]
   (rf.epoch.state/history-for (rf.frame/frame-target->id frame-id)))
+
+(defn current-epoch-id
+  "Return the id of the epoch whose `:frame-state-after` the frame holds, or
+  nil — the read-only cursor a restore moves.
+
+  It names the newest settled `:ok` record (an ordinary event's, or the
+  synthetic record a `replace-frame-state!` write leaves) and, after a
+  `restore-epoch!`, the restored epoch, until the next event settles and moves
+  it on. A restore records no epoch of its own, so after one the ring's newest
+  record is not the state the frame holds; this read names the record that
+  is. A halted record never moves it. Returns nil when nothing has settled,
+  when the ring is disabled (depth 0), for an unknown or destroyed frame, and
+  after a `{:to :before}` restore, which installs a state no retained record
+  settled into. `frame-id` is the frame's id or the frame value
+  `rf/make-frame` returns."
+  [frame-id]
+  (rf.epoch.state/last-settled-epoch-id (rf.frame/frame-target->id frame-id)))
 
 (defn clear-history!
   "Drop every recorded epoch for every frame. Test fixtures use this.

@@ -139,7 +139,7 @@
 (defn- issued-in [buffer event]
   (ops (:other (bundle-for buffer event)) :rf.http/issued))
 
-(defn- prefix [row] (subvec (get-in row [:tags :rf.reply/work-id]) 0 3))
+(defn- prefix [row] (subvec (get-in row [:tags :rf.reply/work-id]) 0 2))
 
 (defn- replied-for
   "The canonical completion row for an issued row, found INDEPENDENTLY of
@@ -147,7 +147,7 @@
   [buffer issued]
   (first (filter #(and (> (:id %) (:id issued))
                        (= (prefix issued)
-                          (subvec (get-in % [:tags :rf.reply/work-id]) 0 3)))
+                          (subvec (get-in % [:tags :rf.reply/work-id]) 0 2)))
                  (ops buffer :rf.http/replied))))
 
 (defn- elapsed [issued terminal] (- (:time terminal) (:time issued)))
@@ -189,8 +189,8 @@
                             r1   (only-managed buffer [:t/search "1"])
                             r2   (only-managed buffer [:t/search "2"])]
                         (testing "PRECONDITION — the producer numbered the two anonymous issuances apart"
-                          (is (= [:rf.work/http [:rf.http/anonymous :t/search] 1] (prefix i1)))
-                          (is (= [:rf.work/http [:rf.http/anonymous :t/search] 2] (prefix i2))))
+                          (is (= [:rf.work/http 1] (prefix i1)))
+                          (is (= [:rf.work/http 2] (prefix i2))))
                         (testing "each record reads its OWN outcome"
                           (is (= [[:error 404 :joined] [:ok 200 :joined]]
                                  (mapv (juxt :status :http-status :completion) [r1 r2]))))
@@ -242,8 +242,8 @@
                             replied (replied-for buffer i)
                             r       (only-managed buffer [:t/checkout])]
                         (testing "PRECONDITION — the completion is the SECOND attempt, so full work-id equality cannot join it"
-                          (is (= [:rf.work/http :checkout 1 1] (get-in i [:tags :rf.reply/work-id])))
-                          (is (= [:rf.work/http :checkout 1 2] (get-in replied [:tags :rf.reply/work-id]))))
+                          (is (= [:rf.work/http 1 1] (get-in i [:tags :rf.reply/work-id])))
+                          (is (= [:rf.work/http 1 2] (get-in replied [:tags :rf.reply/work-id]))))
                         (is (= [:error 500 2 :rf.http/http-5xx]
                                ((juxt :status :http-status :attempts (comp :kind :failure)) r)))
                         (is (= (elapsed i replied) (:duration-ms r)))
@@ -367,8 +367,8 @@
                             r1     (only-managed buffer [:t/load 1])
                             r2     (only-managed buffer [:t/load 2])]
                         (testing "PRECONDITION — the stale row carries BOTH ids, and lands in the superseder's bundle"
-                          (is (= [:rf.work/http :x 1 1] (get-in stale [:tags :rf.reply/carried :work/id])))
-                          (is (= [:rf.work/http :x 2 1] (get-in stale [:tags :rf.reply/current :work/id]))))
+                          (is (= [:rf.work/http 1 1] (get-in stale [:tags :rf.reply/carried :work/id])))
+                          (is (= [:rf.work/http 2 1] (get-in stale [:tags :rf.reply/current :work/id]))))
                         (is (= [:stale :rf.http/stale-suppressed nil]
                                ((juxt :status :terminal-op :reply-link) r1)))
                         (is (= [:ok :rf.http/replied 200]
@@ -379,10 +379,9 @@
 
 ;; ===========================================================================
 ;; (e) an explicit `[:rf.http/managed-abort :y]` beside a same-id re-issue
-;; in ONE bundle. The abort is terminal for `:y`, so it evicts `:y`'s
-;; issuance counter and the re-issue is `[:rf.work/http :y 1 1]` AGAIN — the
-;; two attempts share one work id, and it is POSITION over the trace `:id`
-;; that separates them (the abort fires before the re-issue's issued row).
+;; in ONE bundle. The re-issue takes the frame's next issuance, so the abort
+;; — which names the earlier request's work id, and fires before the
+;; re-issue's issued row — is never read as the new record's.
 ;; ===========================================================================
 
 (deftest e-explicit-abort-beside-a-same-id-reissue-resolves-by-position
@@ -415,15 +414,15 @@
                         (testing "PRECONDITION — the user abort of the OLD attempt landed in the re-issuing bundle"
                           (is (seq (filter #(= :user (get-in % [:tags :reason]))
                                            (ops (:other b2) :rf.http/aborted)))))
-                        (testing "PRECONDITION — the explicit abort evicted the counter, so the re-issue REUSED the work id"
-                          (is (= (prefix (first (issued-in buffer [:t/e1])))
-                                 (prefix (first (issued-in buffer [:t/e2])))
-                                 [:rf.work/http :y 1]))
-                          (is (= #{[:rf.work/http :y 1 1]}
+                        (testing "PRECONDITION — the re-issue took a fresh work id"
+                          (is (= [[:rf.work/http 1] [:rf.work/http 2]]
+                                 [(prefix (first (issued-in buffer [:t/e1])))
+                                  (prefix (first (issued-in buffer [:t/e2])))]))
+                          (is (= #{[:rf.work/http 1 1] [:rf.work/http 2 1]}
                                  (set (map #(get-in % [:tags :rf.reply/work-id])
                                            (ops buffer :rf.http/replied))))
-                              "both completions carry the identical work id"))
-                        (testing "in-bundle attribution by position: the abort precedes the re-issue's issued row, so it is not the new record's"
+                              "each completion carries its own work id"))
+                        (testing "in-bundle attribution: the abort names the earlier request and precedes the re-issue's issued row, so it is not the new record's"
                           (let [bundle-only (first (managed-records (h/event-bundle->managed-fx-records b2)))]
                             (is (= [:issued nil] ((juxt :status :cancel-cause) bundle-only)))))
                         (is (= [[:cancelled :user] [:ok nil]]
@@ -431,7 +430,7 @@
                         (is (every? some? (map :reply-link [old new]))
                             "the :cancelled reply and the re-issue's reply were both delivered")
                         (is (not= (:reply-link old) (:reply-link new))
-                            "one work id, two deliveries — each record links to the reply AFTER its own completion")))))))))
+                            "two deliveries — each record links to the reply AFTER its own completion")))))))))
       done)))
 
 ;; ===========================================================================
@@ -528,7 +527,8 @@
 
 ;; ===========================================================================
 ;; (j) a resource row / a nonsense op never joins an HTTP record.
-;; (k) a named id legitimately REUSED after completion: position, not time.
+;; (k) a named id loaded again after completion takes a fresh work id, and
+;; each record joins its own completion.
 ;; ===========================================================================
 
 (deftest j-k-foreign-rows-never-join-and-a-reused-id-resolves-by-position
@@ -557,9 +557,9 @@
                             [i1]   (issued-in buffer [:t/k 1])
                             [i2]   (issued-in buffer [:t/k 2])
                             real   (replied-for buffer i1)]
-                        (testing "(k) PRECONDITION — the producer reused the work id after eviction"
-                          (is (= (prefix i1) (prefix i2) [:rf.work/http :k 1])))
-                        (testing "(k) each record takes the first terminal row AFTER its own issued row"
+                        (testing "(k) PRECONDITION — the second load took a fresh work id"
+                          (is (= [[:rf.work/http 1] [:rf.work/http 2]] [(prefix i1) (prefix i2)])))
+                        (testing "(k) each record takes its own completion"
                           (let [[r1 r2] (mapv #(only-managed buffer %) [[:t/k 1] [:t/k 2]])]
                             (is (= [:ok :error 503] [(:status r1) (:status r2) (:http-status r2)]))))
                         (testing "(j) control — the real completion row is indexed"
@@ -581,13 +581,12 @@
       done)))
 
 ;; ===========================================================================
-;; (l) the reply link is the delivery of THIS completion. A named
-;; id reused after completion puts the IDENTICAL full work id on both
-;; requests' completions AND on both replies, so a completion whose reply
-;; was SILENCED must not borrow the next request's delivery.
+;; (l) the reply link is the delivery of THIS completion: a completion whose
+;; reply was SILENCED links to nothing, never to the next request's delivery
+;; under the same named request id.
 ;; ===========================================================================
 
-(defn- reused-id-capture
+(defn- same-id-capture
   "Issue `[:t/l :first]` and complete it with `first-status`, then issue
   `[:t/l :second]` under the SAME named request id and complete it 200.
   The first request's reply is addressed by `first-reply` (reply keys
@@ -631,21 +630,21 @@
                  :when (and (vector? ev) (= :t/l-done (first ev)))]
              [(second ev) {:dispatch-id (:dispatch-id b) :frame (:frame b)}])))
 
-(defn- the-full-work-id-was-reused [buffer]
-  (testing "PRECONDITION — the producer reused the FULL work id, so it alone cannot separate the two"
-    (is (= [[:rf.work/http :l 1 1] [:rf.work/http :l 1 1]]
+(defn- each-load-carries-its-own-work-id [buffer]
+  (testing "PRECONDITION — the second load took a fresh work id"
+    (is (= [[:rf.work/http 1 1] [:rf.work/http 2 1]]
            (mapv #(get-in % [:tags :rf.reply/work-id]) (ops buffer :rf.http/replied))))))
 
-(deftest l1-a-silenced-failure-does-not-borrow-the-reused-ids-later-reply
+(deftest l1-a-silenced-failure-does-not-borrow-the-next-requests-reply
   (async done
     (finish
-      (-> (reused-id-capture {:on-success [:t/l-done :first] :on-failure nil} 500)
+      (-> (same-id-capture {:on-success [:t/l-done :first] :on-failure nil} 500)
           (.then
             (fn [buffer]
               (let [r1        (only-managed buffer [:t/l :first])
                     r2        (only-managed buffer [:t/l :second])
                     delivered (deliveries buffer)]
-                (the-full-work-id-was-reused buffer)
+                (each-load-carries-its-own-work-id buffer)
                 (testing "PRECONDITION — only the second request's reply was delivered"
                   (is (= #{:second} (set (keys delivered)))))
                 (is (= [:error 500 nil] ((juxt :status :http-status :reply-link) r1))

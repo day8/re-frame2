@@ -94,7 +94,7 @@
           (when (and (= point inject-point)
                      (= :race (:request-id ctx))
                      (compare-and-set! fired? false true))
-            (rf.http.registry/abort-in-flight! (:request-id ctx) :user))))
+            (rf.http.registry/abort-in-flight-in-frame! :rf/default (:request-id ctx) :user))))
       (rf/dispatch-sync [:issue])
       (await-condition! #(seq @replies))
       (is (true? @fired?) "the hook fired the abort in-window")
@@ -211,7 +211,7 @@
       (.countDown release)
       ;; the ABSENCE of a late success reply has no positive signal to poll on
       (Thread/sleep 400)
-      (is (= [[:cancelled :user [:rf.work/http :race 2 1]]] @replies)
+      (is (= [[:cancelled :user [:rf.work/http 2 1]]] @replies)
           "managed-abort reached R2 — one cancellation, and no success after it")
       (is (= 2 (.get hits)) "R1 was never re-issued")
       (is (empty? (rf.http.registry/in-flight-snapshot)) "the request-id registry is clean")
