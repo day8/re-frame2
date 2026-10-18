@@ -2,13 +2,23 @@
 // THE ISOLATE'S INSIDE.
 //
 // One worker thread is one isolate: its own V8 heap, its own module
-// registry, its own copy of the application's server bundle. That is not
-// an implementation detail, it is the reason the design works. The
-// Fresco render entry opens a MODULE-LEVEL adoption-window flag around
-// its `renderToString`, the reactive substrate is installed exactly once
-// per process (Spec 006), and the framework's registrar is likewise
-// process-scoped. Every one of those is per-ISOLATE here, so "per-request
-// isolation" does not have to mean "the render module was careful".
+// registry, its own copy of the application's server bundle. The Fresco
+// render entry opens a MODULE-LEVEL adoption-window flag around its
+// `renderToString`, the reactive substrate is installed exactly once per
+// process (Spec 006), and the framework's registrar is likewise
+// process-scoped. Each of those is per-ISOLATE here, so renders running at
+// the same time on different isolates never share one.
+//
+// What is per-REQUEST is the snapshot, not the isolate. An isolate boots
+// its module once and serves requests one after another, so module-level
+// state — that flag, the registrar, any global the bundle keeps — persists
+// from one request to the next on the same isolate; the per-request frame
+// is the render module's to make and destroy. A request's snapshot is
+// still unreachable from any other caller: the clone below is per request.
+//
+// Worker threads are neither a sandbox for arbitrary application code nor
+// a hard bound on process memory. The module runs with the full privileges
+// of the Node process, and every isolate shares that process's memory.
 //
 // This file runs INSIDE the worker. It never touches the network or the
 // filesystem beyond requiring the module it was pointed at.
