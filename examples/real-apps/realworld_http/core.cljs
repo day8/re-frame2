@@ -42,11 +42,10 @@
             ;; the `:rf.http/managed` fx (and its family), so dispatching it
             ;; resolves to something.
             [re-frame.http.managed]
-            ;; The demo backend delegates to `:rf.http/managed-canned-success`
-            ;; / `-failure`, canned-reply fxs that ship with the framework's
-            ;; test support. A real Conduit backend would drop both this require
-            ;; and the demo override.
-            [re-frame.http.test-support]
+            ;; The demo backend sits below `:rf.http/managed` as a stub
+            ;; transport, installed on the frame in `mount!`. A real Conduit
+            ;; backend drops this require and that call.
+            [re-frame.http.stub-transport :as stub-transport]
             ;; SSR ships in its own artefact. Requiring it registers the
             ;; `:rf/hydrate` handler that `ssr.cljc`'s client bootstrap
             ;; dispatches.
@@ -54,10 +53,9 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [realworld-shared.avatar :as avatar]
             [realworld-http.schema]
-            ;; Requiring http registers the demo `:rf.http/managed` override fx
-            ;; (`:realworld.demo/http-stub`) the frame's `:fx-overrides` reference
-            ;; below, alongside the request-builder + retry policy.
-            [realworld-http.http]
+            ;; The request-builder + retry policy, and `demo-transport`, the
+            ;; stub transport onto the demo backend `mount!` installs.
+            [realworld-http.http :as rh]
             ;; Loaded for its ns-load side effects: the route table, the
             ;; `:realworld.routing/authed?` guard sub and the
             ;; `:rf.route/entry-denied` handler. Nothing here calls into it by
@@ -278,15 +276,14 @@
 ;; Out of the box this example talks to no server at all. Normally it would hit
 ;; the hosted Conduit API (https://api.realworld.show/api —
 ;; `realworld-http.http/api-base`), but a live backend is slow and flaky for a
-;; demo, and we'd like you to be able to clone-and-run on a plane. So the demo
-;; `:rf.http/managed` override — `:realworld.demo/http-stub`, defined in
-;; `http.cljs` alongside the request builder and referenced from the frame's
-;; `:fx-overrides` in `mount!` below — routes every request through the
-;; in-process demo backend both RealWorld examples share
+;; demo, and we'd like you to be able to clone-and-run on a plane. So `mount!`
+;; below installs a stub transport on the frame — `demo-transport`, defined in
+;; `http.cljs` alongside the request builder — which answers every request from
+;; the in-process demo backend both RealWorld examples share
 ;; (`realworld-shared.demo-backend`): one canonical Conduit corpus + a
-;; URL/method request router + a canned-reply adapter. The stub (and its
-;; request-body `:sensitive` classification) lives with the rest of the app's
-;; HTTP surface in `http.cljs`.
+;; URL/method request router. It replaces only the network hop: the real
+;; `:rf.http/managed` decodes, classifies, retries and scrubs every request, as
+;; it would against a server.
 ;; ----------------------------------------------------------------------------
 
 ;; The React root lives in an atom and gets created lazily inside `run`, so
@@ -388,8 +385,10 @@
     ;;     interceptor (registered above) on every managed request this frame
     ;;     issues. Naming it here, before `:initial-events` run, is what puts it
     ;;     on duty for session-restore's first authenticated request.
-    ;;   - `:fx-overrides {:rf.http/managed …}` — point managed HTTP at the
-    ;;     demo stub so the whole thing runs without a backend.
+    ;;   - Before any of that, `install-transport!` sends the frame's managed
+    ;;     HTTP to the in-process demo backend, so the whole thing runs without
+    ;;     a server — the session-restore request in `:initial-events`
+    ;;     included.
     ;; First mount also runs `:initial-events` once. A hot reload reuses the
     ;; existing frame and does NOT re-seed — your durable app-db survives the
     ;; code swap, which is rather the point.
@@ -423,6 +422,7 @@
     ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
     ;; WINDOW has the full sequence).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
+    (stub-transport/install-transport! :rf/default rh/demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id                :rf/default
                       :doc               "Realworld demo frame."
@@ -430,8 +430,7 @@
                       :http-interceptors [:realworld/bearer-auth]
                       :initial-events    [[:auth/classify-token]
                                           [:auth/initialise]
-                                          [:app/initialise]]
-                      :fx-overrides      {:rf.http/managed :realworld.demo/http-stub}}
+                                          [:app/initialise]]}
        [root-view]]
       el)))
 

@@ -96,13 +96,15 @@
     (rf/register-listener! :trace id (fn [ev] (swap! a conj ev)))
     a))
 
-;; Every password-bearing request in both apps is `:sensitive? true`; the
-;; stub's own path is what redacts an UNFLAGGED one routed through it.
+;; Every password-bearing request in both apps is `:sensitive? true`. The
+;; managed-HTTP app's demo backend answers below `:rf.http/managed`, so the
+;; effect's own scrub covers it; the resources app routes `:rf.http/managed` to
+;; a stub fx, whose own path is what redacts an UNFLAGGED request routed
+;; through it.
 (deftest http-stub-declares-request-body-sensitive
-  (doseq [stub [:realworld.demo/http-stub :realworld-resources.demo/http-stub]]
-    (is (= {:sensitive [[:request :body :user :password]]}
-           (rf.classification/registration-classification :fx stub))
-        (str stub " owns [:request :body :user :password]"))))
+  (is (= {:sensitive [[:request :body :user :password]]}
+         (rf.classification/registration-classification :fx :realworld-resources.demo/http-stub))
+      ":realworld-resources.demo/http-stub owns [:request :body :user :password]"))
 
 (deftest login-form-cascade-redacts-password-and-token-everywhere
   (testing "the full login edit -> submit -> success cascade leaves no emitted

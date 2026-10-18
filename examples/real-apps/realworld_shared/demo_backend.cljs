@@ -2,13 +2,13 @@
   "The in-process demo Conduit backend shared by both RealWorld examples
    (`realworld_http/` and `realworld_resources/`).
 
-   Both examples ship without a real server so you can clone-and-run on a plane.
-   The way each app runs offline is identical: it overrides `:rf.http/managed`
-   with an in-process stub that hands the request to this backend. Since both
-   the managed-HTTP events AND the resource / mutation runtime lower every fetch
-   and write onto `:rf.http/managed`, this one backend gets to play the entire
-   Conduit API for either architecture — it is transport-neutral, so it lives
-   here, once, instead of drifting as two hand-maintained copies.
+   Both examples ship without a real server so you can clone-and-run on a plane,
+   and each hands its `:rf.http/managed` requests to this backend instead of the
+   network. Since both the managed-HTTP events AND the resource / mutation
+   runtime lower every fetch and write onto `:rf.http/managed`, this one backend
+   gets to play the entire Conduit API for either architecture — it is
+   transport-neutral, so it lives here, once, instead of drifting as two
+   hand-maintained copies.
 
    IT REMEMBERS WHAT YOU WRITE. This is a small STATEFUL model, not a lookup
    table: a seeded state value plus ONE pure transition,
@@ -23,7 +23,7 @@
    out of a frozen seed corpus would erase every write the moment it succeeded,
    and the example would be busy demonstrating the opposite of its own claim.
 
-   Four pieces, and nothing else:
+   Five pieces, and nothing else:
 
    - THE SEED — `seed-articles` plus the seeded comments, favourites and demo
      user. Immutable data. Nothing reads it after boot; it is the value
@@ -33,13 +33,22 @@
      inherits anybody else's writes.
    - `transition` — the pure router: current state + an `:rf.http/managed`
      args-map in, `[next-state reply]` out, where the reply is `{:ok payload}`
-     or `{:failure {:kind … :tags …}}`.
-   - `respond` — the `:rf.http/managed` adapter each app wires under its own
-     fx-id, holding its own `defonce`d state atom. It delegates to the
-     framework-shipped `:rf.http/managed-canned-success` /
+     or `{:failure {:kind :rf.http/http-4xx :tags {:status … :body …}}}` — every
+     refusal this backend makes is an HTTP status, as a real Conduit server's is.
+   - `answer` — the backend as a STUB TRANSPORT answers it
+     (`re-frame.http.stub-transport`): the request arrives as it would on the
+     wire and leaves as an HTTP response. The managed-HTTP example runs on it,
+     so the real `:rf.http/managed` pipeline — `:decode`, status
+     classification, retry, the `:sensitive?` scrub — handles every reply, as
+     it would from a server.
+   - `respond` — the backend as an `:rf.http/managed` OVERRIDE: the canned
+     adapter the resources example wires under its own fx-id. It delegates to
+     the framework-shipped `:rf.http/managed-canned-success` /
      `:rf.http/managed-canned-failure` with `:after-ms`, so the deferred reply
-     rides `:dispatch-later` — tape-visible and time-travel-safe, never a raw
-     `js/setTimeout`.
+     rides `:dispatch-later`.
+
+   Each app holds its own `defonce`d state atom and steps it through one of
+   the two adapters.
 
    THE SIMPLIFICATIONS, stated rather than hidden. The demo world has exactly
    ONE user, so `favorited` and `following` are that user's flags no matter who
@@ -60,10 +69,9 @@
             [re-frame.registrar :as rf.registrar]))
 
 (def reply-delay-ms
-  "How long the demo backend waits before handing back each canned reply (via
-   the canned fx's `:after-ms`, dispatched through `:dispatch-later` — so it's
-   visible in the tape and time-travel-safe). Just enough that the `:loading` /
-   `:pending` states are actually observable."
+  "How long the demo backend waits before answering each request — the stub
+   transport's latency, or the canned fx's `:after-ms`. Just enough that the
+   `:loading` / `:pending` states are actually observable."
   20)
 
 ;; ============================================================================
@@ -250,7 +258,8 @@
 ;; ============================================================================
 ;;
 ;; A transition returns `[next-state reply]`, and the reply is one of two
-;; shapes. `respond` is the only thing that reads them.
+;; shapes. The two adapters, `answer` and `respond`, are the only things that
+;; read them.
 
 (defn- ok [payload] {:ok payload})
 
@@ -265,17 +274,12 @@
                     :body   {:errors {:body [(str what " not found.")]}}}}})
 
 (def ^:private restore-failure
-  "The reply to a `GET /user` with no valid credential.
-
-   It is a `:rf.http/decode-failure` rather than a 401 on purpose. A real
-   backend refusing session restore returns a body that fails
-   `:decode schema/UserResponse`, taking the auth machine down its `:on-failure`
-   path — but `:rf.http/managed-canned-success` never runs `:decode`, so an
-   empty-map SUCCESS would instead land on `:on-success` and drive the machine
-   into a broken, half-authenticated state. Routing through
-   `:rf.http/managed-canned-failure` reproduces the real failure path."
-  {:failure {:kind :rf.http/decode-failure
-             :tags {:schema-validation-failure? true}}})
+  "The reply to a `GET /user` with no valid credential: the 401 a Conduit
+   server answers for a token it did not issue. It takes the auth machine down
+   its `:on-failure` path whichever adapter delivers it."
+  {:failure {:kind :rf.http/http-4xx
+             :tags {:status 401
+                    :body   {:errors {:body ["Unauthorized: this session is not known here."]}}}}})
 
 ;; ============================================================================
 ;; PROJECTING STATE ONTO THE WIRE
@@ -553,12 +557,34 @@
                                                              (name method) " " path)]}}}}}])))
 
 ;; ============================================================================
-;; THE CANNED ADAPTER
+;; THE ADAPTERS
 ;; ============================================================================
 
+(defn- wire->args-map
+  "A wire request as the args-map `transition` reads: its JSON body parsed
+   back into data, as a server would."
+  [{:keys [method url headers body]}]
+  {:request (cond-> {:method method :url url :headers headers}
+              (string? body) (assoc :body (js->clj (js/JSON.parse body) :keywordize-keys true)))})
+
+(defn answer
+  "The demo backend as a stub transport's answer: step the app's own backend
+   world with a request as it arrived on the wire, and hand back the HTTP
+   response. `re-frame.http.stub-transport/route-transport` takes it as the one
+   fn that answers every request, so this backend routes for itself.
+
+   `state-atom` is the app's OWN world (a `defonce` beside its transport), so
+   the two demos never share one."
+  [state-atom wire-request]
+  (let [[next-state reply] (transition @state-atom (wire->args-map wire-request))]
+    (reset! state-atom next-state)
+    (if-let [{:keys [tags]} (:failure reply)]
+      {:status (:status tags) :body (:body tags)}
+      {:status 200 :body (:ok reply)})))
+
 (defn respond
-  "The demo `:rf.http/managed` adapter. Step the app's own backend state, then
-   hand the reply to the framework's canned fx:
+  "The demo backend as an `:rf.http/managed` override. Step the app's own
+   backend state, then hand the reply to the framework's canned fx:
    `:rf.http/managed-canned-success` for an `{:ok …}`,
    `:rf.http/managed-canned-failure` for a `{:failure …}` — both with
    `:after-ms`, so the reply is deferred through `:dispatch-later` rather than a
