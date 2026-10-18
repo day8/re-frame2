@@ -42,7 +42,7 @@
 (deftest build-manifest-throws-on-implementation-facade-row
   (let [sidecar (-> (rf.api-manifest.gen/read-sidecar)
                     (assoc-in [:classification capture-frame :tier] :implementation)
-                    (assoc-in [:classification ["re-frame.core" "dispatch"] :tier] :internal-public))]
+                    (assoc-in [:classification ["re-frame.core" "dispatch"] :tier] :tooling))]
     (is (= [capture-frame]
            (:implementation-facade (refusal sidecar))))))
 

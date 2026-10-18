@@ -10,11 +10,11 @@
 ;;
 ;;   :tier   — the closed Tier vocabulary (spec/API.md §Tier taxonomy):
 ;;             :front-porch | :advanced | :tooling | :adapter | :testing
-;;             | :internal-public | :implementation | :deprecated.
+;;             | :implementation.
 ;;             Restrictive-by-default: when ambiguous, pick the MORE
-;;             restrictive tier. NOTE: `:internal-public` means
-;;             a SUPPORTED host/tool embedding point (the Xray `mount-<panel>!`
-;;             family); `:implementation` means public-for-technical-reasons
+;;             restrictive tier. NOTE: a SUPPORTED host/tool embedding
+;;             point (the Xray `mount-<panel>!` family) is `:tooling`;
+;;             `:implementation` means public-for-technical-reasons
 ;;             only (a cross-namespace / test reach that is NOT a supported
 ;;             surface — an app or tool MUST NOT depend on it).
 ;;   :owner  — the canonical owning Spec doc (e.g. "002", "Tool-Pair",
@@ -81,7 +81,7 @@
  ;;     fully-rowed (their public surface IS the documented adapter API per
  ;;     spec/API.md §UIx adapter), so a var added / removed / renamed
  ;;     there turns the probe RED;
- ;;   - the Xray `mounted?` read is a curated row off the `internal-public`
+ ;;   - the Xray `mounted?` read is a curated row off the `tooling`
  ;;     mount surface (the host-embed machinery is "otherwise unrowed-
  ;;     internal" per §Tiering of cross-tool surfaces) — the probe verifies
  ;;     it still resolves to a live var (removed / renamed → RED).
@@ -143,12 +143,12 @@
   ;; --- Xray (day8/re-frame2-xray) — the live public surface.
   ;;     Real :cljs-only rows, so the Xray-spec projection check resolves them
   ;;     to manifest rows and the CLJS probe runtime-verifies them.
-  ;;     The mount family is
-  ;;     `internal-public` per spec/API.md §Tiering of cross-tool surfaces (the
-  ;;     standing classification); the published constants + the Xray↔MCP read
-  ;;     seam + the editor-chip are `tooling` (dev/inspection surfaces consumed
-  ;;     by story-mode chrome, docs generators, and the pair-MCP servers — not
-  ;;     application logic). Owner "tools/xray"; status "post-v1 lib".
+  ;;     The mount family (the host-embed surface), the published constants,
+  ;;     the Xray↔MCP read seam and the editor-chip are all `tooling` per
+  ;;     spec/API.md §Tiering of cross-tool surfaces (dev/inspection and embed
+  ;;     surfaces consumed by hosts, story-mode chrome, docs generators, and the
+  ;;     pair-MCP servers — not application logic). Owner "tools/xray"; status
+  ;;     "post-v1 lib".
   ;;
   ;;     TWO PROBE POSTURES, and the split is deliberate. The
   ;;     `core` FACADE below is FULLY-ROWED — the probe checks both
@@ -265,29 +265,28 @@
   ;;
   ;; day8.re-frame2-xray.mount — the shell lifecycle (only `mounted?` rowed;
   ;; the open/close/teardown machinery is "otherwise unrowed-internal").
-  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; day8.re-frame2-xray.panels — the `mount-<panel>!` aggregator family
-  ;; (007-UX-IA §Mountable panel contract). `internal-public` — the
+  ;; (007-UX-IA §Mountable panel contract). `tooling` — the
   ;; canonical SUPPORTED host/tool embedding surface (a host that builds its
   ;; own Xray chrome may call `mount-shell!` / a `mount-<panel>!`; an app
-  ;; never should). This is exactly what `internal-public` means:
-  ;; supported-for-embedding, not the
+  ;; never should): supported-for-embedding, not the
   ;; implementation leaves (the bare `Panel` reg-views are
   ;; `implementation`). (`mount-issues-ribbon!` + `mount-inline-panel!` are
   ;; REMOVED surfaces the spec names in removal prose — they sit on the
   ;; allowlist, not rowed.)
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-app-db-diff!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-popover!"   :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-side-panel!" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-epoch-panel!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-event-spine!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-machine-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-managed-fx!"                     :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-reactive-panel!"                 :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-resources!"                      :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-routing!"                        :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-trace!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-app-db-diff!"                    :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-popover!"   :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-side-panel!" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-epoch-panel!"                    :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-event-spine!"                    :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-machine-inspector!"             :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-managed-fx!"                     :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-reactive-panel!"                 :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-resources!"                      :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-routing!"                        :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-trace!"                          :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; The seven Dynamic-mode Panel reg-views + the five Static-mode panel
   ;; reg-views (spec/API.md §Panel reg-views + §Static-mode Panel
   ;; reg-views). Each panel namespace exports a single public reg-view — the
@@ -299,7 +298,7 @@
   ;; above, per 008-Embedding-Contract). They are exported only so the shell
   ;; can `:require` them across namespaces; an embedding host reaches for
   ;; `mount-shell!`, never a bare `Panel`. They are `implementation`
-  ;; (public-for-technical-reasons, unsupported) rather than `internal-public`
+  ;; (public-for-technical-reasons, unsupported) rather than `tooling`
   ;; (SUPPORTED host/tool embedding) so the panel leaves do not
   ;; read as a supported single-panel embed API.
   {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -1011,7 +1010,7 @@
   ;; coeffect-injection interceptors (EP-0017, no alias;
   ;; spec/API.md §Standard interceptors): a removed surface does not occupy the
   ;; public facade, so there is NO `re-frame.core/inject-cofx` /
-  ;; `inject-cofx*` var and NO manifest row (a `:deprecated` row would still
+  ;; `inject-cofx*` var and NO manifest row (a row of any tier would still
   ;; read as supported public API). The migration alarm is the
   ;; private (non-facade, un-rowed) hard-error thrower `re-frame.cofx/inject-cofx`:
   ;; a stale call to that namespace-internal var raises the always-on
@@ -1032,7 +1031,7 @@
   ;; throwing stub naming the ref (`:rf.error/path-removed`) — like the
   ;; `reg-event-db` and `inject-cofx` removed stubs, a removed-name `^:no-
   ;; doc` stub carries NO manifest row (the generator drops `^:no-doc` vars; a
-  ;; `:deprecated`/preserved row would still read as supported public API). The
+  ;; row of any tier would still read as supported public API). The
   ;; migration alarm is the always-loud throw itself. Migration docs live in
   ;; migration/from-re-frame-v1/README.md.
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"

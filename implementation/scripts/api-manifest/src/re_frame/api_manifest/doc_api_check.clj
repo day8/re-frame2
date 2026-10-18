@@ -161,8 +161,8 @@
 
 (def ^:private eligible-tiers
   "The tiers docs/api/ is expected to document (README completeness clause).
-   `:tooling`, `:implementation`, `:internal-public`, and `:deprecated` are out
-   of scope for the human API reference."
+   `:tooling` and `:implementation` are out of scope for the human API
+   reference."
   #{:front-porch :advanced :adapter :testing})
 
 (def ^:private coverage-min-rows
