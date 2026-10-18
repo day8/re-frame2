@@ -104,7 +104,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 - **Errors**:
     - `:rf.error/app-schema-bad-metadata` — the middle argument of the three-argument form is not a map.
     - `:rf.error/app-schema-bad-path` — the path is not sequential, or has a non-concrete segment.
-    - `:rf.error/app-schema-runtime-path` — the first segment reaches the `runtime-db` partition (`:rf.runtime/*`, `:rf.db/runtime`, or the `:rf/runtime` root).
+    - `:rf.error/app-schema-runtime-path` — the first segment reaches the `runtime-db` partition (`:rf.runtime/*` or `:rf.db/runtime`).
     - `:rf.error/app-schema-frame-target` — the metadata map carries `:frame`, or a frame value sits in its place. The message points at the image route described above.
 - **Example**:
   ```clojure
