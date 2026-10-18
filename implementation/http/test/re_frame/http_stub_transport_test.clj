@@ -1,8 +1,9 @@
 (ns re-frame.http-stub-transport-test
-  "The stub transport cases that need a clock, on the JVM: a retry the real
-  policy re-sends through the stub, the request's `:timeout-ms` bounding a
-  held exchange, a route's delay, a binary body, and the two network failures
-  a stub may report. The host-symmetric cases live in
+  "The stub transport cases that need a clock or a server, on the JVM: a retry
+  the real policy re-sends through the stub, the request's `:timeout-ms`
+  bounding a held exchange, a route's delay, a binary body, the two network
+  failures a stub may report, and a `:rf.http/stub-only?` frame that never
+  reaches the host. The host-symmetric cases live in
   `re-frame.http-stub-transport-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -10,7 +11,9 @@
             [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling])
+  (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
+           [java.net InetSocketAddress]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -18,20 +21,42 @@
 (def ^:private url "https://api.example.test/items")
 
 (defn- fire!
-  "Issue `args` with its reply addressed to app-db's `::reply`."
-  [args]
-  (rf/reg-event ::replied
-    {:doc "Records the reply."}
-    (fn [{:keys [db]} [_ reply]] {:db (assoc db ::reply reply)}))
-  (rf/reg-event ::fire
-    {:doc "Issues the request under test."}
-    (fn [_ _] {:fx [[:rf.http/managed (assoc args :reply-to [::replied])]]}))
-  (rf/dispatch-sync [::fire]))
+  "Issue `args` from `frame-id` (default `:rf/default`) with its reply
+  addressed to that frame's app-db `::reply`."
+  ([args] (fire! :rf/default args))
+  ([frame-id args]
+   (rf/reg-event ::replied
+     {:doc "Records the reply."}
+     (fn [{:keys [db]} [_ reply]] {:db (assoc db ::reply reply)}))
+   (rf/reg-event ::fire
+     {:doc "Issues the request under test."}
+     (fn [_ _] {:fx [[:rf.http/managed (assoc args :reply-to [::replied])]]}))
+   (rf/dispatch-sync [::fire] {:frame frame-id})))
 
-(defn- reply [] (::reply (rf/app-db-value :rf/default)))
+(defn- reply
+  ([] (reply :rf/default))
+  ([frame-id] (::reply (rf/app-db-value frame-id))))
 
-(defn- await-reply! []
-  (rf.test-support/poll-until reply {:timeout-ms 8000 :label "the reply lands"}))
+(defn- await-reply!
+  ([] (await-reply! :rf/default))
+  ([frame-id]
+   (rf.test-support/poll-until #(reply frame-id) {:timeout-ms 8000 :label "the reply lands"})))
+
+(defn- with-counting-server
+  "Run `(f base-url hits)` against an in-process server that answers 204 and
+  counts the requests it receives in the atom `hits`."
+  [f]
+  (let [hits   (atom 0)
+        server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.setHandler (.createContext server "/")
+                 (reify HttpHandler
+                   (handle [_ exchange]
+                     (swap! hits inc)
+                     (.sendResponseHeaders ^HttpExchange exchange 204 -1)
+                     (.close ^HttpExchange exchange))))
+    (.start server)
+    (try (f (str "http://127.0.0.1:" (.getPort (.getAddress server))) hits)
+         (finally (.stop server 0)))))
 
 (defn- capturing
   "Run `(f)` with every trace event collected; return the events."
@@ -107,3 +132,29 @@
         (is (true? ((:fail! second-x) {:message "connection reset"})))
         (await-reply!)
         (is (= [:rf.http/transport "connection reset"] ((juxt :kind :message) (:error (reply)))))))))
+
+(deftest a-stub-only-frame-never-reaches-the-host
+  (with-counting-server
+    (fn [base hits]
+      (rf/make-frame {:id ::under-test :preset :test})
+      (rf/make-frame {:id ::live})
+      (testing "a :test-preset frame with no transport in place fails the
+                request as :rf.http/transport, naming the remedy, and the host
+                adapter never sends it"
+        (fire! ::under-test {:request {:url (str base "/x")}})
+        (let [error (:error (reply ::under-test))]
+          (is (= [:error :rf.http/transport]
+                 [(:status (reply ::under-test)) (:kind error)]))
+          (is (re-find #"with-transport" (str (:message error)))))
+        (is (zero? @hits)))
+      (testing "a transport in place still answers the preset frame"
+        (rf.http.stub-transport/with-transport
+          (rf.http.stub-transport/route-transport {[:get (str base "/x")] {:body {:n 1}}})
+          #(fire! ::under-test {:request {:url (str base "/x")} :decode :json}))
+        (is (= [:ok {:n 1}] ((juxt :status :value) (reply ::under-test)))))
+      (testing "control: the same request from a frame with no preset reaches
+                the server"
+        (fire! ::live {:request {:url (str base "/x")}})
+        (await-reply! ::live)
+        (is (= :ok (:status (reply ::live))))
+        (is (= 1 @hits))))))

@@ -2261,8 +2261,9 @@
   ;; Per Spec 002 §Frame presets and Spec-Schemas §:rf/preset-expansion.
   ;; The three canonical expansions:
   ;;   :default    -> {} (explicit no-op; identical to omitting :preset)
-  ;;   :test       -> redirect :rf.http/managed to its canned-success stub
-  ;;                  (Spec 014); explicit :drain-depth 1000 (matches the
+  ;;   :test       -> :rf.http/stub-only? true, so managed HTTP never reaches
+  ;;                  the network unless a test puts a stub transport in
+  ;;                  place (Spec 014); explicit :drain-depth 1000 (matches the
   ;;                  framework default — surfaced so tooling can read the
   ;;                  bound off frame-meta without consulting the global default);
   ;;                  :rf.cofx/mint-policy :strict (per EP-0017 §6 — a
@@ -2273,7 +2274,7 @@
   ;;                  polish). A test that wants a fresh value opts back
   ;;                  into generation with `{:rf.cofx/mint-policy :live}`
   ;;                  (per-call or per-frame).
-  ;;   :story      -> same HTTP redirect as :test; tighter :drain-depth 16
+  ;;   :story      -> stub-only HTTP, as :test; tighter :drain-depth 16
   ;;                  so a runaway dispatch cascade fails fast under a story.
   ;;                  NOT strict-by-default — a story is a live demo, not a
   ;;                  determinism fixture, so it rides the router's :live
@@ -2285,15 +2286,14 @@
   ;; frame-config key (Spec 002 §Platform, Spec 011 §Effect handling on the
   ;; server).
   ;;
-  ;; The :test / :story redirect targets
-  ;; `:rf.http/managed-canned-success`, which registers from the test-
-  ;; support namespace `re-frame.http.test-support`. Apps that use these
-  ;; presets must `:require [re-frame.http.test-support]` (alongside
-  ;; `re-frame.http.managed`) so the redirect target resolves. Production
-  ;; / SSR code paths use `:default` and never reach this branch.
+  ;; `:rf.http/stub-only?` is a frame-config key the HTTP artefact reads when
+  ;; a request issues: with no stub transport in place it fails the request
+  ;; as `:rf.http/transport` instead of sending it. Core only names the key,
+  ;; so a preset frame needs nothing from the HTTP artefact, and a port
+  ;; without Spec 014 ignores it.
   (case preset
     :default    {}
-    :test       {:fx-overrides        {:rf.http/managed :rf.http/managed-canned-success}
+    :test       {:rf.http/stub-only?  true
                  :drain-depth         1000
                  ;; Per EP-0017 §6: the :test preset
                  ;; defaults the cofx MINT POLICY to :strict — a declared-absent
@@ -2307,8 +2307,8 @@
                  ;; dispatch opt or a per-frame override — user keys win on
                  ;; conflict).
                  :rf.cofx/mint-policy :strict}
-    :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
-                 :drain-depth  16}
+    :story      {:rf.http/stub-only? true
+                 :drain-depth        16}
     nil         {}
     (rf.error/throw-error!
       :rf.error/unknown-preset

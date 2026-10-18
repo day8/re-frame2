@@ -23,6 +23,7 @@
   failing attempt's failure category and the request's `:retry` config."
   (:require [clojure.string             :as str]
             [re-frame.error             :as rf.error]
+            [re-frame.frame             :as rf.frame]
             [re-frame.http.decode       :as rf.http.decode]
             [re-frame.http.encoding     :as rf.http.encoding]
             [re-frame.http.middleware   :as rf.http.middleware]
@@ -74,7 +75,9 @@
 ;; ---- the transport seam -----------------------------------------------------
 ;;
 ;; An attempt goes out through the HOST adapter (`cljs-fetch` / `jvm-fetch`)
-;; unless the request was issued with a stub transport in scope. A stub stands
+;; unless the request was issued with a stub transport in scope, or from a
+;; frame whose config sets `:rf.http/stub-only?` (the `:test` and `:story`
+;; presets do), which fails it instead (`stub-only-transport`). A stub stands
 ;; exactly where the host adapter does: below `:before`, normalisation and body
 ;; preparation, and above `handle-response!`. So status classification,
 ;; `:decode`, `:accept`, retry, the privacy scrub, the envelope's work id,
@@ -109,6 +112,19 @@
   issued under for every attempt, so a reply that completes after the scope
   has exited — a delayed answer, a retry, a held request answered later —
   still goes through it. Not part of the user-facing API."
+  nil)
+
+(defn- stub-only-transport
+  "The transport a frame whose config sets `:rf.http/stub-only?` falls back to
+  when no stub is in place. It fails every request as `:rf.http/transport`,
+  naming the remedy, so a test or story frame never reaches the network by
+  accident."
+  [wire {:keys [fail]}]
+  (fail {:kind    :rf.http/transport
+         :message (str "no stub transport for " (:method wire) " " (:url wire)
+                       ": this frame sets :rf.http/stub-only? (the :test and :story"
+                       " presets do), so install one with"
+                       " re-frame.http.stub-transport/with-transport or install-transport!")})
   nil)
 
 (defn- stub-response
@@ -1560,13 +1576,18 @@
 
   The stub transport the request goes out through, if any, is resolved here,
   once, for every attempt: a `with-transport` scope's, else the one installed
-  on the issuing frame (`registry/frame-transport`), else none — the host
+  on the issuing frame (`registry/frame-transport`), else `stub-only-transport`
+  when the frame's config sets `:rf.http/stub-only?`, else none — the host
   adapter."
   [ctx]
   (let [{:keys [request]} ctx
+        frame  (:frame ctx)
         ctx    (assoc ctx
                       :url       (rf.http.encoding/merge-params (:url request) (:params request))
-                      :transport (or *transport* (rf.http.registry/frame-transport (:frame ctx))))
+                      :transport (or *transport*
+                                     (rf.http.registry/frame-transport frame)
+                                     (when (:rf.http/stub-only? (rf.frame/frame-config frame))
+                                       stub-only-transport)))
         record (atom nil)]
     (reset! record
             (cond-> {:token        (rf.http.registry/next-token!)
