@@ -897,7 +897,7 @@ The v1 public interceptor-authoring helpers and their v2 replacements:
 
 The inverse is the kind-keyed `(rf/clear :flow id)`, rowed canonically in [§Clearing registrations](#clearing-registrations): it removes the registration, and each frame whose `:flows` names the id vacates the flow's output path on its next event (per [Spec 013 §Re-registration](013-Flows.md#re-registration)). There is no runtime fx form: which flows a frame runs changes only by re-making the frame with a new `:flows`, and a feature gate is `app-db` data the flow reads as an input.
 
-**Frame-destroy teardown.** `destroy-frame!` drops the destroyed frame's flow evaluation memo — its dirty-check rows and pending path vacations — per [Spec 013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). Definitions live in the registrar, so teardown touches none, and sibling frames keep their own memos.
+**Frame-destroy teardown.** `destroy-frame!` drops the destroyed frame's flow evaluation memo — every memo row it holds — per [Spec 013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). Definitions live in the registrar, so teardown touches none, and sibling frames keep their own memos.
 
 **Flow-eval failures in production.** A throw inside a flow's `:derive` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate**, which survives CLJS `:advanced` + `goog.DEBUG=false` and routes the record to the owning frame's `:observability :errors` sinks, or the process default's ([§Error-emit](#error-emit-always-on-production-survivable)). The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 
