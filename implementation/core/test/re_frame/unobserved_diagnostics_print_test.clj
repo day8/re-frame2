@@ -256,6 +256,29 @@
       (finally
         (when hook (rf.late-bind/set-fn! :epoch/configure! hook))))))
 
+(deftest a-misspelt-frame-config-key-prints-once-while-no-trace-listener-is-registered
+  (testing "a misspelt bare key: one line naming it"
+    (expect-one-line
+      (captured-err #(rf/make-frame {:id :unobserved/typo-config :doc "typo" :fx-overides {}}))
+      [":rf.warning/unknown-frame-config-key — " ":fx-overides"]))
+  (testing "recognised and namespaced keys print nothing"
+    (expect-silence
+      (captured-err #(rf/make-frame {:id            :unobserved/clean-config
+                                     :doc           "every key is recognised"
+                                     :fx-overrides  {}
+                                     :myapp/feature true}))
+      "a config with no unknown bare key warns nowhere"))
+  (testing "a trace listener receives the warning once instead, and nothing prints"
+    (let [seen (atom [])]
+      (rf/register-listener! :trace ::seen-config (fn [ev] (swap! seen conj (:operation ev))))
+      (expect-silence
+        (captured-err #(rf/make-frame {:id :unobserved/observed-config :doc "typo" :fx-overides {}}))
+        "any :trace listener owns the warning")
+      (rf/unregister-listener! :trace ::seen-config)
+      (when rf.interop/debug-enabled?
+        (is (= 1 (count (filter #{:rf.warning/unknown-frame-config-key} @seen)))
+            "premise: the listener received it once")))))
+
 (deftest a-warning-outside-the-set-stays-trace-only
   (testing "control: an in-set id on the same emit path prints"
     (expect-one-line
