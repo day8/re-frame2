@@ -18,7 +18,8 @@
   registered inside each test, because in the shared node process a sibling
   namespace's `registrar/clear-all!` would wipe ns-load registrations and
   turn the interactivity probe into a no-op."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.ssr :as rf.ssr]
@@ -223,13 +224,34 @@
                       (assoc-in [2 :mount-fn] (boom! "mount")))
           records (capture-error-records! #(rf.ssr/hydrate-page! specs))]
       (is (= [{:root-id :page/r0 :frame (nth frames 0) :phase :hydrate
-               :recovery :warned-and-continued :exception? true}
+               :recovery :warned-and-continued}
               {:root-id :page/r2 :frame (nth frames 2) :phase :mount
-               :recovery :warned-and-continued :exception? true}]
+               :recovery :warned-and-continued}]
              (->> records
                   (filter #(= :rf.error/root-boot-failed (:error %)))
-                  (mapv #(-> (select-keys % [:root-id :frame :phase :recovery])
-                             (assoc :exception? (some? (:exception %)))))))))))
+                  (mapv #(select-keys % [:root-id :frame :phase :recovery]))))))))
+
+(deftest the-always-on-record-is-structural-and-the-outcome-keeps-the-throwable
+  (testing "a secret in a root's boot exception never reaches the always-on
+            record, which reaches production sinks; the returned outcome
+            still carries the throwable"
+    (let [secret      "PRIVATE-SENTINEL-root-boot-7f3a"
+          outcome     (atom nil)
+          records     (capture-error-records!
+                       #(reset! outcome
+                                (first (rf.ssr/hydrate-page!
+                                        [{:frame    (fresh-frame!)
+                                          :root-id  :page/a
+                                          :payload  (payload-for {:count 7})
+                                          :mount-fn (fn [] (throw (ex-info secret {})))}]))))
+          boot-failed (filterv #(= :rf.error/root-boot-failed (:error %)) records)]
+      (is (= [#{:error :frame :time :where :root-id :phase :recovery}]
+             (mapv (comp set keys) boot-failed))
+          "one record, carrying structural keys only")
+      (is (not (str/includes? (pr-str boot-failed) secret))
+          "the secret is nowhere in the record")
+      (is (= [:failed secret] [(:status @outcome) (ex-message (:error @outcome))])
+          "the outcome still carries the throwable"))))
 
 (deftest hydrating-a-frame-that-is-not-live-returns-nil-and-reports-it
   (testing "nothing was applied, so hydrate! returns nil, the seed's own
