@@ -2509,11 +2509,20 @@
 
 ;; ---- re-frame-native view-substrate entry points -------------------------
 ;;
-;; Two `^:no-doc` seams for a re-frame-native view runtime's commit path; NOT
-;; public API and NOT for adapters or apps.
+;; `^:no-doc` seams for a re-frame-native view runtime; NOT public API and NOT
+;; for adapters or apps.
 ;;
-;; [[compute-sub-with-memo]] has a live caller — `day8/re-frame2-fresco`'s
-;; collector reaches it directly. [[acquire-cache-reaction!]] has NONE, and is
+;; `day8/re-frame2-fresco`'s collector reaches the sub cache through three of
+;; them and never through the cache entry's shape, so that shape stays this
+;; namespace's to change:
+;;
+;;   peek     [[peek-cache-reaction]] — the cached reaction, no reference taken;
+;;   acquire  [[acquire-watched-reaction!]] — one counted share, activated, with
+;;            a disposal callback armed;
+;;   release  [[unsubscribe-if-reaction]] — the identity-guarded O(1) release.
+;;
+;; [[compute-sub-with-memo]] is the collector's pure cold read, for a key
+;; nothing caches. [[acquire-cache-reaction!]] has NO caller, and is
 ;; RETAINED for the reason Spec 009 gives for `rf.frame/guard-open-drain!` at zero
 ;; call sites: the law is CORE's. A commit that takes ownership of a cache node
 ;; without re-resolving render context (invariant 2) is what the ref-count
@@ -2532,6 +2541,39 @@
   disposal obligation. Same value contract as `compute-sub`."
   [query-v db memo]
   (compute-sub* query-v db memo))
+
+(defn ^:no-doc peek-cache-reaction
+  "INTERNAL (re-frame-native view substrate) — the seam's PEEK: the reaction
+  `frame-id`'s sub cache holds for `query-v`, or nil when nothing is cached
+  there or the frame is not live. Takes no reference, builds nothing and
+  installs no watch, so a holder may deref it once and drop it."
+  [frame-id query-v]
+  (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
+    (:reaction (get @cache (cache-key query-v)))))
+
+(defn ^:no-doc acquire-watched-reaction!
+  "INTERNAL (re-frame-native view substrate) — the seam's ACQUIRE, for a
+  holder that WATCHES a reaction across renders rather than deref-ing it
+  inside a reactive context. Takes one counted share of `query-v` in
+  `frame-id` through [[subscribe]], activates it, and arms `on-dispose` to
+  run when the substrate disposes it. Returns the reaction, or nil when
+  `subscribe` returns none.
+
+  Activation comes before the holder derefs or watches: a ratom-family
+  reaction deref'd outside a reactive context has captured no sources, so a
+  watch on it would never fire. On a substrate whose watch is wired at
+  construction the activation is a no-op. `on-dispose` runs on every
+  transition that disposes the reaction — re-registration,
+  `clear-sub-cache!`, frame destruction, the last share's release — and is
+  how the holder learns the reaction no longer answers for the query. Every
+  call takes its own share and arms its own callback.
+
+  Release the share with [[unsubscribe-if-reaction]]."
+  [frame-id query-v on-dispose]
+  (when-some [reaction (subscribe query-v {:frame frame-id})]
+    (rf.interop/activate-derived-value! reaction)
+    (rf.interop/add-on-dispose! reaction on-dispose)
+    reaction))
 
 (defn- canonical-cache-reaction?
   "True when `reaction` is still exactly the frame's live cache entry for `k`
