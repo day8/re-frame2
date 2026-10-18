@@ -632,10 +632,10 @@ Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-
 
 ;; (4) Hard no-op: an explicit nil :validate disables validation
 ;;     everywhere. Every validate-*! site short-circuits without
-;;     inspecting the schema, and a nil :compile stops registration
-;;     compiling it. Apps that want zero validation surface
+;;     inspecting the schema, and registration compiles nothing (the
+;;     install clears :compile). Apps that want zero validation surface
 ;;     (and zero schema-library bundle cost) install nil at boot.
-(schemas/set-schema-fns! {:validate nil :compile nil})
+(schemas/set-schema-fns! {:validate nil})
 
 ;; (5) Read back what is installed, and restore the framework defaults.
 (schemas/schema-fns)                                ;; => {:validate … :explain … :humanize … :compile … :print …}
@@ -644,7 +644,7 @@ Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-
 
 Note the distinction (2) rests on: an **omitted** key leaves the live registration alone, while an **explicit nil** writes nil and disables that fn. Collapsing the two would make a partial install unsafe.
 
-**Registration-time compile.** The optional `:compile` key, `(fn [schema] _)`, is called with each schema a development-build `reg-app-schema` or `reg-app-schemas` declares, before anything registers, so a malformed schema throws at the call that wrote it rather than at its first validation. Its return is ignored, and production builds never call it. The CLJS reference's default compiles into the same cache `:validate` reads, so registering also warms the validator. A port that installs its own `:validate` installs its own `:compile` beside it, or nil; with no `:compile` a malformed schema registers and fails closed at its first validation (`:rf.error/malformed-schema`, per [§Malformed schema VALUE](#app-db-schemas--path-based)).
+**Registration-time compile.** The optional `:compile` key, `(fn [schema] _)`, is called with each schema a development-build `reg-app-schema` or `reg-app-schemas` declares, before anything registers, so a malformed schema throws at the call that wrote it rather than at its first validation. Its return is ignored, and production builds never call it. The CLJS reference's default compiles into the same cache `:validate` reads, so registering also warms the validator. A port installing `:validate` without `:compile` runs with no registration-time compile, because a compiler belongs to the validator it compiles for: `set-schema-fns!` clears `:compile` when the same call installs `:validate` and names none. With no `:compile` a malformed schema registers and fails closed at its first validation (`:rf.error/malformed-schema`, per [§Malformed schema VALUE](#app-db-schemas--path-based)).
 
 `set-schema-fns!`, `schema-fns` and `default-schema-fns` are each rowed in [API.md §Schemas](API.md#schemas), and together they are the whole **public** validator-surface seam. They let a port (or an app) swap out Malli wholesale: validator + explainer + humanizer + compiler + printer = the entire schema-language surface the framework consults.
 
@@ -726,9 +726,9 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; Install the no-op BEFORE the first reg-app-schema / :schema metadata.
 ;; The setter lives on re-frame.schemas, not the re-frame.core facade.
 ;; Any (fn [schema value] truthy?) that returns true unconditionally
-;; passes every value; nil disables the call site even faster. A nil
-;; :compile stops registration compiling the schemas as well.
-(schemas/set-schema-fns! {:validate nil :compile nil})
+;; passes every value; nil disables the call site even faster. The
+;; install also clears :compile, so registration compiles nothing.
+(schemas/set-schema-fns! {:validate nil})
 
 ;; Schemas attach as usual — they're inert data the framework still
 ;; surfaces via app-schemas / app-schemas-digest, but no validate

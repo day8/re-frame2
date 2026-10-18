@@ -335,14 +335,14 @@ The runtime never inspects a `:schema` itself; every check goes through a regist
 
 (schemas/set-schema-fns! {:validate my-validate-fn   ;; (fn [schema value] truthy?)
                           :explain  my-explain-fn    ;; (fn [schema value] explanation)
-                          :compile  nil              ;; or (fn [schema] _), run at registration
+                          :compile  my-compile-fn    ;; (fn [schema] _), run at registration; omit for none
                           :print    my-print-fn})    ;; (fn [schema-value] canonical-string), feeds the digest
 
 ;; Each key is optional; an absent key keeps the current function.
 (schemas/set-schema-fns! {:explain my-explain-fn})
 
 ;; Disable validation: every check passes, and registration checks nothing.
-(schemas/set-schema-fns! {:validate nil :compile nil})
+(schemas/set-schema-fns! {:validate nil})
 ```
 
 One set of functions is in force per process, and the last call wins. `(schemas/set-schema-fns! schemas/default-schema-fns)` restores the Malli defaults.

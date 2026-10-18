@@ -188,6 +188,17 @@
     (rf.schemas/set-schema-fns! {:compile nil})
     (is (= [:broken] (rf/reg-app-schema [:broken] [:vector])))))
 
+(deftest a-validator-installed-alone-runs-with-no-compiler
+  (testing "installing :validate without :compile clears the default compiler,
+            so a token only the new validator reads registers"
+    (rf.schemas/set-schema-fns! {:validate (fn [schema _] (= ::mine schema))})
+    (is (nil? (:compile (rf.schemas/schema-fns))))
+    (is (= [:tok] (rf/reg-app-schema [:tok] ::mine))))
+  (testing "a call naming both keeps the compiler it names"
+    (let [compile-fn (fn [_] nil)]
+      (rf.schemas/set-schema-fns! {:validate (fn [_ _] true) :compile compile-fn})
+      (is (identical? compile-fn (:compile (rf.schemas/schema-fns)))))))
+
 ;; ---- frames come and go; registrations stay -------------------------------
 
 (deftest destroying-a-frame-leaves-the-registrations-in-place

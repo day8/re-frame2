@@ -41,5 +41,5 @@
       (rf.schemas/set-schema-fns! {:explain e-fn})
       (is (= {:validate v-fn :explain e-fn :print p-fn
               :humanize (:humanize rf.schemas/default-schema-fns)
-              :compile  (:compile rf.schemas/default-schema-fns)}
+              :compile  nil}
              (rf.schemas/set-schema-fns! {:print p-fn}))))))

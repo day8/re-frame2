@@ -220,9 +220,9 @@ The default validator is Malli's `validate` / `explain` pair, with Malli's human
   (set-schema-fns! {:validate validate-fn :explain explain-fn :humanize humanize-fn :compile compile-fn :print print-fn}) → {:validate … :explain … :humanize … :compile … :print …}
   ```
 - **Description**: Installs any subset of the validator, explainer, humanizer, compiler and printer from one map. It is the only way to change them.
-    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate`, `:explain`, `:humanize` or `:compile` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
+    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. The one exception is `:compile`: a call that installs `:validate` and names no `:compile` clears it, because a compiler belongs to the validator it compiles for. An explicit `nil` is a write: `nil` `:validate`, `:explain`, `:humanize` or `:compile` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
     - A `nil` `:print` falls back to the default EDN canonicaliser, so the digest always has a printer.
-    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `humanize-fn` is `(fn [explanation] readable)`, the `malli.error/humanize` shape, and fills a failure trace's `:explain-humanized`. `compile-fn` is `(fn [schema] _)`: development-build `reg-app-schema` and `reg-app-schemas` call it before registering, so a malformed schema throws there; its return is ignored. A bundle with its own `:validate` brings its own `:compile`, or `nil`. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
+    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `humanize-fn` is `(fn [explanation] readable)`, the `malli.error/humanize` shape, and fills a failure trace's `:explain-humanized`. `compile-fn` is `(fn [schema] _)`: development-build `reg-app-schema` and `reg-app-schemas` call it before registering, so a malformed schema throws there; its return is ignored. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
     - Last write wins per key; a call is not transactional.
     - Returns the installed bundle `{:validate … :explain … :humanize … :compile … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
     - Install them in one call at boot so they never disagree mid-boot. The same call restores a saved bundle: pass it a value from `schema-fns` or `default-schema-fns`.
@@ -238,9 +238,9 @@ The default validator is Malli's `validate` / `explain` pair, with Malli's human
   ;; a non-Malli port registers its own canonical schema serialiser
   (schemas/set-schema-fns! {:print (fn [schema] (pr-str schema))})
 
-  ;; nil turns validation off everywhere, :boundary? checks included;
-  ;; a nil :compile stops registration checking schemas too
-  (schemas/set-schema-fns! {:validate nil :compile nil})
+  ;; nil turns validation off everywhere, :boundary? checks included,
+  ;; and clears :compile, so registration checks nothing either
+  (schemas/set-schema-fns! {:validate nil})
   ```
 
 ### `schema-fns`

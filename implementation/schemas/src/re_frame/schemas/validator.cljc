@@ -276,7 +276,8 @@
                       :print    print-fn})
 
   Each key is optional; a key that is absent leaves the existing
-  registration in place. Per Spec 010 §How the surface works this is
+  registration in place, except that installing `:validate` clears an
+  unnamed `:compile`. Per Spec 010 §How the surface works this is
   the one-call substitute-Malli boot pattern — a Zod / clojure.spec
   port installs its validator, explainer, and digest-printer together
   so the three never drift out of sync mid-boot.
@@ -288,9 +289,9 @@
     :humanize  (fn [explanation] readable) | nil — nil leaves the failure
                trace without `:explain-humanized`.
     :compile   (fn [schema] _) | nil — called at development registration
-               so a malformed schema throws there; nil skips the check. A
-               port that installs its own `:validate` installs its own
-               `:compile` (or nil) beside it.
+               so a malformed schema throws there; nil skips the check.
+               It belongs to the validator it compiles for, so a call that
+               installs `:validate` and names no `:compile` clears it.
     :print     (fn [schema-value] canonical-string) | nil — the schema-print
                companion the digest pipeline hashes. nil coerces
                to the default EDN canonicaliser, so `printer-fn` is
@@ -325,7 +326,10 @@
   (when (contains? m :validate) (reset! validator-fn validate))
   (when (contains? m :explain)  (reset! explainer-fn explain))
   (when (contains? m :humanize) (reset! humanizer-fn humanize))
-  (when (contains? m :compile)  (reset! compiler-fn compile))
+  ;; A compiler belongs to the validator it compiles for: a new `:validate`
+  ;; without one of its own runs with none.
+  (when (or (contains? m :compile) (contains? m :validate))
+    (reset! compiler-fn compile))
   ;; Establish the printer-never-nil invariant at every write site.
   (when (contains? m :print)
     (reset! printer-fn (or print default-edn-print)))

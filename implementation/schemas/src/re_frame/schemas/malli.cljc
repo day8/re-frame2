@@ -21,10 +21,12 @@
   cost under static CLJS compilation, since requiring the facade loads
   this ns's body) either:
 
-    - Calls `(schemas/set-schema-fns! {:validate my-validator-fn
-      :compile nil})` at boot to install a custom validator, or
-    - Calls `(schemas/set-schema-fns! {:validate nil :compile nil})` for a
-      hard no-op.
+    - Calls `(schemas/set-schema-fns! {:validate my-validator-fn})` at
+      boot to install a custom validator, or
+    - Calls `(schemas/set-schema-fns! {:validate nil})` for a hard no-op.
+
+  Either install also drops the bundle's `:compile`, so Malli no longer
+  checks schemas at registration.
 
   `:validate` compiles each schema once. `malli.core/validate` builds a
   fresh validator on every call, which costs more than the check itself, so
