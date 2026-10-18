@@ -27,27 +27,16 @@
   [:fn (fn [x] (<= x limit))])
 
 (defn- collect!
-  "Run the collector until every reference in `refs` has cleared, or give up."
-  [refs]
+  "Run the collector until `done?` holds, or give up after about a second."
+  [done?]
   (loop [attempt 0]
     (System/gc)
-    (when (and (< attempt 50) (some #(.get ^WeakReference %) refs))
+    (when (and (< attempt 50) (not (done?)))
       (Thread/sleep 20)
       (recur (inc attempt)))))
 
-(defn- settled-size
-  "The cache's size once the collector's cleared references have reached the
-  reference queue. A `WeakHashMap` drops an entry only when it finds the
-  entry's reference queued, which trails the clearing `collect!` waits for,
-  so poll briefly before reading a size."
-  [^Map cache]
-  (loop [attempt 0]
-    (let [n (.size cache)]
-      (if (or (zero? n) (<= 50 attempt))
-        n
-        (do (System/gc)
-            (Thread/sleep 20)
-            (recur (inc attempt)))))))
+(defn- cleared? [refs]
+  (every? #(nil? (.get ^WeakReference %)) refs))
 
 (defn- register-replace-destroy!
   "One cycle: register a fresh schema at [:n] and validate a write against
@@ -77,15 +66,19 @@
     (let [cache (install-counted-bundle!)
           refs  (into [] (mapcat register-replace-destroy!) (range 200))]
       (is (= 400 (count refs)))
-      (collect! refs)
-      (is (every? #(nil? (.get ^WeakReference %)) refs)
+      ;; A `WeakHashMap` drops an entry only once it finds the entry's
+      ;; reference queued, which trails the clearing, so the wait polls the
+      ;; size too: each `.size` expunges whatever has been queued.
+      (collect! #(let [size (.size ^Map cache)]
+                   (and (zero? size) (cleared? refs))))
+      (is (cleared? refs)
           "nothing the cache holds keeps a schema alive")
-      (is (zero? (settled-size cache))
+      (is (zero? (.size ^Map cache))
           "no entry for a collected schema remains"))))
 
 (deftest swapping-the-port-drops-the-cache
   (testing "once another bundle is installed, nothing holds the old cache"
     (let [cache-ref (WeakReference. (install-counted-bundle!))]
       (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
-      (collect! [cache-ref])
+      (collect! #(cleared? [cache-ref]))
       (is (nil? (.get cache-ref))))))
