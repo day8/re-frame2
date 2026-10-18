@@ -35,9 +35,10 @@
    This drives the real server path, not a stand-in. It blocks on the
    preloaded page resource before rendering (`await-resource-loaded!`,
    server entry point below) and ships only the allowed runtime-db
-   projection (`rf.ssr.payload-policy/project-runtime-db`) under `:rf/runtime-db` —
-   never the full cache. The `:rf/app-db` slice goes through the same
-   fail-closed allowlist (`apply-policy`) the production Ring host uses. The
+   projection under `:rf/runtime-db` — never the full cache. The payload comes
+   from `rf.ssr/hydration-payload`, the same projection the production Ring
+   host runs, so the `:rf/app-db` slice goes through the same fail-closed
+   allowlist too. The
    static `index.html` next to this file carries a pre-baked payload so the
    browser side runs without a Clojure server in the box.
 
@@ -70,16 +71,11 @@
             ;; also reads `resource-state` from it.
             #?(:clj  [re-frame.resources :as rf.resources]
                :cljs [re-frame.resources])
-            ;; SSR: render-to-string, the `:rf/hydrate` event, and the
-            ;; per-request server effects.
+            ;; SSR: render-to-string, the `:rf/hydrate` event, the
+            ;; per-request server effects, and `hydration-payload`, the payload
+            ;; projection the production Ring host uses, so this example builds
+            ;; the wire payload the same way the real thing does.
             [re-frame.ssr :as rf.ssr]
-            ;; The payload assembly the production Ring host uses, so this
-            ;; example builds the wire payload the same way the real thing does:
-            ;; the fail-closed app-db allowlist (`apply-policy`) and the
-            ;; runtime-db projection (`project-runtime-db`) that ships only the
-            ;; allowed resource `:entries` under `:rf/runtime-db` (sensitive
-            ;; data redacted; indexes rebuilt on install). Server-side only.
-            #?(:clj [re-frame.ssr.payload-policy :as rf.ssr.payload-policy])
             ;; The EDN-aware escaper for the payload `<script>` body. A server
             ;; string that happens to contain `</script>` would otherwise close
             ;; the envelope early — so we escape it. Server-side only.
@@ -353,15 +349,14 @@
 ;;      no `:loading` skeleton is frozen into a successful response. See the
 ;;      DIRECT RESOURCE-PRELOAD POLL section above for why this page polls
 ;;      directly instead of calling `rf.ssr/drain-blocking-resources!`.
-;;   2. `rf.ssr.payload-policy/project-runtime-db` boils the runtime-db down to just
-;;      what's safe to serialize: the durable `:rf.runtime/resources`
-;;      `:entries`, with `:sensitive?` values redacted, `:large?` values
-;;      omitted, and the reverse indexes dropped (the client rebuilds those
-;;      from `:entries`, so shipping them would be sending data we're about to
-;;      throw away). Ship the projection, never the whole cache. The app-db
-;;      slice rides the fail-closed allowlist via `apply-policy` — empty here,
-;;      because on this page the resource *is* the state and app-db holds
-;;      nothing of its own.
+;;   2. `rf.ssr/hydration-payload` boils the runtime-db down to just what's
+;;      safe to serialize: the durable `:rf.runtime/resources` `:entries`,
+;;      with `:sensitive?` values redacted, `:large?` values omitted, and the
+;;      reverse indexes dropped (the client rebuilds those from `:entries`, so
+;;      shipping them would be sending data we're about to throw away). Ship
+;;      the projection, never the whole cache. The app-db slice rides the
+;;      fail-closed `:payload` allowlist — empty here, because on this page the
+;;      resource *is* the state and app-db holds nothing of its own.
 
 #?(:clj
    (defn handle-request [request]
@@ -378,8 +373,8 @@
            ;; Failure and timeout respond without rendering the page.
            ;;
            ;; `:frame fid`, not `:frame f`. Most of the public surface takes a
-           ;; frame VALUE or a frame-id keyword interchangeably — `app-db-value`
-           ;; just below is handed `f` — but `rf.resources/resource-state`'s introspection
+           ;; frame VALUE or a frame-id keyword interchangeably —
+           ;; `hydration-payload` just below is handed `f` — but `rf.resources/resource-state`'s introspection
            ;; target is the frame ID, which is what the runtime-db read keys the
            ;; registry by. Hand it the value and every poll reads nil: no entry
            ;; under that key, no terminal status, and the loop burns the whole
@@ -396,9 +391,7 @@
                 :body (str "Articles unavailable ("
                            (if (= :error (:status entry)) "failed" "timed-out")
                            ").")}
-               (let [final-db      (rf/app-db-value f)
-                     final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; this is where :rf.runtime/resources lives
-                     ;; Render the app as a FRAGMENT, not a full document. The
+               (let [;; Render the app as a FRAGMENT, not a full document. The
                      ;; `handle-request` envelope below owns the ONE document shell —
                      ;; the outer `<!DOCTYPE html>`, `<head>` metadata, the payload
                      ;; `<script>`, and `main.js`. The app render only fills
@@ -423,26 +416,19 @@
                      ;; code puts something there, the opt-in ships all of it, while
                      ;; `[]` goes on shipping nothing.
                      ;; See docs/ssr/concepts.md#payload--the-fail-closed-allowlist.
-                     policy-opts   {:payload []}
-                     payload       (rf.ssr.payload-policy/build-payload
-                                     f
-                                     (rf.ssr.payload-policy/apply-policy final-db policy-opts)
-                                     (assoc policy-opts
-                                            :runtime-db (rf.ssr.payload-policy/project-runtime-db
-                                                          final-runtime)))
-                     ;; Drop the payload's `:rf/frame-id`. `build-payload` stamps it
-                     ;; with this per-request gensym frame (`f`), but the client
-                     ;; hydrates a fixed app-frame (`:rf/default`, below). When a
-                     ;; `:rf/frame-id` *is* present, `rf.ssr/hydrate!` checks it against
-                     ;; the client's `:frame` and raises
+                     ;;
+                     ;; The payload carries no `:rf/frame-id`. The client hydrates
+                     ;; a fixed app-frame (`:rf/default`, below), and when a
+                     ;; `:rf/frame-id` *is* present, `rf.ssr/hydrate!` checks it
+                     ;; against the client's `:frame` and raises
                      ;; `:rf.error/hydration-frame-id-mismatch` if they disagree — so
-                     ;; the frame-id is a sanity check, not a hydration target. Our
-                     ;; gensym could never match the client's fixed id, so leaving it
-                     ;; in would guarantee a false mismatch; dropping it sidesteps
-                     ;; the check entirely (an absent id is no conflict). A
-                     ;; deployment that wants a frame-id on the wire would stamp one
-                     ;; both sides agree on up front.
-                     payload       (dissoc payload :rf/frame-id)]
+                     ;; the frame-id is a sanity check, not a hydration target. This
+                     ;; request's gensym frame could never match the client's fixed
+                     ;; id, so stamping it would guarantee a false mismatch; leaving
+                     ;; it out sidesteps the check entirely (an absent id is no
+                     ;; conflict). A deployment that wants a frame-id on the wire
+                     ;; passes `:client-frame-id`, one both sides agree on up front.
+                     payload       (rf.ssr/hydration-payload f {:payload []})]
                  {:status  200
                   :headers {"Content-Type" "text/html"}
                   :body

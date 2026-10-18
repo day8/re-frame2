@@ -1685,6 +1685,9 @@
   ;; `implementation`.
   ;; =========================================================================
   ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
+  ;; The payload a host running its own request lifecycle ships; the same
+  ;; projection ssr-handler applies, so it is rowed beside render-to-string.
+  ["re-frame.ssr" "hydration-payload"]             {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
   ;; The head-model SERIALISER and the single head READ, `head-model`, are
   ;; re-exported here from
