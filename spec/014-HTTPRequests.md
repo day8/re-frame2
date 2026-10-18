@@ -1088,6 +1088,44 @@ The delay rides the framework-native `:dispatch-later` timer — it is **observa
 
 **Interaction with `:fx-overrides`.** When `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` redirects the production fx to a canned stub, the override target receives the **same args-map** the handler built for `:rf.http/managed` — so an `:after-ms` placed there flows straight through to the canned stub. A handler can therefore stay backend-agnostic (it never mentions `:after-ms`) while a test or demo dials in latency purely through the override, OR a demo stub that wraps the canned fx (the worked examples' pattern) can stamp `:after-ms` on the args-map before delegating. The override only redirects `:rf.http/managed`; the deferred reply the canned fx synthesises internally re-fires the canned fx by its own id (not `:rf.http/managed`), so it does not depend on the override staying installed across the delay, and reply addressing is identical to the immediate path.
 
+### Stub transports — the real pipeline over a fake wire
+
+The canned stubs above replace the whole `:rf.http/managed` effect, so a stubbed request skips everything the effect does past its `:before` chain: status classification, `:decode`, `:accept`, retry, the privacy scrub, and the envelope's `:rf.reply/work-id`, `:attempt` and `:completed-at`. A **stub transport** replaces only the host send — Fetch on CLJS, `java.net.http.HttpClient` on the JVM — and leaves the rest of the effect running. A request issued under one is normalised, has its body prepared, and is sent; the stub answers in place of the network; and the answer is classified, decoded, accepted, retried, scrubbed and delivered exactly as a server's would be. Issue-time capture, frame routing, cancellation, the envelope and the reply-tail fence are the production path. The same transport serves as a demo's fake backend and as a test's stub.
+
+**The seam.** A transport is a function `(fn [wire-request {:keys [respond fail]}])` returning a cancel function or `nil`:
+
+| Part | Contract |
+|---|---|
+| `wire-request` | `{:method :url :headers :body :timeout-ms}` — the attempt as the host adapter would send it: `:params` merged into `:url`, the body encoded, the inferred `Content-Type` on `:headers`. |
+| `respond` | Answers with the normalised response a host adapter yields: `{:status :status-text :headers :body-text}`, or `:body-binary` in place of `:body-text` for a binary decode mode. Header names are lower-cased, `:status-text` defaults to `""`, and `:status` decides `:ok?`. |
+| `fail` | Ends the attempt as a network failure: a map whose `:kind` is `:rf.http/transport` (the default) or `:rf.http/timeout` (whose `:limit-ms` defaults to the request's `:timeout-ms`). Every other kind is decided above the transport, from a response, so `fail` refuses it. |
+| cancel function | Called with no arguments when the request is aborted or times out, so the stub can drop what it holds. |
+
+`respond` and `fail` may be called inline, before the transport returns, or later from any thread. The first call settles the attempt, and each returns whether it did; once the attempt is settled, aborted or timed out, a call delivers nothing. An inline answer is handled after the request's guard is released, so a `dispatch-sync` that issues a request answered inline has its reply before it returns, on both hosts. The request's `:timeout-ms` bounds a stub's attempt exactly as it bounds a host send.
+
+**Which transport a request uses** is decided once, at issue, for every attempt: the innermost `with-transport` scope's, else the transport installed on the issuing frame, else the host adapter. An answer that arrives after the scope has exited — a delayed route, a held exchange answered later, a retry — still goes through the transport its request was issued under.
+
+`re-frame.http.stub-transport` ships two transports and the two ways to put one in place:
+
+| Var | Shape | Use |
+|---|---|---|
+| `route-transport` | `(route-transport routes)` / `(route-transport routes {:delay-ms n})` → transport | Answers from a route map `{[method url] response-or-fn}`, keyed by the url the request goes out on (after `:before`, with `:params` merged in), or from one `(fn [wire-request] response)` that answers every request. An unmatched request fails as `:rf.http/transport` naming its method and url. `:delay-ms`, or a response's own, defers the answer; without it the answer is inline. |
+| `pending-transport` | `(pending-transport)` → `{:transport t :exchanges a}` | Holds every request until the caller settles it. Each exchange in the atom `a` is `{:request :respond! :fail! :cancelled?}`; `respond!` and `fail!` return whether they settled the request, so an answer after an abort or a timeout is visibly fenced. |
+| `with-transport` | `(with-transport transport thunk)` → thunk's value | The test scope: requests issued during `thunk`'s dynamic extent go through `transport`. Nested scopes shadow. |
+| `install-transport!` | `(install-transport! frame-id transport)` → nil | The frame's own transport — a demo's fake backend — held in the HTTP artefact's per-frame state and dropped when the frame is destroyed; `nil` uninstalls. A `with-transport` scope wins over it. |
+
+A response is `{:status :headers :body}` (`:status` defaulting to 200), where a string `:body` rides verbatim and any other value is JSON-encoded with `Content-Type: application/json` unless `:headers` names one; `:body-binary` replaces `:body` for a binary read, and `{:failure {:kind …}}` is a network failure instead of a response:
+
+```clojure
+(stub-transport/with-transport
+  (stub-transport/route-transport
+    {[:get "/articles/hello"]   {:body {:article hello-article}}
+     [:get "/articles/missing"] {:status 404 :body {:errors {:body ["not found"]}}}})
+  (fn [] (rf/dispatch-sync [:article/load {:slug "hello"}])))
+```
+
+Because the body goes over the fake wire as JSON, a reply's `:value` is what the request's `:decode` makes of it — keyword values arrive as strings unless the schema coerces them — exactly as against a server. The canned stubs remain for the uses that want a value delivered without passing through the pipeline.
+
 ### Test-support require — the HTTP test surface gate
 
 The canned-stub fxs above AND the `with-request-stubs` helper are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
