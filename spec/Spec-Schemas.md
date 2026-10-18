@@ -1588,7 +1588,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   [:map
    [:route-id    :keyword]   ;; the NEW route — the shadowed one
    [:shadowed-by :keyword]   ;; the existing route that wins the rule-6 tie
-   [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank)
+   [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank's first five elements)
 
 (def RouteNavTokenStaleSuppressedTags
   ;; The NAV-TOKEN category (`:rf.route.nav-token/stale-suppressed`) and no
@@ -3562,20 +3562,21 @@ Like every schema on this page, `:rf/route-pattern` is specified here and not re
 > **Owner:** [012-Routing §Route ranking algorithm](012-Routing.md#route-ranking-algorithm)
 > **Status:** v1-required
 
-The structural-rank tuple `match-url` computes for each registered route, per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm). Registrars attach the computed rank under `:rf.route/rank` on the route's metadata so tooling can read it via `(rf/handler-meta {:source :store :kind :route :id route-id})` and so AI scaffolds can render the precedence cascade without re-parsing patterns.
+The rank tuple `match-url` sorts registered routes by, per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm). Its first five elements are the structural rank (rules 1–5), computed from the pattern alone; the sixth carries rule 6 as the negated registration index, so the earlier registration compares greater and a descending sort needs no separate stable-sort pass. Registrars attach the tuple under `:rf.route/rank` on the route's metadata so tooling can read it via `(rf/handler-meta {:source :store :kind :route :id route-id})` and so AI scaffolds can render the precedence cascade without re-parsing patterns.
 
 ```clojure
 (def RouteRank
-  ;; A vector of integers, lexicographically comparable. Higher = more specific.
-  ;; The registrar's stable-sort by registration time provides rule 6.
+  ;; A vector of integers, lexicographically comparable. Higher = more specific;
+  ;; on a structural tie, higher = registered earlier.
   [:tuple :int                                                            ;; rule 1 — static-segment count
           [:enum 0 1]                                                     ;; rule 2 — catch-all? 0 = is bare "/*" (demoted below all); 1 = otherwise
           :int                                                            ;; rule 3 — total segment count (among non-catch-all routes)
           [:enum 0 1]                                                     ;; rule 4 — splat? 0 = has splat; 1 = no splat (named params win)
-          [:enum 0 1]])                                                   ;; rule 5 — has optional group? 0 = yes; 1 = no
+          [:enum 0 1]                                                     ;; rule 5 — has optional group? 0 = yes; 1 = no
+          :int])                                                          ;; rule 6 — registration order: the negated registration index
 ```
 
-Implementations rank candidates by descending `route-rank` then by ascending registration time (stable sort) — the **earlier** registration wins an equal-score tie. Equal-score candidates **whose patterns can match a common URL** (the [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm) rule-6 "same URL family" — co-matchability, decided by language intersection over the patterns' segment automata) emit `:rf.warning/route-shadowed-by-equal-score` at registration time per [API.md §Error contract](API.md#error-contract). Equal rank alone MUST NOT warn — rank tuples ignore literal segment text, so `/x/:id` and `/y/:slug` tie structurally yet never co-match. The warning's `:tags` carry `{:route-id <the NEW, shadowed route> :shadowed-by <the existing winner> :rank <the tied structural RouteRank>}`.
+Implementations rank candidates by descending tuple, and its sixth element makes the **earlier** registration win an equal-score tie. Equal-score candidates **whose patterns can match a common URL** (the [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm) rule-6 "same URL family" — co-matchability, decided by language intersection over the patterns' segment automata) emit `:rf.warning/route-shadowed-by-equal-score` at registration time per [API.md §Error contract](API.md#error-contract). Equal structural rank alone MUST NOT warn — rank tuples ignore literal segment text, so `/x/:id` and `/y/:slug` tie structurally yet never co-match. The warning's `:tags` carry `{:route-id <the NEW, shadowed route> :shadowed-by <the existing winner> :rank <the tied structural rank, the tuple's first five elements>}`.
 
 ### `:rf/route-address`
 

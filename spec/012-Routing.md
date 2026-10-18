@@ -179,7 +179,7 @@ Rules:
 
 The grammar is a small subset of common path-pattern syntaxes — straightforwardly implemented in any host (no parser-combinator library required). It is also a strict subset of RFC 6570 Level 1 plus a splat extension, which keeps it familiar to non-Clojure ecosystems. Other-language ports parse the same strings.
 
-A canonical schema for path patterns is registered as `:rf/route-pattern` (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-pattern)). Tooling can validate patterns at registration time.
+The canonical schema for path patterns is `:rf/route-pattern`, specified in [Spec-Schemas.md](Spec-Schemas.md#rfroute-pattern) and not registered at runtime. Registration enforces the grammar itself: `reg-route` validates each `:path` as it registers and throws `:rf.error/invalid-route-pattern` on the first violation, and a tool that lints route tables reads the schema's form from Spec-Schemas.
 
 > **Data-form path patterns (per host):** the same grammar can be expressed as a vector of segment values — `[:files [:* :rest]]` is the data-form of `/files/*rest`. This is the natural form in hosts without a string-parser library, and lines up with [Principles.md §Data is code](Principles.md#data-is-code). Ports are required to support the string grammar above; hosts may additionally accept a data form whose semantics are equivalent.
 
