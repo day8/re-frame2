@@ -99,6 +99,7 @@
             {:fx [[:rf.http/managed
                    {:request    {:method :get
                                  :url    (str "http://127.0.0.1:" (:port srv) "/x")}
+                    :on-success nil
                     :on-failure nil}]]}))
         ;; handler-meta throws :rf.error/ambiguous-registration if the frame kept both.
         (let [f (rf/make-frame {})

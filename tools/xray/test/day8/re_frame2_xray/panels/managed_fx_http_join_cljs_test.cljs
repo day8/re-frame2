@@ -269,6 +269,7 @@
                (fn [_]
                  {:fx [[:rf.http/managed {:request    {:url "/c"}
                                           :request-id [:worker/proc :slow]
+                                          :on-success nil
                                           :on-failure on-failure}]]})}
      :states  {:idle    {:on {:start :running}}
                :running {:entry :fire-request}}})

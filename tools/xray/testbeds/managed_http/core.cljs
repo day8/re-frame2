@@ -271,6 +271,7 @@
      :fx [[:managed-http/canned-failure-with-trace
            {:request    {:method :get :url "api/items/missing"}
             :request-id four-oh-four-id
+            :on-success nil
             :on-failure [::reply]
             :kind       :rf.http/http-4xx
             :tags       {:status 404 :status-text "Not Found"
@@ -284,6 +285,7 @@
      :fx [[:managed-http/canned-failure-with-trace
            {:request    {:method :get :url "api/items"}
             :request-id five-hundred-id
+            :on-success nil
             :on-failure [::reply]
             :kind       :rf.http/http-5xx
             :tags       {:status 500 :status-text "Internal Server Error"

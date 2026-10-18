@@ -127,8 +127,9 @@
 
   This is also where the canned paths refuse the args maps the live fx
   refuses before its chain: a malformed `:retry :on`, and reply addressing
-  that is missing, MIXED (`:reply-to` beside `:on-success` / `:on-failure`)
-  or not an event vector or nil. Both guards (`handlers/validate-retry!`,
+  that is missing, MIXED (`:reply-to` beside `:on-success` / `:on-failure`),
+  UNPAIRED (one split key without its partner) or not an event vector or
+  nil. Both guards (`handlers/validate-retry!`,
   `handlers/validate-reply-target!`) run in `capture-and-run-request-chain`,
   which all three test-path entry points — `canned-success-handler`,
   `canned-failure-handler` and the route-map `stub-handler` — call first, so
@@ -176,23 +177,20 @@
   exactly as the real transport's does: from the request's own capture,
   never from the live registry.
 
-  Both branch descriptors travel to the tail, which picks one from the
+  Both branch targets travel to the tail, which picks one from the
   FINAL envelope's `:status`, so a canned success an `:after` rejects
-  reaches the failure target exactly as a live one does. The request's
-  `:url` and effective `:sensitive?` are read off the post-`:before` ctx."
+  reaches the failure target exactly as a live one does."
   [{:keys [origin-event args-map reply-payload frame middleware-ctx chain]}]
   (rf.http.middleware/run-after-then-dispatch!
-    {:frame               frame
-     :middleware-ctx      middleware-ctx
-     :chain               chain
-     :origin-event        origin-event
+    {:frame          frame
+     :middleware-ctx middleware-ctx
+     :chain          chain
+     :origin-event   origin-event
      ;; The SAME lowering fn the live fx uses: the unified `:reply-to` when
      ;; present (both branches), else each branch's own sugar key.
-     :explicit-on-success (rf.http.encoding/reply-target args-map :on-success)
-     :explicit-on-failure (rf.http.encoding/reply-target args-map :on-failure)
-     :reply-payload       reply-payload
-     :url                 (get-in middleware-ctx [:request :url])
-     :sensitive?          (rf.http.privacy/request-sensitive? middleware-ctx)}))
+     :success-target (rf.http.encoding/reply-target args-map :on-success)
+     :failure-target (rf.http.encoding/reply-target args-map :on-failure)
+     :reply-payload  reply-payload}))
 
 (defn- with-request-correlation
   "Echo the args-map's `:request-id` onto a canned `reply` as
@@ -253,10 +251,8 @@
     (dispatch-canned-reply!
       {:origin-event   origin-event
        ;; The canned stub honours the SAME reply-addressing keys as the live
-       ;; fx. There is no co-located default, so under `:on-failure`-only
-       ;; addressing a reply whose FINAL envelope is `:ok` is silenced
-       ;; (build-reply-event nil); one an `:after` turned into an error
-       ;; reaches the `:on-failure` target.
+       ;; fx, so the FINAL envelope's `:status` picks the target: a success
+       ;; an `:after` turned into an error reaches the failure target.
        :args-map       args-map
        :reply-payload  reply
        :frame          frame-id

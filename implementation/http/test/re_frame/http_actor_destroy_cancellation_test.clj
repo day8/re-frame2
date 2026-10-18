@@ -39,6 +39,7 @@
                                      {:request    {:url "http://example.invalid/slow"}
                                       :decode     :json
                                       :request-id request-id
+                                      :on-success nil
                                       :on-failure [:reply/recorder]}])
                                   request-ids)})}
      :states  {:idle    {:on {:start :running}}

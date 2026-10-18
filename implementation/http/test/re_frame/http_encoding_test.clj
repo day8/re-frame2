@@ -23,14 +23,13 @@
     (is (some #(> % 2000) samples))
     (is (some #(< % 2000) samples))))
 
-(deftest build-reply-event-per-explicit-on-shape
+(deftest build-reply-event-per-target-shape
   (let [payload {:status :ok :value 42}
-        build   #(rf.http.encoding/build-reply-event {:explicit-on % :reply-payload payload})]
-    (is (nil? (build {:supplied? true :value nil})) "supplied nil silences the branch")
-    (is (= [:items/loaded 7 payload] (build {:supplied? true :value [:items/loaded 7]})))
-    (is (nil? (build {:supplied? false :value nil})) "an unsupplied branch has no target")
+        build   #(rf.http.encoding/build-reply-event {:target % :reply-payload payload})]
+    (is (nil? (build nil)) "a nil target silences the branch")
+    (is (= [:items/loaded 7 payload] (build [:items/loaded 7])))
     (let [ex (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/http-bad-reply-target"
-                                   (build {:supplied? true :value :items/loaded})))]
+                                   (build :items/loaded)))]
       (is (= {:value :items/loaded :recovery :no-recovery}
              (select-keys (ex-data ex) [:value :recovery]))))))
 

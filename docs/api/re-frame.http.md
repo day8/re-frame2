@@ -100,7 +100,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 - **Errors**, all raised at dispatch, before the request is sent. The effect throws: the request is not sent, no reply is dispatched, the event's other effects still run, and error listeners receive `:rf.error/fx-handler-exception`, whose `:exception` carries the id below:
     - `:rf.error/http-bad-request` — the final `:url`, after the `:before` interceptor chain, is missing, `nil`, non-string or blank.
     - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set drawn from the retryable kinds, or a `:retry` map has no `:max-attempts`.
-    - `:rf.error/http-bad-reply-target` — a reply-target value that is neither an event vector nor `nil`, or `:reply-to` beside `:on-success` / `:on-failure` (`:reason :mixed-addressing`).
+    - `:rf.error/http-bad-reply-target` — a reply-target value that is neither an event vector nor `nil`; `:reply-to` beside `:on-success` / `:on-failure` (`:reason :mixed-addressing`); or one of `:on-success` / `:on-failure` without the other (`:reason :unpaired-split`).
     - `:rf.error/http-no-reply-target` — none of `:reply-to`, `:on-success` or `:on-failure` is present.
     - `:rf.error/schemas-artefact-missing` — the `:decode` is a schema but Malli is not loaded, so the response could not be validated; or the schema carries a `:sensitive?` or `:large?` prop but `re-frame.schemas` is not loaded, so the response could not be classified. Add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot.
     - `:rf.error/bad-classification` — the `:carriers` block on the `:rf.http/managed` registration is malformed; see [Privacy and classification](#privacy-and-classification). `reg-fx` accepts the block, and every request refuses it until it is fixed. `:bad-key` names the offending slot. In a development build this id also escapes the event: `dispatch-sync` throws it, and the event's later effects do not run.
@@ -185,9 +185,9 @@ A reply from a real request (not a [test stub](#testing-without-a-network)) adds
 Every request must name where its reply goes. The runtime appends the reply map as the last argument of the event vector you name:
 
 - `:reply-to` sends both the success and the failure reply to one event; resources and mutations use the same key. A `:cart/load` handler addressed with `:reply-to [:cart/load]` receives `[:cart/load {:status :ok :value decoded-body …}]` (or the `:error` / `:cancelled` shape) and branches on `(:status reply)`. Put request context in the vector: `:reply-to [:cart/load ctx]` delivers `[:cart/load ctx <reply>]`.
-- `:on-success` / `:on-failure` route the same reply map to two events. A `:cart/loaded` handler receives `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly: `[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure. Neither may appear beside `:reply-to`; the check is on key presence, so a `nil` value counts.
+- `:on-success` / `:on-failure` route the same reply map to two events, and are always supplied together. A `:cart/loaded` handler receives `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly: `[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure. Neither may appear beside `:reply-to`; the check is on key presence, so a `nil` value counts.
 - `:reply-to nil` means fire-and-forget: no reply is delivered. `:on-success nil` or `:on-failure nil` drops one side of the split form.
-- Supplying only `:on-success`, or only `:on-failure`, leaves the other branch unaddressed: its reply is dropped, as with `nil`. A dropped failure other than an abort emits `:rf.warning/failure-swallowed` once per process in a dev build.
+- Supplying only `:on-success`, or only `:on-failure`, raises `:rf.error/http-bad-reply-target` with `:reason :unpaired-split`, and nothing is sent: the branch left out would drop its replies with no handler. Write `nil` for a side you mean to drop.
 - Omitting all three keys raises `:rf.error/http-no-reply-target`: the framework never picks a reply target for you, because an implicit target can swallow failures.
 
 The cell below answers two requests from [stubs](#testing-without-a-network) and shows the whole event each reply arrives as: the `:reply-to` vector, context map included, with the reply map appended. A stubbed reply carries only `:status` and `:value` or `:error`; a real one adds the keys listed under [Reply shape](#reply-shape).
@@ -423,13 +423,14 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
     - `:kind` defaults to `:rf.http/transport`. `:tags` are merged into the `:error` map.
     - A `:request-id` comes back as `:correlation {:request-id …}`, as for `:rf.http/managed-canned-success`.
     - An `:rf.http/aborted` kind produces `:status :cancelled`; every other kind produces `:status :error`.
-    - `:after-ms`, the interceptor chains and reply addressing (`:reply-to` / `:on-failure`) work as for `:rf.http/managed-canned-success`.
+    - `:after-ms`, the interceptor chains and reply addressing (`:reply-to`, or the `:on-success` / `:on-failure` pair) work as for `:rf.http/managed-canned-success`.
 - **Example**:
   ```clojure
   (rf/reg-event :flaky/load
     (fn [_ _]
       {:fx [[:rf.http/managed-canned-failure
-             {:on-failure [:flaky/load-error]
+             {:on-success nil
+              :on-failure [:flaky/load-error]
               :kind       :rf.http/http-5xx
               :tags       {:status 503 :status-text "Service Unavailable"}}]]}))
   ```
@@ -506,7 +507,6 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 | `:rf.http/aborted` | `:info` | An abort, whatever its `:reason` (`:user`, `:request-id-superseded`, `:actor-destroyed`, `:frame-destroyed`, `:epoch-restored`, …). Carries `:kind`, `:request-id`, `:reason`, `:actor-id`, `:url`. |
 | `:rf.http/stale-suppressed` | `:info` | An app reply was suppressed (supersession, obsolete actor target, epoch restore, frame destroy). Carries `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`, `:rf.reply/work-id`, `:rf.reply/carried` / `:rf.reply/current`, `:rf.reply/stale-reason` and `:recovery`. `:recovery` names the trigger (`:superseded-by-fresh-request`, `:actor-destroyed-target-obsolete`, `:suppressed-on-epoch-restore`, `:suppressed-on-frame-destroy`); `:rf.reply/stale-reason` is `:rf.http/actor-destroyed-target-obsolete` for an obsolete actor target and `:rf.http/request-id-superseded` for the other three. |
 | `:rf.http/aborted-on-actor-destroy` | `:info` | One per request cancelled because the actor that spawned it was destroyed. Carries `:request-id`, `:actor-id`, `:url`. |
-| `:rf.warning/failure-swallowed` | `:warning` | Once: a failure other than an abort had no reply target (`:on-failure nil`, or the branch left unaddressed). Carries `:url`, `:failure`. |
 | `:rf.warning/http-header-invalid` | `:warning` | Per request header the platform's header builder rejects, such as an empty name or a value carrying `\r` or `\n`. That header is left out and the request goes on with the rest. Carries `:url`, `:header`, `:cause`; never the value. |
 | `:rf.http/cljs-only-key-ignored-on-jvm` | `:warning` | JVM only, per occurrence: the request carried a key the JVM transport ignores (`:mode`, `:cache`, `:referrer`, `:integrity` or `:credentials` in `:request`, or `:abort-signal`). The request proceeds without it. Carries `:key`, `:url`. |
 | `:rf.http/binary-decode-degraded-on-jvm` | `:warning` | JVM only, per request with an explicit `:decode` of `:blob`, `:array-buffer` or `:form-data`: the body arrives as a `byte[]` rather than the browser object. Carries `:decode`, `:url`. |

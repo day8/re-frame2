@@ -80,6 +80,7 @@
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :post :url "/auth/login"}
+                :on-success nil
                 :on-failure [:auth/login-error]}]]}))
     (rf/reg-event :auth/login-error
       (fn [{:keys [db]} [_ payload]]
@@ -99,7 +100,8 @@
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :get :url "/articles/hello"}
-                :on-success [:article/loaded]}]]}))
+                :on-success [:article/loaded]
+                :on-failure nil}]]}))
     (rf/reg-event :article/loaded
       (fn [{:keys [db]} [_ payload]]
         {:db (assoc db :article payload)}))
@@ -118,7 +120,8 @@
           (swap! seen inc)
           {:fx [[:rf.http/managed
                  {:request    {:url "/ping"}
-                  :on-success nil}]]}))
+                  :on-success nil
+                  :on-failure nil}]]}))
       (rf/dispatch-sync [:ping]
                         {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
       ;; Only the initial dispatch fired :ping; no reply re-entered.
@@ -285,7 +288,8 @@
     (rf/reg-event :flaky/load
       (fn [_ _]
         {:fx [[:rf.http/managed-canned-failure
-               {:on-failure [:flaky/load-error]
+               {:on-success nil
+                :on-failure [:flaky/load-error]
                 :kind       :rf.http/http-5xx
                 :tags       {:status      503
                              :status-text "Service Unavailable"

@@ -304,7 +304,7 @@
   actor (Managed-Effects §Cancellation).
 
   `reply-target-id` is the head of the reply event the abort would dispatch:
-  the explicit `:on-failure` vector's head when supplied, else the originating
+  the failure target's head when it is an event vector, else the originating
   event-id (`resolve-origin-event`'s head). `actor-id` is the destroyed
   actor's address. Obsolete iff the target names that actor — the
   machine-shape wrapper's `[self-id [:rf.http/failed]]` target, or any request

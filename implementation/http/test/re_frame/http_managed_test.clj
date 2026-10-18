@@ -111,7 +111,8 @@
             defaulting to {:stubbed true}, to a :reply-to target and to an
             :on-success target alike"
     (doseq [via [:reply-to :on-success]]
-      (fire! {via [::replied via] :request {:method :get :url "/articles/hello"} :decode :json}
+      (fire! (cond-> {via [::replied via] :request {:method :get :url "/articles/hello"} :decode :json}
+               (= :on-success via) (assoc :on-failure nil))
              canned-success))
     (is (= {:reply-to   {:status :ok :value {:stubbed true}}
             :on-success {:status :ok :value {:stubbed true}}}
@@ -119,23 +120,23 @@
 
 (deftest no-reply-target-fails-loud
   (testing "a request with none of :reply-to / :on-success / :on-failure throws
-            :rf.error/http-no-reply-target at fx-call time; any one of them,
-            even an explicit nil, addresses the reply"
+            :rf.error/http-no-reply-target at fx-call time; :reply-to or the
+            split pair, even as explicit nils, addresses the reply"
     (let [issue (fn [args]
                   (thrown-data #(rf.http.managed/managed-handler
                                   {:frame :rf/default :event [:no-op]}
                                   (assoc args :request {:method :get :url "http://127.0.0.1:1/x"}))))]
       (is (= :rf.error/http-no-reply-target (:rf.error/id (issue {}))))
-      (doseq [k [:reply-to :on-success :on-failure]]
-        (is (nil? (issue {k nil})) (str "an explicit nil " k " addresses the reply"))))))
+      (is (nil? (issue {:reply-to nil})) "an explicit nil :reply-to addresses the reply")
+      (is (nil? (issue {:on-success nil :on-failure nil})) "so does an explicit nil split pair"))))
 
 (def ^:private stub-handler @#'rf.http.test-support/stub-handler)
 
 (deftest missing-and-malformed-reply-targets-refused-on-every-interpreting-path
   (testing "the live fx, both canned stubs and the route-map stub refuse a
-            missing, non-vector or mixed reply addressing with the live fx's
-            own error, so a test double never green-lights a call site
-            production refuses"
+            missing, non-vector, mixed or unpaired reply addressing with the
+            live fx's own error, so a test double never green-lights a call
+            site production refuses"
     (let [ctx     {:frame :rf/default :event [:no-op]}
           request {:request {:method :get :url "http://127.0.0.1:1/x"}}
           refused (fn [expected thunk]
@@ -147,14 +148,21 @@
                ["the route-map stub" #(stub-handler {[:get "http://127.0.0.1:1/x"] {:reply {:ok true}}} ctx %)]]]
         (testing label
           (is (refused {:rf.error/id :rf.error/http-no-reply-target} #(invoke request)))
-          (doseq [k [:reply-to :on-success :on-failure]]
+          (doseq [[k partner] [[:reply-to nil] [:on-success :on-failure] [:on-failure :on-success]]]
             (is (refused {:rf.error/id :rf.error/http-bad-reply-target :key k}
-                         #(invoke (assoc request k {:not :a-vector})))
+                         #(invoke (cond-> (assoc request k {:not :a-vector})
+                                    partner (assoc partner nil))))
                 (str "a map-valued " k)))
           (is (refused {:rf.error/id :rf.error/http-bad-reply-target
                         :reason      :mixed-addressing
                         :keys        [:reply-to :on-failure]}
-                       #(invoke (assoc request :reply-to nil :on-failure nil)))))))))
+                       #(invoke (assoc request :reply-to nil :on-failure nil))))
+          (doseq [k [:on-success :on-failure]]
+            (is (refused {:rf.error/id :rf.error/http-bad-reply-target
+                          :reason      :unpaired-split
+                          :keys        [k]}
+                         #(invoke (assoc request k nil)))
+                (str k " without its partner"))))))))
 
 ;; ---- canned stubs ---------------------------------------------------------
 
@@ -180,7 +188,7 @@
 (deftest after-ms-positive-on-failure-defers
   (testing "a positive :after-ms defers the canned-failure reply too, and the
             deferred re-fire is still the failure fx"
-    (fire! {:on-failure [::replied :failed] :request {:method :get :url "/later/fail"} :after-ms 30}
+    (fire! {:on-success nil :on-failure [::replied :failed] :request {:method :get :url "/later/fail"} :after-ms 30}
            canned-failure)
     (is (nil? (replies)) "not delivered inside the dispatch-sync drain")
     (is (= :rf.http/transport

@@ -96,7 +96,8 @@
                           :headers {:accept "application/json"}}
                 :decode  :json
                 :request-id :req-1
-                :on-success [:user/loaded]}]
+                :on-success [:user/loaded]
+                :on-failure nil}]
       (is (= {:surface :http :fx-id :rf.http/managed
               :req {:method :get :url "/api/users/42" :headers {:accept "application/json"}}
               :wire nil :res nil :handler [:user/loaded] :status :issued :phase nil
@@ -119,12 +120,13 @@
                                            reply-keys))
                         [])))
       {:reply-to [:x/reply] :on-success [:x/ok] :on-failure [:x/no]} [:x/reply]
-      {:on-failure [:x/no]}                                        [:x/no]
+      {:on-success nil :on-failure [:x/no]}                        [:x/no]
       {:on-done [:m/done]}                                         [:m/done])))
 
 (deftest http-adapter-failure-record
   (let [fx-ev (fx-handled :rf.http/managed {:request {:method :get :url "/api/x"}
                                             :request-id :req-2
+                                            :on-success nil
                                             :on-failure [:x/failed]})]
     (testing "a same-bundle body-prep failure naming this record's :request-id reddens it"
       (is (= [:error :rf.http/transport]
@@ -150,7 +152,8 @@
                   :effects [(fx-handled :rf.http/managed
                                         {:request    {:method :get :url "/api/search?q=re-frame"}
                                          :request-id :search
-                                         :on-success [:search/loaded]})]
+                                         :on-success [:search/loaded]
+                                         :on-failure nil})]
                   :other   [(http-aborted-ev :search reason)]})
         rec    #(first (h/event-bundle->managed-fx-records (bundle %)))]
     (testing "the `:request-id-superseded` abort a replacement issuance fires at

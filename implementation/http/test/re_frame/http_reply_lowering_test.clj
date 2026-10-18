@@ -98,6 +98,7 @@
       {:fx [[:rf.http/managed
              (cond-> {:request    {:method :get :url url}
                       :decode     :json
+                      :on-success nil
                       :on-failure [:sid/failed]}
                request-id   (assoc :request-id request-id)
                max-attempts (assoc :retry {:on #{:rf.http/http-5xx :rf.http/transport}
@@ -129,7 +130,7 @@
   (let [url "http://127.0.0.1:1/x"]
     (rf/reg-event :sid/call-default-method
       (fn [_ _]
-        {:fx [[:rf.http/managed {:request {:url url} :on-failure [:sid/failed]}]]}))
+        {:fx [[:rf.http/managed {:request {:url url} :on-success nil :on-failure [:sid/failed]}]]}))
     (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
     (rf/dispatch-sync [:sid/call-default-method])
     (is (= {:kind :rf.http/transport :request {:method :get :url url}}
@@ -160,6 +161,7 @@
                    {:request    {:method :get :url url}
                     :request-id :sid/abort
                     :decode     :json
+                    :on-success nil
                     :on-failure [:sid/failed]}]]}))
         (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
         (rf/reg-event :sid/abort! (fn [_ _] {:fx [[:rf.http/managed-abort :sid/abort]]}))
@@ -263,7 +265,8 @@
                  {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
                   :request-id :svc/call
                   :decode     :json
-                  :on-success [:svc/replied]}]]}))
+                  :on-success [:svc/replied]
+                  :on-failure nil}]]}))
       (rf/reg-event :svc/replied
         {:rf.cofx/requires [:rf/time-ms]}
         (fn [{:keys [db] :as coeffects} _]
@@ -298,7 +301,8 @@
           {:fx [[:rf.http/managed
                  {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
                   :decode     :json
-                  :on-success [:svc/replied2]}]]}))
+                  :on-success [:svc/replied2]
+                  :on-failure nil}]]}))
       (rf/reg-event :svc/replied2
         (fn [{:keys [db] :as coeffects} _]
           (reset! cofx coeffects)
