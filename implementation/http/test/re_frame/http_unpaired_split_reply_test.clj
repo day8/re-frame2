@@ -2,8 +2,7 @@
   "Spec 014 §Reply addressing: `:on-success` and `:on-failure` address one
   reply TOGETHER. One supplied without its partner is refused at dispatch with
   `:rf.error/http-bad-reply-target` `:reason :unpaired-split`, before the
-  request issues, so no outcome can be dropped for want of a handler. The live
-  fx and the `with-request-stubs` stand-in refuse the same map identically.
+  request issues, so no outcome can be dropped for want of a handler.
 
   An explicit `nil` is present: it is the deliberate silence, so
   `{:on-success [:a] :on-failure nil}` and `{:reply-to nil}` are accepted, and
@@ -11,7 +10,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.test-support :as rf.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -69,15 +68,7 @@
         (let [traces (capturing (fn [_] (fire! {k [::replied]})))]
           (is (= [[:rf.http/managed refusal]] (refusals traces)))
           (is (empty? (ops traces :rf.http/issued)) "the request never issued")
-          (is (empty? (rf.http.managed/in-flight-snapshot)))))
-      (testing (str k " alone, through with-request-stubs")
-        (let [traces (capturing
-                       (fn [_]
-                         (rf.http.test-support/with-request-stubs
-                           {[:get url] {:reply {:ok {:n 1}}}}
-                           (fn [] (fire! {k [::replied]})))))]
-          (is (= [[:rf.test/managed-http-scope-stub refusal]] (refusals traces)))
-          (is (nil? (replies)) "the stub synthesised no reply"))))))
+          (is (empty? (rf.http.managed/in-flight-snapshot))))))))
 
 (deftest explicit-nil-silence-is-accepted-without-a-warning
   (doseq [[label args] [["{:on-success [..] :on-failure nil}" {:on-success [::replied] :on-failure nil}]
@@ -94,12 +85,14 @@
             "its failure completed")
         (is (nil? (replies)) "and reached no handler")
         (is (empty? (filter #(= :warning (:op-type %)) traces)) "with no warning")))
-    (testing (str label ", through with-request-stubs: a stubbed failure is dropped quietly")
+    (testing (str label ", through a stub transport: a 503 is dropped quietly")
       (let [traces (capturing
                      (fn [_]
-                       (rf.http.test-support/with-request-stubs
-                         {[:get url] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}
+                       (rf.http.stub-transport/with-transport
+                         (rf.http.stub-transport/route-transport {[:get url] {:status 503}})
                          (fn [] (fire! args)))))]
         (is (empty? (refusals traces)))
+        (is (= [:rf.http/http-5xx] (mapv #(get-in % [:tags :error :kind]) (ops traces :rf.http/replied)))
+            "its failure completed")
         (is (nil? (replies)))
         (is (empty? (filter #(= :warning (:op-type %)) traces)))))))

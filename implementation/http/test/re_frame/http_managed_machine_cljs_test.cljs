@@ -1,5 +1,5 @@
 (ns re-frame.http-managed-machine-cljs-test
-  "Spec 014 §Machine-shape wrapper on CLJS, through canned stubs: a `:spawn`
+  "Spec 014 §Machine-shape wrapper on CLJS, through a stub transport: a `:spawn`
   parent and a `:spawn-all` join parent receive the same value from a wrapper
   reply, and a join child never messages its parent directly (Spec 014
   §Multiple wrappers per parent). The JVM round trips are
@@ -11,7 +11,7 @@
             ;; Whichever of these two loads second registers the wrapper.
             [re-frame.machines :as rf.machines]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.test-support :as rf.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.test-support :as rf.test-support]))
 
 ;; `:async? true` — the :spawn-all rows are `async`, and cljs.test aborts a
@@ -28,15 +28,15 @@
 ;; §Child completion protocol), so the wrapper's terminals declare `:final?`.
 
 (defn- stubbed-frame!
-  "An anon frame whose per-frame `:fx-overrides` route `:rf.http/managed` to
-  `stub-fx-id`: the children fire on later ticks, which a per-call override
+  "An anon frame whose managed requests go through `transport`, installed on
+  the frame: the children fire on later ticks, which a `with-transport` scope
   does not reach. The record carries no image generation and is not a
   live-store frame, so its lookups take the plain registrar-atom path and see
-  the stub fx and machines whenever they register."
-  [stub-fx-id]
-  (rf.frame/make-anon-frame-record!
-    {:doc          ":rf.http/managed wrapper children"
-     :fx-overrides {:rf.http/managed stub-fx-id}}))
+  the machines whenever they register."
+  [transport]
+  (let [f (rf.frame/make-anon-frame-record! {:doc ":rf.http/managed wrapper children"})]
+    (rf.http.stub-transport/install-transport! f transport)
+    f))
 
 (defn- snap-in [frame machine-id]
   (get-in (:rf.db/runtime (rf/frame-state-value frame))
@@ -103,16 +103,16 @@
 (deftest spawn-and-spawn-all-parents-receive-the-same-value
   ;; So `:output-key` and the single-:spawn dispatch cannot drift apart.
   (async done
-      (rf.http.test-support/install-managed-request-stubs!
-        {[:get "/api/ok"]  {:reply {:ok {:id 42}}}
-         [:get "/api/bad"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+    (let [transport (rf.http.stub-transport/route-transport
+                      {[:get "/api/ok"]  {:body {:id 42}}
+                       [:get "/api/bad"] {:status 503}})]
       (reg-spawn-parent! :cljs/spawn-ok  "/api/ok")
       (reg-spawn-parent! :cljs/spawn-bad "/api/bad")
       (reg-join-parent!  :cljs/join-ok   :any [(wrapper-child :only "/api/ok")])
       (reg-join-parent!  :cljs/join-bad  :any [(wrapper-child :only "/api/bad")])
       ;; One frame per parent, so the four wrapper children never share an
       ;; actor address.
-      (let [frames (into {} (map (fn [pid] [pid (stubbed-frame! :rf.http/managed-test-stub)]))
+      (let [frames (into {} (map (fn [pid] [pid (stubbed-frame! transport)]))
                          [:cljs/spawn-ok :cljs/spawn-bad :cljs/join-ok :cljs/join-bad])
             ev     (fn [pid] (resolved-event (frames pid) pid))]
         (doseq [[pid f] frames] (rf/dispatch-sync [pid [:go]] {:frame f}))
@@ -131,7 +131,7 @@
                                            (pr-str (into {} (map (fn [[pid f]] [pid (:state (snap-in f pid))])) frames))
                                            " — " (.-message e)))
                       nil))
-            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done)))))))
+            (.then (fn [_] (done))))))))
 
 (deftest join-child-sends-no-succeeded-event-to-its-parent
   ;; The parent also carries the single-:spawn habit `:on {:succeeded … :failed …}`.
@@ -139,14 +139,13 @@
   ;; first child to finish would send [:succeeded value], the parent would leave
   ;; :hydrating on it, and its own join would be torn down.
   (async done
-      (rf.http.test-support/install-managed-request-stubs!
-        {[:get "/api/me"]    {:reply {:ok {:id 42}}}
-         [:get "/api/prefs"] {:reply {:ok {:theme "dark"}}}})
       (reg-join-parent! :cljs/habit :all
                         [(wrapper-child :user "/api/me") (wrapper-child :prefs "/api/prefs")]
                         {:succeeded {:target :decoy :action :record}
                          :failed    {:target :decoy :action :record}})
-      (let [f (stubbed-frame! :rf.http/managed-test-stub)]
+      (let [f (stubbed-frame! (rf.http.stub-transport/route-transport
+                                {[:get "/api/me"]    {:body {:id 42}}
+                                 [:get "/api/prefs"] {:body {:theme "dark"}}}))]
         (rf/dispatch-sync [:cljs/habit [:go]] {:frame f})
         (-> (rf.test-support/poll-until (settled? f :cljs/habit)
                                         {:timeout-ms 2000 :label "habit parent settles"})
@@ -154,4 +153,4 @@
                      (is (= :all-done (first (resolved-event f :cljs/habit)))
                          (str "the parent recorded " (pr-str (resolved-event f :cljs/habit))))))
             (.catch (fn [e] (is false (str "unexpected — " (where-is f :cljs/habit) " — " (.-message e))) nil))
-            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done)))))))
+            (.then (fn [_] (done)))))))
