@@ -466,9 +466,8 @@ fx) whose payloads structurally reveal the redacted value.
 
 Wholesale over *data*, though — not over *policy*. The scrub
 deliberately does NOT reset the user's configured trace retention
-(`(rf/configure! {:trace-buffer {:events-retained N}})`), any frame's
-explicit `:rf.trace/events-retained` override, or the framework's
-hot-reload registration dedup table. Its subject is retained events; the
+(`(rf/configure! {:trace-buffer {:events-retained N}})`) or any frame's
+explicit `:rf.trace/events-retained` override. Its subject is retained events; the
 Buffer tab writes that very retention knob, so a scrub that reset it
 would silently revert the user's own setting (rf2-kuky.54). The
 fixture-grade `re-frame.trace.tooling/clear-trace-rings!`, which *does*

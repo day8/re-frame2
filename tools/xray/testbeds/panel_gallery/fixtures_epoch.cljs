@@ -402,8 +402,8 @@
 
   The trace event also carries `:explain-humanized` —
   the Malli-humanized form of the raw `:explain` map. The substrate
-  populates this slot via the late-bind `:schemas/humanize-explain!`
-  hook (Malli adapter publishes `malli.error/humanize` under it).
+  populates this slot from the validator port's `:humanize` fn (the
+  Malli bundle's is `malli.error/humanize`).
   For fixture-replay tests (which bypass the substrate's
   `emit-validation-failure!` helper) we seed a representative
   humanized shape directly so the violation block demonstrates the

@@ -3372,9 +3372,9 @@ carrying, top to bottom:
    (every nested level visible on first paint; operator must SEE
    the failure detail, not click to discover it). Reads
    `:explain-humanized` from the projected violation row when the
-   substrate's `:schemas/humanize-explain!` late-bind hook is
-   installed (see [spec/010 §Humanize-hook](../../../spec/010-Schemas.md#humanize-hook--operator-readable-explain-payload));
-   falls back to the raw `:explain` map when the hook is absent
+   substrate's validator port carries a `:humanize` fn
+   (see [spec/010 §Humanize-hook](../../../spec/010-Schemas.md#humanize-hook--operator-readable-explain-payload));
+   falls back to the raw `:explain` map when it is absent
    (non-Malli validator, or framework predating rf2-2ek7t). A
    small `expected: / got: (+N more errors)` decomposition row
    (rf2-zn6u5) renders ABOVE the humanized map when the row's

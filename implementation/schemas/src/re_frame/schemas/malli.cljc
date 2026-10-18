@@ -25,13 +25,18 @@
       boot to install a custom validator, or
     - Calls `(schemas/set-schema-fns! {:validate nil})` for a hard no-op.
 
+  Either install also drops the bundle's `:compile`, so Malli no longer
+  checks schemas at registration.
+
   `:validate` compiles each schema once. `malli.core/validate` builds a
   fresh validator on every call, which costs more than the check itself, so
   the bundle keeps each compiled validator in a cache keyed WEAKLY on the
   schema value: an entry lives exactly as long as something else holds its
   schema — in practice the registration that declared it — and installing a
   different `:validate` leaves the cache to the collector with the bundle
-  that owns it. Nothing needs configuring or clearing.
+  that owns it. Nothing needs configuring or clearing. `:compile` compiles
+  into the same cache, so development registration rejects a malformed
+  schema at the call that wrote it and warms the validator it will use.
 
   `malli.error` is the one Malli namespace this adapter keeps off the
   production path. The framework's only reader of the humanizer is the
@@ -59,8 +64,7 @@
   (:require [malli.core]
             [malli.error]
             #?(:cljs [malli.transform])
-            [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]))
+            [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -96,10 +100,13 @@
           v))))
 
 (defn- bundle-over
-  "The Malli bundle whose `:validate` compiles through `cache`."
+  "The Malli bundle whose `:validate` and `:compile` compile through `cache`."
   [cache]
   {:validate (fn validate [schema value]
                ((cached-validator cache schema) value))
+   :compile  (fn compile-schema [schema]
+               (cached-validator cache schema)
+               nil)
    :explain  malli.core/explain
    :humanize (when rf.interop/debug-enabled? malli.error/humanize)})
 
@@ -109,20 +116,7 @@
   with its EDN schema printer as `default-schema-fns`.
 
     {:validate (fn [schema value] truthy?)   ;; cached compiled validators
+     :compile  (fn [schema] nil)             ;; compiles into the cache; throws if malformed
      :explain  malli.core/explain
      :humanize malli.error/humanize}         ;; development builds; nil in production"
   (bundle-over (weak-cache)))
-
-;; ---- late-bind publication ------------------------------------------------
-;;
-;; The same functions are also published under late-bind keys, which the
-;; late-bind directory and the schemas-bundle gate both name. The bundle above
-;; is what validation reads.
-
-(rf.late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
-(rf.late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
-
-;; Development only, so a production build keeps no reference to
-;; `malli.error`: `:advanced` + `goog.DEBUG=false` folds the form away.
-(when rf.interop/debug-enabled?
-  (rf.late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize))

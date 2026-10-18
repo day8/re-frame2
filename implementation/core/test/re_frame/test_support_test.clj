@@ -86,7 +86,6 @@
    :fx/reset-dispatch-later-timers!   1
    :routing/reset-counters!           1
    :routing/reset-nav-counters!       1
-   :routing/reset-url-claims!         1
    :routing/reset-url-listener!       1
    :resources/reset-resources!        1
    :http/clear-all-in-flight!         1

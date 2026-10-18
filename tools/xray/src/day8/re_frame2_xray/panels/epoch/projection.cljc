@@ -2716,12 +2716,12 @@
              :value              (let [v (:value tags)]
                                    (if (some? v) v (:mismatching-value tags)))
              :explain            (:explain tags)
-             ;; When the substrate's humanize hook is
-             ;; installed (Malli adapter ships malli.error/humanize
-             ;; under :schemas/humanize-explain!), the trace event
+             ;; When the substrate's validator port carries a
+             ;; `:humanize` fn (the Malli bundle's is
+             ;; malli.error/humanize, in development), the trace event
              ;; carries a humanized version of the explain map.
              ;; View prefers this for display; falls back to :explain
-             ;; when absent (non-Malli validators, or no hook installed).
+             ;; when absent (a port without a humanizer, or production).
              :explain-humanized  (:explain-humanized tags)
              :rollback?          (boolean (:rollback? tags))
              :recovery           (:recovery tags)

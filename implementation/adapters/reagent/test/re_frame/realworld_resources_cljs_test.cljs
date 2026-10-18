@@ -171,10 +171,10 @@
                     {:frame frame}))
 
 (defn- app-frame!
+  "An app frame beside the fixture's `:rf/default`, which owns the URL."
   []
   (rf.frame/make-anon-frame-record!
-    {:url-bound?   true
-     :fx-overrides {:rf.nav/push-url :rf/no-op
+    {:fx-overrides {:rf.nav/push-url :rf/no-op
                     :realworld-resources.session/persist :rf/no-op}}))
 
 (defn- auth-frame!
@@ -838,8 +838,7 @@
 
 (defn- production-seam-frame! []
   (rf.frame/make-anon-frame-record!
-    {:url-bound?   true
-     :fx-overrides {:rf.http/managed                     :realworld-resources.demo/http-stub
+    {:fx-overrides {:rf.http/managed                     :realworld-resources.demo/http-stub
                     :rf.nav/push-url                     :rf/no-op
                     :realworld-resources.session/persist :rf/no-op}}))
 

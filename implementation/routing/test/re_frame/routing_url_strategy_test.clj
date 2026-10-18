@@ -98,7 +98,8 @@
   (testing "declaring :url-strategy while the :routing/preflight-frame-config!
             hook is unpublished fails loud and seats no frame — storing a
             strategy nobody can validate is worse than a dependency error"
-    (try
+    (let [preflight (rf.late-bind/get-fn :routing/preflight-frame-config!)]
+     (try
       (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
       (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :ktmto9/no-artefact}
              (select-keys (thrown-data #(rf.frame/upsert-frame! :ktmto9/no-artefact
@@ -107,8 +108,25 @@
                           [:rf.error/id :frame])))
       (is (nil? (rf.frame/frame-meta :ktmto9/no-artefact)))
       (finally
-        (rf.late-bind/set-fn! :routing/preflight-frame-config!
-                              rf.routing.strategy/preflight-frame-config!)))))
+        (rf.late-bind/set-fn! :routing/preflight-frame-config! preflight))))))
+
+(deftest make-frame-url-bound-without-routing-artefact-fails-loud
+  (testing "declaring :url-bound? true while the :routing/preflight-frame-config!
+            hook is unpublished fails loud and seats no frame — the one-owner
+            check cannot run — while :url-bound? false still registers"
+    (let [preflight (rf.late-bind/get-fn :routing/preflight-frame-config!)]
+      (try
+        (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
+        (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :m6reb/early-owner}
+               (select-keys (thrown-data #(rf.frame/upsert-frame! :m6reb/early-owner
+                                                                  {:url-bound? true}))
+                            [:rf.error/id :frame])))
+        (is (nil? (rf.frame/frame-meta :m6reb/early-owner)))
+        (rf.frame/upsert-frame! :m6reb/early-plain {:url-bound? false})
+        (is (false? (:url-bound? (rf.frame/frame-meta :m6reb/early-plain))))
+        (finally
+          (rf.late-bind/set-fn! :routing/preflight-frame-config! preflight)
+          (rf.frame/destroy-frame! :m6reb/early-plain))))))
 
 (deftest url-strategy-for-an-unregistered-frame-is-the-history-default
   ;; A declared, an undeclared and a nil frame are the route-link SSR parity

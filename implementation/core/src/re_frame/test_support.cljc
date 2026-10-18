@@ -337,15 +337,6 @@
                                        them; without this a prior test's
                                        counter leaks and the nav-N / pn-N
                                        id assertions drift.
-    :routing/reset-url-claims!       — reset the process-global URL-ownership
-                                       claim-order vector
-                                       (re-frame.routing.nav-fx/url-claim-order).
-                                       Like the nav-counters it is process-
-                                       global state the `frames` reset does not
-                                       touch; without this a prior test's
-                                       :url-bound? claim leaks and the
-                                       first-claimed-incumbent ownership
-                                       resolution drifts across tests.
     :routing/reset-url-listener!     — tear down the browser URL-change
                                        listener a `:url-bound? true` frame's
                                        lifecycle installed. The
@@ -409,7 +400,6 @@
    {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}
-   {:hook :routing/reset-url-claims!       :phase :post-dispose}
    {:hook :routing/reset-url-listener!     :phase :post-dispose}
    {:hook :resources/reset-resources!      :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}

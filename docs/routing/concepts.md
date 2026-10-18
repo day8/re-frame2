@@ -523,7 +523,7 @@ nothing on the server.
 | A navigation from a callback raises `:rf.error/no-frame-context` | A bare `rf/dispatch` has no frame | Return navigation from a handler's `:fx` |
 | Entry or leave always fails with a non-boolean guard error | The guard returns a user map or `nil` | Return `true` or `false`, for example `(some? user)` |
 | Back and the address bar do not follow the route | No frame owns the URL | Set `:url-bound? true` on the app frame |
-| `:rf.error/duplicate-url-binding` is reported | Two frames request the address bar | Keep one URL-bound frame |
+| `make-frame` throws `:rf.error/duplicate-url-binding` | A second frame requests the address bar while another owns it | Keep one URL-bound frame; to hand the URL over, destroy the owner or re-register it without the flag first |
 
 The [routing reference](../api/re-frame.routing.md) documents registration and
 request failures. Loader failures are covered with their
@@ -572,10 +572,9 @@ browser, and only one of them owns it:
   navigation in any other frame changes that frame's route slice and nothing else.
 - **Inbound.** Back and Forward dispatch `:rf.route/handle-url-change` to the owner,
   looked up at the moment of the press.
-- **Conflicts.** A second `:url-bound? true` frame emits
-  `:rf.error/duplicate-url-binding` and doesn't take over: the first frame to claim the
-  URL keeps it. Destroy the owner, or re-register it without the flag, and ownership
-  passes to the next claimant.
+- **Conflicts.** Creating a second `:url-bound? true` frame throws
+  `:rf.error/duplicate-url-binding`, and nothing is created. Destroy the owner, or
+  re-register it without the flag, and no frame owns the URL until another declares it.
 
 `(rf.routing/url-owner-frame-id)` returns the owner's id, or `nil` when no frame is
 URL-bound, in which case URL pushes do nothing and Back/Forward is ignored.

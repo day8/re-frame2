@@ -126,58 +126,41 @@
 ;; URL ownership and the listener lifecycle
 ;; =========================================================================
 
-(deftest popstate-targets-incumbent-after-earlier-sorting-duplicate-cljs
-  (testing "a :url-bound? true duplicate whose id sorts before the incumbent
-            (:aaa-early < :rf/default) steals neither direction: its own
-            navigation updates its slice but pushes nothing, and Back drives
-            the incumbent"
+(deftest a-refused-second-owner-leaves-the-listener-cljs
+  (testing "a second :url-bound? true frame is refused at the preflight, so
+            the owner's listener instance stays, alone"
     (register-routes!)
-    (rf/make-frame {:id :aaa-early :url-bound? true})
-    (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :aaa-early})
-    (is (= ["/"] (:entries @*history-state*))
-        "the duplicate's navigation pushed nothing")
-    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/navigate {:url "/checkout"}])
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= [:hist/cart :hist/checkout] [(route-id :rf/default) (route-id :aaa-early)])
-        "Back restored the incumbent's slice; the duplicate keeps its own route")))
+    (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
+      (is (= :rf.error/duplicate-url-binding
+             (:rf.error/id (ex-data (try (rf/make-frame {:id :aaa-early :url-bound? true})
+                                         nil
+                                         (catch :default e e))))))
+      (is (nil? (rf.frame/frame-meta :aaa-early)))
+      (is (= [incumbent] (get-in @*history-state* [:listeners "popstate"]))))))
 
-(deftest url-ownership-transfer-on-destroy-rebinds-listener-cljs-rf2-3fc89f-11
-  (testing "destroying the URL owner rebinds the listener to the live
-            successor claimant: still exactly one popstate listener, and Back
-            drives the successor"
-    (rf/reg-route :hist/home     {} "/")
-    (rf/reg-route :hist/cart     {} "/cart")
-    (rf/reg-route :hist/checkout {} "/checkout")
+(deftest destroying-the-owner-removes-the-listener-cljs
+  (testing "destroying the URL owner leaves no owner, so no listener"
+    (rf/reg-route :hist/home {} "/")
     (rf/make-frame {:id :owner/a :url-bound? true})
-    (rf/make-frame {:id :owner/b :url-bound? true})   ;; a later claimant, ordered after A
-    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
-        "the losing claimant's registration stacked no second listener")
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
     (rf/destroy-frame! :owner/a)
-    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
-        "exactly one popstate listener remains, rebound to B (not zero)")
-    (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}]     {:frame :owner/b})
-    (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :owner/b})
-    (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
-        "B, the new owner, drives pushState")
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (route-id :owner/b))
-        "Back drives B's slice through the rebound listener")))
+    (is (nil? (rf.routing/url-owner-frame-id)))
+    (is (empty? (get-in @*history-state* [:listeners "popstate"])))))
 
-(deftest url-ownership-transfer-on-reregistration-cross-strategy-cljs-rf2-3fc89f-11
+(deftest url-ownership-handoff-cross-strategy-cljs-rf2-3fc89f-11
   (testing "when the history owner opts out by re-registering :url-bound?
-            false while a hash claimant B remains, the listener rebinds to B's
-            hashchange without B re-registering"
+            false, its popstate comes down; a hash frame then declaring the
+            binding installs exactly one hashchange"
     (rf/reg-route :hist/home   {} "/")
     (rf/reg-route :hist/active {} "/active")
     (rf/make-frame {:id :owner/a :url-bound? true})
-    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy rf.routing/hash-url-strategy})
     (rf/make-frame {:id :owner/a :url-bound? false})
+    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+        "A's popstate is torn down")
+    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy rf.routing/hash-url-strategy})
     (is (= [0 1] [(count (get-in @*history-state* [:listeners "popstate"]))
                   (count (get-in @*history-state* [:listeners "hashchange"]))])
-        "A's popstate is torn down and exactly one hashchange installed")
+        "exactly one hashchange installed")
     (.pushState js/globalThis.window.history nil "" "#/active")
     (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
     (is (= :hist/active (route-id :owner/b))
@@ -194,11 +177,11 @@
         "rewired once, not stacked")))
 
 (deftest destroying-non-owner-leaves-incumbent-listener-untouched-cljs-rf2-3fc89f-11
-  (testing "destroying a non-owner claimant leaves the owner's listener
+  (testing "destroying a non-owner frame leaves the owner's listener
             instance in place: no tear-down and reinstall, no stacking"
     (rf/reg-route :hist/home {} "/")
     (rf/make-frame {:id :owner/a :url-bound? true})
-    (rf/make-frame {:id :owner/b :url-bound? true})   ;; a losing duplicate
+    (rf/make-frame {:id :owner/b})
     (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
       (rf/destroy-frame! :owner/b)
       (is (= [incumbent] (get-in @*history-state* [:listeners "popstate"]))))))

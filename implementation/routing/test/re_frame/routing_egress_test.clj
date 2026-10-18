@@ -249,7 +249,6 @@
   (rf.routing/reset-counters!)
   (rf.routing/reset-scroll-cache!)
   (rf.routing/reset-nav-counters!)
-  (rf.routing/reset-url-claims!)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Inverse-load-order default app frame (explicit URL owner)."}))
 

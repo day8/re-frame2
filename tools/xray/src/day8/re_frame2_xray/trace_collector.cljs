@@ -418,9 +418,8 @@
 ;; The framework clear is the 0-arity DATA clear, not the fixture-grade
 ;; `clear-trace-rings!`. The scrub's subject is retained
 ;; *events*; it deliberately does NOT reset the user's configured
-;; `(rf/configure! {:trace-buffer {:events-retained N}})` retention, any
-;; frame's explicit override, or the hot-reload registration dedup table —
-;; the Settings popup writes that very retention knob, so a scrub that reset
+;; `(rf/configure! {:trace-buffer {:events-retained N}})` retention or any
+;; frame's explicit override — the Settings popup writes that very retention knob, so a scrub that reset
 ;; it would silently revert the user's own setting.
 
 (defn retroactive-scrub!

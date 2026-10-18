@@ -44,7 +44,11 @@
            (verdict-and-malformed-emit
              #(rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema schema})))
         "event / fx / sub surfaces")
-    (rf/reg-app-schema [:root] schema)
+    ;; registered with the port's :compile off, which would refuse it
+    (let [installed (rf.schemas/schema-fns)]
+      (rf.schemas/set-schema-fns! {:compile nil})
+      (rf/reg-app-schema [:root] schema)
+      (rf.schemas/set-schema-fns! installed))
     (is (= [false true]
            (verdict-and-malformed-emit
              #(rf.schemas/validate-app-schema! {:root {:anything 1}} :root/bad)))

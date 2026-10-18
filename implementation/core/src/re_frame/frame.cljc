@@ -3004,9 +3004,9 @@
   `fire-frame-registered-hook!` consults, in the order it consults them. A
   literal vector, so the order is the contract rather than a map's accident.
 
-  Routing is FIRST and stays first: its body maintains the `:url-bound?`
-  exclusivity check + URL-ownership claim order, which anything reading URL
-  ownership downstream depends on. Resources is second — a frame's
+  Routing is FIRST and stays first: its body reconciles the URL owner's
+  browser listener, which anything reading URL ownership downstream depends
+  on. Resources is second — a frame's
   `:revalidate-on` host focus/reconnect listeners are reconciled against the
   frame's committed config."
   [:routing/on-frame-registered!
@@ -3026,11 +3026,9 @@
   `registrar/register!` (the frames registry is the one store),
   so there is no registrar registration hook for frames.
 
-  Consumed by routing (`:routing/on-frame-registered!` — maintains the
-  `:url-bound?` exclusivity check + URL-ownership claim order on BOTH hosts,
-  then installs/rewires the CLJS URL-change listener when the (re-)registered
-  frame is the resolved URL owner; a losing duplicate `:url-bound? true`
-  registration is a no-op) and by resources
+  Consumed by routing (`:routing/on-frame-registered!` — installs/rewires the
+  CLJS URL-change listener when the (re-)registered frame is the URL owner,
+  and tears it down when the owner opts out) and by resources
   (`:resources/on-frame-registered!` — reconciles the frame's
   `:revalidate-on` host focus/reconnect listeners, replace-don't-stack, and
   removes them when a re-registration drops the key). Not wrapped in
@@ -3316,38 +3314,40 @@
                          (validate id config))
         ;; Routing-owned frame-config PREFLIGHT at the frame-config
         ;; COMMIT chokepoint. The routing artefact validates an explicitly-
-        ;; declared `:url-strategy` (shape + host-required callable legs) against
+        ;; declared `:url-strategy` (shape + host-required callable legs), and
+        ;; refuses a second live `:url-bound? true` frame, against
         ;; the FINAL expanded config — here, alongside the other pure preflights,
         ;; BEFORE the record build, the trace-policy
         ;; writes, the `frames` swap, the `:initial-events` setup dispatch, and
         ;; any trace emit. So a malformed declaration fails with ZERO residue on
         ;; a first registration, and a failed RE-registration preserves every
-        ;; previously committed value (config, generation, URL listener, claim
-        ;; order) and emits no `:rf.frame/re-registered`. Routing owns the
+        ;; previously committed value (config, generation, URL listener) and
+        ;; emits no `:rf.frame/re-registered`. Routing owns the
         ;; MEANING (presence semantics: an ABSENT `:url-strategy` is a no-op —
         ;; omission alone selects the default; a PRESENT key, including explicit
         ;; nil, must be a valid strategy map); core owns the TIMING. Late-bound
         ;; because core must not require the optional routing artefact (bundle
         ;; isolation). When the hook is UNPUBLISHED but the config declares
-        ;; `:url-strategy`, fail loud — storing a strategy nobody can validate
-        ;; or execute is worse than a dependency error (it would only fail
-        ;; later, deep in a consult point). A `:url-bound?`-only config with no
-        ;; `:url-strategy` key stays registrable before routing loads (the
-        ;; late-load case).
+        ;; `:url-strategy` or `:url-bound? true`, fail loud — storing a
+        ;; declaration nobody can check is worse than a dependency error: a
+        ;; strategy would only fail later, deep in a consult point, and a
+        ;; binding would skip the one-owner check.
         _              (if-let [preflight-routing! (rf.late-bind/get-fn
                                                     :routing/preflight-frame-config!)]
                          (preflight-routing! id config)
-                         (when (contains? config :url-strategy)
+                         (when-let [declared (cond
+                                               (contains? config :url-strategy) :url-strategy
+                                               (true? (:url-bound? config))     :url-bound?)]
                            (rf.error/throw-error!
                              :rf.error/routing-artefact-missing
                              'rf/make-frame
                              (let [{maven      :maven
                                     require-ns :require} (:routing rf.features/feature-registry)]
-                               (str "this frame config declares :url-strategy, which "
+                               (str "this frame config declares " declared ", which "
                                     "requires " maven " on the classpath; "
                                     "add it to deps and require " require-ns " at app "
-                                    "boot, BEFORE the frame is constructed, so the "
-                                    "strategy can be validated at registration time."))
+                                    "boot, BEFORE the frame is constructed, so routing "
+                                    "can check it at registration time."))
                              {:extra {:frame id}})))
         ;; The resources-owned `:revalidate-on` frame-config key
         ;; (the focus/reconnect host listeners the frame lifecycle installs) is

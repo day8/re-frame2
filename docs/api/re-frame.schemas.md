@@ -47,7 +47,7 @@ The four checks in the table, and the flow, machine and `:sub-override` checks, 
 - **The always-on `:errors` record.** Two failures are also reported on the always-on `:errors` stream, so they reach the frame's `:observability :errors` sinks, or the browser console when no sink handles them. Neither record carries the failing value:
     - An `app-db` rejection's record carries `:error`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the leaf path or the schema.
     - A [`:boundary? true`](#validation-in-production) event's failure sends a record with a fixed key set: `:error`, `:where`, `:source :boundary`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery` and `:time`.
-- **A malformed schema.** A schema form is not checked when it is registered. A malformed one, such as a childless `[:vector]` or an unknown operator, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
+- **A malformed schema.** In development builds `reg-app-schema` and `reg-app-schemas` compile each schema through the bundle's `:compile` and throw on a malformed one, such as a childless `[:vector]` or an unknown operator. A malformed schema that registers anyway, under a bundle with no `:compile` or as a `:schema` on another registration, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
 - **Redaction.** When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers). These props change only what the validation-failure trace carries, except on a managed-HTTP request's `:decode` schema, whose props also classify the response body ([Response-body classification](re-frame.http.md#response-body-classification)). They do not classify `app-db`, a machine's `:data` or a resource's cached data, and a `:sensitive?` slot in a resource's `:data-schema` redacts nothing, because that schema is never run. [Where to declare, by owner](../core/how-to/keep-secrets-out-of-traces.md#where-to-declare-by-owner) says where each kind of data is classified.
 
 Event, effect and subscription failures appear only in the trace, so without Xray, tap the trace yourself:
@@ -210,21 +210,21 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 
 ## Validator bundle
 
-The default validator is Malli's `validate` / `explain` pair, with Malli's humanizer in development builds, plus an EDN printer that canonicalises schemas for the digest. The default `:validate` compiles each schema once and keeps the compiled validator only while the schema itself is alive, so there is nothing to configure or clear. To use a different schema library, install your own bundle: one map whose `:validate` decides whether a value is valid, `:explain` describes a failure, `:humanize` turns that description into readable messages, and `:print` gives each schema a stable canonical string for the digest. `set-schema-fns!` installs a bundle, `schema-fns` reads the installed one, and `default-schema-fns` is the framework's own. See [Swap the validator](../core/how-to/validate-with-schemas.md#swap-the-validator-malli-is-the-default).
+The default validator is Malli's `validate` / `explain` pair, with Malli's humanizer in development builds, plus an EDN printer that canonicalises schemas for the digest. The default `:validate` compiles each schema once and keeps the compiled validator only while the schema itself is alive, so there is nothing to configure or clear. To use a different schema library, install your own bundle: one map whose `:validate` decides whether a value is valid, `:explain` describes a failure, `:humanize` turns that description into readable messages, `:compile` checks a schema when it is registered, and `:print` gives each schema a stable canonical string for the digest. `set-schema-fns!` installs a bundle, `schema-fns` reads the installed one, and `default-schema-fns` is the framework's own. See [Swap the validator](../core/how-to/validate-with-schemas.md#swap-the-validator-malli-is-the-default).
 
 ### `set-schema-fns!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (set-schema-fns! {:validate validate-fn :explain explain-fn :humanize humanize-fn :print print-fn}) → {:validate … :explain … :humanize … :print …}
+  (set-schema-fns! {:validate validate-fn :explain explain-fn :humanize humanize-fn :compile compile-fn :print print-fn}) → {:validate … :explain … :humanize … :compile … :print …}
   ```
-- **Description**: Installs any subset of the validator, explainer, humanizer and printer from one map. It is the only way to change them.
-    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate`, `:explain` or `:humanize` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
+- **Description**: Installs any subset of the validator, explainer, humanizer, compiler and printer from one map. It is the only way to change them.
+    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. The one exception is `:compile`: a call that installs `:validate` and names no `:compile` clears it, because a compiler belongs to the validator it compiles for. An explicit `nil` is a write: `nil` `:validate`, `:explain`, `:humanize` or `:compile` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
     - A `nil` `:print` falls back to the default EDN canonicaliser, so the digest always has a printer.
-    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `humanize-fn` is `(fn [explanation] readable)`, the `malli.error/humanize` shape, and fills a failure trace's `:explain-humanized`. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
+    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `humanize-fn` is `(fn [explanation] readable)`, the `malli.error/humanize` shape, and fills a failure trace's `:explain-humanized`. `compile-fn` is `(fn [schema] _)`: development-build `reg-app-schema` and `reg-app-schemas` call it before registering, so a malformed schema throws there; its return is ignored. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
     - Last write wins per key; a call is not transactional.
-    - Returns the installed bundle `{:validate … :explain … :humanize … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
+    - Returns the installed bundle `{:validate … :explain … :humanize … :compile … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
     - Install them in one call at boot so they never disagree mid-boot. The same call restores a saved bundle: pass it a value from `schema-fns` or `default-schema-fns`.
 - **Example**:
   ```clojure
@@ -238,7 +238,8 @@ The default validator is Malli's `validate` / `explain` pair, with Malli's human
   ;; a non-Malli port registers its own canonical schema serialiser
   (schemas/set-schema-fns! {:print (fn [schema] (pr-str schema))})
 
-  ;; nil turns validation off everywhere, :boundary? checks included
+  ;; nil turns validation off everywhere, :boundary? checks included,
+  ;; and clears :compile, so registration checks nothing either
   (schemas/set-schema-fns! {:validate nil})
   ```
 
@@ -247,11 +248,11 @@ The default validator is Malli's `validate` / `explain` pair, with Malli's human
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (schema-fns) → {:validate fn|nil :explain fn|nil :humanize fn|nil :print fn}
+  (schema-fns) → {:validate fn|nil :explain fn|nil :humanize fn|nil :compile fn|nil :print fn}
   ```
-- **Description**: Returns the installed validator, explainer, humanizer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
+- **Description**: Returns the installed validator, explainer, humanizer, compiler and printer as one map, in the shape `set-schema-fns!` accepts and returns.
     - `(set-schema-fns! (schema-fns))` changes nothing.
-    - `:validate`, `:explain` and `:humanize` may be `nil`; `:print` never is.
+    - `:validate`, `:explain`, `:humanize` and `:compile` may be `nil`; `:print` never is.
     - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. Registered schemas are registrar state, so `re-frame.test-support`'s registrar snapshot restores them after each test, and its reset clears them for the test's length.
 - **Example**:
   ```clojure
@@ -269,11 +270,11 @@ The default validator is Malli's `validate` / `explain` pair, with Malli's human
 - **Kind**: var
 - **Signature**:
   ```clojure
-  default-schema-fns → {:validate fn :explain fn :humanize fn|nil :print fn}
+  default-schema-fns → {:validate fn :explain fn :humanize fn|nil :compile fn :print fn}
   ```
 - **Description**: The framework's own bundle: the map installed before an app installs anything.
     - `(set-schema-fns! default-schema-fns)` restores the defaults.
-    - `:validate` and `:explain` call Malli, `:validate` compiling each schema once. `:humanize` is Malli's humanizer in development builds and `nil` in production. `:print` is the framework's EDN canonicaliser, which Malli does not supply.
+    - `:validate` and `:explain` call Malli, `:validate` compiling each schema once and `:compile` compiling into the same cache. `:humanize` is Malli's humanizer in development builds and `nil` in production. `:print` is the framework's EDN canonicaliser, which Malli does not supply.
 - **Example**:
   ```clojure
   ;; restore the framework defaults after a test swapped them out

@@ -10,6 +10,7 @@
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -101,6 +102,9 @@
     (is (empty? (violations #(rf/reg-app-schema [:missing] :int))))))
 
 (deftest violation-fires-when-the-prior-registered-schema-token-is-nil
+  ;; the token is opaque to the default Malli compiler, so registration
+  ;; skips the compile here
+  (rf.schemas/set-schema-fns! {:compile nil})
   (testing "a registered nil token is a real prior declaration — presence of
             the registry entry, not truthiness of its token — so replacing it
             is a schema change"
