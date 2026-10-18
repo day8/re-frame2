@@ -63,7 +63,7 @@
     4. the payload built out of the FRAMEWORK'S OWN BYTES —
        `rf.ssr.payload-policy/apply-policy` (the fail-closed `:payload`
        contract), `project-app-db-egress`, `build-payload`, and
-       `html-helpers/escape-edn-script-body` under the pinned
+       `html-helpers/payload-script-tag` under the pinned
        `__rf_payload` script id. Nothing Fresco-specific touches the
        payload path (R0); this namespace supplies the app-db and gets out
        of the way;
@@ -149,7 +149,6 @@
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.core :as rf]
-            [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             ["react-dom/server" :as rdom-server]))
@@ -186,21 +185,14 @@
 
 (defn payload-script
   "The id-pinned `<script type=\"application/edn\">` carrying the
-  already-`pr-str`'d hydration payload.
-
-  Byte-for-byte the shape `re-frame.ssr.ring.shell/payload-script-tag`
-  emits, and it must stay that way: the id is
-  `re-frame.ssr.constants/payload-script-id` (the contract with the
-  client bootstrap's `getElementById` read) and the body goes through the
-  framework's EDN-aware escaper, which keeps `<` readable in token
-  position, escapes it inside string literals, and fails loud on a
-  genuine `</script` breakout. That namespace is JVM-only, so the three
-  lines are re-spelled here rather than required; the two CONSTANTS they
-  are made of are shared, which is the part that could drift."
+  already-`pr-str`'d hydration payload: `re-frame.ssr.html-helpers/
+  payload-script-tag`, the one definition the Ring shell and Fresco's
+  server write through too, so the id
+  (`re-frame.ssr.constants/payload-script-id`, the client bootstrap's
+  `getElementById` contract) and the EDN-aware escaping are the same
+  bytes on every host."
   [payload-edn]
-  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
-       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
-       "</script>"))
+  (rf.ssr.html-helpers/payload-script-tag payload-edn))
 
 (defn document
   "One page. The payload script follows the app root's close and the
