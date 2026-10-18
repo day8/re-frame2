@@ -800,8 +800,7 @@
    Every row's tier is one of these: projections select rows by exact tier
    (docs/api coverage takes four of them), so a tier outside the set would
    drop its var out of them silently. `bad-classification-rows` refuses one."
-  [:front-porch :advanced :tooling :adapter :testing :internal-public
-   :implementation :deprecated])
+  [:front-porch :advanced :tooling :adapter :testing :implementation])
 
 (def facade-action-vocab
   "The CLOSED placement-verdict vocabulary of the facade audit, owned by
@@ -939,8 +938,7 @@
    fire on the SURFACE — the var leaves the facade for its owning namespace,
    where the generator does not row it — so a row of this shape is a
    contradiction to refuse at generation, exactly as `duplicate-rows` refuses
-   two rows for one var. `:internal-public` is deliberately NOT in scope: that
-   tier is a supported host/tool embed seam, not an internal one."
+   two rows for one var."
   [rows]
   (->> rows
        (filter #(and (:facade? %) (= :implementation (:tier %))))

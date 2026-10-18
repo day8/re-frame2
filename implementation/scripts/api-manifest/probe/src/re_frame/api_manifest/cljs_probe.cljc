@@ -57,7 +57,7 @@
 
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
-  spec/API.md tiers the Xray `mount-*!` family `internal-public` (the
+  spec/API.md tiers the Xray `mount-*!` family `tooling` (the
   supported host-embed surface), the panel-leaf `Panel` reg-views
   `implementation` (exported only so the shell composes them),
   and declares the panel-helper functions beneath them \"otherwise

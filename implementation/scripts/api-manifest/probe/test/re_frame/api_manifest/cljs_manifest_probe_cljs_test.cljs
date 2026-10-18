@@ -51,12 +51,12 @@
     documented vars, not enumerated surfaces.
   - The rest of the Xray public surface — curated subsets
     (direction 1
-    only). spec/API.md tiers the Xray surfaces `internal-public` (the
+    only). spec/API.md tiers the Xray surfaces `tooling` (the
     `mount` shell lifecycle + the `panels` `mount-<panel>!` family — the
-    supported host-embed surface), `implementation` (the panel-leaf `Panel`
-    reg-views, exported only so the shell composes them — NOT host-facing)
-    and `tooling` (the `config` published constants, the
-    `open-in-editor` chip), with the rest
+    supported host-embed surface — and the `config` published constants and
+    the `open-in-editor` chip) and `implementation` (the panel-leaf `Panel`
+    reg-views, exported only so the shell composes them — NOT host-facing),
+    with the rest
     \"otherwise unrowed-internal\". The probe checks EXISTENCE, not tier, so
     these tiers do not affect it. So only the rowed
     vars are verified to still resolve (a var renamed / removed under a
