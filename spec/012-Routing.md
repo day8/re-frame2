@@ -102,7 +102,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime URL-change event `:rf.route/handle-url-change`, which carries a full route transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from that runtime event.
 - `:rf.route/prefetched` — the single summary trace a `:rf.route/prefetch` emits once per warm-mode preload (see [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload)). Carries `:tags {:route-id <destination-id> :warmed <n> :frame <dispatching-frame>}` — `:warmed` is the count of unique effective-plan requirements run through Resources in warm mode (`0` when Resources is absent or the plan is empty). A planning failure additionally sets `:plan-error true`; the underlying resource plan / ensure traces carry `:plan-cause :prefetch` and no nav-token (per [016 §Route integration](016-Resources.md#route-integration)). It is **not** an activation trace: no `:rf.route/activated` / `:rf.route.nav-token/allocated` pair fires for a prefetch.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation; a resumable leave-only pending value was written. Carries `:tags {:requested-url :rejecting-route :rejecting-guard :cause :phase :can-leave :frame}`.
-- `:rf.route/entry-denied` — `:can-enter` guard rejected a navigation. TERMINAL: nothing committed, no pending value written. Carries `:tags {:requested-url :rejecting-route :rejecting-guard :cause :phase :can-enter :frame}`.
+- `:rf.route/entry-denied` — `:can-enter` guard rejected a navigation. TERMINAL: nothing committed, no pending value written. Carries `:tags {:requested-url :rejecting-route :rejecting-guard :cause :phase :can-enter :frame}`; `:rejecting-route` is the route on the target's `:parent` chain whose guard denied ([§Guards compose down the `:parent` chain](#guards-compose-down-the-parent-chain)).
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/can-enter-non-boolean` — `:can-enter` sub returned a non-boolean value; the runtime DENIED the entry. Closed contract mirror of `:rf.error/can-leave-non-boolean`.
 - `:rf.error/duplicate-url-binding` — a frame declared `:url-bound? true` while another live frame owns the URL; thrown at registration.
@@ -292,7 +292,7 @@ Thirteen rows for twelve metadata keys: the `:path` row is the third positional 
 | `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
 | `:on-match` | lifecycle | vector of event vectors | Events the runtime **fires-and-forgets**, in order, after a *successful* full activation (server- and client-side), each with the activation target `{:route-id :params :query :fragment :url :nav-token}` appended as its last argument; a committed planning-failure target dispatches none of them. It never drives route readiness or awaits async tails. Any other shape, a single event vector included, is refused at registration ([§Authoring-boundary key validation](#authoring-boundary-key-validation)). See "Per-route data loading". |
 | `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **away from** this route. The sub receives the pending target as an argument (`(fn [inputs [_ target] …])`). **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
-| `:can-enter` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **into** this route. The sub receives the resolved target as an argument. **Strict contract**: `true` allows, `false` denies, any other value denies AND emits `:rf.error/can-enter-non-boolean`. Denial is **terminal** — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [§Entry is terminal](#entry-is-terminal). |
+| `:can-enter` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **into** this route. The sub receives the resolved target as an argument. **Strict contract**: `true` allows, `false` denies, any other value denies AND emits `:rf.error/can-enter-non-boolean`. **Composes down the `:parent` chain**: entering a route consults every ancestor's `:can-enter` first, parent-most first, and the first `false` denies — so a guard on a parent protects its whole branch ([§Guards compose down the `:parent` chain](#guards-compose-down-the-parent-chain)). Denial is **terminal** — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [§Entry is terminal](#entry-is-terminal). |
 | `:scroll` | layout | enum | Declarative scroll behaviour on entering this route — `:top` / `:restore` / `:preserve`, or `false` to suppress the effect. Closed vocabulary, checked at registration. See "Scroll restoration". |
 | `:sensitive` | classification | vector of projection-relative paths | Data classification. Paths (each rooted at the route's `{:query … :params …}` projection) whose values are **redacted** at egress while the route is active. See [§Route data classification](#route-data-classification). |
 | `:large` | classification | vector of projection-relative paths | Data classification. Paths whose values are kept **off the wire** (size marker) at egress while the route is active. Sensitive wins over large at the same path. See [§Route data classification](#route-data-classification). |
@@ -1598,7 +1598,7 @@ Views render the chain top-down:
 
 A more elaborate router with **native nested layouts** — true `<Outlet/>` slot mechanics, generic parent-metadata cascades — remains out of scope. The `:parent` + `:rf.route/chain` convention covers the common case (a parent shell wrapping leaf views), keeps the pattern data-only, and avoids introducing a new render substrate.
 
-**Parent `:resources` DO compose to children (EP-0037 R2).** Declaring `:parent` opts the child into its ancestors' `:resources` automatically: a full activation plans the effective parent-to-leaf branch, so shared shell reads are declared **once** on the parent rather than duplicated in every child. `:parent` itself is the opt-in (EP-0037 OI-4) — there is no `:inherit-resources?` marker. Only `:resources` fold this way; `:on-match`, `:scroll`, `:head`, `:tags`, and guards are **not** inherited, because unrelated metadata needs incompatible merge rules. Parent-chain resource planning does not imply parent-chain render ownership — there is no `<Outlet/>`, provider tree, or loader-data hook. Composition, grouped identity dedupe, the redundant-child advisory, the plan diff, attach-before-release owner handoff, and the partial-revalidation law are owned by [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans); readiness over the branch plan is [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection).
+**Parent `:resources` DO compose to children (EP-0037 R2).** Declaring `:parent` opts the child into its ancestors' `:resources` automatically: a full activation plans the effective parent-to-leaf branch, so shared shell reads are declared **once** on the parent rather than duplicated in every child. `:parent` itself is the opt-in (EP-0037 OI-4) — there is no `:inherit-resources?` marker. Only `:resources` fold this way; `:on-match`, `:scroll`, `:head`, `:tags`, and `:can-leave` are **not** inherited, because unrelated metadata needs incompatible merge rules. `:can-enter` is not merged either, but it does reach the children: entering a route consults its ancestors' guards too ([§Guards compose down the `:parent` chain](#guards-compose-down-the-parent-chain)). Parent-chain resource planning does not imply parent-chain render ownership — there is no `<Outlet/>`, provider tree, or loader-data hook. Composition, grouped identity dedupe, the redundant-child advisory, the plan diff, attach-before-release owner handoff, and the partial-revalidation law are owned by [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans); readiness over the branch plan is [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection).
 
 Future expansion may still revisit:
 
@@ -1653,7 +1653,32 @@ Each sub returns `true` when the route is OK to leave / enter; `false` to reject
 
 **Guard coverage by transition kind** is the pipeline's, not the guards': an exact **no-op** evaluates neither guard; a **full** transition (including a changed in-place `:query` / `:query-merge`) and a **fragment-only** transition evaluate `:can-leave` then `:can-enter`, in that order. See [§The one planning pipeline](#the-one-planning-pipeline).
 
-A route has at most one `:can-leave` and one `:can-enter` (each is a single-valued metadata key). For a policy that spans *many* routes uniformly, either attach the same `:can-enter` sub-id to each registration with an ordinary map helper, or use a frame-`:interceptors` policy — see [§Redirects and guards](#redirects-and-guards).
+A route has at most one `:can-leave` and one `:can-enter` (each is a single-valued metadata key).
+
+<a id="guards-compose-down-the-parent-chain"></a>
+#### Guards compose down the `:parent` chain
+
+`:can-enter` composes down the target's `:parent` chain with **AND** semantics, so protecting a branch is one declaration on its parent:
+
+```clojure
+(rf/reg-route :route/admin       {:can-enter [:auth/admin?]} "/admin")
+(rf/reg-route :route/admin.users {:parent :route/admin}      "/admin/users")
+(rf/reg-route :route/admin.audit {:parent    :route/admin
+                                  :can-enter [:audit/enabled?]}
+              "/admin/audit")
+```
+
+Entering `/admin/users` consults `:auth/admin?`; entering `/admin/audit` consults `:auth/admin?` and then `:audit/enabled?`. The rules:
+
+- **Parent-most first.** Stage 5 walks the chain from its root down to the target, consulting each declared `:can-enter`; a route that declares none contributes nothing.
+- **The first `false` denies**, and ends the walk: a child's own guard runs only when every ancestor allowed. A non-boolean on any route of the chain fails closed exactly as on the target, its `:rf.error/can-enter-non-boolean` tagged with that route's id.
+- **Every guard receives the one resolved target** — the route actually requested, not the ancestor being consulted — so an ancestor's guard can still branch on `(:route-id target)`.
+- **One denial names the denier.** The [`:rf.route/entry-denied`](#entry-is-terminal) event fires once, its `:guard` naming the guard that denied; the trace's `:rejecting-route` / `:rejecting-guard` name that route and guard. `:target` and `:destination` stay the requested route.
+- **A malformed chain never skips a guard.** An unregistered `:parent` or a `:parent` cycle still consults every registered route the walk reaches; when they all allow, the plan's branch resolution then commits a [failed activation](#failed-activation).
+
+`:can-leave` does **not** compose: leaving asks about the state of the route being left, and that route alone declares it.
+
+For a policy over routes that share no parent, attach the same `:can-enter` sub-id to each registration with an ordinary map helper, or use a frame-`:interceptors` policy — see [§Redirects and guards](#redirects-and-guards).
 
 ### The leave decision — one resumable pending value
 
@@ -1701,7 +1726,7 @@ There is **no entry bypass**. Entry is terminal, so there is no paused transitio
 <a id="entry-is-terminal"></a>
 ### Entry is terminal
 
-A `:can-enter` returning `false` (or any non-boolean) **denies**. Denial:
+A `:can-enter` returning `false` (or any non-boolean) — the target's own, or an ancestor's on its [`:parent` chain](#guards-compose-down-the-parent-chain) — **denies**. Denial:
 
 - commits **no** target route, resource owner, URL push, scroll, or activation event;
 - creates **no** pending-navigation value — the slot is untouched, including any unrelated pending leave;
@@ -1721,7 +1746,7 @@ The denial event receives:
  :guard         :auth/signed-in?}
 ```
 
-There is no `:id`: there is nothing to continue or cancel.
+`:guard` names the guard that denied — an ancestor's when the `:parent` chain denied first. There is no `:id`: there is nothing to continue or cancel.
 
 **The framework registers a no-op default handler for `:rf.route/entry-denied`.** An application is never *required* to register one merely to make denial safe: with the default, client denial is a hard deny — the current route and URL stay in place (or are restored), no protected activation work runs, and the dispatch resolves without `:rf.error/no-such-handler`. Applications replace it with their own policy.
 
@@ -1777,7 +1802,7 @@ A leave test fires `[:rf.route/navigate {:url "/cart"}]` — a link click's requ
 - **Nav-tokens.** Decisions run *before* a nav-token would be allocated; tokens are for committed navigations. A `:rf.route/continue` replay allocates a fresh token like any other navigation. A blocked or denied attempt never receives one.
 - **Fragments.** Both guards run on a fragment-only change. The guard sub receives the resolved target, so a `:can-leave` that wants fragment changes to pass returns `true` when only the fragment differs.
 - **Resources and readiness.** A denial commits nothing, so it touches neither the route plan nor `[:rf.runtime/routing :resource-blocking]`; route readiness stays exactly what the [resource projection](#route-readiness-is-a-resource-projection) says it is for the route that is still current.
-- **Cross-cutting policy.** For a rule spanning many routes uniformly, register it with `reg-interceptor` and reference it from the frame's `:interceptors` chain ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)) so it runs on every navigation entry event. Reach for `:can-enter` when the policy belongs to *one* route; reach for a frame interceptor when it spans *many* — see [§Redirects and guards](#redirects-and-guards).
+- **Cross-cutting policy.** For a rule over routes that share no parent, register it with `reg-interceptor` and reference it from the frame's `:interceptors` chain ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)) so it runs on every navigation entry event. Reach for `:can-enter` when the policy belongs to a route, or to a branch (declared once on its parent); reach for a frame interceptor when it spans routes no parent unites — see [§Redirects and guards](#redirects-and-guards).
 
 ### Conformance
 
@@ -1825,7 +1850,9 @@ Fixture [`route-entry-denied.edn`](conformance/fixtures/route-entry-denied.edn) 
 
 Registering a handler is optional: the framework ships a no-op default, so a denial with no application handler is a safe hard deny (and, on a server frame, a [`403`](011-SSR.md#route-entry-denial--the-default-403)). Registering one is an ordinary `rf/reg-event` under the same id — see [§Replaceable framework defaults](#replaceable-framework-defaults).
 
-**Interceptors remain the tool for cross-cutting policy** — a rule that spans *many* routes uniformly (a feature flag gating a whole section, a maintenance-mode lockout, an analytics-driven redirect). Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the frame's `:interceptors` chain (so it runs on *every* navigation entry event) by **reference**. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
+**Auth-on-a-branch is one `:can-enter` on the branch's parent.** The guard [composes down the `:parent` chain](#guards-compose-down-the-parent-chain), so "signed-in users only under `/account`" is the declaration above plus `:parent :route/account` on each child — every child, guarded or not, is denied through every door while `:auth/signed-in?` is `false`, and the denial names `:auth/signed-in?`.
+
+**Interceptors remain the tool for cross-cutting policy** — a rule over routes that share no parent (a feature flag across unrelated routes, a maintenance-mode lockout, an analytics-driven redirect). Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the frame's `:interceptors` chain (so it runs on *every* navigation entry event) by **reference**. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
 
 A cross-cutting guard interceptor **must cover both entry doors**, or it fails *open*: a policy that inspects only `:rf.route/navigate` lets a logged-out user in through a deep-link / Back-Forward (`:rf.route/handle-url-change`), which does not dispatch `:rf.route/navigate`. So the interceptor resolves the target from *whichever* nav event drove it, then decides:
 
@@ -1854,8 +1881,8 @@ A cross-cutting guard interceptor **must cover both entry doors**, or it fails *
       nil)))
 
 (rf/reg-interceptor :app/section-lockout
-  {:doc "Redirect away from a whole gated section when the feature flag is off — a
-         cross-cutting rule spanning many routes, so an interceptor not :can-enter."}
+  {:doc "Redirect away from every :beta-section route when the feature flag is off —
+         a rule over routes that share no parent, so an interceptor not :can-enter."}
   {:before
    (fn before [ctx]
      ;; The route slice is framework runtime-db state — read it from the
@@ -1885,7 +1912,7 @@ A cross-cutting guard interceptor **must cover both entry doors**, or it fails *
 
 The `:rf.route/navigate` door itself carries **three request forms** (per [§Target form](#target-form--route-id-or-url-string) and [§In-place navigation](#in-place-navigation)): a route-id destination (`:to`), the `{:url …}` escape hatch (deep links, redirects), and an in-place request (no `:to` / `:url`). A raw URL is not a route id, so the normaliser routes the `:url` form through `match-url` exactly as the runtime does before the guard reads `handler-meta` — otherwise `[:rf.route/navigate {:url "/admin"}]` resolves `handler-meta` on a URL string, finds no route, and slips past the gate. An in-place request names no target at all: it means *stay on the current route, change only the query*, and the runtime resolves its id from the current route slice ([§In-place navigation](#in-place-navigation)). The guard must resolve it the same way — from `[:rf.runtime/routing :current]` in the `:rf.db/runtime` coeffect — or it fails **open** exactly where it is most dangerous: a session that expires *while already on a `:requires-auth` route* navigates in place (a query change, a tab switch) and the guard, seeing no named target, waves it through. This is the request-union mirror of the three-door rule: cover all three forms of the door too.
 
-Cross-cutting guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route (for a *group* of protected routes, associate the same `:can-enter` sub-id with each registration through an ordinary map helper — the router does not add a middleware chain merely to avoid that); reach for a frame-`:interceptors` guard when the rule spans many routes uniformly, and cover all three doors when you do.
+Cross-cutting guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to a route, and declare it once on the parent when it belongs to a branch. For a *group* of protected routes that share no parent, associate the same `:can-enter` sub-id with each registration through an ordinary map helper — the router does not add a middleware chain merely to avoid that. Reach for a frame-`:interceptors` guard for a rule that is not route metadata's to declare — a lockout, a feature flag across unrelated routes — and cover all three doors when you do.
 
 <a id="server-side-rendering-integration"></a>
 ## Server-side rendering integration (per [011](011-SSR.md))
