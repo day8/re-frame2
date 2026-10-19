@@ -371,3 +371,136 @@
           "the LEAVE guard blocked first — a resumable pending value against the
            CURRENT route, carrying the replayable destination")
       (is (false? @enter-ran) "the entry guard was NOT consulted"))))
+
+;; ===========================================================================
+;; `:can-enter` composes down the `:parent` chain — AND, parent-most first
+;; ===========================================================================
+
+(defn- register-branch!
+  "An `:admin` branch: the `:admin` parent guarded by `:admin/allowed?`
+  (reads `[:admin :allowed?]`), and its `:admin.users` child guarded by
+  `:admin.users/allowed?` (reads `[:admin :users?]`). Each guard records its
+  route into `calls`, so a test reads both WHICH guards ran and in what order."
+  [calls]
+  (rf/reg-route :home        {} "/home")
+  (rf/reg-route :admin       {:can-enter [:admin/allowed?]} "/admin")
+  (rf/reg-route :admin.users {:parent    :admin
+                              :can-enter [:admin.users/allowed?]}
+                "/admin/users")
+  (rf/reg-event :admin/set (fn [{:keys [db]} [_ k v]] {:db (assoc-in db [:admin k] v)}))
+  (rf/reg-sub :admin/allowed?
+              (fn [db _] (swap! calls conj :admin) (boolean (get-in db [:admin :allowed?]))))
+  (rf/reg-sub :admin.users/allowed?
+              (fn [db _] (swap! calls conj :admin.users) (boolean (get-in db [:admin :users?]))))
+  (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
+
+(def ^:private child-doors
+  "Every way into `/admin/users`: the two `:rf.route/navigate` request forms,
+  and the URL-driven door as a deep link (rider-free, so `:initial`) and as
+  Back/Forward (the rider the history listener stamps)."
+  [["programmatic navigate" [:rf.route/navigate {:to :admin.users}]      false]
+   ["link click"            [:rf.route/navigate {:url "/admin/users"}]   false]
+   ["deep link"             [:rf.route/handle-url-change "/admin/users"] true]
+   ["Back/Forward"          [:rf.route/handle-url-change "/admin/users"
+                             {:rf.route/cause :popstate}]                true]])
+
+(deftest a-parent-can-enter-denies-its-child-through-every-door
+  (testing "a false `:can-enter` on the parent denies entry to the child
+            through BOTH doors, attributed to the parent's guard, with ONE
+            denial event — and the child's own guard, which would allow, is
+            never consulted"
+    (let [calls    (atom [])
+          pushed   (atom [])
+          replaced (atom [])
+          traces   (atom [])]
+      (register-branch! calls)
+      (rf/dispatch-sync [:admin/set :users? true])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
+      (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}}
+                    (fn [_ url] (swap! pushed conj url)))
+      (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+                    (fn [_ url] (swap! replaced conj url)))
+      (let [seen (capture-denials!)]
+        ;; A denial commits nothing, so every door starts from `/home`.
+        (doseq [[door event url-driven?] child-doors]
+          (testing door
+            (doseq [a [seen calls pushed replaced traces]] (reset! a []))
+            (rf/register-listener! :trace ::branch (fn [ev] (swap! traces conj ev)))
+            (rf/dispatch-sync event)
+            (rf/unregister-listener! :trace ::branch)
+            (is (= 1 (count @seen)) ":rf.route/entry-denied dispatched exactly once")
+            (is (= {:guard :admin/allowed? :target-id :admin.users}
+                   {:guard     (:guard (first @seen))
+                    :target-id (get-in (first @seen) [:target :route-id])})
+                "the denial names the PARENT's guard; its target is still the child")
+            (is (= [:admin] @calls)
+                "the parent decided first, and its false ended the walk")
+            (is (= :home (current-id)) "nothing committed")
+            (is (nil? (pending)) "no pending value")
+            (is (empty? @pushed) "no history entry")
+            (is (= (if url-driven? ["/home"] []) @replaced)
+                "a URL-driven door restores the address bar; a forward door never moved it")
+            ;; Dev-instrumentation arm (see ns docstring).
+            (when rf.interop/debug-enabled?
+              (is (= [{:rejecting-route :admin :rejecting-guard :admin/allowed?}]
+                     (->> @traces
+                          (filter #(= :rf.route/entry-denied (:operation %)))
+                          (map #(select-keys (:tags %) [:rejecting-route :rejecting-guard]))))
+                  "one :rf.route/entry-denied trace, naming the denying route and guard"))))))))
+
+(deftest an-allowing-parent-hands-the-decision-to-the-child
+  (testing "with the parent allowing, the child's own `:can-enter` decides —
+            parent-most first, both consulted"
+    (let [calls (atom [])]
+      (register-branch! calls)
+      (rf/dispatch-sync [:admin/set :allowed? true])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
+      (let [seen (capture-denials!)]
+        (testing "the child denies"
+          (reset! calls [])
+          (rf/dispatch-sync [:rf.route/navigate {:to :admin.users}])
+          (is (= [:admin.users/allowed?] (map :guard @seen))
+              "one denial, attributed to the child's own guard")
+          (is (= [:admin :admin.users] @calls) "parent first, then the child")
+          (is (= :home (current-id))))
+        (testing "the child allows"
+          (reset! seen [])
+          (reset! calls [])
+          (rf/dispatch-sync [:admin/set :users? true])
+          (rf/dispatch-sync [:rf.route/navigate {:to :admin.users}])
+          (is (empty? @seen) "no denial")
+          (is (= [:admin :admin.users] @calls))
+          (is (= :admin.users (current-id)) "entry completed"))))))
+
+(deftest a-guard-on-the-parent-alone-protects-the-branch
+  (testing "an unguarded child of a guarded parent is guarded: one
+            declaration on the parent covers the branch"
+    (rf/reg-route :home      {} "/home")
+    (rf/reg-route :admin     {:can-enter [:admin/allowed?]} "/admin")
+    (rf/reg-route :admin.log {:parent :admin} "/admin/log")
+    (rf/reg-sub :admin/allowed? (fn [db _] (boolean (get-in db [:admin :allowed?]))))
+    (rf/reg-event :admin/set (fn [{:keys [db]} [_ k v]] {:db (assoc-in db [:admin k] v)}))
+    (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
+    (let [seen (capture-denials!)]
+      (rf/dispatch-sync [:rf.route/navigate {:to :admin.log}])
+      (is (= [:admin/allowed?] (map :guard @seen)))
+      (is (= :home (current-id)))
+      (rf/dispatch-sync [:admin/set :allowed? true])
+      (rf/dispatch-sync [:rf.route/navigate {:to :admin.log}])
+      (is (= :admin.log (current-id)) "the parent now allows, so the branch opens"))))
+
+(deftest ssr-a-parent-denial-stamps-403
+  (testing "a server frame's deep link to a child its parent denies still
+            projects the default 403"
+    (register-branch! (atom []))
+    (let [f (server-frame!)]
+      ;; The child's own guard allows; only the parent denies.
+      (rf/dispatch-sync [:admin/set :users? true] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/admin/users"] {:frame f})
+      (is (= 403 (:status (rf.ssr/get-response f))))
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value f))
+                        [:rf.runtime/routing :current]))
+          "no route committed"))))
