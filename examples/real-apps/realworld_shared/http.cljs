@@ -139,8 +139,8 @@
                                     "Couldn't reach the API — check your connection, or the API's CORS configuration."
                                     "Network error — please try again.")
           :rf.http/timeout        "Request timed out."
-          :rf.http/http-4xx       (str "Request rejected (status " (:status failure) ").")
-          :rf.http/http-5xx       (str "Server error (status " (:status failure) ").")
+          :rf.http/http-4xx       (str "Request rejected (status " (:http-status failure) ").")
+          :rf.http/http-5xx       (str "Server error (status " (:http-status failure) ").")
           :rf.http/decode-failure "Couldn't parse server response."
           :rf.http/accept-failure (or (-> failure :detail :message) "Unexpected response shape.")
           :rf.http/aborted        "Request cancelled."

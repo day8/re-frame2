@@ -159,7 +159,7 @@
     (answering {[:get "/missing"] {:status 404}
                 [:get "/busy"]    {:status 503 :status-text "Service Unavailable" :body {:err true}}}
       #(doseq [url ["/missing" "/busy"]] (rf/dispatch-sync [:articles/list url])))
-    (let [classified (fn [reply] [(:status reply) (get-in reply [:error :kind]) (get-in reply [:error :status])])
+    (let [classified (fn [reply] [(:status reply) (get-in reply [:error :kind]) (get-in reply [:error :http-status])])
           result     (:result (rf/app-db-value :rf/default))]
       (is (= {"/missing" [:error :rf.http/http-4xx 404]
               "/busy"    [:error :rf.http/http-5xx 503]}

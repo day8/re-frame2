@@ -79,7 +79,7 @@
    `[:auth.login/flow [:auth.login/failure] <this>]` produces."
   [message]
   {:status :error
-   :error  {:kind :rf.http/http-4xx :status 401 :message message}})
+   :error  {:kind :rf.http/http-4xx :http-status 401 :message message}})
 
 (defn- submit! [f]
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]] {:frame f}))
