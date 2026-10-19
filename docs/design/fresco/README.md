@@ -17,9 +17,17 @@ by [EP-0038](../../EP/EP-0038-the-fresco-view-layer-programme.md).
 | [validation.md](validation.md) | The bar, the budgets, the P0→P1→P2 plan, witnesses, tournament and measurement discipline, kill criteria |
 | [authoring.md](authoring.md) | The authoring surface: views, subs, intents, interop door, theming, ephemeral state, testing doors |
 
-**Authority.** decisions.md is normative; where pages differ, decisions.md
-governs, then validation.md. EP-0038 sequences the programme; the operator-owned
-standard bead carries the live bar/kill numbers.
+**Authority.** This directory is the design record — the reasoning, the
+alternatives and the measurements behind Fresco — and it does not govern the
+shipped package. The contract is
+[`implementation/fresco/spec/authoring-contract.md`](../../../implementation/fresco/spec/authoring-contract.md),
+with its sibling tables in
+[`implementation/fresco/spec/`](../../../implementation/fresco/spec/README.md);
+where any page here differs from them, the contract is right and the page is
+history. Within the record, decisions.md is the canonical statement of each
+ruling, and a page here that calls it normative means that and no more. EP-0038
+sequences the programme; the operator-owned standard bead carries the live
+bar/kill numbers.
 
 **Provenance and retention.** This record graduates — and fully absorbs — the
 exploration corpus that lived in the untracked local `ai/findings/new-view/`

@@ -1,16 +1,17 @@
 # Fresco invariants
 
 One page to check a change against: the fifteen invariants the product commits to.
-Every row is transcribed from the [product specification](../../../docs/design/fresco/product/specification.md),
+**This table governs**, beside [`authoring-contract.md`](authoring-contract.md), which
+states the rules these invariants produce. The last column points at the design
+reasoning behind each row — the [product specification](../../../docs/design/fresco/product/specification.md),
 the [design laws](../../../docs/design/fresco/product/lanes/design-laws.md), the
 [public-language lane](../../../docs/design/fresco/product/lanes/ergonomics-api.md) or the
-[decision brief](../../../docs/design/fresco/product/decision-brief.md), and cites its owner.
-**Where a row and its owner disagree the owner governs and the row is the defect** — fix the
-row; questions are not settled here.
+[decision brief](../../../docs/design/fresco/product/decision-brief.md); where a row and its
+reasoning differ, the row is right and the design page is history.
 
 Cite key: `§n` is a [product specification](../../../docs/design/fresco/product/specification.md) section; a capitalised word plus a number, such as *React 5*, is that numbered law in the named section of the [design laws](../../../docs/design/fresco/product/lanes/design-laws.md).
 
-| # | Invariant | What it requires, and what it forbids | Owner |
+| # | Invariant | What it requires, and what it forbids | Reasoning |
 |---|---|---|---|
 | I1 | One interpreted semantics | Interpreted Hiccup is the only ordinary meaning. No `:fast` flag, compiled body, alternate renderer, automatic specialization, or profile-dependent meaning; no public option selects an execution mode. | [§3.1](../../../docs/design/fresco/product/specification.md#31-one-language-and-one-state-owner) · [React 5](../../../docs/design/fresco/product/lanes/design-laws.md#react-and-ownership) · [Economics 5](../../../docs/design/fresco/product/lanes/design-laws.md#economics-and-scope) |
 | I2 | Two explicit languages | `[...]` always means interpreted Hiccup; a React element passes through unchanged. Nothing analyses or rewrites a `defview` body; native construction is explicit — a React element a body returns, or a React island mounted through `h/defhost`. | [Native 2](../../../docs/design/fresco/product/lanes/design-laws.md#native-boundary) · [§3.1](../../../docs/design/fresco/product/specification.md#31-one-language-and-one-state-owner) |
@@ -31,6 +32,6 @@ Cite key: `§n` is a [product specification](../../../docs/design/fresco/product
 The rest of the Phase 0 ledger this table headed — capabilities and the rent they pay, the
 provisional `h` and `n` facades, the prototype-to-product dispositions, the names freeze and
 the four recorded freezes the rows above link into — is design history at
-[`docs/design/fresco/product/invariants.md`](../../../docs/design/fresco/product/invariants.md)
-since 2026-08-30 (`rf2-6c12m.8`). Nothing gates this table; `check_optional_module_reachability.py`
-enforces I8's reachability clause against the source and cites the row.
+[`docs/design/fresco/product/invariants.md`](../../../docs/design/fresco/product/invariants.md).
+Nothing gates this table; `check_optional_module_reachability.py` enforces I8's reachability
+clause against the source and cites the row.

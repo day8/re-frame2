@@ -275,10 +275,13 @@
 
 #?(:cljs
    (do
-     (def ^{:doc "**The ambient collector** — read a subscription's value
-  from anywhere inside a body, including inside a `when`, a `for` or an
-  inlined helper. The edge is recorded where the read happens, so a branch
-  not taken contributes no edge.
+     (def ^{:doc "`h/sub` — read a subscription's current value inside a view body,
+  helpers, branches and loops included. The read is an edge the view
+  re-renders on, recorded where it happens:
+
+      (let [todo (h/sub [:todo/by-id id])] …)
+
+  Contract: implementation/fresco/spec/authoring-contract.md §Reads.
   `re-frame.fresco.impl.collector/sub`."}
        sub rf.fresco.impl.collector/sub)
 
@@ -297,37 +300,22 @@
   registered. `re-frame.fresco.impl.state/reg-state`."}
        reg-state rf.fresco.impl.state/reg-state)
 
-     (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
-  A legal hiccup head taking `:target`, the DOM container the subtree
-  renders into, and optionally `:fallback`, markup for the portal's own
-  tree position while the page is server-rendered:
+     (def ^{:doc "`h/portal` — render children into another DOM container, in the
+  same React tree and frame:
 
       [h/portal {:target js/document.body}
        [:div.toast {:on-click [:toast/dismiss]} \"saved\"]]
 
-  Three facts, and nothing else to learn. **Events bubble through the
-  REACT tree**, so an `:on-click` on a hiccup ancestor sees clicks inside
-  the toast although its DOM node sits on `body`, and intents fire into
-  the writing boundary's frame exactly as they do in an ordinary child.
-  **A changed `:target` is a remount**, because React reconciles a portal
-  position by its container — so keep the target stable rather than
-  computing one per render. **It is client-only**: `createPortal` needs a
-  container that already exists, a server render has none, so the
-  portalled subtree is absent from the response and `:fallback` is what a
-  caller puts at the tree position instead.
-
-  A `:target` that is not a DOM container — overwhelmingly a lookup that
-  answered nothing — is React's own *Target container is not a DOM
-  element* at the client render.
-
-  The raw mechanism, for containers the application does not own.
-  Anchoring, dismissal and focus conduct are the overlay module's.
+  Events bubble through the React tree, a changed `:target` remounts the
+  subtree, and it is Client-only, with optional `:fallback` markup at its
+  own tree position on the server. Anchoring, dismissal and focus are the
+  overlay module's. Contract: implementation/fresco/spec/authoring-contract.md §The interop door.
   `re-frame.fresco.impl.portal/portal`."}
        portal rf.fresco.impl.portal/portal)
 
      (def ^{:doc "One real anchor, as data — href and click decision taken
   whole from routing's late-bound seams. A plain function, not a boundary:
-  it mints no boundary and adds no hook.
+  it mints no boundary and adds no hook. Contract: implementation/fresco/spec/authoring-contract.md §Intents.
   `re-frame.fresco.impl.route-link/route-link`."}
        route-link rf.fresco.impl.route-link/route-link)
 
@@ -345,24 +333,16 @@
   implementation/fresco/spec/authoring-contract.md §The interop door."}
        as-element rf.fresco.impl.codec/as-element)
 
-     (def ^{:doc "`h/as-component` — **the outward bridge**.
-  Answers a real React component for a hiccup head, so a React parent —
-  UIx, Reagent or plain JavaScript — mounts a minted Fresco
-  view under the frame it is already in:
+     (def ^{:doc "`h/as-component` — **the outward bridge**: a real React
+  component a native parent — UIx, Reagent or JavaScript — mounts, wrapping
+  a Fresco view:
 
       (def article-card* (h/as-component article-card))
 
-  Declared once at top level, beside the view. The parent's props arrive
-  as the view's ordinary props map (`articleId` → `:article-id`),
-  children at `:children`, values as this shallow decode finds them — a
-  Reagent parent's `[:>]` converts first, so names round-trip across the
-  crossing and values do not. The frame comes from React context: ANY
-  frame, written by any React-shaped adapter, rather than a Fresco
-  root — and no second root, state owner or props ABI appears anywhere.
-  Sits HERE rather than on the native tier because a UIx or JavaScript
-  parent must not have to require the native namespace — and therefore
-  ship it — to cross inward.
-  `re-frame.fresco.impl.codec/as-component`."}
+  Declare it once at top level. React props arrive as the view's props map
+  under canonical names (`articleId` → `:article-id`), and the frame comes
+  from React context, written by any adapter. Contract: implementation/fresco/spec/authoring-contract.md §The interop
+  door. `re-frame.fresco.impl.codec/as-component`."}
        as-component rf.fresco.impl.codec/as-component)
 
      ;; ---- the two frame boundaries: ENSURE and SCOPE ---------------------
@@ -371,103 +351,30 @@
      ;; React-shaped substrate (spec/002). The root
      ;; door below carries React-root options and nothing about frames.
 
-     (def ^{:doc "`h/frame-root` — **ENSURE a named frame for a subtree**,
-  and the head a Fresco app's root view sits under:
+     (def ^{:doc "`h/frame-root` — **ENSURE a named frame for a subtree**.
+  It takes the `rf/make-frame` option map whole, creates the frame when it
+  is absent and runs `:initial-events` once, reuses it when it is live, and
+  destroys nothing on unmount:
 
-      (h/render! app-root
-        [h/frame-root {:id             :app/main
-                       :initial-events [[:app/init]]
-                       :fx-overrides   {:http stub-http}}
-         [root-view]]
-        node)
+      [h/frame-root {:id :app/main :initial-events [[:app/init]]}
+       [root-view]]
 
-  **It takes the `rf/make-frame` option map WHOLE** — `:id`,
-  `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`,
-  every record-config key `make-frame` honours — because it IS the
-  `make-frame` call, written where the frame is used. There is no curated
-  subset to be caught out by.
-
-  **ENSURE, not create.** Absent, the frame is created and
-  `:initial-events` run once; live, it is REUSED — so a second root under
-  the same `:id` attaches to it rather than resetting it. What survives
-  is the DURABLE state: app-db, runtime-db, sub-cache and queue, and
-  `:initial-events` are re-recorded but NEVER replayed (spec/002
-  §`frame-root` reuse-without-reseed; EP-0027). What the re-acquire DOES
-  refresh is the record config, because the ENSURE is a second
-  `rf/make-frame` under the same id and that is `make-frame`'s
-  idempotent-replacement path — the Clojure re-def model, where
-  re-declaring an id refreshes its config while its state survives —
-  which is what makes a hot reload Just Work.
-
-  **So `frame-root` DECLARES a frame; it is not the verb for JOINING
-  one.** That refresh REPLACES the record config wholesale rather than
-  merging it, so a second boundary naming a live `:id` with a partial
-  opts map silently drops what the creator configured. To reach a frame
-  some other boundary already declared, use the sibling verb:
-  `[h/frame-provider {:frame :app/main} …]` takes no opts at all, and
-  creates, refreshes and destroys nothing.
-
-  Unmounting destroys NOTHING: a frame outlives the boundary that ensured
-  it, and `rf/destroy-frame!` is the verb for ending one.
-
-  **The ENSURE is commit-owned.** The first render emits no subtree at
-  all, and the frame is made in a `useLayoutEffect` — so a render React
-  discards (Suspense, a concurrent abort) creates nothing and seeds
-  nothing, and React's own layout phase re-renders synchronously before
-  the browser paints. Under `h/render!`, which renders inside `flushSync`,
-  that means the door still returns with the seeded markup on the page.
-
-  Fail-loud where it matters: `:id` is required and must be a keyword; a
-  `:frame` key is `:rf.error/frame-root-given-frame`, naming
-  `h/frame-provider`; and changing a MOUNTED boundary's `:id` or opts is
-  `:rf.error/frame-root-reconfigured` rather than a silent no-op — pass a
-  React `:key` and remount to point at a different frame.
-
-  ONE implementation across every substrate: the two-pass is core's
-  `re-frame.views.frame-boundary/frame-root-fc`, the same component
-  `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount.
+  To reach a frame another boundary declared, use `h/frame-provider`.
+  Contract: implementation/fresco/spec/authoring-contract.md §Frames, roots and hydration. One implementation across
+  every substrate, core's `re-frame.views.frame-boundary/frame-root-fc`.
   `re-frame.fresco.impl.frame-boundary/frame-root`."}
        frame-root rf.fresco.impl.frame-boundary/frame-root)
 
-     (def ^{:doc "`h/frame-provider` — **SCOPE an EXISTING frame to a
-  subtree**. `frame-root`'s sibling and its opposite verb: it creates,
-  refreshes and destroys nothing.
+     (def ^{:doc "`h/frame-provider` — **SCOPE an existing frame to a
+  subtree**. It creates, refreshes and destroys nothing:
 
-      (h/render! app-root
-        [h/frame-provider {:frame :app/main} [views/page {}]]
-        node
-        {:hydrate? true :identifier-prefix \"main\"})
+      [h/frame-provider {:frame :app/main} [views/page {}]]
 
-  Three places want it. **A second root on the page**, sharing a frame
-  another root already ensured — the PURE JOIN, and the reason
-  `frame-root` is not the verb for it: re-declaring a live `:id` would
-  replace that frame's record config. **After SSR**, where the frame was
-  made before the payload was installed and an adopting root must render
-  the server's element shape on its FIRST pass — which is the reason
-  SCOPE is the verb there, and it is a shape argument rather than a state
-  one: see `h/render!`'s `{:hydrate? true}`. **A subtree on another
-  frame** — a tenant switcher, a preview pane — nested under the root's
-  own boundary. Everything written below the head acts on that frame —
-  an inline intent, an `h/event`, a wrapper's children, a child view —
-  while the calls the enclosing body itself makes (`h/sub`,
-  `h/route-link`, `rf/capture-frame`) stay in the body's frame, because
-  they run before the head lowers anything: read or link the scoped
-  frame from a child view under the provider.
-
-  `:frame` is required and takes the one frame-target grammar `dispatch`
-  and `subscribe` teach: a frame-id keyword, or the live frame value
-  `rf/make-frame` returns. **A frame that is not live FAILS LOUD**
-  (`:rf.error/frame-provider-frame-absent`) rather than scoping a subtree
-  to nothing — that guardrail is the reason SCOPE is its own component.
-  An `:id` key is `:rf.error/frame-provider-given-id`, naming
-  `h/frame-root`.
-
-  Distinct from `re-frame.fresco.substrate/frame-provider`, which is the
-  reactive-substrate contract's `:register-context-provider` slot — a
-  lower-level seat the contract requires and an application never writes.
-  This is the authoring verb, and it writes the same one React context
-  every adapter reads, so a Fresco subtree under a UIx provider (or the
-  reverse) resolves the same frame.
+  `:frame` takes a frame-id keyword or a live frame value, and a frame that
+  is not live fails loud. It is the verb for a second root sharing a frame,
+  for an adopting root after SSR, and for a subtree on another frame. Not
+  `re-frame.fresco.substrate/frame-provider`, the substrate contract's seat
+  an application never writes. Contract: implementation/fresco/spec/authoring-contract.md §Frames, roots and hydration.
   `re-frame.fresco.impl.frame-boundary/frame-provider`."}
        frame-provider rf.fresco.impl.frame-boundary/frame-provider)
 
@@ -485,181 +392,38 @@
      ;; (docs/design/fresco/product/dispositions.md HS-11).
 
      (def ^{:doc "`h/client-root` — **allocate the handle a root lives
-  in**. Inert: no DOM work, no React call, nothing to undo — so it belongs
-  under a `defonce` at namespace load, above the boot that renders through
-  it.
+  in**. Inert and opaque: no DOM work and nothing to undo, so it belongs
+  under a `defonce`:
 
       (defonce app-root (h/client-root))
 
-  The handle is OPAQUE. It is the one thing `render!` and `unmount!`
-  take, the raw React Root is reachable through none of them, and
-  liveness is never read off it — a Root's membership in the package's
-  active set is the single liveness fact, which is what lets
-  `rf/destroy-adapter!` and `unmount!` both reach React's own
-  `root.unmount()` exactly once per root, whichever gets there first.
-
-  One handle owns AT MOST ONE Root at a time. Two roots on a page are two
-  handles; a handle whose Root has been released is inert again and the
-  next `render!` through it mounts afresh.
+  Contract: implementation/fresco/spec/authoring-contract.md §Frames, roots and hydration.
   `re-frame.fresco.impl.mount/client-root`."}
        client-root rf.fresco.impl.mount/client-root)
 
      (def ^{:doc "`h/render!` — **the root door and the hot-reload door,
-  in one verb**: render `tree` through `handle` at DOM node `node`.
-
-      (defonce app-root (h/client-root))
+  in one verb**: render `tree` through `handle` at DOM node `node`. The
+  first call creates the Root — or, under `{:hydrate? true}`, adopts the
+  server's DOM — and every later call updates it:
 
       (defn ^:dev/after-load mount! []
         (h/render! app-root
-                   [h/frame-root {:id :rf/default
-                                  :initial-events [[:counter/initialise]]}
-                    [counter]]
+                   [h/frame-root {:id :app/main :initial-events [[:app/init]]}
+                    [app {}]]
                    (js/document.getElementById \"app\")))
 
-  **The FIRST call through a handle CREATES the Root; every later call
-  UPDATES it.** That is the whole of why one verb is enough: the boot path
-  and the `^:dev/after-load` hook are the same line, and no application
-  keeps a root in an atom of its own or branches on whether one exists.
-  On a hot reload the Root, its frame and that frame's app-db carry on,
-  so the application state is untouched. The views do not: each
-  `defview` evaluation mints a new component, as does each
-  `h/as-component` call, and React remounts a component whose type
-  changed, with everything beneath it. The DOM under a reloaded view is
-  rebuilt, and what that DOM owns — focus, the caret, scroll position —
-  starts over. Every update commits inside `flushSync`, so a witness may
-  read the DOM on the next line.
-
-  **`{:hydrate? true}` makes that first call ADOPT** the server-rendered
-  DOM already in `node` instead of replacing it — `hydrateRoot` rather
-  than `createRoot`, with this root's own adoption window and, in debug
-  builds, its own recoverable-error reporter feeding Spec 011's
-  `:rf.ssr/hydration-mismatch`. It is a FIRST-CALL mode and nothing else:
-  a live handle updates the Root it already owns, so `{:hydrate? true}` on
-  a later call is ignored rather than hydrating twice.
-
-  **`node` and `opts` take effect on the first call only.** Later calls
-  take them and use neither, though `opts` is still checked on every call
-  — pass them or don't, whichever reads better where you are calling
-  from; the three-arity form is the whole of the hot reload.
-
-  **`tree` is Fresco hiccup whose root is a frame boundary head** —
-  `[h/frame-root {:id …} …]` to ENSURE, `[h/frame-provider {:frame …} …]`
-  to SCOPE. Re-render the WHOLE tree, boundary head included and carrying
-  the SAME options. The frame is spelled in the tree, so a render that
-  drops the head renders a root with no frame under it and every bare
-  `dispatch` / `subscribe` beneath it loses the frame it resolved against.
-  Nor may a later render merely TRIM the head's options: a committed
-  `frame-root` scopes one frame for its lifetime and refuses
-  reconfiguration, so re-rendering it with `:initial-events` dropped — on
-  the reasoning that they have already run — raises
-  `:rf.error/frame-root-reconfigured`. Re-rendering the head unchanged is
-  free: `frame-root` ENSUREs, so it finds the frame live and reuses it,
-  and `:initial-events` fire once per frame lifetime, so re-passing them
-  re-records without replaying. Writing the tree ONCE, as a function the
-  one `render!` call takes, is what keeps that true:
-
-      (defn- tree []
-        [h/frame-root {:id :app/main :initial-events [[:app/init]]}
-         [app {}]])
-
-      (defn ^:dev/after-load mount! []
-        (h/render! app-root (tree) el))
-
-  **`opts` carries ROOT options only, and a key it does not own FAILS
-  LOUD** — there is no closed list quietly ignoring the rest.
-
-  **The FRAME is the tree's, not the door's.** `[h/frame-root {:id …}]`
-  ENSUREs — creates the frame if absent, reuses it as it stands if live —
-  and takes the `rf/make-frame` option map WHOLE, `:initial-events`,
-  `:fx-overrides`, `:url-bound?` and the rest; `[h/frame-provider {:frame
-  …}]` SCOPEs a frame that already exists. Handing `:frame` or
-  `:initial-events` to this door is `:rf.error/fresco-frame-config-
-  misplaced`, naming the head that spells it; any other key is
-  `:rf.error/fresco-unknown-root-option`. That is the same one boundary
-  vocabulary every substrate writes (spec/002 §`frame-root`,
-  §`frame-provider`), so a Fresco boot line reads like a Reagent or UIx
-  one and every frame option has exactly one place to go.
-
-  **`:identifier-prefix`** is React's own `identifierPrefix`, handed to
-  `createRoot` or `hydrateRoot` untouched. It exists because `useId`
-  numbers every root from the same start, so a page mounting two roots
-  gives them distinct prefixes or watches their generated ids collide. A
-  page with one root names none. No default, no coercion, no validation:
-  React owns the option and this is a pass-through to it.
-
-  **`:on-recoverable-error`** is React's own `onRecoverableError`, called
-  with the error and React's error info for each error React recovers
-  from. On a hydrating root the framework reports first — inside the
-  adoption window a recovery is Spec 011's `:rf.ssr/hydration-mismatch`:
-  the always-on record and, in development, the trace — and then calls
-  this, in place of React's default report. It is how CI fails a build on
-  a hydration recovery: collect what it is handed and assert nothing
-  arrived.
-
-  ## Hydrating: three calls, three jobs
-
-  **State comes first, and it is a different door.** This adopts DOM;
-  `re-frame.ssr/hydrate!` installs the server's app-db through
-  `:rf/hydrate` and must run BEFORE it, so the first client render sees
-  the state the server rendered from. Neither hydration step creates the
-  frame:
-
-      (rf/make-frame {:id :app/main})                     ;; 1. frame
-      (ssr/hydrate! {:frame :app/main})                   ;; 2. state
-      (h/render! app-root                                 ;; 3. DOM
-                 [h/frame-provider {:frame :app/main} [views/page {}]]
-                 node
-                 {:hydrate? true :identifier-prefix \"main\"})
-
-  **The hydrating tree SCOPEs rather than ENSUREs, and the reason is
-  SHAPE, not state.** `frame-root`'s ENSURE is commit-owned, so its FIRST
-  render emits no descendant subtree at all and the children arrive on a
-  second pass. An adopting root has to render the server's element shape
-  on its first pass — that is what `hydrateRoot` is matching against,
-  `useId` positions included — so an `[h/frame-root {:id …} …]` under
-  `{:hydrate? true}` hands React an empty tree where the server's markup
-  is. `[h/frame-provider {:frame …} …]` renders its children immediately,
-  so the shapes agree. `frame-provider` refuses an ABSENT frame
-  (`:rf.error/frame-provider-frame-absent`), which catches a boot that
-  never made one; it does NOT detect a frame that is live but never
-  hydrated.
-
-  **Hand `:identifier-prefix` the same string the server render used.**
-  React numbers `useId` per root and prefixes it with this option, so a
-  hydrating root given a different prefix — or none, where the server had
-  one — resolves every id in the tree differently from the bytes it is
-  adopting. `re-frame.fresco.server/render` takes the same key.
-
-  **A hydrating first call returns BEFORE adoption finishes.** React
-  adopts concurrently and nothing here forces it synchronously, so the
-  DOM on the next line is still the server's; a witness waits for the
-  adoption window to close rather than for a flush. Every LATER call
-  through the same handle is an ordinary `flushSync` update, and it is
-  handed the same wrapper tree the adoption produced — React reconciles a
-  root by its top element, so a bare tree where that wrapper stood would
-  discard every node the adoption established.
-
-  Root-scoped, like every door in this section: each root owns its own
-  container, prefix, adoption window and recoverable-error stream, so one
-  root's mismatch is reported against that root and cannot silence a
-  sibling's. `re-frame.fresco.impl.mount/render-client-root!`,
-  `re-frame.fresco.impl.mount/require-root-options!`."}
+  `tree` is rooted at a frame head and re-rendered whole. `opts` takes
+  `:identifier-prefix`, `:on-recoverable-error` and `:hydrate?`, and takes
+  effect on the first call. Contract: implementation/fresco/spec/authoring-contract.md §Frames, roots and hydration.
+  `re-frame.fresco.impl.mount/render-client-root!`."}
        render! rf.fresco.impl.mount/render-client-root!)
 
      (def ^{:doc "`h/unmount!` — **take THIS root down** and return its
-  handle to inert; a later `h/render!` through the same handle mounts
-  afresh.
+  handle to inert; a later `h/render!` through it mounts afresh. Idempotent,
+  and it destroys no frame:
 
       (h/unmount! app-root)
 
-  Idempotent, and it leaves everything else exactly where it was: the
-  sibling roots' subscriptions and frames, and the node you rendered into,
-  which React empties but does not remove. It destroys no frame — a frame
-  outlives the root that ensured it, and `rf/destroy-frame!` is the verb
-  for ending one.
-
-  Because the Root sits in the package's active set, `rf/destroy-adapter!`
-  releases a still-live handle's Root exactly once and this door then
-  finds nothing left to do — liveness is the set's to say, never the
-  handle's. `re-frame.fresco.impl.mount/unmount-client-root!`."}
+  Contract: implementation/fresco/spec/authoring-contract.md §Frames, roots and hydration.
+  `re-frame.fresco.impl.mount/unmount-client-root!`."}
        unmount! rf.fresco.impl.mount/unmount-client-root!)))
