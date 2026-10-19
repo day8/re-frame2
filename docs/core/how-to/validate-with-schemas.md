@@ -238,7 +238,7 @@ The flag doesn't add a check; it keeps the handler's existing `:schema` in produ
 
 A rejected payload is refused in every build: the handler is skipped and nothing reaches app-db. In a release build the refusal still reaches the two always-on streams, with no wiring on your part: one `:rf.error/schema-validation-failure` record with `:source :boundary` on the error stream, and `:outcome :rejected` on that dispatch's `:handled-events` record ([Report errors in production](report-errors-in-production.md#6-pair-errors-with-its-handled-events-sibling)).
 
-The production error record carries nothing derived from the payload. Its keys are `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, and `:time`: no event vector, value, Malli explanation, or `:reason` text. A boundary payload is untrusted and may carry secrets under keys your schema never anticipated, so the value is omitted rather than redacted. You can count refusals, attribute them, and alert on the rate; to diagnose one, read the dev trace or branch in the handler.
+The production error record carries nothing derived from the payload. Its keys are `:rf.error/id`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, and `:time`: no event vector, value, Malli explanation, or `:reason` text. A boundary payload is untrusted and may carry secrets under keys your schema never anticipated, so the value is omitted rather than redacted. You can count refusals, attribute them, and alert on the rate; to diagnose one, read the dev trace or branch in the handler.
 
 ??? info "Coming from TanStack Query?"
 

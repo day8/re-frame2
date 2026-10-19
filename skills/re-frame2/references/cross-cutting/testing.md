@@ -293,7 +293,7 @@ To assert on what the runtime *emitted* — a trace operation, a promoted `:rf.e
 
 (with-emit-recorder! [errs]                            ;; :stream :errors is the default
   (rf/dispatch-sync [:boom])
-  (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+  (is (= [:rf.error/handler-exception] (mapv :rf.error/id @errs))))
 ```
 
 `with-trace-recorder!` opts: `:pred` (keep only matching events), `:shape` (`:flat` vector, or `:by-op` — a map keyed by `:operation`), `:key`. `with-emit-recorder!` opts: `:stream` (`:errors` or `:events`), `:pred`, `:key`; it brackets the raw, unprojected framework records on purpose — an app observes production records through a frame's `:observability` sink ([`production-observability.md`](production-observability.md)). Opts go in the binding vector: `(with-trace-recorder! [seen {:shape :by-op}] …)`.

@@ -24,8 +24,7 @@ Here is the record for an event handler that threw:
   :source-coord {:ns app.todos :file "src/app/todos.cljs" :line 42}}
  :rf.trace/call-site                        ;; where the `dispatch` was written
  {:file "src/app/todo_views.cljs" :line 18}
- :tags      {:category          :rf.error/handler-exception
-             :failing-id        :todo/add
+ :tags      {:failing-id        :todo/add
              :handler-id        :todo/add
              :event-id          :todo/add
              :event             [:todo/add]
@@ -47,9 +46,8 @@ Three fields do most of the work:
 registered, and `:rf.trace/call-site` gives the line of the
 [`dispatch`](glossary.md#dispatch) that started the run. Tools render both as
 jump-to-source links. Everything else is under `:tags`, which has one fixed,
-schema-checked shape per category. `:category` repeats `:operation` so the payload
-stands alone, and `:failing-id` names the culprit (here the handler itself, so it
-equals `:handler-id`).
+schema-checked shape per category. `:failing-id` names the culprit (here the handler
+itself, so it equals `:handler-id`).
 
 ??? info "Coming from Sentry + React error boundaries?"
 
@@ -283,8 +281,8 @@ The record above comes from the `:trace` stream, which production builds
 `{:observability {:errors [{:sink :app/sentry}]}}` on the frame, or once for every
 frame with `(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})`, and
 register the function with `rf/register-observability-sink!`. The record your sink
-receives is smaller than the trace record. Its category is under `:error` rather than
-`:operation`, and it arrives already projected under the frame's
+receives is smaller than the trace record. Its category is under `:rf.error/id`, as on
+a thrown error, rather than `:operation`, and it arrives already projected under the frame's
 [data classification](glossary.md#data-classification), so sensitive paths are
 redacted before your code sees them. The process-wide entry also receives records
 whose frame does not resolve at all.
@@ -394,7 +392,7 @@ bracketed `[:rf.error/<id>]` token, e.g.
 The token is greppable in a raw log. In tests, match it with a substring or a
 `thrown-with-msg?` regex, never whole-string equality.
 
-Because a traced `:operation`, a sink record's `:error` and a thrown `:rf.error/id`
+Because a traced `:operation` and the `:rf.error/id` on a sink record or a thrown error
 come from the same catalogue, a tool or test branches on one set of keywords whether
 the failure recovered or aborted.
 
@@ -438,7 +436,7 @@ seed it before the first write. Wiring an `:errors` sink (on the frame or throug
 
 A sink reading these records must look under `:tags`: use
 `(get-in record [:tags :rollback?])`, not `(:rollback? record)`. On this record only
-`:error`, `:event-id`, `:frame`, `:time` and `:kind` are top-level; `:rollback?`,
+`:rf.error/id`, `:event-id`, `:frame`, `:time` and `:kind` are top-level; `:rollback?`,
 `:where`, `:registered-path`, `:reason` and `:recovery` are under `:tags`.
 
 A few schema checks run in every build. The one in this category is an event handler

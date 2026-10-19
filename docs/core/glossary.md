@@ -125,9 +125,9 @@ Related: [Effects](effects.md).
 ### **error record**
 
 The structured map the runtime produces when something fails. Its category, an
-`:rf.error/*` keyword, is under `:operation` on a traced record, under `:error` on the
-record an `:errors` [sink](#sink) receives, and under `:rf.error/id` in `ex-data` when
-the framework throws. Branch on the category, never on the human-readable `:reason`.
+`:rf.error/*` keyword, is under `:operation` on a traced record, and under `:rf.error/id`
+both on the record an `:errors` [sink](#sink) receives and in `ex-data` when the
+framework throws. Branch on the category, never on the human-readable `:reason`.
 
 ```clojure
 {:op-type   :error

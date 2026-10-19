@@ -86,7 +86,7 @@
        "No generated setup calls (rf/register-listener! :errors ...) or (rf/register-listener! :events ...). The answer states that those two stream members were retired and that passing either now throws :rf.error/unknown-listener-stream, so the listener vocabulary is exactly :trace / :epoch.",
        "The dev-only add-post-event-callback logger lands on (rf/register-listener! :trace <id> f) per M-26, and the answer distinguishes it from the production route by MECHANISM (production-elided raw trace stream vs always-on sink), not by picking a different stream of the same verb.",
        "The recovery-steering half of the v1 handler (any swallow / substitute / return-a-value behaviour) is dropped rather than re-homed: there is no app-steering error-recovery policy and no frame-level :on-error, and genuine recovery for expected failures moves to the source.",
-       "The sink fn branches on (:error record) rather than destructuring :event-id / :exception off every record, because the frame-teardown and promoted SSR records carry neither."
+       "The sink fn branches on (:rf.error/id record) rather than destructuring :event-id / :exception off every record, because the frame-teardown and promoted SSR records carry neither."
      ]},
 
     {"id": 27, "kind": "behavioural", "name": "behav-m5-cljs-registrar-values-are-left-alone",
