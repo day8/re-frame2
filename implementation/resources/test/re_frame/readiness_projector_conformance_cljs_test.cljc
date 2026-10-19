@@ -42,7 +42,7 @@
 (def ^:private entry-ready   {:resource/id :article/by-slug :status :loaded  :data {:x 1} :attempt 1})
 (def ^:private entry-pending {:resource/id :article/by-slug :status :loading :data nil    :attempt 1})
 (def ^:private entry-failed  {:resource/id :article/by-slug :status :error   :data nil    :attempt 1
-                              :error       {:kind :rf.http/server :status 503}})
+                              :error       {:kind :rf.http/server :http-status 503}})
 (def ^:private entry-inert   {:resource/id :article/by-slug :status :idle    :data nil    :attempt 1})
 
 (defn- runtime-db-with

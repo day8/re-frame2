@@ -246,6 +246,6 @@
     ;; the wake is no competing write, so a failed mutation restores cleanly
     (reset! http-requests [])
     (dispatch-at! (conj (:on-failure mutation-args)
-                        {:status :error :error {:kind :rf.http/http-5xx :status 500}}))
+                        {:status :error :error {:kind :rf.http/http-5xx :http-status 500}}))
     (is (= [{:title "W"} []] [(:data (entry)) @http-requests])
         "the rollback restores the pre-apply data with no conflict refetch")))

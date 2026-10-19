@@ -92,7 +92,7 @@
 (defn- refetch-article! [resource]
   (rf/dispatch-sync [:rf.resource/refetch {:resource resource :scope :rf.scope/global :params {:slug "w"}}]))
 
-(def ^:private http-503 {:kind :rf.http/http-5xx :status 503})
+(def ^:private http-503 {:kind :rf.http/http-5xx :http-status 503})
 
 ;; ===========================================================================
 ;; the runtime owns reply addressing; Spec 014 keys pass through
