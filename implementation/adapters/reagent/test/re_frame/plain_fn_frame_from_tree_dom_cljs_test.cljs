@@ -183,7 +183,11 @@
       (let [bare     (atom nil)
             captured (atom nil)
             view     (fn deferring-plain-fn []
-                       (let [ops (rf/capture-frame)]
+                       ;; A refused capture is data too, so a regression fails
+                       ;; the assertion instead of throwing out of the render.
+                       (let [ops (try (rf/capture-frame)
+                                      (catch :default e
+                                        {:frame [:error (:rf.error/id (ex-data e))]}))]
                          (js/setTimeout
                            (fn []
                              (reset! bare (try (rf/current-frame-id)
