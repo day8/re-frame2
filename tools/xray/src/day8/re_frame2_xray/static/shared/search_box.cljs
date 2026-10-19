@@ -41,9 +41,9 @@
     - Flows / Interceptors / Schemas / Machines — the tab's
       `rf.fresco/defview` boundary binds `(:dispatch (rf/capture-frame))`
       once and threads it down to its `search-box` call-site.
-    - Routes — the browse list renders as a Reagent island that can't
-      recover the frame, so the routes `Panel` boundary threads its
-      captured frame-aware `dispatch` straight through.
+    - Routes — the routes `Panel` boundary binds
+      `(:dispatch (rf/capture-frame))` and threads it through the
+      browse list's Reagent island.
 
   Either way the dispatcher is already frame-bound by the time it
   reaches here; this ns stays a pure presentational helper. The JVM

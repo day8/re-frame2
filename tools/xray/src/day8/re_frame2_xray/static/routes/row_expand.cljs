@@ -108,9 +108,9 @@
   this route (the handler ignores the id), so the title promises only
   the flip.
 
-  `dispatch` is threaded from the routes `Panel` boundary
-  (this button renders inside the Reagent island and cannot recover the
-  frame itself)."
+  `dispatch` is threaded from the routes `Panel` boundary: the click
+  fires after the render, where an ambient `rf/dispatch` has no frame
+  in scope and raises `:rf.error/no-frame-context`."
   [dispatch route-id]
    [:button {:data-testid (str "rf-xray-static-routes-jump-runtime-"
                               (subs (pr-str route-id) 1))
