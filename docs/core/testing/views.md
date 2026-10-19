@@ -198,7 +198,7 @@ build and require your own events, subs and component instead of the inline coun
     (.appendChild js/document.body node)
     (try
       (act-environment! true)
-      (rf.adapter.uix/flush-views!
+      (rf.test-support/flush-views!
         #(uix-dom/render-root
            ($ rf.adapter.uix/frame-provider {:frame :rf/default} element)
            root))
@@ -210,7 +210,7 @@ build and require your own events, subs and component instead of the inline coun
 
 (defn- unmount! [{:keys [node root act-prev]}]
   (try
-    (rf.adapter.uix/flush-views! #(uix-dom/unmount-root root))
+    (rf.test-support/flush-views! #(uix-dom/unmount-root root))
     (finally
       ;; Even when React's unmount or an effect cleanup throws, the node
       ;; leaves the page and the act flag goes back to what `mount!` found.
@@ -234,7 +234,7 @@ build and require your own events, subs and component instead of the inline coun
         ;; Drive the dataflow and settle React in one step: `dispatch-sync`
         ;; runs the event now, and act() commits the re-render before
         ;; `flush-views!` returns.
-        (rf.adapter.uix/flush-views! #(rf/dispatch-sync [:recipe.counter/inc]))
+        (rf.test-support/flush-views! #(rf/dispatch-sync [:recipe.counter/inc]))
         (is (= "1" (text node "counter-value")))
         (finally
           (unmount! mounted))))))
@@ -285,7 +285,10 @@ build and require your own events, subs and component instead of the inline coun
 ```
 
 `dispatch-sync` commits app-db before returning; `flush-views!` wraps React's
-`act()` so the DOM is committed too. The fixture owns the frame, and `mount!` and
+`act()` so the DOM is committed too. It is `re-frame.test-support`'s one test flush:
+it commits through whichever adapter is installed, so a Reagent test calls the same
+function. It settles only what ran synchronously; anything queued, such as a real
+click's `dispatch`, needs the bounded wait the second test uses. The fixture owns the frame, and `mount!` and
 `unmount!` own the React root and DOM node: `unmount!`'s `finally` removes the node
 and restores React's previous test-environment flag even if an assertion, a render
 or a teardown throws.
@@ -303,5 +306,5 @@ drop it.
 ## When you want more than hiccup
 
 - **Rendered markup.** When the assertion is about the HTML string a view produces, use `render-to-string`; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
-- **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), follow [section 4](#4-uix-hook-components-mount-it-for-real) using the Reagent adapter's `client-root`, `render!`, `unmount!` and `flush-views!`, and a hiccup tree in place of UIx's `$` element.
+- **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), follow [section 4](#4-uix-hook-components-mount-it-for-real) using the Reagent adapter's `client-root`, `render!` and `unmount!`, the same `rf.test-support/flush-views!`, and a hiccup tree in place of UIx's `$` element.
 - **A view's states.** "Show this view empty, loading, failed and loaded" is a job for [Story](../observability.md#tools-that-read-the-trace-stream): named variants in isolated frames, which can be promoted into tests.

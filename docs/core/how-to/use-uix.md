@@ -201,13 +201,13 @@ Only the view code changes between substrates:
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` |
 | Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` |
 | Ensure a named frame | `[rf/frame-root {:id f :images […]} [app]]` | `($ uix-adapter/frame-root {:id f :images […]} ($ app))` |
-| Flush renders in a test | `(reagent-adapter/flush-views!)` | `(uix-adapter/flush-views!)` |
+| Flush renders in a test | `(ts/flush-views!)` (`re-frame.test-support`) | identical |
 
 Reagent's lazy-seq warning (*"Reactive deref not supported in lazy seq, it should be wrapped in doall"*) doesn't apply under UIx. Reagent records the derefs that happen during render, and a lazy seq can delay a deref until after render, so on Reagent you realise the seq inside the render function: `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`. A UIx `use-sub` registers its dependency when the hook is called, whenever the surrounding seq is realised.
 
 !!! note "Flushing renders in tests"
 
-    After a test `dispatch-sync`s against a UIx-mounted tree, React hasn't committed the update yet. Wrap the dispatch as `(uix-adapter/flush-views! #(rf/dispatch-sync …))`, which uses React's `act()` to commit the re-render before returning. A real click's `dispatch` is queued instead; wait for it with a bounded `poll-until`. [Test a view](../testing/views.md#4-uix-hook-components-mount-it-for-real) has the full component test. `flush-views!` is for test code only.
+    After a test `dispatch-sync`s against a UIx-mounted tree, React hasn't committed the update yet. Wrap the dispatch as `(ts/flush-views! #(rf/dispatch-sync …))` (`re-frame.test-support`), which uses React's `act()` to commit the re-render before returning. It commits through whichever adapter is installed, so a ported test changes nothing here. A real click's `dispatch` is queued instead; wait for it with a bounded `poll-until`. [Test a view](../testing/views.md#4-uix-hook-components-mount-it-for-real) has the full component test. `flush-views!` is for test code only.
 
 To confirm the port, run the app and open [Xray](../glossary.md#xray): the event rows and [epochs](../glossary.md#epoch) match the Reagent run, because the instrumentation reads the core, which doesn't know which substrate renders.
 

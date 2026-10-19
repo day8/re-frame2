@@ -134,29 +134,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
   (reagent-adapter/unmount! app-root)   ;; releases the root; a repeat call is a no-op
   ```
 
-## Test helpers
-
-### `flush-views!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (flush-views!)
-  (flush-views! f)
-  ```
-- **Description**: Flushes pending Reagent renders synchronously inside React's `act()`, for tests. Returns nil. Use it when a test mounts into a real DOM and must let React commit before it reads the DOM; most Reagent view tests need no DOM, and call the view and walk its hiccup with [`re-frame.test-helpers`](re-frame.test-helpers.md) instead.
-    - 0-arity: drains the queued renders and effects.
-    - 1-arity: runs the thunk `f`, then drains the renders, inside `act()`.
-    - When `act()` is not available in the current React build, it flushes without it: `f` still runs and the render queue still drains.
-    - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A `dispatch` queues on the router instead, so wait for it with `re-frame.test-support/poll-until`. Do not call it from inside a `dispatch-sync` handler; it runs a render.
-    - React's `act()` expects the test to set `globalThis.IS_REACT_ACT_ENVIRONMENT` to `true` while it drives React through `flush-views!`, and to set it back while it waits on React's own schedule. [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real) shows the pattern.
-    - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return; without `act()`, that one does nothing and does not run `f`.
-- **Example**:
-  ```clojure
-  (reagent-adapter/flush-views!)                                    ;; drain queued renders + effects
-  (reagent-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))  ;; dispatch, then commit the re-render
-  ```
-
 ## Server-side rendering
 
 ### `set-hiccup-emitter!`

@@ -147,8 +147,6 @@
     :fn   'assert-public-vars-present-and-callable}
    {:test 'public-vars-distinct-fns
     :fn   'assert-public-vars-distinct-fns}
-   {:test 'public-flush-views-returns-nil-and-node-safe
-    :fn   'assert-flush-views-returns-nil-and-is-node-safe}
    {:test 'public-adapter-map-nine-fn-contract
     :fn   'assert-adapter-map-satisfies-nine-fn-contract}])
 

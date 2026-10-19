@@ -88,6 +88,11 @@
     rather than a hand-rolled register/unregister pair per file, as for
     the trace side.
 
+  ### View flush
+  - [[flush-views!]] — run `f`, then commit the views it re-rendered,
+    synchronously, through whichever adapter is installed. ONE test flush
+    for every React view adapter: a test names no adapter to flush.
+
   ### Deterministic-wait helpers
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
     truthy. JVM returns the truthy value synchronously (throws on
@@ -164,6 +169,10 @@
             [re-frame.observability :as rf.observability]
             [re-frame.trace :as rf.trace]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
+            ;; `act` for `flush-views!`. React 19, the adapter floor, exports
+            ;; it from the React namespace itself, so nothing is needed from
+            ;; `react-dom/test-utils`.
+            #?(:cljs ["react" :as React])
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
 
@@ -1098,6 +1107,54 @@
                               (.catch (fn [_] (settle false))))
                           (settle raw))))]
               (tick))))))))
+
+;; ---- view flush -----------------------------------------------------------
+;;
+;; One test flush for every React view adapter. Core needs no adapter to
+;; provide it: `rf.substrate.adapter/flush-render!` already delegates the
+;; synchronous commit to whichever adapter is installed, so `act` around it
+;; serves Reagent and UIx alike, and the production `flush-render!` stays the
+;; separate, non-test operation.
+
+(defn flush-views!
+  "Run `f`, then synchronously commit the views it re-rendered, for test
+  code. Returns nil; the 0-arity form commits what is already pending.
+
+      (ts/flush-views! #(rf/dispatch-sync [:counter/inc]))
+      (is (= \"1\" (.-textContent el)))
+
+  It names no adapter. The commit is the installed adapter's
+  `flush-render!` (`reagent.core/flush` under Reagent, `react-dom/flushSync`
+  under UIx), run on CLJS inside React's `act()`, so the effects that commit
+  scheduled have also run when this returns. React 19 exports `act` from
+  the React namespace; its production build omits it, and there this is
+  the plain synchronous commit.
+
+  SYNCHRONOUS ONLY. It settles what `f` and the renders it caused put on
+  the calling stack. It makes no claim about asynchronous work: a queued
+  `dispatch`, an HTTP reply or a timer has not happened yet when this
+  returns. Wait for that with [[poll-until]], then flush.
+
+  Where nothing renders live, there is no view tree to commit: under the
+  plain-atom and SSR adapters, and on the JVM, it runs `f` and returns nil.
+  With no adapter installed it raises `:rf.error/no-adapter-installed`,
+  exactly as `flush-render!` does.
+
+  `act` warns unless the test sets `globalThis.IS_REACT_ACT_ENVIRONMENT` to
+  true while it drives React through this, and React expects it set back
+  while a test waits on React's own schedule. A Fresco mounted test
+  settles with `re-frame.fresco.test.mounted/settle!` instead, because
+  `act` diverts work away from the browser's scheduler.
+
+  It runs a render phase, so do not call it from inside an event handler."
+  ([] (flush-views! (fn [] nil)))
+  ([f]
+   (let [commit! (fn commit! [] (rf.substrate.adapter/flush-render! f) nil)]
+     #?(:cljs (if-let [act (.-act React)]
+                (act commit!)
+                (commit!))
+        :clj  (commit!)))
+   nil))
 
 ;; ---- trace-recorder bracket -----------------------------------------------
 ;;

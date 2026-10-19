@@ -71,7 +71,7 @@
   [[negative-control-arm]] reproduces that fault deliberately, so the
   read-back gate below is shown to have signal instead of being trusted.
 
-  Nothing runs inside React's `act` environment, and the adapter's own
+  Nothing runs inside React's `act` environment, and the test flush
   `flush-views!` is deliberately NOT the door used here: it wraps `act`,
   whose queue is not the browser's scheduler, and the whole point of the
   window is that it is the browser's.
@@ -359,7 +359,7 @@
   `flushSync` so React commits it in this window rather than on its own
   scheduler a couple of milliseconds later.
 
-  NOT `re-frame.adapter.reagent/flush-views!`, which wraps `act`: act
+  NOT `re-frame.test-support/flush-views!`, which wraps `act`: act
   diverts work to its own queue, which is not what a browser does."
   []
   (react-dom/flushSync (fn [] (r/flush))))
