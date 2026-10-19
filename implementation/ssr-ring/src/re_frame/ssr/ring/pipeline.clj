@@ -32,6 +32,7 @@
             [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.ring.headers :as rf.ssr.ring.headers]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
@@ -632,10 +633,14 @@
                    :body-html  body-html
                    :rf-payload hydration-payload)))
         payload-edn (pr-str hydration-payload)
+        ;; Every shell, the default included, ships the payload by splicing
+        ;; `:payload-tag`, so the escaped, id-pinned `<script>` has one
+        ;; builder.
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs
-                           :body-attrs  body-attrs)
+                           :body-attrs  body-attrs
+                           :payload-tag (rf.ssr.html-helpers/payload-script-tag payload-edn))
         response-html (html-shell body-html payload-edn shell-opts)
         ;; Re-flush after rendering. A hardened reactive subscription may recover
         ;; to nil while buffering a projected failure; reading only the pre-render

@@ -190,7 +190,11 @@
                       required exactly when this opt is absent.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       (absent or nil) to `default-html-shell`. Replace to
-                      inject custom <head>, scripts, JSON-LD, etc.
+                      inject custom <head>, scripts, JSON-LD, etc. `opts`
+                      carries `:payload-tag`, the finished hydration
+                      payload `<script id=\"__rf_payload\">`, escaped and
+                      id-pinned: splice it where the payload goes rather
+                      than re-emitting the script from `payload-edn`.
     :content-type   — successful-body Content-Type override. Omit it to retain
                       the runtime or app header. Projected HTML errors do not
                       inherit this override.
