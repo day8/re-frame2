@@ -1094,24 +1094,24 @@ The same pattern applies to `(rf/register-listener! :epoch …)`, `trace-buffer`
 
 ### JVM builds
 
-> Cross-reference: see [Security.md §Production gates](Security.md#production-gates) — SSR / webhook / long-running JVMs facing untrusted input MUST set the gate `false` explicitly so dev-side trace enrichment elides in production. The runtime gate below is the JVM mirror of CLJS `goog.DEBUG`; both surfaces compose with the always-on substrates above.
+> Cross-reference: see [Security.md §Production gates](Security.md#production-gates) — A JVM that hosts SSR defaults the gate `false` ([011 §The debug gate on an SSR JVM](011-SSR.md#the-debug-gate-on-an-ssr-jvm)); webhook and other long-running JVMs facing untrusted input MUST set it `false` explicitly so dev-side trace enrichment elides in production. The runtime gate below is the JVM mirror of CLJS `goog.DEBUG`; both surfaces compose with the always-on substrates above.
 
 JVM has no `:advanced` and no compile-time DCE. The JVM half of the interop layer:
 
 ```clojure
 ;; src/re_frame/interop.clj — JVM-side gate read once at ns-load
 (def debug-enabled?
-  (read-debug-flag))   ;; defaults to `true`; opt-out via property / env
+  (read-debug-flag))   ;; unset: false on an SSR host, true elsewhere
 ```
 
-…reads the gate ONCE at namespace load. The default is `true` (dev parity), but the gate is **explicitly overridable** for the SSR production posture — the JVM-side counterpart to CLJS `goog.DEBUG=false`.
+…reads the gate ONCE at namespace load. Unset, it defaults `false` on a JVM that hosts SSR (a classpath carrying `re_frame/ssr_host.edn`, which the ssr-ring artefact ships) and `true` (dev parity) everywhere else. An explicit setting wins both ways, so `-Dre-frame.debug=true` is the dev opt-in on an SSR JVM ([011 §The debug gate on an SSR JVM](011-SSR.md#the-debug-gate-on-an-ssr-jvm)) — the JVM-side counterpart to CLJS `goog.DEBUG=false`.
 
 **Opt-out vocabulary.** Two input sources, read in this order, with the JVM system property winning on conflict:
 
 1. **Java system property `re-frame.debug`** — set on the JVM command line with `-Dre-frame.debug=false`.
 2. **Environment variable `RE_FRAME_DEBUG`** — set in the process environment.
 
-Both accept the conventional false-y vocabulary case-insensitively: `false`, `0`, `no`, `off`, empty string. Whitespace is trimmed. Anything else — including absent / unset — leaves the flag at its default `true`. The vocabulary is intentionally conservative: only the documented opt-out strings disable the gate, so an accidental typo (`disabled`, `nope`) leaves the dev posture alive rather than silently misconfiguring.
+Both read `true`, `1`, `yes`, `on` as on and `false`, `0`, `no`, `off`, empty string as off, case-insensitively, with whitespace trimmed. Anything else — including absent / unset — takes the JVM's default, so a typo (`disabled`, `nope`) neither opts an SSR JVM into dev posture nor silently disables a dev JVM.
 
 **What disabling the gate suppresses.** With `re-frame.debug=false` set BEFORE `re-frame.interop` loads, every JVM-side dev surface drops to its no-op floor — the same shape CLJS `:advanced` + `goog.DEBUG=false` builds achieve via Closure DCE:
 
@@ -1130,7 +1130,7 @@ Those surfaces are explicitly always-on per their owning specs — they exist pr
 
 **Set the flag before re-frame loads.** The Var reads its value at ns-load time, then JIT-inlines into the per-call `when interop/debug-enabled?` checks. Late mutation via `alter-var-root!` works for tests (and is the canonical way to flip the gate within a test) but does not retroactively elide already-allocated infrastructure.
 
-The motivating concern: an SSR / headless JVM process running re-frame2 should not retain user input in per-frame trace rings or epoch history. Apps that ship a JVM artefact for production should set `-Dre-frame.debug=false` in their deployment; dev and test keep the default `true`.
+The motivating concern: an SSR / headless JVM process running re-frame2 should not retain user input in per-frame trace rings or epoch history. An SSR JVM is in that posture by default, and its dev and test runs opt in with `-Dre-frame.debug=true`; any other JVM artefact shipped for production should set `-Dre-frame.debug=false` in its deployment, while its dev and test keep the default `true`.
 
 ### Production-elision verification
 
@@ -1263,7 +1263,7 @@ The framework exposes **five observation surfaces**:
 
 Each surface sits in exactly one of **three production postures**:
 
-- **dev-only DCE** — gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`, default `true` in dev / `false` in `:advanced` prod CLJS, default `true` JVM with `-Dre-frame.debug=false` opt-out). Compile-time eliminated in production; allocates zero in the bundle. Per [§Production builds](#production-builds-zero-overhead-zero-code).
+- **dev-only DCE** — gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`, default `true` in dev / `false` in `:advanced` prod CLJS, on the JVM default `false` when it hosts SSR and `true` otherwise, overridable by `-Dre-frame.debug`). Compile-time eliminated in production; allocates zero in the bundle. Per [§Production builds](#production-builds-zero-overhead-zero-code).
 - **always-on** — runs through a small substrate that survives `goog.DEBUG=false` (and survives `-Dre-frame.debug=false` JVM-side). Tight record shape, post-elision (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`), per-listener exceptions isolated. Designed for production observability without preserving the dev-only trace surface.
 - **opt-in goog-define** — gated on an independent compile-time flag distinct from `goog.DEBUG`. Default off; consumer flips the flag explicitly via `:closure-defines`. Production bundles that don't opt in carry zero instrumentation; those that do retain the surface even with `goog.DEBUG=false`.
 
@@ -1649,7 +1649,7 @@ For failure categories, re-frame2 has **three observability channels** with diff
 **Production guarantees, once:**
 
 - CLJS `:advanced` + `goog.DEBUG=false` DCEs the diagnostic channel entirely (per [§Production builds](#production-builds-zero-overhead-zero-code)).
-- The JVM gate (`re-frame.debug` / `RE_FRAME_DEBUG`, per [§JVM builds](#jvm-builds)) defaults **on** — "production-elided" means *elidable*, not *elided by default*. A production JVM SSR / tooling process that does not set `-Dre-frame.debug=false` runs the full dev diagnostic surface. Production JVM deployments MUST set it explicitly. (This is the one place the JVM default-on caveat is stated; the per-channel sections cross-reference here rather than re-hand-waving "moot in production.")
+- The JVM gate (`re-frame.debug` / `RE_FRAME_DEBUG`, per [§JVM builds](#jvm-builds)) defaults **on** except on a JVM that hosts SSR, where it defaults off — elsewhere "production-elided" means *elidable*, not *elided by default*. A production tooling or webhook JVM that does not set `-Dre-frame.debug=false` runs the full dev diagnostic surface, so such deployments MUST set it explicitly. (This is the one place the JVM default-on caveat is stated; the per-channel sections cross-reference here rather than re-hand-waving "moot in production.")
 - The causal channel and the always-on error axis survive both gates.
 
 #### The promotion criterion
@@ -1870,7 +1870,7 @@ Shape and reservation:
 
 Production elision (CLJS): **DEBUG-gated, two-layer**. The macro emission wraps the bound source-string in `(if interop/debug-enabled? <pr-str-of-form> nil)`; the registrar-side merge in `re-frame.events/merge-form-source` is wrapped in `(if-not interop/debug-enabled? m ...)`. Under `:advanced` + `goog.DEBUG=false` Closure constant-folds both gates and DCEs (a) the literal source-string bytes from the macro expansion, AND (b) the `:rf.handler/source` keyword's reachability from the merge `assoc` slot. The elision-probe (per [§Production builds](#production-builds-zero-overhead-zero-code) and `scripts/check-elision.cjs`) asserts both absences against the production bundle.
 
-Production elision (JVM): **always-on**. `re-frame.interop/debug-enabled?` is dev-default-true on the JVM; the bundle-size argument doesn't apply to SSR / test / tooling builds. The JVM-side macro emission carries the source string into the registry meta unconditionally — JVM `clojure -M:test` users can read `(:rf.handler/source (rf/handler-meta {:source :store :kind :event :id id}))`. The `re-frame.debug=false` JVM property (per [§JVM builds](#jvm-builds)) flips the same gate and elides capture at registration time.
+Production elision (JVM): **always-on**. `re-frame.interop/debug-enabled?` is dev-default-true on a JVM that does not host SSR; the bundle-size argument doesn't apply to SSR / test / tooling builds. The JVM-side macro emission carries the source string into the registry meta unconditionally — JVM `clojure -M:test` users can read `(:rf.handler/source (rf/handler-meta {:source :store :kind :event :id id}))`. The `re-frame.debug=false` JVM property (per [§JVM builds](#jvm-builds)) flips the same gate and elides capture at registration time.
 
 The mechanism is "compile-time `pr-str` + dynamic-var thread + registrar merge." The macro produces a `pr-str` literal at compile time; the binding form publishes it on `re-frame.source-coords/*pending-form-source*` around the underlying `register-event!` call; `register-event!` reads the var via `merge-form-source` and `assoc`s it into the registered handler's metadata. No new namespace or registry slot beyond the registrar; consumer access is `(:rf.handler/source (rf/handler-meta {:source :store :kind :event :id id}))`.
 
