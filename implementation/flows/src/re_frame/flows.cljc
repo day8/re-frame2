@@ -151,8 +151,7 @@
                               new-output
                               {:frame frame-id
                                :path  (:output-path flow)})
-                tags        {:category   :rf.error/schema-validation-failure
-                             :where      :flow-output
+                tags        {:where      :flow-output
                              :rf.flow/id (:id flow)
                              :failing-id (:id flow)
                              :schema-id  (:id flow)

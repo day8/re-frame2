@@ -117,7 +117,7 @@
 (deftest flow-eval-exception-routes-through-error-emit-substrate
   ;; Error listeners receive the always-on record and the canonical thrown data.
   (let [seen     (atom [])
-        expected {:error :rf.error/flow-eval-exception :event [:init] :event-id :init
+        expected {:rf.error/id :rf.error/flow-eval-exception :event [:init] :event-id :init
                   :frame :rf/default :where :flow-eval :flow-id :boom :phase :derive}]
     (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
     (rf/reg-event :init (fn [_ _] {:db {:n 1}}))
@@ -151,7 +151,7 @@
     (is (= [[:rf.error/flow-eval-exception :rf.error/flow-cycle true]]
            (mapv (fn [r]
                    (let [d (ex-data (:exception r))]
-                     [(:error r) (:rf.error/id d) (contains? #{[:a :b :a] [:b :a :b]} (:cycle d))]))
+                     [(:rf.error/id r) (:rf.error/id d) (contains? #{[:a :b :a] [:b :a :b]} (:cycle d))]))
                  @seen)))))
 
 ;; ---- atomicity -----------------------------------------------------------

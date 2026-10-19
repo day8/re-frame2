@@ -1031,8 +1031,7 @@
       (try (quiesce-hook frame-id)
            (catch #?(:clj Throwable :cljs :default) quiesce-error
              (rf.trace/emit-error! :rf.warning/restore-quiesce-hook-exception
-                                   {:category  :rf.warning/restore-quiesce-hook-exception
-                                    :hook      hook-key
+                                   {:hook      hook-key
                                     :frame     frame-id
                                     :exception quiesce-error
                                     :recovery  :ignored})))))
