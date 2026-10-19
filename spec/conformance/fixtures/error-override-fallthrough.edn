@@ -40,8 +40,7 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :user/load}}
    {:operation :rf.error/override-fallthrough
     :op-type   :error
-    :tags      {:category      :rf.error/override-fallthrough
-                :failing-id    :http
+    :tags      {:failing-id    :http
                 :overrides-map {:http :nonexistent-stub}
                 :looked-up-id  :nonexistent-stub
                 :reason        "Override redirected `:http` to `:nonexistent-stub`, which is not registered. Using the registered `:http` instead."}

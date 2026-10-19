@@ -38,8 +38,7 @@
    ;; :persist throws — structured trace, then :log fires.
    {:operation :rf.error/fx-handler-exception
     :op-type   :error
-    :tags      {:category          :rf.error/fx-handler-exception
-                :failing-id        :persist
+    :tags      {:failing-id        :persist
                 :rf.fx/id             :persist
                 :rf.fx/args           {:user "alice"}
                 :exception-message "persist exploded"

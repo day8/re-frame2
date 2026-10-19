@@ -74,8 +74,7 @@
    ;; :op-type :error (Spec 009 §Retain-N trace ring buffer).
    {:operation :rf.error/handler-exception
     :op-type   :error
-    :tags      {:category   :rf.error/handler-exception
-                :handler-id :counter/will-throw}}
+    :tags      {:handler-id :counter/will-throw}}
 
    ;; :rf.sub/* category — sub computation. The runner's :sub-values
    ;; check below invokes rf/subscribe-once, which the runtime

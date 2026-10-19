@@ -57,15 +57,14 @@
    {:operation :rf.error/effect-map-shape
     :op-type   :error
     :recovery  :fix-effect
-    :tags      {:category          :rf.error/effect-map-shape
-                :offending-key     :fx
+    :tags      {:offending-key     :fx
                 :value             :oops
                 :rf.trace/event-id :shape/bad-fx-value
                 :rf.event/v        [:shape/bad-fx-value]}}]
 
   ;; The production-surviving axis.
   :error-emit-records
-  [{:error         :rf.error/effect-map-shape
+  [{:rf.error/id   :rf.error/effect-map-shape
     :event-id      :shape/bad-fx-value
     :offending-key :fx}]
 

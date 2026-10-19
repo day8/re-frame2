@@ -60,8 +60,7 @@
    {:operation :rf.error/effect-handler-bad-return
     :op-type   :error
     :recovery  :no-recovery
-    :tags      {:category :rf.error/effect-handler-bad-return
-                :event-id :bad-ret/vector
+    :tags      {:event-id :bad-ret/vector
                 :event    [:bad-ret/vector]
                 :returned [[:dispatch [:other]]]}}
    ;; The nil-control dispatch ran AFTER — it is the legal no-op. The

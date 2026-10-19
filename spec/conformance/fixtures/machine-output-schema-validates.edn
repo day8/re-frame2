@@ -77,8 +77,7 @@
  {:trace-emissions
   [{:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :where      :machine-output
+    :tags      {:where      :machine-output
                 :machine-id :out/finish-bad
                 :failing-id :out/finish-bad
                 :phase      :completion

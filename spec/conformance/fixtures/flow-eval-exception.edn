@@ -108,6 +108,6 @@
   ;; corpus-wide error-emit listener at fixture-start; this matcher
   ;; asserts the listener captured the cascade-level record.
   :error-emit-records
-  [{:error    :rf.error/flow-eval-exception
+  [{:rf.error/id :rf.error/flow-eval-exception
     :event-id :flow/bad-input
     :frame    :rf/default}]}}

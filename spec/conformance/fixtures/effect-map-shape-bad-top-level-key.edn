@@ -64,8 +64,7 @@
    {:operation :rf.error/effect-map-shape
     :op-type   :error
     :recovery  :fix-effect
-    :tags      {:category          :rf.error/effect-map-shape
-                :offending-key     :http
+    :tags      {:offending-key     :http
                 :value             {:url "/api"}
                 :rf.trace/event-id :shape/bad-key
                 :rf.event/v        [:shape/bad-key]}}]
@@ -74,7 +73,7 @@
   ;; dev trace above is dead-code-eliminated. It carries the offending KEY as
   ;; its lone discriminator; the rejected value stays on the dev trace.
   :error-emit-records
-  [{:error         :rf.error/effect-map-shape
+  [{:rf.error/id   :rf.error/effect-map-shape
     :event-id      :shape/bad-key
     :offending-key :http}]
 

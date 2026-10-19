@@ -51,8 +51,7 @@
    ;; The error trace immediately after.
    {:operation :rf.error/handler-exception
     :op-type   :error
-    :tags     {:category          :rf.error/handler-exception
-               :failing-id        :will-throw
+    :tags     {:failing-id        :will-throw
                :handler-id        :will-throw
                :exception-message "boom"
                :reason            "Event handler threw."}

@@ -73,8 +73,7 @@
    {:operation :rf.error/effect-map-shape
     :op-type   :error
     :recovery  :logged-and-skipped
-    :tags      {:category          :rf.error/effect-map-shape
-                :offending-key     :fx
+    :tags      {:offending-key     :fx
                 :value             :oops
                 :rf.trace/event-id :shape/bad-fx-entry
                 :rf.event/v        [:shape/bad-fx-entry]}}]

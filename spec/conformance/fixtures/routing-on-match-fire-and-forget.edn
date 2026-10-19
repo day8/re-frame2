@@ -59,6 +59,6 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/fail}}
    {:operation :rf.error/handler-exception
     :op-type   :error
-    :tags      {:category :rf.error/handler-exception :failing-id :load/fail}}
+    :tags      {:failing-id :load/fail}}
    ;; The later loader still runs (fire-and-forget continuation).
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/next}}]}}

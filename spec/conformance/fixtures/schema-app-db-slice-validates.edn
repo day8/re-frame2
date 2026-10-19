@@ -65,8 +65,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/set-bad}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category        :rf.error/schema-validation-failure
-                :failing-id      :user/set-bad
+    :tags      {:failing-id      :user/set-bad
                 :where           :app-db
                 ;; The trace's :path is the failing leaf
                 ;; path (registered-path + Malli explainer's :in suffix),

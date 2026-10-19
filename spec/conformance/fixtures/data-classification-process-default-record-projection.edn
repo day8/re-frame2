@@ -23,7 +23,7 @@
 ;;   explicitly nil, so `:tags` redacts WHOLE to `:rf/redacted` — no frame's
 ;;   classification vouched for its contents. Calls [0] and [1].
 ;;
-;;   SUMMARY IDS SURVIVE. `:kind` / `:error` / `:time`, and a STALE `:frame`
+;;   SUMMARY IDS SURVIVE. `:kind` / `:rf.error/id` / `:time`, and a STALE `:frame`
 ;;   id, pass through unchanged: the id is what tells an operator which frame
 ;;   died, and it is kept as a DIAGNOSTIC while never being re-resolved
 ;;   against the live registry. Call [1] is the discriminating one — the id it
@@ -71,13 +71,13 @@
    :frame             nil
    :value             {:kind  :rf.observe/error
                        :frame nil
-                       :error :rf.error/no-frame-context
+                       :rf.error/id :rf.error/no-frame-context
                        :time  42
                        :tags  {:auth   {:token "super-secret"}
                                :reason "no frame in scope"}}
    :expect            {:kind  :rf.observe/error
                        :frame nil
-                       :error :rf.error/no-frame-context
+                       :rf.error/id :rf.error/no-frame-context
                        :time  42
                        :tags  :rf/redacted}}
 
@@ -91,13 +91,13 @@
    :frame             nil
    :value             {:kind  :rf.observe/error
                        :frame :obs/dead
-                       :error :rf.error/frame-teardown-failed
+                       :rf.error/id :rf.error/frame-teardown-failed
                        :time  7
                        :tags  {:auth   {:token "super-secret"}
                                :reason "teardown hook threw"}}
    :expect            {:kind  :rf.observe/error
                        :frame :obs/dead
-                       :error :rf.error/frame-teardown-failed
+                       :rf.error/id :rf.error/frame-teardown-failed
                        :time  7
                        :tags  :rf/redacted}}
 
@@ -111,13 +111,13 @@
    :frame             :obs/main
    :value             {:kind  :rf.observe/error
                        :frame :obs/main
-                       :error :rf.error/handler-exception
+                       :rf.error/id :rf.error/handler-exception
                        :time  7
                        :tags  {:auth   {:token "super-secret"}
                                :reason "teardown hook threw"}}
    :expect            {:kind  :rf.observe/error
                        :frame :obs/main
-                       :error :rf.error/handler-exception
+                       :rf.error/id :rf.error/handler-exception
                        :time  7
                        :tags  {:auth   {:token :rf/redacted}
                                :reason "teardown hook threw"}}}
@@ -131,13 +131,13 @@
    :frame             nil
    :value             {:kind  :rf.observe/error
                        :frame nil
-                       :error :rf.error/no-frame-context
+                       :rf.error/id :rf.error/no-frame-context
                        :time  42
                        :tags  {:auth   {:token "super-secret"}
                                :reason "no frame in scope"}}
    :expect            {:kind  :rf.observe/error
                        :frame nil
-                       :error :rf.error/no-frame-context
+                       :rf.error/id :rf.error/no-frame-context
                        :time  42
                        :tags  {:auth   {:token "super-secret"}
                                :reason "no frame in scope"}}}]}

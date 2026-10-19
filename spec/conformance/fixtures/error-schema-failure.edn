@@ -45,8 +45,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/set-bad}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :failing-id :counter/set-bad
+    :tags      {:failing-id :counter/set-bad
                 :where      :app-db
                 :path       [:count]
                 :value      "not-a-number"

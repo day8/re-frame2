@@ -70,8 +70,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/article}}
    {:operation :rf.error/handler-exception
     :op-type   :error
-    :tags      {:category          :rf.error/handler-exception
-                :failing-id        :load/article
+    :tags      {:failing-id        :load/article
                 :exception-message "Database connection failed: SECRET_TOKEN=xyz"}}]
 
   ;; Public-error shape produced by the runtime's default projector.

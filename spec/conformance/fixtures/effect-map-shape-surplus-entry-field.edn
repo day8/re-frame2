@@ -57,8 +57,7 @@
    {:operation :rf.error/effect-map-shape
     :op-type   :error
     :recovery  :logged-and-skipped
-    :tags      {:category          :rf.error/effect-map-shape
-                :offending-key     :fx
+    :tags      {:offending-key     :fx
                 :value             [:shape/sink {:used true} {:dropped true}]
                 :rf.trace/event-id :shape/surplus-field
                 :rf.event/v        [:shape/surplus-field]}}]

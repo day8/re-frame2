@@ -52,8 +52,7 @@
    ;; already-settled events are durable.
    {:operation :rf.error/drain-depth-exceeded
     :op-type   :error
-    :tags      {:category   :rf.error/drain-depth-exceeded
-                :depth      5
+    :tags      {:depth      5
                 :queue-size 1
                 :last-event [:recursive]
                 :rollback?  false}

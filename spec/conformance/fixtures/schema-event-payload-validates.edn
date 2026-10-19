@@ -60,7 +60,6 @@
    ;; attempted) — it's the handler INVOCATION that's skipped.
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :failing-id :user/register
+    :tags      {:failing-id :user/register
                 :where      :event}
     :recovery  :no-recovery}]}}

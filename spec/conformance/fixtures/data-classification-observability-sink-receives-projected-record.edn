@@ -75,12 +75,12 @@
    :rf.egress/profile :rf.egress/off-box-observability
    :value             {:kind     :rf.observe/error
                        :frame    :obs/main
-                       :error    :rf.error/handler-exception
+                       :rf.error/id :rf.error/handler-exception
                        :event-id :auth/login
                        :event    [:auth/login {:auth {:token "super-secret-token"}}]}
    :expect            {:kind     :rf.observe/error
                        :frame    :obs/main
-                       :error    :rf.error/handler-exception
+                       :rf.error/id :rf.error/handler-exception
                        :event-id :auth/login
                        :event    [:auth/login {:auth {:token :rf/redacted}}]}}
 
@@ -106,7 +106,7 @@
    :rf.egress/profile :rf.egress/public-error
    :value             {:kind         :rf.observe/error
                        :frame        :obs/main
-                       :error        :rf.error/interceptor-exception
+                       :rf.error/id  :rf.error/interceptor-exception
                        :event-id     :auth/login
                        :failing-id   :app/audit-interceptor
                        :source-coord {:ns app.interceptors :file "src/app/interceptors.cljs" :line 42}
@@ -114,7 +114,7 @@
                        :event        [:auth/login {:auth {:token "super-secret-token"}}]}
    :expect            {:kind         :rf.observe/error
                        :frame        :obs/main
-                       :error        :rf.error/interceptor-exception
+                       :rf.error/id  :rf.error/interceptor-exception
                        :event-id     :auth/login
                        :failing-id   :app/audit-interceptor
                        :source-coord {:ns app.interceptors :file "src/app/interceptors.cljs" :line 42}
