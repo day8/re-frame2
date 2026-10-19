@@ -882,12 +882,13 @@ A site that fails any of the four, or whose signal fn cannot be read (defined el
 <a id="m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename"></a>
 ### M-72. `inject-cofx` removed; `:rf.world/inputs` → `:rf.cofx` rename; `reg-cofx` value-returning (rf2-93ha1x)
 
-**Type B** for the durable-read judgment, **Type A** for the mechanical reshape. The EP-0017 coeffect surface (`docs/EP/EP-0017-recordable-coeffects.md`) lands four changes that touch any v1 app using `inject-cofx` or a `:now`/UUID/random/storage cofx:
+**Type B** for the durable-read judgment, **Type A** for the mechanical reshape. The EP-0017 coeffect surface (`docs/EP/EP-0017-recordable-coeffects.md`) lands five changes that touch any v1 app using `inject-cofx` or a `:now`/UUID/random/storage cofx:
 
 1. **`inject-cofx` is removed (no alias).** Calling `(rf/inject-cofx :id)` is the hard error `:rf.error/inject-cofx-removed`. A handler now takes delivery of a coeffect by **declaring** the id in `:rf.cofx/requires` registration metadata; the value arrives **flat** in the coeffects map under its id.
 2. **`reg-cofx` is value-returning.** The v1 ctx→ctx shape (`(fn [ctx] (assoc-in ctx [:coeffects :id] v))`) is retired. A supplier is now `(fn [] value)` or `(fn [arg] value)` and returns the coeffect value directly.
 3. **`:rf.world/inputs` → `:rf.cofx`** (EP-0010's envelope field renamed + flattened). It is a **flat** `fact-name → value` map (no `:uuid`/`:random` grouping sub-maps). `:rf.world/inputs` was a draft-only name (never shipped), so supplying it as a dispatch opt earns no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx`. The durable wall-clock fact is the framework's one built-in coeffect, **`:rf/time-ms`** (recordable, provided, stamped at enqueue).
 4. **Nothing implicit, including the time.** A handler that folds a timestamp into durable state declares `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat.
+5. **`reg-cofx` is recordable by default.** A v1 cofx ran fresh on every injection; a v2 registration with no `:recordable?` key is recorded and replayed, so its value must be EDN. A display, diagnostic or host-object supplier registers `{:recordable? false}` to keep v1's run-every-time behaviour; `:rf.error/cofx-value-invalid` names any non-EDN one that was missed.
 
 **The mechanical reshape (Type A):**
 
