@@ -147,9 +147,9 @@ See [Parallel regions](parallel-states.md).
 
 ### **final state**
 
-A leaf marked `:final? true`. At the root, it ends and destroys the machine.
-Inside a compound state, it marks that sub-flow as done. A resting end-screen
-(`:authed`) omits `:final?`.
+A leaf marked `:final? true`. At the root, it ends the machine: a spawned actor
+is destroyed, and a singleton rests there, so a resting end-screen (`:authed`)
+is `:final?`. Inside a compound state, it marks that sub-flow as done.
 
 See [Final states](concepts.md#final-states);
 [nested finals](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).

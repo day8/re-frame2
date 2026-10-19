@@ -423,7 +423,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 
 ## Final states and `:on-done`
 
-A machine finishes by entering a `:final?` leaf that is a direct child of its root. The runtime then destroys it, so you do not emit `:rf.machine/destroy`. A singleton's registration survives: only its snapshot is removed, and its next event starts it again from `:initial`. Use `:final?` for work that ends, such as a request actor. A resting state that views still read, such as `:authed`, stays a plain leaf.
+A machine finishes by entering a `:final?` leaf that is a direct child of its root, and `:rf.machine/done` fires once. A spawned actor is then destroyed, so you do not emit `:rf.machine/destroy`. A singleton rests in its final state instead: its snapshot stays, views keep reading it (login's `:authed`), and an event its definition declares no way out for is a no-op. A way out is a transition on the root's `:on`, since a final leaf takes no `:on` of its own.
 
 A child started by a `:spawn` or `:spawn-all` state reports to its parent by finishing; it dispatches nothing itself. (An actor started with a hand-emitted `:rf.machine/spawn` has no parent to report to.) The runtime sends the parent a `:rf.machine.spawn/done` event, handled in the parent's ordinary macrostep: the parent receives the result through `:on-done`, and can also transition on it with a transition-shaped `:on-done`, an `:always`, or `:on {:rf.machine.spawn/done …}`. A child that fails arrives as `:rf.machine.spawn/error` instead.
 
@@ -431,7 +431,7 @@ A `:final?` leaf nested inside a compound state finishes only that compound. The
 
 | State-node key | What it does |
 |---|---|
-| `:final?` | Marks a leaf state as terminal. Directly under the root, entering it finishes and destroys the machine; nested in a compound state, it finishes that compound. |
+| `:final?` | Marks a leaf state as terminal. Directly under the root, entering it finishes the machine: a spawned actor is destroyed, a singleton rests there. Nested in a compound state, it finishes that compound. |
 | `:error?` | Requires `:final?`, or registration throws `:rf.error/machine-error-flag-without-final`. Marks the terminal state as a failure: the parent's `:spawn` `:on-error` transition fires instead of `:on-done`, and under a `:spawn-all` join the child counts as failed. |
 | `:output-key` | Requires `:final?`, or registration throws `:rf.error/machine-output-key-without-final`. Names the child's `:data` slot that is reported to the parent's `:on-done`. |
 
