@@ -633,6 +633,7 @@
                [[:rf.route/navigate "/gate-b"]                            :request-not-a-map   []]
                [[:rf.route/navigate {:to :route/gate-b} {:replace? true}] :bad-event-arity     []]
                [[:rf.route/navigate {:to :route/gate-b :scroll :smooth}]  :bad-scroll          [:scroll]]
+               [[:rf.route/navigate {:to :route/gate-b :scroll :preserve}] :bad-scroll         [:scroll]]
                [[:rf.route/navigate {:query {} :scroll {:behavior :x}}]   :bad-scroll          [:scroll]]]]
         (let [tags (gate-reject event)]
           (is (= before (nav-slice)) (pr-str event))
