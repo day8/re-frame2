@@ -1088,7 +1088,7 @@ A response is `{:status :headers :body}` (`:status` defaulting to 200), where a 
 
 Because the body goes over the fake wire as JSON, a reply's `:value` is what the request's `:decode` makes of it — keyword values arrive as strings unless the schema coerces them — exactly as against a server.
 
-### Test-support require — the HTTP test surface gate
+### Requiring the stub transports
 
 The stub transports are the HTTP test surface, and they ship in `re-frame.http.stub-transport`, beside the production namespaces of the `day8/re-frame2-http` artefact. A test or a demo requires it directly:
 
