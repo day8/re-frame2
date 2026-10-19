@@ -3,10 +3,12 @@
   singleton rests in its final state: it stays readable, its completion fires
   exactly once, and an event to it is a no-op unless its definition declares
   a way out."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.schemas]
+            [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -77,3 +79,66 @@
   (rf/dispatch-sync [:fs/kid#1 [:finish]])
   (is (nil? (snapshot :fs/kid#1)) "a spawned actor is torn down at finality")
   (is (= 1 (count (events-of :rf.machine/done)))))
+
+;; ---- born final: birth is an entry into finality ---------------------------
+
+(defn- reg-born-final!
+  "A singleton whose initial configuration is already whole-machine final,
+  with `v` as its completion output. `:flat` is a lone `:final?` initial leaf;
+  `:parallel` is two regions that each start in a `:final?` leaf, with no root
+  `:on-done`. `schemas` is merged in as the definition's `:schemas`."
+  [id shape v schemas]
+  (rf/reg-machine id
+    (cond-> (case shape
+              :flat     {:initial :done
+                         :data    {:v v}
+                         :states  {:done {:final? true :output-key :v}}}
+              :parallel {:type    :parallel
+                         :data    {:v v}
+                         :regions {:a {:initial :done
+                                       :states  {:done {:final? true :output-key :v}}}
+                                   :b {:initial :done
+                                       :states  {:done {:final? true}}}}})
+      schemas (assoc :schemas schemas))))
+
+(defn- completions []
+  (mapv (juxt (comp :actor-id :tags) (comp :output :tags))
+        (events-of :rf.machine/done)))
+
+(deftest a-singleton-born-final-completes-once
+  (doseq [[shape id] [[:flat :fs/born-flat] [:parallel :fs/born-parallel]]]
+    (testing (str shape " singleton, born on its first event")
+      (rf.machines.test-support/reset-captured!)
+      (reg-born-final! id shape 3 nil)
+      (rf/dispatch-sync [id [:poke]])
+      (is (= [[id 3]] (completions)) "birth into finality is one completion")
+      (rf/dispatch-sync [id [:poke]])
+      (is (= [[id 3]] (completions)) "a later unhandled event adds none")
+      (is (= {:v 3} (:data (snapshot id))) "the singleton rests, readable")
+      (is (empty? (events-of :rf.machine/destroyed)) "and is not reaped"))))
+
+(deftest an-eager-start-into-finality-completes-once-and-rests
+  (doseq [[shape id] [[:flat :fs/kick-flat] [:parallel :fs/kick-parallel]]]
+    (testing (str shape " singleton, born by [:rf.machine/start]")
+      (rf.machines.test-support/reset-captured!)
+      (reg-born-final! id shape 4 nil)
+      (rf/dispatch-sync [id [:rf.machine/start]])
+      (is (= [[id 4]] (completions)) "an eager birth into finality is one completion")
+      (rf/dispatch-sync [id [:poke]])
+      (rf/dispatch-sync [id [:rf.machine/start]])
+      (is (= [[id 4]] (completions)) "neither a later event nor a redundant start adds one")
+      (is (= {:v 4} (:data (snapshot id))) "the singleton rests, readable")
+      (is (empty? (events-of :rf.machine/destroyed)) "and is not reaped"))))
+
+(deftest birth-into-finality-validates-the-completion-output
+  (doseq [[shape id] [[:flat :fs/bad-flat] [:parallel :fs/bad-parallel]]]
+    (testing (str shape " singleton whose completion output violates [:schemas :output]")
+      (rf.machines.test-support/reset-captured!)
+      (reg-born-final! id shape "nope" {:output [:int]})
+      (rf/dispatch-sync [id [:poke]])
+      (is (= [[id :completion "nope"]]
+             (->> (events-of :rf.error/schema-validation-failure)
+                  (filter #(= :machine-output (-> % :tags :where)))
+                  (mapv (comp (juxt :machine-id :phase :value) :tags))))
+          "the birth completion is validated as a transition's is")
+      (is (= [[id "nope"]] (completions)) "and still flows"))))
