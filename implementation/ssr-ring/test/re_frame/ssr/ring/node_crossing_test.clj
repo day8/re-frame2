@@ -198,7 +198,7 @@
   stamps a marker no success page carries."
   [renderer & {:keys [delay-ms]}]
   (rf.ssr.ring/ssr-handler
-    {:initial-events [[:rf.test.crossing/init {:delay-ms delay-ms}]]
+    {:frame {:initial-events [[:rf.test.crossing/init {:delay-ms delay-ms}]]}
      :payload        [:heading]
      :renderer       renderer
      :error-view     (fn [{:keys [code]}]
@@ -490,7 +490,7 @@
     (with-capturing-stub-sidecar seen "crossing-build-1"
       (fn [url]
         ((rf.ssr.ring/ssr-handler
-           {:initial-events            [[:rf.test.crossing/seed-session]]
+           {:frame {:initial-events            [[:rf.test.crossing/seed-session]]}
             :payload                   [:heading :session]
             :payload-include-sensitive [[:session :csrf]]
             :renderer                  (node-renderer url :render-state {:app-db [:session]})})

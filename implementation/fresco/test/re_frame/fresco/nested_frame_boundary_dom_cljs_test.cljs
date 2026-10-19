@@ -162,7 +162,7 @@
 (defn- one-row [^js props]
   (react/createElement "div" #js {:className "rows"} ((.-renderRow props) 0)))
 
-(rf.fresco/defhost rows-host one-row {:callbacks {:render-row :render}})
+(rf.fresco/defhost rows-host one-row)
 
 (defn- four-buttons
   "The four spellings, each tagged. Called from a body, so the `h/event`
@@ -173,9 +173,8 @@
    [rf.fresco/error-boundary {:fallback [:p.fell "fell"]}
     [:button.b {:on-click [::bump :b]} "b"]]
    [:button.c {:on-click (rf.fresco/event [_] [::bump :c])} "c"]
-   [rows-host {:render-row (rf.fresco/event [_]
-                             (rf.fresco/as-element
-                               [:button.d {:on-click [::bump :d]} "d"]))}]])
+   [rows-host {:render-row (rf.fresco/render-fn [_]
+                             [:button.d {:on-click [::bump :d]} "d"])}]])
 
 (defn- click-all! [c]
   (doseq [sel [".a" ".b" ".c" ".d"]] (click! c sel)))

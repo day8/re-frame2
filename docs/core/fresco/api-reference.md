@@ -56,7 +56,8 @@ its code.
 | --- | --- | --- |
 | `h/defview` | [`defview`](../../api/re-frame.fresco.md#defview) | [Views and reads](02-views-and-reads.md) |
 | `h/defhost` | [`defhost`](../../api/re-frame.fresco.md#defhost) | [Interop](09-interop.md) |
-| `h/event` | [`event`](../../api/re-frame.fresco.md#event) | [Events as data](03-events-as-data.md#one-callback-form-hevent) |
+| `h/event` | [`event`](../../api/re-frame.fresco.md#event) | [Events as data](03-events-as-data.md#the-event-carrier-hevent) |
+| `h/render-fn` | [`render-fn`](../../api/re-frame.fresco.md#render-fn) | [Interop](09-interop.md#render-callbacks) |
 
 ### Reads
 
@@ -107,7 +108,7 @@ teaches the whole route.
 | `h/error-boundary` | [`error-boundary`](../../api/re-frame.fresco.md#error-boundary) | [Errors](17-errors.md) |
 | `h/portal` | [`portal`](../../api/re-frame.fresco.md#portal) | [Interop](09-interop.md#portals) |
 | `h/route-link` | [`route-link`](../../api/re-frame.fresco.md#route-link) | [Routing and navigation](07-routing-and-navigation.md#render-an-application-route-link) |
-| `h/as-element` | [`as-element`](../../api/re-frame.fresco.md#as-element) | [Interop](09-interop.md#render-positions) |
+| `h/as-element` | [`as-element`](../../api/re-frame.fresco.md#as-element) | [Interop](09-interop.md#reactnode-slots) |
 | `h/as-component` | [`as-component`](../../api/re-frame.fresco.md#as-component) | [Interop](09-interop.md#render-a-fresco-view-from-native-react) |
 
 ### Local state
@@ -385,7 +386,7 @@ ht/tree-version
 | --- | --- |
 | `ht/boundary?` | is `v` a view, the value `h/defview` defines? False for the plain function its body is |
 | `ht/host?` | is `v` a host, the value `h/defhost` defines? False for the foreign component it wraps |
-| `ht/callback?` | is `v` the one callback form? False for an identically written plain `fn` |
+| `ht/callback?` | is `v` a carrier, `h/event` or `h/render-fn`? False for an identically written plain `fn` |
 | `ht/view-name` | the `"<ns>/<sym>"` name a view or host carries; `nil` for anything else |
 | `ht/host-policy` | the `:server` policy a crossing was declared with. Anything that is not a `defhost` value raises `:rf.error/fresco-test-not-a-host` rather than answering nil |
 | `ht/ladder` | the testing ladder as data — five rows, L0 to L4, each with `:tier`, `:proves`, `:mechanism` and `:here?` (whether this namespace covers that tier) |

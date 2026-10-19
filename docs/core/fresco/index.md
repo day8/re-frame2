@@ -58,4 +58,7 @@ cases for DOM-owned or local UI state are covered in
     Fresco is pre-alpha, and this guide is written against what ships. Every
     namespace and function it names is exported today, and a CI gate checks
     every Fresco function a code sample names against the source that
-    defines it.
+    defines it. The rules it teaches are stated once, as the package's
+    contract, in
+    [`authoring-contract.md`](../../../implementation/fresco/spec/authoring-contract.md);
+    where the two differ, the contract governs.

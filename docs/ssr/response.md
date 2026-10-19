@@ -41,10 +41,9 @@ any other [effect map](../core/glossary.md#effect-map).
 | `:rf.server/append-header` | `{:name :value}` | add another instance of a multi-value header such as `Vary` |
 | `:rf.server/set-cookie` | a cookie map | set a cookie; the adapter writes the `Set-Cookie` header |
 | `:rf.server/delete-cookie` | `{:name :path :domain}` | expire a cookie (a `set-cookie` with an empty `:value` and `:max-age 0`); `:path` and `:domain` are optional and must match the ones the cookie was set with |
-| `:rf.server/redirect` | `{:status :location}` | answer with a redirect instead of the page (`:status` defaults to `302`) |
-| `:rf.server/safe-redirect` | `{:location :relative-only? :allow :status}` | a redirect to a location built from user input, validated first (`:status` defaults to `302`) |
+| `:rf.server/redirect` | `{:location :allow :status}` | answer with a redirect instead of the page, once `:location` passes the redirect check (`:status` defaults to `302`) |
 
-All seven run on the server only. When the client dispatches the same event after
+All six run on the server only. When the client dispatches the same event after
 hydration, it skips them, so one handler serves both sides.
 
 If two writes in one drain set the status, the last one wins. Redirects work
@@ -83,25 +82,34 @@ For a form POST that succeeded, answer `303` so the browser follows with a GET:
 `[:rf.server/redirect {:status 303 :location "/articles"}]`.
 [The form action](concepts.md#two-patterns-in-brief) shows the whole pattern.
 
-`:rf.server/redirect` sends the browser wherever `:location` says, which is right for
-a location your code chose. When the location comes from the request, such as
-`?next=` after sign-in, use `:rf.server/safe-redirect`:
+`:rf.server/redirect` is relative-only by default, so a location taken from the
+request, such as `?next=` after sign-in, is safe to pass as it is:
 
 ```clojure
-[:rf.server/safe-redirect {:location       (get-in request [:query-params "next"])
-                           :relative-only? true}]
+[:rf.server/redirect {:location (get-in request [:query-params "next"])}]
 ```
 
-It checks the location before redirecting:
+To redirect to another host, name it in `:allow`. `:allow :any` trusts any
+well-formed URL, for a location your code built from data it trusts:
 
-- The URL must parse (`:rf.error/safe-redirect-invalid-url`). An `http` or `https`
+```clojure
+[:rf.server/redirect {:location "https://app.example.com/welcome"
+                      :allow    ["app.example.com"]}]
+[:rf.server/redirect {:location (str sso-base "/authorize?" query)
+                      :allow    :any}]
+```
+
+The redirect checks the location before writing it:
+
+- The URL must parse (`:rf.error/redirect-invalid-url`). An `http` or `https`
   URL with no host, such as `http:evil.example.com`, fails here too.
 - The scheme must be `http` or `https`. `javascript:`, `data:`, `mailto:` and the
-  rest are rejected (`:rf.error/safe-redirect-scheme-rejected`).
-- With `:relative-only? true`, only a relative location passes. With
-  `:allow ["app.example.com"]`, an absolute URL must name a listed host, and a
-  relative location such as `/dashboard` always passes. A failure here is
-  `:rf.error/safe-redirect-host-disallowed`.
+  rest are rejected (`:rf.error/redirect-scheme-rejected`), `:allow :any`
+  included.
+- A relative location such as `/dashboard` always passes. An absolute URL, or a
+  protocol-relative `//host/…`, must name a host listed in `:allow`; without
+  `:allow` it fails, and so does any host when `:allow` is empty. A failure here
+  is `:rf.error/redirect-host-disallowed`.
 
 A rejected location does not throw. The runtime reports the error and writes no
 redirect, so the request renders the page it would have rendered anyway, under its
@@ -165,11 +173,11 @@ effects throw rather than strip the characters:
 | A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial status](#a-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or `:rf.server/set-status` from `:rf.route/entry-denied` |
 | Status set twice in one drain | Last write wins | Write one status, or rely on the later write deliberately |
 | Multiple redirects | Last write wins | Write one redirect |
-| `?next=` redirect is ignored and the page renders | `:rf.error/safe-redirect-invalid-url` / `-scheme-rejected` / `-host-disallowed` | The location failed validation; this is the guard working |
+| A redirect is ignored and the page renders | `:rf.error/redirect-invalid-url` / `-scheme-rejected` / `-host-disallowed` | The location failed the redirect check. For a `?next=` value this is the guard working; for an absolute URL your code built, name its host in `:allow` |
 | Wrongly typed fx argument (string status, `nil` header value, non-map args) | `:rf.error/server-fx-args-invalid`, naming the `:key`, in every build | Fix the args at the dispatch site |
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Remove them before `:set-header` / `:append-header` |
 | Header name rejected | `:rf.error/header-invalid-name` | Use a plain token name such as `"X-Request-Id"`: no spaces, colons or keywords |
-| CR/LF/NUL in a redirect location | `:rf.error/redirect-invalid-location` | Don't pass raw user input to `:redirect`; use `:safe-redirect` |
+| CR/LF/NUL in a redirect location | `:rf.error/redirect-invalid-location` | Strip CR, LF and NUL from the location; no `:allow` waives the check |
 | Redirect written with `:url` or `:to` | `:rf.error/redirect-retired-target-key` | The target key is `:location` |
 | Cookie name rejected | `:rf.error/cookie-invalid-name` | A string token name, such as `"session"` |
 | CR/LF/NUL in a cookie attribute | `:rf.error/cookie-invalid-attribute` (`:attribute` names the field) | Don't pass raw input into `:path` / `:domain` |

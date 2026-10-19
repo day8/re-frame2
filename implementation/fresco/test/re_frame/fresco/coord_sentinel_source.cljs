@@ -40,7 +40,7 @@
   "The declaration channel's half of the same proof — `defhost` opens the
   same extent under the same gate."
   (fn CoordSentinel [_props] nil)
-  {:callbacks {:on-change :event}})
+  {:server :client-only})
 
 (def view-name
   "The ledger key for [[sentinel-row]] — the `\"<ns>/<sym>\"` string the

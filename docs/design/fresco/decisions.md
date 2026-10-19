@@ -1,7 +1,11 @@
 # Fresco — decisions (HD-001 … HD-029)
 
 Every design decision for the Fresco programme, resolved. Each record carries the
-ruling, the decisive rationale, and the condition under which it reopens. **HD-001
+ruling, the decisive rationale, and the condition under which it reopens. **This
+page is the reasoning, not the contract**: what the package promises today is
+[`implementation/fresco/spec/authoring-contract.md`](../../../implementation/fresco/spec/authoring-contract.md),
+and where a record here differs from it, the contract is right and the record is
+history. **HD-001
 through HD-028 were resolved under delegated authority; HD-029 — the P2 fork — was
 given by the operator directly, which is the decider
 [HD-013](#hd-013--governance) reserves that ruling to.** Several of the delegated

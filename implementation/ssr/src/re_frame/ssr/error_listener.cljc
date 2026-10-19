@@ -108,10 +108,10 @@
 ;;   in the set keeps the classification uniform and keeps the one-shot,
 ;;   never-re-enter-projection contract enforced at the same chokepoint.
 ;;
-;; THE THREE `:rf.error/safe-redirect-*` CATEGORIES, and they are
-;; the sharpest case in the set. `:rf.server/safe-redirect`'s five-step gate
-;; is deliberately EMIT-AND-NO-OP rather than throw (`response.cljc`
-;; §safe-redirect): "the cascade continues, the response's `:redirect` stays
+;; THE THREE REDIRECT-GATE CATEGORIES, and they are the sharpest case in
+;; the set. `:rf.server/redirect`'s URL gate is deliberately EMIT-AND-NO-OP
+;; rather than throw (`response.cljc` §THE URL GATE): "the cascade continues,
+;; the response's `:redirect` stays
 ;; unchanged". The request is not degraded at all — the page renders exactly
 ;; as it would have, minus a redirect the framework refused to perform. That
 ;; refusal IS the mitigation working.
@@ -133,9 +133,9 @@
   #{:rf.error/ssr-head-resolution-failed
     :rf.error/ssr-ring-error-view-failed
     :rf.error/sanitised-on-projection
-    :rf.error/safe-redirect-invalid-url
-    :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed
+    :rf.error/redirect-invalid-url
+    :rf.error/redirect-scheme-rejected
+    :rf.error/redirect-host-disallowed
     ;; The Ring materialiser's fail-closed `:status` rewrite. It
     ;; fires at MATERIALISATION time, strictly AFTER the response is resolved
     ;; and flushed, so a projection could only fight the 500 it is already

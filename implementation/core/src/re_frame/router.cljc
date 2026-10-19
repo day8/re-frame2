@@ -2466,7 +2466,7 @@
 ;; person who opted in.
 ;;
 ;; This is the always-on half. It follows the promotion pattern of the URL
-;; route-miss and the safe-redirect rejections: keep the rich dev trace, add
+;; route-miss and the redirect-gate rejections: keep the rich dev trace, add
 ;; ONE tight production fact, let the existing projector consume it.
 ;;
 ;; STRUCTURAL-ONLY, and here that is stricter than a scrub. A validation
@@ -2474,7 +2474,7 @@
 ;; attacker-controlled or user-private BY DEFINITION — a rejected payload can
 ;; carry secrets in keys the declared schema never anticipated, so no
 ;; schema-aware redactor can be trusted to have seen them. So rather than
-;; scrubbing an attacker-controlled slot (the route-miss / safe-redirect
+;; scrubbing an attacker-controlled slot (the route-miss / redirect-gate
 ;; treatment, where the URL IS the observability payload), this record OMITS every
 ;; payload-derived slot outright: no event vector, no `:value`, no
 ;; `:received`, no `:explain`, no schema form, no human `:reason` (which would
@@ -2485,7 +2485,7 @@
 ;; event data arriving from another trust zone.
 ;;
 ;; PROJECTION-ELIGIBLE, deliberately, and this is where it diverges from the
-;; safe-redirect rejections. The three safe-redirect categories are in
+;; redirect-gate rejections. The three redirect-gate categories are in
 ;; `non-projection-eligible-errors` so a hostile probe cannot conjure a 500.
 ;; A boundary rejection on a server frame is the opposite case: it is exactly a
 ;; 400 (RFC 9110 §15.5.1), the SSR default projector maps

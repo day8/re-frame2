@@ -90,7 +90,7 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   | `:root-mount` (Reagent's, or the adapter's `client-root`/`render!`/`unmount!`) | MIG-15 |
   | `:static-markup` | MIG-23 ([`ssr-hydrate.md`](ssr-hydrate.md)) |
   | `:substrate-read-hook` (the adapter's `use-sub`/`use-frame`) | in a converted view, `h/sub` and intents; in a React island, `re-frame.fresco.native`'s hooks (MIG-17) |
-  | `:substrate-test-seam`, `:substrate-test-harness` | test code — re-point it at the Fresco test kit (Step 5) |
+  | `:substrate-test-harness` | test code — re-point it at the Fresco test kit (Step 5) |
   | `:reactive-graph-control`, `:substrate-view-seam` | no rule — read the census's recovery note and decide with the author |
 
   Every class the census emits carries a recovery note; read it beside the
@@ -102,10 +102,10 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
 
 Two report facts worth carrying: it is written even on a clean run and carries
 a count of untouched sites, so *"not in the report"* is unambiguous; and the
-`h/defhost` sketches list a site's callback positions, and the usual case needs
-no `:callbacks` at all — the contract is inferred from the spelling. The block's
-header carries the one counter-example to check against the library's
-documentation: an `on*`-named render prop, which needs a `:render` override
+`h/defhost` sketches are bare declarations followed by the site's callback
+props as comments to check. A callback's meaning is its carrier at the call
+site, and the block's header carries the counter-example to check against the
+library's documentation: an `on*`-named render prop, which takes `h/render-fn`
 (MIG-09/10).
 
 Also read what it *cannot* see, and say so: a Form-2 component is a `defn`

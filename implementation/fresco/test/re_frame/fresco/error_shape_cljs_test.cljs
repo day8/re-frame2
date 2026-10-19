@@ -50,7 +50,7 @@
   "A well-formed crossing, declared so the DECLARATION channel has a real
   macro-captured coordinate to assert on rather than a fabricated one."
   (fn DatePicker [_props] nil)
-  {:callbacks {:on-change :event}})
+  {:server :client-only})
 
 ;; ---------------------------------------------------------------------------
 ;; Harness

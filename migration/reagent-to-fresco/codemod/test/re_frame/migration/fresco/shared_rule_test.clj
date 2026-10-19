@@ -1,7 +1,6 @@
 (ns re-frame.migration.fresco.shared-rule-test
-  "The shared slot rule and printed callback contracts must agree with the shipped door."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  "The shared slot rule must be the shipped door's own."
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]
@@ -19,23 +18,6 @@
       (is (str/includes? path "implementation/fresco/src/re_frame/fresco/impl/slot.cljc")
           (str "the slot rule must come from the shipped package's shared file; it came from "
                path)))))
-
-(def ^:private door-file
-  (io/file ".." ".." ".." "implementation" "fresco" "src" "re_frame"
-           "fresco" "impl" "codec.cljs"))
-
-(defn- door-contracts
-  []
-  (some-> (re-find #"\(def \^:private callback-contracts[\s\S]*?(#\{[^}]*\})" (slurp door-file))
-          second
-          edn/read-string))
-
-(deftest the-callback-contracts-are-the-doors
-  (testing "print the contracts the door accepts"
-    (let [door (door-contracts)]
-      (is (= door (set rf.migration.fresco.dest/callback-contracts))
-          (str "the door accepts " (pr-str door) " and this tool prints "
-               (pr-str rf.migration.fresco.dest/callback-contracts))))))
 
 (deftest the-donor-key-rule
   (testing "shared key conversion and donor deltas"

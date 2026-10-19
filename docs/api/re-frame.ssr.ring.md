@@ -15,9 +15,9 @@ Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame
 ;; Load the app namespaces that register :app/server-init and :app/root.
 (def handler
   (ssr.ring/ssr-handler
-    {:initial-events [[:app/server-init]]             ;; setup events for each request's frame
-     :root-view      (fn [] ((rf/view :app/root)))    ;; rendered once those events settle
-     :payload        [:articles :session-user]}))    ;; app-db keys shipped to the client
+    {:frame     {:initial-events [[:app/server-init]]} ;; each request frame's config: setup events
+     :root-view (fn [] ((rf/view :app/root)))         ;; rendered once those events settle
+     :payload   [:articles :session-user]}))         ;; app-db keys shipped to the client
 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
@@ -35,14 +35,17 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   ```
 - **Description**: Returns a synchronous Ring handler that renders one re-frame2 SSR request per call. For each request it:
     1. stores the Ring request in the per-frame request slot, where the `:rf.server/request` cofx reads it;
-    2. creates the per-request frame, draining `:initial-events` synchronously;
+    2. creates the per-request frame from `:frame`, draining its `:initial-events` synchronously;
     3. reads the resolved response accumulator: if it holds a `:redirect`, returns the redirect; if an error was projected to a 5xx, returns the error page (`:error-view`);
     4. otherwise waits for the route's blocking resources (up to 5 seconds, [`drain-blocking-resources!`](re-frame.ssr.md#drain-blocking-resources)), renders `:root-view`, resolves the head, builds the hydration payload, wraps them in the HTML shell, and turns structured cookies into `Set-Cookie` headers;
     5. destroys the frame in a `finally`.
 - **Options**:
-    - `:initial-events` (required) — the events dispatched, synchronously and in order, into the per-request frame when it is created. A vector of events, or `(fn [request] → initial-events-vector)` to derive them from the Ring request. The fn form is the replay-safe way to put a request-derived fact into a boot event's payload, e.g. `(fn [req] [[:auth/server-init {:user (extract-user req)}]])`. For non-durable request reads inside a handler, declare `:rf.cofx/requires [:rf.server/request]` on the registration instead.
+    - `:frame` (required) — the app's frame config, the map [`make-frame`](re-frame.core.md#make-frame) takes and the browser boot mounts with, so one var serves both halves. Each request frame is made from it whole — `:fx-overrides` (e.g. to stub `:rf.http/managed` in tests), the [`:ssr` config map](re-frame.ssr.md#frame-ssr-config), `:url-strategy` and every other key — under the handler's own `:id` (a fresh per-request id) and `:platform :server`.
+        - `:id` or `:platform` inside `:frame` throws `:rf.error/ssr-ring-frame-opt-invalid` at construction, and so does a `:frame` that is not a map. So does any of `:initial-events`, `:fx-overrides`, `:ssr` or `:url-strategy` at the handler's top level: the message names `:frame`.
+        - `:url-strategy` makes `route-link` hrefs in the server markup match what the hydrated client produces. A malformed value, an explicit `nil` included, fails the request with `:rf.error/invalid-url-strategy` through `:on-error`. Under [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) this frame does not render the body, and only projected state crosses to Node; pass the same config var as the render module's `:frame-opts`, or Node-rendered hrefs drop the base path ([Render on Node](../ssr/concepts.md#render-on-node)).
+    - `:initial-events` (required, inside `:frame`) — the events dispatched, synchronously and in order, into the per-request frame when it is created, after the handler fills the request slot. It lives inside `:frame` because it is frame config: the browser boot runs the same events. A vector of events, or `(fn [request] → initial-events-vector)` to derive them from the Ring request. The fn form is the replay-safe way to put a request-derived fact into a boot event's payload, e.g. `(fn [req] [[:auth/server-init {:user (extract-user req)}]])`. For non-durable request reads inside a handler, declare `:rf.cofx/requires [:rf.server/request]` on the registration instead.
         - The drain covers synchronous work only. A fetch these events start, such as an `:rf.http/managed` request, is usually still in flight when rendering begins, and the page renders without its data. Data the first render needs belongs in a resource the route declares `:blocking? true` ([Data the first render needs](../ssr/concepts.md#data-the-first-render-needs)), which the handler waits for.
-        - Omitted: throws `:rf.error/ssr-ring-missing-initial-events` at construction.
+        - Omitted from `:frame`: throws `:rf.error/ssr-ring-missing-initial-events` at construction.
         - Neither a vector nor a fn, or a fn returning a non-vector: `:rf.error/invalid-initial-events` per request, answered through `:on-error`.
         - An event handler, interceptor, coeffect or flow that throws during this drain, or a `:rf.cofx` value its `:schema` rejects, aborts frame construction with `:rf.error/initial-events-step-failed`. The request answers through `:on-error`; the error projector and `:error-view` never see it. An effect that throws, or an unregistered event, is projected instead.
     - `:root-view` (required unless `:renderer` is given) — what to render against the per-request frame once the drain settles: a hiccup vector such as `[(rf/view :app/root)]`, or a 0-arity fn returning hiccup. The head must be callable: the Var `rf/reg-view` defines, or `(rf/view :id)`. A keyword head is an HTML element on every host, so `[:app/root]` renders an empty `<root>` element.
@@ -56,10 +59,6 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
     - `:payload-include-sensitive` — a sequential of non-empty `app-db` path vectors that the frame classifies `:sensitive` but whose raw value may ship anyway, e.g. `[[:session :csrf]]`. Only paths inside the `:payload` allowlist; without this option every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction ([Classified values inside the allowlist](../ssr/concepts.md#classified-values-inside-the-allowlist)).
     - `:client-frame-id` — a stable frame id written as the payload's `:rf/frame-id`, for deployments where server and client agree on one ahead of time. Default `nil`, which omits `:rf/frame-id`. Never use a per-request gensym: the client rejects a present and different id with `:rf.error/hydration-frame-id-mismatch`.
     - `:error-view` and `:on-error` — the two failure handlers, described in the table below.
-    - `:ssr` — the per-frame [`:ssr` config map](re-frame.ssr.md#frame-ssr-config), e.g. `{:dev-error-detail? true :public-error-id :myapp/projector}`.
-    - `:url-strategy` — the per-request frame's `:url-strategy`, passed to `make-frame`, so `route-link` hrefs in the server markup match what the hydrated client produces. A malformed value, an explicit `nil` included, fails the request with `:rf.error/invalid-url-strategy` through `:on-error`.
-        - Under [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) this frame does not render the body, and only projected state crosses to Node. Pass the same strategy in the render module's `:frame-opts`, or Node-rendered hrefs drop the base path ([Render on Node](../ssr/concepts.md#render-on-node)).
-    - `:fx-overrides` — the per-frame `:fx-overrides` map, passed through as is (e.g. to stub `:rf.http/managed` in tests).
     - `:ssr-blocking-timeout-ms` — how long the request waits for the route's blocking resources to settle before it renders; default `5000`. A resource still unsettled at the deadline settles as a first-load failure, so the request never hangs. The handler passes it to [`drain-blocking-resources!`](re-frame.ssr.md#drain-blocking-resources).
     - `:schema-digest` — the hydration payload's `:rf/schema-digest`.
     - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell). `opts` is the handler's options with this request's values in place: `:head` is the resolved head fragment (or your `:head` string), and `:html-attrs` and `:body-attrs` come from the head model. Write `:head` inside `<head>`, the attribute bags on `<html>` and `<body>`, and the payload as `default-html-shell` does. [The page shell](../ssr/concepts.md#the-page-shell) shows the common changes.
@@ -76,7 +75,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](re-frame.ssr.ring.node.md#renderer)).
         - `:render-state` belongs to [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer); a copy at the handler's top level is ignored.
 
-    The per-request frame takes no other `make-frame` keys. To ship its error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
+    To ship the per-request frame's error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
 
     Use `:error-view` to customise projected error pages and `:on-error` for failures outside projection. Both have usable defaults. A failure the error projector catches is classified by its projected status. A projected 4xx (a routing miss, bad client input) keeps the app's own not-found or bad-request body and hydration payload and does not call `:error-view`; a projected 5xx ships the error page, with the projected status and no hydration payload. A root view or shell that throws while rendering always ships the error page, whatever status the projector chose, because there is no body to keep. A buggy `:error-view`, whether it throws or depends on a subscription that recovers to `nil`, falls back once to the default template and emits `:rf.error/ssr-ring-error-view-failed`. A buggy `:on-error` falls back to `default-on-error` and emits `:rf.error/ssr-ring-on-error-failed`. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
 
@@ -92,12 +91,12 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   ;; The required three, plus the options most deployments add.
   (def handler
     (ssr.ring/ssr-handler
-      {:initial-events (fn [req] [[:auth/server-init {:user (extract-user req)}]])
-       :root-view      (fn [] ((rf/view :app/root)))
-       :payload        [:articles :session-user]
-       :ssr            {:public-error-id :app/public-error}
-       :error-view     :app/error-page                  ;; registered view; receives the public error
-       :script-src     "/js/main.js"}))
+      {:frame      {:initial-events (fn [req] [[:auth/server-init {:user (extract-user req)}]])
+                    :ssr            {:public-error-id :app/public-error}}
+       :root-view  (fn [] ((rf/view :app/root)))
+       :payload    [:articles :session-user]
+       :error-view :app/error-page                      ;; registered view; receives the public error
+       :script-src "/js/main.js"}))
   ```
 
 ### `ssr-middleware`
@@ -118,10 +117,10 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   (def app
     (-> default-handler
         ((ssr.ring/ssr-middleware
-           {:initial-events [[:app/server-init]]
-            :root-view      (fn [] ((rf/view :app/root)))
-            :payload        [:articles :session-user]
-            :match?         (fn [req] (= :get (:request-method req)))}))
+           {:frame     {:initial-events [[:app/server-init]]}
+            :root-view (fn [] ((rf/view :app/root)))
+            :payload   [:articles :session-user]
+            :match?    (fn [req] (= :get (:request-method req)))}))
         wrap-static-assets))
   ```
 

@@ -28,7 +28,7 @@
   Two artefacts need this policy on egress boundaries that must fail closed,
   and they are siblings rather than dependents: `re-frame.routing` (the
   route-miss `:url` and the blocked-navigation `:requested-url`) and
-  `re-frame.ssr` (the rejected `:rf.server/safe-redirect` `:location`).
+  `re-frame.ssr` (the refused `:rf.server/redirect` `:location`).
   Neither may reach the other:
 
     - `implementation/ssr` depends on `core` ALONE (Spec 006 §Adapter shipping
@@ -56,7 +56,7 @@
   string surgery only after the first `?` or `#`, so it never reaches userinfo
   (`https://alice:pw@host/…`), a path-borne reset token, or an attacker-chosen
   value-less query key. A record fed by an attacker-authored URL needs an
-  ALLOW-list instead — see `re-frame.ssr.egress/safe-redirect-record-slots`,
+  ALLOW-list instead — see `re-frame.ssr.egress/redirect-record-slots`,
   which is built FROM a closed slot set rather than filtered down to one, and
   carries CLASSIFIED components rather than parsed ones: a parsed component is
   still caller-authored text, so a closed set of keys is not yet a closed set
@@ -125,7 +125,7 @@
 
   `slot` is REQUIRED, deliberately. The callers spell it differently — `:url`
   on the route-miss / malformed-URL telemetry, `:requested-url` on the blocked-
-  navigation and entry-denied traces, `:location` on the rejected safe-redirect
+  navigation and entry-denied traces, `:location` on the refused redirect
   — so any default this fn could pick would be silently wrong for someone, and
   the failure mode of a wrong slot is a no-op that ships the URL. Naming the
   slot at the call site is one word, and it is the word that makes the scrub

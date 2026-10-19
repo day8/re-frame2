@@ -1,7 +1,7 @@
 (ns re-frame.privacy-url-test
   "The ONE Spec 015 URL-carrier scrub, pinned beside the fn. Routing's
-  route-miss `:url` / blocked-navigation `:requested-url` and SSR's rejected
-  safe-redirect `:location` both route through it, and it lives in core so the
+  route-miss `:url` / blocked-navigation `:requested-url` and SSR's refused
+  redirect `:location` both route through it, and it lives in core so the
   scrub is unconditional on a routing-free SSR host. Pure string surgery, so
   this namespace runs identically in the dev lane and the production gate."
   (:require [clojure.test :refer [are deftest is testing]]
