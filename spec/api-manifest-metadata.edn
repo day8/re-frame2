@@ -383,7 +383,7 @@
   ;;
   ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
   ;; generator's `jvm-namespaces`, where `ns-publics` returns its `#?(:clj …)`
-  ;; arm — the three authoring macros, rowed under `:classification` below.
+  ;; arm — the four authoring macros, rowed under `:classification` below.
   ;; What the JVM cannot see is the `#?(:cljs (do …))` arm: the runtime
   ;; aliases that exist only under ClojureScript. So the rows land HERE, for
   ;; the reason this key exists — a row the JVM generator cannot introspect —
@@ -2272,7 +2272,7 @@
   ;; =========================================================================
   ;; re-frame.fresco — the JVM ARM of the split-host door.
   ;; =========================================================================
-  ;; The door's `#?(:clj …)` arm is these three authoring macros and nothing
+  ;; The door's `#?(:clj …)` arm is these four authoring macros and nothing
   ;; else, so `ns-publics` on the JVM returns exactly them and the generator
   ;; derives their `:kind :macro` from the live vars. Their CLJS-arm siblings
   ;; — the eleven runtime aliases the JVM cannot see — are rowed under
@@ -2282,9 +2282,10 @@
   ;; These rows need NO `:jvm-only-classification` entry. Each macro is
   ;; `:require-macros`-referred by the door's own `:cljs` arm
   ;; (`fresco.cljc`'s `#?(:cljs (:require-macros [re-frame.fresco :refer
-  ;; [defview defhost event]]))`), so the CLJS analyzer carries it and the
-  ;; probe reconciles it normally — the case that key's own docstring
+  ;; [defview defhost event render-fn]]))`), so the CLJS analyzer carries it
+  ;; and the probe reconciles it normally — the case that key's own docstring
   ;; excludes ("an entry is needed only where the CLJS host has NOTHING").
-  ["re-frame.fresco" "defview"]  {:tier :advanced :owner "006" :status "v1"}
-  ["re-frame.fresco" "defhost"]  {:tier :advanced :owner "006" :status "v1"}
-  ["re-frame.fresco" "event"]    {:tier :advanced :owner "006" :status "v1"}}}
+  ["re-frame.fresco" "defview"]   {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.fresco" "defhost"]   {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.fresco" "event"]     {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.fresco" "render-fn"] {:tier :advanced :owner "006" :status "v1"}}}

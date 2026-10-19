@@ -166,6 +166,7 @@
   {:namespace "re-frame.fresco", :var "portal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "reg-state", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "render!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "render-fn", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "route-link", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "unmount!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
