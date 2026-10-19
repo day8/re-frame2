@@ -1437,6 +1437,8 @@ Everything in this subsection is **CLJS-implementation detail**, not pattern con
 
 The `read-frame-from-context` function is implemented as a tiered lookup over the dynamic-binding tier and the React-context read — Reagent's reads the tree first while a component renders, UIx's imperative reader the dynamic tier first — **bottoming out at nil** (no scope). The middle tier — the React-context read — is **substrate-specific**: each adapter carries its own impl as its map's `:current-frame` capability, which `install-adapter!` publishes into the `:adapter/current-frame` late-bind slot (per [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)). The dynamic-var tier is shared. **There is no `:rf/default` tier** (EP-0002): the reader returns nil when no scope names a frame, and the public frame-scoped operation turns that nil into `:rf.error/no-frame-context` via `require-current-frame!`.
 
+An event handler that a Reagent render runs synchronously, such as a `make-frame` `:initial-events` step called from a view, resolves the frame its envelope targets rather than the rendering component's tree; a component that starts rendering inside the handler still reads its own tree (per [006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks)).
+
 ```clojure
 ;; The createContext default is the NO-PROVIDER SENTINEL, not :rf/default —
 ;; absence of a provider must be detectable as absence (per EP-0002), so the
