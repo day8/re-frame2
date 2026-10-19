@@ -46,7 +46,7 @@ changing any of the three.
 WHAT IT CANNOT SILENTLY DROP
 ----------------------------
 An empty signature is read as GREEN, so every way of reaching one without
-having actually observed a pass is a fail-open, and there are two.
+having actually observed a pass is a fail-open, and there are three.
 
 A job that failed but reports no failed STEP — infrastructure failure, runner
 loss, a job-level timeout that kills the run before a step records a conclusion
@@ -60,7 +60,27 @@ streak and CLOSED an open tracking issue, marking a system of record recovered
 that was never observed to recover.  Such a job contributes `<job> -> (job
 <conclusion>, no verdict)`.  The classification is `FAILED` and `ABORTED`
 below; the exclusion of `skipped` from both is as deliberate as the inclusions
-and is argued there.  `--self-test` pins every clause, in both directions.
+and is argued there.
+
+A job that has not FINISHED — still `in_progress` or `queued` when this
+script reads the run — has no verdict yet either.  This door is the easiest
+to leave open, because this script's own job is always still running when it
+reads, so "ignore unfinished jobs" looks like the way to keep it out of its
+own verdict.  It is set aside alone, identified exactly: the unfinished job of
+THIS run (`GITHUB_RUN_ID`) on THIS runner (`RUNNER_NAME`), since a runner
+executes one job at a time.  Every other unfinished job contributes `<job> ->
+(job <status>, no verdict)`.  The workflow's alerting job `needs:` every gate,
+so a gate the API still reports running is a record lagging a job that has
+ended — a job cancelled at its timeout can read `in_progress` for seconds
+afterwards — and reading it as a pass is how a hung, cancelled night counts
+toward closing the issue.
+
+The run's own conclusion is the backstop: a run that ended `cancelled` or
+`startup_failure` is never green, whatever its jobs report, and contributes
+`(run) -> (run <conclusion>, no verdict)` when nothing else is red.  A run has
+no conclusion until every job, this script's included, has finished, so the
+backstop bites under `--replay` and a `--run-id` of a finished run, never in
+the live job.  `--self-test` pins every clause, in both directions.
 
 THE CHANNEL IS ONE FUNCTION
 ---------------------------
@@ -85,6 +105,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -123,17 +144,31 @@ ABORTED = ("cancelled", "startup_failure")
 # Pure decision layer — no network, no side effects.
 # ---------------------------------------------------------------------------
 
-def derive_signature(jobs: list[dict]) -> list[str]:
+def is_own_job(job: dict, own_runner: str | None) -> bool:
+    """Is `job` the one this script is running in?  A runner executes one job
+    at a time, so the unfinished job on this script's runner is this script's
+    job, exactly.  With no runner identity — a run other than the one this
+    process belongs to, or any local run — no job is."""
+    return (bool(own_runner) and job.get("status") != "completed"
+            and job.get("runner_name") == own_runner)
+
+
+def derive_signature(jobs: list[dict], own_runner: str | None = None,
+                     run_conclusion: str | None = None) -> list[str]:
     """The sorted `<job> -> <step>` pairs that went red in this run.
 
     An empty list means "nothing failed" and must never mean "we could not
     tell", so a completed job that failed with no failed step is synthesised in
-    rather than dropped.  Jobs that are not `completed` are skipped, which is
-    also how this script's own still-running job stays out of its own verdict.
+    rather than dropped, and so is every job that has not finished, except this
+    script's own (`is_own_job`).  `run_conclusion` is the backstop: a run that
+    ended without a verdict is never green, whatever its jobs report.
     """
     entries: set[str] = set()
     for job in jobs:
-        if job.get("status") != "completed":
+        status = job.get("status")
+        if status != "completed":
+            if not is_own_job(job, own_runner):
+                entries.add(f"{job['name']}{SEP}(job {status}, no verdict)")
             continue
         conclusion = job.get("conclusion")
         if conclusion in ABORTED:
@@ -154,6 +189,11 @@ def derive_signature(jobs: list[dict]) -> list[str]:
                 entries.add(f"{job['name']}{SEP}{step['name']}")
         else:
             entries.add(f"{job['name']}{SEP}(job {conclusion}, no failing step)")
+    # Only when the jobs read green: an aborted run always has an aborted or
+    # unfinished job behind it, and doubling that entry would change the
+    # signature of every cancelled night of a known failure into a loud one.
+    if not entries and run_conclusion in ABORTED:
+        entries.add(f"(run){SEP}(run {run_conclusion}, no verdict)")
     return sorted(entries)
 
 
@@ -307,6 +347,11 @@ def fetch_jobs(repo: str, run_id: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
+def fetch_run_conclusion(repo: str, run_id: str) -> str | None:
+    out = gh(["api", f"repos/{repo}/actions/runs/{run_id}", "-q", ".conclusion"]).strip()
+    return out if out and out != "null" else None
+
+
 def fetch_open_issues(repo: str) -> list[dict]:
     """Every open tracking issue, oldest first.
 
@@ -403,7 +448,11 @@ def apply_action(repo: str, action: str, detail: dict, signature: list[str],
 
 def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
              close_after: int) -> int:
-    signature = derive_signature(fetch_jobs(repo, run_id))
+    jobs = fetch_jobs(repo, run_id)
+    # This script's own job exists only in the run it is running in.
+    own_runner = (os.environ.get("RUNNER_NAME") or None
+                  if os.environ.get("GITHUB_RUN_ID") == str(run_id) else None)
+    signature = derive_signature(jobs, own_runner, fetch_run_conclusion(repo, run_id))
     open_issues = fetch_open_issues(repo)
     issue = open_issues[0] if open_issues else None
     action, detail = decide(signature, issue, close_after)
@@ -413,6 +462,13 @@ def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
           f"action={action} notifies={'yes' if detail['notifies'] else 'no'}")
     for entry in signature:
         print(f"  RED  {entry}")
+    # Said either way, so a run whose own job went unrecognised — and so
+    # reads red, naming itself as unfinished — explains itself in its log.
+    mine = [job["name"] for job in jobs if is_own_job(job, own_runner)]
+    if mine:
+        print(f"  own job, not graded: {', '.join(mine)} (runner {own_runner})")
+    elif own_runner:
+        print(f"  own job: no unfinished job of this run is on runner {own_runner}")
     if issue:
         print(f"  tracking issue: #{issue['number']}"
               + (f" (+{len(open_issues) - 1} duplicate(s) to close)"
@@ -430,13 +486,14 @@ def run_replay(repo: str, limit: int, close_after: int) -> int:
     have sent, beside what a naive per-run alert would have sent.  This is the
     evidence the thresholds are measured against, not an illustration of them."""
     out = gh(["run", "list", "--workflow", "expensive-tests.yml", "--limit", str(limit),
-              "--json", "databaseId,createdAt"])
+              "--json", "databaseId,createdAt,conclusion"])
     runs = list(reversed(json.loads(out)))
     issue: dict | None = None
     loud = reds = 0
     for entry in runs:
         run_id = str(entry["databaseId"])
-        signature = derive_signature(fetch_jobs(repo, run_id))
+        signature = derive_signature(fetch_jobs(repo, run_id),
+                                     run_conclusion=entry.get("conclusion") or None)
         reds += 1 if signature else 0
         action, detail = decide(signature, issue, close_after)
         loud += 1 if detail["notifies"] else 0
@@ -474,8 +531,9 @@ def self_test(verbose: bool) -> int:
             failures.append(name)
             print(f"FAIL {name}{': ' + detail if detail else ''}")
 
-    def job(name, conclusion, steps, status="completed"):
+    def job(name, conclusion, steps, status="completed", runner=None):
         return {"name": name, "status": status, "conclusion": conclusion,
+                "runner_name": runner,
                 "steps": [{"name": n, "conclusion": c} for n, c in steps]}
 
     def issue_after(action_detail, signature, close_after=CLOSE_AFTER_DEFAULT):
@@ -528,8 +586,44 @@ def self_test(verbose: bool) -> int:
     check("...and a green run with a skipped dependent stays wholly green",
           all_green == [], repr(all_green))
 
-    check("an in-progress job (this script's own) is ignored",
-          derive_signature([job("notify", None, [], status="in_progress")]) == [])
+    # --- an unfinished job has no verdict either ------------------------------
+    # This script's own job is always still running when it reads the run, so
+    # it alone is set aside, identified exactly: this run, this runner.  Every
+    # other unfinished job is red, because the alerter `needs:` every gate — one
+    # the API still reports running is a record lagging a job that has ended,
+    # the way a job cancelled at its timeout can read `in_progress` for seconds
+    # afterwards.
+    me = "GitHub Actions 9"
+    own = job("Nightly result", None, [], status="in_progress", runner=me)
+    check("this script's OWN in-progress job is ignored",
+          derive_signature([own], own_runner=me) == [])
+    hung = job("Browser", None, [], status="in_progress", runner="GitHub Actions 7")
+    as_seen = derive_signature([job("A", "success", [("one", "success")]), hung, own],
+                               own_runner=me)
+    check("ANOTHER job still in_progress is red, and named as unfinished",
+          as_seen == [f"Browser{SEP}(job in_progress, no verdict)"], repr(as_seen))
+    queued = derive_signature([job("Late", None, [], status="queued"), own],
+                              own_runner=me)
+    check("...and so is a job still queued, which has no runner at all",
+          queued == [f"Late{SEP}(job queued, no verdict)"], repr(queued))
+    anon = derive_signature([own])
+    check("with no runner identity nothing is own, so every unfinished job is red",
+          anon == [f"Nightly result{SEP}(job in_progress, no verdict)"], repr(anon))
+
+    # A run that ended without a verdict is never green, whatever its jobs say.
+    all_pass = [job("A", "success", [("one", "success")])]
+    cancelled_run = derive_signature(all_pass, run_conclusion="cancelled")
+    check("a CANCELLED run is red even when every job reads green",
+          cancelled_run == [f"(run){SEP}(run cancelled, no verdict)"], repr(cancelled_run))
+    startup_run = derive_signature(all_pass, run_conclusion="startup_failure")
+    check("...and so is a STARTUP_FAILURE run",
+          startup_run == [f"(run){SEP}(run startup_failure, no verdict)"], repr(startup_run))
+    already_red = derive_signature([job("Gates", "cancelled", [])], run_conclusion="cancelled")
+    check("a run its jobs already red keeps their signature (the run entry adds nothing)",
+          already_red == [f"Gates{SEP}(job cancelled, no verdict)"], repr(already_red))
+    check("a successful or unfinished run conclusion adds nothing",
+          derive_signature(all_pass, run_conclusion="success") == []
+          and derive_signature(all_pass, run_conclusion=None) == [])
     check("the signature is order-independent",
           derive_signature([job("G", "failure", [("b", "failure"), ("a", "failure")])])
           == derive_signature([job("G", "failure", [("a", "failure"), ("b", "failure")])]))
@@ -618,6 +712,18 @@ def self_test(verbose: bool) -> int:
           "close" not in actions, repr(actions))
     check("...and only the first is loud; the rest are silent restatements",
           actions == ["change"] + ["touch"] * CLOSE_AFTER_DEFAULT, repr(actions))
+
+    # --- neither an unfinished job nor an aborted run advances the streak ----
+    # The exact shape that reads green when unfinished jobs are ignored: an open
+    # issue one green into its streak, then a night whose gates all passed but
+    # one, still reported running beside this script's own job.
+    one_green = issue_after(decide([], iss), [])
+    for label, night in [("another job unfinished", as_seen),
+                         ("the run cancelled", cancelled_run)]:
+        verdict = decide(night, one_green)
+        check(f"a night with {label} does not advance the green streak",
+              verdict[0] not in ("hold", "close") and verdict[1]["greens"] == 0,
+              repr(verdict))
 
     # --- the two measured claims, as assertions ------------------------------
     iss2, loud = None, 0
