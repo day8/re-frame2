@@ -114,10 +114,9 @@ These look like holds and are not; route them to the tier named:
   → the author's dataflow layer (cardinal rule 5).
 
 - **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
-  is legal, `h/defhost` declares a repeated crossing once (its callbacks
-  inferred from the spelling as on a native tag, with a `:callbacks` override
-  for a vendor's on*-named render prop), and `h/as-element` crosses one element
-  through a prop. A converted view under a React, UIx or Reagent parent takes a
+  is legal, `h/defhost` declares a repeated crossing once (a callback's
+  meaning is its carrier — `h/event` or `h/render-fn` — at every prop), and
+  `h/as-element` crosses one element through a prop. A converted view under a React, UIx or Reagent parent takes a
   bridge door ([`procedure.md`](procedure.md#step-1--scope-a-closed-subtree)
   Step 1). → D-tier.
 - **Callback refs** (MIG-29). A function at `:ref` is React's own contract and

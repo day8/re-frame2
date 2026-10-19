@@ -134,9 +134,10 @@
     (is (false? (rf.fresco.test/host? badge-component)))
     (is (false? (rf.fresco.test/host? greeting))))
 
-  (testing "`h/event` is the one callback form and an identically-written
-            plain `fn` is not"
+  (testing "both carriers are carriers, and an identically-written plain
+            `fn` is not"
     (is (true?  (rf.fresco.test/callback? (rf.fresco/event [e] [:tk/picked (.-value e)]))))
+    (is (true?  (rf.fresco.test/callback? (rf.fresco/render-fn [e] [:li (.-value e)]))))
     (is (false? (rf.fresco.test/callback? (fn [e] [:tk/picked (.-value e)])))))
 
   (testing "the minted name is the one React DevTools and Spec 009's

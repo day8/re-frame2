@@ -44,8 +44,8 @@
 
   Native and host children are handled alike, and the binding cannot
   tell them apart: **both kinds cross the single `codec/as-element`
-  call** `presence-body` wraps, so a host child's declared `:callbacks`
-  entry is lowered inside the same binding as a native `:on-click`. The
+  call** `presence-body` wraps, so a host child's carrier is lowered
+  inside the same binding as a native `:on-click`. The
   host-hatch suite is where that witness belongs.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real

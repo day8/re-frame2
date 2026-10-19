@@ -5,7 +5,7 @@
   :head "C",
   :detail {:prop ":on-click", :value "[:save!]"},
   :note
-  "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an inert array and never fired. Fresco infers the contract from the spelling at a `[:>]` crossing exactly as at a native tag, so the same form now LOWERS to a dispatching handler. Decide two things: whether this handler was ever meant to run, and whether the prop is an event position at all — a vendor's on*-named RENDER prop (Fluent's `onRenderCell`, Ant's `onRow`) needs a declared host with `{:callbacks {… :render}}`, or a plain function."}
+  "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an inert array and never fired. At a `[:>]` crossing, exactly as at a native tag, Fresco lowers an intent vector at an on* prop to a dispatching handler. Decide two things: whether this handler was ever meant to run, and whether the prop is an event position at all — a vendor's on*-named RENDER prop (Fluent's `onRenderCell`, Ant's `onRow`) takes a function: `h/render-fn` where it returns markup, or a plain function."}
  {:line 12,
   :col 3,
   :class :intent-needs-a-declaration,
@@ -13,7 +13,7 @@
   :head "C",
   :detail {:prop ":on-key-down", :value "{\"Enter\" [:save!]}"},
   :note
-  "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an inert array and never fired. Fresco infers the contract from the spelling at a `[:>]` crossing exactly as at a native tag, so the same form now LOWERS to a dispatching handler. Decide two things: whether this handler was ever meant to run, and whether the prop is an event position at all — a vendor's on*-named RENDER prop (Fluent's `onRenderCell`, Ant's `onRow`) needs a declared host with `{:callbacks {… :render}}`, or a plain function."}
+  "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an inert array and never fired. At a `[:>]` crossing, exactly as at a native tag, Fresco lowers an intent vector at an on* prop to a dispatching handler. Decide two things: whether this handler was ever meant to run, and whether the prop is an event position at all — a vendor's on*-named RENDER prop (Fluent's `onRenderCell`, Ant's `onRow`) takes a function: `h/render-fn` where it returns markup, or a plain function."}
  {:line 15,
   :col 3,
   :class :dangerous-html,
@@ -37,7 +37,7 @@
   :head "Grid",
   :detail {},
   :note
-  "An `r/as-element` inside a callback body at this site. Port it by hand: the closure runs when the library calls it, OUTSIDE the owner's render window, so swapping Reagent's lowering for Fresco's is not a text substitution."}
+  "An `r/as-element` inside a callback body at this site. Port it by hand to `h/render-fn`, the render carrier: the library calls the closure OUTSIDE the owner's render window, and the carrier is what carries the owner's frame into that call, so swapping Reagent's lowering for Fresco's is not a text substitution."}
  {:line 24,
   :col 3,
   :class :reagent-api-residue,

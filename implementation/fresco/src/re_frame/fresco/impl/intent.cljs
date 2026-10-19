@@ -10,22 +10,28 @@
       [:input  {:on-key-down {\"Enter\" [:todo/commit id] \"Escape\" [:todo.ui/cancel id]}}]
       [:a      {:href \"#\" :on-click [::h/prevent [:todo/show-done]]}]
 
-  | value at an event position | lowered to |
-  |---|---|
-  | vector | a closure dispatching that intent (`intent-handler`) |
-  | map | a composition-gated key-map (`key-map-handler`) |
-  | the one callback form, `h/event` (`callback`) | a wrapper whose contract the POSITION selects — event, render, or `:ref`'s own |
-  | anything else | passed through untouched |
+  | value | at an `on*` prop | at any other prop |
+  |---|---|---|
+  | vector | a closure dispatching that intent (`intent-handler`) | data |
+  | map | a composition-gated key-map (`key-map-handler`) | data |
+  | an event carrier, `h/event` (`callback`) | `event-callback` | `event-callback` |
+  | a render carrier, `h/render-fn` (`render-carrier`) | `render-callback` | `render-callback` |
+  | anything else | passed through untouched | passed through untouched |
+
+  A carrier means the same thing at every prop: its KIND selects its
+  wrapper, never the prop's spelling. `:ref` is React's and is excluded
+  from lowering. The contract is
+  `implementation/fresco/spec/authoring-contract.md` §Intents.
 
   Owns the ambient render context (`*frame*`, `*dispatch*`, `with-frame`);
-  the one callback form and its two wrappers; the marker roster
-  (`::h/value`, `::h/checked`) and its one pure materializer; the two
-  reserved heads (`::h/prevent`, and the navigate head `route-link` mints);
-  the composition gate; and the lowering doors `lower-prop`,
-  `lower-declared-prop` and `lower-props`. It does not implement the
-  `defhost` / `[:>]` crossing (`re-frame.fresco.impl.codec`, HD-011) or
-  the controlled-value restore (`re-frame.fresco.impl.controlled`, HD-019),
-  which wraps the handler produced here after it has been produced.
+  the two carriers and their wrappers; the marker roster (`::h/value`,
+  `::h/checked`) and its one pure materializer; the two reserved heads
+  (`::h/prevent`, and the navigate head `route-link` mints); the
+  composition gate; and the lowering doors `lower-prop` and `lower-props`.
+  It does not implement the `defhost` / `[:>]` crossing
+  (`re-frame.fresco.impl.codec`) or the controlled-value restore
+  (`re-frame.fresco.impl.controlled`), which wraps the handler produced
+  here after it has been produced.
 
   Three laws every var below assumes. The frame is read ONCE, at lowering
   time, and the closure closes over it, because a browser event fires
@@ -36,9 +42,8 @@
   vector where `=` can see it — a reserved head, never metadata (HD-026,
   HD-027).
 
-  Design record: docs/design/fresco/decisions.md HD-020, HD-024, HD-026
-  and HD-027; the authoring surface in docs/design/fresco/authoring.md
-  §Event intent as data."
+  Design record, for the reasoning behind the contract:
+  docs/design/fresco/decisions.md HD-020, HD-026 and HD-027."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
@@ -128,11 +133,11 @@
   readings because a nil `*dispatch*` cannot tell them apart and they
   want opposite repairs: the form was lowered outside any boundary (lower
   it in a body), or inside a function a foreign component invokes after
-  the render unwound — a function prop on a `[:>]` crossing is exactly
-  this, and the repair is to declare it (`defhost` `:callbacks {<prop>
-  :render}`) so the position owns the frame. Drop the second reading and
-  that author, who did write the crossing in a body, reads the error as a
-  framework bug."
+  the render unwound — a plain function returning Hiccup at a foreign
+  render prop is exactly this, and the repair is the render carrier,
+  `h/render-fn`, which carries the supplying frame into the call. Drop
+  the second reading and that author, who did write the crossing in a
+  body, reads the error as a framework bug."
   [intent]
   (or *dispatch*
       (fail! :rf.error/fresco-intent-outside-boundary
@@ -142,49 +147,67 @@
                   "form is outside any boundary's render — a declaration, a "
                   "fallback, a module-level def — in which case lower it inside a "
                   "body; or it is inside a function a foreign component invokes "
-                  "after that render returned, which is what a function prop on a "
-                  "[:>] crossing is: the escape carries no declaration, so nothing "
-                  "claims the slot and nothing forwards to the owner. Declare the "
-                  "crossing instead — defhost with :callbacks {<the prop> :render} "
-                  "— and the position owns the frame.")
+                  "after that render returned, such as a plain function returning "
+                  "Hiccup at a render prop, which carries no frame. Write that "
+                  "function as h/render-fn instead: it carries the frame of the "
+                  "view that supplied it.")
              {:intent intent})))
 
 ;; ---------------------------------------------------------------------------
-;; The one callback form (HD-024)
+;; The two carriers
 ;; ---------------------------------------------------------------------------
+;;
+;; A carrier is an ordinary function marked with its KIND, and the kind
+;; selects its wrapper at every prop. The prop's spelling selects nothing,
+;; so a carrier moved between props keeps its effect, and no declaration
+;; is needed to correct a vendor's spelling.
 
-(def ^:private callback-marker "frescoFn")
+(def ^:private carrier-marker "frescoFn")
+
+(def ^:private render-kind "render")
 
 (defn callback
-  "The one callback form, `h/event`: marks `f` so the position it is
-  written at can impose a contract, and returns `f` ITSELF — an ordinary
-  function, so outside every walked position it simply runs and nothing
-  can fail to be callable, which is HD-024's deletion of the roster.
-  Marking mutates the function object, which is safe because a callback
-  written in a body is minted fresh per render, and costs one own-property
-  read to test. Design record: docs/design/fresco/decisions.md HD-024."
+  "The event carrier, `h/event`: marks `f` and returns `f` ITSELF — an
+  ordinary function, so where Fresco does not walk it simply runs and
+  nothing can fail to be callable. Lowered at any prop, a returned vector
+  is dispatched (`event-callback`). Marking mutates the function object,
+  which is safe because a carrier written in a body is minted fresh per
+  render, and costs one own-property read to test."
   [f]
-  (unchecked-set f callback-marker true)
+  (unchecked-set f carrier-marker "event")
+  f)
+
+(defn render-carrier
+  "The render carrier, the function `h/render-fn` expands around: marks
+  `f` and returns `f` ITSELF. Lowered at any prop it carries the supplying
+  boundary's frame into each call (`render-callback`). The conversion of
+  its returned Hiccup is the macro's, inside `f`, so the carrier returns a
+  React element wherever it is called."
+  [f]
+  (unchecked-set f carrier-marker render-kind)
   f)
 
 (defn callback?
-  "Is `v` the one callback form? One own-property read behind a `fn?`
+  "Is `v` a carrier, of either kind? One own-property read behind a `fn?`
   guard, so a string or a number at a prop position costs one type test."
   [v]
-  (and (fn? v) (true? (unchecked-get v callback-marker))))
+  (and (fn? v) (string? (unchecked-get v carrier-marker))))
+
+(defn render-carrier?
+  "Is `v` the render carrier?"
+  [v]
+  (and (fn? v) (= render-kind (unchecked-get v carrier-marker))))
 
 (defn- event-callback
-  "Event position: a returned VECTOR is dispatched, anything else is
-  ignored, and every argument the invoker passes reaches the body — a
-  `defhost` `:event` entry or a foreign live invoker may pass several,
-  and a wrapper fixed at `[e]` would drop them or raise an arity error
-  naming nothing the author wrote. The dispatch is captured at lowering
-  time, and captured rather than required: a callback that never returns
-  an intent is legal with no frame in scope, and returning one there is
-  the loud error naming the position. The data spelling's policy defaults
-  do not apply, because a callback holds the event and so owns
-  `.preventDefault` (HD-026, Scope). Design record:
-  docs/design/fresco/decisions.md HD-024."
+  "The event carrier's wrapper: a returned VECTOR is dispatched, anything
+  else is ignored, and every argument the invoker passes reaches the body
+  — a foreign live invoker may pass several, and a wrapper fixed at `[e]`
+  would drop them or raise an arity error naming nothing the author
+  wrote. The dispatch is captured at lowering time, and captured rather
+  than required: a carrier that never returns an intent is legal with no
+  frame in scope, and returning one there is the loud error naming the
+  prop. The data spelling's policy defaults do not apply, because a
+  carrier holds the event and so owns `.preventDefault`."
   [k f]
   (let [dispatch *dispatch*]
     (fn fresco-event-callback [& args]
@@ -202,29 +225,25 @@
         nil))))
 
 (defn- render-callback
-  "Render position: invoked by whatever holds it DURING a render, so the
-  return is render output, is not dispatched, and crosses back
-  UNCONVERTED — the author makes the element with
-  `re-frame.fresco.impl.codec/as-element` (`h/as-element`):
+  "The render carrier's wrapper. Whatever holds it invokes it DURING a
+  render, so the return is render output and is not dispatched; the
+  carrier's own body has already converted its Hiccup to an element:
 
-      (h/event [i]
-        (h/as-element
-          [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
+      (h/render-fn [i]
+        [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))])
 
   The wrapper captures the render context at lowering time — `*frame*`,
   `*dispatch*` and core's refusal tier, the SUPPLYING boundary's, the
   only frame that can own the row — and re-establishes all three per
   invocation. So an intent lowered inside fires into that frame, and the
-  body's own discipline holds inside the callback exactly as in the body:
+  body's own discipline holds inside the carrier exactly as in the body:
   `rf/current-frame-id` and zero-arity `rf/capture-frame` answer the
   supplying boundary's frame, while an ambient `rf/subscribe` refuses
   rather than resolving the foreign component's context and contributing
   no edge. Lowered with no owner in scope it rebinds nil for each, and a
   handler lowered inside raises the ordinary
   `:rf.error/fresco-intent-outside-boundary`. A dispatch from INSIDE the
-  call is not policed; React's render-phase warnings are the report.
-  Design record: docs/design/fresco/decisions.md HD-024,
-  its 2026-08-03 and 2026-08-30 addenda."
+  call is not policed; React's render-phase warnings are the report."
   [_k f]
   (let [owner-dispatch *dispatch*
         owner-frame    *frame*
@@ -234,6 +253,12 @@
                 *dispatch*                    owner-dispatch
                 rf.frame/*ambient-frame-refusal* owner-refusal]
         (apply f args)))))
+
+(defn- lower-carrier
+  "Lower the carrier `f` at prop `k` by its own kind. The prop names the
+  position in a diagnostic and selects nothing."
+  [k f]
+  (if (render-carrier? f) (render-callback k f) (event-callback k f)))
 
 ;; ---------------------------------------------------------------------------
 ;; The argument law — the vector spelling is EVENT-FIRST (HD-024)
@@ -259,8 +284,8 @@
                 "what every native position and every event-first foreign "
                 "contract hands it. A value-first invoker — (on-pick value "
                 "event) — has no event there, and nothing can guess which of "
-                "its arguments is one. Write an h/event instead: the one form "
-                "receives every argument the invoker passed, in order.")
+                "its arguments is one. Write an h/event instead: the event "
+                "carrier receives every argument the invoker passed, in order.")
            {:position k :form form :argument e :needed slot})))
 
 ;; ---------------------------------------------------------------------------
@@ -541,17 +566,16 @@
   handler would silently do nothing.
 
   THE ARM ORDER IS THE CONTRACT, not a formatting choice. `callback?` is
-  `fn?` plus one marker read, so `fn?` is true of a callback TOO: asked
-  first it claims the callback and installs it raw, and the intent vector
-  the body returns is dropped on the floor — no error, no dispatch,
-  against the promise `callback`'s own docstring makes at every event
-  position. A branch is lowered by the SAME `event-callback` as a bare
-  event position, so this is one rule reused and not a second one."
+  `fn?` plus one marker read, so `fn?` is true of a carrier TOO: asked
+  first it claims the carrier and installs it raw, and the intent vector
+  an event carrier returns is dropped on the floor — no error, no
+  dispatch. A branch's carrier is lowered by the SAME `lower-carrier` as
+  a bare prop, so this is one rule reused and not a second one."
   [k key-map]
   (let [lowered (reduce-kv (fn [m key-name v]
                              (assoc m key-name (cond
                                                  (vector? v)   (intent-handler k v)
-                                                 (callback? v) (event-callback k v)
+                                                 (callback? v) (lower-carrier k v)
                                                  (fn? v)       v
                                                  :else         nil)))
                            {}
@@ -563,65 +587,26 @@
           (h e))))))
 
 (defn ref-position?
-  "`:ref` is the one prop position whose contract is not Fresco's to
-  select: React invokes it in the COMMIT phase with the node, and its
-  return is the detach cleanup. Excluded from callback lowering entirely
-  (HD-016 callback refs, HD-022's reserved vector) — wrapping it would
-  forbid a dispatch that is legitimate there and change the identity React
-  uses to decide whether to re-attach."
+  "`:ref` is the one prop whose contract is not Fresco's: React invokes it
+  in the COMMIT phase with the node, and its return is the detach
+  cleanup. Excluded from carrier lowering entirely — wrapping it would
+  change the identity React uses to decide whether to re-attach."
   [k]
   (or (= :ref k) (= "ref" k)))
 
-(defn position-contract
-  "The contract a prop position imposes on the one callback form. An
-  event position is the only one the attribute grammar can name by
-  itself; everything else Fresco walks is a render position, and a
-  `defhost` declaration overrides this by saying so
-  (`lower-declared-prop`)."
-  [k]
-  (cond
-    (ref-position? k) :ref
-    (event-prop? k)   :event
-    :else             :render))
-
 (defn lower-prop
-  "Lower one prop. Values at non-event positions, and non-lowerable values
-  at event positions, come back untouched — this is the identity function
-  for everything the surface does not claim.
-
-  The one callback form is claimed at EVERY position, because that is
-  what makes the position the thing that selects the contract."
+  "Lower one prop. A carrier is lowered by its own kind at every prop but
+  `:ref`; a vector or map is an intent only at an `on*` prop, and data
+  everywhere else; everything else comes back untouched — this is the
+  identity function for everything the surface does not claim."
   [k v]
-  (if (event-prop? k)
-    (cond
-      (vector? v)   (intent-handler k v)
-      (map? v)      (key-map-handler k v)
-      (callback? v) (event-callback k v)
-      :else         v)
-    (if (and (callback? v) (not (ref-position? k)))
-      (render-callback k v)
-      v)))
-
-(defn lower-declared-prop
-  "Lower one prop whose contract a `defhost` `:callbacks` entry OVERRIDES:
-  `:event` or `:render`, the two wrappers `lower-prop` selects by
-  spelling, applied where a vendor's spelling is wrong. At `:event` the
-  marked form takes the event wrapper and an intent vector or key-map
-  lowers as at a native event position; at `:render` the marked form
-  takes the render wrapper. Every other value comes back untouched and
-  crosses as data. The contract is one of the two by construction:
-  `mint-host!` refuses any other at the declaration. The override exists
-  because an event wrapper returns nil, which blanks an on*-named render
-  prop silently; docs/design/fresco/decisions.md, HD-024's 2026-08-29
-  addendum."
-  [k v contract]
-  (if (keyword-identical? :event contract)
-    (cond
-      (callback? v) (event-callback k v)
-      (vector? v)   (intent-handler k v)
-      (map? v)      (key-map-handler k v)
-      :else         v)
-    (if (callback? v) (render-callback k v) v)))
+  (cond
+    (callback? v)   (if (ref-position? k) v (lower-carrier k v))
+    (event-prop? k) (cond
+                      (vector? v) (intent-handler k v)
+                      (map? v)    (key-map-handler k v)
+                      :else       v)
+    :else           v))
 
 (defn lower-props
   "Walk a props map once, lowering every position that carries something

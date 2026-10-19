@@ -226,14 +226,12 @@
   message quotes.
 
   TAKES `query` RATHER THAN READING IT, AND IS CALLED RATHER THAN HEADED.
-  A head would make Reagent mint a component for this plain `defn`, a
-  plain `defn` carries no `:contextType`, so `(.-context cmp)` is React's
-  empty default, `current-frame` coerces that to nil and an ambient read
-  RAISES `:rf.error/no-frame-context` — Spec 006 §Plain-fn footgun, and
-  the mechanism [[handle-input-keydown]] records below for the deferred-
-  handler seam. React would discard the whole subtree and the palette
-  would paint NOTHING — the dialog and this row both absent, the failure
-  `empty_row_frame_context_dom_cljs_test` pins.
+  `palette-view`'s hiccup renders under the `palette/ModalView` boundary,
+  where a plain `defn` in head position is a loud error: Fresco's codec
+  refuses it with `:rf.error/fresco-bad-head`. React would discard the
+  whole subtree and the palette would paint NOTHING — the dialog and this
+  row both absent, the failure `empty_row_frame_context_dom_cljs_test`
+  pins.
 
   `palette-view` already binds `query`, so passing it avoids a duplicate
   read outright rather than donating it upward into the enclosing

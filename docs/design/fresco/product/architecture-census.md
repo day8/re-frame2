@@ -34,7 +34,7 @@ and [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md)'s fourth:
 
 > No `:fast` flag, compiler fork, automatic promotion, profiling-dependent semantics, **per-boundary callback-cell table**, second state owner, or performance claim based only on render timing.
 
-**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a fourth `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
+**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a fifth `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
 
 ### 1.1 No second emitter
 
@@ -73,17 +73,18 @@ The [charter](../charter.md#constraints) permits `defn`-class macro sugar with f
 rg -n --sort path "^\s*\(defmacro\b" implementation/fresco/src
 ```
 
-**Anchored: 3. Unanchored (`rg -n "defmacro"`): 3** — this is the one arm where the two agree, because no docstring in the package quotes the word.
+**Anchored: 4. Unanchored (`rg -n "defmacro"`): 4** — this is the one arm where the two agree, because no docstring in the package quotes the word.
 
 <!-- census:mechanism-macros -->
 
 | Macro | Namespace | What it expands to | Why it is not a compiler |
 |---|---|---|---|
 | `defview` | `re-frame.fresco` | a `defn` plus one `mint-view!` call | the body is an ordinary function; nothing reads its forms |
-| `event` | `re-frame.fresco` | an anonymous view, same shape | as above |
+| `event` | `re-frame.fresco` | a `fn` marked as the event carrier | as above |
+| `render-fn` | `re-frame.fresco` | a `fn` marked as the render carrier, whose return passes through `as-element` | as above |
 | `defhost` | `re-frame.fresco` | a `def` of a `mint-host!` declaration | takes a data map, not body forms |
 
-Three macros, three rows, and each captures a source coordinate for refusal messages. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
+Four macros, four rows. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
 
 ### 1.3 No ViewCell-class graph, and no per-boundary callback-cell table
 
@@ -218,7 +219,7 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 
 | Arm | What reds it |
 |---|---|
-| `mechanism` | a fourth `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
+| `mechanism` | a fifth `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
 | `retained-tooling` | a checker, a `fresco` npm script or a tool namespace with no row above, or a row whose Consumer cell is empty |
 | `mutable-globals` | a module-level owner the seven arms find whose `impl.<ns>/name` identity has no row in [`globals.md`](globals.md) |
 

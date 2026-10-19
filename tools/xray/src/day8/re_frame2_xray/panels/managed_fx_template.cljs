@@ -635,9 +635,7 @@
   boundary and threaded down. `nil` — the shape the short arities pass —
   resolves every section to its `section-defaults` value, which is the
   first-paint state. This fn stays a PURE fn of `(dispatch, expanded,
-  record)`: per Spec 006 §Plain-fn footgun an ambient `subscribe` in a
-  plain fn raises `:rf.error/no-frame-context`, so the read cannot happen
-  here and the sub is read by the `defview` boundary that mounts this
+  record)`: the sub is read by the `defview` boundary that mounts this
   panel.
 
   `dispatch` is the frame-aware dispatcher captured by the

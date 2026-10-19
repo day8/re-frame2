@@ -2309,9 +2309,7 @@ The ISOLATION GUARANTEE is unchanged, and so is the reason it holds —
 the frame is resolved from REACT CONTEXT, the same context both
 `rf/frame-provider` and `rf.fresco/frame-provider` write, which is why
 the chrome renders identically under a Reagent parent's provider. What
-changed is only which construct writes it. (rf2-in6l2 + Spec 000 §Plain
-Reagent fns do not pick up the surrounding frame remains the reason a
-bare `defn` is not enough.)
+changed is only which construct writes it.
 
 ### Availability
 

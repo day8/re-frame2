@@ -3,14 +3,13 @@
   the production provider shape.
 
   `view/palette-view` calls `(empty-row query)` with the already-bound
-  query. Were the row headed (`[empty-row]`) with an ambient
-  `rf/subscribe` of its own, Reagent would mint a component for the plain
-  `defn`, which carries no `:contextType`, and the subscribe would raise
-  `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun). Only a
-  committed React render shows this: node rows walk the tree inside
-  `with-frame`, where the dynamic-var tier answers. The browser runner
-  fails on any uncaught page error, and the refused subtree never
-  commits, so the row below goes red either way.
+  query. Headed instead (`[empty-row]`), the row would be a plain `defn`
+  in head position under the `palette/ModalView` boundary, which Fresco
+  refuses with `:rf.error/fresco-bad-head`. Only a committed React render
+  shows this: node rows drive `palette-view` as a pure fn and read its
+  hiccup as data. The browser runner fails on any uncaught page error,
+  and the refused subtree never commits, so the row below goes red
+  either way.
 
   `:node-test` also loads `-dom-cljs-test` namespaces; there the row
   reports a skip."
@@ -28,9 +27,9 @@
 ;; Not `:rf/xray`, the production singleton other suites share.
 (def ^:private palette-frame ::palette)
 
-;; `:ambient-frame nil` is load-bearing: an ambient `:rf/default` binding is
-;; the dynamic-var tier that would answer the plain fn's subscribe and mask
-;; the fault. `make-xray-runtime-fixture` does not thread the key.
+;; `:ambient-frame nil` leaves no `with-frame` scope around the mount, so the
+;; only frame the palette can resolve is the one `frame-provider` writes.
+;; `make-xray-runtime-fixture` does not thread the key.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter

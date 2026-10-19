@@ -47,7 +47,7 @@
   | the wrapper component | a raw React function component | yes |
   | the DOM node it owns | `react/createElement` with a `:ref` | yes |
   | the crossing into hiccup | `h/defhost` | yes |
-  | the SDK's outward callback | `:callbacks {:on-pick :event}` + `h/event` | yes |
+  | the SDK's outward callback | `h/event`, the event carrier | yes |
   | the throw/retry region | `h/error-boundary` `:fallback` / `:reset-key` | yes |
   | the vendor itself | [[new-spark]] | **a stand-in** |
 
@@ -283,14 +283,12 @@
 ;; ---------------------------------------------------------------------------
 
 (rf.fresco/defhost spark
-  "The declared host seam. `:on-pick` carries the `:event` contract, so an
-  `h/event` written there sees the vendor's own arguments in order and a
-  vector it returns dispatches under the frame of the boundary that wrote
-  the crossing — which is what makes the SDK's out-of-React callback a
-  re-frame2 intent rather than a closure over whatever `dispatch` happened
-  to be in scope."
-  spark-island
-  {:callbacks {:on-pick :event}})
+  "The declared host seam. An `h/event` written at `:on-pick` sees the
+  vendor's own arguments in order, and a vector it returns dispatches
+  under the frame of the boundary that wrote the crossing — which is what
+  makes the SDK's out-of-React callback a re-frame2 intent rather than a
+  closure over whatever `dispatch` happened to be in scope."
+  spark-island)
 
 ;; ---------------------------------------------------------------------------
 ;; The screens

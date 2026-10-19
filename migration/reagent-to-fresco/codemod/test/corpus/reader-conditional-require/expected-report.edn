@@ -58,7 +58,7 @@
   :head "Grid",
   :detail {},
   :note
-  "An `r/as-element` inside a callback body at this site. Port it by hand: the closure runs when the library calls it, OUTSIDE the owner's render window, so swapping Reagent's lowering for Fresco's is not a text substitution."}
+  "An `r/as-element` inside a callback body at this site. Port it by hand to `h/render-fn`, the render carrier: the library calls the closure OUTSIDE the owner's render window, and the carrier is what carries the owner's frame into that call, so swapping Reagent's lowering for Fresco's is not a text substitution."}
  {:line 28,
   :col 3,
   :class :cljc-site,

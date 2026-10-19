@@ -398,9 +398,9 @@
 (deftest a-render-prop-refuses
   (seeded!)
   ;; A render prop is a function the holder invokes during ITS render, and
-  ;; `intent/position-contract` gives every non-event, non-ref position the
-  ;; `:render` contract — so this is the real `intent/render-callback`
-  ;; wrapper, taken off the emitted element exactly as the event wrapper was.
+  ;; the render carrier lowers to `intent/render-callback` at any prop — so
+  ;; this is the real wrapper, taken off the emitted element exactly as the
+  ;; event wrapper was.
   ;;
   ;; The wrapper rebinds the intent layer's ambient dispatch and frame for
   ;; the call. It does NOT rebind the collector's render slot, and that is
@@ -409,7 +409,7 @@
   ;; not guess which render owns the read.
   (let [!ran    (atom 0)
         element (element-of
-                  (fn [_] [:div {:render-row (rf.fresco/event [_]
+                  (fn [_] [:div {:render-row (rf.fresco/render-fn [_]
                                                (swap! !ran inc)
                                                (rf.fresco/sub [:re/right]))}]))
         render-row (.. element -props -renderRow)

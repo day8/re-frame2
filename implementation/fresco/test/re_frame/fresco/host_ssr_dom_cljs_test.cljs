@@ -4,8 +4,8 @@
 
   HD-011 lists \"SSR placeholder\" among `defhost`'s strong defaults, and
   SSR is required scope. A placeholder that is not inert but ABSENT is the
-  failure this file forbids — a `mint-host!` that reads `:callbacks` and
-  silently ignores every other option — so the surface is two jobs: give
+  failure this file forbids — a `mint-host!` that reads one option and
+  silently ignores every other — so the surface is two jobs: give
   the declaration a policy, and make an option it does not know a refusal
   rather than a shrug.
 
@@ -433,7 +433,7 @@
                                         {:fallback [client-only-page {}]}))))))
 
 (deftest the-declaration-refuses-an-option-it-does-not-know
-  (testing "a `mint-host!` that read :callbacks and IGNORED the rest would
+  (testing "a `mint-host!` that read one option and IGNORED the rest would
             make a misspelled policy a setting that never applies — the
             same defect class as an intent crossing as inert data, and it
             gets the same refusal"
