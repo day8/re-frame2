@@ -52,7 +52,7 @@
             [re-frame.http.managed]
             ;; With no real server, a stub transport further down stands in
             ;; for one.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; Resources are an optional artefact, so they only exist if you ask
             ;; for them. This require is the asking — without it, the
             ;; `rf/reg-resource` calls below would have nothing to register
@@ -150,7 +150,7 @@
 ;; payload for the URL; `:rf.http/managed` does the rest, so the reply still
 ;; knows which resource asked and addresses itself back to it.
 (def ^:private demo-transport
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     (fn [{:keys [url]}] {:body (demo-payload-for-url url)})
     {:delay-ms demo-reply-delay-ms}))
 
@@ -540,7 +540,7 @@
     ;; out through the per-URL stub transport up above. It is frame-wide, which
     ;; is fine here precisely because this example never makes a request we'd
     ;; actually want to reach the network — the frame is the right grain.
-    (stub-transport/install-transport! app-frame demo-transport)
+    (rf.http.stub-transport/install-transport! app-frame demo-transport)
     ;; Here's the frame, created and configured by `frame-root {:id …}`.
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id         app-frame

@@ -77,7 +77,7 @@
             ;; Stub transports. Our demo backend is one, answering requests
             ;; instead of a network — the deliberate opt-in for an app that
             ;; ships no backend.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; Resources. Loading the ns registers `reg-resource` /
             ;; `reg-mutation` and the `:rf.resource/*` + `:rf.mutation/*` subs.
             ;; Skip it and those registrations throw.
@@ -454,7 +454,7 @@
 (def ^:private demo-transport
   "The stub transport `mount!` installs on the frame: `demo-answer`, after
    `demo-reply-delay-ms`."
-  (stub-transport/route-transport demo-answer {:delay-ms demo-reply-delay-ms}))
+  (rf.http.stub-transport/route-transport demo-answer {:delay-ms demo-reply-delay-ms}))
 
 ;; ============================================================================
 ;; APP-DB — the demo toggle + the inline edit draft (ordinary slices)
@@ -725,7 +725,7 @@
                      (js/document.getElementById "app"))]
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
-    (stub-transport/install-transport! app-frame demo-transport)
+    (rf.http.stub-transport/install-transport! app-frame demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id         app-frame
                       :doc        "Linearlite optimistic-board demo frame."

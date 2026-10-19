@@ -53,7 +53,7 @@
             ;; one copy of the frame config all three login mounts share.
             [login.model :as model]
             [login.stories]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; The shared Story-host helper, which owns the fiddly bits: the
             ;; live-app↔Story-shell hash router and the React-root handle.
             [re-frame.testbed.story-host :as rf.testbed.story-host]))
@@ -86,7 +86,7 @@
   (rf/make-frame (merge {:id  :rf/default
                          :doc "Login showcase live-app frame."}
                         model/frame-config))
-  (stub-transport/install-transport! :rf/default model/demo-backend))
+  (rf.http.stub-transport/install-transport! :rf/default model/demo-backend))
 
 (rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}

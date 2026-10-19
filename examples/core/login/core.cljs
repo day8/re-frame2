@@ -30,7 +30,7 @@
             ;; hands us `model/frame-config` for the mount below. It names no
             ;; substrate — see model.cljc.
             [login.model :as model]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -152,7 +152,7 @@
     ;; views' injected `dispatch`/`subscribe` (and the machine reads) know to
     ;; talk to `:rf/default`. Render a `reg-view` outside any frame scope and it
     ;; fails loud rather than guessing.
-    (stub-transport/install-transport! :rf/default model/demo-backend)
+    (rf.http.stub-transport/install-transport! :rf/default model/demo-backend)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root (merge {:id  :rf/default
                              :doc "Login demo frame."}

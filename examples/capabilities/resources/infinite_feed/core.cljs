@@ -65,7 +65,7 @@
             ;; Stub transports — our demo backend is one. Requiring it is the
             ;; explicit "yes, this app has no backend" opt-in — handy for demos
             ;; and tests, deliberately out of the way for real apps.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; Resources. Requiring it at boot wires up the registrations —
             ;; including the infinite sub family this view reads. Skip it and
             ;; `rf/reg-resource` throws :rf.error/resources-artefact-missing.
@@ -190,7 +190,7 @@
 ;; runtime set up — is `:rf.http/managed`'s own work, so the reply addressing
 ;; points where it should.
 (def ^:private demo-transport
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     (fn [{:keys [url]}]
       (let [cursor (some-> (re-find #"[?&]cursor=(\d+)" url) second (js/parseInt 10))]
         {:body (demo-page-for-cursor cursor)}))
@@ -356,7 +356,7 @@
     ;; The provider creates the app frame (config and all) on first mount and
     ;; reuses it on hot reload. Route entry ensures page 0, so there's no need
     ;; for `:initial-events`.
-    (stub-transport/install-transport! app-frame demo-transport)
+    (rf.http.stub-transport/install-transport! app-frame demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id         app-frame
                       :doc        "Infinite-feed demo frame."

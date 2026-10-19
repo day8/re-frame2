@@ -89,7 +89,7 @@
             [re-frame.http.managed]
             ;; Our little fake server below is a stub transport, installed
             ;; on the frame in `mount!`.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -258,7 +258,7 @@
 
 (def demo-transport
   "The stub transport `mount!` installs on the frame: the fake server above."
-  (stub-transport/route-transport demo-answer))
+  (rf.http.stub-transport/route-transport demo-answer))
 
 ;; ============================================================================
 ;; THE MACHINE — :ui/nine-states  (one machine, three regions)
@@ -955,7 +955,7 @@
   ;; attached to.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (stub-transport/install-transport! :rf/default demo-transport)
+    (rf.http.stub-transport/install-transport! :rf/default demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             :rf/default
                       :doc            "Nine-states demo frame."

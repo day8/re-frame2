@@ -27,7 +27,7 @@
             ;; machine, event, and sub, and hands us `model/frame-config` for the
             ;; mount below. It names no substrate — the UIx code lives only here.
             [login.model :as model]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; ============================================================================
@@ -141,7 +141,7 @@
     ;; The fake backend goes on first: `model/demo-backend`, installed as the
     ;; frame's stub transport, answers the login request so the example needs
     ;; no server.
-    (stub-transport/install-transport! :rf/default model/demo-backend)
+    (rf.http.stub-transport/install-transport! :rf/default model/demo-backend)
     (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id  :rf/default
                                     :doc "Login (UIx) demo frame."

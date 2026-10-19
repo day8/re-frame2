@@ -29,7 +29,7 @@
             ;; docs/core/glossary.md#effect.
             [re-frame.http.managed]
             ;; The two fake login servers below are stub transports.
-            [re-frame.http.stub-transport :as stub-transport]))
+            [re-frame.http.stub-transport :as rf.http.stub-transport]))
 
 ;; ============================================================================
 ;; THE TRANSITION TABLE — guide §A machine at a glance
@@ -184,13 +184,13 @@
 (def accepting-server
   "A stub transport standing in for a login server that accepts every
   login, answering 200 with a user and token."
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     (constantly {:body {:user {:id "test-user"} :token "test-token"}})))
 
 (def rejecting-server
   "A stub transport standing in for a login server that rejects every login
   with a 401. This is the server the lockout demo runs against."
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     (constantly {:status 401 :body {:message "bad creds"}})))
 
 ;; ============================================================================
