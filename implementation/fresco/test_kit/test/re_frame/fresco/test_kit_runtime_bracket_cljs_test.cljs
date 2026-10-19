@@ -7,7 +7,7 @@
   reporter swapped for one that records, so the planted failure is read
   as data rather than counted against this run; that run resets the
   runtime, so the suite's own bracket then finds it clean."
-  (:require [cljs.test :as t :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :as t :refer-macros [async deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
