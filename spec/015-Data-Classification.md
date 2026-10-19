@@ -102,8 +102,8 @@ A **transient payload** (event args, fx args, cofx values, sub output) is owned 
 
 (rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-handler)
 
-(rf/reg-cofx :session {:sensitive [[:token]]}
-  (fn [cofx] (assoc cofx :session {:user "alice" :token (read-token)})))
+(rf/reg-cofx :session {:recordable? false :sensitive [[:token]]}
+  (fn [] {:user "alice" :token (read-token)}))
 
 (rf/reg-sub :partner/api-token {:sensitive [[]]}    ;; whole sub output is sensitive
   (fn [db _] (get-in db [:tenant :partner-api-key])))
