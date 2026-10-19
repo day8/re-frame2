@@ -69,12 +69,14 @@
   []
   (rf/reg-cofx
     :story/active-modes
-    {:doc "Ambient — the vector of mode ids currently active in the shell."}
+    {:recordable? false
+     :doc "Ambient — the vector of mode ids currently active in the shell."}
     (fn [] (active-modes-snapshot)))
 
   (rf/reg-cofx
     :story/active-args
-    {:doc "Ambient — the deep-merged :args of every active shell mode."}
+    {:recordable? false
+     :doc "Ambient — the deep-merged :args of every active shell mode."}
     (fn [] (active-args-snapshot)))
 
   ;; Subscriptions backed by the shell-state-atom. The atom is a

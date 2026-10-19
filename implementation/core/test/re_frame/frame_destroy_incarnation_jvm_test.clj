@@ -596,7 +596,7 @@
         handler-runs (atom 0)
         errors       (atom [])]
     (rf/make-frame {:id id})
-    (rf/reg-cofx :destroy/cofx-killer
+    (rf/reg-cofx :destroy/cofx-killer {:recordable? false}
       (fn []
         (rf.frame/destroy-frame! id)
         (throw (ex-info "cofx supplier failed after asking for its destroy" {}))))

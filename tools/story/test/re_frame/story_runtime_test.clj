@@ -968,7 +968,7 @@
 ;; ---- cofx / interceptor failures are captured -----------------------------
 
 (deftest cofx-injection-throw-is-captured
-  (rf/reg-cofx :test/boom-cofx (fn [] (throw (ex-info "cofx blew up" {:why :cofx}))))
+  (rf/reg-cofx :test/boom-cofx {:recordable? false} (fn [] (throw (ex-info "cofx blew up" {:why :cofx}))))
   (rf/reg-event :test/uses-boom-cofx {:rf.cofx/requires [:test/boom-cofx]} (fn [_ _] {}))
   (rf.story/reg-variant :story.cofx-boom/v {:setup [[:test/uses-boom-cofx]]})
   (let [r   (run-variant! :story.cofx-boom/v)

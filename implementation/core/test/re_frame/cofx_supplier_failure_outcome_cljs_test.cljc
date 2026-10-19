@@ -88,7 +88,7 @@
             dispatch after it settles :ok"
     (let [handler-runs (atom 0)
           fx-runs      (register-counting-fx!)]
-      (rf/reg-cofx ::throws-ambient
+      (rf/reg-cofx ::throws-ambient {:recordable? false}
         (fn [] (throw (ex-info "ambient supplier boom" {}))))
       (rf/reg-interceptor ::stages-effects
         {:before (fn [ctx]

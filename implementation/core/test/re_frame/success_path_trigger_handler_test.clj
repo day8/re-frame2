@@ -144,7 +144,7 @@
 ;; here emits a probe — what an instrumented cofx (http, persistence) does.
 
 (deftest cofx-body-trace-carries-cofx-trigger
-  (rf/reg-cofx :t/instrumented-cofx
+  (rf/reg-cofx :t/instrumented-cofx {:recordable? false}
     (fn [] (rf.trace/emit! :t/probe :t/probe {:from :cofx}) :ok))
   (rf/reg-event :t/uses-cofx {:rf.cofx/requires [:t/instrumented-cofx]} (fn [_ _] {}))
   (let [evs (record-traces #(rf/dispatch-sync [:t/uses-cofx]))]

@@ -169,11 +169,11 @@
     {:reg-cofx [[:parity/v-cofx {:recordable? true :provided? true} cofx-body]]}
     #(rf/reg-cofx :parity/v-cofx {:recordable? true :provided? true} cofx-body)
     :rf.error/cofx-registration-invalid]
-   ["cofx: :provided? without :recordable?"
-    {:reg-cofx [[:parity/v-cofx {:provided? true} nil]]}
-    #(rf/reg-cofx :parity/v-cofx {:provided? true})
+   ["cofx: :provided? beside :recordable? false"
+    {:reg-cofx [[:parity/v-cofx {:recordable? false :provided? true} nil]]}
+    #(rf/reg-cofx :parity/v-cofx {:recordable? false :provided? true})
     :rf.error/cofx-registration-invalid]
-   ["cofx: an ambient fact with no supplier"
+   ["cofx: a fact that is neither provided nor supplied"
     {:reg-cofx [[:parity/v-cofx {:doc "no supplier"} nil]]}
     #(rf/reg-cofx :parity/v-cofx {:doc "no supplier"})
     :rf.error/cofx-registration-invalid]
@@ -207,7 +207,7 @@
             {:reg-event [[:parity/named-ev {:rf.cofx/requires :not-a-vector} event-body]]}
             :failing-id :parity/named-ev]
            ["cofx grade"
-            {:reg-cofx [[:parity/named-cofx {:provided? true} nil]]}
+            {:reg-cofx [[:parity/named-cofx {:recordable? false :provided? true} nil]]}
             :rf.cofx/id :parity/named-cofx]]]
     (is (= id (get (error-data #(assemble-inline inline)) id-key)) label)))
 
