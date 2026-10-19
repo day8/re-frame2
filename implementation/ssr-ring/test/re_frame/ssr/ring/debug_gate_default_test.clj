@@ -1,6 +1,6 @@
 (ns re-frame.ssr.ring.debug-gate-default-test
-  "The JVM debug gate's default on a JVM that hosts SSR (Spec 011 §Production
-  elision).
+  "The JVM debug gate's default on a JVM that hosts SSR (Spec 011 §The debug
+  gate on an SSR JVM).
 
   `re-frame.interop/debug-enabled?` is read ONCE, when `re-frame.interop`
   loads, so no assertion made inside this JVM can say what a different
