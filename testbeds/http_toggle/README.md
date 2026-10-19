@@ -10,26 +10,27 @@ end-to-end.
 | Outcome | `data-testid` (option) | Strategy | Reply `:status` / `:error :kind` |
 |---|---|---|---|
 | 200 success | `:success` | Live Fetch against `api/success.json` (static asset shipped under the testbed dir). | `:status :ok`, `:value {:ok true :value "http-toggle success"}` |
-| 4xx | `:rf.http/http-4xx` | Canned-failure stub with `:status 404`, raw HTML body. | `:status :error`, `:error :kind :rf.http/http-4xx`, `:status 404`, `:body "<html>not found</html>"` |
-| 5xx | `:rf.http/http-5xx` | Canned-failure stub with `:status 500`, raw HTML body. | `:status :error`, `:error :kind :rf.http/http-5xx`, `:status 500`, `:body "<html>server error</html>"` |
-| timeout | `:rf.http/timeout` | Canned-failure stub. | `:status :error`, `:error :kind :rf.http/timeout`, `:elapsed-ms 5000`, `:limit-ms 5000` |
-| aborted | `:rf.http/aborted` | Per-testbed `:http-toggle/deferred-abortable` stub defers a canned reply by 500ms so the spec can observe `:status :loading` and click Cancel. The Cancel button fires the live `:rf.http/managed-abort` fx. | `:status :cancelled`, `:error :kind :rf.http/aborted`, `:request-id ::in-flight`, `:reason :user` |
-| transport | `:rf.http/transport` | Canned-failure stub. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |
-| decode-failure | `:rf.http/decode-failure` | Canned-failure stub (live decode-failure requires a JSON endpoint that 2xxs with invalid JSON; the stub preserves the reply envelope). | `:status :error`, `:error :kind :rf.http/decode-failure`, `:body-text "<<not-json>>"`, `:cause "SyntaxError: ..."` |
-| cross-origin transport | `:http-toggle/cross-origin` | Canned-failure stub. The browser reports a CORS refusal and a network drop against another origin as the same Fetch `TypeError`, so both are `:rf.http/transport` with the CLJS-only `:cross-origin?` hint. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Failed to fetch"`, `:cause "TypeError"`, `:cross-origin? true` |
+| 4xx | `:rf.http/http-4xx` | Stub route answers `404` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-4xx`, `:status 404`, `:body "<html>not found</html>"` |
+| 5xx | `:rf.http/http-5xx` | Stub route answers `500` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-5xx`, `:status 500`, `:body "<html>server error</html>"` |
+| timeout | `:rf.http/timeout` | Stub route holds the request past its `:timeout-ms 1000`. | `:status :error`, `:error :kind :rf.http/timeout`, `:limit-ms 1000` |
+| aborted | `:rf.http/aborted` | Stub route holds the request, so the spec can observe `:status :loading` and click Cancel, whose live `:rf.http/managed-abort` aborts it. | `:status :cancelled`, `:error :kind :rf.http/aborted` |
+| transport | `:rf.http/transport` | Stub route fails as the network would. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |
+| decode-failure | `:rf.http/decode-failure` | Stub route answers a 2xx whose body is not JSON. | `:status :error`, `:error :kind :rf.http/decode-failure`, `:body-text "<<not-json>>"` |
+| cross-origin transport | `:http-toggle/cross-origin` | Stub route fails as Fetch does. The browser reports a CORS refusal and a network drop against another origin as the same Fetch `TypeError`, so both are `:rf.http/transport` with the CLJS-only `:cross-origin?` hint. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Failed to fetch"`, `:cause "TypeError"`, `:cross-origin? true` |
 
-## Why canned-failure for seven of eight
+## Why a stub transport for seven of eight
 
-The framework-shipped `:rf.http/managed-canned-failure` fx synthesises
-the same canonical reply envelope a live request would on each category,
-delivered to the request's `:reply-to` target
-(per [spec/014 §Testing](../../spec/014-HTTPRequests.md) and the
-JVM smokes in `re-frame.http-managed-test`). For a testbed whose job
-is to drive each category deterministically — across CI environments
-that may not allow outbound CORS or 503-flaky-endpoint requests —
-the canned-stub seam is the canonical move. The reply shape consumers
-read (`:status :error`, `:error :kind :rf.http/<category>`, the
-category-specific tags) is identical.
+The seven failure outcomes go out through `failure-backend`, a stub
+transport ([spec/014 §Testing](../../spec/014-HTTPRequests.md)) the Go
+button issues them under. It replaces only the network hop: each route
+answers the way a server or the network would for its category, and the
+real `:rf.http/managed` classifies it and delivers the canonical reply to
+the request's `:reply-to` target. For a testbed whose job is to drive
+each category deterministically — across CI environments that may not
+allow outbound CORS or 503-flaky-endpoint requests — that is the
+canonical move, and the reply shape consumers read (`:status :error`,
+`:error :kind :rf.http/<category>`, the category-specific tags) is the
+live one.
 
 The live success path is exercised because it's the simplest possible
 real round-trip: an HTTP GET against a static asset under the same
@@ -38,10 +39,9 @@ origin. No CI environment refuses it.
 ## Trace shape per click (per [spec/009 §:op-type vocabulary](../../spec/009-Instrumentation.md))
 
 Every failure click emits one category-attributed trace event
-whose `:operation` is the failure `:kind`, matching the live failure
-path's emit from `re-frame.http.transport/finalise-failure!`. It is an
-error row for every kind except the aborted click, whose
-`:rf.http/aborted` row is `:info` like the live producer's (rf2-s8kcj):
+whose `:operation` is the failure `:kind`, from the live failure path in
+`re-frame.http.transport`. It is an error row for every kind except the
+aborted click, whose `:rf.http/aborted` row is `:info`:
 
 ```
 :operation :rf.http/<:kind>    ;; :op-type :error, e.g. :rf.http/http-4xx
@@ -53,13 +53,7 @@ error row for every kind except the aborted click, whose
                                ;;        + category-specific tags}
 ```
 
-For the 7 canned-failure outcomes, the per-testbed
-`:http-toggle/canned-failure-with-trace` fx replays this emit before
-delegating to the framework's `:rf.http/managed-canned-failure` stub
-(see [rf2-3g16l](../../.beads) — the framework stub bypasses
-`trace/emit-error!`, so the testbed wraps it to preserve the live
-path's contract). The successful `:success` outcome rides the live
-transport path and emits no error trace.
+The successful `:success` outcome emits no error trace.
 
 The category-attribution scenario in rf2-fe84r reads: "HTTP failure
 cascade visible as ordered `:rf.http/*` with category attribution" —
@@ -88,7 +82,7 @@ Cross-cutting (6):
 - HTTP failure cascade visible as ordered `:rf.http/*` with category attribution (the canonical cross-cutting scenario)
 
 Story (18):
-- recorder captures click → records `:play` → replays identically. The canned-stub seam is deterministic; the live `:success` outcome may be skipped from a recorder replay (or stub-overridden) depending on the recording mode
+- recorder captures click → records `:play` → replays identically. The stub transport is deterministic; the live `:success` outcome may be skipped from a recorder replay (or stub-overridden) depending on the recording mode
 - a11y panel surfaces violations on known-bad variant — out of scope here; covered by `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variants (rf2-9jfo1.1 retired the standalone Tier-4 surface)
 
 ## Running
@@ -110,5 +104,5 @@ asset is staged next to `main.js` by the orchestrator (one
 
 - [`spec/014-HTTPRequests.md` §Failure categories](../../spec/014-HTTPRequests.md) — the closed-for-v1 vocabulary the dropdown enumerates.
 - [`spec/014-HTTPRequests.md` §Classification order](../../spec/014-HTTPRequests.md) — status-before-decode is why `:rf.http/http-4xx` carries the raw `:body` and decode is skipped.
-- [`spec/014-HTTPRequests.md` §Testing](../../spec/014-HTTPRequests.md) — the canned-failure stub seam this testbed leans on for the seven failure outcomes.
+- [`spec/014-HTTPRequests.md` §Testing](../../spec/014-HTTPRequests.md) — the stub transport this testbed leans on for the seven failure outcomes.
 - [`examples/core/managed_http_counter/`](../../examples/core/managed_http_counter/) — the tutorial-shaped companion to this testbed; demonstrates the canonical reply-addressing pattern in tutorial-grade prose.

@@ -26,8 +26,6 @@
             [re-frame.routing.test-support]
             [re-frame.machines :as rf.machines]
             [re-frame.http.managed :as rf.http.managed]
-            ;; Canned-stub fxs gate on explicit test-support require.
-            [re-frame.http.test-support]
             [re-frame.resources.test-support :as rf.resources.test-support]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.request :as rf.ssr.request]

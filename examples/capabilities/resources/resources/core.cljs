@@ -32,10 +32,10 @@
    an error, not a silent global. See
    [scope](../../../../docs/resources/glossary.md#scope).
 
-   There's no real backend here. Instead the example overrides the
-   `:rf.http/managed` effect with a per-URL stub that returns canned articles —
-   but everything downstream of the wire runs for real: real in-flight dedupe,
-   the real status flow, the works. A small 120 ms reply delay buys us time to
+   There's no real backend here. Instead the example answers
+   `:rf.http/managed` from a per-URL stub transport that returns demo articles
+   — and everything above the wire runs for real: real in-flight dedupe, the
+   real status flow, the works. A small 120 ms reply delay buys us time to
    actually see the loading skeleton and the refresh-in-flight state, which
    would otherwise flash past too fast to notice. Re-ensuring an entry that's
    still inside its `:stale-after-ms` window skips the refetch entirely; the
@@ -45,16 +45,14 @@
    mutation invalidates reads by tag — lives in the
    [resources guide](../../../../docs/resources/concepts.md)."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP is the transport a resource fetch rides on.
             ;; Requiring it registers the `:rf.http/managed` effect that every
             ;; ensure ultimately runs onto. See the managed-HTTP glossary entry:
             ;; ../../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
-            ;; Canned-reply test effects. With no real server, the stub further
-            ;; down stands in for one — and it delegates to the
-            ;; `:rf.http/managed-canned-success` effect this require registers.
-            [re-frame.http.test-support]
+            ;; With no real server, a stub transport further down stands in
+            ;; for one.
+            [re-frame.http.stub-transport :as stub-transport]
             ;; Resources are an optional artefact, so they only exist if you ask
             ;; for them. This require is the asking — without it, the
             ;; `rf/reg-resource` calls below would have nothing to register
@@ -111,17 +109,16 @@
      :decode  :json}))
 
 ;; ============================================================================
-;; DEMO BACKEND — a per-URL canned :rf.http/managed override
+;; DEMO BACKEND — a per-URL stub transport
 ;; ============================================================================
 ;;
-;; No server, so we fake one — at the lowest honest layer. This overrides
-;; `:rf.http/managed` (the effect every ensure runs onto) with a stub that
-;; builds a canned reply per URL. There are only two URLs in play:
-;; `GET /api/articles` (the list) and `GET /api/articles/:slug` (a detail). The
-;; stub looks at the URL shape, picks the right payload, and hands off to the
-;; shipped `:rf.http/managed-canned-success`, which returns the exact reply
-;; shape a real server would. Because we mock at the wire and not above it, the
-;; whole resource lifecycle — in-flight tracking, dedupe, reply addressing,
+;; No server, so we fake one — at the lowest honest layer. `demo-transport` is a
+;; stub transport: it answers each request `:rf.http/managed` sends (the effect
+;; every ensure runs onto) from its URL. There are only two URLs in play:
+;; `GET /api/articles` (the list) and `GET /api/articles/:slug` (a detail). It
+;; looks at the URL shape, picks the right payload, and answers the way a real
+;; server would. Because we mock at the wire and not above it, the whole
+;; resource lifecycle — in-flight tracking, dedupe, decode, reply addressing,
 ;; status flow — runs for real on top.
 
 (def ^:private demo-articles
@@ -133,10 +130,8 @@
     :body "Ensure an entry still inside :stale-after-ms and the runtime skips the refetch."}])
 
 (def ^:private demo-reply-delay-ms
-  "How long the demo stub sits on each canned reply before handing it back. The
-   delay rides the canned-success effect's `:after-ms` (dispatched via
-   `:dispatch-later`), so it shows up in the tape and survives time-travel.
-   Small but deliberately non-zero — long enough that the loading skeleton and
+  "How long the demo backend sits on each request before answering it. Small
+   but deliberately non-zero — long enough that the loading skeleton and
    the refresh-in-flight state get a moment on screen. Purely a demo knob; a
    real app has no business injecting latency."
   120)
@@ -151,21 +146,13 @@
       ;; Otherwise it's the bare list endpoint — /api/articles.
       demo-articles)))
 
-;; This is the override itself — our stand-in backend. It builds the payload for
-;; the URL, looks up the real `:rf.http/managed-canned-success` effect from the
-;; registrar, and calls it with `:after-ms` so the reply rides `:dispatch-later`
-;; (visible in the tape, survives time-travel). The crucial bit: it passes the
-;; args-map through untouched, so the reply still knows which resource asked and
-;; addresses itself back to it.
-(rf/reg-fx :resources.demo/http-stub
-  {:doc       "Demo override for `:rf.http/managed`: routes by URL to the canned
-               article payloads so the example runs standalone, then delegates
-               to `:rf.http/managed-canned-success` with `:after-ms`."
-   :platforms #{:client}}
-  (fn fx-managed-resources-demo [frame-ctx args-map]
-    (let [payload (demo-payload-for-url (-> args-map :request :url))
-          stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
+;; This is the transport itself — our stand-in backend. It answers with the
+;; payload for the URL; `:rf.http/managed` does the rest, so the reply still
+;; knows which resource asked and addresses itself back to it.
+(def ^:private demo-transport
+  (stub-transport/route-transport
+    (fn [{:keys [url]}] {:body (demo-payload-for-url url)})
+    {:delay-ms demo-reply-delay-ms}))
 
 ;; ============================================================================
 ;; ROUTES — entering a route causes its resources to load
@@ -528,7 +515,7 @@
 ;; `run` is the boot sequence. It creates the React root on the first call, then
 ;; renders. The interesting piece is the `frame-root {:id …}` at the root: it
 ;; both creates and configures the app frame in one go — `:url-bound? true` so
-;; this frame owns the browser URL, plus the HTTP-stub override. Every dispatch
+;; this frame owns the browser URL. Every dispatch
 ;; and subscribe anywhere in the tree resolves to this one frame, and a hot
 ;; reload reuses it rather than spinning up a fresh one.
 ;; `:url-bound? true` is also what syncs the initial URL and wires up the
@@ -549,17 +536,16 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
+    ;; The trick that lets the demo stand alone: the frame's managed HTTP goes
+    ;; out through the per-URL stub transport up above. It is frame-wide, which
+    ;; is fine here precisely because this example never makes a request we'd
+    ;; actually want to reach the network — the frame is the right grain.
+    (stub-transport/install-transport! app-frame demo-transport)
     ;; Here's the frame, created and configured by `frame-root {:id …}`.
-    ;; `:fx-overrides` is the trick that lets the demo stand alone: it reroutes
-    ;; every `:rf.http/managed` ensure to the per-URL canned stub up above. The
-    ;; override is frame-wide, which is fine here precisely because this example
-    ;; never makes a request we'd actually want to reach the network — a blanket
-    ;; override is the right grain.
     (rf.adapter.reagent/render! app-root
-      [rf/frame-root {:id           app-frame
-                      :doc          "Resources demo frame."
-                      :url-bound?   true
-                      :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
+      [rf/frame-root {:id         app-frame
+                      :doc        "Resources demo frame."
+                      :url-bound? true}
        [root-view]]
       el)))
 

@@ -8,30 +8,26 @@
 
    The managed-HTTP app is loaded through its feature nses, never `core`
    (which would register routes into the shared node-test registrar). The
-   resources app is reached only through its HTTP ns, for its demo stub: the
-   two apps register the same ids (`:settings/load`, `:auth/flow`) with
-   different implementations, which the image-assembly duplicate-id guard
-   rejects."
+   resources app is not loaded: the two apps register the same ids
+   (`:settings/load`, `:auth/flow`) with different implementations, which the
+   image-assembly duplicate-id guard rejects."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.classification :as rf.classification]
             [re-frame.elision :as rf.elision]
             [re-frame.privacy :as rf.privacy]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.resources]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [realworld-http.http]
             [realworld-http.schema]
             [realworld-http.auth]
-            [realworld-http.settings]
-            [realworld-resources.http])
+            [realworld-http.settings])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; A password (>= 8 chars) and a JWT that appear nowhere else.
@@ -48,17 +44,22 @@
 
 (defn- leaks? [needle x] (str/includes? (pr-str x) needle))
 
-;; A replying stand-in for the app's demo stub: it declares the same
-;; `:sensitive` path the app stub does and answers through the framework's
-;; canned-success fx with a token-bearing user.
-(rf/reg-fx :test.realworld/login-succeeds
-  {:sensitive [[:request :body :user :password]]}
-  (fn fx-test-login-succeeds [frame-ctx args-map]
-    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map
-                             :value {:user {:username "alice"
-                                            :email    "alice@example.com"
-                                            :token    token-sentinel}})))))
+;; A backend that answers every request with a token-bearing user, as a
+;; Conduit login, register or session restore does.
+(def ^:private login-succeeds
+  (rf.http.stub-transport/route-transport
+    (constantly {:body {:user {:username "alice"
+                               :email    "alice@example.com"
+                               :token    token-sentinel
+                               :bio      nil
+                               :image    nil}}})))
+
+(defn- login-frame!
+  "A bare frame whose managed requests `login-succeeds` answers."
+  []
+  (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:auth.session/persist :rf/no-op}})]
+    (rf.http.stub-transport/install-transport! f login-succeeds)
+    f))
 
 ;; Below the suite's top-level registrations, so the fixture's ns-load
 ;; baseline holds them.
@@ -96,22 +97,15 @@
     (rf/register-listener! :trace id (fn [ev] (swap! a conj ev)))
     a))
 
-;; Every password-bearing request in both apps is `:sensitive? true`. The
-;; managed-HTTP app's demo backend answers below `:rf.http/managed`, so the
-;; effect's own scrub covers it; the resources app routes `:rf.http/managed` to
-;; a stub fx, whose own path is what redacts an UNFLAGGED request routed
-;; through it.
-(deftest http-stub-declares-request-body-sensitive
-  (is (= {:sensitive [[:request :body :user :password]]}
-         (rf.classification/registration-classification :fx :realworld-resources.demo/http-stub))
-      ":realworld-resources.demo/http-stub owns [:request :body :user :password]"))
+;; Every password-bearing request in both apps is `:sensitive? true`, and a
+;; stub transport answers below `:rf.http/managed`, so the effect's own scrub
+;; covers it.
 
 (deftest login-form-cascade-redacts-password-and-token-everywhere
   (testing "the full login edit -> submit -> success cascade leaves no emitted
             trace carrying the raw password or JWT, while the handler-visible
             values stay real"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
-                                                    :auth.session/persist :rf/no-op}})]
+    (with-new-frame [f (login-frame!)]
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (let [traces (record-traces! ::login-cascade)]
@@ -136,8 +130,7 @@
   (testing "the register form's edit -> submit cascade is the same
             credential-owning handoff as login, so no emitted trace leaks the
             raw password"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
-                                                    :auth.session/persist :rf/no-op}})]
+    (with-new-frame [f (login-frame!)]
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
       (let [traces (record-traces! ::register-cascade)]
@@ -158,8 +151,7 @@
             reply, the machine's restore and the classified
             `:auth/session-restored` — leaves NO emitted trace event carrying the
             raw JWT, while the durable token stays real"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
-                                                    :auth.session/persist :rf/no-op}})]
+    (with-new-frame [f (login-frame!)]
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (let [traces (record-traces! ::boot-read)]
         (with-saved-jwt token-sentinel #(rf/dispatch-sync [:auth/initialise] {:frame f}))

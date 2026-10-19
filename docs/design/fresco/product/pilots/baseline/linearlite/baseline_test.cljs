@@ -7,7 +7,6 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
@@ -145,49 +144,33 @@
   (reply-failure! {:kind :rf.http/http-5xx :status 503})
   (is (= demo-board (board-data))))
 
-(def ^:private parked-replies (atom []))
-
-(defn- install-canned-parkers! []
-  (doseq [fx-id [:rf.http/managed-canned-success :rf.http/managed-canned-failure]]
-    (rf.fx/reg-fx fx-id
-      (fn [_ctx args]
-        (swap! parked-replies conj {:fx-id fx-id :after-ms (:after-ms args)
-                                    :args (dissoc args :after-ms)})
-        nil))))
-
-(defn- ask-the-demo-stub! [request]
-  (reset! parked-replies [])
-  ((rf.registrar/handler :fx :linearlite.demo/http-stub)
-   {:frame :rf/default}
-   {:request request :decode :json
-    :on-success [:linearlite.test/reply] :on-failure [:linearlite.test/reply]})
-  @parked-replies)
+;; The demo backend's response to `request`, its body JSON-encoded as it
+;; arrives on the wire.
+(defn- ask-the-demo-backend [request]
+  (linearlite.core/demo-answer
+    (cond-> request
+      (:body request) (update :body #(js/JSON.stringify (clj->js %))))))
 
 (defn- change-status-request [id status]
   {:method :put :url (str "/api/issues/" id) :body {:status status}})
 
 (defn- server-board []
-  (:value (:args (first (ask-the-demo-stub! {:method :get :url "/api/board"})))))
+  (:body (ask-the-demo-backend {:method :get :url "/api/board"})))
 
 (defn- server-issue [board id]
   (some #(when (= id (:id %)) %) (:issues board)))
 
-(deftest armed-demo-backend-answers-a-classified-503
-  (install-canned-parkers!)
+(deftest armed-demo-backend-answers-a-503
   (rf/dispatch-sync [:linearlite/set-fail-next-write true])
-  (let [before (server-board)
-        parked (ask-the-demo-stub! (change-status-request "srv-1" :done))
-        {:keys [fx-id after-ms args]} (first parked)]
-    (is (= [1 :rf.http/managed-canned-failure true :rf.http/http-5xx 503]
-           [(count parked) fx-id (pos? after-ms) (:kind args) (get-in args [:tags :status])]))
+  (let [before   (server-board)
+        response (ask-the-demo-backend (change-status-request "srv-1" :done))]
+    (is (= 503 (:status response)))
     (is (= before (server-board)))))
 
 (deftest unarmed-demo-backend-answers-success-and-commits
-  (install-canned-parkers!)
   (let [original (:status (server-issue (server-board) "srv-1"))
-        target (if (= :done original) :backlog :done)
-        parked (ask-the-demo-stub! (change-status-request "srv-1" target))
-        {:keys [fx-id after-ms args]} (first parked)]
-    (is (= [1 :rf.http/managed-canned-success true target]
-           [(count parked) fx-id (pos? after-ms) (:status (server-issue (:value args) "srv-1"))]))
-    (ask-the-demo-stub! (change-status-request "srv-1" original))))
+        target   (if (= :done original) :backlog :done)
+        response (ask-the-demo-backend (change-status-request "srv-1" target))]
+    (is (= [200 target]
+           [(:status response 200) (:status (server-issue (:body response) "srv-1"))]))
+    (ask-the-demo-backend (change-status-request "srv-1" original))))

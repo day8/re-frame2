@@ -148,18 +148,18 @@ runtime resource cache, not app-db, exactly where state you don't own belongs.
 
 ## No backend ships with the example
 
-There's no server here. So the example overrides the
+There's no server here. So the
 [`:rf.http/managed`](../../../../docs/resources/glossary.md#managed-http) effect — the
-one transport every read and write lowers onto — with a small canned stub. The
-stub holds the canonical board in a closure (it is the demo server) and builds
-the authoritative reply for each read and write — a read answers with the whole
-board, a write with just the row it changed — delegating to the
-framework-shipped `:rf.http/managed-canned-success` / `-failure`
-([Spec 014 §Testing](../../../../spec/014-HTTPRequests.md#testing)). It delays each reply by a
-small `:after-ms`, so the optimistic value is visibly painted before the reply
-lands. That delay rides the framework's `:dispatch-later` (trace-visible and
-time-travel-safe, not a raw `js/setTimeout`), so even the demo's fake latency
-plays by the rules. The fail-next-write flag is read from app-db at request
+one transport every read and write lowers onto — sends its requests through a
+small stub transport
+([Spec 014 §Testing](../../../../spec/014-HTTPRequests.md#testing)). It holds the
+canonical board in a closure (it is the demo server) and answers each read and
+write the way a server would — a read with the whole board, a write with just
+the row it changed. It replaces only the network hop, so decode, status
+classification and the reply all run for real; the board decodes through a
+schema that turns each wire status string back into the domain's keyword. It
+delays each answer a little, so the optimistic value is visibly painted before
+the reply lands. The fail-next-write flag is read from app-db at request
 time: when armed, the next write answers a `503` (driving the rollback) and then
 disarms itself.
 
@@ -168,8 +168,8 @@ disarms itself.
 ```
 linearlite/
   core.cljs    — the :linearlite/board resource, the three `:optimistic`
-                 mutations (create / edit-title / change-status), the canned
-                 :rf.http/managed stub + fail-next-write seam, the board route
+                 mutations (create / edit-title / change-status), the demo
+                 stub transport + fail-next-write seam, the board route
                  (route entry ensures the board), the passive board view +
                  watched mutation instances, mount.
   index.html   — minimal host page.

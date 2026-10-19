@@ -10,7 +10,6 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]

@@ -3,7 +3,8 @@
 
    Because resources and mutations both lower onto `:rf.http/managed` — the one
    built-in transport for either (../../../docs/resources/glossary.md#managed-http)
-   — a single override can stand in for the entire API, reads and writes alike.
+   — a single stub transport can stand in for the entire API, reads and writes
+   alike.
 
    What lives here:
    - `api-base` / `full-url` — the app's API base URL (a knob you never turn in
@@ -12,19 +13,18 @@
      failure projection, pagination arithmetic), re-exposed from
      `realworld-shared.http` so the resource / mutation / view nses keep a single
      `rh/*` import point.
-   - the demo-backend fx, `:realworld-resources.demo/http-stub`, a thin seam that
-     wires the SHARED in-process Conduit demo backend
-     (`realworld-shared.demo-backend`) under this app's fx-id. `core.cljs`
-     references it from the demo frame's `:fx-overrides` — there is no explicit
-     install call to make.
+   - `demo-transport`, a thin seam that answers this app's requests from the
+     SHARED in-process Conduit demo backend (`realworld-shared.demo-backend`).
+     `core.cljs` installs it on the demo frame.
 
    Three ways to point the app at a backend (see the README §Running against a
    real backend):
-   - canned demo backend (the default) — the frame overrides `:rf.http/managed`
-     with the shared in-process backend, so the app runs with no network at all
-     and `api-base` is never actually contacted (it matches on the path suffix).
+   - in-process demo backend (the default) — the frame's requests go out
+     through `demo-transport` onto the shared in-process backend, so the app
+     runs with no network at all and `api-base` is never actually contacted (it
+     matches on the path suffix).
    - the official hosted API — point `api-base` at `https://api.realworld.show/api`
-     and drop the demo override. The frame-wide `:realworld/bearer-auth`
+     and drop the `install-transport!` call. The frame-wide `:realworld/bearer-auth`
      interceptor (core.cljs) already attaches the token, so authenticated calls
      just work against the real API.
    - a local reference backend — the upstream Node/Postgres backend on
@@ -34,22 +34,23 @@
    https://github.com/gothinkster/realworld, the current official hosted API is
    https://api.realworld.show/api, and the upstream spec ships a Node/Postgres
    reference backend on http://localhost:3000/api."
-  (:require [re-frame.core :as rf]
+  (:require [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; The transport-neutral Conduit contract — query encoding, the read
             ;; retry policy, the failure taxonomy, and pagination arithmetic —
             ;; shared with the managed-HTTP example and re-exposed below as this
             ;; app's HTTP surface.
             [realworld-shared.http :as wh]
             ;; The in-process Conduit demo backend shared by both RealWorld
-            ;; examples — wired under an app-local fx-id at the bottom.
+            ;; examples — this app's transport onto it is `demo-transport`, at
+            ;; the bottom.
             [realworld-shared.demo-backend :as demo]))
 
 (def api-base
   "Default API base URL — the current official hosted Conduit API. The resource
    and mutation `:request` fns build full URLs from this. In the default run mode
-   it's effectively a knob you never turn: the demo stub overrides
-   `:rf.http/managed` and matches on the path suffix, so the base is never
-   contacted. Drop the stub to run against the real hosted API, or set this to
+   it's effectively a knob you never turn: the demo backend answers every
+   request and matches on the path suffix, so the base is never contacted.
+   Drop the demo transport to run against the real hosted API, or set this to
    `http://localhost:3000/api` for the local upstream reference backend. See the
    README §Running against a real backend."
   "https://api.realworld.show/api")
@@ -86,13 +87,15 @@
 ;; DEMO BACKEND
 ;; ============================================================================
 ;;
-;; The example ships without a backend, so the demo overrides `:rf.http/managed`
-;; with the in-process Conduit demo backend both RealWorld examples share
-;; (`realworld-shared.demo-backend`): a seeded state value plus one pure
-;; transition. Since the resource / mutation runtime lowers every fetch AND write
-;; onto `:rf.http/managed`, this one override gets to play the entire Conduit
-;; API. `core.cljs` wires it as the `:rf.http/managed` override on the demo frame
-;; via `:fx-overrides` — there is no explicit install call to make.
+;; The example ships without a backend, so the frame's requests go out through
+;; a STUB TRANSPORT onto the in-process Conduit demo backend both RealWorld
+;; examples share (`realworld-shared.demo-backend`): a seeded state value plus
+;; one pure transition. Since the resource / mutation runtime lowers every fetch
+;; AND write onto `:rf.http/managed`, this one transport gets to play the entire
+;; Conduit API. The stub replaces only the network hop: `:rf.http/managed`
+;; itself still decodes, classifies, retries and scrubs the credential-bearing
+;; requests from the trace. `core.cljs` installs `demo-transport` on the demo
+;; frame before mounting it.
 ;;
 ;; THE BACKEND REMEMBERS, and for this example that is load-bearing rather than
 ;; a nicety. The one idea here is read -> write -> invalidate -> refetch: a
@@ -111,26 +114,11 @@
 ;; world.
 (defonce demo-state (atom (demo/fresh-state)))
 
-(rf/reg-fx :realworld-resources.demo/http-stub
-  {:doc       "This example's `:rf.http/managed` override: the shared in-process
-               Conduit demo backend (`realworld-shared.demo-backend`), wired
-               under an app-local fx-id and referenced from the frame's
-               `:fx-overrides` in core.cljs. All the state, routing and
-               canned-reply machinery (including the deliberately-failing
-               session-restore path) lives in the shared backend; this is just
-               the app-local seam, plus the `demo-state` world it steps."
-   ;; This stub is the CLASSIFIED OWNER of the request body it receives. The
-   ;; login / register requests and the settings mutation carry the plaintext
-   ;; password at [:request :body :user :password] (the Conduit `{user {…}}`
-   ;; envelope). The real `:rf.http/managed` handler would scrub a
-   ;; `:sensitive?`-marked request body, but the frame's `:fx-overrides` remap
-   ;; `:rf.http/managed` to THIS stub, BYPASSING that scrub. When the override
-   ;; fires, `handle-one-fx` stamps the always-emitted `:rf.fx/handled` trace
-   ;; with THIS fx's id and its RAW args, and the classification projector
-   ;; redacts `:rf.fx/args` off the RESOLVED fx's own `:sensitive`. So the stub
-   ;; must declare its own — without it the password would ride raw on the one
-   ;; wire every tool reads (docs/core/how-to/keep-secrets-out-of-traces.md)."
-   :sensitive [[:request :body :user :password]]
-   :platforms #{:server :client}}
-  (fn fx-managed-demo-stub [frame-ctx args-map]
-    (demo/respond demo-state frame-ctx args-map)))
+(def demo-transport
+  "This example's network: a stub transport answering every request from the
+   shared demo backend, stepping this app's own `demo-state` world, after
+   `demo/reply-delay-ms`. All the state and routing (including the
+   deliberately-failing session-restore path) lives in the shared backend; this
+   is just the app-local seam. `core.cljs` installs it on the frame."
+  (rf.http.stub-transport/route-transport #(demo/answer demo-state %)
+                                          {:delay-ms demo/reply-delay-ms}))

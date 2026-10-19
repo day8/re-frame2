@@ -4,39 +4,41 @@
             [cljs.test :refer-macros [deftest use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.http.test-support]
             [realworld-http.core]
             [realworld-http.routing]
             [realworld-http.http :as rh]
             [realworld-http.article-editor :as editor])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
+;; Each stand-in below answers a request by dispatching the reply event the
+;; request addresses, with the reply appended as its last argument.
+(defn- deliver! [frame-ctx args reply]
+  (when-let [target (or (:reply-to args)
+                        (if (= :ok (:status reply)) (:on-success args) (:on-failure args)))]
+    (rf/dispatch (conj target reply) {:frame (:frame frame-ctx)})))
+
 (defn- reg-canned-success!
   [fx-id value]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-        (stub frame-ctx (assoc args :value value))))))
+      (deliver! frame-ctx args {:status :ok :value value}))))
 
 (defn- reg-canned-success-by-url! [fx-id f]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)
-            req (:request args)]
-        (stub frame-ctx (assoc args :value (f (or (:method req) :get) (:url req))))))))
+      (let [req (:request args)]
+        (deliver! frame-ctx args {:status :ok :value (f (or (:method req) :get) (:url req))})))))
 
 (defn- reg-canned-failure!
   [fx-id kind tags]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-        (stub frame-ctx (assoc args :kind kind :tags tags))))))
+      (deliver! frame-ctx args {:status :error :error (assoc tags :kind kind)}))))
 
 (reg-canned-success! :realworld.test/canned-success-empty {})
 

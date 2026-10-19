@@ -122,15 +122,15 @@ The claim is part of the cache identity, so it's there on purpose and an auditor
 can see it. A per-user feed would carry a scope resolver instead, and one
 principal's feed could never surface in another's cache.
 
-No backend ships with the example. Rather than mock `js/fetch`, it overrides
-the `:rf.http/managed` [effect](../../../../docs/core/glossary.md#effect) with a
-per-cursor canned stub. The stub reads the `:cursor` request param, slices a
+No backend ships with the example. Rather than mock `js/fetch`, it answers
+the `:rf.http/managed` [effect](../../../../docs/core/glossary.md#effect) from a
+per-cursor stub transport. The stub reads the `cursor` query param, slices a
 26-row demo dataset, and returns a `{:items [...] :page-info {:next-cursor …}}`
 envelope — the same shape a real cursor-paginated server would produce. The
 reply still flows through the real
 [managed-HTTP](../../../../docs/resources/glossary.md#managed-http) reply path, so
 every page fetch exercises the real in-flight dedupe, generation/stale
-suppression, and passive status flow — only the transport itself is canned. A
+suppression, and passive status flow — only the network hop is stubbed. A
 small 140 ms delay lets the load-more spinner render before each page lands.
 
 ## Deferred — not built here
@@ -148,8 +148,8 @@ small 140 ms delay lets the load-more spinner render before each page lands.
 
 ```
 infinite_feed/
-  core.cljs    — the :infinite resource, the per-cursor canned :rf.http/managed
-                 stub, routes (route entry ensures page 0), the passive
+  core.cljs    — the :infinite resource, the per-cursor stub transport,
+                 routes (route entry ensures page 0), the passive
                  infinite-state view + causal load-more, mount.
   index.html   — minimal host page.
 ```

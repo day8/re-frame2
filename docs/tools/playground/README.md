@@ -71,7 +71,7 @@ The bundle carries core, both view layers and every optional artefact:
 | `re-frame.fresco`, `.forms`, `.overlay`, `.motion` | Fresco views, `h/defview`, `h/sub`, `h/event` |
 | `reagent.core`, `reagent.ratom`, `reagent.dom.client` | Reagent |
 | `re-frame.schemas` | Reading registered schemas |
-| `re-frame.http.managed`, `re-frame.http.test-support` | `:rf.http/managed`, and stubs for it |
+| `re-frame.http.managed`, `re-frame.http.stub-transport` | `:rf.http/managed`, and stub transports for it |
 | `re-frame.resources` | Resource events and subs |
 | `re-frame.routing`, `re-frame.epoch`, `re-frame.ssr` | Routing, epoch history, `render-to-string` |
 
@@ -97,18 +97,20 @@ function as a head, and a Fresco view inside a Reagent tree needs
 ### HTTP in a cell
 
 A real request works if the endpoint is `https` and allows CORS. For a demo
-that must not depend on the network, stub `:rf.http/managed`:
+that must not depend on the network, answer the frame's requests from a stub
+transport:
 
 ```clojure
-(http-test-support/install-managed-request-stubs!
-  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+(stub-transport/install-transport! :demo
+  (stub-transport/route-transport
+    {[:get "https://api.example.com/articles/intro"] {:body {:title "Welcome"}}}))
 
-[rf/frame-root {:id :demo :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :demo}
  [article-view]]
 ```
 
-Install stubs and never uninstall them: the stub stack is global, so an
-uninstall can restore a previous page's routes.
+The transport is the frame's own, so it goes when the page's frames are
+destroyed.
 
 ### Rules
 
@@ -280,5 +282,5 @@ produced a deployed bundle. Nothing gates on it.
 | A cell raises `:rf.error/no-such-handler` for an id another page registered | Navigation clears the previous page's registrations | Register the handler on this page |
 | A re-frame2 cell shows a printed value instead of a component | Its last form is not a vector | End the cell with hiccup or a component vector |
 | A cell raises `:rf.error/fresco-bad-head` | The tree has a Fresco view, so it renders through Fresco, and it also has a plain fn or `reg-view` head | Make the head an `h/defview`, or keep the cell all Reagent |
-| An HTTP cell's `:on-failure` gets `no stub matched` | The request's method and URL are not in the stub map | Key the stub on the exact `[method url]` the request sends |
+| An HTTP cell's `:on-failure` gets `no stub route for …` | The request's method and URL are not in the route map | Key the route on the exact `[method url]` the request sends, with any `:params` in the URL |
 | The smoke fails with `playground-rf2.js not found` | The engine was not built | `npm run build` |

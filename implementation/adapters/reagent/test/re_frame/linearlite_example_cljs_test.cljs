@@ -20,7 +20,6 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
@@ -206,38 +205,17 @@
     (is (= [false true] [disabled? (fn? on-click)]) "the card gets its controls once the create replies")))
 
 ;; The tests above replay hand-built replies, so these two pin that the
-;; example's own `:linearlite.demo/http-stub` produces them: which canned-reply
-;; fx it selects, and with what args. They stop at the stub's emitted args,
-;; because its `:after-ms` deferral rides an async dispatch a synchronous test
-;; cannot drain.
+;; example's own demo backend produces them: the response `demo-answer` gives
+;; a request. They stop at that response, because the demo transport sends it
+;; after a delay a synchronous test cannot drain.
 
-(def ^:private parked-replies (atom []))
-
-(defn- install-canned-parkers!
-  "Re-register the framework canned-reply fx ids with parkers that record what
-   the demo stub chose and deliver nothing."
-  []
-  (doseq [fx-id [:rf.http/managed-canned-success :rf.http/managed-canned-failure]]
-    (rf.fx/reg-fx fx-id
-      {:doc "linearlite demo-backend test parker."}
-      (fn [_ctx args]
-        (swap! parked-replies conj {:fx-id    fx-id
-                                    :after-ms (:after-ms args)
-                                    :args     (dissoc args :after-ms)})
-        nil))))
-
-(defn- ask-the-demo-stub!
-  "Call the example's registered demo-backend fx as the framework would, and
-   return what it parked."
+(defn- ask-the-demo-backend
+  "The response the example's demo backend gives `request`, its body
+   JSON-encoded as it arrives on the wire."
   [request]
-  (reset! parked-replies [])
-  ((rf.registrar/handler :fx :linearlite.demo/http-stub)
-   {:frame :rf/default}
-   {:request  request
-    :decode   :json
-    :on-success [:linearlite.test/reply]
-    :on-failure [:linearlite.test/reply]})
-  @parked-replies)
+  (linearlite.core/demo-answer
+    (cond-> request
+      (:body request) (update :body #(js/JSON.stringify (clj->js %))))))
 
 (defn- change-status-request [id status]
   {:method :put :url (str "/api/issues/" id) :body {:status status}})
@@ -245,36 +223,32 @@
 (defn- server-board
   "The example's canonical server board, read by asking the demo backend."
   []
-  (:value (:args (first (ask-the-demo-stub! {:method :get :url "/api/board"})))))
+  (:body (ask-the-demo-backend {:method :get :url "/api/board"})))
 
 (defn- server-issue [board id]
   (some #(when (= id (:id %)) %) (:issues board)))
 
-;; The canned-failure contract reads a top-level `:kind` and `:tags`; a 503
-;; under any other key would silently classify as `:rf.http/transport`, and
-;; rollback would still work, so nothing else would catch it.
-(deftest armed-demo-backend-answers-a-classified-503
-  (install-canned-parkers!)
+;; A 503 is what `:rf.http/managed` classifies as `:rf.http/http-5xx`; any
+;; other refusal would roll back too, so nothing else would catch a drift.
+(deftest armed-demo-backend-answers-a-503
   (rf/dispatch-sync [:linearlite/set-fail-next-write true])
-  (let [before (server-board)
-        {:keys [fx-id after-ms args]} (first (ask-the-demo-stub! (change-status-request "srv-1" :done)))]
-    (is (= [:rf.http/managed-canned-failure true :rf.http/http-5xx
-            {:status 503 :message "Simulated server failure (the demo's rollback seam)."}]
-           [fx-id (pos? after-ms) (:kind args) (select-keys (:tags args) [:status :message])])
-        "the armed write meets the canned-failure fx, deferred so the optimistic value paints first")
+  (let [before   (server-board)
+        response (ask-the-demo-backend (change-status-request "srv-1" :done))]
+    (is (= [503 "Simulated server failure (the demo's rollback seam)."]
+           [(:status response) (get-in response [:body :message])])
+        "the armed write is answered with a 503")
     (is (= before (server-board)) "the refused write leaves the canonical server board unchanged")))
 
 (deftest unarmed-demo-backend-answers-success-and-commits
-  (install-canned-parkers!)
   (let [original (:status (server-issue (server-board) "srv-1"))
         target   (if (= :done original) :backlog :done)
-        {:keys [fx-id args]} (first (ask-the-demo-stub! (change-status-request "srv-1" target)))]
-    (is (= [:rf.http/managed-canned-success target]
-           [fx-id (:status (server-issue (:value args) "srv-1"))])
-        "the returned authoritative board carries the write, as the :patches payload")
+        response (ask-the-demo-backend (change-status-request "srv-1" target))]
+    (is (= [200 target]
+           [(:status response 200) (:status (server-issue (:body response) "srv-1"))])
+        "the 200 answer carries the write, as the :patches payload")
     ;; The demo board is a module-level `defonce` shared across the bundle, so
     ;; put the issue back.
-    (ask-the-demo-stub! (change-status-request "srv-1" original))))
+    (ask-the-demo-backend (change-status-request "srv-1" original))))
 
 ;; The three writes run under separate mutation instances over the one board
 ;; entry, and their controls stay live while a write is in flight, so an

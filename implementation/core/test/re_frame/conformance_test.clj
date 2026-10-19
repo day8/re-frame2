@@ -48,7 +48,6 @@
             ;; Side-effect requires: registrations the fixtures reference,
             ;; re-seated by `reset-runtime!`'s `:reload`s.
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [re-frame.routing.test-support]
             [re-frame.epoch]
             [re-frame.resources]
@@ -170,7 +169,6 @@
   (require 're-frame.routing.test-support :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.http.managed :reload)
-  (require 're-frame.http.test-support :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.resources :reload)
   (require 're-frame.resources.test-support :reload)
