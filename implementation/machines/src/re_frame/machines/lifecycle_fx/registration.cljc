@@ -251,7 +251,8 @@
 ;;      post-boot snapshot + inner event. Returns the Result from the
 ;;      pure engine.
 ;;   4. `commit-or-finalize`   — emit transition / snapshot-updated traces,
-;;      build the new runtime-db, route to `finalize-machine` if `finished?`.
+;;      build the new runtime-db, and route an entry into finality: a
+;;      spawned actor to `finalize-machine`, a singleton to `rest-machine`.
 ;;
 ;; The child-completion short-circuit is the visible top-level
 ;; branch in `make-machine-handler` itself — it must short-circuit before
@@ -758,7 +759,8 @@
   surface stays free of runtime-only metadata."
   [ctx step-result boot-result]
   (rf.machines.result/with-ok [next-snapshot fx] step-result
-    (let [{:keys [machine machine-id frame-id runtime-db path snapshot inner-event]} ctx
+    (let [{:keys [machine machine-id frame-id runtime-db path snapshot inner-event
+                  needs-bootstrap?]} ctx
           boot-fx   (rf.machines.result/fx boot-result)
           merged-fx (vec (concat boot-fx fx))
           ;; When this handler call both bootstrapped the
@@ -823,10 +825,14 @@
           ;; on the macrostep that ENTERS finality — one that starts final
           ;; (an event with no way out, or one that moves between final
           ;; configurations) commits like any other, so completion fires
-          ;; once per entry.
+          ;; once per entry. A call that bootstrapped the machine starts from
+          ;; no configuration at all, so a birth that lands final is an entry
+          ;; even though `snapshot` was seeded with that final initial
+          ;; configuration.
           spawned?  (some? (get-in next-snapshot [:rf/runtime :machine-type]))
           entered-finality? (and finished?
-                                 (not (and snapshot (whole-machine-final? machine snapshot))))
+                                 (or needs-bootstrap?
+                                     (not (whole-machine-final? machine snapshot))))
           ;; Machine snapshots are durable runtime-db state:
           ;; write the new snapshot into the runtime-db partition value;
           ;; the handler returns it under `:rf.db/runtime`, NOT `:db`.
@@ -1140,35 +1146,37 @@
                 ;; start emits no `:rf.machine/transition`;
                 ;; `:rf.machine/started` is the sole birth signal.)
                 ;;
-                ;; The birth `:always` settle CAN land
-                ;; the machine on a final leaf at start (an initial leaf
-                ;; whose `:always` targets a final state) — XState v5 treats
-                ;; such an actor as done immediately. So recompute finality
-                ;; from the settled snapshot (mirroring `commit-or-finalize`)
-                ;; and route to `finalize-machine` when finished, so the
-                ;; `:on-done` + auto-destroy cascade fires on eager start
-                ;; just as it would on the lazy path. The
-                ;; embedded-vs-top-level reconciliation applies here too:
-                ;; only a TOP-LEVEL final (flat/compound) or an all-regions-
-                ;; final parallel that declares NO root `:on-done` tears the
-                ;; actor down; a parallel root WITH `:on-done` rests in the
-                ;; all-final config (the `:on-done` fired once at birth — the
-                ;; birth macrostep is the entry edge — and keeps the machine
-                ;; alive), and an embedded compound born final already raised
-                ;; `[:rf.machine/done …]` through the birth settle's queue.
+                ;; The birth settle CAN land the machine in whole-machine
+                ;; finality at start (a `:final?` initial leaf, an initial
+                ;; leaf whose `:always` targets a final state, or every
+                ;; region born final) — XState v5 treats such an actor as
+                ;; done immediately. So a birth that lands final routes as
+                ;; `commit-or-finalize` routes any entry into finality: a
+                ;; spawned actor to `finalize-machine`, a singleton to
+                ;; `rest-machine`. `whole-machine-final?` carries the
+                ;; embedded-vs-top-level reconciliation: a parallel root WITH
+                ;; `:on-done` rests in the all-final config (its `:on-done`
+                ;; fired once at birth), and an embedded compound born final
+                ;; already raised `[:rf.machine/done …]` through the birth
+                ;; settle's queue. A redundant start on an already-booted
+                ;; machine boots nothing, so it is no entry and commits
+                ;; unchanged.
                 (if (= rf.machines.transition/start-marker (first (:inner-event ctx)))
-                  (let [m (:machine ctx)]
-                    (if (or (and (not (rf.machines.parallel/parallel? m))
-                                 (rf.machines.transition/top-level-final? m (:state post-boot-snap)))
-                            (and (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state post-boot-snap))
-                                 (nil? (:on-done m))))
+                  (let [m              (:machine ctx)
+                        new-runtime-db (assoc-in runtime-db (:path ctx) post-boot-snap)
+                        fx             (vec boot-fx)]
+                    (cond
+                      (not (and (:needs-bootstrap? ctx) (whole-machine-final? m post-boot-snap)))
+                      {:rf.db/runtime new-runtime-db
+                       :fx            fx}
+
+                      (some? (get-in post-boot-snap [:rf/runtime :machine-type]))
                       (rf.machines.lifecycle-fx.finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
-                                                 (assoc-in runtime-db (:path ctx) post-boot-snap)
-                                                 post-boot-snap
-                                                 (:inner-event ctx)
-                                                 (vec boot-fx))
-                      {:rf.db/runtime (assoc-in runtime-db (:path ctx) post-boot-snap)
-                       :fx            (vec boot-fx)}))
+                                                 new-runtime-db post-boot-snap (:inner-event ctx) fx)
+
+                      :else
+                      (rf.machines.lifecycle-fx.finalize/rest-machine m (:machine-id ctx) (:frame-id ctx)
+                                                 new-runtime-db post-boot-snap fx)))
                   ;; Ensure the derived
                   ;; per-(state × event-type) cofx ensure-set onto the
                   ;; in-flight `:rf.cofx` record BEFORE transition selection
