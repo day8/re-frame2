@@ -159,7 +159,8 @@
     (testing "destroying the frame drops a transport installed by its value"
       (rf.http.stub-transport/install-transport! f by-value)
       (rf/destroy-frame! f)
-      (is (nil? (rf.http.registry/frame-transport app))))))
+      (is (nil? (rf.http.registry/frame-transport app)))
+      (is (nil? (rf.http.registry/frame-transport f)) "and leaves nothing under the value"))))
 
 (deftest an-unmatched-route-fails-as-a-transport-failure
   (fresh-frame!)
