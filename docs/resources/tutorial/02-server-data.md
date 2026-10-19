@@ -86,7 +86,7 @@ raises `:rf.error/resource-bad-spec`; the function belongs in the third argument
 
 Most of the config map is optional. Three keys carry the idea:
 
-- **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries. The list takes no params, so its schema is an empty `[:map]`.
+- **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries. The list takes no params, so its schema is an empty `[:map]`. The schema is optional — a read without one takes its params as given — but it is what makes a mistyped param fail loud.
 - **`:scope`** says *who shares the answer*. `:rf.scope/global` means "the same for everyone", which is true while nobody can sign in. Once requests carry a token, Conduit's articles embed `favorited` and `following` flags relative to the reader, so [Part 4](04-scopes-and-guards.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a per-viewer [scope](../glossary.md#scope).
 - **`:stale-after-ms`** is the freshness window: fresh for a minute, then the next ensure refetches in the background. Leave it out and the read is **never stale by the clock** — it stays fresh until a write invalidates it or you refetch it by hand. (TanStack Query's `staleTime` defaults to `0`, the opposite.)
 
@@ -297,6 +297,8 @@ The article page is simpler. `:blocking? true` doesn't hold the page back — th
 !!! warning "Gotcha — the params must match exactly"
 
     A subscription is keyed by `{:resource … :params …}`. If the route ensures under `{:slug slug}` and your view subscribes with a different value or a missing key, the sub resolves a *different* entry — one nobody ensured — and reads `:idle` forever: a permanent skeleton with no error. Subscribe with exactly the params the route ensured. (Scope can't drift this way: it's declared once at registration and inherited by route and sub alike.)
+
+    A view that only reads can name the read by resource id instead: `[:rf/route-resource :conduit/article]` reads the identity the route ensured, so nothing is restated and nothing can drift. This page keeps the explicit params because its Retry button dispatches them.
 
 ## Step 5 — refresh on demand
 

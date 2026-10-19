@@ -56,9 +56,11 @@
      comment reads) and `{:from-db :realworld/session}` (the feed) — so one
      mutation reaches every scope it touched, with no app-level cross-scope
      patching (mutations.cljs / article_editor.cljs / views.cljs);
-   - LOGOUT resolves the concrete old scopes with the pure
-     `rf/resolve-resource-scope` helper against the coeffect db and clears BOTH
-     the departing viewer's reads and their session feed (auth.cljs).
+   - every change of reader (login, logout, a restored session) resolves the
+     concrete old scopes with the pure `rf/resolve-resource-scope` helper
+     against the coeffect db and hands both to `:rf.resource/change-principal`,
+     which clears the departing viewer's reads and their session feed
+     (auth.cljs).
 
    And `nil` is the fail-closed 'unresolved' answer. The session resolver is nil
    whenever logged out. The viewer resolver is nil only in ONE transient window —
@@ -96,7 +98,7 @@
 ;;     the token-holder's, NOT anonymous's — labelling them shareable under the
 ;;     anonymous identity is exactly the cross-viewer leak. So the read simply
 ;;     does not fire until restore settles, at which point the framework's
-;;     `[:rf.route/replan-resources {:cause …}]` (dispatched from auth.cljs)
+;;     `[:rf.resource/change-principal …]` (dispatched from auth.cljs)
 ;;     re-plans the active route under the now-resolved viewer.
 ;;
 ;; The `:token` input is read ONLY for its PRESENCE — it never rides the derived

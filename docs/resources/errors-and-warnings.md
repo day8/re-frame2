@@ -16,7 +16,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 |---|---|---|
 | `:rf.error/resources-artefact-missing` | Forgot the require | `(:require [re-frame.resources])` at boot |
 | `:rf.error/resource-missing-scope-policy` | `:scope` omitted, or not one of the two shapes | Declare `:scope` as `:rf.scope/global` or `{:from-db <id>}` |
-| `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no `:params-schema`, a bad `:gc-after-ms`, `:stale-after-ms` or `:infinite`, … | The `:reason` names the key |
+| `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no request fn, a bad `:gc-after-ms`, `:stale-after-ms` or `:infinite`, … | The `:reason` names the key |
 | `:rf.error/infinite-missing-next-page-param` | `:infinite true` without `:next-page-param` | [Load more](how-to/load-more.md) |
 | `:rf.error/invalid-resource-scope-spec` | A malformed `reg-resource-scope`: `:inputs` not `{name [:db path]}`, or no resolver fn in the third slot | Fix the resolver registration |
 | `:rf.error/resource-scope-source-reserved` | A `reg-resource-scope` input of `[:runtime …]`, a reserved source | Read the input from app-db with `[:db path]` |
@@ -28,7 +28,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | Error | Cause | Fix |
 |---|---|---|
 | `:rf.error/resource-not-registered` | An ensure, refetch or subscription names an unregistered id | Require the namespace that registers it |
-| `:rf.error/resource-invalid-params` | Params don't conform to `:params-schema` — checked once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded | Fix the params; the error redacts classified values |
+| `:rf.error/resource-invalid-params` | Params don't conform to the resource's `:params-schema` — checked once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded, and only for a resource that declares one | Fix the params; the error redacts classified values |
 | `:rf.error/resource-non-edn-params` | A resource's or mutation's params carry a float, a ratio, a function or another host value, none of which can be part of a cache key | Pass it as a string or an integer, or leave it out |
 | `:rf.error/resource-reserved-request-key` | The request fn returned `:request-id`, `:on-success`, `:on-failure` or `:reply-to` | Drop them; the runtime routes the reply, and a continuation goes in the call-site `:reply-to` |
 | `:rf.error/resource-unknown-transport` | A `:transport` other than `:rf.http/managed`. The spec registers; the first load or write raises | Omit `:transport`, or use `:rf.http/managed` |
@@ -36,9 +36,10 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/reply-non-data-target` | A `:reply-to` carries a fn or another host object | Pass data only; the reply is appended to the vector |
 | `:rf.error/resource-scope-unresolved-reference` | An ensure's, execute's or `invalidate-tags`' `{:from-db …}` scope resolved to `nil` | Dispatch it once the resolver's inputs are in app-db |
 | `:rf.error/resource-scope-not-registered` | A `{:from-db id}` names a resolver nothing registered | Register it with `reg-resource-scope` |
-| `:rf.error/resource-invalid-scope` | A misspelled `:rf.scope/*` keyword, `[:rf.scope/global]` in a vector, or a `{:from-db …}` where a concrete scope is required (`clear-scope`) | Use the bare keyword; resolve with `rf/resolve-resource-scope` first |
+| `:rf.error/resource-invalid-scope` | A misspelled `:rf.scope/*` keyword, `[:rf.scope/global]` in a vector, a `{:from-db …}` where a concrete scope is required (`clear-scope`, `change-principal`), or a `change-principal` `:from` that is not a vector | Use the bare keyword; resolve with `rf/resolve-resource-scope` first; wrap a single scope as `{:from [scope]}` |
 | `:rf.error/resource-route-blocking` (on `:rf.route/error`) | A blocking read's first load failed; its failure is under `:error` | Retry with `:rf.resource/refetch`; the route returns to `:idle` when it loads |
 | `:rf.error/resource-route-plan` (on `:rf.route/error`) | A route entry's `:params`, `:scope` or `:when` threw or returned nothing usable | Fix the entry; the original error data is under `:cause` |
+| `:rf.error/resource-route-read-ambiguous` | A `[:rf/route-resource id]` read whose route plans that resource under more than one identity; `:identities` names them | Read each with `[:rf/resource {…}]` and its params |
 | `:rf.error/resource-ssr-blocking-timeout` | Under SSR, a blocking resource did not settle within the render deadline. It is reported, not thrown, and the resource settles as a first-load failure | Fix the fetch, or render the resource's error state |
 | `:rf.error/no-frame-context` | `resource-state` or `mutation-state` outside frame context without `:frame` | Pass `:frame`, or call within frame context |
 | `:rf.error/infinite-missing-page-accessor` | A feed's pages aren't vectors and it declares no `:page->items` | [Load more](how-to/load-more.md) |

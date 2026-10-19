@@ -30,7 +30,6 @@ schema below, which ships as one more artefact, `day8/re-frame2-schemas`:
             [re-frame.core :as rf]
             [re-frame.routing]
             [re-frame.schemas]
-            #?(:clj [cheshire.core :as json])
             [conduit.api :as api]))
 ```
 
@@ -248,20 +247,16 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The handler stores th
 (defn failure->form-errors
   "Failure map -> the slice's :errors shape; nil when not a structured rejection."
   [{:keys [kind body]}]
-  (when (and (= kind :rf.http/http-4xx) (string? body))
-    (let [parsed (try #?(:cljs (js->clj (js/JSON.parse body) :keywordize-keys true)
-                         :clj  (json/parse-string body true))
-                      (catch #?(:cljs :default :clj Exception) _ nil))]
-      (when-let [errs (:errors parsed)]
-        (reduce-kv (fn [m k msgs]
-                     (let [msgs (mapv #(str (name k) " " %) msgs)]
-                       (if (#{:email :password :username} (keyword k))
-                         (assoc m (keyword k) msgs)
-                         (update m :_form (fnil into []) msgs))))
-                   {} errs)))))
+  (when-let [errs (and (= kind :rf.http/http-4xx) (map? body) (:errors body))]
+    (reduce-kv (fn [m k msgs]
+                 (let [msgs (mapv #(str (name k) " " %) msgs)]
+                   (if (#{:email :password :username} (keyword k))
+                     (assoc m (keyword k) msgs)
+                     (update m :_form (fnil into []) msgs))))
+               {} errs)))
 
 (rf/reg-event :auth.login-form/submit-failed
-  {:sensitive [[:error :body]]}
+  {:sensitive [[:error :body] [:error :body-text]]}
   (fn [{:keys [db]} [_ {:keys [error correlation]}]]
     (if (not= (:auth-generation db) (second (:request-id correlation)))
       {}
@@ -272,7 +267,7 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The handler stores th
                                           "Couldn't reach the server — please try again."))}))))
 ```
 
-The JSON parse is the first form in the file that needs a host: `JSON.parse` in the browser, Cheshire (which the HTTP artefact already puts on the JVM classpath) on the JVM. On a 4xx the body arrives **raw** at `:body`, because decode runs only on 2xx, so `failure->form-errors` sees exactly what the server sent. A `:rf.http/transport` failure — the server never answered — has no `:body`, so it falls through to the generic `:submit-error` string. The view never needs a "server or client error?" branch: both validation kinds arrive as `:errors` and render through the same `field-error` sub.
+Conduit answers a 422 with `Content-Type: application/json`, so the body arrives at `:body` already parsed, keys as keywords: decode runs only on 2xx, but a JSON error body is parsed best-effort, its raw text kept at `:body-text`. A body that does not parse stays a string, which `failure->form-errors` treats as unstructured. A `:rf.http/transport` failure — the server never answered — has no `:body`, so it falls through to the generic `:submit-error` string. The view never needs a "server or client error?" branch: both validation kinds arrive as `:errors` and render through the same `field-error` sub.
 
 !!! warning "Gotcha — a 5xx with an HTML error page is *not* a decode failure"
 
@@ -393,7 +388,7 @@ the `/user` verification is asynchronous.
       {})))
 
 (rf/reg-event :auth/session-expired
-  {:sensitive [[:error :body]]}
+  {:sensitive [[:error :body] [:error :body-text]]}
   (fn [{:keys [db]} [_ {:keys [correlation]}]]
     (if (= (:auth-generation db) (second (:request-id correlation)))
       {:db (-> db
