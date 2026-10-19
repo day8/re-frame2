@@ -81,7 +81,7 @@ and wrap the root view's `case` in it:
       {})))
 
 (rf/reg-event :auth/session-expired
-  {:sensitive [[:error :body]]}
+  {:sensitive [[:error :body] [:error :body-text]]}
   (fn [{:keys [db]} [_ {:keys [correlation]}]]
     (if (= (:auth-generation db) (second (:request-id correlation)))
       {:db (-> db
