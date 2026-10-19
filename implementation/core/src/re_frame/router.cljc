@@ -2853,6 +2853,11 @@
       `:rf/default` floor for them to slide onto, so the cascade fails
       loudly instead of silently breaking multi-frame isolation.
 
+      `rf.frame/*current-frame-bound-in*` rides beside it, so a handler a
+      Reagent render runs synchronously (a `make-frame` `:initial-events`
+      step called from a view) resolves its envelope's frame rather than
+      the rendering component's tree.
+
       The binding does NOT survive async escapes (setTimeout,
       Promise.then, requestAnimationFrame): the JS callback fires on
       a fresh stack with no dynamic binding. Use `(rf/capture-frame)`
@@ -2888,7 +2893,8 @@
     owner-token
     (fn []
       (rf.trace/with-dispatch-id+call-site (:dispatch-id envelope) (:call-site envelope)
-        (binding [rf.frame/*current-frame* (:frame envelope)]
+        (binding [rf.frame/*current-frame*          (:frame envelope)
+                  rf.frame/*current-frame-bound-in* (rf.frame/rendering-component)]
           ;; NOT gated on `rf.interop/debug-enabled?`. For a frame made with
           ;; `:images`, the generation this cascade resolves through is sealed
           ;; unconditionally by `make-frame`, so a skipped flush would freeze

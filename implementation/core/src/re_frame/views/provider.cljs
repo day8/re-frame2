@@ -265,8 +265,8 @@
        around a synchronous render, as it does for a hook.
     2. The dynamic var (`with-frame`, or the router's per-handler
        binding), which answers where no boundary is above, whenever no
-       component is rendering, and inside an event handler the rendering
-       component ran synchronously.
+       component is rendering, and for a binding the render's own code
+       took.
     3. nil — a public frame-scoped operation then fails loudly via
        `rf.frame/require-current-frame!`.
 
@@ -275,11 +275,14 @@
   dynamic scope must stay in charge, and a slot left stale by a server
   render that threw must never outrank it.
 
-  It is skipped, too, for a handler the component's render ran — a
-  `make-frame` `:initial-events` step called from a view: the router bound
-  that handler's envelope frame, and the component is still the in-flight
-  one only because its render has not returned. A component that starts
-  rendering inside the handler is a different one, so its tree answers.
+  It is skipped, too, when the in-effect binding was taken inside this
+  component's render (`rf.frame/bound-inside-render?`): a `with-frame` in
+  the view body or in an `:epoch` listener or trace callback the render
+  notifies, or the router's binding for a handler the render ran
+  synchronously, such as a `make-frame` `:initial-events` step. That
+  binding is the nearest, most explicit statement of the frame, while one
+  around the render belongs to a different extent. A component that starts
+  rendering inside such a binding is a different one, so its tree answers.
 
   The coercion inside `context-value->current-frame` is defensive cover for
   a Provider mounted via raw `[:> (.-Provider frame-context) {:value :foo}]`
@@ -289,7 +292,7 @@
   arrives intact."
   []
   (or (when-let [cmp (current-component)]
-        (when-not (rf.frame/event-run-inside-render? cmp)
+        (when-not (rf.frame/bound-inside-render? cmp)
           (tree-frame cmp)))
       rf.frame/*current-frame*))
 

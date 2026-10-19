@@ -222,7 +222,8 @@
           :extra    {:got frame-id}})
 
        :else
-       `(binding [re-frame.frame/*current-frame* ~frame-id]
+       `(binding [re-frame.frame/*current-frame*          ~frame-id
+                  re-frame.frame/*current-frame-bound-in* (re-frame.frame/rendering-component)]
           ~@body))))
 
 #?(:clj
@@ -235,7 +236,8 @@
        (let [[sym expr] bindings]
          `(let [~sym ~expr]
             (try
-              (binding [re-frame.frame/*current-frame* ~sym]
+              (binding [re-frame.frame/*current-frame*          ~sym
+                        re-frame.frame/*current-frame-bound-in* (re-frame.frame/rendering-component)]
                 ~@body)
               (finally
                 (re-frame.frame/destroy-frame! ~sym)))))
