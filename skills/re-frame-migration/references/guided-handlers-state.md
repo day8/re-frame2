@@ -186,7 +186,7 @@ Present the categorisation and the proposed rewrite; confirm with the author; ap
 1. Specs that declared `:spawn` while recording no id user-side — pre-fix these silently leaked the spawned actor on state-exit (the runtime had no recorded id to destroy).
 2. Tests or `:exit` action bodies that **asserted on the old behaviour**: a stale `[:rf.runtime/machines :snapshots <id>]` entry surviving after exit, or that read the spawned id back out of the parent's `[:data :pending]` slot.
 
-**Risk**: the runtime now tracks each spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`, and the transition reducer mirrors it into the parent's own `:data` under `[:rf/spawned <invoke-id>]` — so a spec that recorded nothing user-side now correctly destroys the child on exit. The destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
+**Risk**: the runtime now tracks each spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`, and the transition reducer mirrors it into the parent's snapshot at `[:rf/runtime :spawned <invoke-id>]`, which callbacks read as the `:spawned` context key — so a spec that recorded nothing user-side now correctly destroys the child on exit. The destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
 
 **Decision shape** (per hit site):
 

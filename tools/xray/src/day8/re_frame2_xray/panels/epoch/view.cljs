@@ -72,9 +72,10 @@
   Two consequences worth knowing before editing a helper here:
 
     * A PLAIN FN IN HEAD POSITION IS A LOUD ERROR under a boundary —
-      Fresco's codec grades it `:invalid`. CALL the helper. Only a
-      `defview` — the widget siblings `ei/edn-inspector-view` and
-      `rt/resizable-table-view` — belongs in head position.
+      Fresco's codec grades it `:invalid` and raises
+      `:rf.error/fresco-bad-head`. CALL the helper. Only a `defview` — the
+      widget siblings `ei/edn-inspector-view` and `rt/resizable-table-view`
+      — belongs in head position.
     * `^{:key …}` METADATA REACHES REACT NOWHERE under Fresco: the codec
       takes a literal `:key` from an ATTRIBUTE MAP and reads Clojure
       metadata not at all. Every sibling key in this file rides the
