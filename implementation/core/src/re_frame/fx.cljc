@@ -1,22 +1,9 @@
 (ns re-frame.fx
-  "Effect interpreter (do-fx) and reserved fx-id table.
-
-  Per Spec 002 §`:fx` ordering and atomicity guarantees:
-    1. :db commits first, atomically.
-    2. :fx entries process in source order.
-    3. Each fx-handler runs synchronously before the next entry begins.
-    4. Subscriptions observe the post-:db state.
-
-  Reserved fx-ids (per Conventions §Reserved fx-ids):
-    :dispatch         — runtime, intra-frame dispatch (back of router queue)
-    :dispatch-later   — runtime, delayed dispatch
-    :raise            — machine-internal (machine handler routes locally)
-
-  The machine fx-ids `:rf.machine/spawn` and `:rf.machine/destroy` are
-  registered by `re-frame.machines` (ships in `day8/re-frame2-machines`)
-  at its ns-load time via the regular `reg-fx` path. They are NOT in
-  core's reserved-fx table — apps that don't pull in the machines
-  artefact don't carry the trace strings or the handler for them."
+  "Effect registration, the `:fx` walk (`do-fx`) and the reserved fx-ids
+  `:dispatch` and `:dispatch-later` (Spec 002 §`:fx` ordering and atomicity
+  guarantees; Conventions §Reserved fx-ids). The machine fx-ids are
+  registered by `re-frame.machines` through `reg-fx`, so an app without that
+  artefact carries none of their code."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -35,39 +22,23 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defn validate-registration-meta!
-  "The registration-time metadata checks `reg-fx` and `reg-cofx` share — and
-  that their INLINE image lowerings (`lower-inline-fx` /
-  `re-frame.cofx/lower-inline-cofx`) run too, so an inline registration accepts
-  and rejects exactly what the registrar does (EP-0026 §Inline Registration
-  Grammar). Validates the metadata KEYS
-  (`rf.reg-meta/validate-registration-metadata!`) and any declared `:sensitive`
-  / `:large` classification (`rf.classification/validate-classification!`),
-  both fail-loud. Writes nothing. Returns `meta`.
-
-  Classification validation is a DIRECT call into
-  `re-frame.classification/validate-classification!`: an ALWAYS-ON
-  registration-time validator in the same core artefact, pinned into every
-  production bundle; the require is cycle-free."
+  "The registration-time metadata checks `reg-fx` and `reg-cofx` share, also
+  run by their inline image lowerings so an inline registration accepts
+  exactly what the registrar does. Validates the metadata keys and any
+  `:sensitive` / `:large` classification, both fail-loud. Writes nothing;
+  returns `meta`."
   [kind id meta]
-  ;; No silent swallow on the registration metadata KEYS (shared by
-  ;; `reg-fx` and `reg-cofx`): a retired bare key (`:spec`) hard-errors, an
-  ;; unknown bare key warns, namespaced/known keys pass. The per-kind vocabulary
-  ;; distinguishes `reg-cofx`'s `:recordable?` / `:provided?` grade keys.
   (rf.reg-meta/validate-registration-metadata!
     kind (case kind :fx 'rf/reg-fx :cofx 'rf/reg-cofx (symbol "rf" (str "reg-" (name kind)))) id meta)
   (rf.classification/validate-classification! kind meta)
   meta)
 
 (defn register-with-classification!
-  "Shared registration tail for `reg-fx` and `reg-cofx`. Both
-  register sites validate the metadata (`validate-registration-meta!` — keys,
-  plus any declared `:sensitive` / `:large` classification) fail-loud BEFORE the
-  registrar write (the classification itself is DERIVED from the registrar
-  meta at `registration-classification` read time, not stashed
-  imperatively), then write the registrar entry as the merged source-coords + the
-  `:handler-fn` callable slot. `kind` is `:fx` / `:cofx`; `extra-slots` is an
-  optional map of kind-specific registrar slots merged on top — `nil` for
-  `reg-fx`, the `:recordable?` / `:provided?` grade flags for `reg-cofx`."
+  "Shared registration tail for `reg-fx` and `reg-cofx`: validate the
+  metadata fail-loud, then write the registrar entry (source coords,
+  `:handler-fn`, and `extra-slots`, the cofx grade flags or nil).
+  Classification is derived from the registrar meta when read, never stashed
+  here."
   [kind id meta handler-fn extra-slots]
   (validate-registration-meta! kind id meta)
   (rf.registrar/register! kind id (merge (assoc (rf.source-coords/merge-coords meta)
@@ -75,16 +46,10 @@
                                       extra-slots)))
 
 (defn- emit-fx-registration-invalid!
-  "Emit `:rf.error/fx-registration-invalid` (registration-time, diagnostic)
-  and throw. The malformed-registration case — a `reg-fx` supplied NO handler
-  fn (e.g. `(reg-fx :my/fx {:doc \"…\"})`, a metadata-only call whose
-  `(fn [ctx args] …)` was omitted). Without this the handler-less registration
-  would SUCCEED with a nil `:handler-fn` and fail LATE at fire-time as a misleading
-  `:rf.error/fx-handler-exception` — an NPE blaming the ABSENT handler for
-  THROWING. Mirrors reg-cofx's registration-time
-  `emit-cofx-registration-invalid!` so the fail-loud is symmetric across the
-  effect / coeffect register sites. Per Spec 001 §Registration + Spec 009
-  §Error catalogue."
+  "Emit and throw `:rf.error/fx-registration-invalid`. A `reg-fx` without a
+  handler fn would otherwise register and fail late, at fire time, as a
+  misleading `:rf.error/fx-handler-exception` (Spec 009 §Error event
+  catalogue)."
   [id reason]
   (rf.trace/emit-error! :rf.error/fx-registration-invalid
                      {:rf.fx/id id
@@ -94,13 +59,9 @@
                       {:extra {:rf.fx/id id}}))
 
 (defn- validate-fx-handler!
-  "A `reg-fx` MUST supply a callable handler. The metadata-only
-  form `(reg-fx :id {…})` (a plausible typo) parses to `handler-fn` nil and would
-  otherwise register a nil `:handler-fn`, deferring the failure to a misleading
-  fire-time `:rf.error/fx-handler-exception`. Reject at REGISTRATION time,
-  naming the missing handler — mirroring reg-cofx's registration-time
-  missing-supplier rejection (`emit-cofx-registration-invalid!`). Shared by
-  `reg-fx` and the inline lowering `lower-inline-fx`."
+  "Refuse a `reg-fx` whose `handler-fn` is not callable, such as the
+  metadata-only `(reg-fx :id {…})`. Shared by `reg-fx` and
+  `lower-inline-fx`."
   [id handler-fn]
   (when-not (ifn? handler-fn)
     (emit-fx-registration-invalid!
@@ -113,62 +74,19 @@
            "`:rf.error/fx-handler-exception`). Supply the handler fn."))))
 
 (defn reg-fx
-  "Register an effect handler under `id`. The handler runs when a
-  `reg-event` handler returns an effect-map carrying `[id args]` inside its
-  `:fx` vector — `{:fx [[:my-fx args] ...]}`.
+  "Register an effect handler under `id`; it runs for each `[id args]` entry
+  in an event's `:fx` vector. Returns `id` (Spec 001 §Registration grammar).
 
-  Handler signature: `(fn [ctx args] ...)` — **two arguments, where re-frame
-  v1 passes one**.
-
-    `ctx`  is a small map carrying:
-             `:frame` — the active frame id (Spec 002 §`:fx` ordering)
-             `:event` — the originating event vector (Spec 014 §Reply
-                        addressing). The fx may capture the originating
-                        `event-id` to address replies back without a
-                        separate cofx-injection step.
-             `:envelope` — the parent dispatch envelope, from which the
-                        fx can read `:trace-id`, `:origin` and `:source`.
-    `args` is the second element of the `[id args]` pair as emitted by
-           the event handler (any value — map, vector, scalar).
-
-  Shapes:
-
-      (reg-fx :id                                  (fn [ctx args] ...))
+      (reg-fx :id (fn [ctx args] ...))
       (reg-fx :id {:doc \"...\" :platforms #{:client}} (fn [ctx args] ...))
 
-  Optional metadata keys:
-
-      :doc        one-sentence what-and-why; surfaces via
-                  `(rf/handler-meta {:source :store :kind :fx :id id})`.
-      :schema     Malli schema for `args` (per Spec 010 §:schema on fx
-                  registrations).
-      :platforms  set of `#{:client :server}`; default
-                  `#{:client :server}`. The fx is skipped on platforms
-                  not in the set (`:rf.fx/skipped-on-platform` warning
-                  trace).
-
-  Returns `id`.
-
-  Example:
-
-      (rf/reg-fx :my/notify
-        {:doc       \"Show a toast notification.\"
-         :platforms #{:client}}
-        (fn [_ctx {:keys [message level]}]
-          (js/window.toast level message)))
-
-      ;; Consumed from an event handler:
-      (rf/reg-event :user/login-failed
-        (fn [_ [_ reason]]
-          {:fx [[:my/notify {:level :error :message (str \"Login failed: \" reason)}]]}))
-
-  Framework-shipped fx (`:dispatch`, `:dispatch-later`, `:rf.http/managed`,
-  `:rf.nav/push-url`, ...) are documented in `spec/API.md §Effect-map
-  shape` and their per-feature Spec; introspect via
-  `(rf/handler-meta {:source :store :kind :fx :id <id>})`.
-
-  See also: `reg-cofx` (the input-side counterpart), `(rf/clear :fx id)`,
-  `reg-event` (the consumer)."
+  The handler takes two arguments, where re-frame v1 passes one. `ctx`
+  carries `:frame`, the originating `:event`, so a reply can be addressed
+  back (Spec 014 §Reply addressing), and the parent `:envelope`; `args` is
+  the emitted value. Metadata: `:doc`; `:schema` for `args` (Spec 010 §On
+  every `reg-*`); and `:platforms`, default `#{:client :server}`, outside
+  which the fx is skipped with a warning. Throws
+  `:rf.error/fx-registration-invalid` when no handler fn is given."
   [id metadata-or-handler & maybe-handler]
   (let [[meta handler-fn]
         (if (map? metadata-or-handler)
@@ -178,39 +96,22 @@
     (register-with-classification! :fx id meta handler-fn nil)
     id))
 
-;; There is no `clear-fx` fn. `:fx` owns no tear-down lifecycle of its own —
-;; removal IS `rf.registrar/unregister!`, which forgets provenance, marks the
-;; live-frame projection dirty and emits `:rf.registry/handler-cleared` — so
-;; the kind-keyed `(rf/clear :fx id)` calls the registrar directly. Fixtures
-;; that clear every fx use `rf.registrar/clear-kind!`.
+;; No `clear-fx`: `:fx` owns no teardown, so `(rf/clear :fx id)` calls
+;; `rf.registrar/unregister!` directly.
 
-;; ---- EP-0023 inline-registration lowering ---------------------------------
+;; ---- inline-registration lowering -----------------------------------------
 ;;
-;; An image's inline `:registrations` `:reg-fx` entry carries the raw effect
-;; handler fn under `:impl`. For the inline fx to RUN when an event handler
-;; emits it through a frame-targeted cascade, the assembled generation's
-;; resolver descriptor must carry the SAME shape `reg-fx` installs — the
-;; `:handler-fn` slot (the fx-walker reads it via `rf.registrar/handler :fx`)
-;; AND the registration metadata at the TOP LEVEL, where every runtime reader
-;; looks (`runs-on-platform?`, `registration-classification`, the `:schema`
-;; gate). This is the EP-0023 §Image Fragments "same runtime descriptor shape"
-;; contract for fx. Published via late-bind (image-assembly cannot
-;; static-require this ns).
+;; An image's inline `:reg-fx` entry must resolve to the descriptor shape
+;; `reg-fx` installs, with the metadata at the top level where every runtime
+;; reader looks. Published via late-bind, because image assembly cannot
+;; require this namespace.
 
 (defn lower-inline-fx
-  "Lower an inline `:reg-fx` entry into the registrar shape `reg-fx` installs:
-  the authored metadata at the TOP LEVEL plus the `:handler-fn` slot. `id` is
-  the AUTHORED descriptor id, so a diagnostic names the author's effect; `meta`
-  is the inline entry's metadata map (nil when the entry has none); `impl` is
-  the raw `(fn [ctx args] …)` handler.
-
-  Runs the SAME registration-time checks `reg-fx` runs: the
-  handler must be callable, and `validate-registration-meta!` checks the keys
-  and any `:sensitive` / `:large` classification. Without the top-level
-  metadata an inline `{:platforms #{:client}}` fx would run on `:server` and an
-  inline `:sensitive` declaration would derive no classification to redact from.
-  Writes nothing to the registrar. Image-assembly merges the result UNDER the
-  descriptor, preserving `:impl` + provenance."
+  "Lower an inline `:reg-fx` entry to the registrar shape `reg-fx` installs:
+  `meta` at the top level plus `impl` as `:handler-fn`. Runs `reg-fx`'s
+  registration checks; without top-level metadata an inline
+  `{:platforms #{:client}}` fx would run on `:server`. `id` is the authored
+  id, for diagnostics. Writes nothing."
   [id meta impl]
   (validate-fx-handler! id impl)
   (validate-registration-meta! :fx id meta)
@@ -221,88 +122,51 @@
 ;; ---- the platform predicate -----------------------------------------------
 
 (defn runs-on-platform?
-  "Does the `:platforms` metadata permit `active-platform`?
-
-  Per Spec 011 §634-642 the `:platforms` slot applies symmetrically to
-  `reg-fx` AND `reg-cofx`. Default is `#{:client :server}` (both
-  permitted). One predicate answers both questions —
-  re-frame.cofx aliases this fn so the contract has one definition."
+  "True when the `:platforms` metadata permits `active-platform`; the default
+  is `#{:client :server}`. The one definition for `reg-fx` and `reg-cofx`
+  alike (Spec 011 §`:platforms` metadata on `reg-fx`)."
   [meta active-platform]
   (let [platforms (:platforms meta #{:client :server})]
     (contains? platforms active-platform)))
 
 (defn platform-for-frame-record
-  "Resolve the active platform for a frame given its (already-resolved)
-  frame record. The frame's `:config :platform` override takes
-  precedence over the host default (`rf.interop/active-platform`, a
-  per-host constant: `:client` on CLJS, `:server` on the JVM).
-
-  Single definition of the per-frame platform resolution shared by the
-  router's `:fx` walk (`router/run-fx-effects!`) and the cofx injector
-  (`cofx/active-platform-for-frame`, which resolves the record from a
-  frame-id first)."
+  "The active platform for a frame record: its `:config :platform`, else the
+  host default (`:client` on CLJS, `:server` on the JVM). Shared by the
+  router's `:fx` walk and the cofx injector."
   [frame-record]
   (or (-> frame-record :config :platform)
       (rf.interop/active-platform)))
 
-;; ---- :dispatch-later host-timer side table -------------------------------
+;; ---- :dispatch-later host-timer side table --------------------------------
 ;;
-;; `:dispatch-later` arms a host-clock timer (`rf.interop/set-timeout!`) whose
-;; thunk dispatches the deferred event into its frame. The host handle must
-;; be RETAINED so `destroy-frame!` can cancel a still-pending timer for a
-;; frame that is torn down before it fires — otherwise the armed timer + its
-;; captured closure leak until it fires, and the deferred dispatch is
-;; dead-on-arrival anyway (it lands in a destroyed frame, where `dispatch!`
-;; recovers it as a `:rf.error/frame-destroyed` diagnostic). Under frame
-;; churn (long-running SSR / test processes) that is unbounded retention.
-;;
-;; This MIRRORS the resources stale / GC / poll timer side table
-;; (`re-frame.resources.timers/timer-table`) and the machines `:after`
-;; timer table: a module-level transient host cache keyed by frame, holding
-;; ONLY the opaque non-serializable host handle, NEVER runtime-db, never on
-;; the SSR / hydration / epoch wire, cleared per-frame on frame destroy. A
-;; fired timer drops its OWN entry before dispatching, so the table holds
-;; exactly the set of still-pending timers.
-;;
-;; A `:dispatch-later` carrying an `:id` names its timer within the frame:
-;; arming that `:id` again cancels the pending timer first (debounce), and
-;; `{:id k :cancel? true}` cancels it outright. The slot key still carries a
-;; fresh counter value beside the `:id`, so a replaced timer's callback that
-;; the host has already started finds its own slot gone and dispatches
-;; nothing — it can never claim the replacement's slot.
+;; Each armed timer's host handle is retained so `destroy-frame!` can cancel a
+;; timer whose frame is torn down first; otherwise the timer and its closure
+;; leak until it fires, into a dead frame. Transient host state keyed by
+;; frame, never runtime-db, so neither restore nor the SSR wire sees it; it
+;; mirrors `re-frame.resources.timers/timer-table`. A fired timer drops its
+;; own entry. A timer armed with an `:id` is debounced by it: re-arming cancels
+;; the pending one, and the slot key also carries a fresh counter, so a
+;; replaced timer's already-started callback finds its slot gone.
 
 (defonce ^:private dispatch-later-counter
-  ;; Monotonic counter minting a unique id per armed `:dispatch-later` so
-  ;; two timers in the same frame (same or different events) never collide
-  ;; on a side-table slot. The id is opaque bookkeeping — it never escapes
-  ;; this ns.
+  ;; Mints a unique slot id per armed timer, so two timers in one frame never
+  ;; collide.
   (atom 0))
 
 (defonce
   ^{:private true
-    :doc "Host-side side table of pending `:dispatch-later` timers, keyed by
-   `[frame-id timer-id]`, where `timer-id` is a counter value, or
-   `[::id <id> <counter value>]` for a timer armed with an `:id`. A slot holds
-   EITHER the `arming-sentinel` (the timer
-   is mid-`set-timeout!` — RESERVED but not yet PUBLISHED) OR the opaque host
-   handle from `re-frame.interop/set-timeout!` (armed). Transient host state
-   (NOT runtime-db), so an epoch restore cannot rewind / recycle it and it never
-   rides the SSR / hydration / epoch wire. A fired timer drops its own entry;
-   `release-frame!` cancels + drops every still-pending timer for a destroyed
-   frame (rf.frame/destroy-frame! via the `:fx/on-frame-destroyed!` late-bind hook).
-   Mirrors `re-frame.resources.timers/timer-table`."}
+    :doc "Pending `:dispatch-later` timers, keyed by `[frame-id timer-id]`, where
+   `timer-id` is a counter value or `[::id <id> <counter value>]`. A slot holds
+   `arming-sentinel` while reserved but not yet published, then the host
+   handle."}
   dispatch-later-timers
   (atom {}))
 
 (def ^:private arming-sentinel
-  "Placeholder value held in `dispatch-later-timers` for the window between
-  RESERVING a `[frame-id timer-id]` slot and PUBLISHING the real host handle
-  returned by `set-timeout!` (two-phase arm). Distinct from every
-  host handle — a `ScheduledFuture` on the JVM, a numeric id on CLJS — so
-  `release-frame!` / `reset-dispatch-later-timers!` can tell an in-flight arming
-  from an installed handle and NEVER pass it to `clear-timeout!` (a sentinel is
-  not a cancellable host object). The arming caller's publish phase cancels the
-  real handle when it finds the reservation already gone."
+  "Held in a reserved slot until `set-timeout!` returns the real handle.
+  Distinct from every host handle, so cleanup can tell an in-flight arming
+  from an installed handle and never passes it to `clear-timeout!`; the
+  arming caller cancels the real handle when it finds the reservation gone."
   ::arming)
 
 (defn- id-slot?
@@ -349,52 +213,24 @@
     (cancel-id-slots! (id-slots old frame-id id) frame-id id :on-cancel)))
 
 (defn- arm-dispatch-later!
-  "Arm a `:dispatch-later` host timer that dispatches `event` with `opts`
-  after `ms`, RETAINING its handle in `dispatch-later-timers` under
-  `[frame-id timer-id]` so `release-frame!` can cancel it on frame destroy.
-  The timer thunk drops its OWN slot BEFORE dispatching, so the table tracks
-  exactly the pending set (a fired timer leaves no residue). Returns nil.
+  "Arm a host timer that dispatches `event` with `opts` after `ms`, retaining
+  its handle so `release-frame!` can cancel it. A non-nil `id` replaces any
+  timer pending under it in the frame. Returns nil.
 
-  A non-nil `id` names the timer within the frame: the reservation that arms
-  it removes, in the same atomic swap, any timer still pending under that
-  `id` in that frame, and cancels it. That is the replace half of debounce.
-
-  The slot is BOTH resource ownership (the cancellable host handle) AND the
-  callback's DISPATCH AUTHORITY: the thunk dispatches ONLY when
-  it atomically removes a slot that was still present. If `release-frame!` /
-  `reset-dispatch-later-timers!` removed the reservation FIRST — cleanup won
-  DURING arming, even before `set-timeout!` returned this handle — the thunk
-  finds no slot in its winning `swap-vals!` snapshot and SUPPRESSES the
-  dispatch, since host cancellation cannot un-run an already-started thunk.
-
-  TWO-PHASE, ATOMIC publication. A zero/immediate host callback
-  (the JVM `ScheduledExecutorService` may run the thunk on its worker thread
-  BEFORE `set-timeout!` returns) or a `release-frame!`/destroy racing the
-  schedule would, under a publish-AFTER-`set-timeout!` scheme, either orphan a
-  spent handle (the thunk `dissoc`s an absent slot, then the caller `assoc`s the
-  already-fired handle forever) or publish a handle past cleanup:
-
-    1. RESERVE `[frame-id timer-id]` with `arming-sentinel` BEFORE scheduling,
-       so the thunk and `release-frame!` always have a slot to remove.
-    2. After `set-timeout!` returns, atomically REPLACE the reservation with the
-       real handle ONLY IF the reservation still exists (`swap-vals!` — the swap
-       fn is pure; the host side effect rides the CAS-derived old snapshot, never
-       inside the retriable swap). If the thunk fired or destroy removed it
-       first, DO NOT reinsert — CANCEL the returned handle (safe even if it
-       already completed).
-
-  CLJ + CLJS run identical code; the race is only reachable on the JVM (CLJS
-  `js/setTimeout` cannot fire before the caller yields), but the reservation
-  keeps both platforms leak-free and behaviourally identical."
+  The slot is also the callback's dispatch authority: the thunk dispatches
+  only if it removes a slot still present, so a cleanup that won the race,
+  even mid-arming, suppresses it. Publication is two-phase because a JVM
+  executor can run the thunk before `set-timeout!` returns: reserve the slot
+  with `arming-sentinel` first, then publish the handle only if the
+  reservation survived, else cancel it. Host side effects read `swap-vals!`
+  snapshots and never run inside a retriable swap."
   ([frame-id ms event opts]
    (arm-dispatch-later! frame-id ms event opts nil))
   ([frame-id ms event opts id]
    (let [n (swap! dispatch-later-counter inc)
          k [frame-id (if (some? id) [::id id n] n)]]
-     ;; PHASE 1 — reserve the slot BEFORE scheduling, removing any timer still
-     ;; pending under the same `id`. The sentinel is not a host handle:
-     ;; `release-frame!` / `reset-dispatch-later-timers!` drop it without
-     ;; passing it to `clear-timeout!`.
+     ;; Phase 1: reserve the slot before scheduling, removing any timer still
+     ;; pending under the same `id`.
      (let [[old _] (swap-vals! dispatch-later-timers
                                (fn [m] (assoc (without-id-slots m frame-id id)
                                               k arming-sentinel)))]
@@ -402,60 +238,29 @@
          (cancel-id-slots! (id-slots old frame-id id) frame-id id :on-replace)))
      (let [handle (rf.interop/set-timeout!
                     (fn []
-                      ;; ATOMICALLY remove our own slot AND capture the winning
-                      ;; pre-swap snapshot. The slot is BOTH the
-                      ;; resource-ownership handle AND this callback's DISPATCH
-                      ;; AUTHORITY: whoever removes it decides whether the deferred
-                      ;; event dispatches. `swap-vals!` yields the old map from the
-                      ;; winning CAS attempt; the dispatch side effect rides that
-                      ;; snapshot and NEVER runs inside the retriable swap fn
-                      ;; (`dissoc` is pure + idempotent). Removal precedes dispatch
-                      ;; on BOTH the sentinel window (immediate fire before
-                      ;; publication) and the ordinary armed slot.
+                      ;; Whoever removes the slot holds the dispatch authority.
+                      ;; Dispatch only if it was still present: host
+                      ;; cancellation cannot un-run a started thunk, so this
+                      ;; check is the suppression.
                       (let [[old _] (swap-vals! dispatch-later-timers dissoc k)]
-                        ;; Sticky hook — the timer callback fires per
-                        ;; scheduled :dispatch-later. Dispatch ONLY when our slot was
-                        ;; still present in the winning old snapshot. If
-                        ;; `release-frame!` / `reset-dispatch-later-timers!` removed
-                        ;; the reservation FIRST — cleanup won DURING arming, even
-                        ;; before `set-timeout!` returned this handle (a legal JVM
-                        ;; executor ordering) — this callback has LOST its authority
-                        ;; and must NOT fire a dead-on-arrival dispatch into the
-                        ;; torn-down frame. Host cancellation cannot
-                        ;; un-run an already-started thunk, so the authority check IS
-                        ;; the suppression. On the live path the slot is present, so
-                        ;; `dispatch!` enqueues into the frame exactly once.
                         (when (contains? old k)
                           (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
                             (dispatch! event opts)))))
                     ms)
-           ;; PHASE 2 — publish the handle only if the reservation survived. The
-           ;; swap fn is a pure CAS-derived replace-if-present; the cancel side
-           ;; effect below reads the old snapshot, never runs inside the swap.
+           ;; Phase 2: publish the handle only if the reservation survived.
            [old _] (swap-vals! dispatch-later-timers
                                (fn [m] (if (contains? m k) (assoc m k handle) m)))]
        (when-not (contains? old k)
-         ;; The thunk (immediate/0ms fire) or destroy already removed the
-         ;; reservation — do NOT reinsert the spent/orphan handle; cancel it
-         ;; (idempotent even on an already-completed handle).
+         ;; The thunk or a destroy already removed the reservation: cancel
+         ;; rather than reinsert a spent handle.
          (rf.interop/clear-timeout! handle)))
      nil)))
 
 (defn release-frame!
-  "Cancel + drop EVERY still-pending `:dispatch-later` timer for a destroyed
-  `frame-id`. Invoked from `rf.frame/destroy-frame!` via the
-  `:fx/on-frame-destroyed!` late-bind hook so a timer armed before destroy
-  never fires a dead-on-arrival dispatch into the torn-down frame, and its
-  armed host handle + captured closure are released promptly rather than
-  leaking until the delay elapses. Idempotent — a frame with no pending
-  timers is a no-op. Returns nil.
-
-  Removes the frame's slots ATOMICALLY (a single `swap-vals!`) and cancels the
-  real host handles off the CAS-derived old snapshot — no host side effect runs
-  inside the retriable swap. An `arming-sentinel` slot (a timer
-  mid-`set-timeout!`) is dropped but NEVER passed to `clear-timeout!` — the arming
-  caller's publish phase finds the vanished reservation and cancels the real
-  handle itself, so the timer is cancelled exactly once with no orphan."
+  "Cancel and drop every pending `:dispatch-later` timer of a destroyed
+  `frame-id`, through the `:fx/on-frame-destroyed!` hook. Idempotent; returns
+  nil. An `arming-sentinel` slot is dropped without `clear-timeout!`, as its
+  arming caller cancels the real handle."
   [frame-id]
   (let [[old _] (swap-vals! dispatch-later-timers
                             (fn [m]
@@ -466,18 +271,9 @@
   nil)
 
 (defn reset-dispatch-later-timers!
-  "Cancel + drop EVERY frame's pending `:dispatch-later` timers (test
-  isolation). Published via `:fx/reset-dispatch-later-timers!`
-  so the shared CLJS `make-reset-runtime-fixture` reset-hooks table clears it
-  per test — host-side transient state the runtime / frames reset does not
-  touch, so without this a stale armed timer from a sibling test could fire
-  mid-next-test. Returns nil.
-
-  Clears the table ATOMICALLY (`reset-vals!`) and cancels the real host handles
-  off the captured old snapshot. An `arming-sentinel` slot (a timer
-  mid-`set-timeout!`) is dropped but NEVER passed to
-  `clear-timeout!` — its arming caller's publish phase cancels the real handle
-  when it finds the reservation gone."
+  "Cancel and drop every frame's pending `:dispatch-later` timers, for test
+  isolation: the runtime reset does not touch this host state, so a stale
+  timer could fire mid-next-test. Returns nil."
   []
   (let [[old _] (reset-vals! dispatch-later-timers {})]
     (doseq [[_ handle] old
@@ -485,56 +281,31 @@
       (rf.interop/clear-timeout! handle)))
   nil)
 
-;; Publish the frame-destroy cleanup + test-isolation reset through the
-;; late-bind registry (mirroring `:resources/on-frame-destroyed!` /
-;; `:machines/reset-timers!`). `re-frame.frame/destroy-frame!` cannot
-;; static-require this ns (fx requires nothing of frame, and a back-require
-;; would invert the load order), so the hook is the seam. Bound once at
-;; ns-load — `re-frame.fx` ships in every canonical build (core.cljc
-;; side-effect-requires it), so the hook is always present.
+;; `re-frame.frame` cannot require this namespace without inverting the load
+;; order, so these hooks are the seam.
 (rf.late-bind/set-fn! :fx/on-frame-destroyed!           release-frame!)
 (rf.late-bind/set-fn! :fx/reset-dispatch-later-timers!  reset-dispatch-later-timers!)
 
-;; ---- do-fx ----------------------------------------------------------------
-
 ;; ---- reserved fx-id table -------------------------------------------------
 ;;
-;; Per Conventions §Reserved fx-ids — `:dispatch` and `:dispatch-later`
-;; resolve to runtime-internal callables held behind `late-bind` hooks
-;; (avoiding a cyclic load against the router). Each entry maps the fx-id to a
-;; small body-fn and `handle-one-fx` dispatches off this table — adding a
-;; reserved fx-id is a data edit, not a code edit.
-;;
-;; Body-fn signature: `(fn [frame-id parent-envelope args])`. It is invoked
-;; inside the perf bracket; on success it returns; the caller emits
-;; `:rf.fx/handled` uniformly.
-;;
-;; `:dispatch` and `:dispatch-later` route through `child-dispatch!` (the
-;; delayed one destructures `{:keys [ms event]}` from args).
+;; `:dispatch` and `:dispatch-later` (Conventions §Reserved fx-ids) are body
+;; fns `(fn [frame-id parent-envelope args])` in `reserved-fx-handlers`, so a
+;; new reserved fx-id is a data edit. `handle-one-fx` emits `:rf.fx/handled`
+;; for them uniformly.
 
 (defn classify-fx-override
-  "Resolve `overrides`[`fx-id`] into ONE structured disposition, performing the
-  registrar lookup EXACTLY ONCE. This is THE single override policy —
-  `resolve-fx-with-overrides` expresses itself over it. Because the
-  classification is taken once and
-  wholly determines the caller's branch, a concurrent register / unregister can
-  never flip an applies-preflight into a different EXECUTION disposition.
+  "Classify `overrides`[`fx-id`] with one registrar lookup, so a concurrent
+  registration cannot change the disposition between check and execution.
+  Returns one of:
 
-  Returns a map `{:disposition <kw> …}`:
+    {:disposition :noop}                         no override, or nil / false
+    {:disposition :applied-fn :override f}       f runs in place (CLJS convenience)
+    {:disposition :applied-redirect :target id}  a registered fx runs in place
+    {:disposition :fallthrough :reason :unregistered :target id}
+    {:disposition :fallthrough :reason :malformed :value v}
 
-    {:disposition :noop}
-      No override, or the documented nil/false placeholder — the original fx runs.
-    {:disposition :applied-fn :override <fn>}
-      A fn-value override runs IN PLACE OF the fx (CLJS-reference convenience).
-    {:disposition :applied-redirect :target <fx-id>}
-      A keyword redirect to a REGISTERED fx runs in place.
-    {:disposition :fallthrough :reason :unregistered :target <fx-id>}
-    {:disposition :fallthrough :reason :malformed :value <v>}
-      A real but non-applying override — surface `:rf.error/override-fallthrough`
-      (`emit-override-fallthrough!`), then run the original fx.
-
-  Pure and non-emitting (mirrors the value-inspecting predicate family); callers
-  own any diagnostic / execution."
+  A fallthrough means: emit `:rf.error/override-fallthrough`, then run the
+  original fx. Pure; callers own any emit."
   [overrides fx-id]
   (let [v (get overrides fx-id)]
     (cond
@@ -546,113 +317,39 @@
         {:disposition :fallthrough :reason :unregistered :target v})
       :else                    {:disposition :fallthrough :reason :malformed :value v})))
 
-;; Inheritable envelope fields — copied from parent to child when
-;; `:dispatch` / `:dispatch-later` queue a new envelope. Per Spec 002
-;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
-;; `inheritable-envelope-keys` (lines 947-952). `:event` is NOT
-;; inherited — the child gets its own.
-;; Per EP-0010 / EP-0017 `:rf.cofx` (the recordable
-;; coeffect TOKEN) is NOT inherited — a child dispatch is a DISTINCT causal
-;; token, so `build-envelope` stamps it a fresh `:rf/time-ms` rather than
-;; copying the parent's (Spec 002 §Dispatch Envelope Stamping). Its absence
-;; from this list is the mechanism.
-;; `:source` is ALSO not inherited — each fx-emitted
-;; child dispatch's `:source` reflects its immediate trigger
-;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the fx handler
-;; below. Inheriting `:source` would mis-report a `:dispatch` fx three
-;; levels deep as `:source :ui`.
-;;
-;; Per EP-0017 §6: the per-call `:rf.cofx/mint-policy` IS inherited
-;; — DISTINCT from the `:rf.cofx` token above. The token is per-causal-run
-;; (a child gets its own); the MINT POLICY is the strict/replay DISCIPLINE that
-;; must hold across the whole cascade. A replay or `:strict` test that dispatched
-;; the parent intends the SAME no-host-read discipline for every child it emits
-;; via `:dispatch` / `:dispatch-later`; without inheritance a child silently
-;; falls back to the frame-config / `:live` default and re-mints a fresh
-;; nondeterministic value, the exact silent-fallback EP-0017 §6 forbids. The
-;; envelope carries `:rf.cofx/mint-policy` ONLY when it was supplied per-call
-;; (`build-envelope` stamps it conditionally), so inheriting it carries forward
-;; exactly the per-call `:strict` / `:live` override — the frame-config
-;; tier is untouched (the child reads its own frame's policy fresh) and the
-;; override-free hot path inherits nothing (the key is absent on the parent).
+;; Copied from the parent envelope onto a `:dispatch` / `:dispatch-later`
+;; child (Spec 002 §Run propagation). Deliberately absent: `:rf.cofx`, since a
+;; child is a distinct causal token stamped fresh, and `:source`, which names
+;; the child's own trigger. `:rf.cofx/mint-policy` is inherited because a
+;; strict replay's discipline must hold across the whole cascade; it is on the
+;; envelope only when supplied per call, so the frame-config tier is untouched.
 (def ^:private inheritable-envelope-keys
   [:frame :fx-overrides :interceptor-overrides :trace-id :origin
    :rf.cofx/mint-policy])
 
 (defn- child-dispatch-opts
-  "Project the parent envelope's inheritable keys onto the opts map for a
-  child dispatch. Per Spec 002 §Cascade propagation: the dispatched
-  child inherits `:frame`, `:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`, and — per EP-0017 §6 — the per-call
-  `:rf.cofx/mint-policy` (the strict/replay discipline holds across the whole
-  cascade; the `:rf.cofx` token itself is NOT inherited — the child gets its
-  own causal run). `:source` is NOT inherited — the
-  fx handler stamps the specific `:fx-dispatch` / `:fx-dispatch-later`
-  value via a separate `:source` opt on the call site (or `:machine-action`
-  when the emitting parent handler is a machine). When
-  `parent-envelope` is nil (caller did not thread one through — the
-  routing artefact's nav-token wrapper, or test fixtures), falls back to
-  `{:frame frame-id}` so single-key propagation holds.
-
-  Nothing here decides the child's queue position: the router places it by
-  where the dispatch is made (Spec 002 §Run-to-completion), so an immediate
-  child — made inside the in-flight event — joins the internal lane and a
-  delayed child, dispatched later by its timer, joins the external lane."
+  "The parent envelope's inheritable keys, as opts for a child dispatch, or
+  `{:frame frame-id}` when there is no parent envelope. The router places the
+  child by where the dispatch is made, not by anything here."
   [frame-id parent-envelope]
   (if parent-envelope
     (select-keys parent-envelope inheritable-envelope-keys)
     {:frame frame-id}))
 
 (defn child-dispatch!
-  "The single reserved-dispatch seam. The `:dispatch` and
-  `:dispatch-later` reserved-fx bodies queue a child dispatch through HERE, so
-  they share ONE implementation of the reserved-dispatch contract rather than
-  duplicating override / lineage / ordering / timer / replay semantics in a
-  second effect:
+  "Queue a child dispatch with the reserved-dispatch guarantees: parent
+  envelope inheritance (Spec 002 §Run propagation) and, for a numeric `:ms`,
+  the frame-owned timer table, cancelled on frame destroy. The `:dispatch` and
+  `:dispatch-later` bodies use it, and so may a feature artefact, rather than
+  duplicate those semantics. A nil `parent-envelope` falls back to
+  `{:frame frame-id}`.
 
-    - parent-envelope inheritance (`child-dispatch-opts`): `:fx-overrides`,
-      `:interceptor-overrides`, `:trace-id`, `:origin`, and the per-call
-      `:rf.cofx/mint-policy` strict/replay discipline — per Spec 002
-      §Cascade propagation + EP-0017 §6;
-    - the frame-owned `:dispatch-later` timer table (`arm-dispatch-later!`),
-      cancelled on frame destroy (`release-frame!`) — so a delayed child never
-      fires dead-on-arrival into a torn-down frame;
-    - immediate vs delayed routing keyed off a numeric `:ms`.
-
-  `event` is the child event vector. `parent-envelope` is the dispatch envelope
-  of the event that produced the fx (nil falls back to `{:frame frame-id}` —
-  routing callers / test fixtures that thread none). `extras`:
-
-    :source        the child's immediate-trigger `:source` stamp
-                   (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`);
-                   `:source` is NEVER inherited — the call site
-                   stamps the immediate trigger.
-    :ms            a NUMBER arms the frame-owned timer (delayed dispatch);
-                   absent / non-number dispatches immediately to the router
-                   queue. A `:dispatch-later` always supplies a number (its
-                   reserved body refuses any other `:ms`); a plain
-                   `:dispatch` never does.
-    :id            optional, read only with a numeric `:ms`; names the timer
-                   within the frame, so arming replaces any timer still
-                   pending under the same `:id` (`arm-dispatch-later!`).
-    :source-detail optional; rides onto the `:rf.event/dispatched` trace (e.g.
-                   `{:ms n}` for the delayed path).
-    :rf.flow/settle?
-                   optional; `true` marks the child as the framework-private
-                   flow settle, which the router puts at the head of the
-                   internal lane, ahead of the continuations the same
-                   handler queued (Spec 013
-                   §Sequencing). Set by `settle-flows-after-walk!` and by
-                   nothing else — it is not a general priority lever.
-    :rf.cofx       optional recordable causal-envelope coeffect map merged
-                   verbatim onto the child dispatch. `build-envelope` preserves
-                   a supplied `:rf.cofx` (extra owner-qualified keys kept) and
-                   fills `:rf/time-ms`, so an owner-qualified fact is recorded
-                   and re-presented on strict replay.
-
-  Public so a feature artefact that must queue a child dispatch reaches the
-  SAME seam that preserves every reserved-dispatch guarantee, rather than
-  standing up a second effect duplicating the semantics."
+  `extras`: `:source`, the child's own trigger, never inherited; `:ms`, a
+  number to delay by, else dispatch now; `:id`, read only with `:ms`, which
+  replaces any timer pending under it; `:source-detail`, for the dispatched
+  trace; `:rf.flow/settle?`, set only by `settle-flows-after-walk!`; and
+  `:rf.cofx`, merged verbatim so an owner-qualified fact is recorded and
+  re-presented on strict replay."
   [frame-id parent-envelope event
    {:keys [source ms id source-detail] rf-cofx :rf.cofx flow-settle? :rf.flow/settle?}]
   (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
@@ -660,40 +357,25 @@
                (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
                (true? flow-settle?)  (assoc :rf.flow/settle? true))]
     (if (number? ms)
-      ;; A delayed child is a TIMER callback: its timer dispatches it after
-      ;; the emitting event returned, so it joins the external lane like any
-      ;; timer event, even at 0 ms (Spec 002 `do-fx :dispatch-later`).
-      ;; `:source` / `:source-detail` are kept.
+      ;; A timer callback, dispatched after the emitting event returned, so it
+      ;; joins the external lane even at 0 ms.
       (arm-dispatch-later! frame-id ms event opts id)
-      ;; Sticky hook — `:router/dispatch!` is published once at
-      ;; re-frame.router load and never withdrawn.
       (when-let [f (rf.late-bind/get-fn :router/dispatch!)]
         (f event opts)))))
 
 ;; ---- flow settle after a state-writing walk (Spec 013 §Sequencing) --------
 
 (defn- walk-changed-flowed-frame-state?
-  "True when a completed `:fx` walk left `frame-id`'s frame-state container no
-  longer `identical?` to `state-at-walk-start` AND the frame runs a flow.
+  "True when a completed `:fx` walk changed `frame-id`'s frame-state container
+  and the frame runs a flow: the settle's trigger.
 
-  The settle's trigger. The flow pass is the
-  router's outermost `:after`, so it has already run when the walk starts;
-  any effect that writes app-db or runtime-db DURING the walk — the machine
-  lifecycle effects `:rf.machine/destroy` / `:rf.machine/spawn`, a resource
-  write, a user fx calling `re-frame.frame/swap-runtime-db!` — lands after it.
-  A flow over a machine snapshot, Spec 013's own example input, would
-  otherwise publish the pre-write value, and a continuation the same handler
-  queued would read it. Keyed on the container rather than on a list of
-  writers because a list is easy to leave incomplete — any user fx can write.
-
-  The flows guard is what keeps this free where it does not apply. Without it
-  every writing walk on a frame running no flows (or in an app without the
-  flows artefact, where the hook is unbound) would enqueue a settle that
-  recomputes nothing — 50 dispatches whose `:fx` spawn an actor would become
-  100 events. The hook is read only once the container has actually changed.
-
-  A dry run never gets here with a change: `*effect-sink*` executes no entry,
-  so the container is untouched."
+  The flow pass, the router's outermost `:after`, has already run when the
+  walk starts, so a write during the walk (a machine lifecycle effect, a
+  resource write, any user fx) would leave flows publishing the pre-write
+  value. Keyed on the container rather than a list of writers, which would be
+  easy to leave incomplete. The flows guard keeps this free where it does not
+  apply: without it, a frame with no flows would enqueue a settle that
+  recomputes nothing after every writing walk."
   [frame-id state-at-walk-start]
   (and (not (identical? state-at-walk-start (rf.frame/frame-state-value frame-id)))
        (if-let [has-flows? (rf.late-bind/get-fn :flows/frame-has-flows?)]
@@ -701,48 +383,18 @@
          false)))
 
 (defn- settle-flows-after-walk!
-  "Enqueue one settle event when a completed `:fx` walk changed the frame's
-  state on a frame that runs a flow (`walk-changed-flowed-frame-state?`).
+  "Enqueue one settle event when `walk-changed-flowed-frame-state?`, at the
+  end of the walk so one pass settles everything the walk wrote (Spec 013
+  §Sequencing — settling on the dispatching frame). It goes through
+  `child-dispatch!` to inherit the parent's overrides and frame, with
+  `:source :fx-dispatch`, since `:source` is a closed enum and the walk is its
+  trigger. `:rf.flow/settle?` puts it at the head of the internal lane, ahead
+  of the handler's own continuations (see `router/insert-envelope`).
 
-  Placed at the END of the walk so the settle observes the frame state as the
-  WHOLE walk left it — a `:fx` vector that spawns two actors and writes a
-  resource settles all of it in a single pass, in topological order, with one
-  app-db install.
-
-  It goes through `child-dispatch!`, the same seam `:dispatch` uses, so the
-  settle inherits the parent's `:fx-overrides` / `:interceptor-overrides` /
-  `:trace-id` / `:origin` and lands on the parent's own frame. `:source` is
-  `:fx-dispatch`: the settle's immediate trigger genuinely IS the fx walk that
-  queued it, and `:source` is a CLOSED enum (Spec 002 §Routing) — a new member
-  would be a Spec 002 change this does not need.
-
-  HEAD of the internal lane, not its back — it carries `:rf.flow/settle? true`,
-  which `router/insert-envelope` reads to place it ahead of everything the
-  lane holds. Run-to-completion settles the whole family before the
-  originating dispatch returns either way, so both placements satisfy the
-  settle BOUNDARY Spec 013 §Sequencing states; what the back placement does
-  not satisfy is composition with ordinary follow-up work. A `:dispatch`
-  effect from the same handler is appended DURING the walk, so a back-inserted
-  settle sits behind it in FIFO order: the continuation then reads a flow
-  output derived from the frame state as it stood before the walk wrote it,
-  and can persist that wrong decision into `app-db` where the later settle —
-  which repairs only the derived slot — will not undo it.
-
-  Settling early costs nothing: the flow transform runs on EVERY event, so
-  each continuation settles its OWN writes on its OWN drain, and no one late
-  settle is needed to cover the whole cascade.
-
-  At most one settle per walk, enqueued here at the very end of it, so a plain
-  head-push has no siblings to reverse.
-
-  The event id is written here as a LITERAL rather than read from
-  `re-frame.events/settle-flows-event-id`, which defines it: `re-frame.events`
-  requires `re-frame.cofx`, which requires this namespace, so the edge cannot
-  be added in this direction. The two are held together by the round trip
-  instead — an id that did not match would resolve through neither the
-  registrar nor `router/resolve-unhandled`, raising
-  `:rf.error/no-such-handler` and leaving every state-writing walk unsettled,
-  which is exactly what the settle tests assert against."
+  The event id is a literal rather than `re-frame.events/settle-flows-event-id`
+  because `events` requires `cofx`, which requires this namespace. A mismatch
+  would raise `:rf.error/no-such-handler` on every settle, which the settle
+  tests assert against."
   [frame-id parent-envelope state-at-walk-start]
   (when (walk-changed-flowed-frame-state? frame-id state-at-walk-start)
     (child-dispatch! frame-id parent-envelope
@@ -752,36 +404,15 @@
   nil)
 
 (def ^:private reserved-fx-handlers
-  "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.
-  Driven by `handle-one-fx`; emit of `:rf.fx/handled` lives in the
-  caller so each reserved fx surfaces exactly one success trace,
-  uniformly.
-
-  `parent-envelope` is the dispatch envelope of the event that produced
-  this fx vector. Per Spec 002 §The binary fx-handler signature (line
-  603) and §Drain-loop pseudocode (lines 916, 961-963), the reserved-fx
-  defmethods for `:dispatch` / `:dispatch-later` read the parent envelope
-  to propagate inheritable keys (`:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`, the per-call `:rf.cofx/mint-policy`) onto the child
-  dispatch — per Spec 002 §Cascade propagation."
+  "Reserved fx-id → body fn `(fn [frame-id parent-envelope args])`, driven by
+  `handle-one-fx`, which emits each one's `:rf.fx/handled`. Both bodies
+  dispatch through `child-dispatch!`, which copies the parent envelope's
+  inheritable keys onto the child (Spec 002 §Run propagation)."
   {:dispatch
-   ;; Append to the back of the frame's internal lane — the `:fx` walk runs
-   ;; inside the in-flight event, so the child is part of its family (Spec
-   ;; 002 §Run-to-completion). Per Spec 002 §Cascade propagation, the child
-   ;; envelope inherits the parent's `:fx-overrides` /
-   ;; `:interceptor-overrides` / `:trace-id` / `:origin`. `:source` is set
-   ;; to `:fx-dispatch` — the child's immediate trigger is "the `:dispatch`
-   ;; fx executed", not whatever woke the originating user event.
-   ;;
-   ;; When the emitting handler IS a machine (the router marks the envelope
-   ;; it hands `do-fx` with `::machine-emitter?`), the child dispatch is an
-   ;; *actor message* — one machine emitting a dispatch into the actor
-   ;; system. The substrate stamps `:source :machine-action` for that path
-   ;; so the Epoch panel and trace filters can distinguish machine-emitted
-   ;; continuations from plain `:dispatch` fx cascades. The mark is trace
-   ;; provenance only: it is not inherited and does not move the child.
-   ;; Routes through the shared `child-dispatch!` seam, so
-   ;; envelope inheritance / timer semantics live in one place.
+   ;; The child joins the internal lane, as the walk runs inside the in-flight
+   ;; event. `:source` names the `:dispatch` fx as the trigger, or
+   ;; `:machine-action` when a machine emitted it; that mark is trace
+   ;; provenance only.
    (fn [frame-id parent-envelope args]
      (child-dispatch! frame-id parent-envelope args
                       {:source (if (::machine-emitter? parent-envelope)
@@ -789,50 +420,12 @@
                                  :fx-dispatch)}))
 
    :dispatch-later
-   ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
-   ;; Inheritable keys are projected at fx-firing time and captured in
-   ;; the closure so the deferred dispatch carries the parent envelope's
-   ;; overrides into the eventual child cascade. The
-   ;; deferred dispatch stamps `:source :fx-dispatch-later` so the Epoch
-   ;; panel's DISPATCH step renders the precise trigger rather than the
-   ;; originating user event's `:source`.
-   ;;
-   ;; It stamps `:source-detail {:ms <ms>}` alongside the
-   ;; `:source` so the Epoch panel's DISPATCH step can render the
-   ;; ORIGINAL scheduled delay (e.g. `from fx :dispatch-later · 500ms`)
-   ;; rather than just the kind label. The detail rides on the
-   ;; envelope, then onto the `:rf.event/dispatched` trace via
-   ;; `emit-dispatched-trace`'s opt-in stamp (router.cljc).
-   ;;
-   ;; Machine-emitted `:dispatch-later` is an *actor
-   ;; message* scheduled with a delay — stamp `:source :machine-action`
-   ;; (carrying the same `:source-detail {:ms <ms>}`) when the emitting
-   ;; handler is a machine, matching the `:dispatch` fx handler's
-   ;; machine-action discriminator above. The timer dispatches the event
-   ;; after the emitting event returned, so it joins the external lane like
-   ;; every timer callback.
-   ;;
-   ;; The armed host handle is RETAINED in the
-   ;; `dispatch-later-timers` side table (keyed by frame) so
-   ;; `destroy-frame!` can cancel a still-pending timer for a frame torn
-   ;; down before it fires (a fired timer drops its own slot). Without the
-   ;; retain, the armed timer + its captured closure would leak until the
-   ;; delay elapses, and the deferred dispatch would be dead-on-arrival in
-   ;; the destroyed frame.
-   ;; Same shared seam: a numeric `:ms` routes through the
-   ;; frame-owned `dispatch-later-timers` table inside `child-dispatch!`
-   ;; (retain + cancel-on-destroy), carrying the `:source` /
-   ;; `:source-detail {:ms n}` stamps.
-   ;;
-   ;; A missing or non-numeric `:ms` is refused before anything is queued:
-   ;; `child-dispatch!` reads a non-number as "dispatch now", which would turn
-   ;; a typo'd delay into an immediate dispatch nobody asked for. The typed
-   ;; throw reaches the always-on channel through the reserved-fx catch in
-   ;; `handle-one-fx`, and the rest of the `:fx` walk continues.
-   ;;
-   ;; An `:id` names the timer within the frame: arming it again replaces the
-   ;; pending one, and `{:id k :cancel? true}` cancels it. A cancel reads only
-   ;; `:id`, and one without an `:id` is refused like a bad `:ms`.
+   ;; `:source-detail {:ms ms}` lets the Epoch panel show the scheduled delay.
+   ;; A missing or non-numeric `:ms` is refused rather than read as "dispatch
+   ;; now", which would turn a typo'd delay into an immediate dispatch; the
+   ;; typed throw reaches the always-on channel through `handle-one-fx`, and
+   ;; the walk continues. `{:id k :cancel? true}` cancels; a cancel without an
+   ;; `:id` is refused the same way.
    (fn [frame-id parent-envelope {:keys [ms event id cancel?]}]
      (if cancel?
        (do
@@ -861,57 +454,26 @@
                            :source-detail {:ms ms}}))))})
 
 (defn- emit-fx-error!
-  "Fan a runtime `:rf.error/*` fx-category out through BOTH error
-  substrates: the always-on `error-emit` listener registry
-  (axis 1 — production-survivable; the source of truth for off-box
-  shippers and the SSR error projector, which fail-closes
-  `:rf.error/fx-handler-exception` to 500 off this stream — Spec 011
-  §SSR error projection) AND the dev-only trace surface (DCE'd under
-  CLJS `:advanced` + `goog.DEBUG=false`).
-
-  The user-registered-fx exception (`:rf.error/fx-handler-exception`), the
-  unknown-fx-id (`:rf.error/no-such-fx`), the override-fallthrough
-  (`:rf.error/override-fallthrough`) and the reserved-fx typed throws all
-  go through here, because Spec 009 §Error event catalogue lists them as
-  production-reachable runtime errors and the dev trace alone vanishes in
-  production under the gate that strips dev traces.
-
-  `trace-payload` is the dev-trace map for the category.
-
-  Reaches the shared two-channel `emit-error-both!` through the
-  `:error-emit/emit-error-both` late-bind hook — fx.cljc cannot static-require
-  `re-frame.error-emit` (a load cycle). `elapsed-ms 0` (not a timed path);
-  `(rf.interop/now-ms)` is the emit instant.
-
-  The optional trailing `record-attrs` map is `emit-error-both!`'s axis-1-only
-  attribution seam, passed straight through. `:rf.error/effect-map-shape` uses
-  it so ALL THREE of that category's cases put `:offending-key` on the record:
-  the envelope cases emit from `router.cljc` and would otherwise be
-  the only ones carrying it, leaving a consumer that branches on the category
-  to discover its record shape varies by case."
+  "Emit a runtime fx error category on the always-on channel and the dev
+  trace. These are production-reachable (Spec 009 §Error event catalogue),
+  and the SSR projector fail-closes `:rf.error/fx-handler-exception` to 500
+  off the always-on stream (Spec 011 §Server error projection).
+  `trace-payload` is the dev-trace map; `record-attrs` passes through to the
+  always-on record, so every `:rf.error/effect-map-shape` case carries
+  `:offending-key`. Late-bound, since requiring `re-frame.error-emit` here
+  would be a load cycle."
   ([category event event-id frame-id exception trace-payload]
    (emit-fx-error! category event event-id frame-id exception trace-payload nil))
   ([category event event-id frame-id exception trace-payload record-attrs]
-   ;; Both channels via the shared helper: axis 1 the always-on corpus-wide
-   ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
-   ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
-   ;; surface, so in practice it is present).
    (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
      (emit-error-both! category event event-id frame-id exception 0
                        (rf.interop/now-ms) trace-payload record-attrs))))
 
 (defn emit-override-fallthrough!
-  "Surface the canonical `:rf.error/override-fallthrough` diagnostic for a
-  non-applying override `disposition` (a `:fallthrough` from
-  `classify-fx-override`) on BOTH error substrates — the always-on error-emit
-  fan-out (override misconfiguration is production-reachable) and the
-  dev trace. A no-op for `:noop` / `:applied-*` dispositions.
-
-  The ONE emit path `resolve-fx-with-overrides` uses, so a misconfigured
-  override reads identically wherever it is declared.
-  `frame-id` / `origin-event` / `origin-event-id`
-  frame-attribute the emit; the recovery is the framework's own
-  `:replaced-with-default` (use the registered `original-fx-id`)."
+  "Emit `:rf.error/override-fallthrough` for a `:fallthrough` disposition from
+  `classify-fx-override`, on both channels, since override misconfiguration is
+  production-reachable; a no-op for any other disposition. The recovery is
+  `:replaced-with-default`: the registered `original-fx-id` runs."
   [{:keys [disposition reason target value]}
    original-fx-id overrides frame-id origin-event origin-event-id]
   (case disposition
@@ -946,56 +508,26 @@
     nil))
 
 (defn resolve-fx-with-overrides
-  "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides, over the
-  ONE `classify-fx-override` policy.
-
-  Three override-value shapes are honoured (per [002 §`:fx-overrides`](spec/002-Frames.md#fx-overrides--replace-fx-handlers)):
-
-    1. **Missing key** — no override; the original fx-id flows through.
-    2. **Keyword value** — id-redirect: the registered fx at the target id
-       runs in place of the original. If the target is not registered, emit
-       `:rf.error/override-fallthrough` and fall back to the original fx-id.
-       A reserved fx-id is a valid target: an app can already emit it
-       directly. This is the **pattern-level**, portable form (SSR-safe).
-    3. **Function value** `(fn [m args] ...)` — CLJS reference convenience
-       for test fixtures and story decorators. The fn runs in place of the
-       registered fx; no registry lookup against the original fx-id is
-       performed. Spec/002 marks this form as a CLJS-reference local
-       affordance (not portable across the wire); the JVM-side reference
-       (this code) supports it too — `.cljc` is single-source.
-
-  Returns the resolved fx-id (keyword); for the fn-value branch, returns
-  the original-fx-id (used only for trace shape — the actual handler
-  invocation goes through the synthesised meta returned by
-  `resolved-fx-meta`, and `handle-one-fx` emits the
-  `:rf.fx/override-applied` trace at the point the override fn actually
-  fires so the trace cannot claim an override applied while the original
-  ran).
-
-  `frame-id` / `origin-event` / `origin-event-id` carry the
-  cascade context so the `:rf.error/override-fallthrough` emit can be
-  frame-attributed and fanned out through the always-on error-emit
-  substrate (not just the dev trace) — they are otherwise read-only here."
+  "The fx-id to run for `original-fx-id` under `overrides` (Spec 002
+  §`:fx-overrides` — replace fx handlers): a registered redirect target, or
+  `original-fx-id` when there is no override, a fallthrough (after emitting
+  `:rf.error/override-fallthrough`) or a fn value. A reserved fx-id is a
+  valid redirect target. For a fn value, `handle-one-fx` emits
+  `:rf.fx/override-applied` when the fn actually runs, so the trace never
+  claims an override while the original ran."
   [original-fx-id overrides frame-id origin-event origin-event-id]
   (let [disposition (classify-fx-override overrides original-fx-id)]
     (case (:disposition disposition)
-      ;; (3) function value — CLJS-reference convenience. Returns the
-      ;; original-fx-id unchanged; the `:rf.fx/override-applied` trace is
-      ;; emitted by `handle-one-fx` when the override fn actually fires (a
-      ;; fn-value override of a *reserved* fx-id must pre-empt the reserved
-      ;; body — emitting here would fire even on paths that declined it).
+      ;; A fn override of a reserved fx-id must pre-empt the reserved body,
+      ;; so `handle-one-fx` emits the applied trace when the fn runs.
       :applied-fn       original-fx-id
 
-      ;; (2) id-redirect to a registered fx.
       :applied-redirect (do
                           (rf.trace/emit! :rf.fx :rf.fx/override-applied
                                        {:rf.fx/from original-fx-id
                                         :rf.fx/to   (:target disposition)})
                           (:target disposition))
 
-      ;; A real but non-applying override — surface the canonical fallthrough
-      ;; (unregistered keyword or malformed value) through the shared emit
-      ;; path, then fall back to the original fx.
       :fallthrough
       (do
         (emit-override-fallthrough! disposition original-fx-id overrides
@@ -1006,61 +538,32 @@
       original-fx-id)))
 
 (defn- resolved-fx-meta
-  "Return the fx-handler meta to invoke for `original-fx-id` under
-  `overrides`. The fn-value branch synthesises a transient meta that
-  carries the user-supplied lambda as `:handler-fn`; the id-redirect
-  and no-override branches look up the registrar entry under the
-  resolved fx-id.
-
-  Returns `nil` when no handler is resolvable (the caller then emits
-  `:rf.error/no-such-fx`)."
+  "The fx-handler meta to invoke: a synthesised one carrying a fn-value
+  override's fn, else the registrar entry for `resolved-fx-id`; nil when none
+  resolves."
   [original-fx-id resolved-fx-id overrides]
   (let [override (get overrides original-fx-id)]
     (if (and (contains? overrides original-fx-id)
              (fn? override))
-      ;; Function-value override — synthesise a meta with the user's fn.
-      ;; `:platforms` defaults to both so the fn is callable from JVM and
-      ;; browser tests alike (the override is a test/story affordance —
-      ;; gating it by platform would surprise the test author).
+      ;; Both platforms: the override is a test or story affordance, and
+      ;; gating it by platform would surprise its author.
       {:handler-fn override
        :platforms  #{:client :server}}
       (rf.registrar/lookup :fx resolved-fx-id))))
 
 (defn- emit-handled!
-  "Emit a `:rf.fx/handled` success trace for a dispatched fx. Per Spec-Schemas
-  §`:rf/epoch-record` `:effects` projection: every dispatched fx surfaces
-  one entry, with `:outcome :ok` for the success path. The epoch projection
-  consumes this trace; pair tools route off it without re-folding the raw
-  trace stream.
-
-  When called inside the fx-handler's `*handler-scope*` binding (the
-  user-registered fx branch), `emit!` hoists the fx handler's
-  registration coord onto the emitted event's `:rf.trace/trigger-
-  handler` slot — so consumers can jump to the fx's `reg-fx` site
-  from the success trace. Reserved fx-id calls (`:dispatch`,
-  `:dispatch-later`) emit
-  outside any fx-handler binding; the outer event handler's scope
-  (if any) stamps the event handler's coord instead, which is the
-  right attribution for those — they don't have their own
-  registration site."
+  "Emit the `:rf.fx/handled` success trace, one per dispatched fx, which the
+  epoch `:effects` projection consumes (Spec-Schemas §`:rf/epoch-record`).
+  Inside a user fx's handler scope the trace names the `reg-fx` site; a
+  reserved fx-id has none, so the event handler's scope names it."
   ([fx-id args frame-id]
    (emit-handled! fx-id args frame-id nil))
   ([fx-id args frame-id elapsed-ms]
    (emit-handled! fx-id args frame-id elapsed-ms nil))
   ([fx-id args frame-id elapsed-ms from-id]
-   ;; `elapsed-ms` (the wall-clock duration of the fx-handler
-   ;; invoke, dev-only) rides onto `:rf.fx/handled` as `:rf.fx/elapsed-ms`
-   ;; so the Trace panel's DURATION column reads the per-op duration. The
-   ;; slot construction rides `(some? elapsed-ms)` — callers pass nil in
-   ;; production (the brackets ride `rf.interop/debug-enabled?`), so the
-   ;; assoc collapses and the prod emit shape carries no such slot.
-   ;;
-   ;; `from-id` (the ORIGINAL fx-id of a keyword-redirected
-   ;; entry, nil otherwise) rides as `:rf.fx/from` so the classification
-   ;; projector composes the original registration's classification over
-   ;; the redirect target's — and tools see the redirect fact on the
-   ;; handled trace itself, not only on the separate
-   ;; `:rf.fx/override-applied` event.
+   ;; `elapsed-ms` is dev-only, nil in production. `from-id` is a redirect's
+   ;; original id, so the classification projector composes the original
+   ;; registration's classification over the target's.
    (rf.trace/emit! :rf.fx :rf.fx/handled
                 (cond-> {:rf.fx/id   fx-id
                          :rf.fx/args args
@@ -1069,37 +572,15 @@
                    (some? from-id)    (assoc :rf.fx/from from-id)))))
 
 (defn handle-one-fx
-  "Process one [fx-id args] pair. Falls into one of three buckets:
-   1. Reserved fx-id with runtime handling (:dispatch, :dispatch-later, :rf.fx/...).
-   2. User-registered fx looked up via registrar.
-   3. Unknown fx-id — emit :rf.error/no-such-fx and continue.
-
-  Successful dispatches emit `:rf.fx/handled` so the epoch `:effects`
-  projection records one entry per dispatched fx (per Spec-Schemas
-  §`:rf/epoch-record`). Warning and error paths emit their own
-  traces (`:rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`,
-  `:rf.error/no-such-fx`) and do NOT additionally emit `:rf.fx/handled`,
-  so the projection stays one-entry-per-fx.
-
-  `origin-event` (when supplied) is the originating event vector, threaded
-  through to the user-registered fx handler's ctx so handlers like
-  `:rf.http/managed` (Spec 014 §Reply addressing) can address replies back
-  to the originator without a separate cofx-injection step.
-
-  `parent-envelope` (when supplied) is the dispatch envelope of the
-  originating event. Per Spec 002 §The binary fx-handler signature
-  (line 603) and §Drain-loop pseudocode (lines 916, 961-963) it is
-  exposed on the fx-handler ctx at `(:envelope m)` — reserved-fx
-  defmethods (`:dispatch`, `:dispatch-later`) read it to propagate
-  inheritable envelope keys onto child dispatches per
-  §Cascade propagation. User fxs typically only read `(:frame m)`.
-
-  Public so that fx wrappers (per Spec 012 §Navigation tokens
-  `:rf.route/with-nav-token`, and any future single-fx re-entry helper)
-  can route a single inner fx entry through the same machinery as the
-  outer walk — without re-emitting the `:rf.fx/do-fx` boundary marker
-  that `do-fx` terminates each walk with. `do-fx` is the entry
-  point for the whole `:fx` vector."
+  "Process one `[fx-id args]` entry: a reserved fx-id runs its table body, a
+  registered fx its handler, and an unknown one emits `:rf.error/no-such-fx`;
+  the walk continues either way. Only a successful run emits
+  `:rf.fx/handled`, so the epoch `:effects` projection holds one entry per
+  fx. `origin-event` and `parent-envelope` reach the handler's ctx as
+  `:event` and `:envelope`. Public so an fx wrapper such as
+  `:rf.route/with-nav-token` (Spec 012 §Navigation tokens — stale-result
+  suppression) can route one inner entry through the same machinery without
+  re-emitting the `:rf.fx/do-fx` marker."
   ([frame-id pair active-platform overrides origin-event]
    (handle-one-fx frame-id pair active-platform overrides origin-event nil))
   ([frame-id [original-fx-id args] active-platform overrides origin-event parent-envelope]
@@ -1117,74 +598,26 @@
                            (if (rf.registrar/ambiguous-registration? e)
                              (do (vreset! ambiguity e) nil)
                              (throw e))))
-        ;; A function-value override (`{:dispatch (fn [m args] ...)}`)
-        ;; must run IN PLACE OF the registered/reserved fx — per spec/002
-        ;; §`:fx-overrides` the resolution model consults `:fx-overrides`
-        ;; FIRST and `(fn? override) → override` runs unconditionally. For
-        ;; the table-driven reserved fx-ids (`:dispatch`, `:dispatch-later`)
-        ;; `fx-id` is still the reserved keyword (the fn-value branch of
-        ;; `resolve-fx-with-overrides` returns it unchanged), so the
-        ;; `reserved-fx-handlers` lookup below would otherwise fire the
-        ;; reserved body and silently ignore the override. We detect the
-        ;; fn-value override here and route it down the user-fx branch
-        ;; (which invokes `resolved-meta`'s synthesised `:handler-fn`),
-        ;; pre-empting the reserved body for reserved ids and matching the
-        ;; spec resolution order for user ids.
+        ;; A fn override runs in place of the fx, reserved ids included (Spec
+        ;; 002 §`:fx-overrides` — replace fx handlers). `fx-id` is still the
+        ;; reserved keyword here, so without this check the reserved body
+        ;; would run and silently ignore the override.
         fn-value-override? (and (contains? overrides original-fx-id)
                                 (fn? (get overrides original-fx-id)))
-        ;; Keyword-redirect provenance. When `:fx-overrides`
-        ;; id-redirected this entry (`fx-id` ≠ `original-fx-id`), the
-        ;; fx-arg-bearing emits below stamp the ORIGINAL id as `:rf.fx/from`
-        ;; (the same tag vocabulary `:rf.fx/override-applied` uses),
-        ;; so the classification projector (`re-frame.classification/
-        ;; project-fx-tags`) can compose the ORIGINAL registration's static
-        ;; `:sensitive` / `:large` AND its per-fx-id dynamic classification
-        ;; over args the redirect TARGET's registration knows nothing about
-        ;; — a `:sensitive? true` `:rf.http/managed` request redirected to a
-        ;; test stub must not ride raw at the stub's `:rf.fx/handled`
-        ;; / fx-error trace slots. nil when no redirect fired (the fn-value
-        ;; and fallthrough branches resolve to the original id, so only a
-        ;; SUCCESSFUL keyword redirect stamps it).
+        ;; A redirect's original id, stamped as `:rf.fx/from` so the
+        ;; classification projector composes the original registration's
+        ;; classification over the target's: a `:sensitive?` request
+        ;; redirected to a test stub must not ride raw.
         redirected-from (when (not= original-fx-id fx-id) original-fx-id)]
-   ;; Per Spec 009 §Performance instrumentation: every fx
-   ;; invocation — reserved or user-registered — runs inside a perf
-   ;; bracket so prod builds with the perf flag enabled produce a
-   ;; `rf:fx:<fx-id>` measure entry per fx walk-step. Default-off: the
-   ;; bracket DCEs under :advanced + `re-frame.performance/enabled?=false`.
-   ;; The bracket sits at the top of `handle-one-fx` so it covers reserved
-   ;; fx-ids too (`:dispatch`, `:dispatch-later`) — without that, an app whose handlers only
-   ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
-   ;; flag on.
+   ;; At the top, so reserved fx-ids get their `rf:fx:<id>` measure too
+   ;; (Spec 009 §Performance instrumentation).
    (rf.performance/mark-and-measure :fx fx-id
     (if-let [reserved-body (and (not fn-value-override?)
                               (get reserved-fx-handlers fx-id))]
-    ;; Reserved fx-id — dispatch through the table; one uniform
-    ;; `:rf.fx/handled` emit follows. The `:rf.machine/spawn` and
-    ;; `:rf.machine/destroy` machine fx-ids are NOT in this table —
-    ;; they are registered by re-frame.machines (day8/re-frame2-machines)
-    ;; via the regular reg-fx path and arrive here through the
-    ;; registrar default below. The reserved-fx body signature is
-    ;; `(fn [frame-id parent-envelope args])` — `:dispatch` /
-    ;; `:dispatch-later` read parent-envelope to propagate
-    ;; inheritable envelope keys per Spec 002 §Cascade propagation.
-    ;;
-    ;; Generic typed-throw routing: if a reserved-fx body throws with the
-    ;; canonical
-    ;; `:rf.error/id` discriminator slot (per Spec 009 §The
-    ;; thrown-error shape) carrying a keyword category, route it
-    ;; through the always-on `error-emit` substrate so prod monitors
-    ;; get the typed signal; ex-data is preserved verbatim including
-    ;; any reserved-fx-specific slots. Reached via
-    ;; the late-bind hook `:error-emit/dispatch-on-error` (fx.cljc
-    ;; cannot statically require error-emit — would form a load
-    ;; cycle). Untyped throws re-throw to keep the crash-loud
-    ;; contract. Routing generically keeps reserved-fx-specific
-    ;; error keywords out of core/fx.cljc so they DCE from consumer
-    ;; bundles that don't use the offending fx.
+    ;; A typed throw, one carrying `:rf.error/id`, goes to the always-on
+    ;; channel with its ex-data kept, so a reserved fx's error keywords live
+    ;; with the fx that throws them. An untyped throw is rethrown, crash-loud.
     (try
-      ;; Wall-clock the reserved-fx body (dev-only) so
-      ;; `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The `now-ms`
-      ;; brackets ride `rf.interop/debug-enabled?` (nil in prod → DCE).
       (let [t0 (when rf.interop/debug-enabled? (rf.interop/now-ms))]
         (reserved-body frame-id parent-envelope args)
         (emit-handled! fx-id args frame-id
@@ -1196,20 +629,6 @@
           (if (keyword? category)
           ;; Nil-safe: a thrown non-Error value has no message.
           (let [msg (rf.error/ex-message-safe e)]
-            ;; Both channels via the shared `emit-fx-error!` helper:
-            ;; axis 1 the always-on per-error observability
-            ;; fan-out (sticky hook; survives
-            ;; `:advanced` + `goog.DEBUG=false`), axis 2 the dev trace
-            ;; (DCE'd in CLJS prod). `emit-fx-error!` reaches the shared
-            ;; two-channel `emit-error-both!` through the
-            ;; `:error-emit/emit-error-both` late-bind hook (fx cannot
-            ;; static-require error-emit — load cycle), stamping
-            ;; `elapsed-ms 0` + `(rf.interop/now-ms)` internally — the same
-            ;; two-step the three other fx error sites
-            ;; (`:rf.error/no-such-fx`, `:rf.error/fx-handler-exception`,
-            ;; `:rf.error/override-fallthrough`) route through. The typed
-            ;; category + reserved-fx-specific ex-data slots ride verbatim
-            ;; via the merged trace-payload.
             (emit-fx-error! category origin-event origin-event-id frame-id e
                             (merge {:failing-id        fx-id
                                     :rf.fx/id          fx-id
@@ -1219,101 +638,42 @@
                                     :exception-message msg
                                     :recovery          :no-recovery}
                                    (dissoc ex-data-map :rf.error/id))))
-          ;; Untyped reserved-fx throw — preserve crash-loud
-          ;; contract by re-throwing.
             (throw e)))))
-    ;; Default: user-registered fx — OR a synthesised meta carrying a
-    ;; function-value override (per `resolved-fx-meta` above; the
-    ;; spec/002 CLJS-reference convenience form). `resolved-meta` is
-    ;; computed once at top of `handle-one-fx` so the fallthrough
-    ;; honours both registry hits and the fn-value override branch
-    ;; without a second lookup.
+    ;; A registered fx, or the synthesised meta of a fn override.
     (if-let [meta resolved-meta]
     (if (runs-on-platform? meta active-platform)
-      ;; Per Spec 010 §Validation order step 5: before the
-      ;; fx handler runs, validate its args against any `:schema` on
-      ;; the fx's registration meta. The schemas artefact is optional
-      ;; — when absent or when no `:schema` is registered, the
-      ;; late-bind hook resolves nil or the guard short-circuits and
-      ;; the call is a no-op (true / pass).
-      ;; On failure (returns false) the offending fx is skipped (per
-      ;; Spec 010 §Per-step recovery row 5: `:recovery :skipped`) and
-      ;; the walk continues with the next entry in the `:fx` vector —
-      ;; sibling fx are not impacted, the cascade does not halt.
-      ;; `validate-fx!` itself emits the `:rf.error/schema-validation-
-      ;; failure :where :fx-args` trace; this caller only honours the
-      ;; boolean.
-      ;; Sticky hook — fires per-fx invocation.
-      ;; KEY-presence, not value truthiness: a present nil /
-      ;; false `:schema` on the fx registration is a declaration — consult
-      ;; `validate-fx!`, which delegates the exact token to the registered
-      ;; validator. Only an ABSENT key short-circuits to pass.
+      ;; Validate `args` against the fx's `:schema` (Spec 010 §Validation
+      ;; order on event processing). Key presence, not truthiness: a present
+      ;; nil or false `:schema` is a declaration the validator interprets. A
+      ;; failed fx is skipped and the walk continues.
       (let [validate-fx! (rf.late-bind/get-fn :schemas/validate-fx!)
             fx-ok?       (if (and validate-fx!
                                   (contains? meta :schema))
                            (try
-                             ;; Pass the in-flight cascade's
-                             ;; frame so the `:where :fx-args` failure trace
-                             ;; carries `:frame` and lands in the per-frame
-                             ;; epoch `:trace-events` (epoch capture buffers
-                             ;; only frame-tagged traces). Mirrors the
-                             ;; `:where :app-db` / `:where :event` traces.
+                             ;; The frame lets the failure trace land in the
+                             ;; frame's epoch.
                              (validate-fx! fx-id origin-event-id args meta frame-id)
                              (catch #?(:clj Throwable :cljs :default) _
                                true))
                            true)]
       (cond
         (not fx-ok?)
-        ;; Schema validation failed — the offending fx is skipped.
-        ;; `validate-fx!` already emitted the structured error trace;
-        ;; do NOT emit `:rf.fx/handled` (the fx did not run) and do
-        ;; NOT emit a sibling warning (the schema-validation-failure
-        ;; trace IS the warning, per Spec 010).
+        ;; `validate-fx!` already emitted the failure, which is the warning;
+        ;; no `:rf.fx/handled`, since the fx did not run.
         nil
 
         :else
-        ;; Publish the fx handler's HandlerScope — `:trigger-handler`
-        ;; for the fx handler's invocation AND the success-path
-        ;; `:rf.fx/handled` emit; `:no-emit?` per Spec 009
-        ;; "innermost handler wins". (`:sensitive?` is path-marked
-        ;; via schema-slot meta, not a handler-meta annotation.)
-        ;; Errors emitted from
-        ;; inside the fx body carry the fx handler's source-coord;
-        ;; the success-path `:rf.fx/handled` emit picks up the same
-        ;; coord through `emit!`'s hoist of `*handler-scope*` — the
-        ;; outer event handler's scope would otherwise stamp the
-        ;; event handler's coord onto the
-        ;; `:rf.fx/handled` event (Story/Xray want jump-to-source to
-        ;; land on the fx handler's `reg-fx` site, not the event
-        ;; handler that produced the fx vector). `:call-site` /
-        ;; `:dispatch-id` are inherited from the outer scope.
+        ;; The fx's own scope, so its errors and its `:rf.fx/handled` trace
+        ;; name its `reg-fx` site rather than the event handler's.
         (rf.trace/with-handler-scope
           (rf.trace/handler-scope-from-meta :fx fx-id meta)
-          ;; Emit `:rf.fx/override-applied` HERE — at the
-          ;; point the fn-value override actually fires — not during
-          ;; resolution, so it fires iff the override fn is about to be
-          ;; invoked. Emitting at resolution time would claim an override
-          ;; applied on paths where the original ran instead.
-          ;; `:rf.fx/to ::fn-value` marks the
-          ;; CLJS-reference fn-value form (the keyword form's trace is
-          ;; emitted by `resolve-fx-with-overrides` with its target id).
+          ;; Emitted where the fn override actually fires, so it never claims
+          ;; an override on a path where the original ran.
           (when fn-value-override?
             (rf.trace/emit! :rf.fx :rf.fx/override-applied
                          {:rf.fx/from original-fx-id :rf.fx/to ::fn-value}))
-          ;; Wall-clock the user fx-handler invoke (dev-only)
-          ;; so `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The
-          ;; `now-ms` brackets ride `rf.interop/debug-enabled?` (nil in
-          ;; prod → DCE under :advanced).
           (let [t0  (when rf.interop/debug-enabled? (rf.interop/now-ms))
               ok? (try
-                    ;; Per Spec 002 §The binary fx-handler signature
-                    ;; (line 603): the fx-handler ctx carries `:frame`
-                    ;; (active frame id), `:event` (origin event
-                    ;; vector — Spec 014 §Reply addressing), and
-                    ;; `:envelope` (parent dispatch envelope — read
-                    ;; by reserved fxs only; surfaced here too so
-                    ;; user fxs can observe `:trace-id` / `:origin`
-                    ;; / `:source` without a separate cofx hop).
                     ((:handler-fn meta) (cond-> {:frame frame-id}
                                           origin-event   (assoc :event origin-event)
                                           parent-envelope (assoc :envelope parent-envelope))
@@ -1322,14 +682,9 @@
                     (catch #?(:clj Throwable :cljs :default) e
                       ;; Nil-safe: a thrown non-Error value has no message.
                       (let [msg (rf.error/ex-message-safe e)]
-                      ;; A thrown registered fx is
-                      ;; production-survivable (Spec 009/011) — fan it
-                      ;; out through the always-on error-emit listener
-                      ;; so SSR fails-closed to 500 and off-box shippers
-                      ;; see it, NOT just the dev trace. The fx is
-                      ;; skipped, siblings still fire, app-db is NOT
-                      ;; rolled back (the fx-walk semantics).
-                      ;; Mirrors the reserved-fx typed-throw path above.
+                      ;; Always-on, so SSR fails closed to 500 and off-box
+                      ;; shippers see it. The fx is skipped, its siblings
+                      ;; still run, and app-db is not rolled back.
                       (emit-fx-error!
                         :rf.error/fx-handler-exception
                         origin-event
@@ -1344,10 +699,8 @@
                                  :exception-message msg
                                  :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
                                  :recovery          :no-recovery}
-                          ;; Redirect provenance on the
-                          ;; always-on error trace too: the projector
-                          ;; must reach the ORIGINAL id's classification
-                          ;; when a redirected stub throws mid-args.
+                          ;; The projector must reach the original id's
+                          ;; classification when a redirected stub throws.
                            redirected-from (assoc :rf.fx/from redirected-from)))
                         false)))]
             (cond
@@ -1368,31 +721,11 @@
                      ;; Same provenance on the skip trace: it
                      ;; stamps the same [:rf.fx/id :rf.fx/args] pair.
                      redirected-from (assoc :rf.fx/from redirected-from))))
-    ;; An unknown fx-id is a production-reachable runtime
-    ;; error (Spec 009 §Error event catalogue) — fan it out through the
-    ;; always-on listener so load-order / optional-artefact mistakes are
-    ;; visible in production, not only under dev traces. The fx is
-    ;; dropped; the cascade continues with the remaining `:fx` entries.
-    ;;
-    ;; `:failing-id fx-id` is what makes the ALWAYS-ON record
-    ;; name WHICH fx was missing. Spec 009 §Observability channels states
-    ;; the attribution rule generally: every always-on error record carries
-    ;; `:failing-id` naming the failing COMPONENT's own code identifier
-    ;; whenever that component is DISTINCT from the dispatched event. Here
-    ;; `:event-id` is the DISPATCHING event and the unregistered fx-id is the
-    ;; failing component, so `emit-error-both!`'s lift applies — without this
-    ;; key the id would ride ONLY `:rf.fx/id` on the dev-trace tags (DCE'd
-    ;; under `:advanced` + `goog.DEBUG=false`) and an off-box shipper would
-    ;; learn an fx was missing but not which one. The two sibling fx emit
-    ;; sites in this file (`fx-handler-exception`, `override-fallthrough`)
-    ;; stamp it too.
-    ;;
-    ;; The lifted slot is a bare code identifier — the same privacy class as
-    ;; `:event-id`, and the tight-record discipline is intact: `:rf.fx/args`
-    ;; stays on the dev trace and does NOT reach the production record.
-    ;; This category defines no `:reason`, and `dispatch-on-error!` drops
-    ;; nil-valued attribution slots, so the record carries exactly one
-    ;; attribution key.
+    ;; Always-on, so a load-order or missing-artefact mistake shows in
+    ;; production. `:failing-id` makes the record name which fx was missing:
+    ;; the fx is a component distinct from the dispatching event, so the lift
+    ;; applies (Spec 009 §Observability channels and the promotion criterion).
+    ;; It is a bare code identifier; `:rf.fx/args` stays on the dev trace.
     (if-let [ambiguous @ambiguity]
       (let [{:keys [registration namespaces reason]} (ex-data ambiguous)]
         (emit-fx-error! :rf.error/ambiguous-registration
@@ -1422,43 +755,15 @@
                        :recovery   :no-recovery}))))))))
 
 (def framework-coeffect-keys
-  "Coeffect keys populated by the runtime itself (not by user-registered
-  `reg-cofx` suppliers declared via `:rf.cofx/requires`). Filtered OUT of
-  the `:rf.event/coeffects` stamp on `:rf.event/run-end` so the
-  Xray Epoch panel's COEFFECT step shows only handler-declared coeffects.
-
-  `:db` + `:event` are populated by `assemble-initial-ctx`.
-  `:source` + `:trace-id` are envelope keys also surfaced on the cofx
-  map by `assemble-initial-ctx` for handler-body convenience.
-  `:rf.db/runtime` (the runtime-db partition) + `:rf.frame/id` (the
-  runtime-context frame id, the event-context spelling of the frame
-  stamp per Spec 002 §Event context) are the EP-0001 partition coeffects,
-  likewise injected by `assemble-initial-ctx` — framework defaults, not
-  user cofx.
-  `:rf.cofx` (the EP-0017 flat recordable-coeffect map) is a framework
-  coeffect stamped at envelope construction, so it
-  is filtered out here exactly like the other framework defaults — the
-  COEFFECT step shows only genuinely handler-declared coeffects (Spec
-  002 §Event Context And Coeffects).
-  `:rf.cofx/mint-policy` is the resolved effective mint policy
-  stamped by `assemble-initial-ctx` so the machine ensure path can read it; a
-  framework default, not user cofx, so it is filtered out here too."
+  "Coeffect keys the runtime supplies itself, filtered out of the
+  `:rf.event/coeffects` run-end stamp so tools show only handler-declared
+  coeffects."
   #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
     :rf.cofx/mint-policy})
 
 (defn user-injected-coeffects
-  "Project the user-injected subset of a coeffects map. Pure data → data.
-
-  Filters out the framework-default keys per `framework-coeffect-keys`.
-  Returns nil when the projection is empty (so the caller can use
-  `(when ...)` to skip the trace stamp entirely — consumers treat ABSENT
-  `:rf.event/coeffects` as 'no user-injected coeffects', distinct from
-  an empty map which would itself be a 'stamped but empty' signal).
-
-  Called from `re-frame.router/emit-pipeline-trailers!` to stamp the
-  per-event user-cofx subset onto `:rf.event/run-end` (not `:rf.fx/do-fx`,
-  so events that return only `:db` — no `:fx` — also get a COEFFECTS row in
-  the Xray Event lens)."
+  "`coeffects` without `framework-coeffect-keys`, or nil when nothing is left,
+  so the caller omits the stamp: an absent slot means no user coeffects."
   [coeffects]
   (when (map? coeffects)
     (let [projected (reduce-kv (fn [acc k v]
@@ -1472,69 +777,20 @@
 
 ;; ---- per-entry :fx-shape policing -----------------------------------------
 ;;
-;; `events.cljc/effect-map-defect` polices the whole `:fx` VALUE at the router's
-;; FINAL-effects boundary: a non-`nil`, non-sequential value (`{:fx :oops}`)
-;; REFUSES the event pre-commit so it never reaches `do-fx`. This is
-;; the level DOWN: an individual ENTRY inside an otherwise-well-shaped `:fx`
-;; vector — and the granularity line falls on the commit boundary. The envelope
-;; is pre-commit, so it is transactional; these rows are already on the
-;; post-commit best-effort do-fx plane, so a bad row is DROPPED and its
-;; siblings still run (`:logged-and-skipped`).
-;;
-;; Per `:rf/effect-map` (Spec-Schemas §:rf/effect-map) each entry is a
-;; `[:tuple :keyword :any]` — a `[fx-id args]` vector. A bare
-;; `(when (and (vector? pair) (seq pair)) …)` guard would (a) silently
-;; drop EVERY non-vector entry with no diagnostic — including the clear
-;; typo `{:fx [[:good a] :oops]}` (a bare keyword where a `[fx-id args]` pair
-;; was meant) — and (b) wave ANY non-empty vector through, so a non-keyword
-;; head (`["not-a-keyword" {}]`) would reach `handle-one-fx` and be mis-reported
-;; as `:rf.error/no-such-fx` (wrong diagnostic), and a surplus tuple field
-;; (`[:some/fx {:used true} {:dropped true}]`) would be SILENTLY truncated because
-;; `handle-one-fx` destructures only `[original-fx-id args]`. Both are shape
-;; violations; the framework polices them loudly elsewhere (interceptors-in-
-;; metadata, M-8 effect keys, the `:fx` value shape) so it does here too.
-;;
-;; We tolerate the legitimately-empty idiom and police every clear typo:
-;;
-;;   nil / [] (empty)        → silent no-op. The documented conditional-fx
-;;                             idiom `[(when cond? [:fx-id args])]` nil-pads
-;;                             entries on purpose; a `[]` is likewise a
-;;                             deliberate no-op. NO trace.
-;;   [:fx-id] / [:fx-id args]→ walked normally. A 1- or 2-element vector whose
-;;                             head is a keyword is the documented pair (the
-;;                             1-arity no-args shorthand `[:fx-id]` is in wide
-;;                             use, e.g. `[[:fx-test/a] [:fx-test/b]]`; the
-;;                             2-arity carries args). An unregistered fx-id head
-;;                             is policed downstream by `handle-one-fx`'s
-;;                             :rf.error/no-such-fx path — not our concern here.
-;;   vector, NON-keyword head→ shape violation. `["not-a-keyword" {}]` is NOT an
-;;                             unknown fx-id, it is a bad fx-id type. Emit
-;;                             :rf.error/effect-map-shape, drop, siblings run.
-;;   vector, arity ≥ 3       → shape violation. The surplus slot would be
-;;                             silently discarded by `handle-one-fx`. Emit
-;;                             :rf.error/effect-map-shape, drop, siblings run.
-;;   non-`nil`, non-empty,   → the clear typo (a keyword / map / string / number
-;;   NON-vector entry          / list where a `[fx-id args]` vector was meant).
-;;                             Emit :rf.error/effect-map-shape naming the entry +
-;;                             handler (recovery :logged-and-skipped — the
-;;                             post-commit fx plane is best-effort) and DROP just
-;;                             that entry — sibling entries still run, the
-;;                             cascade is not aborted.
+;; One level below `events/effect-map-defect`, which refuses the whole event
+;; pre-commit on a malformed `:fx` value. An entry is already on the
+;; post-commit, best-effort plane, so a malformed one is dropped with a
+;; diagnostic and its siblings still run. Policed loudly because a lax guard
+;; would drop a bare keyword silently, report a non-keyword head as
+;; `:rf.error/no-such-fx`, and truncate a third element without a word
+;; (Spec-Schemas §`:rf/effect-map`).
 
 (defn- fx-entry-ok?
-  "True iff an individual `:fx` entry `pair` is shaped well enough to walk —
-  i.e. `nil`, an empty collection (both the legal conditional-fx no-op), or a
-  1- or 2-element vector whose head is a keyword (the documented `[fx-id]` /
-  `[fx-id args]` pair — the 1-arity no-args shorthand is supported because
-  `handle-one-fx` destructures `args` as `nil` for it). Anything else is a
-  shape violation: a non-`nil`, non-empty, NON-vector entry (forgot-the-inner-
-  vector typo), a vector with a NON-keyword head (bad fx-id type — would be
-  mis-reported as an unknown fx-id), or a vector of arity ≥ 3 (the surplus
-  slot would be silently truncated by `handle-one-fx`). On a violation, emit
-  :rf.error/effect-map-shape naming the offending entry + handler and return
-  false so the walk drops just that entry — siblings still run. `event` (the
-  originating event vector, when supplied) names the offending handler; absent
-  ⇒ the trace degrades gracefully (nil event-id)."
+  "True when `pair` should be walked: a 1- or 2-element vector headed by a
+  keyword. nil and empty collections are the conditional-fx no-op idiom:
+  false, with no trace. Anything else emits `:rf.error/effect-map-shape` with
+  recovery `:logged-and-skipped` and returns false, dropping only that entry.
+  `event` names the handler in the diagnostic."
   [pair frame-id event]
   (cond
     ;; Legal no-op: nil or empty — the conditional-fx idiom. Skip, no trace.
@@ -1545,8 +801,7 @@
     (and (coll? pair)
          (empty? pair))       false        ;; empty [] / () — legal no-op, no trace
     :else
-    ;; A shape violation. Three sub-cases, distinguished only for the human-
-    ;; facing :reason; all drop the entry + emit one :rf.error/effect-map-shape.
+    ;; Three sub-cases, told apart only for `:reason`.
     (let [event-id (when (vector? event) (first event))
           reason   (cond
                      (not (vector? pair))
@@ -1569,13 +824,9 @@
                           "entry must be a `[fx-id args]` vector of at most two elements "
                           "(e.g. `[:dispatch [:saved]]` or the no-args `[:fx-id]`)"
                           " — the surplus element(s) would be silently discarded."))]
-      ;; Channel: BOTH axes. The whole `:rf.error/effect-map-shape`
-      ;; category is always-on — the envelope cases (a)/(b) refuse the event at
-      ;; the router's FINAL-effects boundary, and this entry-level case rides
-      ;; the same channel so a production build hears about a dropped `:fx`
-      ;; entry too. `:failing-id` EQUALS `:event-id`, so `emit-error-both!`'s
-      ;; component-attribution lift does not fire and the interpolating
-      ;; `:reason` stays on the DCE'd dev trace.
+      ;; Always-on, like the envelope cases. `:failing-id` equals `:event-id`,
+      ;; so the lift does not fire and the interpolating `:reason` stays on the
+      ;; dev trace.
       (emit-fx-error! :rf.error/effect-map-shape
                       event event-id frame-id nil
                       {:failing-id        event-id
@@ -1593,110 +844,46 @@
 ;; ---- dry-run effect sink --------------------------------------------------
 
 (def ^:dynamic *effect-sink*
-  "Dry-run EFFECT SINK. When bound to an atom holding a vector, `do-fx`
-  RECORDS every source-ordered, well-shaped `[fx-id args]` entry into it and
-  SKIPS execution ENTIRELY — no `:fx-overrides` resolution, no reserved-fx
-  body, no user handler, no frame-image / inline fx runs. `nil` (the default)
-  is the normal execute path.
-
-  This makes a dry-run STRUCTURALLY unable to execute an effect: interception
-  is at the SINGLE universal effect executor (`do-fx`), BEFORE any per-fx
-  resolution, so it covers the reserved fx (`:rf.machine/spawn`,
-  `:rf.machine/destroy`, `:rf.route/with-nav-token`), frame-image / inline / hot-registered fx, and
-  unknown ids WITHOUT enumerating the registrar. Every `do-fx` call within the
-  bound dynamic extent — the top-level event fx walk, a machine exit-cascade
-  walk, a resource-release walk — records-and-skips, so no effect body escapes.
-
-  The re-frame2-pair dry-run primitive binds this around a `dispatch-sync`,
-  reads the recorded vector, then rolls the tentative `:db` back via
-  `restore-epoch!`; no handler runs before that rollback. INTERNAL — a
-  trusted-in-process dev-tool seam, NOT a `re-frame.core` facade export."
+  "Dry-run sink. Bound to an atom holding a vector, `do-fx` records every
+  well-shaped `[fx-id args]` entry into it and executes nothing: no override
+  resolution, no reserved body, no handler. Intercepting at the one effect
+  executor, before per-fx resolution, makes a dry run structurally unable to
+  fire any fx, inline and machine fx included. The re-frame2-pair dry run
+  binds it around a `dispatch-sync`, then rolls `:db` back with
+  `restore-epoch!`. Internal; not a `re-frame.core` export."
   nil)
 
 (defn do-fx
-  "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
-  each entry's handler returns synchronously before the next begins.
-  Errors trace independently and the walk continues (rule 4: one bad
-  fx does not halt the rest).
+  "Walk `fx-vec` in source order, each handler returning before the next
+  begins; a failing entry is reported and the walk continues (Spec 002 §`:fx`
+  ordering and atomicity guarantees). Malformed entries are dropped by
+  `fx-entry-ok?`. With `*effect-sink*` bound, entries are recorded, not run.
+  When the walk wrote the state of a frame running a flow, one settle is
+  enqueued at the end.
 
-  Per-entry shape policing: each entry passes through
-  `fx-entry-ok?` before dispatch. A `nil` / empty entry is the legal
-  conditional-fx no-op (skipped, no trace); a non-`nil`, non-empty
-  NON-vector entry (the forgot-the-inner-vector typo) emits
-  :rf.error/effect-map-shape and is dropped while sibling entries still
-  run. This composes one level down from the whole-`:fx`-value check
-  (events.cljc/`effect-map-defect`), which REFUSES the event on a
-  non-sequential `:fx` value before it reaches this walk.
-
-  Dry-run: when `*effect-sink*` is bound, each well-shaped
-  `[fx-id args]` entry is RECORDED into it and its execution is SKIPPED — no
-  override resolution, no reserved-fx body, no handler runs. This is the
-  single universal effect-execution choke point, so binding the sink makes a
-  dry-run structurally unable to fire ANY fx. See `*effect-sink*`.
-
-  Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
-  may be provided via `opts`. Each [fx-id args] is rewritten through that
-  map before lookup.
-
-  Optional `opts` map, keyword-keyed:
-
-    :overrides        an fx-id override map (Spec 002 §Per-frame and
-                      per-call overrides). Each [fx-id args] is rewritten
-                      through it before lookup. Defaults to `{}`.
-    :origin-event     the originating event vector, passed through to
-                      user-registered fx handlers as `:event` on their
-                      ctx — needed by Spec 014 §Reply addressing (the fx
-                      captures the originating event-id from the dispatch
-                      envelope's cofx).
-    :parent-envelope  the originating dispatch envelope, threaded to
-                      reserved-fx defmethods (and exposed at `(:envelope
-                      m)` on user-fx ctx) per Spec 002 §The binary
-                      fx-handler signature (line 603) + §Drain-loop
-                      pseudocode (lines 916, 961-963). Reserved-fx bodies
-                      for `:dispatch` / `:dispatch-later` read it to
-                      propagate inheritable keys onto the child dispatch
-                      per §Cascade propagation.
-    :effects          the originating handler's full effects map (the
-                      closed `{:db ... :fx ...}` shape). Used ONLY to
-                      stamp shape info onto the terminating
-                      `:rf.fx/do-fx` trace marker's `:tags`: `:fx` (the
-                      vector returned) and
-                      `:db-present?` (boolean, true iff the handler
-                      returned a `:db` slot). NOT threaded into per-fx
-                      invocations — fx handlers already receive the
-                      effects shape they need via per-fx args. Absent ⇒
-                      the trace marker degrades gracefully (no `:fx` /
-                      `:db-present?` slots).
-
-  The 3-arity (no `opts`) is the bare machine-exit / cascade-fx walk
-  shape; the router supplies the full opts map once per drained event.
-
-  The `:coeffects` stamp rides on `:rf.event/run-end`, not on this marker,
-  so it is present whether or not the handler returned `:fx`."
+  `opts`: `:overrides`, the effective `:fx-overrides`; `:origin-event` and
+  `:parent-envelope`, passed to handlers as `:event` and `:envelope`; and
+  `:effects`, the handler's effects map, used only to stamp `:fx` and
+  `:db-present?` on the terminal `:rf.fx/do-fx` marker. The 3-arity is the
+  bare walk machine exit cascades use."
   ([frame-id fx-vec active-platform]
    (do-fx frame-id fx-vec active-platform nil))
   ([frame-id fx-vec active-platform
     {:keys [overrides origin-event parent-envelope effects]}]
-   ;; Spec 013 §Sequencing — the baseline for the settle's trigger: the frame
-   ;; state as this walk found it, i.e. after the event's flow pass and
-   ;; install. One read, compared by identity when the walk ends
-   ;; (`walk-changed-flowed-frame-state?`).
+   ;; The settle's baseline: the frame state after this event's flow pass and
+   ;; install, compared by identity when the walk ends.
    (let [state-at-walk-start (rf.frame/frame-state-value frame-id)]
      (loop [pairs (seq fx-vec)]
        (cond
          (nil? pairs)
          (do
-           ;; Stamp `:fx` + `:db-present?` onto the terminal marker.
            (rf.trace/emit! :rf.fx :rf.fx/do-fx
                         (cond-> {:frame frame-id}
                           (some? effects)
                           (assoc :rf.event/fx          (:fx effects)
                                  :rf.event/db-present? (contains? effects :db))))
-           ;; Spec 013 §Sequencing: the walk is over, so the frame state is in
-           ;; its final shape for this event — settle this frame's flows if the
-           ;; walk wrote it. AFTER the terminal `:rf.fx/do-fx` marker so the
-           ;; settle's own dispatch trace reads as what it is, a consequence of
-           ;; the completed walk rather than part of it.
+           ;; After the terminal marker, so the settle's dispatch trace reads as
+           ;; a consequence of the walk rather than part of it.
            (settle-flows-after-walk! frame-id parent-envelope
                                      state-at-walk-start))
 
