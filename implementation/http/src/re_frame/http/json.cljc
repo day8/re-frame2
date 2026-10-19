@@ -129,7 +129,12 @@
   Cheshire branch installs a `:key-fn` callback that counts distinct
   keys in a HashSet and throws on overflow; the CLJS branch walks the
   parsed JS tree counting unique object-keys BEFORE
-  `js->clj :keywordize-keys true` interns them."
+  `js->clj :keywordize-keys true` interns them.
+
+  A JSON array is a vector at every depth on both hosts. Cheshire returns a
+  TOP-LEVEL array as a lazy seq (nested arrays already as vectors), so the
+  JVM branch makes it a vector, as `js->clj` gives on CLJS; a `[:vector …]`
+  schema then accepts the same body on either host."
   ([s] (json-parse s nil))
   ([s opts]
    (let [max-keys (long (or (:max-decoded-keys opts) default-max-decoded-keys))]
@@ -141,7 +146,8 @@
                                  (when (> (.size seen) max-keys)
                                    (throw (too-many-keys-ex max-keys))))
                                (keyword k))]
-                  (cheshire/parse-string s key-fn)))
+                  (let [parsed (cheshire/parse-string s key-fn)]
+                    (if (seq? parsed) (vec parsed) parsed))))
         :cljs (when (string? s)
                 ;; Mirror the JVM Cheshire branch's
                 ;; `(when (string? s) ...)` guard so both hosts return nil
