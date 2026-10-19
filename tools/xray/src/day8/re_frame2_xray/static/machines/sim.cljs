@@ -772,14 +772,9 @@
 
   `sim` / `transitions` / `suggestions` are the sub values
   threaded down from the `detail` boundary (`definition_detail`),
-  via `body`. SimRail is a plain fn invoked as a Reagent component, so it
-  renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
-  frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns do not pick
-  up the surrounding frame; a bare `subscribe` here throws
-  `:rf.error/no-frame-context` and crashes the whole Static surface).
-  The boundary body reads `:sim-state` / `:sim-available-transitions` /
-  `:sim-event-suggestions` where the frame IS in context and passes the
-  values down."
+  via `body`: SimRail reads nothing itself. The boundary body reads
+  `:sim-state` / `:sim-available-transitions` / `:sim-event-suggestions`
+  and passes the values down."
   [dispatch {:keys [sim transitions suggestions]}]
   (let [machine-id (:machine-id sim)
         ;; The `:after` timer rows are derived HERE rather than

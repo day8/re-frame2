@@ -33,7 +33,7 @@ and which cached reads it changes.
 ```
 
 This assumes the endpoint returns `{:article {...}}`, with the same response
-for every viewer. `:params-schema` describes the values identifying the read;
+for every viewer. `:params-schema`, which is optional, describes the values identifying the read;
 `:scope` describes who can share its cached answer. The request function is
 the third argument and returns [managed-HTTP args](../async/http.md).
 Registration itself sends nothing.
@@ -123,6 +123,14 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
         "Refresh"]])))
 ```
 
+This view rebuilds the route's params because its Retry and Refresh buttons
+dispatch the query. A view that only reads what its route planned names the
+read by resource id instead: `@(subscribe [:rf/route-resource :app/article])`
+reads the identity the route ensured, so a restated params map cannot drift
+from it. A route that plans no such read projects `:status :unplanned`; one
+that plans the resource under two identities raises
+`:rf.error/resource-route-read-ambiguous`.
+
 | Status | Meaning | Useful UI |
 |---|---|---|
 | `:idle` | No load has started, or a first load was cancelled | Placeholder |
@@ -131,6 +139,7 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
 | `:fetching` | Refresh in flight, keeping existing data | Content and a small progress indicator |
 | `:error` | First load failed | Error and retry action |
 | `:unresolved` | The scope resolver returned `nil`, so the read has no identity yet | A sign-in prompt or a restoring line |
+| `:unplanned` | A `[:rf/route-resource …]` read whose route does not plan the resource | Usually nothing: the page is not the route's |
 
 The cell below runs the registration, route and view from this page against
 a stub transport, and shows the raw status above the view. The `draft` link's
@@ -244,24 +253,26 @@ identity is known before loading that resource. Scope selects a cache entry;
 your server still authenticates and authorizes the request.
 
 When the resolver's inputs change, a subscription reads the new key without
-fetching. If the route stays the same, dispatch
-`[:rf.route/replan-resources {:cause :account-changed}]` after committing the
-new identity. The [scope tutorial](tutorial/04-scopes-and-guards.md) handles
-session restoration, logout and that replan together.
-
-Resolve a departing user's scope from the event's `db` before removing the
-identity, then pass the concrete value to `clear-scope`:
+fetching. A change of identity — login, logout, an account switch — is one
+event, dispatched from the handler that commits the new identity:
+`:rf.resource/change-principal` clears the scopes the departing user held,
+then replans the current route under the new identity. Resolve the departing
+scopes from the event's `db`, which still describes who is leaving:
 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :app/session)]
-      {:db (dissoc db :auth)
-       :fx (cond-> []
-             old-scope
-             (conj [:dispatch [:rf.resource/clear-scope
-                               {:scope old-scope :cause :logout}]]))})))
+    {:db (dissoc db :auth)
+     :fx [[:dispatch [:rf.resource/change-principal
+                      {:from  [(rf/resolve-resource-scope db :app/session)]
+                       :cause :logout}]]]}))
 ```
+
+A `nil` in `:from` — a resolver with nothing to name — is skipped. The clear
+matters as much as the replan: an old entry that something still owns would
+otherwise be refetched on focus or a poll tick with the new user's
+credentials. The [scope tutorial](tutorial/04-scopes-and-guards.md) handles
+session restoration and logout with it.
 
 ## Owners, causes, refetch rules
 

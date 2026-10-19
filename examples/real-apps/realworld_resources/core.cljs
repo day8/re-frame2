@@ -157,8 +157,8 @@
    ;; `:realworld/viewer` scope resolver is fail-closed and the route's viewer-
    ;; scoped reads would raise 'scope unresolved' if rendered. Defer the route page
    ;; for that one brief window — `:auth/session-restored` / `:abandon-restore`
-   ;; resolve the viewer and replan the route's reads
-   ;; (`:rf.route/replan-resources`) the moment `GET /user` settles.
+   ;; resolve the viewer and change principal, which replans the route's reads
+   ;; (`:rf.resource/change-principal`), the moment `GET /user` settles.
    (if @(subscribe [:auth/viewer-resolving?])
      [:div.container.page {:data-testid "session-restoring"}
       [:p "Restoring your session…"]]

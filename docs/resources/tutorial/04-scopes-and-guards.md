@@ -67,7 +67,7 @@ and wrap the root view's `case` in it:
        [not-found-page]))])
 ```
 
-**A restore replans the page it's on.** The first URL's reads failed closed while the viewer was unknown. When the reply lands, the subscription re-keys to the new scope, but re-keying never fetches, and navigating to the current page is a no-op. `:rf.route/replan-resources` reruns the current route's reads under the current identity without navigating. It reuses retained identities with usable data or live work; an unusable retained entry is ensured again. Replace the two restore handlers so both outcomes dispatch it:
+**A restore replans the page it's on.** The first URL's reads failed closed while the viewer was unknown. When the reply lands, the subscription re-keys to the new scope, but re-keying never fetches, and navigating to the current page is a no-op. A change of reader is one framework event, `:rf.resource/change-principal`: it clears the scopes the departing reader held, then reruns the current route's reads under the current identity without navigating. It reuses retained identities with usable data or live work; an unusable retained entry is ensured again. A restore has nothing to clear — no entry was ever keyed to a viewer nobody knew — so `:from` is empty. Replace the two restore handlers so both outcomes dispatch it:
 
 ```clojure
 (rf/reg-event :auth/session-restored
@@ -77,22 +77,22 @@ and wrap the root view's `case` in it:
       {:db (-> db
                (update :auth-generation inc)
                (assoc-in [:auth :user] (dissoc (:user value) :token)))
-       :fx [[:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]]}
+       :fx [[:dispatch [:rf.resource/change-principal {:from [] :cause [:session-restore]}]]]}
       {})))
 
 (rf/reg-event :auth/session-expired
-  {:sensitive [[:error :body]]}
+  {:sensitive [[:error :body] [:error :body-text]]}
   (fn [{:keys [db]} [_ {:keys [correlation]}]]
     (if (= (:auth-generation db) (second (:request-id correlation)))
       {:db (-> db
                (update :auth-generation inc)
                (update :auth assoc :user nil :token nil))
        :fx [[:auth.session/persist {:token nil}]
-            [:dispatch [:rf.route/replan-resources {:cause [:session-restore-failed]}]]]}
+            [:dispatch [:rf.resource/change-principal {:from [] :cause [:session-restore-failed]}]]]}
       {})))
 ```
 
-**Signing in and out change the reader.** Signing in needs nothing extra: login ends by navigating, and a newly entered route plans its reads under the new reader. Signing out needs two more steps.
+**Signing in and out change the reader.** Signing in needs nothing extra: login ends by navigating, and a newly entered route plans its reads under the new reader. Signing out needs one more step.
 
 ## Sign-out clears the reader's cache
 
@@ -103,26 +103,27 @@ Part 3's `:auth/logout` ends the session. Now it also leaves a reader's cache be
   (fn [{:keys [db]} [_ {:keys [generation]}]]
     (if (and generation (not= generation (:auth-generation db)))
       {}
-      (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
-        {:db (-> db (update :auth-generation (fnil inc 0))
-                  (assoc :auth {:user nil :token nil}))
-         :fx (cond-> [[:auth.session/persist {:token nil}]]
-             old-viewer (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
-             true       (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
-                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))}))))
+      {:db (-> db (update :auth-generation (fnil inc 0))
+                (assoc :auth {:user nil :token nil}))
+       :fx [[:auth.session/persist {:token nil}]
+            [:dispatch [:rf.route/navigate {:to :conduit/home}]]
+            [:dispatch [:rf.resource/change-principal
+                        {:from  [(rf/resolve-resource-scope db :conduit/viewer)]
+                         :cause [:logout]}]]]})))
 ```
 
-The two new steps are about the cache. `rf/resolve-resource-scope` runs the viewer resolver against the handler's `db` — the value *before* this event, which still knows who is leaving — and `:rf.resource/clear-scope` evicts that reader's entries and aborts anything of theirs in flight. The replan comes after the navigate: signed out *on* the home page, the navigate is a no-op, and the replan is what fetches the anonymous list.
+The new step is about the cache. `rf/resolve-resource-scope` runs the viewer resolver against the handler's `db` — the value *before* this event, which still knows who is leaving — and `:rf.resource/change-principal` evicts that reader's entries, aborts anything of theirs in flight, and replans the current page. It runs after the navigate: signed out *on* the home page, the navigate is a no-op, and the replan is what fetches the anonymous list.
 
-Scope already keeps readers apart — the next reader's entries are different cache keys — so clearing is cleanup, not the protection.
+Scope keeps readers apart on the read side: the next reader's entries are different cache keys. Clearing is the other half. An entry that is gone cannot be refetched, so no focus, reconnect, poll tick or invalidation can load the departing reader's key with the next reader's token.
 
 The cell below runs the viewer resolver, the article list and the logout
 above against a stub transport. Buttons stand in for Part 3's login, and the
-table reads the list's entry in each reader's scope. Sign in as alice, then
-as bob: each reader's first read sends a request. Sign in as alice again and
-nothing is sent, because her entry is still cached. Sign out, and alice's
-entry is cleared while bob's is untouched: logout clears only the departing
-reader's scope.
+table reads the list's entry in each reader's scope. Sign in as alice: her
+first read sends a request, and the anonymous entry is cleared, because she
+replaced the anonymous reader. Sign in as bob: alice's entry is cleared and
+bob's read is sent. Sign out, and bob's entry is cleared while the anonymous
+list loads again: every change of reader clears only the departing reader's
+scope.
 
 ```cljs-rf2
 (require '[clojure.string :as str]
@@ -170,17 +171,18 @@ reader's scope.
 (rf/reg-event :auth/signed-in
   (fn [{:keys [db]} [_ username]]
     {:db (assoc db :auth {:user {:username username} :token (str username "-token")})
-     :fx [[:dispatch [:rf.route/replan-resources {:cause [:sign-in]}]]]}))
+     :fx [[:dispatch [:rf.resource/change-principal
+                      {:from  [(rf/resolve-resource-scope db :conduit/viewer)]
+                       :cause [:sign-in]}]]]}))
 
 ;; Part 4's logout, without Part 3's token persistence.
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
-      {:db (assoc db :auth {:user nil :token nil})
-       :fx (cond-> []
-             old-viewer (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
-             true       (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
-                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
+    {:db (assoc db :auth {:user nil :token nil})
+     :fx [[:dispatch [:rf.route/navigate {:to :conduit/home}]]
+          [:dispatch [:rf.resource/change-principal
+                      {:from  [(rf/resolve-resource-scope db :conduit/viewer)]
+                       :cause [:logout]}]]]}))
 
 (rf/reg-sub :auth/user (fn [db _] (get-in db [:auth :user])))
 

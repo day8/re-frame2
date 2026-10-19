@@ -5,26 +5,25 @@
 
   Every other route-link suite in the tree calls `rf.routing.link/route-link-render`
   — the bare render fn — directly, and every one of them establishes the
-  frame with `rf/with-frame`. That is the DYNAMIC-VAR tier, tier 1 of the
-  three-tier chain `frame/resolve-current-frame` reads, and it answers
-  whoever asks, from anywhere. So those suites can be green for a component
-  that no application can render.
+  frame with `rf/with-frame`. That is the DYNAMIC-VAR scope
+  `frame/resolve-current-frame` reads, and it answers whoever asks, from
+  anywhere. So those suites can be green for a component that no
+  application can render.
 
-  `rf/route-link` reaches a call site through a `defwrapper`
-  (`re-frame.core-routing`), whose body CALLS the value on the
-  `:routing/route-link` hook rather than mounting it. Were that value the
-  registered head itself, the component the substrate mounted would be
-  `rf/route-link` — a plain fn, carrying no `{:contextType frame-context}` —
-  so `(.-context cmp)` would be React's empty default, the REACT-CONTEXT
-  tier (tier 2, the only tier a real application's `frame-root`
-  establishes) would resolve nil, and `route-link-render`'s render-time
-  `require-current-frame!` would raise `:rf.error/no-frame-context` on
-  first render. An application would mount nothing at all — `#app`
-  innerHTML length 0, a blank page — while the unit suites stayed green.
+  A real application establishes its frame only through a `frame-root`,
+  which a rendering component reads from the component tree (Spec 006
+  §One frame-resolution rule for React hooks). `rf/route-link` reaches a
+  call site through a `defwrapper` (`re-frame.core-routing`), whose body
+  CALLS the value on the `:routing/route-link` hook rather than mounting
+  it. A route-link that resolves no frame there makes
+  `route-link-render`'s render-time `require-current-frame!` raise
+  `:rf.error/no-frame-context` on first render, and the application
+  mounts nothing at all — `#app` innerHTML length 0, a blank page — while
+  the unit suites stay green.
 
   So the row below is deliberately NOT a unit call on the render fn: it
-  mounts through the Reagent adapter into a real document, so the component
-  boundary the bug lives at is genuinely constructed, and it establishes the
+  mounts through the Reagent adapter into a real document, so the tree
+  the frame is read from is genuinely constructed, and it establishes the
   frame ONLY through a `frame-root` — the applications' own shape — with
   `:ambient-frame nil` on the fixture so no `with-frame` scope can answer in
   its place.
@@ -93,9 +92,9 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
-     ;; THE LOAD-BEARING LINE. With an ambient frame bound, tier 1 answers
-     ;; every resolution and the row passes without the React-context tier
-     ;; ever being consulted.
+     ;; THE LOAD-BEARING LINE. With an ambient frame bound, a route-link
+     ;; that resolves no frame from the tree falls back to it, and the row
+     ;; passes without proving the tree read.
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
