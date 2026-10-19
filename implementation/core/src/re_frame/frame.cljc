@@ -3756,8 +3756,18 @@
   forge ownership of a fresh same-id incarnation.
 
   Around the handler pipeline the router also records the dequeued dispatch
-  envelope under `:envelope`, read through `current-event-envelope`."
+  envelope under `:envelope`, read through `current-event-envelope`, and the
+  component rendering on this stack when the pipeline began under
+  `:render-host`, read through `event-run-inside-render?`."
   nil)
+
+(defn- rendering-component
+  "The component a substrate is rendering on this stack, or nil. Read through
+  the `:adapter/current-component` hook, which only Reagent publishes."
+  []
+  #?(:cljs (when-let [hook (rf.late-bind/get-fn :adapter/current-component)]
+             (hook))
+     :clj  nil))
 
 (defn ^:no-doc call-with-event-owner-token
   "Run `f` with the exact-incarnation authority captured by the router.
@@ -3774,10 +3784,24 @@
   ([frame-id token f]
    (call-with-event-owner-token frame-id token nil f))
   ([frame-id token envelope f]
-   (binding [*event-owner* {:frame    frame-id
-                            :token    token
-                            :envelope envelope}]
+   (binding [*event-owner* {:frame       frame-id
+                            :token       token
+                            :envelope    envelope
+                            :render-host (rendering-component)}]
      (f))))
+
+(defn ^:no-doc event-run-inside-render?
+  "True when the in-flight event's pipeline began while component `cmp` was
+  rendering — a handler that render ran synchronously, such as a
+  `make-frame` `:initial-events` step called from a view.
+
+  The handler is not part of that render's frame, so a view-side reader that
+  puts the tree first asks this and gives the handler its envelope's frame
+  instead. A component that starts rendering INSIDE the handler is a
+  different component, so its own tree still answers."
+  [cmp]
+  (let [host (:render-host *event-owner*)]
+    (and (some? host) (identical? host cmp))))
 
 (defn ^:no-doc current-event-envelope
   "Return the dispatch envelope of the event whose handler pipeline is running
