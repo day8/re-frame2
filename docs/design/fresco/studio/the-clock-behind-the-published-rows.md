@@ -1,5 +1,7 @@
 # The clock behind the published rows
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **Audit (rf2-8nqsl), of the record as it stood on 2026-08-01.** Every wall-clock
 row the programme had published by that date was taken on one instrument:
 `performance.now()`, sampled around a `flushSync` and closed the instant that
@@ -67,7 +69,7 @@ that looks past `flushSync`, and replaced by a direction rather than a number.
 > not own the page's handler, so harnesses that click or type were never
 > affected: the same driver's `keystroke` row (`keyboard.press`, `…:426` at the
 > same blob) and the whole of the
-> [outside cross-check](cross-checked-against-an-outside-instrument.md)
+> outside cross-check (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`)
 > (`page.click`) read script *and* frame on `taskNet` all along. Their figures
 > stand, and must not be compared with this page's without saying which clock
 > each is on — doing exactly that is how two complementary halves were once
@@ -399,7 +401,7 @@ runs. Every refusal was an **undershoot** — measured means 1.69–1.79 against
 while two sub-agents loaded the box and refused 4 of 5; the quiet-box ensemble
 refused at the same rate. The undershoot direction is a known property of this
 lane, recorded on
-[the UIx frontier page](p0-uix-on-subs-frontier-arm.md) as an 8% control
+the UIx frontier page (`docs/design/fresco/studio/p0-uix-on-subs-frontier-arm.md`) as an 8% control
 undershoot implying *"the clock instrument compresses ratios slightly toward
 1.0"*.
 
@@ -801,7 +803,7 @@ readjudicator's per-row gate roster, printed per run beside the row it refuses.
 ~~`rf2-rguy1` — the external cross-check against
 `krausest/js-framework-benchmark` — moves from a nicety to the next question.~~
 **It landed** —
-[cross-checked against an instrument nobody here wrote](cross-checked-against-an-outside-instrument.md)
+cross-checked against an instrument nobody here wrote (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`)
 — and it was pointed at bulk broad as this section asked. It also turns out to
 be the one harness in the programme the correction never touched: it drives
 through `page.click`, an Input-domain command that does not own the page's

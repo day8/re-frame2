@@ -1,5 +1,7 @@
 # The blessed-virtualizer recipe
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 The evidence for [specification.md](specification.md#7-complete-use-case-coverage) §7's *Large collections* row — *suitable read topology and keys*, answered by a *blessed foreign virtualizer recipe*, proved against *10K-row behavior, focus and accessibility* — and the ecosystem half of its *Foreign React ecosystem and native hot work* row.
 
 `rf2-hic-047` **changes no runtime and adds no namespace to the artefact.** It is one screen written on the shipped public doors, a stand-in for the npm package a consumer would install, and the suites that hold them. The screen is the **ledger**: ten thousand records, twenty-four rows in the document, a controlled field and a toggle in every row.

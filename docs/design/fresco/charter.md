@@ -2,8 +2,11 @@
 
 **Fresco is re-frame2's native view layer: interpreted Hiccup on a modern React
 function-component host, optimised for re-frame2.** This charter states the
-identity, evidence base, goals, constraints, and scope. Decisions are normative in
-[decisions.md](decisions.md); the runtime shape in
+identity, evidence base, goals, constraints, and scope. It records how Fresco
+was designed and does not govern it: what the package promises is the
+[authoring contract](../../../implementation/fresco/spec/authoring-contract.md),
+and where this page differs from it, the contract is right. Decisions are
+recorded in [decisions.md](decisions.md); the runtime shape in
 [architecture.md](architecture.md); the proof plan in [validation.md](validation.md);
 the programmer-facing surface in [authoring.md](authoring.md).
 

@@ -1,5 +1,7 @@
 # The collector's substrate — the choice, the two-hook freeze, and the shell disposition
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 > **Delegated verdict, operator-overturnable.** Discharges `rf2-hic-018`, which
 > asks for three things before the runtime ABI freezes: an explicit choice of the
 > subscription substrate underneath the collector, the two-hook boundary ceiling
@@ -121,7 +123,7 @@ frame contract"* ([§5](specification.md#5-native-react-hot-path)), and the ladd
 that measured this rung says the same from the other side: *a shipped Fresco
 would sit on neither donor's substrate — it is an adapter for React and would
 install its own*
-([the ladder](../studio/reads-per-boundary-heap-ladder.md#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index)).
+(the ladder (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)).
 **The two measured columns are therefore a bracket around a choice, not a menu**,
 and the choice is which `make-derived-value` the Fresco adapter carries.
 
@@ -148,7 +150,7 @@ asymmetry decidable rather than merely awkward.
 **[RULED]** S1–S4 are package figures as of 2026-08-12, re-pinned by `rf2-fe0l`
 in one solo quiet-window run of the P0 ladder repointed at
 `implementation/fresco` ([`budgets.md` §4](budgets.md), and
-[the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)).
+the run (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)).
 Both donors, both floors and both shells returned on their published anchors; the
 candidate's slope bands are 1–9 B wide over six rounds.
 
@@ -493,7 +495,7 @@ called for was run on the ratom segment with the spine segment as the negative
 control, and the whole of the move came back on that line — `1,417 → 1,278 →
 1,417 B/read`, the two hook-armed readings agreeing to the byte around the
 hook-less one, while the spine read `2,115` in all three arms.
-[The bisection, its controls and its provenance](../studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z)
+The bisection, its controls and its provenance (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)
 are on the ladder. **No figure on this page changes** — S3 is still
 `1,417 B/read` and the premium is still `+698` — because the attribution names a
 cost rather than moving one.
@@ -519,7 +521,7 @@ per-cell state to the spine.
 `139 B/read` is what a Reagent-hosted Fresco boundary pays to answer writes at
 all; without it the arm paints once at mount and goes deaf. It is a real cost on
 a real axis and it is carried, not normalised — the same posture
-[the disposal hook](../studio/reads-per-boundary-heap-ladder.md#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
+the disposal hook (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)
 was recorded under.
 
 **[OPEN] The clock and migration contrasts for the ratom family.** Neither
@@ -548,7 +550,7 @@ Written 2026-08-12 for `rf2-hic-018`.
 against `implementation/fresco`, six rounds, package candidate and both donors
 in the same run set; they are quoted from
 [`budgets.md` §4](budgets.md) and
-[the ladder's own section](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l),
+the ladder's own section (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`),
 which carry the controls. **Bench-tree figures are labelled bench-tree
 everywhere they appear** — the no-wrapper and `frame-prop` shell arms in
 [§5.2](#52-the-read-free-boundary-shell--the-disposition), the S6 cold-mount and

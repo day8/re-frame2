@@ -1,5 +1,7 @@
 # Callback identity and retirement — the verdict
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Verdict: NOT ADMITTED. Fresh-per-render is sufficient, and is recorded as sufficient.** A narrow stable-event primitive is not added.
 
 This record discharges the standing rule in [specification §4.1](specification.md#41-events):

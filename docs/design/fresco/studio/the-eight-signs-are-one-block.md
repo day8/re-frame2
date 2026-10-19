@@ -1,5 +1,7 @@
 # The eight signs are one block — V2's sign residual re-examined, and no window taken
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-0gjqi`, which asks whether
 `write-page` reading below `write-all` at 8 of 8 mid-rung comparisons is a real
 property of the two writes or an artefact. Written 2026-08-18 on
@@ -18,7 +20,7 @@ sits in, so the spread it is quoted for is unchanged.
 **No allocation window was taken for this page.** Nothing here is a new
 measurement. Every figure below is either re-derived from a committed dataset,
 re-derived from a figure already published on
-[the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md),
+the floor certifies and the control does not (`docs/design/fresco/studio/the-floor-certifies-and-the-control-does-not.md`),
 or read out of the instrument's source. The instrument was not run, not
 configured, not edited, and no rig file was touched.
 
@@ -73,7 +75,7 @@ the committed corpus cannot decide it.**
 ## What was checked, and what it is checked against
 
 `rf2-0gjqi`'s finding is a table of thirteen cells published on
-[the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md).
+the floor certifies and the control does not (`docs/design/fresco/studio/the-floor-certifies-and-the-control-does-not.md`).
 Eight of them — the R = 3 and R = 7 rungs — read `page` below `all`. This page
 asks one question about those eight: **how many independent sign draws are
 they?**
@@ -161,7 +163,7 @@ round-indexed.
 ## How large a floor term would have to be
 
 Population: the eight R = 3 and R = 7 cells published on
-[the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md).
+the floor certifies and the control does not (`docs/design/fresco/studio/the-floor-certifies-and-the-control-does-not.md`).
 Statistic: `Δ = page − all` in B per boundary, taken from that page's per-cell
 medians as published. Those medians are printed rounded to the byte, so each `Δ`
 carries about ±1 B and the percentages below differ from the source page's by up

@@ -1,5 +1,7 @@
 # The committed-read resource-demand verdict
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **Verdict: STOP.** Four criteria met, two ambiguous, and under the frozen rule any ambiguity gives STOP. `rf2-hic-054`'s async-resource recipes are the standing answer. No implementation bead is filed and no dynamic-tail edge is added.
 
 > **How to check the ordering.** The reading rules below, the address in the evidence that decides each criterion, and the consequences of *both* outcomes were committed first, in this branch's opening commit, with every label reading `NOT YET APPLIED` and the verdict section empty. The readings arrived in the second commit and the labels in the third. A rebase rewrites a hash and does not rewrite an order, so it is the ordering rather than any hash that shows the rules were not chosen to fit the answer.

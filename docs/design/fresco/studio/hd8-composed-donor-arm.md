@@ -1,5 +1,7 @@
 # HD-008 — the composed donor arm, both rungs
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 The EP-0038 stop-gate, measured. HD-008 asks whether the programme's central
 hypothesis survives when it is assembled **out of parts already in this
 repository, before any API is designed**: reagent-slim's `:f>`
@@ -1243,4 +1245,4 @@ and the alternatives that were rejected.
   levelled on this axis and this page claimed they were.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
-  ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).
+  (reads-per-boundary-heap-ladder.md).

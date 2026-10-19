@@ -1,5 +1,7 @@
 # Testing and Xray product contract
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 ## Recommendation
 
 Testing and diagnostics are product surfaces, not documentation afterthoughts. Ship a supported `re-frame.fresco.test` namespace and a dev-only adapter-neutral evidence provider. Do not expose the raw internal sink or invent evidence the interpreted runtime cannot know.

@@ -1,8 +1,10 @@
 # P0 — the converged witness set, and the red-zones re-derived on it
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **The P0 clock table now describes one set of pages.** It did not before. This
 page re-measures the frontier arm — UIx reading re-frame2 subscriptions — on
-[rf2-2rtt6.2's witnesses](p0-reagent-on-subs-baseline.md), so that the ship
+rf2-2rtt6.2's witnesses (`docs/design/fresco/studio/p0-reagent-on-subs-baseline.md`), so that the ship
 bar's rows and the red-zone thresholds a candidate is judged against can be
 read down one column.
 
@@ -68,7 +70,7 @@ made on; the justification is rewritten in place because it was wrong.
 |---|---|---|---|
 | rf2-2rtt6.4 | **shared-query, fan-out 4** (B = 1,200, Q = 300, amortised ×4) | list, 1,203-el page, 300 boundaries | **2.262×** [2.196 – 2.335] |
 | rf2-2rtt6.4 | **shared-query, fan-out 4** (B = 1,200, Q = 300, amortised ×4) | grid, 301-el page, 300 boundaries | **2.254×** [2.217 – 2.288] |
-| [rf2-2rtt6.5](reads-per-boundary-heap-ladder.md) | **distinct-query, Q = E** — the operative family | 1,200 boundaries × 1 read | ~~**2.435×** (3,811 B ÷ 1,565 B)~~ → **≈1.945×** (3,038 B ÷ 1,562 B) — see below |
+| rf2-2rtt6.5 (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`) | **distinct-query, Q = E** — the operative family | 1,200 boundaries × 1 read | ~~**2.435×** (3,811 B ÷ 1,565 B)~~ → **≈1.945×** (3,038 B ÷ 1,562 B) — see below |
 
 **The ladder row is restated in place, on two counts.** The `2.435×` above was
 computed from `3,811 B ÷ 1,565 B`, and **both of those values are superseded**:
@@ -2320,7 +2322,7 @@ which excludes parity-exempt arms by construction. **Every red-zone on this page
 rests on a control whose 2× claim nothing tested.** It is now held to its own
 arithmetic — 1,801 / 99 elements, far probe at index 599 / field 23 — and the
 mutation evidence is on
-[the denominator page](p0-reagent-on-subs-baseline.md#mutation-proved-a-base-prefix-control-now-fails-three-ways).
+the denominator page (`docs/design/fresco/studio/p0-reagent-on-subs-baseline.md`).
 
 ## Open items — stated, not swept up
 
@@ -2340,7 +2342,7 @@ mutation evidence is on
   #7265 was still open; it has since merged, and this entry was rebased onto it
   rather than re-measured — both records keep their own producing SHAs). Its
   clock rows remain sound as ratios and are superseded as *thresholds* by the
-  table above; [its page](p0-uix-on-subs-frontier-arm.md) is marked accordingly
+  table above; its page (`docs/design/fresco/studio/p0-uix-on-subs-frontier-arm.md`) is marked accordingly
   rather than rewritten. Its **heap** rows are not superseded by anything here —
   this entry measures no heap — but the reason this bullet used to give for
   leaving them alone, *"retained bytes per boundary is a property of the boundary

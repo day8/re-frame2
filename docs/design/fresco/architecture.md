@@ -2,8 +2,11 @@
 
 The runtime architecture space, the one live arm, the front half it inherited
 from the two-arm period, and the mechanism ladders. Decisions cited as HD-nnn are
-normative in [decisions.md](decisions.md); the proof obligations live in
-[validation.md](validation.md).
+recorded in [decisions.md](decisions.md); the proof obligations live in
+[validation.md](validation.md). This page records how Fresco was designed and
+does not govern it: what the package promises is the
+[authoring contract](../../../implementation/fresco/spec/authoring-contract.md),
+and where this page differs from it, the contract is right.
 
 > **Status, 2026-07-31: Fresco is a React adapter, and there is one arm.** Mike
 > ruled that Fresco is "an adaptor for React that is optimised for re-frame2,
@@ -400,7 +403,7 @@ to the cell, so there is no `refs` counter to drift from it, and the forward
 edge needs no home because the registration already holds the entry's key set
 by reference (the 2026-08-03 amendment under *The shared front half* above).
 Cells are plain JS objects and the reader list is a JS array: this is the object
-[the heap ladder](studio/reads-per-boundary-heap-ladder.md) prices per unique
+the heap ladder (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`) prices per unique
 key, a `deftype` would add a constructor and a prototype to a structure with no
 behaviour, and at the fan-out the table actually sees a `.push` and an
 `.indexOf` beat a persistent set and retain one object rather than a container

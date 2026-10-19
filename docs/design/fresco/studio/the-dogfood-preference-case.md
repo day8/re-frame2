@@ -1,5 +1,7 @@
 # The dogfood preference case — the two live renderings, side by side
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 The charter's v0 gate reads: *"a dogfood list+form screen preferred over raw
 UIx by its authors"* ([charter.md](../charter.md) §Use cases). The preference
 verdict belongs to the authors — the operator included — and **this page is not

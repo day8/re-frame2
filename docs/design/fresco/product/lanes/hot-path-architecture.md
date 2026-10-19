@@ -1,5 +1,7 @@
 # Hot-path architecture
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 ## Principle
 
 Fresco remains one interpreted Hiccup language. Native React is the explicit local boundary, not a compiler tier or hidden fast mode. UIx and raw React/JavaScript are the two supported authoring routes for an island; Fresco supplies a small optional native namespace — the two read hooks — so an island written in raw React/JavaScript can reach Fresco state without acquiring UIx. Zero to two percent native code is a plausible outcome to measure, never a quota: a small amount of source can dominate the application's work. (*This paragraph made the native namespace a route peer to UIx and raw React until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` retired that route on 2026-08-29 and left the namespace two hooks.*)

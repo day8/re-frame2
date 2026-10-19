@@ -1,5 +1,7 @@
 # Fresco guide rewrite audit
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **The corpus this audits has shipped.** Under rf2-0yp7w the guide moved from
 > this directory to `docs/core/fresco/`, `README.md` became that tree's
 > `index.md`, and the section replaced Freehand's in the Core tab of

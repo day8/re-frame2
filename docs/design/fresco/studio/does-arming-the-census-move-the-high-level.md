@@ -1,5 +1,7 @@
 # Does arming the census move the high level?
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-c4hhk` — the floor arm is **multi-modal**,
 and the elevated level has only ever been seen at **+2,532 B/write with the work census
 ARMED** and at **+3,792 B/write with it UNARMED**. So the counter built to explain the
@@ -346,7 +348,7 @@ stream, so the estimator can be re-derived without a browser.
 
 - [The second mode: a pre-registered twenty-run window](the-second-mode-a-pre-registered-twenty-run-window.md)
   — `rf2-77gz8`, which found the +2,532 B level armed and left this confound open.
-- [The work count is a constant, and the mode did not reproduce](the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md)
+- The work count is a constant, and the mode did not reproduce (`docs/design/fresco/studio/the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md`)
   — `rf2-n1b9h`, which built the census and showed arming does not move the **low** level.
 - [The bisect is flat and the floor has a second mode](the-bisect-is-flat-and-the-floor-has-a-second-mode.md)
   — `rf2-9jrhi`, whose `bisect-1` is the only unarmed high-mode run in the corpus.

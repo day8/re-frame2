@@ -1,5 +1,7 @@
 # The revision prop on a controlled element — the adjudicated spec (rf2-2rtt6.107)
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **This page is not a new design.** The design pass and its adversarial pass were
 both run on 2026-08-04 and the operator recorded a ruled synthesis on the bead the
 same day (0 FATAL / 3 MAJOR / 7 MINOR, verdict *build with the named repairs*).

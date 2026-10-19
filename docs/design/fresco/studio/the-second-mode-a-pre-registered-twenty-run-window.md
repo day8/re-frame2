@@ -1,5 +1,7 @@
 # The second mode: a pre-registered twenty-run window
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-77gz8` — the floor arm's steady-state
 `rise/W` is **bimodal at exactly 3,792 B** and **both modes certify**, so the leg
 witness cannot tell them apart and any single-run figure quoted from this arm is a
@@ -212,8 +214,8 @@ figures do not reproduce; read correctly every figure on the bead reproduces
 exactly, including both runs sitting at `4a1537cb71` with passing controls.
 
 **A blob pin in the corpus does not resolve.** The instrument table on
-[The work count is a constant, and the mode did not
-reproduce](the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md) pins
+The work count is a constant, and the mode did not
+reproduce (`docs/design/fresco/studio/the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md`) pins
 `p0_workcount.cljc` at `1787bc0053772c6bd72c3b665db8e8f9be87b2cd`, which is in no
 fresh clone. Both on that branch and as merged, the file's real blob is
 `033f00470c380a17664a1dabffa0768f0e22c671`. The provenance gate classes blob
@@ -265,7 +267,7 @@ a browser.
 
 ## Related
 
-- [The work count is a constant, and the mode did not reproduce](the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md)
+- The work count is a constant, and the mode did not reproduce (`docs/design/fresco/studio/the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md`)
   — `rf2-n1b9h`, which built the census this page reads and refused for want of a
   high-mode window.
 - [The second mode is per-write, and the controls never move](the-second-mode-is-per-write-and-the-controls-never-move.md)

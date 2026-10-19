@@ -384,7 +384,7 @@ nothing.)*
 > ran on 2026-08-04 (0 FATAL / 4 MAJOR / 5 MINOR, verdict *ratify with the named
 > repairs*), and the shape was re-verified against `main` and priced on
 > 2026-08-06 in
-> [the studio dossier](studio/108-the-theming-taught-default-priced.md).
+> the studio dossier (`docs/design/fresco/studio/108-the-theming-taught-default-priced.md`).
 > Operator-overturnable. Nothing below is withdrawn: the three layers, the two
 > laws and the no-context ruling stand unamended.
 >
@@ -2109,11 +2109,25 @@ share is the one place the refusal carries positive content, and it, the figures
 and the sign pattern the registered rule does not license promoting are in
 [the measurement record](#measurement-record--the-four-quiet-box-windows-of-2026-08-22)
 below, with the full window in
-[its own page](studio/the-authors-split-window-on-the-amp-merge-clock.md).
+its own page (`docs/design/fresco/studio/the-authors-split-window-on-the-amp-merge-clock.md`).
 
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
-## HD-024 — One callback form; the position selects the contract
+## HD-024 — One callback form; the position selects the contract — **SUPERSEDED 2026-10-19**
+
+> **Superseded, 2026-10-19 — the carrier selects the contract, not the position
+> (`rf2-more0`).** Fresco has two carriers, and a carrier's kind is its meaning
+> at every prop of a native tag, a `defhost` or a `[:>]` crossing; the prop's
+> name selects nothing. `h/event` dispatches the vector it returns, and
+> `h/render-fn` converts the Hiccup it returns and carries the supplying view's
+> frame into the foreign render, so the conversion the 2026-08-03 addendum left
+> to the author is the carrier's. `defhost`'s `:callbacks` override is deleted
+> and refused as an unknown option. What stands: a vector or key map is an
+> intent only at an `on*` prop, a plain function crosses by identity, the vector
+> spelling is event-first, and a carrier at a declared `:slots` prop refuses. The
+> authoring contract's
+> [Carriers](../../../implementation/fresco/spec/authoring-contract.md#carriers)
+> section states the rule; the record below, its addenda included, is history.
 
 > **Addendum, 2026-08-30 — the render-position gate is deleted; a dispatch
 > from inside a render callback is not policed (`rf2-6c12m.20`, PR #8746).**
@@ -2693,7 +2707,7 @@ surface pays.
 than the sentence implies: **8.21 µs per link at mount**, 207 links on the
 acceptance page and 900 on the feed, enough to move both census rows back above
 the line. `rf2-cno31` then decomposed it
-([the route-link term page](studio/the-route-link-render-term-priced.md)) and
+(the route-link term page (`docs/design/fresco/studio/the-route-link-render-term-priced.md`)) and
 the ruling survives the measurement intact, for two reasons the profile
 establishes:
 
@@ -2811,7 +2825,7 @@ boundary**: a memo carrying a custom comparator takes the full `MemoComponent`
 path rather than collapsing into React's `SimpleMemoComponent`. That is recorded
 in `runtime/retained-inventory` under `:react/memo-fiber` rather than left for a
 heap ladder to find, and it was **measured before this ruling landed** —
-[the page-chrome row](studio/the-page-chrome-row-and-what-the-bail-out-costs.md),
+the page-chrome row (`docs/design/fresco/studio/the-page-chrome-row-and-what-the-bail-out-costs.md`),
 `:advanced`, `goog.DEBUG=false`, two runs:
 
 | | plain | memo | |
@@ -2838,7 +2852,7 @@ audit found the blobs did not match the post-#7390 landed implementation, so it
 does not stand as the current price. **The pair below was re-taken on
 2026-08-04 against `origin/main` `81321da3fe`** — `A → B → A`, one session, box
 verified quiet before each run, exit 0 on all three
-([the rows](studio/reads-per-boundary-heap-ladder.md#the-memo-wrapper-re-taken-on-the-tree-that-ships-rf2-2rtt658-re-take)):
+(the rows (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)):
 
 | R=0 shell | no wrapper | wrapper | delta | vs the 1 KB line |
 |---|---:|---:|---:|---|
@@ -3067,7 +3081,7 @@ question open is recorded with the question and with the bead holding it.
 | the author's split, amp-merge clock | `rf2-v5oto` | PR #8684 | **REFUSED** at the instrument's own floor | none; the bead closed on its own terms |
 
 **`U1` AND `U2` ON THE SLICE ECHO CLOCK (`rf2-85og2`).** The record is
-[the window's own page](studio/the-u1-u2-window-on-the-slice-echo-clock.md).
+the window's own page (`docs/design/fresco/studio/the-u1-u2-window-on-the-slice-echo-clock.md`).
 One feasibility invocation, declared unquotable before it was taken, then three
 evidence invocations, three admissible and none excluded; five exit-bearing
 checks affirmative in every run, `0 unverified of 400` echoes in each, and the
@@ -3117,7 +3131,7 @@ The application's own contribution is `p50 0.6 ms` and never exceeded `1.1 ms`
 across `180` measured keystroke windows.
 
 **`U3`, `C3` AND `C4` ON THE SLICE BROAD CLOCK (`rf2-9wmqd`).** The record is
-[the window's own page](studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md).
+the window's own page (`docs/design/fresco/studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md`).
 The same shape — one unquotable feasibility invocation, three admissible evidence
 invocations, none excluded — on a driver carrying **seven** exit-bearing checks
 rather than five. The two extra are the fairness gate over both arms and that
@@ -3252,7 +3266,7 @@ arm remains unaddressed, with no bound supplied in either direction, not even an
 upper one.
 
 **THE AUTHOR'S SPLIT ON THE AMP-MERGE CLOCK (`rf2-v5oto`).** The record is
-[the window's own page](studio/the-authors-split-window-on-the-amp-merge-clock.md),
+the window's own page (`docs/design/fresco/studio/the-authors-split-window-on-the-amp-merge-clock.md`),
 and the ladder it extends is HD-023's above, which resolves the author's own code
 only as a sum. This is the fourth window on that rig and the first at nine arms,
 adding two clean-pair arms so the author's wrapper and the author's round trip

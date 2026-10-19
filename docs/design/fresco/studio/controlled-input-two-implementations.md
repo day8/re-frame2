@@ -1,5 +1,7 @@
 # A controlled input has two implementations, and the bundle was picking
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **Amended 2026-08-02 (`rf2-fki5d`).** Option B below is **TAKEN** and
 > shipped in Arm 1's element path, so there is now a third behaviour on this
 > page and the matrix has a column for it. Nothing measured here moved: the

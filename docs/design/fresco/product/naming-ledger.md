@@ -1,5 +1,7 @@
 # Naming ledger — every naming question, one consolidation point
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **Design history since 2026-08-30 (`rf2-6c12m.8`, PR #8775).** This page was gated
 > operative contract at `implementation/fresco/spec/naming-ledger.md` from 2026-08-21
 > (`rf2-ps7ia`) until the demotion, which deleted `check_naming_census.py`, its
