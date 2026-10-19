@@ -23,14 +23,13 @@
    :render-to-string (:render-to-string rf.adapter.uix/adapter)
    ;; Keep this published function roster aligned with spec/api-manifest.edn.
    :public-surface-keys [:set-hiccup-emitter! :frame-provider :frame-root
-                         :use-sub :use-frame :flush-views!
+                         :use-sub :use-frame
                          :client-root :render! :unmount!]
    :public-surface   {:set-hiccup-emitter! rf.adapter.uix/set-hiccup-emitter!
                       :frame-provider      rf.adapter.uix/frame-provider
                       :frame-root          rf.adapter.uix/frame-root
                       :use-sub             rf.adapter.uix/use-sub
                       :use-frame           rf.adapter.uix/use-frame
-                      :flush-views!        rf.adapter.uix/flush-views!
                       :client-root         rf.adapter.uix/client-root
                       :render!             rf.adapter.uix/render!
                       :unmount!            rf.adapter.uix/unmount!}})

@@ -188,16 +188,6 @@
   directly."
   rf.adapter.use-frame/use-frame)
 
-(def flush-views!
-  "Flush pending UIx renders synchronously. Wraps React's act() —
-  intended for test code only. Calls (act f); with no arg, calls (act
-  (fn [] nil)) to flush pending effects. Returns nil. Resolves React's
-  act() from the React namespace directly (React 19 is the adapter
-  floor); a production React bundle omits act, where this is a no-op.
-  It publishes a render phase, so do not call it from inside a
-  `dispatch-sync` handler."
-  (:flush-views! spine-fns))
-
 ;; ---- the client root ------------------------------------------------------
 ;;
 ;; A browser boot needs one React

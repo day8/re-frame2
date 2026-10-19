@@ -18,7 +18,7 @@
 
   Per Spec 014 §Failure categories the response cascade classifies status
   codes BEFORE decode (4xx/5xx route to `:rf.http/http-4xx` /
-  `:rf.http/http-5xx` with the raw body-text). Per Spec 014 §Retry and
+  `:rf.http/http-5xx` with the raw body-text and the error body). Per Spec 014 §Retry and
   backoff `maybe-retry!` decides between retry and final failure from the
   failing attempt's failure category and the request's `:retry` config."
   (:require [clojure.string             :as str]
@@ -1073,15 +1073,29 @@
       (completed! record ctx {:fault e})
       nil)))
 
+(defn- status-failure
+  "The failure a 4xx / 5xx (or an unfollowed 1xx / 3xx) response classifies as,
+  under `kind`. `:body-text` is the raw response text and `:body` the error body
+  `decode-error-body` makes of it: parsed when the response declares JSON, the
+  raw text otherwise. The request's `:decode` never runs here."
+  [kind ctx {:keys [status status-text headers body-text]}]
+  {:kind        kind
+   :status      status
+   :status-text status-text
+   :body        (rf.http.decode/decode-error-body body-text headers (:max-decoded-keys ctx))
+   :body-text   body-text
+   :headers     headers})
+
 (defn- handle-response!
   "Shared 4xx/5xx/2xx/else response cascade. `result` is the platform
   transport's normalised response map (`{:ok? :status :status-text
   :headers :body-text}`). Per Spec 014 §Failure categories: status
   classification runs BEFORE decode. 4xx/5xx route to
-  `:rf.http/http-4xx` / `:rf.http/http-5xx` with the raw body-text —
-  decode never fires on a non-success response, so an HTML 404 from a
-  JSON endpoint classifies as `:rf.http/http-4xx` (not
-  `:rf.http/decode-failure`). Decode runs only on 2xx; if that fails
+  `:rf.http/http-4xx` / `:rf.http/http-5xx` (`status-failure`) — decode
+  never fires on a non-success response, so an HTML 404 from a JSON
+  endpoint classifies as `:rf.http/http-4xx` (not
+  `:rf.http/decode-failure`), and a JSON error body that does not parse
+  stays a string rather than failing. Decode runs only on 2xx; if that fails
   the failure category is `:rf.http/decode-failure`.
 
   Decode and accept are user code, so all of this runs outside the record's
@@ -1091,20 +1105,10 @@
         {:keys [ok? status status-text headers body-text body-binary]} result]
     (cond
       (and (>= status 400) (< status 500))
-      (maybe-retry! record ctx
-                    {:kind        :rf.http/http-4xx
-                     :status      status
-                     :status-text status-text
-                     :body        body-text
-                     :headers     headers})
+      (maybe-retry! record ctx (status-failure :rf.http/http-4xx ctx result))
 
       (>= status 500)
-      (maybe-retry! record ctx
-                    {:kind        :rf.http/http-5xx
-                     :status      status
-                     :status-text status-text
-                     :body        body-text
-                     :headers     headers})
+      (maybe-retry! record ctx (status-failure :rf.http/http-5xx ctx result))
 
       ok?
       ;; DECODE and ACCEPT are SEPARATE phases (Spec 014
@@ -1256,20 +1260,14 @@
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the
-      ;; runtime didn't follow) — surface as 4xx-shaped failure with
-      ;; the raw body-text. This routes through
+      ;; runtime didn't follow) — surface as a 4xx-shaped failure, the
+      ;; same `status-failure` a real 4xx gets. This routes through
       ;; `maybe-retry!` so the retry
       ;; semantics match the `:rf.http/http-4xx` category label: a caller
       ;; with `:retry {:on #{:rf.http/http-4xx} …}` retries a real 4xx
       ;; and this synthetic-4xx (1xx/3xx) alike. The branch is rare in
       ;; practice (the JVM `NORMAL` / Fetch stacks follow 3xx by default).
-      (maybe-retry!
-        record ctx
-        {:kind        :rf.http/http-4xx
-         :status      status
-         :status-text status-text
-         :body        body-text
-         :headers     headers}))))
+      (maybe-retry! record ctx (status-failure :rf.http/http-4xx ctx result)))))
 
 (defn- prepare-body!
   "The managed request-preparation PHASE. Realizes the

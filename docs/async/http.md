@@ -158,7 +158,7 @@ frame capture.
 The failure map always carries a `:kind`: a keyword from a fixed list of seven, never a string.
 
 - **No response at all.** `:rf.http/transport` is a network, DNS or connection error, or a `:body` that could not be prepared. In the browser, the same trouble against a cross-origin URL also carries `:cross-origin? true`, because Fetch reports a CORS refusal and a dropped connection the same way, so it may be either. `:rf.http/timeout` means the per-attempt timeout fired.
-- **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:status`, `:headers` and the raw `:body`.
+- **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:status`, `:headers`, the raw response text at `:body-text`, and the `:body` — parsed when its Content-Type is JSON, the raw text otherwise.
 - **A 2xx the app rejected.** `:rf.http/decode-failure` means your `:decode` rejected the body; `:rf.http/accept-failure` means your [`:accept`](#a-valid-200-can-still-be-a-failure-accept) did.
 - **Cancelled.** `:rf.http/aborted`, with a `:reason` saying who cancelled: `:user` for a manual abort or `:abort-signal`, `:actor-destroyed` for a machine actor's destroy. A supersession, a frame's teardown and an epoch restore abort too, but deliver no reply.
 
@@ -168,7 +168,7 @@ Branch on `:kind`, as in the [tutorial's message function](tutorial.md#step-2--t
 
 Two classification rules catch newcomers:
 
-- **Status is classified before the body is touched — decode runs only on 2xx.** A JSON endpoint behind a load balancer that 404s with an *HTML* error page is `:rf.http/http-4xx` with the raw HTML at `:body`, not a decode failure: the decoder never ran. If you want the structured error body many APIs return alongside a 4xx, decode `:body` yourself in the failure branch — the framework hands you the bytes and the status, on purpose.
+- **Status is classified before the body is touched — decode runs only on 2xx.** A JSON endpoint behind a load balancer that 404s with an *HTML* error page is `:rf.http/http-4xx` with the raw HTML at `:body`, not a decode failure: the decoder never ran. The structured error body many APIs return alongside a 4xx needs no parsing of your own: when its Content-Type is JSON, `:body` holds it as keyword-keyed data, best-effort — a body that does not parse stays the raw string, and the failure is still classified by its status.
 - **An empty (or whitespace-only) 2xx JSON body is not a decode failure** — it's a parsed value of `nil`. The bare `204 No Content` a PUT or DELETE replies with succeeds: `:decode :json` hands your `:on-success` the canonical `{:status :ok :value nil …}`. A schema `:decode` then decides whether `nil` is acceptable — `[:maybe …]` passes, a required `:map` rejects as an ordinary schema failure. Identical on the browser and the JVM, on purpose.
 
 ## Validating the body with `:decode`

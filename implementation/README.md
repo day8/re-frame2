@@ -95,7 +95,7 @@ implementation/
     uix/                     day8/re-frame2-uix — the UIx adapter artefact (rf2-3yij).
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
-                             The UIx adapter (use-sub, flush-views!, etc.).
+                             The UIx adapter (use-sub, use-frame, etc.).
 
   schemas/                   day8/re-frame2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.

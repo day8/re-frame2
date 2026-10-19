@@ -122,7 +122,7 @@ skills/re-frame-migration/
 │   ├── auto-call-site-rewrites.md  (~560 lines; Type A — ns / effect-map / dispatch)
 │   ├── auto-cross-cutting.md       (~420 lines; Type A — keywords / interceptors / views / init / artefacts)
 │   ├── guided-handlers-state.md    (~235 lines; Type B — handler / db-seeding / error-handler / machine-spawn / Reagent-surface)
-│   ├── guided-views-m11.md         (~260 lines; Type B — the M-11 sweep: subscribing plain fns → reg-view, Form-1/2/3 + the capture-once contract, the async listener / timer / error-handler class)
+│   ├── guided-views-m11.md         (~260 lines; Type B — the M-11 sweep: callbacks' ambient reads → render-captured ops, Form-1/2/3 + the capture-once contract, the async listener / timer / error-handler class)
 │   ├── guided-interceptors-subs.md (~355 lines; Type B — interceptor / sub / payload / observer)
 │   ├── runtime-smoke-test.md       (~78 lines; Phase 4 — "compiles" is not the done-bar; the live-app-db boot smoke-test loop + the done-bar gates past the dev build)
 │   ├── silent-runtime-failures.md  (~40 lines; Phase 4 — the silent-runtime-failure modes as a checklist, and why a compile cannot catch them)

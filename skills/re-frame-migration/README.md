@@ -74,7 +74,7 @@ skills/re-frame-migration/
 │   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
 │   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
 │   ├── guided-handlers-state.md   # Type B: handler / db-seeding / error-handler walkthroughs
-│   ├── guided-views-m11.md        # Type B: the M-11 sweep — subscribing plain fns → reg-view (+ the async listener class)
+│   ├── guided-views-m11.md        # Type B: the M-11 sweep — callbacks' ambient reads → render-captured ops (+ the async listener class)
 │   ├── guided-interceptors-subs.md# Type B: interceptor / sub / payload walkthroughs
 │   ├── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
 │   ├── causal-world-inputs.md     # EP-0010 recording rule + EP-0017 reshape (M-72): ambient durable host reads → declared coeffects

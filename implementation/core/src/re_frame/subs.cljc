@@ -2002,13 +2002,11 @@
   target})` to read a named frame from outside any scope (async callbacks,
   tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
 
-  Per Spec 006 §Plain-fn footgun is `:rf.error/no-frame-context`: a
-  plain (non-`reg-view`) Reagent fn carries no `:contextType` wiring, so
-  it cannot read the surrounding frame boundary's frame from React
-  context and its ambient 1-arity `subscribe` raises
-  `:rf.error/no-frame-context`. Use the opts form from a plain Reagent
-  fn body to subscribe against a known frame: naming the target
-  explicitly is what carries the frame the ambient chain cannot find.
+  While a Reagent component renders — a `reg-view` or a plain fn — the
+  ambient form resolves the boundary above it in the tree (Spec 006 §One
+  frame-resolution rule for React hooks). Outside a render, or under no
+  boundary and no `with-frame`, it raises `:rf.error/no-frame-context`;
+  the opts form names the target explicitly there.
 
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and calls straight

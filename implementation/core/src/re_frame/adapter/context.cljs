@@ -270,15 +270,14 @@
 ;; slots. A stale-slot guard here would be over-engineering. The behaviour is pinned by part 5 of
 ;; `assert-use-sub-ambient-under-ssr`.
 ;;
-;; Per Spec 006 §Frame-provider via React context, this fn is the
-;; canonical impl that the UIx adapter publishes through the
-;; `:adapter/current-frame` late-bind hook. Reagent has its own impl
-;; in `re-frame.views/current-frame` that uses the class-component
-;; `(.-context cmp)` path: a plain Reagent fn lacking `:contextType`
-;; cannot read the surrounding Provider's frame, so under EP-0002 (no
-;; `:rf/default` floor) its ambient `subscribe`/`dispatch` resolves nil
-;; and raises the always-on `:rf.error/no-frame-context` rather than
-;; silently routing to a default.
+;; Per Spec 006 §Frame-provider via React context, the slot read is
+;; [[context-slot-frame]], and it is the ONE reader of these private slots.
+;; Two resolvers call it: [[function-component-current-frame]], which the
+;; UIx adapter publishes through the `:adapter/current-frame` late-bind
+;; hook, and Reagent's `re-frame.views/current-frame`, which reads it for
+;; every rendering component that carries no `:contextType` — a plain fn
+;; included — so a plain Reagent fn under a provider resolves the
+;; provider's frame.
 
 (defn context-value->current-frame
   "Classify a raw frame-context value `v` into the scope frame keyword, or
@@ -317,6 +316,26 @@
     :else                      (do (emit-frame-context-corrupted! v)
                                    nil)))
 
+(defn context-slot-frame
+  "The frame the closest enclosing frame boundary names, read off the
+  shared context object's ACTIVE value slot, or nil when no boundary is
+  above (the no-provider sentinel) — classified, once, through
+  [[context-value->current-frame]].
+
+  React writes the slot as it enters and leaves Provider boundaries, so
+  the read means something only while a component renders; outside every
+  render it holds the sentinel, except in the window after a server render
+  that threw (see the section header). Reads the primary slot and falls
+  back to the secondary ONLY when the primary holds the untouched sentinel.
+  The one reader of these private renderer slots: every resolver that
+  needs them calls this."
+  []
+  (let [primary (.-_currentValue ^js frame-context)]
+    (context-value->current-frame
+      (if (= primary no-provider-sentinel)
+        (.-_currentValue2 ^js frame-context)
+        primary))))
+
 (defn function-component-current-frame
   "Resolution chain (READER) for function-component substrates (UIx).
   Returns the scope frame, or **nil** when no scope is
@@ -351,11 +370,13 @@
   holds `createContext`'s default — the same sentinel — and the fallback is
   inert. Callers that can observe the renderer-agnostic value (a component
   reading `useContext` inside render, e.g. the compiled ViewCell) may pass
-  that value to [[context-value->current-frame]] directly instead."
+  that value to [[context-value->current-frame]] directly instead.
+
+  The dynamic tier stays FIRST here, unlike Reagent's
+  `re-frame.views/current-frame`: a function component offers no
+  render-in-flight signal, and without one a stale secondary slot after a
+  server render that threw could outrank a `with-frame` taken outside any
+  render."
   []
   (or rf.frame/*current-frame*
-      (let [primary (.-_currentValue ^js frame-context)]
-        (context-value->current-frame
-          (if (= primary no-provider-sentinel)
-            (.-_currentValue2 ^js frame-context)
-            primary)))))
+      (context-slot-frame)))

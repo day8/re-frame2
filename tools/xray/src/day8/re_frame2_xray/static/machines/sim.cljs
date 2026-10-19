@@ -856,12 +856,9 @@
 
   `current` / `last-trans` are the sub values threaded down
   from the `detail` boundary (`definition_detail`), via
-  `body`. SimChart is a plain fn invoked as a Reagent component, so it
-  renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
-  frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare `subscribe` here
-  throws `:rf.error/no-frame-context` and crashes the Static surface).
-  The boundary body reads `:sim-current-state` / `:sim-last-transition`
-  where the frame IS in context and passes the values down."
+  `body`. The boundary body reads `:sim-current-state` /
+  `:sim-last-transition` and passes the values down, so SimChart stays a
+  pure function of its args."
   [dispatch {:keys [machine-id definition current last-trans]}]
   [:div {:data-testid "rf-xray-static-machines-sim-chart"
          :data-machine-id (str machine-id)
@@ -928,10 +925,7 @@
   ## Frame recovery
 
   `body` is mounted by `definition_detail/body` as a plain-fn Reagent
-  component, so it renders in its OWN cycle and CANNOT recover the
-  surrounding `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare
-  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
-  Static surface). All sim sub values — `sim` (`:sim-state`),
+  component, and it subscribes nothing itself. All sim sub values — `sim` (`:sim-state`),
   `transitions`, `suggestions`, `current`, `last-trans` — are read in
   the `detail` boundary (where the frame IS in context) and threaded down
   through `definition_detail/body` to here, then fanned out to `SimChart`

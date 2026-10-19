@@ -33,7 +33,7 @@
     arm subscribes in, this arm subscribes in: one read per boundary, the
     first rung of the HD-002 1/3/7/20 ladder. A row that took its text as
     a prop would be a different sub graph wearing the same name.
-  - **No `flush-views!`.** The UIx adapter's own flush wraps React's
+  - **No `flush-views!`.** The test flush wraps React's
     `act()`, and `act` diverts work to a queue that is not the browser's.
     Every window in this lane is taken outside it (`lane/leave-act-
     environment!`), so the UIx drain here is an empty
