@@ -563,7 +563,7 @@
 
   ## Why the registry proof is needed
 
-  `:params-schema` is REQUIRED but free: `[:vector :string]`, `:string`,
+  `:params-schema` is optional and free: `[:vector :string]`, `:string`,
   `[:maybe [:map …]]` are all legal, so a REGISTERED owner's canonical params
   are legally a vector, a scalar, or nil. With `map?` at position 2 as the ONLY
   test, such a key would wear the skeleton and fail the only proof, so on a

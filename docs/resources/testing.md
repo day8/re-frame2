@@ -144,7 +144,7 @@ A [scope resolver](concepts.md#the-scoped-key-a-leak-boundary-that-fails-closed)
   (is (nil? (rf/resolve-resource-scope {} :test/session))))
 ```
 
-Returning `nil` makes the missing identity explicit. A subscription raises an unresolved-scope error; route planning refuses that read. Resolve first and skip `clear-scope` when the result is `nil`, as the logout example does.
+Returning `nil` makes the missing identity explicit. A subscription reads `:status :unresolved`; route planning refuses that read. `:rf.resource/change-principal` skips a `nil` in `:from`, so a logout that resolves the departing scope first needs no special case for a reader who was never signed in.
 
 ## 3. Invalidation and mutations
 

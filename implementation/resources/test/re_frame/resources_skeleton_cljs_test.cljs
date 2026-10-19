@@ -52,9 +52,10 @@
   (is (thrown-with-msg?
         js/Error #"resource-missing-scope-policy"
         (rf.resources/reg-resource :test/no-scope (dissoc (valid-spec) :scope) valid-request)))
-  (is (thrown-with-msg?
-        js/Error #"resource-bad-spec"
-        (rf.resources/reg-resource :test/no-params (dissoc (valid-spec) :params-schema) valid-request)))
+  (is (= :test/no-params
+         (rf.resources/reg-resource :test/no-params (dissoc (valid-spec) :params-schema) valid-request))
+      ":params-schema is optional")
+  (rf/clear :resource :test/no-params)
   (testing "a :request inside the metadata map is a mislocated key"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
