@@ -119,8 +119,8 @@ case. It provides the plain-`atom` container quartet, a `make-derived-value`
 that wires **one watch per source** and coalesces through a per-adapter epoch
 scheduler so a multi-input derived value recomputes glitch-free and notifies
 once per coherent input epoch, the React 18+ root renderer (`createRoot` plus
-`hydrateRoot`), the hiccup-emitter cell and `render-to-string`, `flush-views!`,
-and the source-coord wrapper.
+`hydrateRoot`), the hiccup-emitter cell and `render-to-string`, and the
+source-coord wrapper.
 
 `spec/006-ReactiveSubstrate.md` records the consequence directly: the
 React-hook spine's derived value *"is live the moment it exists"* and needs no

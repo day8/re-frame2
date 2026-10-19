@@ -384,7 +384,7 @@ step is waiting for before choosing the door:
 Inside `flushSync`, the components `r/flush` re-renders commit before it
 returns. Called bare, they commit at once only if some Reagent root has already
 rendered on the page — a Fresco mount is not one — so a bare call passes or
-fails by test order. `re-frame.adapter.reagent/flush-views!` drains the same
+fails by test order. `re-frame.test-support/flush-views!` drains the same
 queue inside React's `act`, which this kit deliberately does not use.
 
 A converted report hosts a retained Reagent grid that sizes its row window from

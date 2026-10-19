@@ -77,7 +77,7 @@ Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-c
 - **Subscribe returns a reaction.** Always deref with `@`. Inside a Reagent view this auto-tracks; outside of a reactive context the deref is a one-shot read and won't update.
 - **The query-vector is the cache key.** `[:my-sub 1]` and `[:my-sub 2]` are distinct cache entries. Re-using the same vector across renders is fine; constructing fresh vectors with identical content is also fine (`=`-equal keys hit the same cache slot).
 - **A declared input is a query-vector, not just an id.** `{:inputs [[:other-sub arg]]}` is legal and threads the arg through. A bare keyword is refused — the only accepted single-input spelling is `[[:other-sub]]`.
-- **Subs run inside the calling frame's context.** A plain Reagent fn can't read the surrounding `frame-provider`'s frame, so a bare `subscribe` in it raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through) — use `reg-view` so the frame is read from React context, or, to keep it a plain fn, carry the frame explicitly (`(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame api threaded down). A bare no-arg `capture-frame` in the plain fn re-raises — it has no scope to capture. See [frames.md](frames.md).
+- **Subs run inside the calling frame's context.** While a view renders — a `reg-view` or a plain Reagent fn — a bare `subscribe` reads the surrounding `frame-provider`'s frame. Outside a render, or under no boundary, it raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through): carry the frame explicitly there (`(rf/capture-frame)` taken during the render, `(rf/capture-frame frame-id)`, or a `{:frame …}` opt). See [frames.md](frames.md).
 
 ## Deeper material
 

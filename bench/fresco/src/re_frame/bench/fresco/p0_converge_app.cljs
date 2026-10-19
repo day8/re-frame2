@@ -593,7 +593,7 @@
     (fn [root] (react-dom/flushSync (fn [] (uix-dom/unmount-root root))))
     ;; `useSyncExternalStore` notifications schedule at React's SYNC lane,
     ;; so an EMPTY flushSync commits them inside the window. Not
-    ;; `rf.adapter.uix/flush-views!`, which wraps React's `act()` — `act`
+    ;; `re-frame.test-support/flush-views!`, which wraps React's `act()` — `act`
     ;; diverts work to a queue that is not the browser's, and every
     ;; window in this lane is taken outside it.
     (fn [] (react-dom/flushSync (fn [] nil)))))

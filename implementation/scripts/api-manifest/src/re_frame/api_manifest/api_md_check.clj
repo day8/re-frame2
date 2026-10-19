@@ -136,7 +136,7 @@
    to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter
    prose). A qualified API.md row written with one of these
    aliases resolves to the EXACT manifest namespace named here — never by
-   bare var name (the `adapter` / `flush-views!` / … vars are carried for
+   bare var name (the `adapter` / `client-root` / … vars are carried for
    every adapter namespace, so a bare match would not distinguish
    them). spec/API.md teaches the Conventions require-alias dialect —
    `rf.adapter.<x>` for `re-frame.adapter.<x>`, per spec/Conventions.md

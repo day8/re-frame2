@@ -199,7 +199,7 @@ Fix it at the root: create a frame and scope the view tree to it. The usual form
   el)
 ```
 
-Inside that tree, a bare `dispatch` or `subscribe` finds the frame from the provider, but only in a view that can read it. A `reg-view` can; a plain Reagent function that dispatches or subscribes cannot, and raises `:rf.error/no-frame-context` (see [Views render under a frame scope](#views-render-under-a-frame-scope)). Call sites outside the tree need attention too: async callbacks that have left the render scope, and top-level boot code with no provider. v1 silently sent these to the global app-db. The skill moves bare top-level call sites under a root provider and flags async callbacks for explicit capture, described next.
+Inside that tree, a bare `dispatch` or `subscribe` finds the frame from the provider while a view renders, in a `reg-view` and a plain Reagent function alike (see [Views render under a frame scope](#views-render-under-a-frame-scope)). Call sites outside the render need attention: callbacks that run after it, such as an `:on-click` with a bare `rf/dispatch`, and top-level boot code with no provider. v1 silently sent these to the global app-db. The skill moves bare top-level call sites under a root provider and flags async callbacks for explicit capture, described next.
 
 !!! note "No `:initial-db` key"
 
@@ -239,11 +239,9 @@ Inside that tree, a bare `dispatch` or `subscribe` finds the frame from the prov
 
 ### Views render under a frame scope
 
-A plain Reagent function that only renders its props works under any tree, because it never touches a frame. A plain function that itself dispatches or subscribes is different. The provider passes the frame through React context, and only a registered view is wired to receive it, so the bare call finds no frame and raises `:rf.error/no-frame-context`, even with a provider above it.
+While a view renders, a bare `dispatch` or `subscribe` in it reads the frame of the closest `frame-provider` or `frame-root` above it. That holds for a [`reg-view`](glossary.md#view) and a plain Reagent function alike, so a v1 view keeps working as a plain function under the root provider. The provider wins over a `with-frame` around the render, so you can tell a view's frame by looking at the tree.
 
-The fix is to register the view with [`reg-view`](glossary.md#view), which reads the provider's frame and injects frame-bound `dispatch` and `subscribe` that also work in callbacks. If you keep a plain function on purpose, pass the frame explicitly: `(rf/capture-frame frame-id)`, a `{:frame …}` opt on the call, or a captured frame api passed as a prop.
-
-Two fixes that look plausible still raise the same error. Wrapping the returned subtree in `with-frame` doesn't help, because the dynamic binding has ended by the time React renders the child. A no-argument `(rf/capture-frame)` inside the plain function doesn't help either, because it looks up the same missing frame. `with-frame`, or the no-argument capture, works only around a dispatch, subscribe or capture that runs synchronously while the scope is live.
+What the provider does not reach is code that runs after the render: an `:on-click` handler, a timer, a promise callback. A bare `rf/dispatch` there finds no frame and raises `:rf.error/no-frame-context`. Capture the frame during the render and call its ops from the callback, as [Async callbacks](#async-callbacks-capture-a-frame-api) shows; a `reg-view` does this for you, injecting a `dispatch` and `subscribe` captured at render time. Wrapping the returned subtree in `with-frame` doesn't help, because the dynamic binding has ended by the time React renders the child, let alone by the time the callback fires.
 
 ## Paths and cache identity
 

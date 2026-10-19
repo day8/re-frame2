@@ -1,6 +1,6 @@
 # re-frame.test-support
 
-Fixtures and helpers for tests that exercise runtime state. The fixture resets the runtime around each test so every test starts from the same registrations; the helpers assert on `app-db`, wait for async work, and record traces and errors. Its companion [`re-frame.test-helpers`](re-frame.test-helpers.md) walks the hiccup a view returns; a test that checks both state and views requires both.
+Fixtures and helpers for tests that exercise runtime state. The fixture resets the runtime around each test so every test starts from the same registrations; the helpers assert on `app-db`, commit mounted views, wait for async work, and record traces and errors. Its companion [`re-frame.test-helpers`](re-frame.test-helpers.md) walks the hiccup a view returns; a test that checks both state and views requires both.
 
 Use this namespace when a test drives the runtime: it dispatches events and reads the state they commit. To test a handler's logic alone you need none of it; call the handler as a function, as [Test an event handler](../core/testing/event-handlers.md) shows.
 
@@ -148,6 +148,30 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
 
   ;; Against another frame:
   (ts/assert-path-equals [:cart :count] 2 {:frame :checkout})
+  ```
+
+## Committing mounted views
+
+### `flush-views!`
+
+- **Kind**: function (CLJS and JVM)
+- **Signature**:
+  ```clojure
+  (flush-views!)   → nil
+  (flush-views! f) → nil
+  ```
+- **Description**: Runs the thunk `f`, then commits the views it re-rendered, synchronously, so the next line reads the DOM a user would see. The 0-arity form commits renders already pending. Use it when a test mounts views into a real DOM; most view tests need no DOM, and call the view and walk its hiccup with [`re-frame.test-helpers`](re-frame.test-helpers.md) instead.
+    - It names no adapter. The commit is the installed adapter's: Reagent drains its render queue, UIx runs React's `flushSync`. On CLJS it runs inside React's `act()`, so the effects that commit scheduled have run too. React's production build has no `act()`, and there it commits without one.
+    - It settles only what ran synchronously: a mount, or a `dispatch-sync` inside `f`. A queued `dispatch`, an HTTP reply or a timer has not happened when it returns; wait for those with [`poll-until`](#poll-until).
+    - Where nothing renders live (the plain-atom and SSR adapters, and every JVM run) it runs `f` and returns nil. With no adapter installed it raises `:rf.error/no-adapter-installed`.
+    - React's `act()` expects the test to set `globalThis.IS_REACT_ACT_ENVIRONMENT` to `true` while it drives React through `flush-views!`, and to set it back while it waits on React's own schedule. [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real) shows the pattern.
+    - A Fresco mounted test settles with `re-frame.fresco.test.mounted/settle!` instead, because `act()` diverts work away from the browser's scheduler; see [Fresco testing](../core/fresco/15-testing.md#l3-mounted-react-and-dom).
+    - It runs a render, so do not call it from inside an event handler.
+- **Example**:
+  ```clojure
+  (ts/flush-views! #(reagent-adapter/render! root [counter] el))  ;; mount, committed on return
+  (ts/flush-views! #(rf/dispatch-sync [:counter/inc]))            ;; dispatch, then commit the re-render
+  (is (= "1" (.-textContent el)))
   ```
 
 ## Waiting for async work
