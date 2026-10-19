@@ -377,18 +377,12 @@
 ;; event-id and a sub-id may legitimately SHARE a keyword — they live in
 ;; SEPARATE registries (`[:event id]` vs `[:sub id]`), so a bare
 ;; `[:sub]`-then-`[:event]` probe attributes a same-keyword collision to the
-;; WRONG realm. Resolution therefore pivots on the exact
-;; operation realm the record already carries in `:op`: `:dispatch` /
-;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`.
-;; The ORDINARY address-directed ROUTER emitter carries no
-;; `:op`; for it the lookup falls back to `[:sub]`-then-`[:event]`, which keeps
-;; it correct (the event-id misses `[:sub]` then hits `[:event]`). The SUBS
-;; emitter is NOT in that fallback: `subs/emit-frame-destroyed-recovery!` is
-;; subscribe-realm BY CONSTRUCTION and stamps `:op :subscribe` UNCONDITIONALLY,
-;; so it takes the `:subscribe` case above and resolves realm-exact
-;; under `[:sub id]` — never stealing a same-keyword event's coord. A miss on
-;; the resolved realm falls
-;; through to nil → the `:source-coord` slot is absent.
+;; WRONG realm. Resolution therefore pivots on the operation realm every
+;; emitter stamps in `:op`: `:dispatch` / `:dispatch-sync` → `[:event]`,
+;; `:subscribe` → `[:sub]`. The router stamps the dispatch realms on every
+;; path, ordinary and captured alike, and `subs/emit-frame-destroyed-recovery!`
+;; stamps `:subscribe`. A miss on the resolved realm falls through to nil →
+;; the `:source-coord` slot is absent, never another realm's coord.
 
 (def ^:private sub-error-categories
   "Categories whose `:event-id` slot carries a SUB id — their source
@@ -513,22 +507,10 @@
     - `:rf.error/sub-*` categories → look under `[:sub id]`.
     - `:rf.error/frame-destroyed` is realm-AMBIGUOUS on the id alone (an
       event-id and a sub-id may legitimately SHARE a keyword — they live in
-      SEPARATE registries), so it pivots on the exact operation realm the
-      record already carries in `op` (the `:op` realm
-      attribution the record carries, PUBLIC wherever the realm is
-      known: core's `capture-frame` stale-op pre-check seam and the router's
-      late captured-op fences stamp it, and the subs SUBSCRIBE emitter stamps
-      it unconditionally — see
-      `router/emit-frame-destroyed!` and Spec 009 §Error contract):
-        - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
-          the coord lives under `[:event id]`.
-        - `:subscribe`                   → a SUBSCRIBE, coord under `[:sub id]`.
-        - `op` absent (the ordinary address-directed router DISPATCH emitter
-          does not carry it — the subs SUBSCRIBE emitter stamps
-          `:op :subscribe` and so resolves realm-exact via the
-          `:subscribe` case above, NOT this fallback) → fall back to
-          `[:sub]`-then-`[:event]`, which keeps the router-dispatch
-          caller correct (the event-id misses `[:sub]` then hits `[:event]`).
+      SEPARATE registries), so it pivots on the public `:op` realm every
+      emitter stamps (see `router/emit-frame-destroyed!` and Spec 009 §Error
+      contract): `:subscribe` → a SUBSCRIBE, coord under `[:sub id]`;
+      `:dispatch` / `:dispatch-sync` → a DISPATCH, coord under `[:event id]`.
     - every other category → look under `[:event id]`."
   [error-kw id op frame-id]
   (when id
@@ -538,13 +520,7 @@
         (coord-in :sub)
 
         (= :rf.error/frame-destroyed error-kw)
-        (case op
-          (:dispatch :dispatch-sync) (coord-in :event)
-          :subscribe                 (coord-in :sub)
-          ;; `op` absent — the ordinary address-directed core router DISPATCH
-          ;; emitter (the subs SUBSCRIBE emitter stamps `:op :subscribe`
-          ;; and resolves realm-exact via the `:subscribe` case above).
-          (or (coord-in :sub) (coord-in :event)))
+        (coord-in (if (= :subscribe op) :sub :event))
 
         :else
         (coord-in :event)))))
@@ -646,8 +622,8 @@
   THE FALSE BRANCH IS LIVE, reached through [[emit-error-both!]], which threads
   its own trailing `route-frame?` straight into this 9-arity. Two production
   sites in core's `capture-frame` machinery drive it:
-  `router/emit-frame-destroyed!` passes `(nil? op)`, so every captured-op
-  rejection withdraws frame authority, and `subs/emit-frame-destroyed-recovery!`
+  `router/emit-frame-destroyed!` passes false for every captured-op
+  rejection, and `subs/emit-frame-destroyed-recovery!`
   passes a literal false for a captured subscribe whose pinned incarnation was
   superseded. `capture_frame_reincarnation_sink_route_cljs_test` pins both
   branches."
@@ -670,10 +646,9 @@
          ;; categories) must resolve under `[:sub …]`, not the hardcoded
          ;; `[:event …]`. For the realm-ambiguous `:rf.error/frame-destroyed`
          ;; category the resolution ALSO pivots on the operation realm the
-         ;; record carries in its `:op` attribution (the public `:op` realm
-         ;; slot, which also STEERS this source-coord resolution), so a same-keyword event vs subscription
-         ;; is attributed to the correct realm. See [[error-source-coord]] /
-         ;; [[sub-error-categories]].
+         ;; record carries in its public `:op` slot, so a same-keyword event
+         ;; and subscription are each attributed to their own realm. See
+         ;; [[error-source-coord]] / [[sub-error-categories]].
          source-coord (error-source-coord error-kw event-id (:op attrs) frame-id)
          ;; A subscription QUERY VECTOR is raw IDENTITY
          ;; on the always-on error `:event` slot — it egresses VERBATIM,

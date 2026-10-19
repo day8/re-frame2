@@ -1190,26 +1190,20 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def FrameDestroyedTags
   ;; `:op` — the failing operation's REALM, a small closed enum that is PUBLIC
-  ;; on this category (per the 009 catalogue row). It is
-  ;; OPTIONAL because presence tracks the EMIT SITE'S KNOWLEDGE, not the envelope
-  ;; branch: only a site that already knows the realm stamps it — the `capture-frame`
-  ;; stale-op pre-check seam, the router / subs LATE captured-op fences
-  ;; (`:dispatch` / `:dispatch-sync` / `:subscribe`), and the
-  ;; ORDINARY address-directed SUBSCRIBE emitter (subs `emit-frame-destroyed-
-  ;; recovery!`), which is subscribe-realm BY CONSTRUCTION and so stamps
-  ;; `:op :subscribe` UNCONDITIONALLY. An ORDINARY address-directed **DISPATCH**
-  ;; into a destroyed frame carries NO captured incarnation, so it omits `:op`
-  ;; and is valid without it — that emit keeps its tight keyset, its per-path
-  ;; `:event` elision + unresolvable-frame fail-closed, and the realm-ambiguous
-  ;; `[:sub]`-then-`[:event]` source-coord fallback (a dispatched event vector is
-  ;; PAYLOAD, not identity). The ordinary SUBSCRIBE path does not omit `:op`:
-  ;; a subscription's query vector is IDENTITY, so the `:subscribe`
-  ;; stamp routes it raw on `:event` and resolves the `[:sub id]` coord realm-exact
-  ;; (omitting when the sub-id is unregistered, never stealing a same-keyword
-  ;; event's coord).
-  ;; Orthogonal to the envelope's `:category` rule above (`:category` is required
-  ;; here because `:rf.error/frame-destroyed` is an `:error` envelope; `:op`'s
-  ;; optionality is a per-emit-site axis, not a per-branch one).
+  ;; on this category (per the 009 catalogue row) and REQUIRED: every emitter
+  ;; knows the operation it is refusing. The router stamps `:dispatch` /
+  ;; `:dispatch-sync` on the ordinary address-directed path and on every
+  ;; captured-op rejection (the `capture-frame` stale-op pre-check seam and the
+  ;; late captured-op fences); subs `emit-frame-destroyed-recovery!` is
+  ;; subscribe-realm BY CONSTRUCTION and stamps `:subscribe`. A dispatched event
+  ;; vector is PAYLOAD, so the dispatch realms keep their per-path `:event`
+  ;; elision and unresolvable-frame fail-closed; a subscription's query vector
+  ;; is IDENTITY, so the `:subscribe` stamp routes it raw on `:event`. The realm
+  ;; also resolves the source coord: `[:event id]` for the dispatch realms,
+  ;; `[:sub id]` for `:subscribe`, omitting the coord when that realm has none
+  ;; rather than taking a same-keyword registration's from the other realm.
+  ;; Whether the record may name the frame-owned sink route is a separate fact
+  ;; the emitter carries, not something `:op` encodes.
   ;;
   ;; Two sites build these tags — `router/emit-frame-destroyed!` and
   ;; `subs/emit-frame-destroyed-recovery!` — and between them they stamp every
@@ -1234,11 +1228,10 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; Per-slot ownership — the emitter that stamps it:
   ;;   :event    router/emit-frame-destroyed!
   ;;   :query-v  subs/emit-frame-destroyed-recovery!
-  ;;   :op       capture-frame pre-check + router's LATE captured-op fences;
-  ;;             subs/emit-frame-destroyed-recovery! stamps
-  ;;             `:subscribe` on these dev-trace tags AND the always-on record
-  ;;             (subscribe-realm by construction). Those cover ALL THREE
-  ;;             declared `:op` values.
+  ;;   :op       router/emit-frame-destroyed! (`:dispatch` / `:dispatch-sync`,
+  ;;             on every path) and subs/emit-frame-destroyed-recovery!
+  ;;             (`:subscribe`), on these dev-trace tags AND the always-on
+  ;;             record. Those cover ALL THREE declared `:op` values.
   ;;   :reason   router (the constant `:frame-destroyed`)
   ;;
   ;; A schema slot is a claim about what an emitter produces, so a slot with no
@@ -1273,7 +1266,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   [:map
    [:category       :keyword]
    [:frame          :keyword]
-   [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe]]
+   [:op             [:enum :dispatch :dispatch-sync :subscribe]]
    [:event          {:optional true} :any]
    [:query-v        {:optional true} [:vector :any]]
    [:reason         {:optional true} :keyword]])
