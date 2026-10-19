@@ -696,8 +696,8 @@
     dynamic-scope establishment happens INSIDE THE CALLEE's own function
     body, where it can never compile as an awaited async IIFE.
 
-  The reason: the call-site macros (`dispatch`, `dispatch-sync`,
-  `subscribe`) splice this form directly into USER code. When that user
+  The reason: the call-site macros (`dispatch`, `dispatch-sync`) splice
+  this form directly into USER code. When that user
   code sits in a CLJS async context (`cljs.test/async`, a `go` block, any
   `^:async` fn), the compiler lowers a spliced multi-step form such as a
   runtime `cond->` to `await (async function(){...})()` — inserting a real

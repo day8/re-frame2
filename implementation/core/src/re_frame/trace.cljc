@@ -290,8 +290,9 @@
 #?(:clj
    (defmacro with-call-site
      "Bind `*handler-scope*` with `:call-site` set to `cs`, inheriting
-     the rest. For surface macros (`subscribe`) and synchronous error
-     emits in `dispatch!` / `dispatch-sync!`. Per Spec 009 §Handler-scope
+     the rest. For a frame api's `:subscribe` op (the `reg-view`-injected
+     read) and synchronous error emits in `dispatch!` / `dispatch-sync!`.
+     Per Spec 009 §Handler-scope
      and §`:rf.trace/call-site`."
      [cs & body]
      `(let [cs# ~cs
@@ -697,7 +698,7 @@
       ;; `:rf.trace/call-site` rides BOTH error and success-path
       ;; emits. Hoisted from the in-scope
       ;; cascade's call-site (envelope's macro-stamped coord or a
-      ;; `with-call-site` wrapper around a surface-macro body).
+      ;; `with-call-site` wrapper around a frame api's read).
       call-site            (assoc :rf.trace/call-site call-site)
       ;; Top-level `:sensitive? true` stamp. Absent (not `false`)
       ;; when not sensitive — consumers treat absent as false.

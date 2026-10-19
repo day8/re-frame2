@@ -450,14 +450,14 @@ const DEV_ONLY_SENTINELS = [
     sentinel: '(fn probe-never-guard [_] false)' },
   { source: 're-frame.core/reg-machine (:actions :source-code fn-body literal)',
     sentinel: '(fn probe-noop-action [_] {})' },
-  // re-frame.core/{dispatch,dispatch-sync,subscribe,inject-cofx} —
+  // re-frame.core/{dispatch,dispatch-sync,inject-cofx} —
   // call-site source-coord stamping (dev-only elision).
   // Each macro emits an `(if interop/debug-enabled? <stamp-branch>
   // <no-stamp-branch>)` expansion; under :advanced + goog.DEBUG=false
   // the closure compiler constant-folds the gate to false and the
   // stamp branch DCEs. The `rf.trace/call-site` keyword's string
   // fragment must NOT survive in production bundles.
-  { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
+  { source: 're-frame.core/{dispatch,dispatch-sync,inject-cofx} (rf.trace/call-site stamping)',
     sentinel: 'rf.trace/call-site' },
   // re-frame.core/reg-event — handler form-source capture (Spec 009
   // §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch).
