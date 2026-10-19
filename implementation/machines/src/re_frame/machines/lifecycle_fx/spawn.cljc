@@ -193,7 +193,7 @@
     ;; no spawn args. Late-bound: machines ships above core's require graph;
     ;; the hook is bound once `re-frame.error-emit` loads.
     (when-let [dispatch-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
-      (dispatch-record! {:error      :rf.error/machine-spawn-unregistered-type
+      (dispatch-record! {:rf.error/id :rf.error/machine-spawn-unregistered-type
                          :frame      frame-id
                          :machine-id machine-id
                          :recovery   :no-recovery

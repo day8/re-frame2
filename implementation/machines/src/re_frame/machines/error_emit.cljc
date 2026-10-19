@@ -24,7 +24,7 @@
   always-on channel. Returns nil.
 
   `always-on` is caller-built from the structural fields described in the
-  namespace docstring. This function stamps `:error` and `:time` before
+  namespace docstring. This function stamps `:rf.error/id` and `:time` before
   dispatch; it must not receive free-text prose or value-bearing slots.
 
   Dev `trace/emit-error!` calls must remain direct at their call sites so their
@@ -33,6 +33,6 @@
   ;; Late-bound because this optional artefact cannot require the core emitter.
   (when-let [dispatch-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-record! (assoc always-on
-                             :error :rf.error/machine-action-exception
+                             :rf.error/id :rf.error/machine-action-exception
                              :time  (rf.interop/now-ms))))
   nil)

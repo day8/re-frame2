@@ -343,7 +343,7 @@
         (rf/dispatch-sync event)
         (is (= [{:kind :route :url url :frame :rf/default}]
                (->> @records
-                    (filter #(= :rf.error/no-such-handler (:error %)))
+                    (filter #(= :rf.error/no-such-handler (:rf.error/id %)))
                     (mapv #(select-keys % [:kind :url :frame]))))
             (pr-str event))
         (when rf.interop/debug-enabled?

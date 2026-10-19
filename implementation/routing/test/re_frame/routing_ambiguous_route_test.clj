@@ -54,7 +54,7 @@
         (doseq [ns-sym probe-namespaces] (remove-ns ns-sym))))))
 
 (defn- ambiguities [records]
-  (filterv #(= :rf.error/ambiguous-registration (:error %)) records))
+  (filterv #(= :rf.error/ambiguous-registration (:rf.error/id %)) records))
 
 (defn- current-route-id [frame-id]
   (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
@@ -200,7 +200,7 @@
 (defn- route-misses
   "The always-on `:rf.error/no-such-handler` records in `records`."
   [records]
-  (filterv #(= :rf.error/no-such-handler (:error %)) records))
+  (filterv #(= :rf.error/no-such-handler (:rf.error/id %)) records))
 
 (deftest route-miss-telemetry-projects-an-ambiguous-route-url
   ;; The navigation that fails closed on an ambiguous route also reports a

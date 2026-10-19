@@ -59,7 +59,7 @@
           (finally
             (rf.error-emit/unregister-error-listener! ::rec)))
         (let [rejections (filterv
-                           #(and (= :rf.error/schema-validation-failure (:error %))
+                           #(and (= :rf.error/schema-validation-failure (:rf.error/id %))
                                  (= :app-db (:where %)))
                            @records)
               r          (first rejections)]

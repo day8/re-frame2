@@ -161,7 +161,7 @@
         (finally
           (rf.error-emit/unregister-error-listener! ::rec)
           (rf.event-emit/unregister-event-listener! ::rec)))
-      (let [rec (first (filter #(= :rf.error/schema-validation-failure (:error %))
+      (let [rec (first (filter #(= :rf.error/schema-validation-failure (:rf.error/id %))
                                @errors))
             evt (first (filter #(= :api/strict (:event-id %)) @events))]
         (is (some? rec)

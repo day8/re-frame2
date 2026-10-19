@@ -37,7 +37,7 @@
     (rf.trace.tooling/register-listener! ::trace #(swap! dev conj %))
     (try
       (rf/dispatch-sync event)
-      {:always-on (into [] (comp (filter #(= :rf.error/machine-action-exception (:error %)))
+      {:always-on (into [] (comp (filter #(= :rf.error/machine-action-exception (:rf.error/id %)))
                                  (map #(-> %
                                            (update :exception throwable?)
                                            (update :time number?))))
@@ -58,7 +58,7 @@
                  :done {}}})
     (rf/dispatch-sync [:throw/action [:rf.machine/start]])
     (let [{:keys [always-on dev]} (action-exceptions [:throw/action [:go]])]
-      (is (= [{:error      :rf.error/machine-action-exception
+      (is (= [{:rf.error/id :rf.error/machine-action-exception
                :actor-id   :throw/action
                :failing-id :boom
                :state      [:idle]
@@ -79,7 +79,7 @@
        :states  {:idle {:on {:go [{:guard :boom :target :a}]}}
                  :a    {}}})
     (rf/dispatch-sync [:throw/guard [:rf.machine/start]])
-    (is (= [{:error      :rf.error/machine-action-exception
+    (is (= [{:rf.error/id :rf.error/machine-action-exception
              :actor-id   :throw/guard
              :failing-id :boom
              :state      [:idle]

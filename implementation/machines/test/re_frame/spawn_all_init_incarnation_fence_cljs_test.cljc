@@ -81,7 +81,7 @@
     (rf.error-emit/register-error-listener! ::destroyer
       (fn [r]
         (when (and (= :reject-listener (:kind trigger))
-                   (= :rf.error/machine-spawn-unregistered-type (:error r)))
+                   (= :rf.error/machine-spawn-unregistered-type (:rf.error/id r)))
           (destroy+B!))))
     (try
       (when (= :validator (:kind trigger))
