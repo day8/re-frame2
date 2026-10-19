@@ -21,7 +21,7 @@ The handler returns a plain-data description of the interaction in its effect-ma
 
 ```clojure
 ;; Effect-as-data — what every managed-effect call site looks like.
-{:fx [[:rf.http/managed   {:request {...} :on-success ... :retry {...}}]
+{:fx [[:rf.http/managed   {:request {...} :on-success ... :on-failure nil :retry {...}}]
       [:rf.machine/spawn  {:id ... :machine ... :data {...}}]
       [:rf.server/set-cookie {:name "session" :value ...}]]}
 ```
