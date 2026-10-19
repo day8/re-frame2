@@ -337,7 +337,8 @@
   (let [node #(get-in (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
                       [:nodes [:machine :job/runner]])]
     (is (some? (node)))
-    (rf/dispatch-sync [:job/runner [:job/finish]])
+    (rf/reg-event ::destroy-runner (fn [_ _] {:fx [[:rf.machine/destroy :job/runner]]}))
+    (rf/dispatch-sync [::destroy-runner])
     (is (nil? (node)))))
 
 #?(:cljs
