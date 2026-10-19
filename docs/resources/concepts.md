@@ -244,24 +244,26 @@ identity is known before loading that resource. Scope selects a cache entry;
 your server still authenticates and authorizes the request.
 
 When the resolver's inputs change, a subscription reads the new key without
-fetching. If the route stays the same, dispatch
-`[:rf.route/replan-resources {:cause :account-changed}]` after committing the
-new identity. The [scope tutorial](tutorial/04-scopes-and-guards.md) handles
-session restoration, logout and that replan together.
-
-Resolve a departing user's scope from the event's `db` before removing the
-identity, then pass the concrete value to `clear-scope`:
+fetching. A change of identity — login, logout, an account switch — is one
+event, dispatched from the handler that commits the new identity:
+`:rf.resource/change-principal` clears the scopes the departing user held,
+then replans the current route under the new identity. Resolve the departing
+scopes from the event's `db`, which still describes who is leaving:
 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :app/session)]
-      {:db (dissoc db :auth)
-       :fx (cond-> []
-             old-scope
-             (conj [:dispatch [:rf.resource/clear-scope
-                               {:scope old-scope :cause :logout}]]))})))
+    {:db (dissoc db :auth)
+     :fx [[:dispatch [:rf.resource/change-principal
+                      {:from  [(rf/resolve-resource-scope db :app/session)]
+                       :cause :logout}]]]}))
 ```
+
+A `nil` in `:from` — a resolver with nothing to name — is skipped. The clear
+matters as much as the replan: an old entry that something still owns would
+otherwise be refetched on focus or a poll tick with the new user's
+credentials. The [scope tutorial](tutorial/04-scopes-and-guards.md) handles
+session restoration and logout with it.
 
 ## Owners, causes, refetch rules
 
