@@ -237,9 +237,15 @@
       (is (= {(rf.resources.state/key-id bob) bob} (plan-slot)) "the plan names the new identity only")
       (is (= ["/docs/intro"] (requested-urls n)) "one request, for the new principal"))))
 
-(deftest change-principal-without-an-active-route-only-clears
-  (let [ann (owned-loaded! "ann" "a")
-        n   (count @requests)]
+;; No route plans anything here. On the JVM the frame has no route slice at
+;; all; in a CLJS build a url-bound frame syncs from the address at creation
+;; and sits on the `:rf.route/not-found` slice for "/". Either way the event's
+;; whole effect is the clear.
+(deftest change-principal-off-a-planning-route-only-clears
+  (let [ann    (owned-loaded! "ann" "a")
+        n      (count @requests)
+        before (slice)]
     (rf/dispatch-sync (change-principal [(viewer "ann")]))
-    (is (and (nil? (entry ann)) (nil? (slice)) (= [] (requested-urls n)))
-        "with no route there is nothing to replan, and no error")))
+    (is (nil? (entry ann)) "the departing scope is cleared")
+    (is (= [] (requested-urls n)) "nothing is fetched")
+    (is (= before (slice)) "the route slice is untouched")))

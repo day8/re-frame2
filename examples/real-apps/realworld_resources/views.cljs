@@ -715,8 +715,7 @@
       {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query query}]]]})))
 
 (reg-view profile-page []
-  (let [username       (:username @(subscribe [:rf.route/params]))
-        favorites?     @(subscribe [:profile/favorites-tab?])
+  (let [favorites?     @(subscribe [:profile/favorites-tab?])
         page           @(subscribe [:profile/page])
         current-user   @(subscribe [:auth/user])
         profile-state  @(subscribe [:rf/route-resource :realworld/profile])
