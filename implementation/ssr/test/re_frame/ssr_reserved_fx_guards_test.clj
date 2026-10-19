@@ -133,43 +133,35 @@
    ["redirect no target"       :rf.server/redirect
     rf.ssr.server-fx-schemas/redirect-args {:status 302}                           true]
    ["redirect every optional nil" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location nil :status nil}             true]
+    rf.ssr.server-fx-schemas/redirect-args {:location nil :status nil :allow nil}  true]
    ["redirect non-int :status" :rf.server/redirect
     rf.ssr.server-fx-schemas/redirect-args {:location "/x" :status "oops"}         false]
    ["redirect keyword :location" :rf.server/redirect
     rf.ssr.server-fx-schemas/redirect-args {:location :dashboard}                  false]
+   ["redirect host :allow"     :rf.server/redirect
+    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard"
+                                            :allow ["app.example.com"]}            true]
+   ["redirect :allow :any"     :rf.server/redirect
+    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard" :allow :any}    true]
+   ["redirect scalar :allow"   :rf.server/redirect
+    rf.ssr.server-fx-schemas/redirect-args {:location "/ok"
+                                            :allow "app.example.com"}              false]
+   ["redirect keyword :allow other than :any" :rf.server/redirect
+    rf.ssr.server-fx-schemas/redirect-args {:location "/ok" :allow :all}           false]
+   ["redirect :relative-only?" :rf.server/redirect
+    rf.ssr.server-fx-schemas/redirect-args {:location "/ok" :relative-only? true}  false]])
 
-   ["safe-redirect well-formed" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/dashboard"
-                                                 :status 302
-                                                 :relative-only? true
-                                                 :allow ["app.example.com"]}       true]
-   ["safe-redirect every optional nil" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :status nil
-                                                 :relative-only? nil :allow nil}   true]
-   ["safe-redirect no :location" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:status 302}                      false]
-   ["safe-redirect nil :location (required)" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location nil}                    false]
-   ["safe-redirect non-int :status" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :status "not-int"} false]
-   ["safe-redirect scalar :allow" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok"
-                                                 :allow "app.example.com"}         false]
-   ["safe-redirect non-boolean :relative-only?" :rf.server/safe-redirect
-    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :relative-only? "yes"} false]])
-
-(deftest a-target-less-safe-redirect-is-a-code-bug-not-a-security-signal
-  (testing "a missing or non-string `:location` is refused by the shape guard,
-            so it never reaches the URL gate and is never filed as an
-            open-redirect probe on the always-on security axis"
-    (doseq [[label args] [["missing :location" {:status 302}]
-                          ["keyword :location" {:location :dashboard}]]]
-      (let [{:keys [raw records]} (drive! [:rf.server/safe-redirect args])]
-        (is (nil? (:redirect raw)) label)
-        (is (not-any? #(clojure.string/starts-with? (name (:error %)) "safe-redirect-")
-                      records)
-            (str label "; saw: " (pr-str (mapv :error records))))))))
+(deftest a-non-string-location-is-a-code-bug-not-a-security-signal
+  (testing "a non-string `:location` is refused by the shape guard, so it never
+            reaches the URL gate and is never filed as an open-redirect probe
+            on the always-on security axis"
+    (let [{:keys [raw records]} (drive! [:rf.server/redirect {:location :dashboard}])]
+      (is (nil? (:redirect raw)))
+      (is (not-any? #{:rf.error/redirect-invalid-url
+                      :rf.error/redirect-scheme-rejected
+                      :rf.error/redirect-host-disallowed}
+                    (map :error records))
+          (pr-str (mapv :error records))))))
 
 (defn- landed?
   "Did `fx-id` WRITE to the accumulator? `:rf.server/set-status` landed when
@@ -185,7 +177,7 @@
     (:rf.server/set-cookie :rf.server/delete-cookie)
     (boolean (seq (:cookies raw)))
 
-    (:rf.server/redirect :rf.server/safe-redirect)
+    :rf.server/redirect
     (some? (:redirect raw))))
 
 (deftest schema-and-guard-agree-on-every-canonical-case
