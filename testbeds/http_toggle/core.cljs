@@ -27,7 +27,12 @@
   network would for its category; the real `:rf.http/managed` then
   classifies it, emits its `:rf.http/<kind>` trace and delivers the reply.
   This keeps the testbed deterministic across CI environments while every
-  failure travels the live failure path."
+  failure travels the live failure path.
+
+  Selecting an outcome installs the matching backend on the frame, and Go
+  is a plain dispatch queued behind that selection, so a Go clicked any
+  time after a selection issues the selected outcome through its backend,
+  however fast the click follows."
   (:require [cljs.reader :as edn]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -58,15 +63,21 @@
   (fn [_cofx _ev]
     {:db {:outcome :success
           :status  :idle
-          :reply   nil}}))
+          :reply   nil}
+     :fx [[::backend :success]]}))
 
 (rf/reg-event ::set-outcome
   (fn [{:keys [db]} [_ outcome]]
-    {:db (assoc db :outcome outcome)}))
+    {:db (assoc db :outcome outcome)
+     :fx [[::backend outcome]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; The Go button — one event handler that branches on (:outcome db).
 ;; ----------------------------------------------------------------------------
+;;
+;; Go and the outcome select both dispatch onto the frame's queue, so Go
+;; runs after every selection made before it, reads that outcome from
+;; app-db, and issues it through the backend the selection installed.
 ;;
 ;; Reply addressing: the same handler-id receives the reply via the
 ;; unified `:reply-to [::go msg]` on every issued request (per Spec 014).
@@ -122,15 +133,14 @@
                 :cause         "TypeError"
                 :cross-origin? true}}}))
 
-(defn- go!
-  "Click Go. The success outcome is a live Fetch; every failure outcome is
-   issued inside a `with-transport` scope, so its request goes out through
-   `failure-backend`."
-  [outcome]
-  (if (= :success outcome)
-    (rf/dispatch [::go] {:frame :rf/default})
-    (rf.http.stub-transport/with-transport failure-backend
-      #(rf/dispatch-sync [::go] {:frame :rf/default}))))
+(rf/reg-fx ::backend
+  {:doc       "Answer the frame's `:rf.http/managed` requests the way `outcome`
+               needs: from `failure-backend` for a failure outcome, and from
+               the network for `:success`."
+   :platforms #{:client}}
+  (fn [{:keys [frame]} outcome]
+    (rf.http.stub-transport/install-transport!
+      frame (when-not (= :success outcome) failure-backend))))
 
 (rf/reg-event ::go
   (fn [{:keys [db]} [_ msg reply]]
@@ -249,7 +259,7 @@
          ^{:key v}
          [:option {:value (pr-str v)} label])]
       [:button {:data-testid "go"
-                :on-click #(go! outcome)}
+                :on-click #(dispatch [::go])}
        "Go"]
       [:button {:data-testid "cancel"
                 :on-click #(dispatch [::cancel])}
