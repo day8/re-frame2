@@ -15,13 +15,14 @@
 
     +1             GET api/inc.json — a real, successful round-trip.
     Fail           GET api/does-not-exist — a real 404 (:rf.http/http-4xx).
-    Retry-recover  a canonical success reply, driven by a canned stub.
+    Retry-recover  a canonical success reply, dispatched directly.
     Cancel         aborts the in-flight +1 request by :request-id.
 
   +1 and Fail use Fetch: the request goes out, the body is decoded (only on a
-  2xx), and the reply lands back in app-db. Retry-recover uses a
-  canned-success stub. It demonstrates the canonical reply envelope, not the
-  retry scheduler or a sequence of transport attempts.
+  2xx), and the reply lands back in app-db. Retry-recover sends no request:
+  it dispatches the canonical success reply straight to its handler. It
+  demonstrates the reply envelope, not the retry scheduler or a sequence of
+  transport attempts.
 
   Cancellation goes through the public surface, and it is two small things.
   The +1 request carries `:request-id :http-counter/+1`. Cancel fires
@@ -35,17 +36,14 @@
   after the reply is a documented no-op. To watch one actually cancel,
   throttle the network in DevTools (Slow 3G), then click +1 and Cancel.
 
-  The Fetch branches exercise managed HTTP end to end through Reagent; the
-  canned branch isolates canonical reply handling."
+  The Fetch branches exercise managed HTTP end to end through Reagent;
+  Retry-recover isolates canonical reply handling."
   (:require [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact (day8/re-frame2-http).
             ;; Requiring this once at boot is what registers `:rf.http/managed`
             ;; and its family — skip it and the first fx dispatch fails loud
             ;; with a friendly "HTTP artefact missing" error.
             [re-frame.http.managed]
-            ;; Home of the canned-success reply seam used by Retry-recover.
-            ;; It emits a canonical reply but does not execute retry attempts.
-            [re-frame.http.test-support]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -193,14 +191,14 @@
       {:db (assoc db :http-counter/status :idle)})))
 
 ;; ============================================================================
-;; Retry-recover  —  canned-stub at app level
+;; Retry-recover  —  the canonical reply, dispatched directly
 ;; ============================================================================
 ;;
-;; This path synthesises the success envelope a recovered request would
-;; eventually deliver: {:status :ok :value {:delta 5} …}. It deliberately does
+;; This path hands the handler the success envelope a recovered request would
+;; eventually deliver: {:status :ok :value {:delta 5}}. It deliberately does
 ;; not exercise retry policy, attempt counting, or backoff. The point here is
 ;; narrower: the handler consumes the same canonical reply whether it came from
-;; the live transport or a controlled test seam.
+;; the live transport or straight from a dispatch.
 
 (rf/reg-event :http-counter/retry-recover
   (fn [{:keys [db]} [_ reply]]
@@ -214,15 +212,9 @@
       ;; `:http-counter/+1` for why that is not the same as `:else`.
       (nil? reply)
       {:db (assoc db :http-counter/status :loading)
-       ;; The stub conjures the reply directly. We still spell out the
-       ;; :request and :decode so the call site reads like the real thing —
-       ;; the stub just quietly skips the trip over the network. `:reply-to`
-       ;; addresses the synthesised reply exactly as it would the live fx's.
-       :fx [[:rf.http/managed-canned-success
-             {:request  {:method :get :url "api/flaky"}
-              :decode   :json
-              :value    {:delta 5}
-              :reply-to [:http-counter/retry-recover]}]]}
+       ;; No request: the reply goes straight back to this handler, appended
+       ;; as its last argument exactly where a live reply would land.
+       :fx [[:dispatch [:http-counter/retry-recover {:status :ok :value {:delta 5}}]]]}
 
       :else
       {:db (assoc db :http-counter/status :idle)})))

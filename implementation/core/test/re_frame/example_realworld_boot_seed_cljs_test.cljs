@@ -24,7 +24,6 @@
             [re-frame.schemas.malli]
             [re-frame.machines]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [realworld-http.http]
             [realworld-http.schema :as app-schema]
             [realworld-http.auth]

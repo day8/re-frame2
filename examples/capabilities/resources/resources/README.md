@@ -80,15 +80,13 @@ live. They go from "the framework decides" to "a workflow decides":
 ### No backend, real lifecycle
 
 There is no server in the box, yet every fetch is a real fetch. The example
-overrides the `:rf.http/managed` effect with a per-URL canned stub. The stub
-delegates to the framework-shipped `:rf.http/managed-canned-success` (Spec 014
-§Testing), which returns the same reply shape a live server would. So each ensure
-genuinely exercises in-flight tracking, deduping, reply addressing, and the
-passive status flow.
+installs a per-URL stub transport on its frame (Spec 014 §Testing): it replaces
+only the network hop, answering each request the way a live server would. So each
+ensure genuinely exercises in-flight tracking, deduping, decode, reply
+addressing, and the passive status flow.
 
 A small 120 ms delay gives the loading skeleton a moment on screen before the
-reply lands. (It is deferred through the framework's `:dispatch-later`, not raw
-`setTimeout`, so it stays visible to the trace and safe to time-travel.)
+reply lands.
 
 Re-ensure an entry while it is still inside its `:stale-after-ms` window and the
 runtime fresh-skips it: no refetch, just a `:rf.resource/cache-hit`. The
@@ -140,7 +138,7 @@ scope its resources were ensured under.
 
 ```
 resources/
-  core.cljs    — resources, the per-URL canned :rf.http/managed stub, routes,
+  core.cljs    — resources, the per-URL stub transport, routes,
                  events, the reader machine, subs, views, mount.
   index.html   — minimal host page.
 ```

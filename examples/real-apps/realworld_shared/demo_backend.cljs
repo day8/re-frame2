@@ -23,7 +23,7 @@
    out of a frozen seed corpus would erase every write the moment it succeeded,
    and the example would be busy demonstrating the opposite of its own claim.
 
-   Five pieces, and nothing else:
+   Four pieces, and nothing else:
 
    - THE SEED — `seed-articles` plus the seeded comments, favourites and demo
      user. Immutable data. Nothing reads it after boot; it is the value
@@ -37,18 +37,12 @@
      refusal this backend makes is an HTTP status, as a real Conduit server's is.
    - `answer` — the backend as a STUB TRANSPORT answers it
      (`re-frame.http.stub-transport`): the request arrives as it would on the
-     wire and leaves as an HTTP response. The managed-HTTP example runs on it,
-     so the real `:rf.http/managed` pipeline — `:decode`, status
+     wire and leaves as an HTTP response. Both examples run on it, so the
+     real `:rf.http/managed` pipeline — `:decode`, status
      classification, retry, the `:sensitive?` scrub — handles every reply, as
      it would from a server.
-   - `respond` — the backend as an `:rf.http/managed` OVERRIDE: the canned
-     adapter the resources example wires under its own fx-id. It delegates to
-     the framework-shipped `:rf.http/managed-canned-success` /
-     `:rf.http/managed-canned-failure` with `:after-ms`, so the deferred reply
-     rides `:dispatch-later`.
 
-   Each app holds its own `defonce`d state atom and steps it through one of
-   the two adapters.
+   Each app holds its own `defonce`d state atom and steps it through `answer`.
 
    THE SIMPLIFICATIONS, stated rather than hidden. The demo world has exactly
    ONE user, so `favorited` and `following` are that user's flags no matter who
@@ -65,13 +59,12 @@
 
    The RealWorld spec lives at
    https://github.com/gothinkster/realworld/tree/main/api."
-  (:require [clojure.string :as str]
-            [re-frame.registrar :as rf.registrar]))
+  (:require [clojure.string :as str]))
 
 (def reply-delay-ms
   "How long the demo backend waits before answering each request — the stub
-   transport's latency, or the canned fx's `:after-ms`. Just enough that the
-   `:loading` / `:pending` states are actually observable."
+   transport's latency. Just enough that the `:loading` / `:pending` states
+   are actually observable."
   20)
 
 ;; ============================================================================
@@ -258,8 +251,7 @@
 ;; ============================================================================
 ;;
 ;; A transition returns `[next-state reply]`, and the reply is one of two
-;; shapes. The two adapters, `answer` and `respond`, are the only things that
-;; read them.
+;; shapes. The adapter, `answer`, is the only thing that reads them.
 
 (defn- ok [payload] {:ok payload})
 
@@ -581,27 +573,3 @@
     (if-let [{:keys [tags]} (:failure reply)]
       {:status (:status tags) :body (:body tags)}
       {:status 200 :body (:ok reply)})))
-
-(defn respond
-  "The demo backend as an `:rf.http/managed` override. Step the app's own
-   backend state, then hand the reply to the framework's canned fx:
-   `:rf.http/managed-canned-success` for an `{:ok …}`,
-   `:rf.http/managed-canned-failure` for a `{:failure …}` — both with
-   `:after-ms`, so the reply is deferred through `:dispatch-later` rather than a
-   raw timer.
-
-   `state-atom` is the app's OWN world (a `defonce` beside its override fx), so
-   the two demos never share one. The swap is a plain read-transition-write:
-   ClojureScript is single-threaded, and keeping it explicit is what lets you
-   read the transition's two return values without a retry loop in the way."
-  [state-atom frame-ctx args-map]
-  (let [[next-state reply] (transition @state-atom args-map)]
-    (reset! state-atom next-state)
-    (if-let [failure (:failure reply)]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-        (stub frame-ctx (assoc args-map
-                               :after-ms reply-delay-ms
-                               :kind     (:kind failure)
-                               :tags     (:tags failure))))
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-        (stub frame-ctx (assoc args-map :after-ms reply-delay-ms :value (:ok reply)))))))

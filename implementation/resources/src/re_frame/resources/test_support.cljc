@@ -5,7 +5,7 @@
   helpers — kept OUT of the always-on `re-frame.resources` production
   façade so a test-runner-internal surface never reaches a production
   registry. Test fixtures live behind an explicit test-support require, mirroring
-  `re-frame.routing.test-support` and `re-frame.http.test-support`).
+  `re-frame.routing.test-support`.
 
   Production posture: this namespace is unreferenced from any production
   module, so CLJS `:advanced` trims it wholesale and JVM/SSR sees
@@ -23,9 +23,8 @@
   The reset helper clears the registrar (resource + mutation kinds), the
   host-side generation cache, the runtime cache, and the host-side work-
   ledger handles. Deterministic ensure/refetch replay without a live Fetch
-  rides on the managed-HTTP canned-stub fixtures (`re-frame.http-test-
-  support`), reached through the same managed-HTTP transport the runtime
-  uses."
+  rides on the managed-HTTP stub transports (`re-frame.http.stub-transport`),
+  beneath the same `:rf.http/managed` the runtime lowers onto."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.resources.mutation-events :as rf.resources.mutation-events]
@@ -84,5 +83,5 @@
 ;; make-reset-runtime-fixture reset-hooks table consults
 ;; `:resources/reset-resources!` by key and no-ops when this namespace is
 ;; absent (production builds never load it). Mirrors the
-;; re-frame.routing.test-support / re-frame.http.test-support posture.
+;; re-frame.routing.test-support posture.
 (rf.late-bind/set-fn! :resources/reset-resources! reset-resources!)

@@ -46,13 +46,13 @@
   step dispatches its lifecycle `:event` into `:rf/default`. The deck reads
   as an ordinary re-frame2 app: app-db + events + subs.
 
-  ## Real registry vs canned replies (deterministic, clean)
+  ## Real registry, stub backend (deterministic, clean)
 
-  The HOT path (success) rides a REAL Fetch against the static
-  `api/ok.json` shipped beside the testbed; the 4xx / 5xx error paths use
-  the framework-shipped canned-stub fx (`:rf.http/managed-canned-failure`)
-  wrapped to replay the live error trace, so the lifecycle is
-  deterministic across CI environments — no flaky outbound network. The
+  The success and 4xx / 5xx paths are real `:rf.http/managed` requests,
+  answered by `backend`, a stub transport installed on the host frame: it
+  replaces only the network hop, so classification, the error trace and
+  the reply are the live path's, and the lifecycle is deterministic
+  across CI environments — no flaky outbound network. The
   in-flight registry is seeded with genuine records (the same registry the
   real transport publishes into) so the pending slots render
   DETERMINISTICALLY — a real Fetch against a dev-http static server
@@ -64,13 +64,11 @@
   ## Bundle isolation
 
   Lives under `tools/xray/testbeds/`; requires the managed-HTTP artefact
-  (`re-frame.http.managed`) + its test-support (`re-frame.http-test-
-  support` — a testbed IS a test affordance) + the shared `runner.core`.
-  Nothing under `implementation/` requires this."
+  (`re-frame.http.managed`) + its stub transports
+  (`re-frame.http.stub-transport` — a testbed IS a test affordance) + the
+  shared `runner.core`. Nothing under `implementation/` requires this."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.trace :as rf.trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at app
             ;; boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`).
@@ -82,10 +80,9 @@
             ;; concurrent-by-actor and outlives-teardown steps — the same
             ;; registry the real transport publishes into.
             [re-frame.http.registry :as rf.http.registry]
-            ;; The canned-stub fx ids (`:rf.http/managed-canned-failure`)
-            ;; register from re-frame.http.test-support. A testbed IS a
+            ;; The stub transport `backend` answers from. A testbed IS a
             ;; test affordance, so requiring it is correct.
-            [re-frame.http.test-support]
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [runner.core :as runner])
@@ -163,36 +160,27 @@
 (def pending-url "api/pending")
 
 ;; ============================================================================
-;; CANNED-FAILURE-WITH-TRACE
+;; THE BACKEND
 ;; ============================================================================
 ;;
-;; The framework `:rf.http/managed-canned-failure` synthesises a failure
-;; reply but does NOT emit the category-attributed `:rf.http/<kind>`
-;; error trace the live failure path emits. The Xray Trace / Epoch panels
-;; render that trace, so this testbed-local wrapper replays the live
-;; path's `rf.trace/emit-error!` before delegating to the canned stub — so
-;; the panels show the same `:operation :rf.http/<kind>` row a live
-;; failure would.
+;; One route per HTTP step. The requests run through the real
+;; `:rf.http/managed`, which classifies each answer, emits the
+;; category-attributed `:rf.http/<kind>` error trace the Xray Trace / Epoch
+;; panels render, and delivers the reply. A short delay keeps each reply a
+;; separate drain, as over a network. `run` installs it on the host frame.
 
-(rf/reg-fx :managed-http/canned-failure-with-trace
-  {:doc       "Testbed-only wrapper around :rf.http/managed-canned-failure.
-               Emits the category-attributed :rf.http/<kind> error trace
-               (matching the live failure path's finalise-failure! emit),
-               then delegates to the framework canned stub for the reply
-               synthesis."
-   :platforms #{:client}}
-  (fn fx-canned-failure-with-trace [frame-ctx args-map]
-    (let [kind (or (:kind args-map) :rf.http/transport)
-          tags (or (:tags args-map) {})
-          url  (get-in args-map [:request :url])]
-      (rf.trace/emit-error! kind
-                         (assoc tags
-                                :kind       kind
-                                :request-id (:request-id args-map)
-                                :url        url
-                                :recovery   :no-recovery))
-      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
-       frame-ctx args-map))))
+(def ^:private backend
+  (stub-transport/route-transport
+    {[:get "api/ok.json"]       {:body {:ok true :value "managed-http ok"}}
+     [:get "api/items/missing"] {:status      404
+                                 :status-text "Not Found"
+                                 :headers     {"content-type" "text/html"}
+                                 :body        "<html>not found</html>"}
+     [:get "api/items"]         {:status      500
+                                 :status-text "Internal Server Error"
+                                 :headers     {"content-type" "text/html"}
+                                 :body        "<html>server error</html>"}}
+    {:delay-ms 50}))
 
 ;; ============================================================================
 ;; LIFECYCLE EVENTS — one per interesting step
@@ -249,10 +237,9 @@
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ fired (in-flight)"))
      :fx [[:managed-http/seed-in-flight {:request-id in-flight-id}]]}))
 
-;; (2) Success — a real Fetch against the static asset api/ok.json.
+;; (2) Success — GET api/ok.json, answered 200 by the backend.
 (rf/reg-event ::success
-  {:doc "Live GET against the static api/ok.json. 2xx → decoded JSON →
-         reply :status :ok."}
+  {:doc "GET api/ok.json. 2xx → decoded JSON → reply :status :ok."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ GET api/ok.json"))
      :fx [[:rf.http/managed
@@ -261,35 +248,30 @@
             :request-id ok-request-id
             :reply-to   [::reply]}]]}))
 
-;; (3) Error response — 4xx. Canned-failure-with-trace synthesises the
-;; same reply envelope + error trace a live 404 would.
+;; (3) Error response — 4xx. The backend answers 404, and the live failure
+;; path classifies it and emits its error trace.
 (rf/reg-event ::error-4xx
-  {:doc "Synthesised :rf.http/http-4xx (404, raw body) via the canned-
-         failure-with-trace wrapper. Same reply envelope as a live 4xx."}
+  {:doc ":rf.http/http-4xx (404, raw body): the backend answers 404."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ request (will 404)"))
-     :fx [[:managed-http/canned-failure-with-trace
+     :fx [[:rf.http/managed
            {:request    {:method :get :url "api/items/missing"}
+            :decode     :json
             :request-id four-oh-four-id
             :on-success nil
-            :on-failure [::reply]
-            :kind       :rf.http/http-4xx
-            :tags       {:status 404 :status-text "Not Found"
-                         :body   "<html>not found</html>" :headers {}}}]]}))
+            :on-failure [::reply]}]]}))
 
 ;; (4) Error response — 5xx.
 (rf/reg-event ::error-5xx
-  {:doc "Synthesised :rf.http/http-5xx (500, raw body)."}
+  {:doc ":rf.http/http-5xx (500, raw body): the backend answers 500."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ request (will 500)"))
-     :fx [[:managed-http/canned-failure-with-trace
+     :fx [[:rf.http/managed
            {:request    {:method :get :url "api/items"}
+            :decode     :json
             :request-id five-hundred-id
             :on-success nil
-            :on-failure [::reply]
-            :kind       :rf.http/http-5xx
-            :tags       {:status 500 :status-text "Internal Server Error"
-                         :body   "<html>server error</html>" :headers {}}}]]}))
+            :on-failure [::reply]}]]}))
 
 ;; (5) Abort the STEP-1 in-flight request via the LIVE :rf.http/managed-
 ;; abort fx. Step 1's seeded slot persisted untouched through the success /
@@ -417,7 +399,7 @@
     :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot (::in-flight) appears. This slot persists through the next three steps (they carry their own request-ids) and is the request the abort step (5) targets. Epoch: the fire cascade with NO reply child yet."}
    {:label "Success response"
     :event [::success]
-    :watch "Epoch: a two-event drain — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from api/ok.json."}
+    :watch "Epoch: a two-event drain — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from the backend's api/ok.json answer."}
    {:label "Error response (4xx)"
     :event [::error-4xx]
     :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :error :kind :rf.http/http-4xx, :status 404."}
@@ -540,6 +522,7 @@
   ;; — the host frame is already `make-frame`'d) so in-tree
   ;; dispatch/subscribe resolve to it (the carried invariant).
   (rf/make-frame {:id host-frame})
+  (stub-transport/install-transport! host-frame backend)
   (rf/with-frame host-frame
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))

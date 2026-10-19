@@ -232,9 +232,10 @@ const PAGE = `<!DOCTYPE html>
   <h2>HTTP cell (stubbed :rf.http/managed)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
-(http-test-support/install-managed-request-stubs!
-  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+         '[re-frame.http.stub-transport :as stub-transport])
+(stub-transport/install-transport! :hsmoke/frame
+  (stub-transport/route-transport
+    {[:get "https://api.example.com/articles/intro"] {:body {:title "Welcome"}}}))
 (rf/reg-event :hsmoke/load
   (fn [_ _]
     {:fx [[:rf.http/managed {:request    {:url "https://api.example.com/articles/intro"}
@@ -247,15 +248,16 @@ const PAGE = `<!DOCTYPE html>
   [:div
    [:button#http-load {:on-click #(dispatch [:hsmoke/load])} "load"]
    [:span#http-title (str @(subscribe [:hsmoke/title]))]])
-[rf/frame-root {:id :hsmoke/frame :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :hsmoke/frame}
  [http-view]]</pre>
   <h2>resource cell (reg-resource over stubbed HTTP)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
          '[re-frame.http.managed]
          '[re-frame.resources]
-         '[re-frame.http.test-support :as http-test-support])
-(http-test-support/install-managed-request-stubs!
-  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+         '[re-frame.http.stub-transport :as stub-transport])
+(stub-transport/install-transport! :rsmoke/frame
+  (stub-transport/route-transport
+    {[:get "https://api.example.com/articles/intro"] {:body {:title "Welcome"}}}))
 (rf/reg-resource :rsmoke/article
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global}
@@ -270,7 +272,7 @@ const PAGE = `<!DOCTYPE html>
                             (:loading? s)         "loading"
                             (:error s)            (str "error: " (pr-str (:error s)))
                             :else                 (str "title: " (:title (:data s))))]]))
-[rf/frame-root {:id :rsmoke/frame :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :rsmoke/frame}
  [resource-view "intro"]]</pre>
   <h2>routing, epoch and SSR load (reg-route, render-to-string)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
@@ -590,7 +592,7 @@ assert((await frescoText("#fresco-text")) === "text: ab", `::h/value carries the
 
 await page.click("#http-load");
 await waitText("#http-title", "Welcome");
-assert((await frescoText("#http-title")) === "Welcome", `a stubbed :rf.http/managed reply reaches :on-success (got ${JSON.stringify(await frescoText("#http-title"))})`);
+assert((await frescoText("#http-title")) === "Welcome", `a stub transport's answer reaches :on-success (got ${JSON.stringify(await frescoText("#http-title"))})`);
 assert((await frescoText("#res-state")) === "idle", `a resource is idle before ensure (got ${JSON.stringify(await frescoText("#res-state"))})`);
 await page.click("#res-load");
 await waitText("#res-state", "title: Welcome");

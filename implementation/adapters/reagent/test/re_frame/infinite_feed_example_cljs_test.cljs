@@ -19,9 +19,8 @@
    register at ns-load, then exercises them against a per-test `:rf/default`
    frame.
 
-   DETERMINISM. The example's demo backend defers each canned reply 140 ms via
-   `:after-ms` (`:dispatch-later`) so the load-more spinner is observable in the
-   browser. A unit test wants synchronous settle, so each test installs its own
+   DETERMINISM. The example's demo backend answers each request after 140 ms
+   so the load-more spinner is observable in the browser. A unit test wants synchronous settle, so each test installs its own
    `:rf.http/managed` override: a capturing no-op whose reply the test replays
    explicitly via the transport's real 3-element reply-event-append shape
    (`(conj on-success {:status :ok :value …})`) — the genuine shape the live
@@ -44,7 +43,6 @@
             ;; late-bound routing integration resolve); the actual fetch is
             ;; overridden by the capturing stub.
             [re-frame.http.managed]
-            [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]

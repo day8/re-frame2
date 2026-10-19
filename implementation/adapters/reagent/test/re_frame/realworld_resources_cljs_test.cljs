@@ -14,7 +14,7 @@
             [malli.core :as m]
             [re-frame.views]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
@@ -837,10 +837,11 @@
    :bio "Canned demo user." :image ""})
 
 (defn- production-seam-frame! []
-  (rf.frame/make-anon-frame-record!
-    {:fx-overrides {:rf.http/managed                     :realworld-resources.demo/http-stub
-                    :rf.nav/push-url                     :rf/no-op
-                    :realworld-resources.session/persist :rf/no-op}}))
+  (let [f (rf.frame/make-anon-frame-record!
+            {:fx-overrides {:rf.nav/push-url                     :rf/no-op
+                            :realworld-resources.session/persist :rf/no-op}})]
+    (rf.http.stub-transport/install-transport! f app-http/demo-transport)
+    f))
 
 (defn- backend-comments
   [slug]

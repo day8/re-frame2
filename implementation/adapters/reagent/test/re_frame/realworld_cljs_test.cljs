@@ -4,13 +4,11 @@
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [re-frame.views]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
-            [re-frame.http.test-support]
             [realworld-http.schema :as app-schema]
             [realworld-http.core]
             [realworld-http.auth :as auth]
@@ -28,21 +26,14 @@
      :async?        true
      :app-ns        "realworld-http."}))
 
-(defn- reg-canned-success!
-  [fx-id value]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      ((rf.registrar/handler :fx :rf.http/managed-canned-success)
-       frame-ctx (assoc args :value value)))))
-
-(defn- reg-canned-failure!
-  [fx-id kind tags]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
-       frame-ctx (assoc args :kind kind :tags tags)))))
+(defn- answering-frame!
+  "A frame from `config` whose every managed request is answered with
+   `response`, a stub-transport response map."
+  [config response]
+  (let [f (rf.frame/make-anon-frame-record! config)]
+    (rf.http.stub-transport/install-transport!
+      f (rf.http.stub-transport/route-transport (constantly response)))
+    f))
 
 (defn- reg-capturing-managed!
   [fx-id sink]
@@ -158,10 +149,9 @@
 
 (deftest realworld-auth-flow
   (testing "a login signs in and lands home; logout signs out"
-    (reg-canned-success! :realworld.test/login-success {:user (wire-user "alice" "jwt-abc" nil)})
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:fx-overrides {:rf.http/managed      :realworld.test/login-success
-                                         :auth.session/persist :rf/no-op}})]
+    (with-new-frame [f (answering-frame!
+                         {:fx-overrides {:auth.session/persist :rf/no-op}}
+                         {:body {:user (wire-user "alice" "jwt-abc" nil)}})]
       (init-auth! f nil)
       (submit-login! f)
       (is (= [:authed "alice" :realworld/home]
@@ -170,10 +160,9 @@
       (is (= [:idle nil] [(sub f [:auth/state]) (sub f [:auth/user])]))))
 
   (testing "a rejected login lands in :error with a message, and dismiss returns to :idle"
-    (reg-canned-failure! :realworld.test/login-failure :rf.http/http-4xx
-                         {:status 422 :body {:errors {:body ["email or password is invalid"]}}})
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
+    (with-new-frame [f (answering-frame!
+                         {}
+                         {:status 422 :body {:errors {:body ["email or password is invalid"]}}})]
       (init-auth! f nil)
       (submit-login! f)
       (is (= [:error true] [(sub f [:auth/state]) (some? (sub f [:auth/error]))]))
@@ -436,10 +425,9 @@
 
   (testing "creating: :can-submit? opens once the draft is valid and dirty, and a save
             lands in :edit mode, clean"
-    (reg-canned-success! :realworld.test/editor-save {:article (full-article "hello-world")})
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:app/initialise]]
-                          :fx-overrides   {:rf.http/managed :realworld.test/editor-save}})]
+    (with-new-frame [f (answering-frame!
+                         {:initial-events [[:app/initialise]]}
+                         {:body {:article (full-article "hello-world")}})]
       (let [blank (sub f [:editor/can-submit?])]
         (doseq [[field value] {:title "Hello" :description "Short" :body "Body"}]
           (rf/dispatch-sync [:editor/edit-field field value] {:frame f}))
@@ -592,11 +580,10 @@
     (let [persisted (atom [])]
       (rf/reg-fx :realworld.test/capture-token
         (fn [_ {:keys [token]}] (swap! persisted conj token)))
-      (reg-canned-success! :realworld.test/settings-save {:user (wire-user "alice" "jwt-2" "New bio")})
-      (with-new-frame [f (rf.frame/make-anon-frame-record!
+      (with-new-frame [f (answering-frame!
                            {:initial-events [[:app/initialise]]
-                            :fx-overrides   {:rf.http/managed      :realworld.test/settings-save
-                                             :auth.session/persist :realworld.test/capture-token}})]
+                            :fx-overrides   {:auth.session/persist :realworld.test/capture-token}}
+                           {:body {:user (wire-user "alice" "jwt-2" "New bio")}})]
         (rf/dispatch-sync [:auth/store-session (wire-user "alice" "jwt-1" nil)] {:frame f})
         (rf/dispatch-sync [:settings/load] {:frame f})
         (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
@@ -1149,8 +1136,8 @@
                                              :url    (rh/full-url (str "/articles/" slug "/comments"))}})))))
 
 (deftest realworld-production-seam-receipt-a-comment-survives-a-later-load
-  (testing "against the app's own demo backend, with no canned reply anywhere, a posted
-            comment is still there when the page loads its comments again"
+  (testing "against the app's own demo backend, a posted comment is still there when
+            the page loads its comments again"
     (async done
       (reset! rh/demo-state (demo/fresh-state))
       (let [f        (rf.frame/make-anon-frame-record! {})

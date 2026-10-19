@@ -555,8 +555,8 @@
             ;; each dispatch so the operator sees how the Epoch / Trace /
             ;; App-db panels render each step. Title "Xray Testbed:
             ;; Managed HTTP". Same source-dir-first cascade as 8031-8034;
-            ;; the source dir resolves the hand-written index.html + the
-            ;; static api/ok.json at `/`, compiled main.js falls through
+            ;; the source dir resolves the hand-written index.html at
+            ;; `/`, compiled main.js falls through
             ;; to out/examples/managed-http. Port 8035 is the next free
             ;; testbed slot above the _epochs trio + edn-inspector.
             8035 {:roots   ["../tools/xray/testbeds/managed_http"
@@ -1424,13 +1424,11 @@
   ;;
   ;; The events / fxs / subs / step-vector are OWNED in
   ;; managed_http/core.cljs; it requires the managed-HTTP artefact
-  ;; (`[re-frame.http.managed]`) + its test-support
-  ;; (`[re-frame.http.test-support]` — a testbed IS a test affordance)
-  ;; + the shared `[runner.core]`. The HOT success path
-  ;; rides a live Fetch against the static api/ok.json shipped beside the
-  ;; testbed (source-dir-first cascade resolves it); the failure / abort
-  ;; paths use the framework canned-stub fxs for determinism (same shape
-  ;; as testbeds/http_toggle). Sources live under
+  ;; (`[re-frame.http.managed]`) + its stub transports
+  ;; (`[re-frame.http.stub-transport]` — a testbed IS a test affordance)
+  ;; + the shared `[runner.core]`. The success and failure requests are
+  ;; answered by a stub transport installed on the frame, for determinism.
+  ;; Sources live under
   ;; tools/xray/testbeds/managed_http/; the Xray preload auto-mounts
   ;; inline so every lens reads the single :rf/default frame. Served at
   ;; http://localhost:8035 via the top-level `:dev-http` map (the next
@@ -1527,8 +1525,9 @@
   ;; hits a real api/inc.json static asset and carries :request-id
   ;; :http-counter/+1, which the Cancel button aborts through the live
   ;; :rf.http/managed-abort fx (a no-op once the reply has landed); the
-  ;; Fail button hits a real 404; Retry-recover exercises the canned-stub
-  ;; seam (so the example doesn't need a flaky/long stub HTTP server).
+  ;; Fail button hits a real 404; Retry-recover dispatches its canonical
+  ;; reply directly (so the example doesn't need a flaky/long stub HTTP
+  ;; server).
   :examples/managed-http-counter
   {:target     :browser
    :output-dir "out/examples/managed-http-counter"
@@ -1756,7 +1755,7 @@
   ;; `:optimistic` exact-target patch over the board resource: the board
   ;; updates at phase 1.5 (before the request), then COMMITS (`:populates`)
   ;; on :ok or ROLLS BACK (runtime-recorded snapshot inverse) on :error. A
-  ;; 'fail the next write' demo seam arms the canned `:rf.http/managed` stub
+  ;; 'fail the next write' demo seam arms the demo backend's stub transport
   ;; to answer the next write with a 503 so the rollback is the headline
   ;; demonstration. `../examples/capabilities/resources` is already on
   ;; :source-paths above, so the mutation runtime + `:rf.mutation/*` /

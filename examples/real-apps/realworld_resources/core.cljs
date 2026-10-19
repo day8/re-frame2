@@ -12,8 +12,9 @@
    This namespace is the wiring closet. It:
    - pulls in every feature ns (each one registers its own resources / mutations
      / events / subs / views / the auth machine);
-   - installs a demo `:rf.http/managed` backend stub — since reads and writes
-     both lower onto managed HTTP, one stub serves the entire API;
+   - installs the demo backend as the frame's stub transport — since reads
+     and writes both lower onto managed HTTP, one transport serves the entire
+     API;
    - defines `:app/initialise`, the boot fan-out;
    - defines the app shell and a route switch on `:rf.route/id`;
    - mounts the React root and installs the URL listener.
@@ -26,7 +27,7 @@
      settings.cljs   — settings, modelled as a mutation instance
      scope.cljs      — the fail-closed session cache scope
      schema.cljs     — Malli wire shapes + the handful of app-db schemas
-     http.cljs       — the demo backend stub + failure projection
+     http.cljs       — the demo backend transport + failure projection
      views.cljs      — passive pages + the small UI event glue"
   (:require [re-frame.core :as rf]
             ;; `debug-enabled?` — the build-posture flag the production error
@@ -35,9 +36,9 @@
             ;; Managed HTTP — the one built-in transport both resources and
             ;; mutations lower onto.
             [re-frame.http.managed]
-            ;; The canned-stub fxs the demo backend leans on. A real Conduit
-            ;; deployment would simply drop this require.
-            [re-frame.http.test-support]
+            ;; Installs the demo backend's transport on the frame. A real
+            ;; Conduit deployment would simply drop this require.
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; The resources + mutations runtime.
             [re-frame.resources]
             ;; Routing + machines. Loading routing unlocks the `:resources` route
@@ -327,9 +328,9 @@
 ;; The frame is created, configured, and seeded in exactly one place: the
 ;; `frame-root {:id …}` ensure form at the render root. On first mount it
 ;; creates the frame under `app-frame` and applies the config — `:url-bound? true`
-;; so it owns the URL, and the demo `:rf.http/managed` routed through the
-;; in-process backend stub so reads and writes work with no network in sight —
-;; then runs `:initial-events` once. A hot reload reuses the frame and skips the
+;; so it owns the URL — then runs `:initial-events` once. Before that, the demo
+;; backend goes on as the frame's stub transport, so reads and writes work with
+;; no network in sight. A hot reload reuses the frame and skips the
 ;; re-seed (durable app-db survives). That same id is what every in-tree
 ;; `dispatch` / `subscribe` resolves against.
 ;;
@@ -360,8 +361,7 @@
 ;;     (`:sensitive [[:value]]`, e.g. `:auth.login-form/edit-password`,
 ;;     `:settings/edit-password`) rather than the positional event the
 ;;     non-secret fields use;
-;;   - the outbound HTTP body, classified on the demo stub (http.cljs) or
-;;     `:sensitive? true` on the real-backend request;
+;;   - the outbound HTTP body, scrubbed by `:sensitive? true` on the request;
 ;;   - the settings MUTATION's own `:params`, via the `:realworld/update-settings`
 ;;     OWNER declaration (`:sensitive [[:params :password]]`, mutations.cljs),
 ;;     which the mutation runtime derives its execute/trace/instance/
@@ -412,6 +412,7 @@
     ;; that are both active and stale. The frame lifecycle installs those host
     ;; listeners after creation and removes them on destroy — there is nothing
     ;; to sequence, and you never dispatch the host signals by hand.
+    (rf.http.stub-transport/install-transport! app-frame rh/demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              app-frame
                       :doc             "RealWorld-on-resources demo frame."
@@ -422,7 +423,6 @@
                       ;; ERROR REPORTING above.
                       :observability   observability
                       :http-interceptors [:realworld/bearer-auth]
-                      :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                       :initial-events  [[:auth/classify-token]
                                             [:auth/initialise]
                                             [:app/initialise]]}

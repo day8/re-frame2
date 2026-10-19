@@ -35,8 +35,9 @@
   Requiring each optional artefact installs its late-bind hooks and
   framework registrations (the `:rf/machine` sub, `:rf.http/managed`, the
   `:rf.resource/*` events and subs, and so on) at bundle load.
-  `re-frame.http.test-support` is in the bundle too, so a cell can stub
-  `:rf.http/managed` and run HTTP and resource demos with no network."
+  `re-frame.http.stub-transport` is in the bundle too, so a cell can answer
+  `:rf.http/managed` from a stub transport and run HTTP and resource demos
+  with no network."
   (:require [sci.core :as sci]
             [re-frame.core :as rf]
             [re-frame.router :as rf.router]
@@ -52,7 +53,7 @@
             [re-frame.flows]
             [re-frame.schemas]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
+            [re-frame.http.stub-transport]
             [re-frame.resources]
             [re-frame.routing]
             [re-frame.epoch]
@@ -213,7 +214,7 @@
 (def fresco-motion-ns (sci/create-ns 're-frame.fresco.motion nil))
 
 (def http-managed-ns (sci/create-ns 're-frame.http.managed nil))
-(def http-test-support-ns (sci/create-ns 're-frame.http.test-support nil))
+(def http-stub-transport-ns (sci/create-ns 're-frame.http.stub-transport nil))
 (def resources-ns (sci/create-ns 're-frame.resources nil))
 (def routing-ns (sci/create-ns 're-frame.routing nil))
 (def epoch-ns (sci/create-ns 're-frame.epoch nil))
@@ -253,7 +254,7 @@
                  're-frame.capture-frame re-frame-capture-frame-namespace
                  're-frame.schemas       re-frame-schemas-namespace
                  're-frame.http.managed      (sci/copy-ns re-frame.http.managed http-managed-ns)
-                 're-frame.http.test-support (sci/copy-ns re-frame.http.test-support http-test-support-ns)
+                 're-frame.http.stub-transport (sci/copy-ns re-frame.http.stub-transport http-stub-transport-ns)
                  're-frame.resources         (sci/copy-ns re-frame.resources resources-ns)
                  're-frame.routing           (sci/copy-ns re-frame.routing routing-ns)
                  're-frame.epoch             (sci/copy-ns re-frame.epoch epoch-ns)

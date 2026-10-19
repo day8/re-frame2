@@ -51,24 +51,21 @@
    merge. (Pages that are already bare vectors flatten by identity, so they need
    no accessor.)
 
-   There's no backend here, so the example overrides `:rf.http/managed` with a
-   per-cursor canned stub that hands off to the framework's
-   `:rf.http/managed-canned-success` — the same reply shape a live server would
-   send. The transport is canned, but everything above it is the real thing:
+   There's no backend here, so the example answers `:rf.http/managed` from a
+   per-cursor stub transport that sends the same response a live server would.
+   The network hop is stubbed, but everything above it is the real thing:
    in-flight dedupe, stale-reply suppression, the passive status flow all run
    exactly as they would over a live network. A small reply delay gives the
    load-more spinner a moment on screen before each page lands."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP — the built-in transport resources fetch over.
             ;; Loading it registers the `:rf.http/managed` fx that every page
             ;; fetch runs on. See docs/resources/glossary.md#managed-http.
             [re-frame.http.managed]
-            ;; The framework's canned-success fx that our demo stub hands off
-            ;; to. Requiring it is the explicit "yes, this app has no backend"
-            ;; opt-in — handy for demos and tests, deliberately out of the way
-            ;; for real apps.
-            [re-frame.http.test-support]
+            ;; Stub transports — our demo backend is one. Requiring it is the
+            ;; explicit "yes, this app has no backend" opt-in — handy for demos
+            ;; and tests, deliberately out of the way for real apps.
+            [re-frame.http.stub-transport :as stub-transport]
             ;; Resources. Requiring it at boot wires up the registrations —
             ;; including the infinite sub family this view reads. Skip it and
             ;; `rf/reg-resource` throws :rf.error/resources-artefact-missing.
@@ -150,19 +147,17 @@
      :decode  :json}))
 
 ;; ============================================================================
-;; DEMO BACKEND — a per-cursor canned :rf.http/managed override
+;; DEMO BACKEND — a per-cursor stub transport
 ;; ============================================================================
 ;;
-;; There's no server behind this example, so we override `:rf.http/managed` (the
-;; fx every page fetch runs on) with a stub that fakes one enveloped page per
-;; cursor. It reads the `:cursor` request param (missing means page 0), slices
-;; the demo dataset, and returns {:items [...] :page-info {:next-cursor …}} —
-;; the very shape a real cursor-paginated server would send. So the whole feed
-;; lifecycle runs for real: ensuring page 0, deriving the next cursor on
-;; load-more, deduping in-flight fetches, hitting the nil terminal. It hands off
-;; to the framework's `:rf.http/managed-canned-success` with `:after-ms`, which
-;; means the reply travels by `:dispatch-later` — so it shows up on the trace
-;; tape and you can time-travel right through it.
+;; There's no server behind this example, so `:rf.http/managed` (the fx every
+;; page fetch runs on) sends its requests through a stub transport that fakes
+;; one enveloped page per cursor. It reads the `cursor` query param (missing
+;; means page 0), slices the demo dataset, and answers
+;; {:items [...] :page-info {:next-cursor …}} — the very shape a real
+;; cursor-paginated server would send. So the whole feed lifecycle runs for
+;; real: ensuring page 0, deriving the next cursor on load-more, deduping
+;; in-flight fetches, decoding each page, hitting the nil terminal.
 
 (def ^:private total-items 26)
 
@@ -173,8 +168,8 @@
          {:id i :title (str "Activity item #" (inc i))})))
 
 (def ^:private demo-reply-delay-ms
-  "How long the stub sits on each canned reply before sending it (the
-   canned-success fx's `:after-ms`). Small but non-zero, just enough that the
+  "How long the stub transport sits on each request before answering it.
+   Small but non-zero, just enough that the
    load-more spinner gets a moment on screen. A demo knob — not something you'd
    ship."
   140)
@@ -190,22 +185,16 @@
     {:items     items
      :page-info {:next-cursor (when (< next total-items) next)}}))
 
-;; This is our stand-in for the backend. It fakes the page for the incoming
-;; cursor, then hands everything else off to `:rf.http/managed-canned-success`
-;; (looked up via the registrar), tacking on `:after-ms` so the reply rides
-;; `:dispatch-later`. It reuses the incoming args-map untouched, which keeps the
-;; reply addressing — the per-page reply handlers the resource runtime set up —
-;; pointing where it should.
-(rf/reg-fx :infinite-feed.demo/http-stub
-  {:doc       "Demo override for `:rf.http/managed`: fakes one enveloped page
-               per request cursor so the feed runs with no backend, then hands
-               off to `:rf.http/managed-canned-success` with `:after-ms`."
-   :platforms #{:client}}
-  (fn fx-managed-feed-demo [frame-ctx args-map]
-    (let [cursor  (get-in args-map [:request :params :cursor])
-          payload (demo-page-for-cursor cursor)
-          stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
+;; This is our stand-in for the backend: it answers each request with the page
+;; for its cursor. Everything else — the per-page reply handlers the resource
+;; runtime set up — is `:rf.http/managed`'s own work, so the reply addressing
+;; points where it should.
+(def ^:private demo-transport
+  (stub-transport/route-transport
+    (fn [{:keys [url]}]
+      (let [cursor (some-> (re-find #"[?&]cursor=(\d+)" url) second (js/parseInt 10))]
+        {:body (demo-page-for-cursor cursor)}))
+    {:delay-ms demo-reply-delay-ms}))
 
 ;; ============================================================================
 ;; ROUTES — the route owns the feed and ensures page 0 on entry
@@ -347,8 +336,8 @@
 ;; mount this app in its own frame. There's exactly one place the app stands its
 ;; frame up: the render-root `frame-root {:id …}`. On first mount the
 ;; provider creates `app-frame` and applies its config — `:url-bound? true` so
-;; the frame owns the browser URL, and the `:rf.http/managed` override that
-;; aims page fetches at the canned stub so the demo runs on its own. The
+;; the frame owns the browser URL. Just before that, `mount!` installs the
+;; stub transport that answers page fetches, so the demo runs on its own. The
 ;; provider also scopes the frame, so every dispatch and subscribe inside the
 ;; tree resolves to it. Hot reload? It reuses the same frame. And there's no
 ;; boot seed to write: route entry's `:resources` plan ensures page 0, so the
@@ -367,11 +356,11 @@
     ;; The provider creates the app frame (config and all) on first mount and
     ;; reuses it on hot reload. Route entry ensures page 0, so there's no need
     ;; for `:initial-events`.
+    (stub-transport/install-transport! app-frame demo-transport)
     (rf.adapter.reagent/render! app-root
-      [rf/frame-root {:id           app-frame
-                      :doc          "Infinite-feed demo frame."
-                      :url-bound?   true
-                      :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
+      [rf/frame-root {:id         app-frame
+                      :doc        "Infinite-feed demo frame."
+                      :url-bound? true}
        [root-view]]
       el)))
 

@@ -10,7 +10,7 @@
 ;;     schemas            (schemas brings Malli)
 ;;   - fresco             re-frame.fresco and its forms, overlay and motion
 ;;                        modules
-;;   - http, resources    :rf.http/managed, its test stubs, and reg-resource
+;;   - http, resources    :rf.http/managed, its stub transports, and reg-resource
 ;;   - routing, epoch,    reg-route, epoch history, render-to-string
 ;;     ssr
 ;;

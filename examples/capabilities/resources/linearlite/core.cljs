@@ -65,21 +65,19 @@
    Otherwise it's plain re-frame2. The board is a single managed resource; each
    write is a named `reg-mutation`; the toggle and edit-draft are ordinary app-db
    slices an event writes and a sub reads. No backend ships with the example, so
-   it overrides `:rf.http/managed` with a canned stub that synthesises the board
-   reply and, when armed, the 503 — and the whole optimistic lifecycle runs
-   standalone."
+   a stub transport stands in for the server, answering with the board and,
+   when armed, the 503 — and the whole optimistic lifecycle runs standalone."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP — the one transport every resource and mutation
             ;; lowers its read/write onto. Loading the ns registers the
             ;; `:rf.http/managed` fx. Guide:
             ;; ../../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
-            ;; The framework's canned-reply fx. Our demo stub delegates to it
-            ;; instead of hitting a network — the deliberate opt-in for an app
-            ;; that ships no backend.
-            [re-frame.http.test-support]
+            ;; Stub transports. Our demo backend is one, answering requests
+            ;; instead of a network — the deliberate opt-in for an app that
+            ;; ships no backend.
+            [re-frame.http.stub-transport :as stub-transport]
             ;; Resources. Loading the ns registers `reg-resource` /
             ;; `reg-mutation` and the `:rf.resource/*` + `:rf.mutation/*` subs.
             ;; Skip it and those registrations throw.
@@ -116,6 +114,12 @@
 ;; makes rollback honest. It lives in the resource cache — state you don't own,
 ;; kept where state you don't own belongs, never in app-db.
 
+(def ^:private Board
+  "The board as the server sends it, read and write replies alike. A status is
+   a keyword in the domain and a string on the wire; decoding through this
+   schema coerces it at the boundary."
+  [:map [:issues [:vector [:map [:id :string] [:title :string] [:status :keyword]]]]])
+
 (rf/reg-resource :linearlite/board
   {:doc            "The whole issue board — `{:issues [...]}` — as one managed
                     server-state read. Optimistic writes patch this entry in
@@ -143,15 +147,13 @@
    :tags           (fn [_params _data] #{[:board]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/board"}
-     ;; `:json` keywordizes object KEYS, not values. The demo stub below hands
-     ;; this board through undecoded, so `:status` arrives as the keyword the
-     ;; domain uses (`:backlog`). A real JSON backend returns "backlog", and the
-     ;; column filter (`(= (:id status) (:status %))`) would then match nothing
-     ;; — three empty columns, no error — and each write's commit would put the
-     ;; server's string back over your keyword. Pointing this at a server: swap
-     ;; `:json` for a Malli schema carrying `[:status :keyword]`, here and on
-     ;; the three writes below, and the runtime coerces it at the boundary.
-     :decode  :json}))
+     ;; `:json` alone keywordizes object KEYS, not values: the server sends
+     ;; "backlog", and the column filter (`(= (:id status) (:status %))`) would
+     ;; then match nothing — three empty columns, no error — and each write's
+     ;; commit would put the server's string back over your keyword. So the
+     ;; board decodes through `Board`, whose `[:status :keyword]` the runtime
+     ;; coerces at the boundary, and so do the three writes below.
+     :decode  Board}))
 
 ;; ============================================================================
 ;; THE TARGET — the one cache entry every optimistic write aims at
@@ -284,7 +286,7 @@
   (fn [{:keys [title]} _ctx]
     {:request {:method :post :url "/api/issues"
                :body   {:title title}}
-     :decode  :json}))
+     :decode  Board}))
 
 (rf/reg-mutation :linearlite/edit-title
   {:doc           "Retitle an issue (optimistic). PUT /api/issues/:id. The title
@@ -309,7 +311,7 @@
   (fn [{:keys [id title]} _ctx]
     {:request {:method :put :url (str "/api/issues/" id)
                :body   {:title title}}
-     :decode  :json}))
+     :decode  Board}))
 
 (rf/reg-mutation :linearlite/change-status
   {:doc           "Move an issue to another status (optimistic). PUT
@@ -334,35 +336,36 @@
   (fn [{:keys [id status]} _ctx]
     {:request {:method :put :url (str "/api/issues/" id)
                :body   {:status status}}
-     :decode  :json}))
+     :decode  Board}))
 
 ;; ============================================================================
-;; DEMO BACKEND — a canned :rf.http/managed override (no server ships)
+;; DEMO BACKEND — a stub transport (no server ships)
 ;; ============================================================================
 ;;
-;; There's no server here. So we override `:rf.http/managed` (the fx every
-;; read/write lowers onto) with a small stub that holds the canonical board in a
-;; closure and builds the authoritative reply for each read/write. It delegates
-;; to the framework's `:rf.http/managed-canned-success` / `-failure` with
-;; `:after-ms`, so the reply rides the framework's `:dispatch-later` rather than
-;; a raw js/setTimeout — even the fake latency stays trace-visible and
-;; time-travel-safe — and the optimistic value gets to paint before the reply
-;; arrives.
+;; There's no server here. So `:rf.http/managed` (the fx every read/write lowers
+;; onto) sends its requests through a small stub transport that holds the
+;; canonical board in a closure and answers each read/write the way the server
+;; would. It replaces only the network hop: decode, status classification and
+;; the reply all run for real. Each answer waits a moment, so the optimistic
+;; value gets to paint before the reply arrives.
 ;;
 ;; The failure seam. `fail-next-write?` is read from app-db at request time:
-;; when it's armed, the stub answers the next WRITE with a 503 and disarms
+;; when it's armed, the backend answers the next WRITE with a 503 and disarms
 ;; itself. One click, and you've driven the whole optimistic-apply → request →
 ;; rollback arc.
 
+;; The id this app's frame is created under (see MOUNT). The demo backend reads
+;; the fail-next-write toggle from it.
+(def app-frame :rf/default)
+
 (def ^:private demo-reply-delay-ms
-  "How long the demo stub holds each canned reply back (via `:after-ms` →
-   `:dispatch-later`). Small, but not zero — the optimistic value needs a moment
-   on screen before the reply lands, or you'd never see it. A demo knob, not a
-   production value."
+  "How long the demo backend holds each answer back. Small, but not zero — the
+   optimistic value needs a moment on screen before the reply lands, or you'd
+   never see it. A demo knob, not a production value."
   220)
 
 ;; The canonical server board, kept across requests so a committed write shows up
-;; in the next read. The stub *is* the demo server, and this atom is its
+;; in the next read. The backend *is* the demo server, and this atom is its
 ;; database. A create, a retitle, and a status move each mutate it on success.
 (defonce ^:private demo-board
   (atom {:issues [{:id "srv-1" :title "Wire up the optimistic board" :status :in-progress}
@@ -421,51 +424,37 @@
                            :else board)))]
     (strip-optimistic {:issues (filterv #(= id (:id %)) (:issues board'))})))
 
-(rf/reg-fx :linearlite.demo/http-stub
-  {:doc       "Demo stand-in for `:rf.http/managed`. Holds the canonical board in
-               a closure and builds the authoritative reply for each read/write,
-               delegating to `:rf.http/managed-canned-success` / `-failure` with
-               `:after-ms`. Reads the `:fail-next-write?` app-db flag at request
-               time: when armed, the next WRITE answers a 503 — driving the
-               rollback arc — and disarms itself."
-   :platforms #{:client}}
-  (fn fx-managed-board-demo [frame-ctx args-map]
-    (let [req       (:request args-map)
-          method    (or (:method req) :get)
-          url       (str (:url req))
-          body      (:body req)
-          write?    (not= method :get)
-          ;; The fx context carries the envelope frame as `:frame`. The
-          ;; `:fail-next-write?` toggle is an ordinary app-db slice (written by
-          ;; `:linearlite/set-fail-next-write`), so read it off the frame's
-          ;; APP-db partition (`:rf.db/app`) — app state lives there, not in
-          ;; the `:rf.db/runtime` partition (framework runtime only).
-          db        (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
-          fail?     (and write? (boolean (:fail-next-write? db)))]
-      (if fail?
-        ;; Armed: answer the WRITE with a 503 so the optimistic apply rolls back.
-        ;; Disarm first (it's a one-shot), then hand off to the canned-failure
-        ;; fx — its reply rides `:after-ms` → `:dispatch-later` like any other.
-        ;; The canned-failure args contract (Spec 014 §Testing) is top-level
-        ;; `:kind` + `:tags`: the tags merge into the classified failure map
-        ;; the reply carries under `:error`, so the mutation's rollback path
-        ;; sees {:kind :rf.http/http-5xx :status 503 :message …} — an honest
-        ;; 503 through the documented closed failure taxonomy, exactly what
-        ;; this demo backend promises.
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-          (rf/dispatch [:linearlite/set-fail-next-write false])
-          (stub frame-ctx (assoc args-map
-                                 :after-ms demo-reply-delay-ms
-                                 :kind     :rf.http/http-5xx
-                                 :tags     {:status  503
-                                            :message "Simulated server failure (the demo's rollback seam)."})))
-        ;; Otherwise, success: a read returns the whole current board; a write
-        ;; mutates the canonical board and returns just the row it changed.
-        (let [payload (if write?
-                        (apply-write! method url body)
-                        (strip-optimistic @demo-board))
-              stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))))
+(defn demo-answer
+  "The demo server: the response to one wire request. A read answers with the
+   whole current board; a write mutates the canonical board and answers with
+   just the row it changed. Reads the `:fail-next-write?` app-db flag at
+   request time: when armed, the next WRITE answers a 503 — driving the
+   rollback arc — and disarms itself."
+  [{:keys [method url body]}]
+  (let [write? (not= method :get)
+        ;; The `:fail-next-write?` toggle is an ordinary app-db slice (written
+        ;; by `:linearlite/set-fail-next-write`).
+        fail?  (and write? (boolean (:fail-next-write? (rf/app-db-value app-frame))))]
+    (if fail?
+      ;; Armed: answer the WRITE with a 503 so the optimistic apply rolls back.
+      ;; Disarm first (it's a one-shot). `:rf.http/managed` classifies the 503
+      ;; as `:rf.http/http-5xx`, through the documented closed failure taxonomy.
+      (do (rf/dispatch [:linearlite/set-fail-next-write false] {:frame app-frame})
+          {:status      503
+           :status-text "Service Unavailable"
+           :body        {:message "Simulated server failure (the demo's rollback seam)."}})
+      ;; Otherwise, success. The body arrives JSON-encoded, as a server sees it,
+      ;; with the status a string; the board stores the domain's keyword.
+      (let [body (some-> body js/JSON.parse (js->clj :keywordize-keys true))
+            body (cond-> body (:status body) (update :status keyword))]
+        {:body (if write?
+                 (apply-write! method url body)
+                 (strip-optimistic @demo-board))}))))
+
+(def ^:private demo-transport
+  "The stub transport `mount!` installs on the frame: `demo-answer`, after
+   `demo-reply-delay-ms`."
+  (stub-transport/route-transport demo-answer {:delay-ms demo-reply-delay-ms}))
 
 ;; ============================================================================
 ;; APP-DB — the demo toggle + the inline edit draft (ordinary slices)
@@ -716,9 +705,9 @@
 ;; only mounts in a browser. The app frame is created, configured, and provided
 ;; all in one place: the render root's `frame-root {:id app-frame …}`. On
 ;; first mount it creates the frame under `app-frame` and applies the config —
-;; `:url-bound? true` so the frame owns the browser URL, and a `:rf.http/managed`
-;; override pointing at our canned stub so the whole thing runs standalone. On
-;; hot reload it finds that same frame and keeps its app-db. Every dispatch and
+;; `:url-bound? true` so the frame owns the browser URL. Just before that,
+;; `mount!` installs the demo backend's stub transport so the whole thing runs
+;; standalone. On hot reload it finds that same frame and keeps its app-db. Every dispatch and
 ;; subscribe inside the tree resolves against that id. Guide:
 ;; ../../../../docs/routing/glossary.md#url-bound
 ;;
@@ -729,8 +718,6 @@
 
 (defonce app-root (rf.adapter.reagent/client-root))
 
-(def app-frame :rf/default)
-
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
 (defn ^:dev/after-load mount! []
@@ -738,11 +725,11 @@
                      (js/document.getElementById "app"))]
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
+    (stub-transport/install-transport! app-frame demo-transport)
     (rf.adapter.reagent/render! app-root
-      [rf/frame-root {:id           app-frame
-                      :doc          "Linearlite optimistic-board demo frame."
-                      :url-bound?   true
-                      :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
+      [rf/frame-root {:id         app-frame
+                      :doc        "Linearlite optimistic-board demo frame."
+                      :url-bound? true}
        [root-view]]
       el)))
 

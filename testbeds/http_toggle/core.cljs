@@ -22,27 +22,25 @@
 
   Routing strategy: the success path issues a REAL Fetch against
   `/api/<outcome>.json` (static asset shipped under the testbed dir).
-  Every failure outcome is synthesised via the framework-shipped
-  canned-failure stub (`:rf.http/managed-canned-failure`, per Spec 014
-  §Testing) — same reply shape as the live failure path, no network
-  required. This keeps the testbed deterministic across CI environments
-  while preserving the canonical reply envelope every consumer reads."
+  Every failure outcome goes out through `failure-backend`, a stub
+  transport (Spec 014 §Testing) that answers the way a server or the
+  network would for its category; the real `:rf.http/managed` then
+  classifies it, emits its `:rf.http/<kind>` trace and delivers the reply.
+  This keeps the testbed deterministic across CI environments while every
+  failure travels the live failure path."
   (:require [cljs.reader :as edn]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.trace :as rf.trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at
             ;; app boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`); without it,
             ;; dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http.managed]
-            ;; This testbed drives :rf.http/managed-canned-failure
-            ;; directly via :fx (see below), and the
-            ;; canned-stub fx ids register from re-frame.http.test-support.
-            ;; A testbed IS a test affordance, so requiring it is correct.
-            [re-frame.http.test-support]
+            ;; The failure outcomes go out through a stub transport (see
+            ;; `failure-backend`). A testbed IS a test affordance, so a
+            ;; test scope in its click handler is correct.
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -82,49 +80,57 @@
 (def request-id ::in-flight)
 
 ;; ----------------------------------------------------------------------------
-;; Canned-failure-with-trace
+;; The failure backend
 ;; ----------------------------------------------------------------------------
 ;;
-;; The framework-shipped `:rf.http/managed-canned-failure` synthesises a
-;; failure reply via the same late-bind dispatch path the live transport
-;; uses, but it does NOT call `rf.trace/emit-error!`. The live failure path
-;; (`re-frame.http.transport/finalise-failure!`) emits a single
-;; `:rf.http/<kind>` trace event before dispatching the reply; the
-;; canned stub skips it. The testbed README documents an ordered
-;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
-;; replays the live path's emit before delegating to the
-;; canned stub. Consumers (Xray, Story, cross-cutting specs) can
-;; assert on the `:operation :rf.http/<kind>` trace directly rather than
-;; falling back to the `:rf.fx/handled` proxy.
+;; One route per failure outcome, each answering the way a server or the
+;; network would for its category. The request runs through the real
+;; `:rf.http/managed`, which classifies the answer, emits the
+;; category-attributed `:rf.http/<kind>` trace and delivers the reply, so a
+;; consumer's trace watcher sees exactly the live failure path.
 
-(rf/reg-fx :http-toggle/canned-failure-with-trace
-  {:doc       "Testbed-only wrapper around :rf.http/managed-canned-failure.
-               Emits the category-attributed :rf.http/<kind> trace (an
-               error row, or an :info row for :rf.http/aborted), matching
-               the live failure path's finalise-failure! emit,
-               and then delegates to the framework canned stub for the
-               actual reply synthesis."
-   :platforms #{:client}}
-  (fn fx-canned-failure-with-trace [frame-ctx args-map]
-    (let [kind (or (:kind args-map) :rf.http/transport)
-          tags (or (:tags args-map) {})
-          url  (get-in args-map [:request :url])]
-      ;; Match finalise-failure!'s emit shape: operation is the failure
-      ;; :kind, tags carry the category-specific slots plus :request-id,
-      ;; :url, and :recovery (canned failures are :no-recovery — they
-      ;; classify identically to a terminal live failure). Like the live
-      ;; producer, an abort is an :info row and every other kind is an
-      ;; error row.
-      (let [trace-tags (assoc tags
-                              :kind       kind
-                              :request-id (:request-id args-map)
-                              :url        url
-                              :recovery   :no-recovery)]
-        (if (= :rf.http/aborted kind)
-          (rf.trace/emit! :info kind trace-tags)
-          (rf.trace/emit-error! kind trace-tags)))
-      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
-       frame-ctx args-map))))
+(def ^:private held-ms
+  "Longer than anyone waits: a route held this long is answered by the
+   request's own timeout, or by Cancel."
+  600000)
+
+(def ^:private failure-backend
+  (stub-transport/route-transport
+    {[:get "api/4xx"]       {:status      404
+                             :status-text "Not Found"
+                             :headers     {"content-type" "text/html"}
+                             :body        "<html>not found</html>"}
+     [:get "api/5xx"]       {:status      500
+                             :status-text "Internal Server Error"
+                             :headers     {"content-type" "text/html"}
+                             :body        "<html>server error</html>"}
+     ;; Held past the request's `:timeout-ms`.
+     [:get "api/timeout"]   {:delay-ms held-ms}
+     ;; Held until the Cancel button aborts it.
+     [:get "api/slow"]      {:delay-ms held-ms}
+     [:get "api/transport"] {:failure {:kind    :rf.http/transport
+                                       :message "Network unreachable"
+                                       :cause   "ECONNREFUSED"}}
+     ;; A 2xx whose body is not JSON.
+     [:get "api/decode"]    {:headers {"content-type" "application/json"}
+                             :body    "<<not-json>>"}
+     ;; The browser reports a CORS refusal and a network drop against another
+     ;; origin as the same Fetch `TypeError`.
+     [:get "https://other.example/api/cross-origin"]
+     {:failure {:kind          :rf.http/transport
+                :message       "Failed to fetch"
+                :cause         "TypeError"
+                :cross-origin? true}}}))
+
+(defn- go!
+  "Click Go. The success outcome is a live Fetch; every failure outcome is
+   issued inside a `with-transport` scope, so its request goes out through
+   `failure-backend`."
+  [outcome]
+  (if (= :success outcome)
+    (rf/dispatch [::go] {:frame :rf/default})
+    (stub-transport/with-transport failure-backend
+      #(rf/dispatch-sync [::go] {:frame :rf/default}))))
 
 (rf/reg-event ::go
   (fn [{:keys [db]} [_ msg reply]]
@@ -139,137 +145,72 @@
                (assoc :reply  reply))}
 
       ;; Initial branch — fan out by selected outcome. Each branch
-      ;; produces ONE `:fx` entry whose canonical envelope the framework
-      ;; classifies; for the failure paths, that envelope is a direct
-      ;; call into the canned-failure stub with the desired :kind / :tags
-      ;; pre-baked. Every branch addresses its reply back to THIS event
-      ;; with `:reply-to [::go msg]` (Spec 014 §Reply addressing).
+      ;; produces ONE `:rf.http/managed` request whose canonical envelope
+      ;; the framework classifies; a failure outcome's URL picks its
+      ;; `failure-backend` route. Every branch addresses its reply back to
+      ;; THIS event with `:reply-to [::go msg]` (Spec 014 §Reply
+      ;; addressing).
       :else
       (let [outcome (:outcome db)]
         {:db (-> db (assoc :status :loading :reply nil))
-         :fx [(case outcome
-                ;; HOT PATH — the live-Fetch site. This is the only
-                ;; outcome that actually crosses the wire; the response
-                ;; is the static asset `/api/success.json` shipped
-                ;; alongside the testbed.
-                :success
-                [:rf.http/managed
+         :fx [[:rf.http/managed
+               (case outcome
+                 ;; HOT PATH — the live-Fetch site. This is the only
+                 ;; outcome that actually crosses the wire; the response
+                 ;; is the static asset `/api/success.json` shipped
+                 ;; alongside the testbed.
+                 :success
                  {:request    {:method :get :url "api/success.json"}
                   :decode     :json
                   :request-id request-id
-                  :reply-to   [::go msg]}]
+                  :reply-to   [::go msg]}
 
-                ;; HOT PATH — synthesised :rf.http/http-4xx via the
-                ;; canned-failure stub. Same reply envelope as a live
-                ;; 4xx; the consumer's trace watcher cannot distinguish.
-                :rf.http/http-4xx
-                [:http-toggle/canned-failure-with-trace
+                 :rf.http/http-4xx
                  {:request    {:method :get :url "api/4xx"}
+                  :decode     :json
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/http-4xx
-                  :tags       {:status 404 :status-text "Not Found"
-                               :body   "<html>not found</html>"
-                               :headers {}}}]
+                  :reply-to   [::go msg]}
 
-                :rf.http/http-5xx
-                [:http-toggle/canned-failure-with-trace
+                 :rf.http/http-5xx
                  {:request    {:method :get :url "api/5xx"}
+                  :decode     :json
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/http-5xx
-                  :tags       {:status 500 :status-text "Internal Server Error"
-                               :body   "<html>server error</html>"
-                               :headers {}}}]
+                  :reply-to   [::go msg]}
 
-                :rf.http/timeout
-                [:http-toggle/canned-failure-with-trace
+                 :rf.http/timeout
                  {:request    {:method :get :url "api/timeout"}
+                  :timeout-ms 1000
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/timeout
-                  :tags       {:elapsed-ms 5000 :limit-ms 5000}}]
+                  :reply-to   [::go msg]}
 
-                :rf.http/aborted
-                ;; Issue a deferred request so the Cancel button has
-                ;; time to fire. See ::go-and-await-cancel below — for
-                ;; the testbed flow, the user selects :rf.http/aborted
-                ;; then clicks Go, then clicks Cancel; the abort path
-                ;; emits :rf.http/aborted via the live abort handler.
-                [:http-toggle/deferred-abortable
-                 {:request-id request-id
-                  :reply-to   [::go msg]}]
+                 ;; Held until the user clicks Cancel, whose
+                 ;; `:rf.http/managed-abort` aborts it for real.
+                 :rf.http/aborted
+                 {:request    {:method :get :url "api/slow"}
+                  :request-id request-id
+                  :reply-to   [::go msg]}
 
-                :rf.http/transport
-                [:http-toggle/canned-failure-with-trace
+                 :rf.http/transport
                  {:request    {:method :get :url "api/transport"}
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/transport
-                  :tags       {:message "Network unreachable"
-                               :cause   "ECONNREFUSED"}}]
+                  :reply-to   [::go msg]}
 
-                :rf.http/decode-failure
-                [:http-toggle/canned-failure-with-trace
+                 :rf.http/decode-failure
                  {:request    {:method :get :url "api/decode"}
+                  :decode     :json
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/decode-failure
-                  :tags       {:body-text "<<not-json>>"
-                               :cause     "SyntaxError: Unexpected token < at 0"
-                               :schema-validation-failure? false}}]
+                  :reply-to   [::go msg]}
 
-                :http-toggle/cross-origin
-                [:http-toggle/canned-failure-with-trace
+                 :http-toggle/cross-origin
                  {:request    {:method :get :url "https://other.example/api/cross-origin"}
                   :request-id request-id
-                  :reply-to   [::go msg]
-                  :kind       :rf.http/transport
-                  :tags       {:message       "Failed to fetch"
-                               :cause         "TypeError"
-                               :cross-origin? true}}])]}))))
-
-;; ----------------------------------------------------------------------------
-;; Deferred-abortable stub — synthesises the :rf.http/aborted path
-;; ----------------------------------------------------------------------------
-;;
-;; The live :rf.http/managed-abort fx fires the abort handle on the
-;; in-flight registry; the in-flight request resolves with
-;; :rf.http/aborted via the default reply-addressing path. To exercise
-;; that contract without a real long-poll endpoint, this per-app stub
-;; defers a canned-failure synthesis by 500ms — long enough for a
-;; spec to observe the :loading state and click Cancel.
-
-(rf/reg-fx :http-toggle/deferred-abortable
-  {:doc       "Testbed-only fx that defers a canned :rf.http/aborted
-               reply by 500ms so the spec can observe :status :loading
-               and click Cancel before the timer fires. Production
-               apps should never use raw js/setTimeout — see Spec 014
-               §Testing for the canonical stub seam."
-   :platforms #{:client}}
-  (fn fx-deferred-abortable [frame-ctx args-map]
-    (let [stub (rf.registrar/handler :fx :http-toggle/canned-failure-with-trace)]
-      ;; Demo-only artificial latency. The :request-id in args-map
-      ;; would normally bind the abort handle in the in-flight
-      ;; registry; for the testbed stub, the Cancel button fires the
-      ;; abort via the live :rf.http/managed-abort fx which short-
-      ;; circuits the timer. Delegating to the trace-emitting wrapper
-      ;; keeps the abort path's trace stream uniform with
-      ;; every other failure category.
-      (js/setTimeout
-        (fn []
-          (stub frame-ctx (assoc args-map
-                                 :kind :rf.http/aborted
-                                 :tags {:request-id (:request-id args-map)
-                                        :reason     :user})))
-        500))))
+                  :reply-to   [::go msg]})]]}))))
 
 (rf/reg-event ::cancel
   (fn [_ctx _ev]
-    {:fx [;; The live abort fx. On the testbed's deferred-abortable
-          ;; path, the in-flight registry isn't populated, so this is
-          ;; a no-op against the registry but emits the abort trace
-          ;; the consumer's trace watcher is looking for.
+    {:fx [;; The live abort fx: it aborts whatever request is in flight
+          ;; under `request-id`, and the framework delivers the
+          ;; `:status :cancelled` reply.
           [:rf.http/managed-abort request-id]]}))
 
 ;; ----------------------------------------------------------------------------
@@ -285,7 +226,7 @@
    [:rf.http/http-4xx       ":rf.http/http-4xx (404, raw body)"]
    [:rf.http/http-5xx       ":rf.http/http-5xx (500, raw body)"]
    [:rf.http/timeout        ":rf.http/timeout"]
-   [:rf.http/aborted        ":rf.http/aborted (deferred — click Cancel)"]
+   [:rf.http/aborted        ":rf.http/aborted (held — click Cancel)"]
    [:rf.http/transport      ":rf.http/transport (network)"]
    [:rf.http/decode-failure ":rf.http/decode-failure (bad JSON)"]
    [:http-toggle/cross-origin ":rf.http/transport (cross-origin)"]])
@@ -308,7 +249,7 @@
          ^{:key v}
          [:option {:value (pr-str v)} label])]
       [:button {:data-testid "go"
-                :on-click #(dispatch [::go])}
+                :on-click #(go! outcome)}
        "Go"]
       [:button {:data-testid "cancel"
                 :on-click #(dispatch [::cancel])}
