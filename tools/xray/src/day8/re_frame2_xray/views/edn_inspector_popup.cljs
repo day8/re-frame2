@@ -586,11 +586,9 @@
 
   A boundary reads its frame from the `re-frame.adapter.context` React
   context that `rf/frame-provider` writes, so the reads resolve
-  through the surrounding `:rf/xray` frame, and a plain `defn` here would
-  raise `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun; there
-  is no `:rf/default` floor). The reads are `rf.fresco/sub`, recorded by
-  Fresco's own collector rather than by whichever reaction machinery the
-  installed adapter supplies.
+  through the surrounding `:rf/xray` frame. The reads are
+  `rf.fresco/sub`, recorded by Fresco's own collector rather than by
+  whichever reaction machinery the installed adapter supplies.
 
   ## CLOSED-STATE COST
 

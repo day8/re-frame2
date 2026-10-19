@@ -269,16 +269,15 @@
     component for the React-context tier to read. The ambient frame then
     resolves to nil and a `subscribe` / `dispatch` RAISES
     `:rf.error/no-frame-context`. There is no `:rf/default` fallback —
-    the runtime never synthesises one (Spec 006 §Plain-fn footgun;
-    `re-frame.views.provider/current-frame`).
+    the runtime never synthesises one (Spec 006 §One frame-resolution
+    rule for React hooks; `re-frame.views.provider/current-frame`).
 
     THAT IS A FACT ABOUT THE MOUNT SEAM, NOT A GENERAL RULE ABOUT
-    CALLING VIEWS. Inside an already-provided tree the direction REVERSES: the context
-    is read off whatever component is in flight, so a plain helper
-    CALLED from a `reg-view` / boundary body resolves through its
-    caller's `:contextType` and is fine, while the same helper in HEAD
-    position mints a `:contextType`-less component of its own and is
-    what raises. Here the problem is the absent render, not the call.
+    CALLING VIEWS. Inside an already-provided tree the component in
+    flight reads the closest enclosing boundary, so a helper CALLED from
+    a `reg-view` / boundary body resolves its caller's frame, and a plain
+    Reagent fn mounted under the provider resolves it too. Here the
+    problem is the absent render, not the call.
   - `mount-point` — a DOM element (or substrate-equivalent mount
     target).
   - `opts` — `{:frame <frame-id>}` minimum, defaulting to
@@ -611,12 +610,10 @@
   error boundary sits above this render path. `managed_fx_subs_cljs_test`
   grades exactly this fn against a seeded two-record cascade.
 
-  `expanded` is the per-section disclosure override map, threaded down as
-  plain data: `records-list` / `record-panel` are plain fns, and per Spec
-  006 §Plain-fn footgun an ambient `subscribe` inside one cannot resolve
-  the surrounding frame, so the read belongs at the boundary and the value
-  travels as an argument (the same shape `views/edn-inspector` uses for
-  its own expansion slot).
+  `expanded` is the per-section disclosure override map, read at the
+  boundary and threaded down as plain data, so `records-list` /
+  `record-panel` stay pure fns of their arguments (the same shape
+  `views/edn-inspector` uses for its own expansion slot).
 
   `instance-id` is the optional per-mount name from
   [[mount-managed-fx!]]'s opts, threaded down to the four inspector sites
