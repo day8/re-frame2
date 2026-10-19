@@ -645,7 +645,7 @@
 
   `:rf.trace/call-site` rides BOTH error and success-path emits when
   the in-scope cascade was kicked off by a call-site-capturing macro
-  (`rf/dispatch` / `rf/dispatch-sync` / `rf/subscribe`), so consumers
+  (`rf/dispatch` / `rf/dispatch-sync`) or a `reg-view`-injected op, so consumers
   (Event lens, Xray, Story) can render jump-to-source links from every
   event in a cascade, not just errors."
   [op-type operation tags]
