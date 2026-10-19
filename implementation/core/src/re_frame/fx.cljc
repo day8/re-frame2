@@ -263,6 +263,13 @@
 ;; the SSR / hydration / epoch wire, cleared per-frame on frame destroy. A
 ;; fired timer drops its OWN entry before dispatching, so the table holds
 ;; exactly the set of still-pending timers.
+;;
+;; A `:dispatch-later` carrying an `:id` names its timer within the frame:
+;; arming that `:id` again cancels the pending timer first (debounce), and
+;; `{:id k :cancel? true}` cancels it outright. The slot key still carries a
+;; fresh counter value beside the `:id`, so a replaced timer's callback that
+;; the host has already started finds its own slot gone and dispatches
+;; nothing — it can never claim the replacement's slot.
 
 (defonce ^:private dispatch-later-counter
   ;; Monotonic counter minting a unique id per armed `:dispatch-later` so
@@ -274,7 +281,9 @@
 (defonce
   ^{:private true
     :doc "Host-side side table of pending `:dispatch-later` timers, keyed by
-   `[frame-id timer-id]`. A slot holds EITHER the `arming-sentinel` (the timer
+   `[frame-id timer-id]`, where `timer-id` is a counter value, or
+   `[::id <id> <counter value>]` for a timer armed with an `:id`. A slot holds
+   EITHER the `arming-sentinel` (the timer
    is mid-`set-timeout!` — RESERVED but not yet PUBLISHED) OR the opaque host
    handle from `re-frame.interop/set-timeout!` (armed). Transient host state
    (NOT runtime-db), so an epoch restore cannot rewind / recycle it and it never
@@ -296,12 +305,59 @@
   real handle when it finds the reservation already gone."
   ::arming)
 
+(defn- id-slot?
+  "True when side-table key `k` names a timer armed in `frame-id` under `id`."
+  [frame-id id [fid tid]]
+  (and (= fid frame-id)
+       (vector? tid)
+       (= ::id (nth tid 0))
+       (= id (nth tid 1))))
+
+(defn- id-slots
+  "The `[k handle]` entries of `m` armed in `frame-id` under `id`."
+  [m frame-id id]
+  (filter (fn [[k _]] (id-slot? frame-id id k)) m))
+
+(defn- without-id-slots
+  "`m` less every timer armed in `frame-id` under `id`; `m` itself when `id`
+  is nil. Pure, so it is safe inside a retriable swap."
+  [m frame-id id]
+  (if (some? id)
+    (reduce (fn [acc [k _]] (dissoc acc k)) m (id-slots m frame-id id))
+    m))
+
+(defn- cancel-id-slots!
+  "Cancel the host handles of `slots` — the entries a swap just removed — and,
+  when there were any, emit one `:rf.fx/dispatch-later-cancelled` trace with
+  `reason` (`:on-replace` / `:on-cancel`). An `arming-sentinel` slot is
+  dropped without `clear-timeout!`: its arming caller cancels the real handle
+  when it finds the reservation gone."
+  [slots frame-id id reason]
+  (when (seq slots)
+    (doseq [[_ handle] slots
+            :when (not (= handle arming-sentinel))]
+      (rf.interop/clear-timeout! handle))
+    (rf.trace/emit! :rf.fx :rf.fx/dispatch-later-cancelled
+                    {:frame frame-id :id id :reason reason}))
+  nil)
+
+(defn- cancel-dispatch-later!
+  "Cancel the pending `:dispatch-later` timer armed in `frame-id` under `id`.
+  A no-op, with no trace, when none is pending. Returns nil."
+  [frame-id id]
+  (let [[old _] (swap-vals! dispatch-later-timers without-id-slots frame-id id)]
+    (cancel-id-slots! (id-slots old frame-id id) frame-id id :on-cancel)))
+
 (defn- arm-dispatch-later!
   "Arm a `:dispatch-later` host timer that dispatches `event` with `opts`
   after `ms`, RETAINING its handle in `dispatch-later-timers` under
   `[frame-id timer-id]` so `release-frame!` can cancel it on frame destroy.
   The timer thunk drops its OWN slot BEFORE dispatching, so the table tracks
   exactly the pending set (a fired timer leaves no residue). Returns nil.
+
+  A non-nil `id` names the timer within the frame: the reservation that arms
+  it removes, in the same atomic swap, any timer still pending under that
+  `id` in that frame, and cancels it. That is the replace half of debounce.
 
   The slot is BOTH resource ownership (the cancellable host handle) AND the
   callback's DISPATCH AUTHORITY: the thunk dispatches ONLY when
@@ -330,53 +386,60 @@
   CLJ + CLJS run identical code; the race is only reachable on the JVM (CLJS
   `js/setTimeout` cannot fire before the caller yields), but the reservation
   keeps both platforms leak-free and behaviourally identical."
-  [frame-id ms event opts]
-  (let [timer-id (swap! dispatch-later-counter inc)
-        k        [frame-id timer-id]]
-    ;; PHASE 1 — reserve the slot BEFORE scheduling. The sentinel is not a host
-    ;; handle: `release-frame!` / `reset-dispatch-later-timers!` drop it without
-    ;; passing it to `clear-timeout!`.
-    (swap! dispatch-later-timers assoc k arming-sentinel)
-    (let [handle (rf.interop/set-timeout!
-                   (fn []
-                     ;; ATOMICALLY remove our own slot AND capture the winning
-                     ;; pre-swap snapshot. The slot is BOTH the
-                     ;; resource-ownership handle AND this callback's DISPATCH
-                     ;; AUTHORITY: whoever removes it decides whether the deferred
-                     ;; event dispatches. `swap-vals!` yields the old map from the
-                     ;; winning CAS attempt; the dispatch side effect rides that
-                     ;; snapshot and NEVER runs inside the retriable swap fn
-                     ;; (`dissoc` is pure + idempotent). Removal precedes dispatch
-                     ;; on BOTH the sentinel window (immediate fire before
-                     ;; publication) and the ordinary armed slot.
-                     (let [[old _] (swap-vals! dispatch-later-timers dissoc k)]
-                       ;; Sticky hook — the timer callback fires per
-                       ;; scheduled :dispatch-later. Dispatch ONLY when our slot was
-                       ;; still present in the winning old snapshot. If
-                       ;; `release-frame!` / `reset-dispatch-later-timers!` removed
-                       ;; the reservation FIRST — cleanup won DURING arming, even
-                       ;; before `set-timeout!` returned this handle (a legal JVM
-                       ;; executor ordering) — this callback has LOST its authority
-                       ;; and must NOT fire a dead-on-arrival dispatch into the
-                       ;; torn-down frame. Host cancellation cannot
-                       ;; un-run an already-started thunk, so the authority check IS
-                       ;; the suppression. On the live path the slot is present, so
-                       ;; `dispatch!` enqueues into the frame exactly once.
-                       (when (contains? old k)
-                         (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-                           (dispatch! event opts)))))
-                   ms)
-          ;; PHASE 2 — publish the handle only if the reservation survived. The
-          ;; swap fn is a pure CAS-derived replace-if-present; the cancel side
-          ;; effect below reads the old snapshot, never runs inside the swap.
-          [old _] (swap-vals! dispatch-later-timers
-                              (fn [m] (if (contains? m k) (assoc m k handle) m)))]
-      (when-not (contains? old k)
-        ;; The thunk (immediate/0ms fire) or destroy already removed the
-        ;; reservation — do NOT reinsert the spent/orphan handle; cancel it
-        ;; (idempotent even on an already-completed handle).
-        (rf.interop/clear-timeout! handle)))
-    nil))
+  ([frame-id ms event opts]
+   (arm-dispatch-later! frame-id ms event opts nil))
+  ([frame-id ms event opts id]
+   (let [n (swap! dispatch-later-counter inc)
+         k [frame-id (if (some? id) [::id id n] n)]]
+     ;; PHASE 1 — reserve the slot BEFORE scheduling, removing any timer still
+     ;; pending under the same `id`. The sentinel is not a host handle:
+     ;; `release-frame!` / `reset-dispatch-later-timers!` drop it without
+     ;; passing it to `clear-timeout!`.
+     (let [[old _] (swap-vals! dispatch-later-timers
+                               (fn [m] (assoc (without-id-slots m frame-id id)
+                                              k arming-sentinel)))]
+       (when (some? id)
+         (cancel-id-slots! (id-slots old frame-id id) frame-id id :on-replace)))
+     (let [handle (rf.interop/set-timeout!
+                    (fn []
+                      ;; ATOMICALLY remove our own slot AND capture the winning
+                      ;; pre-swap snapshot. The slot is BOTH the
+                      ;; resource-ownership handle AND this callback's DISPATCH
+                      ;; AUTHORITY: whoever removes it decides whether the deferred
+                      ;; event dispatches. `swap-vals!` yields the old map from the
+                      ;; winning CAS attempt; the dispatch side effect rides that
+                      ;; snapshot and NEVER runs inside the retriable swap fn
+                      ;; (`dissoc` is pure + idempotent). Removal precedes dispatch
+                      ;; on BOTH the sentinel window (immediate fire before
+                      ;; publication) and the ordinary armed slot.
+                      (let [[old _] (swap-vals! dispatch-later-timers dissoc k)]
+                        ;; Sticky hook — the timer callback fires per
+                        ;; scheduled :dispatch-later. Dispatch ONLY when our slot was
+                        ;; still present in the winning old snapshot. If
+                        ;; `release-frame!` / `reset-dispatch-later-timers!` removed
+                        ;; the reservation FIRST — cleanup won DURING arming, even
+                        ;; before `set-timeout!` returned this handle (a legal JVM
+                        ;; executor ordering) — this callback has LOST its authority
+                        ;; and must NOT fire a dead-on-arrival dispatch into the
+                        ;; torn-down frame. Host cancellation cannot
+                        ;; un-run an already-started thunk, so the authority check IS
+                        ;; the suppression. On the live path the slot is present, so
+                        ;; `dispatch!` enqueues into the frame exactly once.
+                        (when (contains? old k)
+                          (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
+                            (dispatch! event opts)))))
+                    ms)
+           ;; PHASE 2 — publish the handle only if the reservation survived. The
+           ;; swap fn is a pure CAS-derived replace-if-present; the cancel side
+           ;; effect below reads the old snapshot, never runs inside the swap.
+           [old _] (swap-vals! dispatch-later-timers
+                               (fn [m] (if (contains? m k) (assoc m k handle) m)))]
+       (when-not (contains? old k)
+         ;; The thunk (immediate/0ms fire) or destroy already removed the
+         ;; reservation — do NOT reinsert the spent/orphan handle; cancel it
+         ;; (idempotent even on an already-completed handle).
+         (rf.interop/clear-timeout! handle)))
+     nil)))
 
 (defn release-frame!
   "Cancel + drop EVERY still-pending `:dispatch-later` timer for a destroyed
@@ -569,6 +632,9 @@
                    queue. A `:dispatch-later` always supplies a number (its
                    reserved body refuses any other `:ms`); a plain
                    `:dispatch` never does.
+    :id            optional, read only with a numeric `:ms`; names the timer
+                   within the frame, so arming replaces any timer still
+                   pending under the same `:id` (`arm-dispatch-later!`).
     :source-detail optional; rides onto the `:rf.event/dispatched` trace (e.g.
                    `{:ms n}` for the delayed path).
     :rf.flow/settle?
@@ -588,7 +654,7 @@
   SAME seam that preserves every reserved-dispatch guarantee, rather than
   standing up a second effect duplicating the semantics."
   [frame-id parent-envelope event
-   {:keys [source ms source-detail] rf-cofx :rf.cofx flow-settle? :rf.flow/settle?}]
+   {:keys [source ms id source-detail] rf-cofx :rf.cofx flow-settle? :rf.flow/settle?}]
   (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
                (some? source-detail) (assoc :source-detail source-detail)
                (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
@@ -598,7 +664,7 @@
       ;; the emitting event returned, so it joins the external lane like any
       ;; timer event, even at 0 ms (Spec 002 `do-fx :dispatch-later`).
       ;; `:source` / `:source-detail` are kept.
-      (arm-dispatch-later! frame-id ms event opts)
+      (arm-dispatch-later! frame-id ms event opts id)
       ;; Sticky hook — `:router/dispatch!` is published once at
       ;; re-frame.router load and never withdrawn.
       (when-let [f (rf.late-bind/get-fn :router/dispatch!)]
@@ -763,20 +829,36 @@
    ;; a typo'd delay into an immediate dispatch nobody asked for. The typed
    ;; throw reaches the always-on channel through the reserved-fx catch in
    ;; `handle-one-fx`, and the rest of the `:fx` walk continues.
-   (fn [frame-id parent-envelope {:keys [ms event]}]
-     (when-not (number? ms)
-       (rf.error/throw-error!
-         :rf.error/fx-handler-exception 're-frame.fx
-         (str "`:dispatch-later` needs a number of milliseconds under `:ms`; got "
-              (if (nil? ms) "none" (pr-str ms))
-              ". The event was not queued. Pass `{:ms <n> :event <event-vec>}`.")
-         {:extra {:ms ms}}))
-     (child-dispatch! frame-id parent-envelope event
-                      {:source        (if (::machine-emitter? parent-envelope)
-                                        :machine-action
-                                        :fx-dispatch-later)
-                       :ms            ms
-                       :source-detail {:ms ms}}))})
+   ;;
+   ;; An `:id` names the timer within the frame: arming it again replaces the
+   ;; pending one, and `{:id k :cancel? true}` cancels it. A cancel reads only
+   ;; `:id`, and one without an `:id` is refused like a bad `:ms`.
+   (fn [frame-id parent-envelope {:keys [ms event id cancel?]}]
+     (if cancel?
+       (do
+         (when (nil? id)
+           (rf.error/throw-error!
+             :rf.error/fx-handler-exception 're-frame.fx
+             (str "`:dispatch-later` with `:cancel? true` needs the `:id` of the "
+                  "timer to cancel; got none. Nothing was cancelled. Pass "
+                  "`{:id <id> :cancel? true}`.")
+             {:extra {:id id}}))
+         (cancel-dispatch-later! frame-id id))
+       (do
+         (when-not (number? ms)
+           (rf.error/throw-error!
+             :rf.error/fx-handler-exception 're-frame.fx
+             (str "`:dispatch-later` needs a number of milliseconds under `:ms`; got "
+                  (if (nil? ms) "none" (pr-str ms))
+                  ". The event was not queued. Pass `{:ms <n> :event <event-vec>}`.")
+             {:extra {:ms ms}}))
+         (child-dispatch! frame-id parent-envelope event
+                          {:source        (if (::machine-emitter? parent-envelope)
+                                            :machine-action
+                                            :fx-dispatch-later)
+                           :ms            ms
+                           :id            id
+                           :source-detail {:ms ms}}))))})
 
 (defn- emit-fx-error!
   "Fan a runtime `:rf.error/*` fx-category out through BOTH error

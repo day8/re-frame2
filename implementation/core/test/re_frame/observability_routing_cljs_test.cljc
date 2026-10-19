@@ -259,3 +259,31 @@
       (let [r (error-of-kind :rf.error/interceptor-exception @seen)]
         (is (= [:kuky65/pub-boom false :rf/redacted]
                [(:failing-id r) (contains? r :exception) (get-in r [:event 1 :auth :token])]))))))
+
+(deftest interceptor-phase-survives-sink-projection
+  (testing "a :before throw and an :after throw of one interceptor stay
+            distinguishable on the projected sink record, under the profile
+            that drops :exception"
+    (let [seen     (atom [])
+          throws?  (fn [ctx event-id] (= event-id (first (:event (:coeffects ctx)))))]
+      (rf/register-observability-sink! :test.sinks/phase
+                                       (fn [record] (swap! seen conj record)))
+      (rf/make-frame {:id :obs/phase :observability
+                      {:errors [{:sink :test.sinks/phase
+                                 :rf.egress/profile :rf.egress/public-error}]}})
+      (rf/reg-interceptor :pd4t/boom
+                          {:before (fn [ctx] (if (throws? ctx :pd4t/before-throws)
+                                               (throw (ex-info "before boom" {}))
+                                               ctx))
+                           :after  (fn [ctx] (if (throws? ctx :pd4t/after-throws)
+                                               (throw (ex-info "after boom" {}))
+                                               ctx))})
+      (doseq [event-id [:pd4t/before-throws :pd4t/after-throws]]
+        (rf/reg-event event-id {:frame :obs/phase :interceptors [:pd4t/boom]}
+                      (fn [{:keys [db]} _] {:db db}))
+        (rf/dispatch-sync [event-id] {:frame :obs/phase}))
+      (is (= [[:pd4t/before-throws :pd4t/boom :before]
+              [:pd4t/after-throws  :pd4t/boom :after]]
+             (->> @seen
+                  (filter #(= :rf.error/interceptor-exception (:error %)))
+                  (mapv (juxt :event-id :failing-id #(get-in % [:tags :phase])))))))))

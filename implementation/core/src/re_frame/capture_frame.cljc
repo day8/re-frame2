@@ -100,10 +100,9 @@
   single `with-redefs` interception seam). `frame-target` is a keyword id OR a
   frame VALUE; the recover-but-emit stamps the normalized frame id (identity for
   a keyword) so the diagnostic carries an id, never a value map.
-  `op` is the ALREADY-KNOWN operation realm — `:dispatch` or
-  `:dispatch-sync` — carried through the recover-but-emit so the frame-destroyed
-  source-coord resolves under `[:event id]` exactly, never the realm-ambiguous
-  fallback that could steal a same-keyword subscription's coord."
+  `op` is the operation realm — `:dispatch` or `:dispatch-sync` — carried
+  through the recover-but-emit so the frame-destroyed source-coord resolves
+  under `[:event id]`, never a same-keyword subscription's coord."
   [dispatch-fn op frame-target captured-incarnation event opts]
   (if (capture-target-superseded? frame-target captured-incarnation)
     (rf.router/emit-captured-frame-superseded!
