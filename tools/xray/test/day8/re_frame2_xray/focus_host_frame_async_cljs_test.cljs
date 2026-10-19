@@ -26,6 +26,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.focus :as focus]
@@ -99,6 +100,28 @@
                            "the spine is bound to the host frame")
                        (is (= host-frame (e2e/sub-xray [:rf.xray/view-scope-frame]))
                            "the frame step re-binds the L2 view scope")))))))
+
+(deftest focus-sent-while-a-host-component-renders-lands-in-the-xray-frame
+  (testing "the testbed runner's `:epoch` listener calls `focus!` while a
+            host component renders, where a frame the call does not name
+            resolves to the host provider's frame. Every event the command
+            fires still lands in Xray's frame, and none runs in the host's"
+    (let [coords (machine-epoch-then-unrelated-head!)
+          hook   (rf.late-bind/get-fn :adapter/current-frame)]
+      ;; Stand in for Reagent's tree tier, which answers the host provider's
+      ;; frame for the length of a host component's render.
+      (rf.late-bind/set-fn! :adapter/current-frame (constantly host-frame))
+      (try
+        (focus/focus! host-frame (assoc coords :panel :machines))
+        (finally
+          (rf.late-bind/set-fn! :adapter/current-frame hook)))
+      (async done
+        (after-drain done
+                     (fn []
+                       (assert-pinned-and-machines-follow coords)
+                       (is (not-any? #(= "rf.xray" (some-> % :trigger-event first namespace))
+                                     (rf.epoch/epoch-history host-frame))
+                           "no Xray event ran in the host frame")))))))
 
 (deftest frameless-focus-sent-async-pins-the-epoch-and-machines-follow
   (testing "control — the same command WITHOUT `:frame` moves the spine too.

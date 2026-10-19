@@ -268,34 +268,37 @@
                      ". Use one of " (pr-str valid-panels)
                      " (or the alias " (pr-str (set (keys panel-aliases)))
                      ").")}
-       (let [dispatches (focus-command->dispatches command)]
-         ;; Fire into Xray's own shell frame (the host never sees it —
-         ;; the channel is the command, not the frame split). A host call
-         ;; has no surrounding frame, so target `defaults/default-frame-id`
-         ;; explicitly.
-         (rf/with-frame defaults/default-frame-id
-           (cond
-             ;; Each `dispatch-sync` drains before the next begins, so the
-             ;; frame step's own `:rf.xray/set-frame` lands before the pin.
-             sync?
-             (doseq [event-vec dispatches]
-               (rf/dispatch-sync event-vec))
+       (let [dispatches (focus-command->dispatches command)
+             ;; Fire into Xray's own shell frame (the host never sees it —
+             ;; the channel is the command, not the frame split). Every
+             ;; dispatch names that frame itself, because an ambient
+             ;; `with-frame` does not reach it from inside a render: a host
+             ;; may call `focus!` while one of its own components renders
+             ;; (an `:epoch` listener fires there), and a render resolves an
+             ;; unnamed frame from the component tree — the HOST's frame.
+             to-xray    {:frame defaults/default-frame-id}]
+         (cond
+           ;; Each `dispatch-sync` drains before the next begins, so the
+           ;; frame step's own `:rf.xray/set-frame` lands before the pin.
+           sync?
+           (doseq [event-vec dispatches]
+             (rf/dispatch-sync event-vec to-xray))
 
-             ;; The ASYNC path, which is how a host sends it.
-             ;; `:rf.xray/select-frame` reaches `:rf.xray/set-frame` through
-             ;; a `:dispatch` fx, appended to the BACK of the queue. Queued
-             ;; beside it, the pin would land first and `set-frame` would
-             ;; clear it, leaving the spine on LIVE head. So queue the frame
-             ;; step alone and the rest behind a one-hop continuation, which
-             ;; runs after `select-frame` has queued its `set-frame`.
-             (= :rf.xray/select-frame (ffirst dispatches))
-             (do (rf/dispatch (first dispatches))
-                 (when-let [more (seq (rest dispatches))]
-                   (rf/dispatch [:rf.xray/focus-after-frame (vec more)])))
+           ;; The ASYNC path, which is how a host sends it.
+           ;; `:rf.xray/select-frame` reaches `:rf.xray/set-frame` through
+           ;; a `:dispatch` fx, appended to the BACK of the queue. Queued
+           ;; beside it, the pin would land first and `set-frame` would
+           ;; clear it, leaving the spine on LIVE head. So queue the frame
+           ;; step alone and the rest behind a one-hop continuation, which
+           ;; runs after `select-frame` has queued its `set-frame`.
+           (= :rf.xray/select-frame (ffirst dispatches))
+           (do (rf/dispatch (first dispatches) to-xray)
+               (when-let [more (seq (rest dispatches))]
+                 (rf/dispatch [:rf.xray/focus-after-frame (vec more)] to-xray)))
 
-             :else
-             (doseq [event-vec dispatches]
-               (rf/dispatch event-vec))))
+           :else
+           (doseq [event-vec dispatches]
+             (rf/dispatch event-vec to-xray)))
          {:ok?     true
           :applied dispatches
           :source  source}))))
@@ -320,7 +323,8 @@
      `focus-command->dispatches`). Every field optional.
 
      Dispatches each translated `:rf.xray/*` event into Xray's own
-     `:rf/xray` shell frame (via `re-frame.core/with-frame`). The host never
+     `:rf/xray` shell frame, naming that frame on every dispatch, so a call
+     made while a host component renders still reaches it. The host never
      sees Xray's internal frame; the channel is the command, not the
      frame split.
 
