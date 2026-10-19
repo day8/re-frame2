@@ -278,28 +278,6 @@ To use the port instead, set the var yourself after requiring the adapter and be
 
 `true` selects UIx's port, `false` selects React's implementation, and `nil` restores UIx's classpath check. The port uses `reagent.impl.batching`, so it needs Reagent on the classpath and is not an option for a UIx-only bundle.
 
-## Test helpers
-
-### `flush-views!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (flush-views!)
-  (flush-views! f)
-  ```
-- **Description**: Flushes pending renders synchronously inside React's `act()`, for tests. Returns nil.
-    - 0-arity: flushes pending renders and effects.
-    - 1-arity: runs the thunk `f` inside `act()`.
-    - When `act()` is not available (React's production bundle omits it), it does nothing, and `f` does not run.
-    - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A real DOM event's `dispatch` queues on the router, and settles with `poll-until` instead. Do not call it from inside a `dispatch-sync` handler; it runs a render.
-    - The complete component test — mount, click, settle, assert, unmount — is in [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real).
-- **Example**:
-  ```clojure
-  (uix-adapter/flush-views!)                                    ;; flush pending renders + effects
-  (uix-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))  ;; dispatch, then commit the re-render
-  ```
-
 ## Server-side rendering
 
 ### `set-hiccup-emitter!`

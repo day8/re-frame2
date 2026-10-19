@@ -6,24 +6,26 @@ Two of those rules describe *current-framework contracts* that are easy to
 state backwards, and the top-level SKILL.md, the breaking-changes leaf and the
 migration README all state them. Because the
 skill is the agent's source of truth for "what breaks", a stale contract claim
-produces a wrong migration: the agent reassures the author that a plain Reagent
-fn is fine inside a provider (it raises `:rf.error/no-frame-context`), or it
+produces a wrong migration: the agent tells the author that a plain Reagent fn
+cannot read its provider's frame and rewrites views that already work, or it
 points the author at a frame-level `:on-error` recovery policy that does not
 exist. This guard makes both stale claims a build failure.
 
 Two contract facts, each pinned against the shipped spec:
 
-  * **M-11 — plain Reagent fns DO NOT inherit a `frame-provider`'s frame.** Under
-    Reagent a plain `(defn …)` fn carries no `:contextType` wiring, so it cannot
-    read the surrounding provider's frame; a bare ambient `subscribe` / `dispatch`
-    in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
-    fall-through and no warn-once). A `reg-view`-registered view
-    DOES read the provider frame. (spec/002-Frames.md §Reading the frame from
-    React context / §Decision table; the cross_spec_dom and
-    frame_provider_context_dom adapter tests.) The stale claim
-    this gate kills: "plain Reagent fns work / are fine inside any established
-    frame scope" / "a plain fn inside a frame-provider inherits that frame
-    ambiently".
+  * **M-11 — a plain Reagent fn under a `frame-provider` READS the provider's
+    frame while it renders.** While a Reagent component renders, the frame
+    boundary above it in the tree answers, whatever the component's form — a
+    `reg-view` and a plain `(defn …)` fn alike (spec/006-ReactiveSubstrate.md
+    §One frame-resolution rule for React hooks; the
+    plain_fn_frame_from_tree_dom and cross_spec_dom adapter tests). What has no
+    frame is code that runs AFTER the render — an `:on-*` callback, a timer, a
+    promise continuation — or a view under no boundary: a bare ambient op there
+    raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
+    fall-through). The stale claim this gate kills: "a plain Reagent fn cannot
+    read / does not inherit the surrounding provider's frame" / "a bare
+    `subscribe` in a plain fn under a provider raises
+    `:rf.error/no-frame-context`".
 
   * **M-13 — there is NO frame-level `:on-error` recovery policy.** `reg-event-
     error-handler` is dropped and has no app-steering recovery replacement;
@@ -40,15 +42,16 @@ Two contract facts, each pinned against the shipped spec:
     / moves to a frame-level (per-frame) `:on-error` (recovery) policy".
 
   * **M-11 (Leave-as-is variant) — a component does NOT auto-pin to
-    `:rf/default`.** A frame-dependent plain fn left unchanged under a non-default
-    provider does NOT silently pin / fall through / route to `:rf/default` — under
-    EP-0002 there is no `:rf/default` floor, so a frame-scoped op raises
+    `:rf/default`.** A plain fn left unchanged under a non-default provider reads
+    that provider's frame while it renders; it does NOT silently pin / fall
+    through / route to `:rf/default`, and where no frame is in scope there is no
+    `:rf/default` floor either, so a frame-scoped op raises
     `:rf.error/no-frame-context`. To intentionally target `:rf/default` the
     component must scope or pass that frame explicitly. The stale claim this gate
     kills: a component "pins to `:rf/default` regardless of where it renders" /
     "falls through to `:rf/default`". (The M-11 rule above keys on a
-    "plain fn" subject + an inherit-verb on one line and so cannot see this distinct
-    "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
+    "plain fn" subject + a cannot-read claim on one line and so cannot see this
+    distinct "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
 
   * **Form-3 lifecycle frame targeting — hooks have no ambient frame.** A stock
     Reagent Form-3 lifecycle callback runs after the registered render scope has
@@ -301,15 +304,16 @@ def _scanned_files() -> list[Path]:
     return files
 
 
-# --- Rule 1: M-11 — plain Reagent fns "inherit" / "work inside" a frame scope.
+# --- Rule 1: M-11 — a plain Reagent fn "cannot read" a frame boundary.
 #
 # Fires when a line couples a PLAIN (non-reg-view) Reagent fn to a frame-provider
-# / established-frame SCOPE with an INHERIT-shaped verb (inherit / work inside /
-# fine / pick up / read the provider frame), UNLESS the same line carries a
-# NEGATION cue — the correct wording always says the plain fn CANNOT / does NOT
-# read the frame, or names the loud error. We require all three signals (plain-fn
-# subject, frame scope, inherit verb) so the rule never fires on the correct
-# "plain fns cannot read the surrounding frame-provider's frame" sentence.
+# / established-frame SCOPE with a CANNOT-READ claim (cannot / does not read,
+# inherit, resolve …, or the no-frame-context error), UNLESS the same line names
+# what genuinely has no frame: code that runs after the render (a callback, a
+# timer, a promise, a lifecycle hook) or a view with no boundary above it. The
+# correct wording always places the failure there, because during the render the
+# boundary above the component answers whatever its form. All three signals are
+# required, so a line that merely mentions a plain fn and a provider is clean.
 PLAIN_FN_RE = re.compile(
     r"plain[- ](?:reagent[- ])?fn|plain[- ]reagent|non-`?reg-view`?\s+(?:reagent\s+)?fn",
     re.IGNORECASE,
@@ -319,25 +323,19 @@ FRAME_SCOPE_RE = re.compile(
     r"|surrounding (?:provider|frame)|inside (?:any|the|a)\s+.*frame",
     re.IGNORECASE,
 )
-INHERIT_VERB_RE = re.compile(
-    r"inherit|work(?:s)? (?:in|inside)|works? fine|are fine|is fine|— fine"
-    r"|pick(?:s)? up the (?:surrounding|provider)|read(?:s)? the (?:surrounding|provider)"
-    r"|resolve(?:s)? (?:to|correctly)|target(?:s)? that frame|carry the frame",
+M11_CANNOT_READ_RE = re.compile(
+    r"(?:cannot|can't|do(?:es)? not|doesn't|don't)\s+"
+    r"(?:read|inherit|see|reach|resolve|recover|pick up)"
+    r"|no-frame-context",
     re.IGNORECASE,
 )
-# Negation cues — the correct wording. Any of these on the line clears Rule 1:
-# the line is stating the (true) limitation, not the (false) inheritance. These
-# are deliberately plain-fn-SPECIFIC: a bare "fails loudly" / "raise" is NOT a
-# negation cue because a stale line can carry it about an *escaping callback*
-# ("…work inside any frame scope; only a callback … now fails loudly") while
-# still asserting the false plain-fn inheritance. The real correct wording
-# always names the contextType limitation, the no-frame-context error, the
-# reg-view contrast, or the warn-once supersession.
-M11_NEGATION_RE = re.compile(
-    r"cannot read|can't read|cannot inherit|can't inherit|do(?:es)? not (?:inherit|read)"
-    r"|don't (?:inherit|read)|no\s+`?:contexttype`?|lacks?\s+(?:the\s+)?`?:contexttype`?"
-    r"|no-frame-context"
-    r"|superseded|retired warn|reg-view`?-registered (?:view )?does|does read the provider",
+# What genuinely has no frame — any of these on the line clears Rule 1: the
+# line places the failure after the render or under no boundary.
+M11_NO_FRAME_SITE_RE = re.compile(
+    r"callback|on-click|`:on-|after the render|run(?:s)? after|timer|promise"
+    r"|settimeout|async|deferred|lifecycle|did-mount"
+    r"|outside (?:a|the|any|every) render|no (?:provider|boundary|frame-provider)"
+    r"|under no|without a (?:provider|boundary|frame-provider)",
     re.IGNORECASE,
 )
 
@@ -754,20 +752,22 @@ def line_problems(line: str) -> list[str]:
     """Return drift labels for a single line (empty when clean)."""
     problems: list[str] = []
 
-    # Rule 1 — M-11 plain-fn-inherits-frame stale claim.
+    # Rule 1 — M-11 plain-fn-cannot-read-frame stale claim.
     if (
         PLAIN_FN_RE.search(line)
         and FRAME_SCOPE_RE.search(line)
-        and INHERIT_VERB_RE.search(line)
-        and not M11_NEGATION_RE.search(line)
+        and M11_CANNOT_READ_RE.search(line)
+        and not M11_NO_FRAME_SITE_RE.search(line)
     ):
         problems.append(
-            "M11-PLAIN-FN-INHERITS: a plain (non-`reg-view`) Reagent fn does NOT "
-            "inherit / work inside a `frame-provider`'s frame — it carries no "
-            "`:contextType`, so a bare ambient `subscribe`/`dispatch` raises "
-            "`:rf.error/no-frame-context` (EP-0002; spec/002-Frames.md). "
-            "Only a `reg-view`-registered view reads the "
-            "provider frame. State the limitation, not the (false) inheritance."
+            "M11-PLAIN-FN-CANNOT-READ: a plain (non-`reg-view`) Reagent fn under "
+            "a `frame-provider` DOES read the provider's frame while it renders "
+            "— the boundary above a rendering component answers whatever its "
+            "form (spec/006-ReactiveSubstrate.md §One frame-resolution rule for "
+            "React hooks). What raises `:rf.error/no-frame-context` is a bare "
+            "op in code that runs after the render (an `:on-*` callback, a "
+            "timer, a promise) or under no boundary. Name that site, not a "
+            "(false) render-time limitation."
         )
 
     # Rule 3 — M-11 component "pins to" / "falls through to" `:rf/default`.
@@ -777,8 +777,9 @@ def line_problems(line: str) -> list[str]:
     ):
         problems.append(
             "M11-RFDEFAULT-PIN: a component left as-is under a frame-provider "
-            "does NOT pin / fall through / silently route to `:rf/default` "
-            "(EP-0002 — there is no `:rf/default` floor; a frame-scoped op "
+            "reads that provider's frame; it does NOT pin / fall through / "
+            "silently route to `:rf/default` (EP-0002 — there is no "
+            "`:rf/default` floor; a frame-scoped op with no frame in scope "
             "raises `:rf.error/no-frame-context`). To intentionally target "
             "`:rf/default`, the component must scope or pass that frame "
             "explicitly. State the limitation, not the (false) auto-default."
@@ -2333,7 +2334,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     if not problems:
         if verbose:
             print(
-                "contract-drift: no plain-fn-inherits-frame (M-11), "
+                "contract-drift: no plain-fn-cannot-read-frame (M-11), "
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
                 "(Rule 5), Form-3 captured-subscribe acquisition (Rule "
@@ -2354,8 +2355,8 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(f"{err_prefix}{p}")
     print(
         f"\ncontract-drift: {len(problems)} drift issue(s) — the migration skill "
-        "is the agent's source of truth for what breaks; align M-11 (plain fns "
-        "DON'T inherit the provider frame), M-13 (no frame-level `:on-error` "
+        "is the agent's source of truth for what breaks; align M-11 (a plain fn "
+        "READS its provider's frame while it renders), M-13 (no frame-level `:on-error` "
         "recovery policy), the boot-smoke Pair partition contract (app-db-only "
         "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
         "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
@@ -2636,12 +2637,27 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # Rules 1-3: stale-claim shapes. A1's "fails loudly" is about an escaping
-    # callback, so it is not a negation cue.
+    # Rules 1-3: stale-claim shapes, each beside the correct wording it must
+    # leave clean.
+    expect(
+        "A plain Reagent fn cannot read the surrounding frame-provider's frame, "
+        "so an ambient `subscribe` in it raises `:rf.error/no-frame-context`.",
+        dirty=True, label="A1 plain fn cannot read the provider frame",
+    )
+    expect(
+        "Plain Reagent fns don't inherit a `frame-provider`'s frame.",
+        dirty=True, label="A2 plain fns don't inherit the provider frame",
+    )
     expect(
         "Plain Reagent fns work in v2 inside any established frame scope; only a "
         "callback that escapes the render scope now fails loudly.",
-        dirty=True, label="A1 plain fns work inside any established frame scope",
+        dirty=False, label="B1 plain fns work inside any established frame scope",
+    )
+    expect(
+        "A plain Reagent fn under a frame-provider reads the provider's frame "
+        "while it renders; a bare `rf/dispatch` in its `:on-click` callback "
+        "raises `:rf.error/no-frame-context`.",
+        dirty=False, label="B2 the callback after the render is the frameless site",
     )
     expect(
         "| `(rf/reg-event-error-handler ...)` | M-13 | B | Moved to frame-level "

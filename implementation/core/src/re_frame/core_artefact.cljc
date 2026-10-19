@@ -72,16 +72,15 @@
 
   Nothing enforces this and nothing can warn about it. The failure is silent
   at registration, silent at call, and surfaces only when something
-  downstream needs the context — in a real browser, since a unit suite that
-  calls the render fn under `rf/with-frame` is answered by the dynamic-var
-  tier and stays green.
+  downstream needs the component's own identity — in a real browser, since a
+  unit suite that calls the render fn directly never mounts anything.
 
   **A worked example.** `rf/route-link` is a `defwrapper` over
   `:routing/route-link`. Were routing to publish the registered `:route/link`
-  view head straight into it, the head would be called rather than mounted, so
-  `(.-context cmp)` would answer React's empty default and the render-time
-  `require-current-frame!` would raise `:rf.error/no-frame-context` on FIRST
-  render — every routed application blank, behind a fully green suite.
+  view head straight into it, the head would be called rather than mounted:
+  its reads would answer for its caller's position in the tree, and it would
+  render as part of the caller, with no component instance, render key or
+  view identity of its own.
 
   The remedy belongs at the PUBLICATION side, not here: publish a function
   that EMITS AN ELEMENT (`(fn [& args] (into [(views/view-head :route/link)]

@@ -9,7 +9,7 @@ The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent view
 - M-3 — run-to-completion drain
 - M-5 — Var-aliased `reg-*`
 - M-10 — reserved-namespace collision
-- M-11 — plain Reagent fns under any frame (including the default/single frame) — incl. the async listener / timer / error-handler class — **lives in its own leaf: [`guided-views-m11.md`](guided-views-m11.md)**
+- M-11 — ambient frame reads in callbacks that run after the render — incl. the async listener / timer / error-handler class — **lives in its own leaf: [`guided-views-m11.md`](guided-views-m11.md)**
 - M-12 — render-count test re-baseline
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)

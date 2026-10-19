@@ -1273,14 +1273,13 @@
 ;; public surface + adapter-map shape
 ;;
 ;; WHAT THESE PIN. Every BEHAVIOUR is asserted elsewhere in this suite +
-;; the DOM twins, but some published surfaces — `flush-views!`, and on a
-;; substrate that publishes it the raw context read — are referenced by NO
-;; behavioural test, and a copy-paste spine-key mis-wire (two surfaces bound to
+;; the DOM twins, but a published surface — on a substrate that publishes
+;; it, the raw context read — can be referenced by NO behavioural test, and a
+;; copy-paste spine-key mis-wire (two surfaces bound to
 ;; the same spine fn) would pass every behavioural test for whichever one
-;; happened to forward the asserted behaviour. These four assertions pin the WIRING
+;; happened to forward the asserted behaviour. These three assertions pin the WIRING
 ;; the behaviour tests cannot see: presence + kind of every published
-;; surface, cross-wiring distinctness, the node-safe flush-views!
-;; contract, and the 9-key adapter-map shape + :kind of the adapter map
+;; surface, cross-wiring distinctness, and the 9-key adapter-map shape + :kind of the adapter map
 ;; (the six required + subscribe-container + register-context-provider +
 ;; dispose-adapter! keys; flush-render!, the tenth contract entry, is the
 ;; optional fn this map-shape check omits).
@@ -1294,22 +1293,19 @@
 ;; `re-frame.adapter.uix` (that file is the API contract; `adapter`, its
 ;; ninth row, is checked by the adapter-map assertion below). Fresco
 ;; re-exports NONE of them by design and reads the spine map instead, so
-;; its roster is the six spine surfaces it publishes. The `:kind` discriminator is
+;; its roster is the five spine surfaces it publishes. The `:kind` discriminator is
 ;; read off the `:adapter` cfg key (the adapter map carries its
 ;; own :kind), so no extra cfg key is needed for the adapter-map shape
 ;; assertion.
 ;;
 ;; Node-safe. The hook Vars (`use-sub` / `use-frame`) are
 ;; only asserted for KIND + IDENTITY, never INVOKED outside a render (the
-;; DOM twins own invocation). `flush-views!` is the one hook-adjacent Var
-;; that IS node-safe to call (spine resolve-act-fn → nil when act() is
-;; unreachable ⇒ no-op nil).
+;; DOM twins own invocation).
 ;; ===========================================================================
 
 (defn assert-public-vars-present-and-callable
   "Every surface the adapter's cfg roster names is bound and fn-shaped (a
-  dropped/renamed re-export trips this — incl. flush-views!, which no
-  behavioural test references). The roster and the
+  dropped/renamed re-export trips this). The roster and the
   `:public-surface` map are also asserted to name the SAME keys, so a row
   quietly added to (or dropped from) one side cannot leave the other
   decorative."
@@ -1338,21 +1334,6 @@
                " distinct fn objects across the published surface; "
                "duplicates indicate a cross-wired spine key. Surface: "
                (pr-str (mapv (fn [[k v]] [k (hash v)]) surface)))))))
-
-(defn assert-flush-views-returns-nil-and-is-node-safe
-  "flush-views! returns nil on both arities and does not throw at node
-  level when React's act() is unreachable (spine resolve-act-fn → nil ⇒
-  no-op). Documented contract."
-  [{:keys [public-surface name]}]
-  (testing (str name " — public surface: flush-views! returns nil and is node-safe")
-    (let [flush-views! (:flush-views! public-surface)]
-      (is (nil? (flush-views!)) "0-arity flush returns nil")
-      ;; When act() IS reachable (React 19 hosts it on the React ns) the
-      ;; thunk runs; when it is NOT, the thunk is skipped. Either way the
-      ;; call is a safe no-throw nil, which is the whole contract asserted
-      ;; here — whether the thunk ran is React-build dependent.
-      (is (nil? (flush-views! (fn [] nil)))
-          "1-arity flush returns nil"))))
 
 (defn assert-adapter-map-satisfies-nine-fn-contract
   "The adapter map carries the substrate's :kind discriminator
@@ -1760,31 +1741,6 @@
           "the callbacks either side of the throwing one both ran, in order")
       (is (= [boom] (mapv thrown-by tasks))
           "exactly one deferred task was scheduled, and it rethrows the middle callback's error unchanged"))))
-
-;; ---- flush-views! cross-substrate parity ----------------------------------
-
-(defn assert-flush-views-canonical-shape
-  "The canonical test-flush hook `flush-views!` is surfaced
-  from this adapter's ns with the canonical nil-return shape (Decision 6).
-  Node-safe (no DOM): pins the SHAPE — the Var is a fn, the 0-arity call
-  returns nil and does not throw under the :node-test runner, where act()
-  is gated / unreachable. What a spine DOES with an unreachable act() is
-  per-spine and is deliberately NOT what this pins: the React-hook spine
-  no-ops (`f` never runs), while the ratom spine falls back to its
-  injected synchronous render drain (`f` runs and the render queue
-  drains). Both return nil, and that convergence — not either fallback —
-  is the contract under test.
-  The cross-substrate convergence (same name + nil-return on all four
-  substrates) is what lets a test suite port touching only the init! Var.
-
-  cfg keys:
-    :flush-views! the adapter ns's flush-views! Var"
-  [{:keys [name flush-views!]}]
-  (testing (str name " — flush-views! surfaced with canonical nil-return shape")
-    (is (fn? flush-views!)
-        "the adapter ns exposes flush-views! as a fn (Decision 6 canonical hook)")
-    (is (nil? (flush-views!))
-        "0-arity flush-views! returns nil — the converged contract across all four substrates")))
 
 (defn assert-after-render-fires-on-native-mount
   "`(rf.interop/after-render f)` fires post-commit even when the

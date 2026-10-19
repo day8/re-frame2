@@ -33,7 +33,7 @@
   through `h/sub` and the collector, and a second read path would be a second
   commit discipline — so the rows below read `substrate/spine-fns` directly.
   The assertion that survives the difference is the one that matters here:
-  the spine produced all six, each is fn-shaped, and no two are the same
+  the spine produced all five, each is fn-shaped, and no two are the same
   object (a mis-keyed `:use-current-frame` ← `:use-sub` is a live core
   bug class, and it trips exactly as it would for UIx).
 
@@ -66,7 +66,7 @@
    :set-emitter!     (:set-hiccup-emitter! rf.fresco.substrate/spine-fns)
    :render-to-string (:render-to-string rf.fresco.substrate/adapter)
    :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
-                         :use-sub :flush-views! :wrap-view]
+                         :use-sub :wrap-view]
    :public-surface   {:set-hiccup-emitter! (:set-hiccup-emitter! rf.fresco.substrate/spine-fns)
                       :use-current-frame   (:use-current-frame rf.fresco.substrate/spine-fns)
                       ;; The contract slot IS the publication route here: the
@@ -75,7 +75,6 @@
                       ;; asks for the component and nothing else.
                       :frame-provider      ((:register-context-provider rf.fresco.substrate/adapter) nil)
                       :use-sub       (:use-sub rf.fresco.substrate/spine-fns)
-                      :flush-views!        (:flush-views! rf.fresco.substrate/spine-fns)
                       :wrap-view           (:wrap-view rf.fresco.substrate/spine-fns)}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
