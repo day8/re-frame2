@@ -2,9 +2,9 @@
 
 This part tests Conduit's auth flow and view wiring on the JVM, then cuts the production bundle and explains what ships. Cache-specific tests — reads, invalidation, request counts — are in [Testing resources](../testing.md).
 
-Test pure handlers directly. For a pipeline, drive real dispatches and replace
-the effects that read storage or use the network with controlled replies. Assert
-the state and view that the application itself reads.
+Test pure handlers directly. For a pipeline, drive real dispatches, replace the
+effects that read storage with controlled replies, and answer the network from a
+stub transport. Assert the state and view that the application itself reads.
 
 ## 1. Set up the JVM test runner
 
@@ -28,7 +28,7 @@ Then the test namespace, with one fixture that resets the runtime around every t
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]                        ;; the production HTTP fx
-            [re-frame.http.test-support :as http-test-support]  ;; canned stubs — test-only
+            [re-frame.http.stub-transport :as stub-transport]  ;; stub transports — test-only
             [re-frame.substrate.plain-atom :as plain-atom] ;; the headless JVM substrate
             [re-frame.test-support :as ts]
             [conduit.api :as api]
@@ -42,9 +42,9 @@ Then the test namespace, with one fixture that resets the runtime around every t
 
 The fixture resets the runtime around each test and installs the headless adapter before it. Each test below makes its own frame with `with-new-frame`, which is why `:ambient-frame` is `nil`. [Set up the test runner](../../core/testing/index.md#set-up-the-test-runner) lists everything the fixture resets.
 
-!!! warning "Gotcha — keep the stubs out of production"
+!!! warning "Gotcha — keep the stub transport out of production"
 
-    Require `re-frame.http.test-support` from test namespaces only — never from production or SSR code. That's what keeps the canned stubs out of what ships: they're absent from the production classpath on the JVM, and [elided](../../core/glossary.md#elide) under `:advanced` CLJS.
+    Require `re-frame.http.stub-transport` from test namespaces only — never from production or SSR code. A build that never requires it carries none of it, so nothing in what ships can put a fake wire in place of the network.
 
 ## 2. Test a handler: it's a function, so call it
 
@@ -104,45 +104,41 @@ For non-secret external facts such as a clock or fresh id, a handler declares
 ## 3. Test the pipeline run: one dispatch, end to end
 
 Boot crosses two effect boundaries: storage returns a saved token, then HTTP
-verifies it. Use an effect override for each. The HTTP reply helper preserves
-the request's correlation id, which the generation guard reads:
+verifies it. Override the storage effect, and answer the HTTP request from a
+[stub transport](../../api/re-frame.http.md#testing-without-a-network):
 
 ```clojure
-(defn reply-with [reply]
-  (fn [{:keys [frame]} {:keys [request-id on-success on-failure]}]
-    (let [target (if (= :ok (:status reply)) on-success on-failure)]
-      (rf/dispatch (conj target (assoc reply :correlation {:request-id request-id}))
-                   {:frame frame}))))
-
 (deftest cold-boot-with-saved-token-restores-the-user
-  (rf/with-new-frame
-    [f (rf/make-frame
-         {:preset :test
-          :fx-overrides
-          {:auth.session/load
-           (fn [{:keys [frame]} {:keys [generation]}]
-             (rf/dispatch [:auth/session-read {:generation generation :token "jwt-fixture"}]
-                          {:frame frame}))
-           :rf.http/managed
-           (reply-with {:status :ok
-                        :value {:user {:username "ada" :email "ada@example.com"
-                                        :token "jwt-fixture"}}})}
-          :initial-events [[:auth/initialise]]})]
-    (is (= "ada" (get-in (rf/app-db-value f) [:auth :user :username])))
-    (is (true? (rf/compute-sub [:conduit/signed-in?] (rf/app-db-value f))))))
+  (stub-transport/with-transport
+    (stub-transport/route-transport
+      {[:get (str api/api-base "/user")]
+       {:body {:user {:username "ada" :email "ada@example.com" :token "jwt-fixture"}}}})
+    (fn []
+      (rf/with-new-frame
+        [f (rf/make-frame
+             {:preset :test
+              :fx-overrides
+              {:auth.session/load
+               (fn [{:keys [frame]} {:keys [generation]}]
+                 (rf/dispatch [:auth/session-read {:generation generation :token "jwt-fixture"}]
+                              {:frame frame}))}
+              :initial-events [[:auth/initialise]]})]
+        (is (= "ada" (get-in (rf/app-db-value f) [:auth :user :username])))
+        (is (true? (rf/compute-sub [:conduit/signed-in?] (rf/app-db-value f))))))))
 ```
 
 `with-new-frame` destroys the frame even if an assertion fails. The frame's
-`:initial-events` drains the storage reply and our synchronous HTTP reply before
-returning. A real HTTP request remains asynchronous.
+`:initial-events` drains the storage reply and the stub's answer before
+returning, because a route with no `:delay-ms` answers inline. A real HTTP
+request remains asynchronous.
 
-The standard `with-request-stubs` helper is enough for tests that branch on
-`:status` and `:value`. Its [minimal replies](../../api/re-frame.http.md#testing-without-a-network)
-omit transport correlation, so this test uses an override to supply the additional
-fact the session guard needs. These overrides test the event pipeline; they do
-not test HTTP decoding, retry or transport cancellation.
+The stub transport replaces only the host send. Decoding, classification and
+the reply envelope are the real pipeline's, so the reply carries the request's
+correlation id, which the generation guard reads. The `:test` preset never
+reaches the network: a request with no transport in place fails as
+`:rf.http/transport`.
 
-The unhappy path uses the same helper with a failure reply:
+The unhappy path routes the login to a 422:
 
 ```clojure
 (deftest wrong-password-shows-the-servers-words
@@ -150,20 +146,19 @@ The unhappy path uses the same helper with a failure reply:
     (rf/dispatch-sync [:auth.login-form/initialise])
     (rf/dispatch-sync [:auth.login-form/edit-field :email "ada@example.com"])
     (rf/dispatch-sync [:auth.login-form/edit-password {:value "wrong"}])
-    (rf/dispatch-sync
-      [:auth.login-form/submit]
-      {:fx-overrides
-       {:rf.http/managed
-        (reply-with {:status :error
-                     :error {:kind :rf.http/http-4xx :status 422
-                             :body "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}})}})
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:post (str api/api-base "/users/login")]
+         {:status 422
+          :body   "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}})
+      #(rf/dispatch-sync [:auth.login-form/submit]))
     (is (= :error (get-in (rf/app-db-value f) [:auth :login-form :status])))
     (is (= ["email or password is invalid"]
            (rf/compute-sub [:auth.login-form/form-errors] (rf/app-db-value f))))))
 ```
 
-`compute-sub` evaluates the real subscription headlessly. The failure body also
-exercises `failure->form-errors`' JVM JSON decoder.
+`compute-sub` evaluates the real subscription headlessly. The 422's body reaches
+the failure raw, so it also exercises `failure->form-errors`' JVM JSON decoder.
 [Test a pipeline run](../../core/testing/pipeline-runs.md) explains effect overrides
 and their scope. Client-only persistence skips on the JVM; assert the app-db
 session here, and test the storage adapter separately when needed.
@@ -212,10 +207,11 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
-            [re-frame.http.test-support]                   ;; :preset :test's canned stub
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as ts]
+            [conduit.api :as api]
             [conduit.resources]                          ;; registers the populate target
             [conduit.views :refer [favorite-button]]))
 
@@ -225,6 +221,11 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
 (deftest favorite-button-shows-the-count-and-clicks-into-this-frame
   (rf/with-new-frame [f (rf/make-frame {:preset :test :rf.cofx/mint-policy :live})]
     (rf/dispatch-sync [:rf/set-db {:auth {:user {:username "ada"}}}])   ;; a user is signed in
+    ;; this frame's own stub server answers the favorite POST
+    (stub-transport/install-transport! f
+      (stub-transport/route-transport
+        {[:post (str api/api-base "/articles/x/favorite")]
+         {:body {:article {:slug "x" :favorited true :favoritesCount 8}}}}))
     (let [article {:slug "x" :favorited false :favoritesCount 7}
           tree    (favorite-button {:article article})]                ;; call the view-fn directly
       ;; class-1 bug: does the button render the count it was handed?
@@ -237,7 +238,7 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
                                          (rf/frame-state-value f))))))))
 ```
 
-Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
+Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because the frame's stub transport answers the POST. `install-transport!` gives the frame its own transport, so the request goes through it whenever the queued click drains; without one, the `:test` preset fails the request as `:rf.http/transport`. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
 
 !!! warning "Gotcha — a wrong testid fails loud, not soft"
 

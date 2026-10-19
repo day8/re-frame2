@@ -99,12 +99,18 @@ the parent enters `:failed` with no results. **Retry** re-enters
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
+;; Each frame gets a stub server in place of the network. A real app installs none.
 ;; The first frame's server: both endpoints answer.
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/me"]          {:reply {:ok {:name "Ada"}}}
-   [:get "/api/preferences"] {:reply {:ok {:theme "dark"}}}})
+(stub-transport/install-transport! :auth.session/up
+  (stub-transport/route-transport
+    {[:get "/api/me"]          {:body {:name "Ada"}}
+     [:get "/api/preferences"] {:body {:theme "dark"}}}))
+
+;; The second frame's server answers every request with a 503.
+(stub-transport/install-transport! :auth.session/down
+  (stub-transport/route-transport (fn [_request] {:status 503})))
 
 (rf/reg-machine :auth/load-json
   {:initial :running
@@ -167,14 +173,10 @@ the parent enters `:failed` with no results. **Retry** re-enters
      [:button {:on-click #(dispatch [:auth.session/startup [:auth/retry]])} "Retry"]
      [:button {:on-click #(dispatch [:auth.session/startup [:auth/logout]])} "Log out"]]))
 
-;; :fx-overrides answers each frame's requests without a network.
-;; A real app leaves it out.
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id :auth.session/up
-                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [rf/frame-root {:id :auth.session/up}
   [startup-view "Both endpoints answer"]]
- [rf/frame-root {:id :auth.session/down
-                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+ [rf/frame-root {:id :auth.session/down}
   [startup-view "Every request fails"]]]
 ```
 

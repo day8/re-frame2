@@ -102,9 +102,9 @@ on the resource rather than the route. Non-blocking reads, prefetches and
 ## Try it
 
 This cell runs the resource, the route and both views on an in-memory frame.
-HTTP stubs stand in for the server, and the frame's `:fx-overrides` sends its
-requests to them. Open each article: the stubs answer at once, so the loading
-state passes too quickly to see. **A missing article** gets a `404`, so the page
+A stub transport installed on the frame stands in for the server. Open each
+article: the stub transport answers at once, so the loading state passes too
+quickly to see. **A missing article** gets a `404`, so the page
 shows its error, the transition reads `:error` and the route error is
 `:rf.error/resource-route-blocking`. Going back to **Intro** shows the cached
 article.
@@ -114,13 +114,14 @@ article.
          '[re-frame.routing]
          '[re-frame.resources]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as rf.http.test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
 ;; Stand-in for the server: two articles and a 404.
-(rf.http.test-support/install-managed-request-stubs!
-  {[:get "/api/articles/intro"]   {:reply {:ok {:title "Intro to re-frame2"}}}
-   [:get "/api/articles/ssr"]     {:reply {:ok {:title "Server rendering"}}}
-   [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+(stub-transport/install-transport! :rf/default
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"]   {:body {:title "Intro to re-frame2"}}
+     [:get "/api/articles/ssr"]     {:body {:title "Server rendering"}}
+     [:get "/api/articles/missing"] {:status 404}}))
 
 (rf/reg-event :article/remember
   (fn [{:keys [db]} [_ target]]
@@ -169,7 +170,6 @@ article.
                        :error      (:rf.error/id @(subscribe [:rf.route/error]))})]]])
 
 [rf/frame-root {:id             :rf/default
-                :fx-overrides   {:rf.http/managed :rf.http/managed-test-stub}
                 :initial-events [[:rf.route/navigate {:to     :app/article
                                                       :params {:slug "intro"}}]]}
  [article-reader]]

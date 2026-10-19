@@ -534,11 +534,17 @@ because `:form-valid?` refuses the submit.
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
+;; Each frame gets a stub server in place of the network. A real app installs none.
 ;; The first frame's server: every login succeeds with a token.
-(http-test-support/install-managed-request-stubs!
-  {[:post "/api/login"] {:reply {:ok {:token "demo-token"}}}})
+(stub-transport/install-transport! :auth.login/accepting
+  (stub-transport/route-transport
+    {[:post "/api/login"] {:body {:token "demo-token"}}}))
+
+;; The second frame's server rejects every request with a 401.
+(stub-transport/install-transport! :auth.login/rejecting
+  (stub-transport/route-transport (fn [_request] {:status 401})))
 
 (rf/reg-event :auth.session/store
   (fn [{:keys [db]} [_ {:keys [token]}]]
@@ -647,14 +653,10 @@ because `:form-valid?` refuses the submit.
         [:button {:on-click #(dispatch [:login/submit {:email "" :password ""}])}
          "Sign in with empty fields"]])]))
 
-;; :fx-overrides answers each frame's requests without a network.
-;; A real app leaves it out.
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id :auth.login/accepting
-                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [rf/frame-root {:id :auth.login/accepting}
   [login-view "Server accepts"]]
- [rf/frame-root {:id :auth.login/rejecting
-                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+ [rf/frame-root {:id :auth.login/rejecting}
   [login-view "Server rejects"]]]
 ```
 

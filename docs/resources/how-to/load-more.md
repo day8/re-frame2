@@ -105,7 +105,7 @@ A load-more keeps existing rows visible. The runtime ignores another load-more
 while one is in flight and sends no request once the cursor is `nil`. The command
 needs no owner: the route already keeps this entry alive.
 
-The cell below runs the feed, route and view against three canned pages. Each
+The cell below runs the feed, route and view against three stub pages. Each
 **Load more** appends a page to the same entry, and the button gives way to
 "All articles loaded." once a page returns a `nil` cursor.
 
@@ -114,15 +114,16 @@ The cell below runs the feed, route and view against three canned pages. Each
          '[re-frame.resources]
          '[re-frame.http.managed]
          '[re-frame.routing]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-;; Three canned pages. A stub matches the URL without :params, so this cell
-;; puts the cursor in the URL itself.
+;; Three stub pages. A route is keyed by the URL the request goes out on, with
+;; its :params as the query string.
 (defn rows [& ns] (mapv (fn [n] {:slug (str "a" n) :title (str "Article " n)}) ns))
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/article-feed"]          {:reply {:ok {:items (rows 1 2 3) :page-info {:next-cursor "c2"}}}}
-   [:get "/api/article-feed?cursor=c2"] {:reply {:ok {:items (rows 4 5 6) :page-info {:next-cursor "c3"}}}}
-   [:get "/api/article-feed?cursor=c3"] {:reply {:ok {:items (rows 7 8)   :page-info {:next-cursor nil}}}}})
+(stub-transport/install-transport! :feed
+  (stub-transport/route-transport
+    {[:get "/api/article-feed?limit=10"]           {:body {:items (rows 1 2 3) :page-info {:next-cursor "c2"}}}
+     [:get "/api/article-feed?limit=10&cursor=c2"] {:body {:items (rows 4 5 6) :page-info {:next-cursor "c3"}}}
+     [:get "/api/article-feed?limit=10&cursor=c3"] {:body {:items (rows 7 8)   :page-info {:next-cursor nil}}}}))
 
 (rf/reg-resource :feed/articles
   {:params-schema [:map]
@@ -134,8 +135,9 @@ The cell below runs the feed, route and view against three canned pages. Each
    :tags (fn [_params _pages] #{[:article-feed]})}
   (fn [_params {:rf.resource/keys [page-param]}]
     {:request {:method :get
-               :url (cond-> "/api/article-feed"
-                      page-param (str "?cursor=" page-param))}
+               :url "/api/article-feed"
+               :params (cond-> {:limit 10}
+                         page-param (assoc :cursor page-param))}
      :decode :json}))
 
 (rf/reg-route :article/feed
@@ -179,8 +181,7 @@ The cell below runs the feed, route and view against three canned pages. Each
        (when-not (:has-next-page? feed) [:p "All articles loaded."])])))
 
 [rf/frame-root {:id :feed
-                :initial-events [[:rf.route/navigate {:to :article/feed}]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                :initial-events [[:rf.route/navigate {:to :article/feed}]]}
  [article-feed]]
 ```
 
@@ -200,7 +201,7 @@ them.
 With a real endpoint, disable the network before clicking Load more. Verify
 that every loaded row stays visible, then reconnect and retry the missing page.
 [The runnable example](../../../examples/capabilities/resources/infinite_feed)
-uses canned responses to demonstrate page appends without a backend.
+answers from a stub transport to demonstrate page appends without a backend.
 
 ## Refresh the loaded feed
 

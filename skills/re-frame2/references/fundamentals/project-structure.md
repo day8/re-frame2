@@ -23,7 +23,7 @@ my-app/
 │       └── ssr.cljc             ; SSR-only: cljc + reader conditionals
 └── test/
     └── myapp/
-        ├── test_helpers.cljs    ; shared canned-stub helpers
+        ├── test_helpers.cljs    ; shared stub transports + frame builders
         ├── auth_test.cljs       ; mirrors src filename + `_test` suffix
         ├── articles_test.cljs
         └── ssr_test.cljc        ; cljc test for the cljc source ns
@@ -40,7 +40,7 @@ Tiny apps that don't carve into features (counter, login) collapse to a single `
 
 ## Tests — sibling `test/` tree, mirroring source
 
-In a consumer app, tests live in a sibling `test/` directory rooted at the same namespace. Each `src/myapp/foo.cljs` has a peer `test/myapp/foo_test.cljs` (the `_test` suffix is the convention; the test ns matches — `(ns myapp.foo-test ...)`). A `test_helpers.cljs` at the root owns shared fixture helpers (canned-stub wrappers, frame builders); per-test files require it under its own alias (`[myapp.test-helpers :as app-th]`), leaving `th` for `re-frame.test-helpers`.
+In a consumer app, tests live in a sibling `test/` directory rooted at the same namespace. Each `src/myapp/foo.cljs` has a peer `test/myapp/foo_test.cljs` (the `_test` suffix is the convention; the test ns matches — `(ns myapp.foo-test ...)`). A `test_helpers.cljs` at the root owns shared fixture helpers (stub transports, frame builders); per-test files require it under its own alias (`[myapp.test-helpers :as app-th]`), leaving `th` for `re-frame.test-helpers`.
 
 ## Stories — co-located with the feature
 

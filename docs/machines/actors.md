@@ -114,14 +114,17 @@ deadline destroys the actor and shows the error.
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
+;; Each frame gets a stub server in place of the network. A real app installs none.
 ;; The first frame's server answers every login with a token.
-(http-test-support/install-managed-request-stubs!
-  {[:post "/api/login"] {:reply {:ok {:token "demo-token"}}}})
+(stub-transport/install-transport! :auth.login/answering
+  (stub-transport/route-transport
+    {[:post "/api/login"] {:body {:token "demo-token"}}}))
 
-;; The second frame's server never answers, so its request stays in flight.
-(rf/reg-fx :auth.demo/no-reply (fn [_ _] nil))
+;; The second frame's server holds every request, so it stays in flight.
+(stub-transport/install-transport! :auth.login/silent
+  (:transport (stub-transport/pending-transport)))
 
 (rf/reg-event :auth.session/store
   (fn [{:keys [db]} [_ {:keys [token]}]]
@@ -236,13 +239,10 @@ deadline destroys the actor and shows the error.
      [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/cancel]])} "Cancel"]
      [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/dismiss]])} "Dismiss"]]))
 
-;; :fx-overrides points each frame's requests at its server. A real app leaves it out.
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id :auth.login/answering
-                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [rf/frame-root {:id :auth.login/answering}
   [login-actors-view "Server answers"]]
- [rf/frame-root {:id :auth.login/silent
-                 :fx-overrides {:rf.http/managed :auth.demo/no-reply}}
+ [rf/frame-root {:id :auth.login/silent}
   [login-actors-view "Server never answers"]]]
 ```
 

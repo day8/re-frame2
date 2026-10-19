@@ -133,7 +133,7 @@ silently.
    (the `-cljs-test` suffix is how the `:node-test` build picks it up, via its
    `cljs-test$` regex). It `:require`s the example's production `core` ns — so its
    handlers, subs, views, and machines register at ns-load — and drives them with
-   fixtures and canned stubs defined in the wrapper itself. It runs headlessly on
+   fixtures and stub transports defined in the wrapper itself. It runs headlessly on
    Node under `test:cljs`, so it must not mount the DOM. The example source stays
    test-free.
 

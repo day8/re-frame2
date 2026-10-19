@@ -148,7 +148,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | # | Assertion | Class | Rationale + target |
 |---:|---|:---:|---|
 | 1 | `expectVisible(http-toggle)` | C | Mount. → drop. |
-| 2 | Per-category: trace bus has `:operation :rf.http/<kind>` + `:op-type :error` + `:kind :rf.http/<kind>` | A | Trace emit + category attribution. → `implementation/http/test/.../http_category_attribution_cljs_test.cljs` (new file, or extend existing http-canned-failure test if one exists). |
+| 2 | Per-category: trace bus has `:operation :rf.http/<kind>` + `:op-type :error` + `:kind :rf.http/<kind>` | A | Trace emit + category attribution. → `implementation/http/test/.../http_category_attribution_cljs_test.cljs` (new file, or extend an existing failure-category test if one exists). |
 | 3 | Per-category: `status` mirror = 'error' | A | Reply→handler→app-db. → same target. |
 | 4 | Per-category: `failure-kind` mirror = `:rf.http/<kind>` | A | Same end-to-end round-trip. → same target. |
 

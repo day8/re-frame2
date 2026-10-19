@@ -20,10 +20,13 @@ The cell registers the machine and runs it against a stubbed article URL.
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/intro"] {:reply {:ok {:slug "intro" :title "Welcome"}}}})
+;; A fake backend answers this frame's requests, the child's included.
+;; A real app leaves it out.
+(stub-transport/install-transport! :app/articles
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"] {:body {:slug "intro" :title "Welcome"}}}))
 
 (rf/reg-machine :article/request
   {:initial :idle
@@ -54,9 +57,7 @@ The cell registers the machine and runs it against a stubbed article URL.
      [:p "state: " (str state)]
      [:p "article: " (pr-str (:article data))]]))
 
-;; :fx-overrides sends the frame's requests, the child's included, to the stub.
-;; A real app leaves it out.
-[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/articles}
  [article-request-view]]
 ```
 
@@ -67,7 +68,7 @@ Requiring both namespaces registers the HTTP child machine. The parent's
 decoded article in the parent's `:data` and enters `:ready`.
 Failure enters `:failed`; `:on-error` also handles a child that fails to start.
 
-The stub answers at once, so the cell moves from `:idle` straight to `:ready`.
+The stub transport answers at once, so the cell moves from `:idle` straight to `:ready`.
 In the tutorial's mounted frame, start the machine from the REPL with:
 
 ```clojure

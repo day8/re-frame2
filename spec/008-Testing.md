@@ -261,14 +261,14 @@ Hand-build the coeffects map (`:db`, the declared `:rf.cofx/requires` leaves fla
 
 ### HTTP test surfaces — single namespace
 
-The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http.test-support`. One require, one home, namespace name matches content.
+The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http.stub-transport`. One require, one home, namespace name matches content.
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.http.test-support` | **All HTTP test machinery.** Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, and defines the stub-routing helpers (`with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`). None of the three is a `re-frame.core` re-export and none publishes a late-bind hook — call them directly through this namespace. Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)`, `(reg-fx :rf.http/managed-canned-failure ...)`, `with-request-stubs`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (see [API.md §HTTP requests (Spec 014)](API.md#http-requests-spec-014)) |
+| `re-frame.http.stub-transport` | **All HTTP test machinery.** Stub transports that replace only the host send, so a stubbed request runs the real pipeline ([014 §Stub transports](014-HTTPRequests.md#stub-transports--the-real-pipeline-over-a-fake-wire)). Loading the namespace registers nothing. None of its vars is a `re-frame.core` re-export and none publishes a late-bind hook — call them directly through this namespace. Production code paths do not `:require` it; a demo's fake backend does. | `route-transport`, `pending-transport`, `with-transport`, `install-transport!` (see [API.md §HTTP requests (Spec 014)](API.md#http-requests-spec-014)) |
 | `re-frame.http.managed` | **Production fx home only.** Hosts the production-eligible `:rf.http/managed` / `:rf.http/managed-abort` fxs, the middleware family, and the registry helpers. No test surfaces ship here. | `:rf.http/managed`, `:rf.http/managed-abort`, `reg-http-interceptor`, `clear-http-interceptor`, `clear-all-in-flight!`, the privacy denylist surface |
 
-A test reaching for "the HTTP stub helper" — macros, canned-stub fx ids in a `:fx-overrides` map, or the `re-frame.core` stub re-exports — `:require`s `re-frame.http.test-support`. Production / SSR code paths require only `re-frame.http.managed`; the test-support namespace stays out of the require closure so the canned-stub fxs remain unregistered (classpath absence on JVM/SSR; module-graph DCE on CLJS `:advanced`).
+A test reaching for "the HTTP stub" `:require`s `re-frame.http.stub-transport` and answers its requests from a stub transport, in a `with-transport` scope or installed on its frame. A frame made with the `:test` preset never reaches the network: a request it issues with no stub transport in place fails as `:rf.http/transport`. A test of a reply handler that wants a reply no server could send dispatches the reply event directly. Production / SSR code paths require only `re-frame.http.managed`, so a production build carries none of the stub transports.
 
 ## Fixture-granularity ladder
 
@@ -362,7 +362,7 @@ The grades, the registrar (`reg-cofx`, value-returning + graded), and the satisf
 
 ### The `:test` frame preset — strict-mint by default
 
-A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (the canonical Spec 014 HTTP fx redirected to its canned-success stub so test frames never reach the network), `:drain-depth 1000` (the framework default per-family budget, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
+A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:rf.http/stub-only? true` (test frames never reach the network — a Spec 014 request with no stub transport in place fails as `:rf.http/transport`), `:drain-depth 1000` (the framework default per-family budget, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
 
 ```clojure
 (rf/make-frame {:id :test/auth-flow :preset :test})

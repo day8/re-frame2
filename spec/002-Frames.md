@@ -688,6 +688,8 @@ The full set of config keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-o
 
 `:http-interceptors` belongs to the http artefact as well, but installs nothing: it is a vector of `reg-http-interceptor` ids naming the frame's HTTP interceptor chain, in order, resolved through the frame's own view each time a request is issued ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)). A frame that names no chain runs none. It needs no lifecycle hook, and declaring it before the artefact loads is harmless; a value that is not a vector of keywords fails at construction with `:rf.error/http-bad-interceptor`.
 
+`:rf.http/stub-only?` belongs to the http artefact too, and installs nothing either: when it is true, a request the frame issues with no stub transport in place fails as `:rf.http/transport` instead of being sent ([014 §Testing](014-HTTPRequests.md#testing)). The `:test` and `:story` [presets](#frame-presets--capability-bundles-for-common-configurations) set it.
+
 **Frame-owned policy (`:observability`).** A frame owns its production observability sinks (EP-0015 §9; the full model is normative in [015 §Data Classification](015-Data-Classification.md)). The key, summarised here for the grammar:
 
 - `:observability {:handled-events [<sink-entry>…] :errors [<sink-entry>…]}` — production observation sink policy; each `<sink-entry>` is a **closed** map naming a user/library-owned `:sink` keyword id with an optional `:rf.egress/profile`, and nothing else (an unrecognised entry key fails loud at construction; vendor configuration is closed over by the registered sink fn).
@@ -967,11 +969,11 @@ Use case: production single-frame app; multi-instance widgets.
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. A test stubs a reserved fx the same way (per [§Reserved fx-ids take overrides too](#reserved-fx-id-override-tier)): the navigation primitives `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` to no-op navigation without touching the host, or `:rf.machine/spawn` to record a spawn without running it. |
+| `:rf.http/stub-only?` | `true` | Test frames never reach the network: a Spec 014 request issued with no stub transport in place fails as `:rf.http/transport`, naming `with-transport` and `install-transport!`, instead of being sent ([014 §Testing](014-HTTPRequests.md#testing)). A test answers its requests from a stub transport, so they run the real pipeline. Core only names the key; the HTTP artefact reads it. Test code that stubs another fx supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. A test stubs a reserved fx the same way (per [§Reserved fx-ids take overrides too](#reserved-fx-id-override-tier)): the navigation primitives `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` to no-op navigation without touching the host, or `:rf.machine/spawn` to record a spawn without running it. |
 | `:drain-depth` | `1000` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, each family bounded at 1000 events" from `(frame-meta <id>)` without inspecting the global default. |
 | `:rf.cofx/mint-policy` | `:strict` | The cofx **mint policy** ([§Mint policies](#mint-policies)) defaults to `:strict` under a test frame: a declared-absent generator-backed recordable fact is `:rf.error/missing-required-cofx`, never a freshly-minted per-run value. Strict-by-default is **core, not polish** — a determinism feature whose path of least resistance is a fresh random per run would degrade the test culture it exists to serve, so the `:test` preset makes the deterministic path the default and nondeterminism opt-in. A test that wants a fresh value opts back in with `{:rf.cofx/mint-policy :live}` (per-call dispatch opt, or as a per-frame override — user-supplied keys win on conflict per [§Expansion algorithm](#expansion-algorithm)). |
 
-**Port-omission carve-out.** The `:fx-overrides` entry above redirects a Spec 014 fx-id. Implementations that omit Spec 014 do not register `:rf.http/managed` and therefore cannot redirect it — on such ports the `:test` preset's `:fx-overrides` expansion is `{}` (empty map). The `:drain-depth` entry is unaffected. Conformance: a port that ships Spec 014 MUST expand `:test`'s `:fx-overrides` to the exact pair above; a port that omits Spec 014 MUST expand it to `{}`. Either way, user-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
+**Port-omission carve-out.** The `:rf.http/stub-only?` entry is read only by Spec 014. A port that omits Spec 014 still expands it — the expansion is the same on every port — and nothing reads it, so it changes nothing there. User-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
 
 **Clock stubbing is host-interop, not preset-level.** Tests that need deterministic time replace the interop layer's `now-ms` provider (per [§Interop layer — clock primitives](#interop-layer--clock-primitives--see-spec-005)) — they do not override an fx-id. Machine `:after` timer wake-ups are not registered as a redirectable fx-id, so `:fx-overrides` cannot reach them; the preset stays silent on time control.
 
@@ -981,7 +983,7 @@ Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | Network stubbed via the canonical Spec 014 redirect. **Time-based fxs are NOT stubbed** — stories animate in real time. Story-specific stubs (navigation no-op, etc.) are user-supplied; not shipped in the v1 closed set. |
+| `:rf.http/stub-only?` | `true` | Story frames never reach the network, as under `:test`: a story answers its requests from a stub transport (its `:network` world). **Time-based fxs are NOT stubbed** — stories animate in real time. Story-specific stubs (navigation no-op, etc.) are user-supplied; not shipped in the v1 closed set. |
 | `:drain-depth` | `16` | Tighter bound than the framework default (1000). Stories are interactive demos; a runaway dispatch cascade should fail fast under a story rather than spinning up to the production limit. |
 
 Use case: story / variant frames (per the [007-Stories](007-Stories.md) library, shipped in `tools/story/`).
@@ -999,9 +1001,9 @@ Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; the `:pre
 
 ```clojure
 (rf/frame-meta :test/auth-flow)
-;; → {:preset      :test
-;;    :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
-;;    :drain-depth 1000
+;; → {:preset              :test
+;;    :rf.http/stub-only?  true
+;;    :drain-depth         1000
 ;;    :rf.cofx/mint-policy :strict}
 ```
 

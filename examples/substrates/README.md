@@ -82,7 +82,7 @@ npm run dev:example -- examples/counter-uix      # UIx counter
 
 Each command stages the example's host page and the shared `_shared/` assets
 beside the compiled bundle, serves it on a free loopback port, and prints the
-URL. No backend ships: the login runs against a canned in-page HTTP stub, so
+URL. No backend ships: the login runs against an in-page stub transport, so
 the password `correct-horse` succeeds and anything else fails the way the
 machine expects.
 

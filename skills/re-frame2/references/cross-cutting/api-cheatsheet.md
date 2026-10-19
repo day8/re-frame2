@@ -75,12 +75,14 @@ The public composition model is `image → frame → event stream`; there is **n
 
 ## HTTP — `day8/re-frame2-http`
 
-Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs + the `with-request-stubs` helper): `re-frame.http.test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly. None of it is on the `rf/` facade.
+Production fx surface: `re-frame.http.managed`. Stub transports: `re-frame.http.stub-transport` — a transport answers `:rf.http/managed` in place of the network, so decode, `:accept`, retry, the privacy scrub and the reply envelope still run for real. Tests and demos `:require` it explicitly. None of it is on the `rf/` facade.
 
 | Surface | Shape |
 |---|---|
-| `http-test-support/with-request-stubs` | fn: `(stubs thunk)` — reached through `re-frame.http.test-support`, never `rf/` |
-| `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http.test-support` |
+| `rf.http.stub-transport/route-transport` | fn: `(routes)` / `(routes {:delay-ms n})` → transport. `routes` is `{[method url] response}` or one `(fn [wire-request] response)`; a response is `{:status :headers :body}` (a non-string `:body` goes out as JSON) or `{:failure {:kind :rf.http/transport}}`. An unmatched request fails as `:rf.http/transport` |
+| `rf.http.stub-transport/pending-transport` | fn: `()` → `{:transport t :exchanges a}` — holds each request until the test calls its exchange's `:respond!` / `:fail!` |
+| `rf.http.stub-transport/with-transport` | fn: `(transport thunk)` — requests issued during `thunk` go through `transport`; the test scope |
+| `rf.http.stub-transport/install-transport!` | fn: `(frame transport)` — the frame's own transport (a demo's fake backend), dropped when the frame is destroyed; `nil` uninstalls. `frame` is an id or a frame value |
 | `(rf/clear :http-interceptor id)` | `(:http-interceptor id)` — production surface, `re-frame.http.managed`. There is **no** `rf/clear-http-interceptor` name: `:http-interceptor` is one of the kinds the one registrar inverse dispatches (full contract on the `rf/clear` row below). Removes the definition for every frame; it takes no frame, so any opts map raises `:rf.error/registrar-clear-bad-request`. A frame still naming the id fails its next request with `:rf.error/unregistered-interceptor`; to drop it from one frame, re-make that frame without the id |
 
 ## Resources and mutations — `day8/re-frame2-resources` (see `patterns/resources.md`, `patterns/resources-mutations.md`)

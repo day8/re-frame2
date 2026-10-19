@@ -323,8 +323,8 @@ Because the prior data is still there, the entry goes to `:fetching` (not `:load
 
 ## See it move
 
-The cell below runs this part's two reads and routes against canned Conduit
-replies, with a trimmed home page and article page, and lists each request
+The cell below runs this part's two reads and routes against a stub Conduit
+server, with a trimmed home page and article page, and lists each request
 that reaches the API. Open an article, click **Home**, then open the same
 article again: only the first visit sends a request. **↻ Refresh** always
 sends one.
@@ -333,22 +333,23 @@ sends one.
 (require '[re-frame.core :as rf]
          '[re-frame.resources]
          '[re-frame.routing]
-         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.http.stub-transport :as stub-transport]
          '[reagent.core :as r])
 
 (def api-base "https://api.realworld.show/api")
 
-;; Canned Conduit replies, so the cell needs no network.
+;; A stub Conduit server, so the cell needs no network.
 (def welcome {:slug "welcome" :title "Welcome to Conduit" :description "Start here."
               :body "Conduit is a Medium clone." :tagList ["intro"]
               :author {:username "jake"} :createdAt "2026-01-01"})
 (def resources {:slug "resources" :title "Resources in practice" :description "Server data."
                 :body "A resource caches one server read." :tagList ["data"]
                 :author {:username "jane"} :createdAt "2026-01-02"})
-(http-test-support/install-managed-request-stubs!
-  {[:get (str api-base "/articles")]           {:reply {:ok {:articles [welcome resources] :articlesCount 2}}}
-   [:get (str api-base "/articles/welcome")]   {:reply {:ok {:article welcome}}}
-   [:get (str api-base "/articles/resources")] {:reply {:ok {:article resources}}}})
+(stub-transport/install-transport! :conduit
+  (stub-transport/route-transport
+    {[:get (str api-base "/articles?limit=10")]  {:body {:articles [welcome resources] :articlesCount 2}}
+     [:get (str api-base "/articles/welcome")]   {:body {:article welcome}}
+     [:get (str api-base "/articles/resources")] {:body {:article resources}}}))
 
 ;; Log each request that reaches the stubbed API. The frame below names it
 ;; in :http-interceptors.
@@ -431,8 +432,7 @@ sends one.
 
 [rf/frame-root {:id :conduit
                 :http-interceptors [:conduit/request-log]
-                :initial-events [[:rf.route/navigate {:to :conduit/home}]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                :initial-events [[:rf.route/navigate {:to :conduit/home}]]}
  [root-view]]
 ```
 

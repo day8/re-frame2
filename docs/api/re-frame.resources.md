@@ -503,18 +503,20 @@ The `:rf/resource` view-model holds facts plus derived booleans:
 
 `:stale?`, `:loading?`, `:fetching?` and `:has-data?` are derived when the subscription runs and are never stored. See [Project: five statuses](../resources/concepts.md#what-a-view-sees-five-statuses) in the guide.
 
-The cell below prints the whole view-model for two keys, before and after an `ensure`. Its requests are answered by [stubs](re-frame.http.md#testing-without-a-network) in the same tick, so it never paints `:loading`: `"hello"` goes from `:idle` to `:loaded`, and `"draft"` to `:error` with the failure map.
+The cell below prints the whole view-model for two keys, before and after an `ensure`. Its requests are answered by a [stub transport](re-frame.http.md#testing-without-a-network) in the same tick, so it never paints `:loading`: `"hello"` goes from `:idle` to `:loaded`, and `"draft"` to `:error` with the failure map.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
          '[re-frame.resources :as rf.resources]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-;; Canned replies: "hello" loads, and "draft" fails with a 503.
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/hello"] {:reply {:ok {:title "Hello"}}}
-   [:get "/api/articles/draft"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+;; A stub transport answers this frame's requests: "hello" loads, and "draft"
+;; fails with a 503. A real app installs none, and its requests go to the server.
+(stub-transport/install-transport! :app/articles
+  (stub-transport/route-transport
+    {[:get "/api/articles/hello"] {:body {:title "Hello"}}
+     [:get "/api/articles/draft"] {:status 503}}))
 
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
@@ -532,8 +534,7 @@ The cell below prints the whole view-model for two keys, before and after an `en
      [:pre {:style {:white-space "pre-wrap"}}
       (pr-str @(subscribe [:rf/resource query]))]]))
 
-;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
-[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/articles}
  [:div
   [view-model {:slug "hello"}]
   [view-model {:slug "draft"}]]]

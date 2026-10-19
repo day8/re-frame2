@@ -98,8 +98,8 @@ The registration already declares which reads this write changes.
 
 ### See which reads refresh
 
-The cell below runs this page's registrations and button against canned
-replies, and lists each request. The detail entry has an owner; the list was
+The cell below runs this page's registrations and button against a stub
+transport, and lists each request. The detail entry has an owner; the list was
 loaded without one. Click **Save**: the detail refetches at once, while the
 list is only marked stale. **Open the list** ensures it, and because it is
 stale it refetches; a second click is a cache hit.
@@ -109,15 +109,16 @@ stale it refetches; a second click is a cache hit.
          '[re-frame.core :as rf]
          '[re-frame.resources]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.http.stub-transport :as stub-transport]
          '[reagent.core :as r])
 
-;; Canned replies for the two reads and the save.
+;; A stub transport answers the two reads and the save.
 (def welcome {:slug "welcome" :title "Welcome" :body "The first article."})
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/welcome"] {:reply {:ok {:article welcome}}}
-   [:get "/api/articles"]         {:reply {:ok {:articles [welcome]}}}
-   [:put "/api/articles/welcome"] {:reply {:ok {:article welcome}}}})
+(stub-transport/install-transport! :writes
+  (stub-transport/route-transport
+    {[:get "/api/articles/welcome"] {:body {:article welcome}}
+     [:get "/api/articles"]         {:body {:articles [welcome]}}
+     [:put "/api/articles/welcome"] {:body {:article welcome}}}))
 
 ;; Log each request that reaches the stubbed API. The frame below names it
 ;; in :http-interceptors.
@@ -190,8 +191,7 @@ stale it refetches; a second click is a cache hit.
 [rf/frame-root {:id :writes
                 :http-interceptors [:demo/request-log]
                 :initial-events [[:rf.resource/ensure (assoc detail :owner [:demo/detail-panel])]
-                                 [:rf.resource/ensure (assoc article-list :cause [:demo/warm])]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                                 [:rf.resource/ensure (assoc article-list :cause [:demo/warm])]]}
  [demo]]
 ```
 
