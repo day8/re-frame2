@@ -24,7 +24,9 @@
 
   Both guards are closed boolean subscriptions over the RESOLVED TARGET —
   a non-boolean fails closed with the structured `:rf.error/can-leave-non-boolean`
-  / `:rf.error/can-enter-non-boolean` error.
+  / `:rf.error/can-enter-non-boolean` error. `:can-leave` is the current
+  route's alone; `:can-enter` composes down the target's `:parent` chain with
+  AND semantics, so one declaration on a parent guards its whole branch.
 
   `decide` is stages 4-5 for EVERY door. Each door classifies its
   transition kind FIRST (stage 3) and calls `decide` only for a `:full` or
@@ -45,6 +47,7 @@
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.strategy :as rf.routing.strategy]
+            [re-frame.routing.subs :as rf.routing.subs]
             [re-frame.routing.url :as rf.routing.url]
             [re-frame.trace :as rf.trace]))
 
@@ -54,7 +57,8 @@
 ;; normalised-query shape, the closed boolean contract, and the
 ;; non-boolean → fail-closed + error-id discipline. They differ only in
 ;; (a) WHICH route-metadata key names the sub (`:can-leave` / `:can-enter`),
-;; (b) which route it reads from (current / target), (c) the error id, and
+;; (b) which routes it reads from (the current route / every route on the
+;; target's `:parent` chain, `entry-denier`), (c) the error id, and
 ;; (d) what a `false` MEANS: a resumable leave block, or a terminal entry
 ;; denial. Holding the resolution in one shared helper keeps the two from
 ;; drifting.
@@ -146,6 +150,27 @@
                          frame (assoc :frame frame)))
           true))
     true))
+
+(defn- entry-denier
+  "Stage 5 — `:can-enter` composed down the TARGET's `:parent` chain with AND
+  semantics. Consults each route's `:can-enter` against the one resolved
+  target, parent-most first; the first that denies ends the walk, so a
+  child's own guard runs only once every ancestor has allowed. Returns nil
+  when every guard allows, else `{:route-id <denying route> :guard <its
+  guard's sub-id>}`.
+
+  The walk is `rf.routing.subs/chain-from-meta`, the defensive one, rather
+  than the plan's fail-loud `resolve-branch`: a malformed chain (an
+  unregistered `:parent`, a cycle) still consults every registered route it
+  reaches, so a broken registration can never skip a guard."
+  [frame target]
+  (some (fn [route-id]
+          (let [route-meta (rf.registrar/lookup :route route-id)]
+            (when-not (guard? frame route-id route-meta :can-enter
+                              target :rf.error/can-enter-non-boolean)
+              {:route-id route-id
+               :guard    (guard-id route-meta :can-enter)})))
+        (rf.routing.subs/chain-from-meta (:route-id target))))
 
 ;; ---------------------------------------------------------------------------
 ;; Replay values — the `RouteDestination` union and the normalised policy.
@@ -273,9 +298,10 @@
       (rf.privacy.url/redact-url-tag :requested-url)))
 
 (defn decide
-  "Run the CURRENT route's `:can-leave` guard (stage 4) and then the TARGET
-  route's `:can-enter` guard (stage 5) for one navigation. Returns nil when
-  the navigation may PROCEED, else the effects map that terminates it.
+  "Run the CURRENT route's `:can-leave` guard (stage 4) and then `:can-enter`
+  down the TARGET's `:parent` chain (stage 5, `entry-denier`) for one
+  navigation. Returns nil when the navigation may PROCEED, else the effects
+  map that terminates it.
 
   Callers pass a single map:
 
@@ -302,16 +328,17 @@
   pending value> :fx [...]}` and dispatches `:rf.route/navigation-blocked`.
   An ENTRY rejection returns `{:fx [...]}` ONLY — no runtime-db write at
   all, because a denial commits nothing and creates no pending value — and
-  dispatches `:rf.route/entry-denied` exactly once.
+  dispatches `:rf.route/entry-denied` exactly once, its `:guard` and the
+  trace's `:rejecting-route` / `:rejecting-guard` naming the route whose guard
+  denied — an ancestor's when the parent chain denied first.
 
   The leave gate runs first; a rejected leave never reaches the target's
-  entry guard, so at most ONE of the two events is ever dispatched per
+  entry guards, so at most ONE of the two events is ever dispatched per
   navigation attempt."
   [{:keys [rdb frame target requested-url cause policy bypass-leave?
            url-driven? pending-nav-allocation]}]
   (let [current      (get-in rdb [:rf.runtime/routing :current])
         current-meta (rf.registrar/lookup :route (:route-id current))
-        target-meta  (rf.registrar/lookup :route (:route-id target))
         ;; The public `:bypass-leave?` is a plain boolean (OI-3). Only the
         ;; literal `true` bypasses; every other value (nil, false, a set or
         ;; any other truthy value) bypasses nothing.
@@ -320,9 +347,8 @@
                                  target :rf.error/can-leave-non-boolean))
         ;; Only evaluate entry when the leave gate allowed — a rejected
         ;; leave never reaches the target. Entry has NO bypass.
-        enter-ok?    (or (not leave-ok?)
-                         (guard? frame (:route-id target) target-meta :can-enter
-                                 target :rf.error/can-enter-non-boolean))
+        denier       (when leave-ok? (entry-denier frame target))
+        enter-ok?    (nil? denier)
         ;; A URL-driven door has already moved the address bar (popstate,
         ;; or a host that pushed before dispatching), so both a leave block
         ;; and an entry denial restore the current slice's URL by REPLACE —
@@ -369,16 +395,17 @@
 
       ;; ---- stage 5 rejected: TERMINAL denial ---------------------------
       (not enter-ok?)
-      (let [denial {:destination   (destination-of target requested-url)
+      (let [{denying-route :route-id denying-guard :guard} denier
+            denial {:destination   (destination-of target requested-url)
                     :target        target
                     :cause         cause
                     :requested-url requested-url
-                    :guard         (guard-id target-meta :can-enter)}]
+                    :guard         denying-guard}]
         (rf.trace/emit! :rf.event :rf.route/entry-denied
                      (guard-trace-tags
                        (cond-> {:requested-url   requested-url
-                                :rejecting-route (:route-id target)
-                                :rejecting-guard (guard-id target-meta :can-enter)
+                                :rejecting-route denying-route
+                                :rejecting-guard denying-guard
                                 :cause           cause
                                 :phase           :can-enter}
                          frame (assoc :frame frame))))

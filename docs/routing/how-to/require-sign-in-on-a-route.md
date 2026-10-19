@@ -167,7 +167,8 @@ that effect ([the entry-denial `403`](../../ssr/response.md#a-status-the-framewo
   so Back from `/login` does not hit the guard again.
 - **The return is a new navigation.** The guard runs again and, with a user present,
   allows it. If sign-in did not actually store a user, the guard refuses again and
-  the denial handler returns to login. Keep login itself unguarded.
+  the denial handler returns to login. Keep login itself unguarded, and outside any
+  guarded branch.
 - **Read and clear `:auth/return-to` in the same event**, so a later sign-in cannot
   send the reader somewhere stale.
 - **The payload is already redacted in traces.** The framework marks
@@ -179,7 +180,26 @@ page reload.
 
 ## Protecting several routes
 
-Put the same guard on each route. A shared map is enough:
+When the routes form a branch, guard its parent. Entering a route checks the
+`:can-enter` of every route on its `:parent` chain, root-most first, so the
+children need no guard of their own:
+
+```clojure
+(rf/reg-route :app/account
+  {:can-enter [:auth/signed-in?]}
+  "/account")
+
+(rf/reg-route :app/account.billing  {:parent :app/account} "/account/billing")
+(rf/reg-route :app/account.security {:parent :app/account} "/account/security")
+```
+
+A signed-out reader asking for `/account/billing` is refused once, with
+`:guard :auth/signed-in?`, and `:destination` still names the billing page, so
+the return trip lands there. A child may add a guard of its own; it is checked
+only after the parent allows.
+
+For routes that share no parent, put the same guard on each. A shared map is
+enough:
 
 ```clojure
 (def signed-in-only {:can-enter [:auth/signed-in?]})
@@ -202,7 +222,7 @@ Put the same guard on each route. A shared map is enough:
 | Entry is refused for a signed-in reader; `:rf.error/can-enter-non-boolean` is raised | The sub returned the user map, `nil`, or another non-boolean | Return `(some? user)` or `(boolean …)` |
 | Back from `/login` returns to the refused page and bounces to login again | The redirect to login pushed a history entry | Navigate to login with `:replace? true` |
 | After signing in, the reader lands on the articles list instead of the page they asked for | `:auth/return-to` was not stored, or was cleared before sign-in read it | Store `:destination` in the denial handler; read and clear it in the sign-in event |
-| Navigation loops between the denial handler and `/login` | The login route has the `:can-enter` guard too | Leave the login route unguarded |
+| Navigation loops between the denial handler and `/login` | The login route has the `:can-enter` guard too, or a `:parent` that has it | Leave the login route unguarded, outside any guarded branch |
 | Reloading a protected page while signed in lands on `/login` | The session is restored asynchronously and was not back when the URL was checked | Defer the redirect, as below |
 
 ## Advanced
@@ -258,9 +278,10 @@ that case in the root view instead of a not-found page.
 
 ### A policy that is not about routes
 
-Use a frame interceptor only for a rule that spans many routes and does not belong in
-route metadata: a maintenance-mode lockout, or a feature flag that closes a whole
-section. The example below closes every route tagged `:requires-auth`
+Use a frame interceptor only for a rule that spans routes sharing no parent and does
+not belong in route metadata: a maintenance-mode lockout, or a feature flag across
+unrelated routes. A whole section under one parent needs only that parent's
+`:can-enter`. The example below closes every route tagged `:requires-auth`
 (`{:tags #{:requires-auth}}` in its metadata) to signed-out readers.
 
 An interceptor has to cover both navigation events itself, or it lets
