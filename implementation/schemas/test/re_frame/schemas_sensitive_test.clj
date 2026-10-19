@@ -8,11 +8,15 @@
   `:rf/redacted`, scrubs value-bearing segments out of `:path`, and stamps
   the event's top-level `:sensitive? true`. Structural tags ride unchanged.
   A schema the walker cannot see into fails closed; a `:large?` slot elides
-  to a size marker unless sensitivity already redacted it."
+  to a size marker unless sensitivity already redacted it.
+
+  An `app-db` failure is also projected through the frame's elision registry,
+  so a path classified there needs no second `:sensitive?` on its schema."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.flows]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
@@ -127,6 +131,58 @@
 ;; locators: a :set element, a sensitive :map-of key, a closed map's extra
 ;; key, and anything past a wrapper whose branch the path cannot identify.
 ;; Each value-bearing segment is the sentinel in :path; navigable ones survive.
+
+;; ---- the frame's elision registry ------------------------------------------
+;;
+;; A path the frame's registry classifies is projected through it, as
+;; `:rf.sub/run` and `:rf.flow/computed` are at emit: `:value` is walked at its
+;; own path, and `:explain`, which re-ships the whole registered value, is
+;; redacted whole (sensitive) or replaced by a size marker (large).
+
+(defn- dispatch-failure-trace
+  "Dispatch `event` on `:rf/default` and return its schema-validation-failure trace."
+  [event]
+  (with-trace-recorder! [traces]
+    (rf/dispatch-sync event)
+    (failure-trace @traces)))
+
+(defn- registry-redaction [trace]
+  [(:sensitive? trace) (get-in trace [:tags :value]) (get-in trace [:tags :explain])])
+
+(deftest app-db-validation-redacts-a-registry-sensitive-path
+  (rf/reg-app-schema [:auth :token] [:map [:token :int]])
+  (rf/reg-event :auth/write
+    (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:auth :token] {:token v})}))
+  (testing "a commit-plane :sensitive declaration"
+    (rf/reg-event :auth/classify (fn [_ _] {:sensitive [[:auth :token]]}))
+    (rf/dispatch-sync [:auth/classify])
+    (let [trace (dispatch-failure-trace [:auth/write "hunter2-SECRET"])]
+      (is (not (str/includes? (pr-str trace) "hunter2-SECRET")))
+      (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace)))))
+  (testing "a flow's own :sensitive output"
+    (rf/reg-app-schema [:auth :derived] [:map [:token :int]])
+    (rf/reg-event :auth/seed (fn [{:keys [db]} [_ s]] {:db (assoc db :secret s)}))
+    (rf/reg-flow :auth/derived {:inputs [[:secret]] :output-path [:auth :derived] :sensitive [[]]}
+      (fn [s] (when s {:token s})))
+    (rf/make-frame {:id :rf/default :flows [:auth/derived]})
+    (let [trace (dispatch-failure-trace [:auth/seed "flow-SECRET"])]
+      (is (not (str/includes? (pr-str trace) "flow-SECRET")))
+      (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace))))))
+
+(deftest app-db-validation-size-elides-a-registry-large-path
+  (let [blob (apply str (repeat 40 "BLOB-"))]
+    (rf/reg-app-schema [:reports :part] [:map [:n :int]])
+    (rf/reg-event :reports/classify (fn [_ _] {:large [[:reports :part :blob]]}))
+    (rf/reg-event :reports/write
+      (fn [{:keys [db]} _] {:db (assoc-in db [:reports :part] {:blob blob :n "not-an-int"})}))
+    (rf/dispatch-sync [:reports/classify])
+    (let [trace (dispatch-failure-trace [:reports/write])]
+      (is (not (str/includes? (pr-str trace) "BLOB-BLOB")))
+      (is (= ["not-an-int" true true nil]
+             [(get-in trace [:tags :value]) (get-in trace [:tags :large?])
+              (contains? (get-in trace [:tags :explain]) :rf.size/large-elided)
+              (:sensitive? trace)])
+          ":value is the unclassified leaf; :explain is a size marker"))))
 
 (deftest app-db-validation-scrubs-value-bearing-path-segments
   (testing "each sensitive failure shape redacts :value and :explain, stamps
