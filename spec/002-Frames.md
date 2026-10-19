@@ -1229,8 +1229,8 @@ re-frame2's core model is a causal fold: `next-frame-state = transition(previous
 
 Every coeffect id is **registered** ([001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)) and carries a grade:
 
-- **Ambient** (the default) — its value-returning supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements).
-- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+- **Recordable** (the default) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+- **Ambient** (`:recordable? false`) — its value-returning supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements).
 
 ### The recordable-coeffect rule (the durable-write rule)
 

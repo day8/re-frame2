@@ -118,8 +118,9 @@ Every `reg-cofx` in a v1 app needs one mechanical rewrite: **suppliers return a 
 
 ;; v2 — value-returning supplier, declared via :rf.cofx/requires
 (rf/reg-cofx :viewport
-  {:doc       "Ambient viewport width."
-   :platforms #{:client}}              ;; reads a browser global
+  {:doc         "Ambient viewport width."
+   :recordable? false                  ;; display-only, so not recorded
+   :platforms   #{:client}}            ;; reads a browser global
   (fn [] (.-innerWidth js/window)))
 (rf/reg-event :layout/measure
   {:rf.cofx/requires [:viewport]}
@@ -268,18 +269,18 @@ The v2 rule: **a fact that decides a durable write must be one the runtime recor
 - **Clock reads that reach state** (`js/Date.now`, `(.now js/Date)`): add `:rf.cofx/requires [:rf/time-ms]` and read the flat `time-ms` key. The runtime stamps `:rf/time-ms` on every dispatch and records it; it is the framework's one built-in recordable fact.
 - **Generated ids** (`random-uuid` feeding durable state): preferably create the id at dispatch and pass it in the event, `(dispatch [:todo/add {:id (random-uuid) :title "Buy milk"}])`; for an id created inside the handler, declare a recordable cofx with an app-registered supplier.
 - **Random choices** (`rand`, `rand-int`, `rand-nth` written to state): an app-registered recordable cofx, which records the values produced.
-- **Storage and location reads** that initialise durable state (`localStorage`, `sessionStorage`, `js/location`, `navigator`): router or host events, or a `{:recordable? true}` cofx, rather than a read at the write site.
+- **Storage and location reads** that initialise durable state (`localStorage`, `sessionStorage`, `js/location`, `navigator`): router or host events, or a recordable cofx, rather than a read at the write site.
 - **A v1 `:now` cofx**: `(inject-cofx :now)` becomes `:rf.cofx/requires [:rf/time-ms]`, so a scripted or replayed time comes back exactly. For an app-specific clock id, register a recordable supplier:
 
 ```clojure
 ;; App-named recordable clock with a value-returning supplier.
 ;; Most code declares :rf/time-ms; use this only for a domain-specific id.
 (rf/reg-cofx :app/now-ms
-  {:recordable? true :doc "App-named durable wall clock."}
+  {:doc "App-named durable wall clock."}
   (fn [] (.now js/Date)))
 ```
 
-A cofx that only measures something diagnostic or transient stays **ambient**: register it without `:recordable?` and it runs again on replay. `:recordable?` matters only when the value decides a durable write.
+A v2 coeffect is recordable unless it says otherwise. A cofx that only measures something diagnostic or transient, or returns a host object, stays **ambient**: register it with `:recordable? false` and it runs again on replay, as every v1 cofx did.
 
 ## Changes that need a decision
 

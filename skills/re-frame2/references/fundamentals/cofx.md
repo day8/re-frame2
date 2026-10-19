@@ -28,10 +28,10 @@ The coeffects map has two layers. The **base framework coeffects are always stag
 Verified in `re-frame.cofx` (`reg-cofx`, `parse-requires`, `deliver-declared-cofx`). Metadata may carry:
 
 - `:doc` — one-sentence what-and-why; surfaces via `(rf/handler-meta {:source :store :kind :cofx :id id})`.
-- `:recordable?` — mark the fact **recordable** (see grades below). Default `false` (ambient).
+- `:recordable?` — the grade (see grades below). Default `true` (**recordable**); `false` is **ambient**.
 - `:provided?` — (recordable only) the fact has **no generator** (see grades below).
 - `:schema` — Malli schema validating supplied / replayed values. A generated value is validated against `:schema` at processing-start (a production hard error on mismatch) before it is written into the recorded token.
-- `:platforms` — `#{:client :server}`; defaults to both. A supplier tagged `:platforms #{:client}` is **skipped** on server-side frames (emits `:rf.cofx/skipped-on-platform`; the declaring handler sees no value for that id). Mirrors `reg-fx`'s contract per `spec/011-SSR.md`. Example: `(rf/reg-cofx :browser-locale {:platforms #{:client}} (fn [] js/navigator.language))` is safe to register on both platforms; under a `{:platform :server}` frame the supplier is skipped.
+- `:platforms` — `#{:client :server}`; defaults to both. A supplier tagged `:platforms #{:client}` is **skipped** on server-side frames (emits `:rf.cofx/skipped-on-platform`). An ambient fact is then absent from the declaring handler's coeffects; a recordable one fails with `:rf.error/missing-required-cofx`. Mirrors `reg-fx`'s contract per `spec/011-SSR.md`. Example: `(rf/reg-cofx :browser-locale {:recordable? false :platforms #{:client}} (fn [] js/navigator.language))` is safe to register on both platforms; under a `{:platform :server}` frame the supplier is skipped.
 
 > **`:platforms` lives in the metadata-map, NOT reader metadata.** `reg-cofx` reads `:platforms` only from the optional metadata-map argument. Reader metadata on the form (`^{:platforms #{:client}} (rf/reg-cofx ...)`) is **never consulted** — it would register a browser-only supplier for both platforms.
 
@@ -54,12 +54,12 @@ A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires`
 
 The grade is a property of the registration, not a namespace:
 
-- **Ambient** (default) — the supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Legal **only where no durable write depends on the value** — display preferences, diagnostics, host-transient measurements, or a read of state that is *already* recorded durable state.
-- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token**, recorded, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+- **Recordable** (default) — the fact is **ensured onto the causal token**, recorded, and re-presented verbatim by replay, so its value must be EDN. Required for any fact that can affect durable frame-state.
+- **Ambient** (`:recordable? false`) — the supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Legal **only where no durable write depends on the value** — display preferences, diagnostics, host-transient measurements, or a read of state that is *already* recorded durable state. A supplier returning a host object (a DOM node, a Promise) must be ambient.
 
 A recordable registration comes in two shapes, and the **generator shape is the normal one an application reaches for**:
 
-- **Recordable GENERATOR** — a `:recordable? true` supplier *with* a value-returning generator (`(fn [] …)`). The generator **runs at processing-start**, its result is **validated** (against `:schema` if declared) and **written into the recorded `:rf.cofx` token**, and replay **re-presents the recorded value verbatim** rather than re-running it. This is how an **application supplies a world-read coeffect** feeding durable state — a freshly-minted id, a localStorage / sessionStorage read, any app-owned host fact. The app registers the supplier; the framework records and replays it.
+- **Recordable GENERATOR** — a recordable registration *with* a value-returning generator (`(fn [] …)`). The generator **runs at processing-start**, its result is **validated** (against `:schema` if declared) and **written into the recorded `:rf.cofx` token**, and replay **re-presents the recorded value verbatim** rather than re-running it. This is how an **application supplies a world-read coeffect** feeding durable state — a freshly-minted id, a localStorage / sessionStorage read, any app-owned host fact. The app registers the supplier; the framework records and replays it.
 - **Recordable PROVIDED** (`:provided? true`) — a recordable fact with **no generator**; its owner stamps the value onto the token at the boundary. For facts the app **cannot compute itself** at processing-start — a subsystem/boundary fact (SSR server-stamp, the routing location) owned by the framework or a subsystem. Still a registered `reg-cofx` declaration, never an ad-hoc dispatch-site value in production.
 
 > **Where does the application stamp a coeffect value at the dispatch site, then?** It does **not** — not in production. Carrying a coeffect on a dispatch (the `:rf.cofx` call-site opt, below) is **reserved for unit-test stubs**. A production app supplies its world-reads through `reg-cofx`: a generator for what it owns, a provided registration for boundary facts its owner stamps. The supplier *is* the coeffect source.
@@ -79,7 +79,7 @@ The framework ships exactly **one** registration: `:rf/time-ms` — recordable, 
     {:db (assoc-in db [:todos id] {:text text :created-at time-ms})}))
 ```
 
-(A bare `(random-uuid)` or `(js/Date.now)` at the write site would re-roll on every replay. Durable ids ride the event payload, or a **recordable generator cofx** — `(rf/reg-cofx :order/temp-id {:recordable? true} (fn [] (random-uuid)))`, declared and read flat.)
+(A bare `(random-uuid)` or `(js/Date.now)` at the write site would re-roll on every replay. Durable ids ride the event payload, or a **recordable generator cofx** — `(rf/reg-cofx :order/temp-id (fn [] (random-uuid)))`, declared and read flat.)
 
 ## The minting ladder (where does X come from?)
 
@@ -95,7 +95,7 @@ When one event needs a fresh id per item and the count comes from the processing
 
 ```clojure
 (rf/reg-cofx :list/copy-id
-  {:recordable? true :schema :uuid :doc "Fresh id for one list copy; row ids derive from it."}
+  {:schema :uuid :doc "Fresh id for one list copy; row ids derive from it."}
   (fn [] (random-uuid)))
 
 (rf/reg-event :list/duplicate
@@ -115,8 +115,7 @@ A boot localStorage read fills durable app-db, so it is an **app-owned world-rea
 ```clojure
 ;; The app REGISTERS the supplier; the generator reads the host once.
 (rf/reg-cofx :todo.storage/todos
-  {:recordable? true
-   :doc "Saved TodoMVC items, read from localStorage (a recordable generator)."}
+  {:doc "Saved TodoMVC items, read from localStorage (a recordable generator)."}
   (fn []
     (some-> (.-localStorage js/globalThis)
             (.getItem ls-key)
@@ -138,9 +137,9 @@ The dispatch site is **plain** — `(rf/dispatch [:todo/initialise])`; the regis
 
 Pick by what the fact is and whether the write that consumes it is durable.
 
-- **App-owned world-read feeding DURABLE state** (a minted id, a localStorage / sessionStorage read, any app-readable host fact) → **`reg-cofx` recordable generator** (`{:recordable? true}` + a value-returning `(fn [] …)`) — **the default for this case**, because a live re-read breaks cross-machine replay and SSR hydration.
+- **App-owned world-read feeding DURABLE state** (a minted id, a localStorage / sessionStorage read, any app-readable host fact) → **`reg-cofx` recordable generator** (the default grade + a value-returning `(fn [] …)`) — **the default for this case**, because a live re-read breaks cross-machine replay and SSR hydration.
 - **Boundary / subsystem fact the app cannot compute from app-db** (an SSR server-stamp, routing location, wall-clock time) → **its own `reg-cofx` handler**, owned by the framework/subsystem. Time is the built-in `:rf/time-ms`; other boundary facts are registered by their owner (often `:provided? true`).
-- **Non-durable read** (the ambient list above) → **ambient `reg-cofx`**, the default grade.
+- **Non-durable read** (the ambient list above) → **ambient `reg-cofx`**, `{:recordable? false}`.
 - **Supplying a coeffect on the DISPATCH itself** (`(rf/dispatch [:e] {:rf.cofx {…}})`) → **unit-test stubs only** — pins an exact recorded value (fixed id, frozen clock) for a deterministic assertion.
 
 ## Reading a sub from a handler — `subscribe-once`, wrapped as an ambient cofx
@@ -151,7 +150,8 @@ The **preferred** shape, when the read should be reusable / parameterised / stub
 
 ```clojure
 (rf/reg-cofx :user/current
-  {:doc "Ambient read of the [:user/current] sub value."}
+  {:recordable? false
+   :doc         "Ambient read of the [:user/current] sub value."}
   (fn [] (rf/subscribe-once [:user/current])))
 
 (rf/reg-event :order/place
@@ -163,7 +163,7 @@ The **preferred** shape, when the read should be reusable / parameterised / stub
 Parameterise with the binary supplier + `[id arg]` declaration when the sub takes args:
 
 ```clojure
-(rf/reg-cofx :sub/value
+(rf/reg-cofx :sub/value {:recordable? false}
   (fn [query-v] (rf/subscribe-once query-v)))
 
 (rf/reg-event :order/cancel
@@ -173,7 +173,7 @@ Parameterise with the binary supplier + `[id arg]` declaration when the sub take
 
 There is **no `cofx-from-sub` shortcut helper** in `re-frame.core` — the small `reg-cofx` wrapper is the canonical shape.
 
-Grade the wrapper by what the sub reads: recorded durable state → ambient is fine; ambient host state feeding a durable write → that fact needs recording instead.
+Grade the wrapper by what the sub reads: recorded durable state → ambient (`:recordable? false`) is fine; ambient host state feeding a durable write → drop `:recordable? false` so the fact is recorded.
 
 ## Testing — supply data, don't swap mechanisms
 
@@ -192,7 +192,7 @@ Grade the wrapper by what the sub reads: recorded durable state → ambient is f
 
 ;; 3. Ambient stub — the seam is RE-REGISTRATION (visible, greppable), never
 ;;    a monkey-patch; legal only because ambient facts never feed durable state.
-(rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
+(rf/reg-cofx :ui/local-theme {:recordable? false :doc "Test stub."} (fn [_k] "dark"))
 ```
 
 The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. There is no `:rf.world/inputs` dispatch opt — a draft-only name, so passing it earns no dedicated error id; it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx`.
@@ -203,7 +203,8 @@ The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); sup
 - **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event :id {:rf.cofx/requires [...]} handler)`). Actual interceptor chains also live in that map under `:interceptors`.
 - **Declared-only delivery is about USER leaves.** Destructuring an undeclared user leaf gives `nil` — it was never staged. The base framework coeffects always are (§The one mental model).
 - **A durable write folds facts; production dispatches carry no cofx.** A timestamp / generated id / persisted host fact written into app-db must come from a recorded fact (`:rf/time-ms`, the event payload, or a **`reg-cofx` recordable generator**), never an ambient read. The `:rf.cofx` dispatch opt is a **unit-test stub seam** only — if you catch yourself stamping a coeffect onto a production `dispatch`, register a `reg-cofx` supplier instead. Diagnostic / host-transient reads (no durable write) stay ambient.
-- **Check `:platforms` first if a server-side cofx mysteriously delivers nothing** — a `#{:client}` supplier is skipped under an SSR-server frame (see the metadata list above).
+- **Check `:platforms` first if a server-side cofx mysteriously delivers nothing or fails `:rf.error/missing-required-cofx`** — a `#{:client}` supplier is skipped under an SSR-server frame (see the metadata list above).
+- **An unmarked `reg-cofx` is recordable.** A supplier that returns a host object fails `:rf.error/cofx-value-invalid` (`:non-edn-recordable-value`) the first time it is generated; register it `{:recordable? false}`.
 - **A declared id with no registration is `:rf.error/unregistered-cofx`** (the typo case). A declared **provided** fact absent from the token is `:rf.error/missing-required-cofx` in every mode. A supplier that throws emits `:rf.error/coeffect-exception` and the handler is skipped.
 
 ## Deeper material

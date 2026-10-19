@@ -396,33 +396,32 @@ A **coeffect** is a fact a causal run consumed from outside the event — the re
 
 Every coeffect id carries a **grade**, declared in the registration metadata:
 
-- **Ambient** (the default) — its supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements).
-- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+- **Recordable** (the default) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+- **Ambient** (`:recordable? false`) — its supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements). A supplier whose value is a host object rather than EDN is necessarily ambient.
 
-The grade is a property of the registration, not a namespace — there is one registry, one coeffect id-namespace.
+The grade is a property of the registration, not a namespace — there is one registry, one coeffect id-namespace. Recordable is the default because it is the grade that keeps replay deterministic; `:recordable? false` is the explicit opt-out.
 
 ### The registrar contract
 
 `reg-cofx` takes a **value-returning supplier** — `(fn [] value)` or `(fn [arg] value)` for call-site-parameterized ids. There is no ctx→ctx supplier shape (v1's form), and `inject-cofx` is removed (below).
 
 ```clojure
-;; ambient (default grade) — a display preference; never feeds durable state
+;; ambient — a display preference; never feeds durable state
 (rf/reg-cofx :ui/local-theme
-  {:doc "Ambient localStorage read for the display theme."}
+  {:recordable? false
+   :doc "Ambient localStorage read for the display theme."}
   (fn [storage-key]
     (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
-;; recordable, generator-backed — an app-owned replayable supplier
+;; recordable (the default), generator-backed — an app-owned replayable supplier
 (rf/reg-cofx :counter/delta
-  {:recordable? true
-   :doc    "Replayable d6 roll."
+  {:doc    "Replayable d6 roll."
    :schema [:int {:min 1 :max 6}]}
   (fn [] (inc (rand-int 6))))
 
 ;; recordable, PROVIDED — stamped by a subsystem/boundary; no generator
 (rf/reg-cofx :rf.route/location
-  {:recordable? true
-   :provided?   true
+  {:provided? true
    :doc "The location fact the routing subsystem stamps on its dispatches."
    :schema :rf.route/location-schema})
 ```
@@ -430,7 +429,7 @@ The grade is a property of the registration, not a namespace — there is one re
 Registration contract:
 
 - A **recordable** supplier's value MUST be EDN — it is going into the record; host objects are never recordable values. (The runtime per-leaf structural-EDN check that *enforces* this — emitting `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value` — runs for the **caller-SUPPLIED** `:rf.cofx` path as an ALWAYS-ON walk at the dispatch boundary, and for the **GENERATED**-value path as an ALWAYS-ON walk at the generator write-back site (`re-frame.cofx/run-generator`), before the value is written into the in-flight `:rf.cofx` record; see [002 §Mint policies](002-Frames.md#mint-policies) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). Both halves catch the author error at the source — a generator minting a host handle fails loudly there rather than far away at replay / Xray / SSR.)
-- `:provided? true` registers a recordable fact with **no generator**: the value is stamped onto the token by its owner (framework, subsystem, or dispatch boundary). Provided registrations exist so boundary facts get docs, `:schema`, and ownership — and so a typo'd requirement is distinguishable from a missing value (`:rf.error/unregistered-cofx` vs `:rf.error/missing-required-cofx`).
+- `:provided? true` registers a recordable fact with **no generator**: the value is stamped onto the token by its owner (framework, subsystem, or dispatch boundary). It needs no `:recordable? true` beside it; `:provided? true` beside an explicit `:recordable? false` is the contradictory grade `:rf.error/cofx-registration-invalid`. Provided registrations exist so boundary facts get docs, `:schema`, and ownership — and so a typo'd requirement is distinguishable from a missing value (`:rf.error/unregistered-cofx` vs `:rf.error/missing-required-cofx`).
 - The framework ships exactly **one** built-in registration: **`:rf/time-ms`** — recordable, provided, stamped at enqueue on every dispatch and reply envelope ([002 §Envelope stamping](002-Frames.md#envelope-stamping-rftime-ms)). It is the canonical durable wall-clock fact; the framework's own durable writers read it from the envelope.
 - The optional `:schema` validates supplied and replayed values.
 - Fact names are **owner-qualified**: `:rf/*` framework, subsystem roots (`:rf.route/*`, …) for subsystem facts, app namespaces for app facts. Application ids MUST NOT use `rf.`-prefixed namespaces — per [Conventions §Recordable-coeffect fact naming](Conventions.md#recordable-coeffect-fact-naming-rfcofx).
@@ -579,7 +578,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
 | Re-registering a `(kind, id)` from the same namespace replaces that namespace's source slot; a duplicate from a different namespace is retained beside it, so a frame made without `:images` raises `:rf.error/ambiguous-registration` where it uses the id and an image selecting both fails assembly with `:rf.error/image-duplicate-id`; the dev-only `:rf.warning/registration-collision` compares source coordinates, not fn identity, and decides neither outcome (always on in dev builds, elided in production) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |
 | Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each machine spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
-| `reg-cofx` is a value-returning supplier (`(fn [] v)` / `(fn [arg] v)`), graded ambient (default) or recordable (`:recordable? true`, optionally `:provided? true`); `:rf.cofx/requires` declares a handler's consumed coeffects; `inject-cofx` is removed (hard error `:rf.error/inject-cofx-removed`) — EP-0017 | [§Coeffects](#coeffects--reg-cofx-value-returning-graded), [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) |
+| `reg-cofx` is a value-returning supplier (`(fn [] v)` / `(fn [arg] v)`), graded recordable (the default, optionally `:provided? true`) or ambient (`:recordable? false`); `:rf.cofx/requires` declares a handler's consumed coeffects; `inject-cofx` is removed (hard error `:rf.error/inject-cofx-removed`) — EP-0017 | [§Coeffects](#coeffects--reg-cofx-value-returning-graded), [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) |
 | One public event-registration form: `reg-event` (coeffects in, closed effects map out; two-arg handler). `reg-event-db` / `reg-event-fx` are removed; `reg-event-ctx` is a framework-internal `context -> context` primitive (interceptors own the public niche). Retired public names raise their naming hard errors (`:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`). No public `:event/kind` sub-kind. `:rf.cofx/requires` lives uniformly on `reg-event` (no db-handler exception) — EP-0018 | [§The one event form](#the-one-event-form--coeffects-in-effects-out), [§The retired event-registration names](#the-retired-event-registration-names), [002 §The event handler contract](002-Frames.md#the-event-handler-contract) |
 | Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/interceptor-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
 | `:interceptor` is a first-class registrar kind; `reg-interceptor` (macro on JVM; also a plain-fn value on CLJS, Convention A — there is no `reg-interceptor*` facade twin) is the public application-authoring form (`(reg-interceptor id ?metadata descriptor)`, descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`); interceptors capture source coords, carry metadata, and surface via `handler-meta :interceptor`; the lowering constructor (`->interceptor*`) is framework-internal, NOT a public authoring form. Event/frame chains carry refs (002) — EP-0022 | [§Interceptors — `reg-interceptor`](#interceptors--reg-interceptor-the-interceptor-registrar), [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar) |
