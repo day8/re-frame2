@@ -1,6 +1,6 @@
 # re-frame.resources
 
-Use resources to load server data, cache it and read it from views. You register a read once, with its params schema, scope and request; an event, route or machine then dispatches `[:rf.resource/ensure …]` to load it, and views read the cached result through the `[:rf/resource …]` subscription, which never fetches. The runtime deduplicates concurrent requests, tracks staleness, refetches after invalidation, garbage-collects entries nothing owns and hydrates the cache after SSR; a mutation is the matching write, which invalidates or patches the reads it changed.
+Use resources to load server data, cache it and read it from views. You register a read once, with its scope and request; an event, route or machine then dispatches `[:rf.resource/ensure …]` to load it, and views read the cached result through the `[:rf/resource …]` subscription, which never fetches. The runtime deduplicates concurrent requests, tracks staleness, refetches after invalidation, garbage-collects entries nothing owns and hydrates the cache after SSR; a mutation is the matching write, which invalidates or patches the reads it changed.
 
 Use a resource when the same server data is read from more than one place, or needs caching, deduplication, staleness or a refetch after a write; use a mutation for a write that changes such data. A request whose reply one event handles, such as a login or a one-off load you keep in your own `app-db`, needs neither: issue [`:rf.http/managed`](re-frame.http.md) directly.
 
@@ -71,9 +71,9 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
   (reg-resource resource-id metadata request-fn) → resource-id
   ```
 - **Description**: Registers a resource: a cached read that events load and subscriptions read. Returns `resource-id`.
-    - `metadata` is the registration map: the required `:scope` and `:params-schema`, plus the optional keys in [The resource spec](#the-resource-spec). A non-map `metadata` raises `:rf.error/resource-bad-spec`, as does a `:request` key inside it; the request fn belongs in the third slot.
+    - `metadata` is the registration map: the required `:scope`, plus the optional keys in [The resource spec](#the-resource-spec), `:params-schema` among them. A non-map `metadata` raises `:rf.error/resource-bad-spec`, as does a `:request` key inside it; the request fn belongs in the third slot.
     - `request-fn` is `(fn [params ctx] …)` and returns a [managed-HTTP args map](re-frame.http.md). `params` are the canonical params. `ctx` is `nil`, except on an [infinite resource](#infinite-resources), where it carries `:rf.resource/page-param` and `:rf.resource/page-index` for the page being fetched.
-    - Validates the combined spec (`:scope` first, then `:params-schema`), then writes a `:resource`-kind registrar entry.
+    - Validates the combined spec (`:scope` first, then the request fn), then writes a `:resource`-kind registrar entry.
     - The spec stored under `:rf/resource` is the metadata map with `:request` added ([Reading registrations](#reading-registrations)).
     - See [Register a resource](../resources/concepts.md#register-a-resource).
 - **Example**:
@@ -81,7 +81,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
   (rf/reg-resource :article/by-slug
     {:doc "Article detail by slug."
 
-     :params-schema [:map [:slug :string]]      ;; required: validates and canonicalizes params
+     :params-schema [:map [:slug :string]]      ;; optional: validates the params' shape
      :data-schema   :app/article                ;; shape declaration for tooling; runtime validation is :decode
 
      :scope          :rf.scope/global            ;; required: an explicit, auditable claim
@@ -104,13 +104,13 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 
 | Key | Notes |
 |---|---|
-| `:params-schema` | Validates and canonicalizes params. The canonical params identify the cache entry. Validation runs when `re-frame.schemas` is loaded; without it, params are canonicalized but not checked. Params must be portable EDN, so a fractional number fails: send `9.99` as `999` (cents) or `"9.99"`. Instants are accepted. An omitted `:params` is `{}`; an explicit `nil` is validated as `nil`. A spec without `:params-schema` raises `:rf.error/resource-bad-spec`. |
 | `:scope` | The scope policy: `:rf.scope/global` or `{:from-db <resource-scope-id>}` (see [Scope policy](#scope-policy)). Any other value, or none, raises `:rf.error/resource-missing-scope-policy`. |
 | request fn (third argument) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It must be a fn (or a Var), or registration raises `:rf.error/resource-bad-spec`. It must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`: the runtime supplies the first three from the scoped key and generation, a continuation goes in the call-site `:reply-to` instead, and supplying any of the four raises `:rf.error/resource-reserved-request-key`. |
 
 **Optional keys**:
 
 - `:doc`
+- `:params-schema` — validates params on every event and subscription. Validation runs when `re-frame.schemas` is loaded; without it, params are canonicalized but not checked. Without a `:params-schema`, params are taken as given and still canonicalized. Either way the canonical params identify the cache entry, an omitted `:params` is `{}`, and params must be portable EDN, so a fractional number fails: send `9.99` as `999` (cents) or `"9.99"`. Instants are accepted. An explicit `nil` is validated as `nil`.
 - `:data-schema` — a static declaration of the decoded data's shape, shown to tooling (the resource's `:schema` fact) and in the `:rf/resource` registration read. It is not checked at runtime; validate a response with the request's `:decode`.
 - `:transport` — `:rf.http/managed`, the only transport and the default. Any other value registers, then raises `:rf.error/resource-unknown-transport` at the first load.
 - `:stale-after-ms` — how long a loaded entry stays fresh, in milliseconds. Absent means it never goes stale by time alone; invalidation can still mark it stale. `0` means it is stale as soon as it loads. Any value other than a non-negative number, `nil` included, raises `:rf.error/resource-bad-spec` at registration.
@@ -293,20 +293,20 @@ A scope resolver computes a cache scope from `app-db`, for data that differs per
   ```clojure
   (resolve-resource-scope db scope-id) → scope or nil
   ```
-- **Description**: Resolves the named resolver `scope-id` against a `db` value and returns the canonical concrete scope, or `nil`. Use it in a handler that needs the concrete scope. At logout, resolve the old scope from the handler's coeffect `db`, which still holds the logged-in state, and pass it to `[:rf.resource/clear-scope …]`.
+- **Description**: Resolves the named resolver `scope-id` against a `db` value and returns the canonical concrete scope, or `nil`. Use it in a handler that needs the concrete scope. On a change of user, resolve the departing scopes from the handler's coeffect `db`, which still holds the old identity, and pass them to [`[:rf.resource/change-principal …]`](#rfresourcechange-principal-).
     - A pure function over the resolver registry, not an effect. It has no app-state, dispatch or trace side effects: it does not emit `:rf.resource/scope-resolved`, which comes from the `{:from-db …}`, route-entry and mutation-settle resolution sites.
     - Throws `:rf.error/resource-scope-not-registered` when no resolver is registered under `scope-id`, so a misspelt reference never yields a silent `nil`.
     - Returns `nil` when the resolver returns `nil` for this db. That is the unresolved condition, and the caller decides what it means; it is never an implicit global.
 - **Example**:
   ```clojure
-  ;; the logout idiom: resolve the old scope from the coeffect db,
-  ;; then clear that scope's whole cache so the next user can never read it
+  ;; the logout idiom: resolve the old scope from the coeffect db, then
+  ;; change principal, which clears it so the next user can never read it
   (rf/reg-event :auth/logout
     (fn [{:keys [db]} _]
-      (let [old (rf/resolve-resource-scope db :realworld/session)]   ;; nil when nobody was logged in
-        {:db (dissoc db :auth)
-         :fx (cond-> []
-               old (conj [:dispatch [:rf.resource/clear-scope {:scope old :cause :logout}]]))})))
+      {:db (dissoc db :auth)
+       :fx [[:dispatch [:rf.resource/change-principal
+                        {:from  [(rf/resolve-resource-scope db :realworld/session)]   ;; nil when nobody was logged in; skipped
+                         :cause :logout}]]]}))
   ```
 
 ## Resource events (map payloads)
@@ -390,7 +390,7 @@ Resource events take a single map payload. The events that name a `:resource` va
 
 - **Kind**: event
 - **Payload**: `{:scope :cause}`, where `:scope` is a concrete scope, never a `{:from-db <id>}` reference
-- **Description**: Drops a whole scope's cache. Dispatch it on logout and on any account, tenant, permission, locale or impersonation change. It:
+- **Description**: Drops a whole scope's cache. A change of user (login, logout, an account, tenant, permission, locale or impersonation change) is [`change-principal`](#rfresourcechange-principal-), which runs this clear for each departing scope and then replans the route; dispatch `clear-scope` directly to drop one scope without a replan. It:
     - removes (or marks unusable) every entry in the scope
     - releases owners
     - aborts the scope's in-flight requests where possible
@@ -407,6 +407,34 @@ Resource events take a single map payload. The events that name a `:resource` va
   [:rf.resource/clear-scope
    {:scope [:rf.scope/session {:user-id "u-42"}]
     :cause :logout}]
+  ```
+
+### `[:rf.resource/change-principal {…}]`
+
+- **Kind**: event
+- **Payload**: `{:from [scope …] :cause …}`. `:from` is a vector of concrete scopes, never `{:from-db <id>}` references; `:cause` is required.
+- **Description**: Changes the frame's principal. Dispatch it from the handler that commits a new identity: login, logout, a restored or rejected session, an account or tenant switch, impersonation entered or left. It:
+    - clears each `:from` scope exactly as [`clear-scope`](#rfresourceclear-scope-) does: the scope's entries leave the cache, their in-flight requests are cancelled and aborted, every owner's hold on them ends, and their timers are cancelled
+    - then, when the frame has an active route, dispatches `[:rf.route/replan-resources {:cause <cause>}]`, which reruns the route's resource plan under the identity now in `app-db`, without navigating. With no active route, or without the routing artefact, the clear is the whole event.
+
+    Resolve `:from` in the handler, against its coeffect `db`, with [`resolve-resource-scope`](#resolve-resource-scope): this event runs in the next event, where the resolvers already describe the new principal. A `nil` member, a resolver with nobody to name, is skipped, and an absent or empty `:from` clears nothing, so a restored session passes `[]` and gets only the replan.
+
+    Every member is validated before anything is cleared, so one invalid member clears nothing. A `{:from-db …}` member, or a `:from` that is not a vector, raises `:rf.error/resource-invalid-scope` (`:recovery :fix-scope`); wrap a single scope as `{:from [scope]}`.
+
+    Clearing first is what makes the switch safe: focus, reconnect, a poll tick or an invalidation refetches only an entry that still exists, so after this event none of them can load an old-scope key with the new principal's credentials. The event is explicit rather than automatic because a frame may hold several principals on purpose, and a resolver's answer can change for other reasons.
+- **Example**:
+  ```clojure
+  ;; logout: name the departing user's scopes, resolved from the coeffect db
+  (rf/reg-event :auth/logout
+    (fn [{:keys [db]} _]
+      {:db (dissoc db :auth)
+       :fx [[:dispatch [:rf.resource/change-principal
+                        {:from  [(rf/resolve-resource-scope db :app/session)
+                                 (rf/resolve-resource-scope db :app/viewer)]
+                         :cause :logout}]]]}))
+
+  ;; a session restored after the first URL resolved: nothing to clear, so only the replan
+  [:rf.resource/change-principal {:from [] :cause [:session-restore]}]
   ```
 
 ### `[:rf.resource/remove {…}]`
@@ -461,6 +489,7 @@ It validates its payload as the events do, so an unregistered `:resource` (`:rf.
 
 ```text
 [:rf/resource         {:resource … :scope … :params …}]   ;; the full view-model
+[:rf/route-resource   <resource-id>]                      ;; the identity the active route planned
 [:rf.resource/data          {…}]   [:rf.resource/status        {…}]
 [:rf.resource/loading?      {…}]   [:rf.resource/fetching?     {…}]
 [:rf.resource/stale?        {…}]   [:rf.resource/error         {…}]
@@ -480,7 +509,7 @@ Read them with the ordinary `subscribe`; there is no separate read function. `su
 The `:rf/resource` view-model holds facts plus derived booleans:
 
 ```clojure
-{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error | :unresolved
+{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error | :unresolved | :unplanned
  :data          <last-known-good-or-nil>
  :error         <first-load-error-or-nil>          ;; failure map {:kind :rf.http/… …}
  :refresh-error <background-refresh-error-or-nil>  ;; failure map {:kind :rf.http/… …}
@@ -494,6 +523,7 @@ The `:rf/resource` view-model holds facts plus derived booleans:
 
 - `:idle` means nothing has ensured this key, or its first load was aborted, for example because its last owner was released while the request was in flight.
 - `:unresolved` means the scope resolver returned `nil`, so the read has no identity yet and reads no entry. It is projected, never stored; give the view an arm for it, such as a sign-in prompt or a restoring line.
+- `:unplanned` comes only from [`[:rf/route-resource …]`](#rfroute-resource-): the active route's plan holds no identity for that resource. It is projected, never stored.
 - `:loading` is a first load with no usable data.
 - `:fetching` is a refresh in flight while prior data stays visible.
 - `:error` is a failed first load with no usable data.
@@ -502,6 +532,32 @@ The `:rf/resource` view-model holds facts plus derived booleans:
 - An `:error` entry is never fresh, so the next `ensure` retries the load; `refetch` retries at once.
 
 `:stale?`, `:loading?`, `:fetching?` and `:has-data?` are derived when the subscription runs and are never stored. See [Project: five statuses](../resources/concepts.md#what-a-view-sees-five-statuses) in the guide.
+
+### `[:rf/route-resource …]`
+
+- **Kind**: subscription
+- **Payload**: a resource id, positional, not a map: `[:rf/route-resource :article/by-slug]`.
+- **Description**: Reads the resource the active route's plan ensured, by resource id. It resolves to the identity in the route's effective plan whose resource is `<resource-id>`, and returns that entry's `:rf/resource` view-model, with the params and scope the planner resolved, so it follows every navigation and every replan. A view that rebuilds the params from `[:rf.route/params]` restates the route entry's computation, and when the two drift it reads an un-ensured key at `:idle` with no error; this read cannot drift.
+    - When the plan holds the resource under more than one identity, such as an author's profile beside the reader's own, it throws `:rf.error/resource-route-read-ambiguous`, naming the `:identities`, and never picks one. Read those with `[:rf/resource {…}]` and explicit params.
+    - When the plan holds no identity for it (no active route, a failed plan, a `:when` that gated it out, or a route that does not plan it), it returns the empty view-model at `:status :unplanned`, not `:idle`.
+    - An unregistered id raises `:rf.error/resource-not-registered`, as on every resource read.
+    - `[:rf/resource {…}]` with explicit params stays the read for anything a route does not plan: a machine's read, a dialog's.
+- **Example**:
+  ```clojure
+  ;; the route declares the read once…
+  (rf/reg-route :route/article
+    {:resources [{:resource :article/by-slug
+                  :params   (fn [route] {:slug (get-in route [:params :slug])})}]}
+    "/articles/:slug")
+
+  ;; …and the view names it by resource id, with no params to restate
+  (rf/reg-view article-page []
+    (let [{:keys [status data]} @(subscribe [:rf/route-resource :article/by-slug])]
+      (case status
+        :loaded    [:h1 (:title data)]
+        :unplanned [:p "No article on this page."]
+        [:p "Loading…"])))
+  ```
 
 The cell below prints the whole view-model for two keys, before and after an `ensure`. Its requests are answered by a [stub transport](re-frame.http.md#testing-without-a-network) in the same tick, so it never paints `:loading`: `"hello"` goes from `:idle` to `:loaded`, and `"draft"` to `:error` with the failure map.
 
@@ -746,7 +802,7 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/resource-not-registered` — the payload names an unregistered `:resource`.
     - `:rf.error/resource-invalid-params` — params that fail `:params-schema`.
     - `:rf.error/resource-non-edn-params` — params or a scope that are not portable EDN.
-    - `:rf.error/resource-invalid-scope` — a misspelt `:rf.scope/*` keyword, `[:rf.scope/global]`, or a `{:from-db …}` map where a concrete scope is required.
+    - `:rf.error/resource-invalid-scope` — a misspelt `:rf.scope/*` keyword, `[:rf.scope/global]`, a `{:from-db …}` map where a concrete scope is required, or a `change-principal` `:from` that is not a vector.
     - `:rf.error/resource-scope-not-registered` — a `{:from-db …}` reference naming no registered resolver.
     - `:rf.error/resource-scope-unresolved-reference` — an event's `{:from-db …}` scope resolves to `nil`.
     - `:rf.error/resource-invalidate-scope-required` — a scoped `invalidate-tags` without `:scope`.
@@ -759,6 +815,7 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/infinite-missing-page-accessor` — a feed whose pages are not vectors and that has no `:page->items`, when `:rf.resource/items`, `:rf.resource/infinite-state` or an `ensure`'s `:reply-to` needs its items.
     - `:rf.error/resource-route-plan` — a route's resource plan failed, for example on a scope it cannot resolve; read on `:rf.route/error`.
     - `:rf.error/resource-route-blocking` — a blocking route resource's first load failed; read on `:rf.route/error`.
+    - `:rf.error/resource-route-read-ambiguous` — a `[:rf/route-resource <resource-id>]` read whose active plan holds the resource under more than one identity.
     - `:rf.error/resource-ssr-blocking-timeout` — under SSR, a blocking resource did not settle within the render deadline, so it settles as a first-load failure.
     - `:rf.error/no-frame-context` — `resource-state` or `mutation-state` without `:frame`.
 - When a mutation runs or settles, beside the params, scope, `:reply-to` and request-building ids above:

@@ -75,10 +75,11 @@
 ;; ============================================================================
 ;;
 ;; Boiled down, a resource is just three things: an identity, a scope, and a
-;; request. All three are required — `:params-schema`, `:scope`, and the request
-;; function at the bottom. `:scope :rf.scope/global` is us promising this read
-;; is the same for every user. Scope has no default; leave it off and you get an
-;; error at registration, not a quietly-global cache.
+;; request. `:scope` and the request function at the bottom are required; the
+;; optional `:params-schema` checks the identity's shape.
+;; `:scope :rf.scope/global` is us promising this read is the same for every
+;; user. Scope has no default; leave it off and you get an error at
+;; registration, not a quietly-global cache.
 ;; See ../../../../docs/resources/glossary.md#scope
 
 (rf/reg-resource :articles/list

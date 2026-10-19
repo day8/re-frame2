@@ -91,8 +91,8 @@
 (def ^:private page-views (atom []))
 
 (defn- register-resources! []
-  ;; `:params-schema` is required on every resource — the params ARE the
-  ;; resource identity. A param-free read declares `[:map]`.
+  ;; Each resource declares a `:params-schema` — the params ARE the resource
+  ;; identity, and the schema checks their shape. A param-free read declares `[:map]`.
   (rf/reg-resource :conduit/viewer
                    {:scope :rf.scope/global :params-schema [:map]}
                    (fn [_params _ctx] {:request {:method :get :url "/api/user"}}))

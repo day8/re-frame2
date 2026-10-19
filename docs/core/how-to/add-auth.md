@@ -2,7 +2,7 @@
 
 This recipe adds login to an app: a session that survives a reload, requests that carry the user's token, routes only signed-in users can reach, a return to the page the user was headed for, and a logout that doesn't leak one user's data into the next session. re-frame2 has no auth subsystem; each piece is an ordinary event, effect or route declaration.
 
-It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-frame2-routing`) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`), and optionally [resources](../../resources/concepts.md) for the logout step. The login form itself is [Build a form](build-a-form.md).
+It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-frame2-routing`) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`), and optionally [resources](../../resources/concepts.md) for clearing a departing user's cached reads. The login form itself is [Build a form](build-a-form.md).
 
 ## 1. The session slice
 
@@ -95,7 +95,7 @@ The token is a credential, so the init event in step 4 also returns a `:sensitiv
 
 !!! note "If your API hands out a token and nothing else"
 
-    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 4 of the tutorial](../../resources/tutorial/04-scopes-and-guards.md) walks through it. Use it only when the API leaves you no choice. Once the reply has stored the user, dispatch `[:rf.route/replan-resources {:cause [:session-restore]}]` so the current route's resources re-plan under the resolved viewer (`{:cause [:session-restore-failed]}` after clearing a rejected token; `examples/real-apps/realworld_resources/auth.cljs` shows both). [Deep links while a saved session is loading](../../routing/how-to/require-sign-in-on-a-route.md#deep-links-while-a-saved-session-is-loading) has the denial-handler branch.
+    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 4 of the tutorial](../../resources/tutorial/04-scopes-and-guards.md) walks through it. Use it only when the API leaves you no choice. Once the reply has stored the user, dispatch step 6's change of principal, `[:rf.resource/change-principal {:from [] :cause [:session-restore]}]`, so the current route's resources re-plan under the resolved viewer. `:from` is empty because no entry was ever keyed to a viewer nobody knew. After clearing a rejected token, dispatch it with `:cause [:session-restore-failed]`; `examples/real-apps/realworld_resources/auth.cljs` shows both. [Deep links while a saved session is loading](../../routing/how-to/require-sign-in-on-a-route.md#deep-links-while-a-saved-session-is-loading) has the denial-handler branch.
 
 ## 2. Wire the login form
 
@@ -303,7 +303,7 @@ Clearing the stash matters. Otherwise a user who later logs in directly from `/l
 
 Logout clears the session slice, the persisted session, and the departing user's cached server reads. Skip the last one and the next account sees the previous account's data.
 
-If you use [resources](../../resources/glossary.md#resource) (managed, cached server reads), clearing one user's cache is one event, `:rf.resource/clear-scope`. It needs a name for "this user's [scope](../../resources/glossary.md#scope)", which is a named resource-scope resolver: a pure function, registered once, that derives the scope from app-db. Your resources, route loads, and logout all use the same resolver:
+If you use [resources](../../resources/glossary.md#resource) (managed, cached server reads), a change of user is one event, `:rf.resource/change-principal`. Login, logout, and a restored or rejected session all dispatch it. It clears the [scopes](../../resources/glossary.md#scope) the departing user held, then replans the current route's reads under whoever is signed in now. It needs a name for "this user's scope", which is a named resource-scope resolver: a pure function, registered once, that derives the scope from app-db. Your resources, route loads, login and logout all use the same resolver:
 
 ```clojure
 ;; Pure: derives a scope from db; never fetches, dispatches, or reads ambient state.
@@ -314,20 +314,20 @@ If you use [resources](../../resources/glossary.md#resource) (managed, cached se
       [:rf.scope/session {:username username}])))   ;; nil when logged out
 ```
 
-In the logout handler, resolve the old scope from the handler's `db` *before* clearing the auth slice, because the scope derives from the identity you are about to remove:
+In the logout handler, resolve the old scope from the handler's `db`, which is the value *before* this event clears the auth slice, because the scope derives from the identity you are about to remove:
 
 ```clojure
 (defn logout-effects [db]
-  (let [old-scope (rf/resolve-resource-scope db :my-app/session)]
-    {:db (-> db
-             (update :auth-generation (fnil inc 0))
-             (assoc-in [:auth :user] nil)
-             (assoc-in [:auth :token] nil))
-     ;; A nil :token removes the whole saved session, identity included.
-     :fx (cond-> [[:auth.session/persist {:token nil}]]
-           old-scope (conj [:dispatch [:rf.resource/clear-scope
-                                      {:scope old-scope :cause :logout}]])
-           true (conj [:dispatch [:rf.route/navigate {:to :app/home}]]))}))
+  {:db (-> db
+           (update :auth-generation (fnil inc 0))
+           (assoc-in [:auth :user] nil)
+           (assoc-in [:auth :token] nil))
+   ;; A nil :token removes the whole saved session, identity included.
+   :fx [[:auth.session/persist {:token nil}]
+        [:dispatch [:rf.route/navigate {:to :app/home}]]
+        [:dispatch [:rf.resource/change-principal
+                    {:from  [(rf/resolve-resource-scope db :my-app/session)]
+                     :cause :logout}]]]})
 
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _] (logout-effects db)))
@@ -341,7 +341,24 @@ In the logout handler, resolve the old scope from the handler's `db` *before* cl
 
 `logout-effects` applies the same teardown for an explicit logout and a current-session 401. A stale expiration returns no effects. The comparison and teardown belong in the same handler: dispatching an unguarded logout afterward would open another race.
 
-`clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, ignores late replies for the cleared scope, and records a trace row listing what it removed, aborted, and left alone. Other scopes, such as public reads or a second signed-in frame, are untouched ([Server state: resources](../../resources/concepts.md)). If you don't use resources, drop that `:fx` entry and skip the resolver.
+`:from` is a vector, and a `nil` in it, a resolver with nobody to name, is skipped, so a logout needs no special case for a reader who was never signed in. The navigate is queued first, so the replan reruns the home page's reads rather than those of the protected page being left.
+
+For each scope in `:from`, the event removes the scope's cache entries, ends every owner's hold on them, aborts their in-flight requests, ignores late replies for them, and records a trace row listing what it removed and aborted. Other scopes, such as public reads or a second signed-in frame, are untouched ([Server state: resources](../../resources/concepts.md)). The clear matters as much as the replan: an old entry that a page still owns would otherwise be refetched on focus or a poll tick with the next user's token.
+
+Login dispatches the same event, naming whoever was signed in before, which for a visitor is nobody. Add it to step 2's `:form.login/submit-success`, ahead of the redirect:
+
+```clojure
+:fx [[:auth.session/persist {:token (:token user)
+                             :user  (dissoc user :token)}]
+     [:dispatch [:rf.resource/change-principal
+                 {:from  [(rf/resolve-resource-scope db :my-app/session)]
+                  :cause :login}]]
+     [:dispatch [:auth/post-login-redirect]]]
+```
+
+The boot restore in step 1 needs no change of principal: it commits from `:initial-events`, before the first URL is resolved, so no route has planned a read yet. A restore that lands later, such as the `GET /me` shape in the note under step 1, dispatches it with an empty `:from`, and its replan loads the page the user is already on.
+
+If you don't use resources, drop the `change-principal` entries and skip the resolver.
 
 ## Troubleshooting
 
@@ -351,7 +368,7 @@ In the logout handler, resolve the old scope from the handler's `db` *before* cl
 | `:rf.error/http-bad-interceptor` at registration | The interceptor map has neither `:before` nor `:after` | Supply at least one |
 | Request never sent; `:rf.error/http-interceptor-failed` in the dev trace (error record `:rf.error/fx-handler-exception`) | A `:before` threw | Handle recoverable failures inside the interceptor |
 | Neither reply event runs; `:rf.error/http-reply-tail-failed` | An `:after` threw | Handle recoverable failures inside the interceptor |
-| `:rf.error/resource-invalid-scope` from logout | `clear-scope` was given `{:from-db …}` | Resolve the concrete scope in the handler before clearing the slice (step 6) |
+| `:rf.error/resource-invalid-scope` from logout | `change-principal`'s `:from` held a `{:from-db …}` reference, or was a bare scope rather than a vector | Resolve each concrete scope in the handler with `rf/resolve-resource-scope`, and wrap one scope as `[scope]` (step 6) |
 
 ## Check it in Xray
 
@@ -360,5 +377,5 @@ With all six steps wired, open [Xray](../../xray/index.md):
 - Logged out, click a link to a guarded route. The next row is the `:rf.route/entry-denied` dispatch, then your redirect to login; no `:on-match` or resource row appears for the protected route.
 - Logged in, open an authenticated request. The `Authorization` header shows as redacted, as does `[:auth :token]` in the app-db view.
 - Reload the page while signed in on a protected URL. The `:auth/init` row requests `:auth.session/load`, followed by the classified `:auth/session-restored` reply. Both events finish before the initial `:rf.route/handle-url-change` row, and the guarded route commits without an `:rf.route/entry-denied`. If the URL row ever comes first, the restore is no longer in `:initial-events`.
-- Dispatch `:auth/logout`. One clear-scope row lists what was removed, aborted, and left alone.
+- Dispatch `:auth/logout`. Under its `:rf.resource/change-principal` event, one removal row lists the departing scope's entries and any request it aborted, and the home page's reads are planned under the signed-out reader.
 - Start a request, then sign in to a new session before its 401 arrives. Its `:auth/expired` event carries the old generation and makes no change; a 401 from the current session runs the teardown.
