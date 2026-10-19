@@ -162,7 +162,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch!`. Add `day8/re-frame2-epoch`. |
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `(rf/clear :http-interceptor id)`. Pairs with M-31. |
 | 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to single interceptor-map `(reg-http-interceptor id {:before … :after …})`. Pairs with M-39. |
-| 38b | **M-65** | If the codebase uses the HTTP stubbing helpers (`with-request-stubs` / `install-managed-request-stubs!` family). Add `[re-frame.http.test-support]` to the test ns require closure. Pairs with M-31. |
+| 38b | **M-65** | If the codebase stubs HTTP in its tests (a route-map stub helper, or an `:fx-overrides` route for `:rf.http/managed`). Require `[re-frame.http.stub-transport]` in the test ns and answer its requests from a stub transport (`with-transport` + `route-transport`). Pairs with M-31. |
 | 38c | **M-76** | If the codebase requires `[re-frame.http :as rf.http]` (the removed per-verb call-site helpers). Drop the require and rewrite each `(rf.http/<verb> url args)` to the literal `[:rf.http/managed args']` fx vector, folding `{:method :<verb> :url url}` into `:request`. Pairs with M-31 — keep the `re-frame.http.managed` require, which is what registers the fx. |
 
 ### Group 9 — Conditional / opt-trigger rules
