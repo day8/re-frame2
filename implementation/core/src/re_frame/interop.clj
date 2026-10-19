@@ -235,60 +235,79 @@
 
 ;; ---- compile-time constants -----------------------------------------------
 ;;
-;; JVM/SSR/headless deployments need an explicit production gate, the
-;; JVM-side counterpart to CLJS `goog.DEBUG=false`. Without it the
-;; always-dev posture keeps the trace
-;; surface live in SSR (per-frame `:trace-cb` listeners, the 200-entry
+;; JVM/SSR/headless deployments need a production gate, the JVM-side
+;; counterpart to CLJS `goog.DEBUG=false`. Dev posture keeps the trace
+;; surface live (per-frame `:trace-cb` listeners, the 200-entry
 ;; retain-N ring buffer, registry trace emits, source-coord metadata) AND
 ;; keeps the epoch-history dev surfaces (`restore-epoch!`, `replace-app-db!`,
 ;; the per-frame ring buffer of `:db-before`/`:db-after`/`:trace-events`)
 ;; reachable from any in-process code. Those carry secrets that should not
 ;; live in a production server's heap, crash dumps, or log files.
 ;;
-;; The gate is read ONCE at namespace-load time from two sources, with
-;; explicit-off precedence (set `:require`-time, not per-call, so the
-;; downstream `when interop/debug-enabled?` checks stay branchless on the
-;; hot path):
+;; The gate is read ONCE at namespace-load time (set `:require`-time, not
+;; per-call, so the downstream `when interop/debug-enabled?` checks stay
+;; branchless on the hot path). An explicit setting wins, from either of two
+;; sources:
 ;;
 ;;   1. Java system property `re-frame.debug` — set with
-;;      `-Dre-frame.debug=false` on the JVM command line. The lowercase
-;;      dotted form matches the conventional JVM system-property style.
+;;      `-Dre-frame.debug=true` or `=false` on the JVM command line. The
+;;      lowercase dotted form matches the conventional JVM system-property
+;;      style.
 ;;
 ;;   2. Environment variable `RE_FRAME_DEBUG` — set in the process
 ;;      environment, conventional uppercase + underscores. Same semantic
 ;;      as the system property; the system property wins on conflict.
 ;;
-;; Both sources accept the conventional false-y vocabulary:
+;; Both read, case-insensitively:
 ;;
-;;   "false" / "0" / "no" / "off" / "" (empty)
+;;   ON:  "true" / "1" / "yes" / "on"
+;;   OFF: "false" / "0" / "no" / "off" / "" (empty)
 ;;
-;; case-insensitively. Anything else — including absent / unset — leaves
-;; the flag at its default (`true`, dev-on). Setting the flag to a recognised false-y value disables
-;; trace emission, trace-buffer retention, epoch-history capture,
-;; `restore-epoch!`, `replace-app-db!`, and the source-coord trace
+;; Unset, or any other value, takes the host's default:
+;;
+;;   - OFF on a JVM that hosts SSR — one whose classpath carries
+;;     `ssr-host-marker`, which the ssr-ring artefact ships. A server that
+;;     forgets the flag runs in production posture, and dev opts in with
+;;     `-Dre-frame.debug=true`.
+;;   - ON everywhere else: the REPL, tests, tooling.
+;;
+;; The SSR signal is a classpath resource because `re-frame.interop` loads
+;; before any host namespace, so nothing a host does at its own load can
+;; reach a gate that has already been read. The resource sits on ssr-ring's
+;; `resources/` root rather than beside its source, so an AOT build that
+;; strips `.clj` files keeps it, and the shadow-cljs compiler, whose
+;; `:source-paths` carry ssr-ring's `src/`, does not read itself as a host.
+;;
+;; OFF disables trace emission, trace-buffer retention, epoch-history
+;; capture, `restore-epoch!`, `replace-app-db!`, and the source-coord trace
 ;; enrichment — the same surfaces that Closure DCE elides in CLJS
 ;; `:advanced` + `goog.DEBUG=false` builds.
-;;
-;; This is the SSR-mode production switch. Local dev / tests leave it
-;; alone (the default is `true`).
+
+(def ^:private ssr-host-marker
+  "The classpath resource whose presence makes this JVM an SSR host, which
+  defaults the gate OFF. The ssr-ring artefact ships it; any other SSR host
+  artefact may ship the same path."
+  "re_frame/ssr_host.edn")
 
 (defn- read-debug-flag
-  "Read the JVM debug gate. System property `re-frame.debug` wins; falls
-  back to env var `RE_FRAME_DEBUG`. A nil / absent reading returns
-  `true` (dev default). A reading from the conventional false-y
-  vocabulary returns `false`; any other value returns `true`."
+  "Read the JVM debug gate. An explicit setting wins: system property
+  `re-frame.debug`, else env var `RE_FRAME_DEBUG`, read through the ON and
+  OFF vocabularies above. Unset or unrecognised, the gate is OFF on an SSR
+  host (`ssr-host-marker` on the classpath) and ON everywhere else."
   []
   (let [raw (or (System/getProperty "re-frame.debug")
-                (System/getenv "RE_FRAME_DEBUG"))]
-    (if (nil? raw)
-      true
-      (let [v (-> raw str str/trim str/lower-case)]
-        (not (contains? #{"false" "0" "no" "off" ""} v))))))
+                (System/getenv "RE_FRAME_DEBUG"))
+        v   (some-> raw str/trim str/lower-case)]
+    (cond
+      (contains? #{"true" "1" "yes" "on"} v)     true
+      (contains? #{"false" "0" "no" "off" ""} v) false
+      :else (nil? (.getResource (clojure.lang.RT/baseLoader) ssr-host-marker)))))
 
 (def debug-enabled?
-  "JVM-side dev/prod gate. True by default; explicitly disabled by
-  `-Dre-frame.debug=false` or `RE_FRAME_DEBUG=false` (and the
-  conventional false-y vocabulary: `0`, `no`, `off`, empty string).
-  The JVM counterpart to CLJS `goog.DEBUG`. Read once at namespace
-  load — set the property / env var BEFORE `re-frame.interop` loads."
+  "JVM-side dev/prod gate, the counterpart to CLJS `goog.DEBUG`.
+  `-Dre-frame.debug=true|false` or `RE_FRAME_DEBUG=true|false` sets it
+  (also `1`/`yes`/`on` and `0`/`no`/`off`/empty). Unset, it is OFF on a JVM
+  that hosts SSR (the ssr-ring artefact on the classpath) and ON elsewhere.
+  Read once at namespace load — set the property / env var BEFORE
+  `re-frame.interop` loads."
   (read-debug-flag))

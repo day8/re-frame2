@@ -25,13 +25,14 @@
   body in a minimal-but-runnable document. Override via `:html-shell`
   in `ssr-handler` opts when you need custom <head> / scripts / styles.
 
-  The hydration-payload `<script>` is stamped with the id pinned in
-  `re-frame.ssr.constants/payload-script-id` (`\"__rf_payload\"`). The
-  CLJS bootstrap reads the payload via
-  `document.getElementById(\"__rf_payload\")` — same constant, both
-  sides (Spec 011 §Hydration payload script id).
-  Custom `:html-shell` overrides MUST emit the payload `<script>` under
-  this id (or substitute their own bootstrap that reads a custom id).
+  The hydration-payload `<script>` arrives prebuilt as `:payload-tag` in
+  opts: escaped, and stamped with the id pinned in
+  `re-frame.ssr.constants/payload-script-id` (`\"__rf_payload\"`) that the
+  CLJS bootstrap reads via `document.getElementById(\"__rf_payload\")`
+  (Spec 011 §Hydration payload script id). This shell splices it, and so
+  does a custom `:html-shell`: splicing `(:payload-tag opts)` is the whole
+  of shipping the payload. Called directly without `:payload-tag`, the shell
+  builds the same tag from `payload-edn`.
 
   `<title>` is NOT emitted by the shell — the head fragment is the
   canonical source per Spec 011 §Head/meta contract, and emitting one here
@@ -57,7 +58,8 @@
     opts — the caller's adapter opts (merged with any per-request
            overrides); standard keys :head / :html-attrs / :body-attrs
            / :body-end / :script-src / :app-element-id / :lang
-           influence the envelope.
+           influence the envelope, and :payload-tag is the finished
+           payload `<script>`.
 
   Trusted-string contract: `:head` and `:body-end` are raw content hooks;
   `:script-src` and `:app-element-id` are escaped attribute values. A nil
@@ -67,7 +69,8 @@
   not content trust; prefer structured views and head registrations for
   untrusted content."
   [body-html payload-edn
-   {:keys [head html-attrs body-attrs lang app-element-id body-end script-src]}]
+   {:keys [head html-attrs body-attrs lang app-element-id body-end script-src
+           payload-tag]}]
   ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
   ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
   ;; Attribute values are escaped by the envelope; raw trust applies only to
@@ -78,7 +81,8 @@
      :body-attrs     body-attrs
      :app-element-id (or app-element-id "app")
      :body           body-html
-     :payload-script (rf.ssr.html-helpers/payload-script-tag payload-edn)
+     :payload-script (or payload-tag
+                         (rf.ssr.html-helpers/payload-script-tag payload-edn))
      ;; `false` writes no bootstrap script; nil takes the default.
      :script-src     (when-not (false? script-src) (or script-src "/main.js"))
      :body-end       body-end}))
