@@ -68,7 +68,7 @@ The bundle carries core, both view layers and every optional artefact:
 | Require | For |
 |---|---|
 | `re-frame.core` | Everything on the façade, including `reg-view`, `reg-machine`, `reg-flow`, `reg-app-schema`, `reg-resource` and `reg-route` |
-| `re-frame.fresco`, `.forms`, `.overlay`, `.motion` | Fresco views, `h/defview`, `h/sub`, `h/event` |
+| `re-frame.fresco`, `.forms`, `.overlay`, `.motion` | Fresco views, `h/defview`, `h/sub`, `h/event`, `h/render-fn` |
 | `reagent.core`, `reagent.ratom`, `reagent.dom.client` | Reagent |
 | `re-frame.schemas` | Reading registered schemas |
 | `re-frame.http.managed`, `re-frame.http.stub-transport` | `:rf.http/managed`, and stub transports for it |
@@ -80,14 +80,17 @@ A cell also has ordinary ClojureScript interop, such as `(.. e -target -value)`,
 `clojure.core`, such as `parse-long` and `update-vals`.
 
 Fresco's `defhost` is not available, because a cell has no foreign React
-component to wrap.
+component to wrap. A cell can still cross to a React component it defines
+itself with `[:> Component props]`, which is how a cell shows `h/render-fn`:
+the component calls the carrier during its own render.
 
 ### Which renderer a cell uses
 
 The last form renders through **Fresco** when it contains a Fresco view
-(`h/defview`), `h/frame-root` or `h/frame-provider`, or a handler written as
-data (`:on-click [:inc]`). Otherwise it renders through **Reagent**. Plain
-hiccup such as `[:p "Hello"]` looks the same either way.
+(`h/defview`), `h/frame-root` or `h/frame-provider`, a handler written as
+data (`:on-click [:inc]`), or a carrier (`h/event`, `h/render-fn`). Otherwise
+it renders through **Reagent**. Plain hiccup such as `[:p "Hello"]` looks the
+same either way.
 
 One page can mix Reagent and Fresco cells, and they share frames and
 registrations. One tree cannot mix them directly: Fresco refuses a plain
@@ -184,7 +187,8 @@ The smoke serves both built bundles to headless Chromium on a page shaped
 like mkdocs output. It checks that the bootstrap loads each engine on demand,
 that plain cells evaluate and report errors, that re-frame2 cells render and
 re-render on dispatch (including machine, flow, schema and multi-frame
-cells), that Fresco cells render through the same fence, that stubbed HTTP
+cells), that Fresco cells render through the same fence and that an
+`h/render-fn` row dispatches into its supplying view's frame, that stubbed HTTP
 and resource cells load, that routing, epoch and SSR are present, that a cell
 does JS interop, that navigating away releases the outgoing page's React
 roots, frames and registrations and restores a framework registration a cell
@@ -230,7 +234,8 @@ re-frame2 engine, and re-frame2-only pages never load Scittle.
 **The re-frame2 engine** (`sci/src/rf2_playground/sci.cljs`) is an SCI
 interpreter with re-frame2 compiled in. It exposes each namespace with
 `sci/copy-ns`, and replaces the JVM-only macros `reg-view`, `reg-machine`,
-`reg-flow`, `h/defview` and `h/event` with SCI macros and runtime fns, so
+`reg-flow`, `h/defview`, `h/event` and `h/render-fn` with SCI macros and
+runtime fns, so
 cells write the same calls as real code. It installs `window.rf2sci` with
 `renderLast`, `disposePage` and `release`. A Reagent cell re-renders into
 its existing React root; a Fresco cell gets a fresh root on every run,

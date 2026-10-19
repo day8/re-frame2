@@ -115,6 +115,36 @@ frame, so event vectors inside the row later dispatch to the correct frame. The
 callback itself is pure: its return is the render output, and nothing is
 dispatched while it runs.
 
+In the cell below, a few lines of React stand in for the library: `Repeat`
+calls its `itemContent` prop once per row during its own render, as a
+virtualizer does. Click a row: its event vector dispatches into the `:picker`
+frame, the frame of the view that supplied the callback.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[reagent.core :as r])
+
+(rf/reg-event :row/pick (fn [{:keys [db]} [_ i]] {:db (assoc db :picked i)}))
+(rf/reg-sub   :picked   (fn [db _] (:picked db)))
+
+;; The stand-in library component.
+(defn Repeat [props]
+  (apply r/create-element "ul" nil
+         (map (.-itemContent props) (range (.-totalCount props)))))
+
+(h/defview picker [_]
+  [:div
+   [:p "Picked: " (str (h/sub [:picked]))]
+   [:> Repeat {:total-count  3
+               :item-content (h/render-fn [i]
+                               [:li [:button {:on-click [:row/pick i]}
+                                     "Row " i]])}]])
+
+[h/frame-root {:id :picker}
+ [picker {}]]
+```
+
 The prop's name does not matter. Fluent UI's `onRenderItem`, `onRenderCell` and
 `onRenderHeader` return UI and take `h/render-fn` like any other render prop:
 

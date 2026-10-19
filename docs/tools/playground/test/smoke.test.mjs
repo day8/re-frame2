@@ -229,6 +229,22 @@ const PAGE = `<!DOCTYPE html>
 [fresco-counter {}]</pre>
   <h2>Fresco by props (a data-valued handler, no Fresco head)</h2>
   <pre class="language-cljs-rf2">[:button#fresco-poke {:on-click [:fsmoke/inc]} "poke"]</pre>
+  <h2>Fresco render carrier (h/render-fn at a [:> component] prop)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[reagent.core :as r])
+(rf/reg-event :frsmoke/pick (fn [{:keys [db]} [_ i]] {:db (assoc db :frsmoke/picked i)}))
+(rf/reg-sub :frsmoke/picked (fn [db _] (:frsmoke/picked db)))
+(defn Repeat [props]
+  (apply r/create-element "ul" nil (map (.-itemContent props) (range (.-count props)))))
+(h/defview render-fn-list [_]
+  [:div
+   [:span#frsmoke-picked "picked: " (str (h/sub [:frsmoke/picked]))]
+   [:> Repeat {:count 2
+               :item-content (h/render-fn [i]
+                               [:li [:button {:id (str "frsmoke-row-" i) :on-click [:frsmoke/pick i]}
+                                     (str "row " i " in " (rf/current-frame-id))]])}]])
+[h/frame-root {:id :frsmoke/frame} [render-fn-list {}]]</pre>
   <h2>HTTP cell (stubbed :rf.http/managed)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
          '[re-frame.http.managed]
@@ -589,6 +605,11 @@ assert((await frescoText("#fresco-cnt")) === "count: 3", `a cell with only a dat
 await page.fill("#fresco-in", "ab");
 await waitText("#fresco-text", "text: ab");
 assert((await frescoText("#fresco-text")) === "text: ab", `::h/value carries the input's value (got ${JSON.stringify(await frescoText("#fresco-text"))})`);
+await page.waitForSelector("#frsmoke-row-1", { timeout: 20000 });
+assert((await frescoText("#frsmoke-row-1")) === "row 1 in :frsmoke/frame", `an h/render-fn row becomes an element and runs in its supplying view's frame (got ${JSON.stringify(await frescoText("#frsmoke-row-1"))})`);
+await page.click("#frsmoke-row-1");
+await waitText("#frsmoke-picked", "picked: 1");
+assert((await frescoText("#frsmoke-picked")) === "picked: 1", `an intent inside an h/render-fn row dispatches into the supplying view's frame (got ${JSON.stringify(await frescoText("#frsmoke-picked"))})`);
 
 await page.click("#http-load");
 await waitText("#http-title", "Welcome");
