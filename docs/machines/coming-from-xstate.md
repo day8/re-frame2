@@ -63,7 +63,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | root `entry` / `exit` / `tags` / `invoke` | root `:entry` (once at birth) / `:exit` (once at teardown, including destroy) / `:tags`; a root `invoke` is the root `:spawn`, one child spawned at birth after the root `:entry` and destroyed at teardown after the root `:exit`. A root `always` is refused at registration — route `:initial` into a state whose `:always` fires |
 | `type: "parallel"` | `:type :parallel` + `:regions` |
 | `type: "history"` | `:type :history` (`:default-target` is optional and falls back to the compound's `:initial`; v6 requires a history `target`) |
-| `type: "final"` | `:final? true` (auto-destroys, and a later event restarts it from `:initial`; omit it on a resting leaf) |
+| `type: "final"` | `:final? true` (a singleton rests there; a spawned actor completes to its parent and is torn down) |
 | `reenter: true` | `:reenter? true` |
 | `tags` | `:tags #{…}` |
 | `state.hasTag(tag)` | `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
