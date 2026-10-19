@@ -276,19 +276,25 @@
   success, error and stale alike, since `:on-error` is additive. The public
   slots in `done` (`:actor-id` the finishing INSTANCE address, `:output`,
   `:parent-id`, `:error?`, `:frame`) ride beside the reply-envelope facts of
-  `summary` (Managed-Effects §9), whose canonical `:rf.reply/work-id` joins the
+  `summary` (Managed-Effects §9), every key spelled at this one emit site, so
+  the wire-vocabulary conformance suite finds each as data here. The
+  canonical `:rf.reply/work-id` joins the
   completion into Xray's work/reply rows. Wire-bearing slots were already
   routed through the elision walker when `summary` was built. The causal
   `:rf.reply/completed-at` rides only when the trigger recorded a time, and a
   STALE completion additionally carries `:rf.reply/stale-reason` and the
   carried/current `:rf.reply/correlation`."
-  [done summary stale?]
+  [{:keys [actor-id output parent-id error? frame]} summary stale?]
   (rf.trace/emit! :rf.machine :rf.machine/done
-                  (cond-> (assoc done
-                                 :rf.reply/work-kind   (:rf.reply/work-kind summary)
-                                 :rf.reply/status      (:status summary)
-                                 :rf.reply/work-id     (:rf.reply/work-id summary)
-                                 :rf.reply/work-status (:rf.reply/work-status summary))
+                  (cond-> {:actor-id             actor-id
+                           :output               output
+                           :parent-id            parent-id
+                           :error?               error?
+                           :frame                frame
+                           :rf.reply/work-kind   (:rf.reply/work-kind summary)
+                           :rf.reply/status      (:status summary)
+                           :rf.reply/work-id     (:rf.reply/work-id summary)
+                           :rf.reply/work-status (:rf.reply/work-status summary)}
                     (some? (:completed-at summary))
                     (assoc :rf.reply/completed-at (:completed-at summary))
                     stale? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason summary)
