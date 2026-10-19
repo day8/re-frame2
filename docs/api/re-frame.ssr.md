@@ -450,7 +450,7 @@ All six validate their arguments ([Invalid values throw](../ssr/response.md#inva
 - A redirect `:location` containing CR, LF or NUL throws `:rf.error/redirect-invalid-location`. There are no `:url` or `:to` target keys; passing either throws `:rf.error/redirect-retired-target-key`. Use `:location`.
 - An argument of the wrong type (a non-map args map, a `:status` that is not an integer in `100`–`599`, a non-string header `:value` or redirect `:location`, a wrongly typed cookie attribute) throws `:rf.error/server-fx-args-invalid`, naming the offending `:key`. In a development build with the schemas artefact loaded, the fx's `:schema` rejects the argument first: `:rf.error/schema-validation-failure` (`:where :fx-args`) is reported and the fx is skipped. The default projector maps both to `500`.
 - `:status` and `:redirect` are last-write-wins: a later write in the same drain replaces an earlier one.
-- A throw from any of the seven is contained like any effect's: that fx is skipped, the rest of the `:fx` vector still runs, and an always-on `:rf.error/fx-handler-exception` record reaches the projector, which maps it to `500`. Under the Ring handler the request answers the error page.
+- A throw from any of the six is contained like any effect's: that fx is skipped, the rest of the `:fx` vector still runs, and an always-on `:rf.error/fx-handler-exception` record reaches the projector, which maps it to `500`. Under the Ring handler the request answers the error page.
 
 - **Example**:
   ```clojure
