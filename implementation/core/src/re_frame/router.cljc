@@ -946,7 +946,8 @@
     - a user interceptor `:before` / `:after` throw (any `:id` that is not
       a handler-wrapper) → `:rf.error/interceptor-exception`,
       `:failing-id` = the interceptor `:id` (the `:phase` slot, carried on
-      the trace tags, distinguishes `:before` from `:after`);
+      the trace tags and the always-on record, distinguishes `:before` from
+      `:after`);
     - the event HANDLER itself throwing (the terminal `:before`, `:id` in
       `handler-wrapping-interceptor-ids`) → `:rf.error/handler-exception`,
       `:failing-id` = the event id.
@@ -1065,8 +1066,15 @@
     ;; production builds with the trace surface elided still observe the error.
     ;; Trigger-handler / dispatch-id enrichment is dev-only and rides the trace
     ;; path (`tags`). Axis 2 — the dev-only `rf.trace/emit-error!` (DCE'd in prod).
+    ;;
+    ;; An interceptor failure's `:phase` also rides the always-on record (the
+    ;; trailing record-attrs), so a `:before` and an `:after` throw of one
+    ;; interceptor stay distinct in production, where `:reason` prose is the
+    ;; only other place the phase appears. The handler's own phase is always
+    ;; `:before`, which its category already says.
     (rf.error-emit/emit-error-both!
-      operation emit-event event-id frame exception elapsed-ms end-ms tags)))
+      operation emit-event event-id frame exception elapsed-ms end-ms tags
+      (when-not handler-throw? {:phase (:phase error)}))))
 
 (defn- run-candidate-validation!
   "Per Spec 010 §Per-step recovery row 4: validate the COMPLETE CANDIDATE
@@ -2078,71 +2086,46 @@
   router already static-requires `error-emit`, but routing all the
   non-recovery sites through one helper keeps the gating uniform.
 
-  `op` is the ALREADY-KNOWN operation realm of the failing op
-  — `:dispatch` / `:dispatch-sync` / `:subscribe`. It rides the always-on
-  record's `:op` attribution slot so `rf.error-emit/error-source-coord` resolves
-  the source-coord under the EXACT realm (`[:event id]` for a dispatch /
-  dispatch-sync, `[:sub id]` for a subscribe) rather than the realm-ambiguous
-  `[:sub]`-then-`[:event]` fallback. `:op` is PUBLIC on the record wherever
-  the realm is known (a small closed-enum realm attribution, useful to an
-  off-box shipper; see Spec 009 §Error contract, the
-  `:rf.error/frame-destroyed` row); it is NOT a hidden slot. The bare router
-  drain / no-such-frame emitters carry NO realm (the 3-arity → nil `op`), so
-  they keep the fallback and the tight record shape. Callers that
-  KNOW the realm and pass it: the `capture-frame` stale-op PRE-CHECK seam
-  (`emit-captured-frame-superseded!`), AND the router's LATE
-  captured-op fences (the A→B incarnation mismatch + the post-token-match /
-  pre-enqueue / pre-drain-acquire window in `dispatch!` / `dispatch-sync!`).
+  Two facts, carried separately because they answer different questions:
 
-  A present `op` ALSO suppresses the EP-0015 frame-owned sink route: every
-  op-bearing caller
-  is a KNOWN-DEAD captured incarnation whose bare `frame-id` may now name a live
-  same-id SUCCESSOR, so routing to it would leak a dead incarnation's failure
-  into the successor's own sink. The corpus fan-out + dev trace still fire; only
-  the frame-owned route is dropped. Nil `op` (address-directed) keeps its route."
-  ([event-id event frame-id]
-   (emit-frame-destroyed! event-id event frame-id nil))
-  ([event-id event frame-id op]
-   ;; Fan out along BOTH channels (shared helper). Axis 1 — the
-   ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
-   ;; under `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
-   ;; throw; `elapsed-ms 0` (not a timed path). When `op` is present it rides
-   ;; BOTH the dev-trace tags (axis 2) and the always-on record-attrs (axis 1
-   ;; — the ratified-public `:op` realm attribution, which also steers source-
-   ;; coord); nil `op` leaves the record without an `:op` key (the
-   ;; bare-drain callers' shape).
-   ;;
-   ;; `route-frame?` false SUPPRESSES ONLY the EP-0015 frame-owned
-   ;; sink route whenever `op` is present. A present
-   ;; `op` marks a CAPTURED-op rejection — the pre-check seam
-   ;; (`emit-captured-frame-superseded!`) and the router's late captured-op
-   ;; fences (the A→B incarnation mismatch + the post-token-match windows in
-   ;; `dispatch!` / `dispatch-sync!`). Every one of those is a KNOWN-DEAD
-   ;; captured incarnation whose bare `frame-id` no longer names the incarnation
-   ;; the failure belongs to: a same-id destroy→reincarnation may have reseated
-   ;; a live SUCCESSOR B under it, and resolving the bare id to B would deliver a
-   ;; dead incarnation's failure into B's OWN `:observability :errors` sink
-   ;; (frame isolation; exact-incarnation attribution). The corpus fan-out
-   ;; (axis 1 listener) and the dev trace (axis 2) still fire exactly once; only
-   ;; the frame-owned route is dropped. A nil `op` (the ordinary
-   ;; address-directed router drain / no-such-frame emit) keeps the default
-   ;; route — an ordinary frame-destroyed's bare id is address-directed, so it
-   ;; stays route-eligible.
-   (rf.error-emit/emit-error-both!
-     :rf.error/frame-destroyed
-     event event-id frame-id nil 0 (rf.interop/now-ms)
-     (cond-> {:frame frame-id :event event :reason :frame-destroyed}
-       op (assoc :op op))
-     (when op {:op op})
-     (nil? op))))
+  `op` is the operation that failed — `:dispatch` / `:dispatch-sync` /
+  `:subscribe` — and every caller knows it. It rides the dev-trace tags and
+  the always-on record's public `:op` slot (see Spec 009 §Error contract, the
+  `:rf.error/frame-destroyed` row), and `rf.error-emit/error-source-coord`
+  resolves the source-coord under that realm: `[:event id]` for a dispatch /
+  dispatch-sync, `[:sub id]` for a subscribe. An event and a sub may share a
+  keyword, so the realm cannot be read off the id.
+
+  `route-frame?` is whether the bare `frame-id` may name the frame-owned
+  EP-0015 sink route. It is false for a CAPTURED op whose pinned incarnation
+  is dead — the `capture-frame` pre-check seam
+  (`emit-captured-frame-superseded!`) and the router's late captured-op
+  fences in `dispatch!` / `dispatch-sync!` — because a same-id destroy and
+  re-create may have seated a live SUCCESSOR under that id, and routing to it
+  would deliver a dead incarnation's failure into the successor's own sink.
+  The corpus fan-out and dev trace still fire; only the frame-owned route is
+  withheld, and the process default still delivers. An ordinary
+  address-directed dispatch names the frame by its id, so it routes."
+  [event-id event frame-id op route-frame?]
+  ;; Fan out along BOTH channels (shared helper). Axis 1 — the always-on
+  ;; listener (survives prod elision); axis 2 — the dev trace (DCE'd under
+  ;; `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
+  ;; throw; `elapsed-ms 0` (not a timed path).
+  (rf.error-emit/emit-error-both!
+    :rf.error/frame-destroyed
+    event event-id frame-id nil 0 (rf.interop/now-ms)
+    {:frame frame-id :event event :reason :frame-destroyed :op op}
+    {:op op}
+    route-frame?))
 
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and
   dispatch surfaces as `:rf.error/frame-destroyed`; the drain continues
-  with the next envelope. The emit is production-survivable
-  (see [[emit-frame-destroyed!]])."
+  with the next envelope. The queued event is a dispatch addressed to the
+  frame by id, so the emit carries `:op :dispatch` and keeps its frame route.
+  The emit is production-survivable (see [[emit-frame-destroyed!]])."
   [event frame]
-  (emit-frame-destroyed! (first event) event frame))
+  (emit-frame-destroyed! (first event) event frame :dispatch true))
 
 (defn ^:no-doc emit-captured-frame-superseded!
   "The recover-but-emit seam for a `capture-frame` op whose CAPTURED
@@ -2163,18 +2146,15 @@
   synchronous `capture-target-superseded?` pre-check already sees the pin gone;
   a superseded `:subscribe` additionally returns nil rather than a reaction.
 
-  `op` is the ALREADY-KNOWN operation realm of the failing captured
-  op — `:dispatch` / `:dispatch-sync` (from `capture-dispatch!`) or `:subscribe`
-  (from `capture-subscribe!`). It is carried through `emit-frame-destroyed!` onto
-  the always-on record's `:op` realm attribution slot (public, and also
-  steers) so `rf.error-emit/error-source-coord` resolves the
-  source-coord under the EXACT realm — `[:event id]` for a dispatch, `[:sub id]`
-  for a subscribe — never the realm-ambiguous
-  `[:sub]`-then-`[:event]` fallback, which would misattribute a stale
-  captured dispatch to a same-keyword subscription's coord and a stale captured
-  subscribe to an unrelated event's coord instead of OMITTING it. This seam KNOWS
-  the realm; the bare router drain emitters (which genuinely do not) keep the
-  fallback.
+  `op` is the operation realm of the failing captured op — `:dispatch` /
+  `:dispatch-sync` (from `capture-dispatch!`) or `:subscribe` (from
+  `capture-subscribe!`). It is carried through `emit-frame-destroyed!` onto the
+  always-on record's public `:op` slot, which steers
+  `rf.error-emit/error-source-coord` to the op's own realm — `[:event id]` for
+  a dispatch, `[:sub id]` for a subscribe — so a stale captured dispatch never
+  takes a same-keyword subscription's coord, and a stale captured subscribe
+  OMITS the coord rather than take an unrelated event's. The emit withholds the
+  frame route (`route-frame?` false): the pinned incarnation is dead.
 
   The concurrent-JVM window BETWEEN that pre-check and the
   ordinary bare-id target consumption is closed too: `capture-dispatch!` / the `:subscribe`
@@ -2187,7 +2167,7 @@
   fully-unclaimed id (an unpinned 1-arity capture stays address-directed)."
   [event frame-id op opts]
   (rf.trace/with-call-site (when rf.interop/debug-enabled? (:rf.trace/call-site opts))
-    (emit-frame-destroyed! (first event) event frame-id op))
+    (emit-frame-destroyed! (first event) event frame-id op false))
   nil)
 
 ;; EP-0015 §8: schemas do not feed the app-db egress registry. Durable app-db
@@ -4055,15 +4035,10 @@
          ;; `build-envelope`. nil for every ordinary / address-directed
          ;; dispatch — the fence below is inert then.
          expected-incarnation (:rf.frame/expected-incarnation envelope)
-         ;; The operation realm to carry onto EVERY late captured-
-         ;; op rejection below (`:dispatch` — this is `dispatch!`), so
-         ;; `rf.error-emit/error-source-coord` resolves the `:source-coord`
-         ;; under the EXACT `[:event id]` realm rather than the realm-
-         ;; ambiguous `[:sub]`-then-`[:event]` fallback (the same mechanism
-         ;; the capture pre-check seam uses).
-         ;; nil for an ordinary / address-directed dispatch (no captured
-         ;; incarnation) — those keep the realm-ambiguous fallback.
-         capture-op     (when (some? expected-incarnation) :dispatch)
+         ;; A captured op's pinned incarnation is dead on every rejection
+         ;; below, so its emit withholds the frame route; an ordinary
+         ;; address-directed dispatch names its frame by id and routes.
+         captured?      (some? expected-incarnation)
          cascade-router (frame-destroy-cascade-router frame-id)]
      (cond
    (nil? frame-record)
@@ -4074,12 +4049,10 @@
    ;; The call-site is bound so the DEV trace path inside
    ;; `emit-frame-destroyed!` carries it; the always-on record reads
    ;; its coords off the id's registration, not the dynamic
-   ;; call-site. `capture-op` carries `:dispatch` when
-   ;; this nil-record rejection is a CAPTURED op whose pinned frame is now
-   ;; fully unclaimed (realm-exact `[:event id]`); nil for an ordinary
-   ;; address-directed dispatch (realm-ambiguous fallback).
+   ;; call-site. `:op :dispatch` resolves that coord under `[:event id]`.
    (rf.trace/with-call-site (:call-site envelope)
-     (emit-frame-destroyed! (first event) event (:frame envelope) capture-op))
+     (emit-frame-destroyed! (first event) event (:frame envelope)
+                            :dispatch (not captured?)))
 
    ;; A captured op pinned to incarnation A resolved a same-id
    ;; successor B here — A was destroyed and B installed in the window
@@ -4090,15 +4063,12 @@
    ;; window). Recover-but-emit `:rf.error/frame-destroyed` and enqueue
    ;; NOTHING — A's authority never leaks into B. Identical recover-but-emit
    ;; to the nil-record clause above; the address-directed path (nil
-   ;; `expected-incarnation`) is untouched. `capture-op`
-   ;; (`:dispatch`, always present here — this branch tests `some?
-   ;; expected-incarnation`) rides the emit so the resolved `:source-coord`
-   ;; names the EXACT `[:event id]` realm, never the realm-ambiguous
-   ;; fallback that would steal a same-keyword sub's coord.
+   ;; `expected-incarnation`) is untouched. The emit withholds the frame
+   ;; route, which B now answers to.
    (and (some? expected-incarnation)
         (not (identical? expected-incarnation target-token)))
    (rf.trace/with-call-site (:call-site envelope)
-     (emit-frame-destroyed! (first event) event (:frame envelope) capture-op))
+     (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch false))
 
    cascade-router
    ;; Cleanup descendants stay on the private teardown queue. No scheduler
@@ -4119,15 +4089,15 @@
      ;; in the window before the enqueue linearized (the incarnation guard
      ;; fenced it out) would otherwise SILENTLY return — B untouched, but no
      ;; diagnostic. Recover-but-emit exactly once: the enqueue never happened,
-     ;; so this is the SOLE emit for the rejection, realm-exact via
-     ;; `capture-op`. An ordinary address-directed dispatch (nil `capture-op`)
-     ;; stays silent on this benign post-resolve teardown race.
-     (when (and capture-op
+     ;; so this is the SOLE emit for the rejection. An ordinary
+     ;; address-directed dispatch stays silent on this benign post-resolve
+     ;; teardown race.
+     (when (and captured?
                 (not enqueued?)
                 (not (rf.frame/frame-incarnation-live? frame-id target-token)))
        (rf.trace/with-call-site (:call-site envelope)
          (emit-frame-destroyed! (first event) event (:frame envelope)
-                                capture-op)))))))
+                                :dispatch false)))))))
    nil))
 
 (defn ^:no-doc dispatch-sync-with-id!
@@ -4151,14 +4121,10 @@
        ;; `build-envelope`. nil for every ordinary / address-directed
        ;; dispatch-sync — the fence below is inert then.
        expected-incarnation (:rf.frame/expected-incarnation envelope)
-       ;; The operation realm carried onto EVERY late captured-op
-       ;; rejection below (`:dispatch-sync` — this is `dispatch-sync!`), so
-       ;; `rf.error-emit/error-source-coord` resolves the `:source-coord` under
-       ;; the EXACT `[:event id]` realm (a dispatch-sync shares the dispatch
-       ;; event realm) rather than the realm-ambiguous fallback. nil for an
-       ;; ordinary / address-directed dispatch-sync, which keeps the
-       ;; realm-ambiguous fallback.
-       capture-op   (when (some? expected-incarnation) :dispatch-sync)
+       ;; A captured op's pinned incarnation is dead on every rejection
+       ;; below, so its emit withholds the frame route; an ordinary
+       ;; address-directed dispatch-sync names its frame by id and routes.
+       captured?    (some? expected-incarnation)
        ;; Nested-sync detection, hoisted out of the cond TEST position so
        ;; the cond reads as flat test→result pairs. True when this call is
        ;; reentering the SAME frame's running drain — either an explicit
@@ -4206,12 +4172,11 @@
      ;; Recover-but-emit: dispatch-sync into a
      ;; destroyed / unknown frame RECOVERS (no-op) AND emits the
      ;; production-survivable `:rf.error/frame-destroyed` through the
-     ;; always-on listener. `capture-op` carries `:dispatch-sync`
-     ;; when this nil-record rejection is a CAPTURED op whose pinned frame is
-     ;; now fully unclaimed (realm-exact `[:event id]`); nil for an ordinary
-     ;; address-directed dispatch-sync (realm-ambiguous fallback).
+     ;; always-on listener. `:op :dispatch-sync` resolves the coord under
+     ;; `[:event id]` (a dispatch-sync shares the dispatch event realm).
      (rf.trace/with-call-site call-site
-       (emit-frame-destroyed! (first event) event (:frame envelope) capture-op)
+       (emit-frame-destroyed! (first event) event (:frame envelope)
+                              :dispatch-sync (not captured?))
        nil)
 
      ;; A captured op pinned to incarnation A resolved a same-id
@@ -4223,13 +4188,11 @@
      ;; and process NOTHING, so A's authority never leaks into B. Placed before
      ;; the `nested-sync?` / drain clauses so a superseded capture never enters
      ;; B's drain. Address-directed dispatch-sync (nil expected) is untouched.
-     ;; `capture-op` (`:dispatch-sync`, always present here) rides
-     ;; the emit so the resolved `:source-coord` names the EXACT `[:event id]`
-     ;; realm, never the realm-ambiguous fallback.
+     ;; The emit withholds the frame route, which B now answers to.
      (and (some? expected-incarnation)
           (not (identical? expected-incarnation target-token)))
      (rf.trace/with-call-site call-site
-       (emit-frame-destroyed! (first event) event (:frame envelope) capture-op)
+       (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch-sync false)
        nil)
 
      nested-sync?
@@ -4300,17 +4263,16 @@
          ;; acquires, re-checks incarnation liveness, and on a lost A resets the
          ;; lock WITHOUT running the seed-push (returns falsey) — would otherwise
          ;; SILENTLY return. Recover-but-emit exactly once: the seed-push never
-         ;; ran, so this is the SOLE emit for the rejection, realm-exact via
-         ;; `capture-op`. An ordinary address-directed dispatch-sync (nil
-         ;; `capture-op`) stays silent on the benign post-resolve teardown
-         ;; race.
-         (when (and capture-op
+         ;; ran, so this is the SOLE emit for the rejection. An ordinary
+         ;; address-directed dispatch-sync stays silent on the benign
+         ;; post-resolve teardown race.
+         (when (and captured?
                     (not drained?)
                     (not (rf.frame/frame-incarnation-live?
                            (:frame envelope) target-token)))
            (rf.trace/with-call-site call-site
              (emit-frame-destroyed! (first event) event (:frame envelope)
-                                    capture-op)))
+                                    :dispatch-sync false)))
          (when drained? (:dispatch-id envelope)))))))))
 
 (defn dispatch-sync!

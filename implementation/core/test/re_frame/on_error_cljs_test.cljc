@@ -74,15 +74,15 @@
 (deftest listener-fires-on-frame-destroyed-dispatch
   (testing "dispatch and dispatch-sync into an unknown frame recover (no-op)
             and emit one :rf.error/frame-destroyed record. Its :event fails
-            closed, since no frame policy is reachable, and it carries no :op:
-            an ordinary address-directed dispatch names no realm"
-    (doseq [[label dispatch!] [["dispatch"      #(rf/dispatch [:whatever] {:frame :gone/frame})]
-                               ["dispatch-sync" #(rf/dispatch-sync [:whatever] {:frame :gone/frame})]]]
-      (testing label
+            closed, since no frame policy is reachable, and its :op names the
+            operation that failed"
+    (doseq [[op dispatch!] [[:dispatch      #(rf/dispatch [:whatever] {:frame :gone/frame})]
+                            [:dispatch-sync #(rf/dispatch-sync [:whatever] {:frame :gone/frame})]]]
+      (testing (name op)
         (let [seen (recording-listener!)]
           (is (nil? (dispatch!)))
           (is (= [{:error :rf.error/frame-destroyed :frame :gone/frame
-                   :event :rf/redacted :event-id :whatever}]
+                   :event :rf/redacted :event-id :whatever :op op}]
                  (mapv #(select-keys % [:error :frame :event :event-id :op]) @seen))))))))
 
 (deftest listener-fires-on-no-such-handler
@@ -124,9 +124,8 @@
 
 (deftest interceptor-exception-record-attributes-the-failing-interceptor-and-phase
   (testing "an interceptor throw in either phase names the interceptor in
-            :failing-id beside the event's :event-id. `:phase` is not lifted
-            onto the record, so :reason is its only production-visible phase
-            discriminator"
+            :failing-id beside the event's :event-id, and carries the :phase
+            it threw in"
     (doseq [[phase icpt event-id] [[:before :mlh1h/boom-before :mlh1h/before-throws]
                                    [:after  :mlh1h/boom-after  :mlh1h/after-throws]]]
       (testing (name phase)
@@ -135,8 +134,8 @@
         (let [seen (recording-listener!)]
           (rf/dispatch-sync [event-id])
           (let [r (first-of :rf.error/interceptor-exception seen)]
-            (is (= {:event-id event-id :failing-id icpt}
-                   (select-keys r [:event-id :failing-id])))
+            (is (= {:event-id event-id :failing-id icpt :phase phase}
+                   (select-keys r [:event-id :failing-id :phase])))
             (is (re-find (re-pattern (str "`" (name phase) "` phase")) (:reason r)))))))))
 
 (deftest sub-exception-record-carries-sub-source-coord
@@ -159,12 +158,11 @@
 
 ;; ============================================================================
 ;; :rf.error/frame-destroyed is realm-ambiguous: an event id and a sub id may
-;; share a keyword, since they live in separate registries. Every seam that
-;; knows its realm stamps the public `:op` onto the record, and the source-coord
-;; lookup pivots on it — `:dispatch` / `:dispatch-sync` under `[:event id]`,
-;; `:subscribe` under `[:sub id]` — so the realm-blind `[:sub]`-then-`[:event]`
-;; fallback can never take the other realm's coord. Each realm's coord is the
-;; registration coordinate of that realm's descriptor.
+;; share a keyword, since they live in separate registries. Every emitter
+;; stamps the public `:op` onto the record, and the source-coord lookup pivots
+;; on it — `:dispatch` / `:dispatch-sync` under `[:event id]`, `:subscribe`
+;; under `[:sub id]` — so one realm never takes the other's coord. Each
+;; realm's coord is the registration coordinate of that realm's descriptor.
 ;; ============================================================================
 
 (def ^:private event-coord
@@ -269,6 +267,20 @@
       (is (= [{:error :rf.error/frame-destroyed :frame :alk8a/gone-frame :op :subscribe
                :event [:alk8a/collide] :source-coord sub-coord}]
              (mapv #(select-keys % [:error :frame :op :event :source-coord]) @seen))))))
+
+(deftest ordinary-dispatch-frame-destroyed-resolves-the-event-coord
+  (testing "an ordinary dispatch or dispatch-sync into a missing frame stamps
+            its :op and resolves :source-coord under [:event id], even when the
+            id also names a sub"
+    (seed-coords! :p3c7n/collide #{:event :sub})
+    (doseq [[op dispatch!] [[:dispatch      #(rf/dispatch [:p3c7n/collide] {:frame :p3c7n/gone})]
+                            [:dispatch-sync #(rf/dispatch-sync [:p3c7n/collide] {:frame :p3c7n/gone})]]]
+      (testing (name op)
+        (let [seen (recording-listener!)]
+          (dispatch!)
+          (is (= [{:error :rf.error/frame-destroyed :frame :p3c7n/gone :op op
+                   :source-coord event-coord}]
+                 (mapv #(select-keys % [:error :frame :op :source-coord]) @seen))))))))
 
 (deftest interceptor-after-throw-leaves-app-db-unchanged-no-db-changed
   (testing "an interceptor :after throw aborts the event before the :db install,

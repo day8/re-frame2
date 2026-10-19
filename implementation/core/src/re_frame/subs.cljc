@@ -985,10 +985,8 @@
   address-directed subscribe to a missing/destroyed frame), so it stamps
   `:op :subscribe` UNCONDITIONALLY. Two consequences ride the
   stamp: `error-emit/error-source-coord` resolves the `:source-coord` under the
-  EXACT `[:sub id]` realm and NEVER the realm-ambiguous `[:sub]`-then-`[:event]`
-  fallback (which, for a sub-id registered only as a same-keyword EVENT, would
-  steal that event's coord instead of OMITTING the slot — the same mechanism
-  the pre-check seam uses, applied at every subscribe fence); and
+  `[:sub id]` realm, so a sub-id registered only as a same-keyword EVENT OMITS
+  the slot rather than take that event's coord; and
   `error-emit/raw-identity-query-vector-event?` routes the attempted query vector
   on the `:event` slot VERBATIM as raw IDENTITY (a query
   vector is identity, not payload) instead of failing closed to `:rf/redacted`
@@ -1086,7 +1084,7 @@
      ;; to the outer fence; one exact-incarnation operation).
      ;; `emit-frame-destroyed-recovery!` is subscribe-realm by
      ;; construction and stamps `:op :subscribe`, so the resolved `:source-coord`
-     ;; names the EXACT `[:sub id]` realm, never the realm-ambiguous fallback.
+     ;; names the `[:sub id]` realm.
      ;; This branch is reached ONLY for a CAPTURED subscribe (guarded
      ;; by `some? expected-incarnation`) whose pinned incarnation is dead, so the
      ;; bare `frame-id` may name a live same-id successor B — pass `route-frame?`
