@@ -25,14 +25,14 @@
 
   **Is the name RESOLVED, or merely present?** A `<label for=\"x\">`
   beside an `<input id=\"y\">` has both halves of the pairing and no
-  pairing. `ht/accessible-name` is what makes the difference visible: it
+  pairing. `ht/markup-name` is what makes the difference visible: it
   resolves the reference, so a row asserting the name is asserting the
   pair.
 
   ## The sweep, and why it is a sweep
 
   [[every-operable-control-in-the-application-has-a-name]] runs
-  `ht/unnamed-controls` over every one of the slice's bodies that carries
+  `ht/markup-unnamed-controls` over every one of the slice's bodies that carries
   an operable control — six bodies, and the pager, whose three page
   positions each render a different set of links and end-stops — in every
   state each of them has. One assertion per tree, in the
@@ -68,7 +68,7 @@
 
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
-(defn- named [tree class] (rf.fresco.test/accessible-name tree (classed tree class)))
+(defn- named [tree class] (rf.fresco.test/markup-name tree (classed tree class)))
 
 ;; --- chrome ----------------------------------------------------------------
 
@@ -168,7 +168,7 @@
 
   (testing "failed: an ALERT, which interrupts"
     (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
-      (is (= :alert (rf.fresco.test/role (classed tree "save-problem"))))
+      (is (= :alert (rf.fresco.test/markup-role (classed tree "save-problem"))))
       (is (nil? (classed tree "save-ok")))))
 
   (testing "saved: a STATUS, which does not — the two roles are different
@@ -176,14 +176,14 @@
             row asserting only that `a role is present` could not tell
             them apart"
     (let [tree (editor-tree :en {:status :saved :problem nil})]
-      (is (= :status (rf.fresco.test/role (classed tree "save-ok"))))
+      (is (= :status (rf.fresco.test/markup-role (classed tree "save-ok"))))
       (is (nil? (classed tree "save-problem")))))
 
   (testing "and a live region takes no name from its own text: it is
             announced BECAUSE it appeared, and naming it would be this
             kit inventing something the platform does not give"
     (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
-      (is (nil? (rf.fresco.test/accessible-name tree (classed tree "save-problem")))))))
+      (is (nil? (rf.fresco.test/markup-name tree (classed tree "save-problem")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The sweep — the accessibility acceptance, as one assertion per rendering
@@ -230,7 +230,7 @@
   ;; One locale: `i18n/t` answers a visible sentinel for a missing key,
   ;; so another locale cannot leave a control nameless where this one does not.
   (doseq [[what tree] (states :en)]
-    (is (= [] (rf.fresco.test/unnamed-controls tree))
+    (is (= [] (rf.fresco.test/markup-unnamed-controls tree))
         (str what
              " — every button, link, field and select a user can operate "
              "must carry an accessible name, and this is the whole "

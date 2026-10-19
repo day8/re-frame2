@@ -649,10 +649,13 @@ work that has an actual duration; use `hm/settle!` for work that does not.
 
 ### Migration shadow tests
 
-`hm/shadow!` is a development-only migration harness. It drives a Fresco view
-and its Reagent original with one script, then compares canonical DOM and
-intent streams at each checkpoint. Its full use belongs to
-[Migrating from Reagent](20-migration-from-reagent.md).
+`hm/shadow!` is a development-only migration harness. It mounts a Fresco view
+and its Reagent original side by side, each in its own seeded frame, and
+compares canonical DOM, live control state and intent streams whenever you call
+its `:checkpoint!`. You drive both mounts yourself, with Testing Library and
+user-event, and wait on conditions with `hm/settle-until!`, so a flow that
+navigates or waits on an async reply can be compared too. Its full use belongs
+to [Migrating from Reagent](20-migration-from-reagent.md#3-prove-the-port-with-shadow-comparison).
 
 ### The intent stream carries more than your events
 

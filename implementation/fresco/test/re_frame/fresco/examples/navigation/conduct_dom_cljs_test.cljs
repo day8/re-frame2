@@ -23,7 +23,7 @@
   The one row that is NOT engine-dependent is
   [[the-element-the-recipe-focuses-is-a-heading-with-the-panes-name]],
   and it runs in both lanes on purpose: it is the structural half of the
-  correlation, asserting through `ht/role` and `ht/accessible-name` that
+  correlation, asserting through `ht/markup-role` and `ht/markup-name` that
   the marker the recipe aims at sits on a real heading carrying a real
   name. Without it the browser rows would prove only that focus moved to
   *an element*, which is not the claim.
@@ -283,14 +283,14 @@
           "exactly one: `querySelector` takes the first match in document
            order, so a second marker is a focus target chosen by accident
            of markup order")
-      (is (= :heading (rf.fresco.test/role marked))
-          "a heading, per `ht/role` — landing focus on an unlabelled
+      (is (= :heading (rf.fresco.test/markup-role marked))
+          "a heading, per `ht/markup-role` — landing focus on an unlabelled
            `<div>` announces nothing, which is the version of this recipe
            that passes a browser row and helps nobody"))
 
     (testing "and it carries the pane's own accessible name, so arriving
               there says WHERE the user arrived"
-      (is (= "Articles" (rf.fresco.test/accessible-name tree marked))))
+      (is (= "Articles" (rf.fresco.test/markup-name tree marked))))
 
     (testing "it is programmatically focusable and NOT a new Tab stop"
       (is (= -1 (:tab-index (rf.fresco.test/attrs marked)))

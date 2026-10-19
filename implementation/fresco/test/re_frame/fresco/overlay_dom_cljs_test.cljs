@@ -211,8 +211,8 @@
               TRIGGER is in the same list as the panel's items: paint order
               changed, the tree did not"
       (is (= ["Filter" "Unread" "Flagged"]
-             (mapv #(rf.fresco.test/accessible-name t %)
-                   (rf.fresco.test/find-all t #(= :button (rf.fresco.test/role %)))))))))
+             (mapv #(rf.fresco.test/markup-name t %)
+                   (rf.fresco.test/find-all t #(= :button (rf.fresco.test/markup-role %)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The DOM half
