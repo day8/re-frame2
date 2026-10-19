@@ -238,13 +238,13 @@ A failure's `:kind` is one of seven values, all reserved under `:rf.http/*`. The
 |---|---|---|
 | `:rf.http/transport` | Network, DNS or connection error before any HTTP response, or a `:body` that could not be prepared. In the browser a Fetch rejection against a cross-origin URL carries `:cross-origin? true`: the browser reports a CORS refusal and a dropped connection the same way, so it may be either. | `:message`, `:cause`; `:stage :request-prep` for a body failure; `:cross-origin? true` (CLJS only) |
 | `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; on the JVM also `:message` |
-| `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (raw text), `:headers` |
-| `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (raw text), `:headers` |
+| `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
+| `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
 | `:rf.http/decode-failure` | A 2xx response whose body the decoder rejected. | `:body-text`, `:cause` (the message), `:schema-validation-failure?`; `:reason :too-many-keys` and `:limit` when the key cap was exceeded |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`, threw, or returned anything but a map with exactly one of `:ok` / `:failure`. | `:decoded` (the body before `:accept`); `:detail` is `user-map`, `{:rf.http/bad-accept :threw :message …}` or `{:rf.http/bad-accept :malformed-return :returned …}` |
 | `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id`; `:message` on some paths |
 
-- The status is classified before the body is decoded, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
+- The status is classified before the body is decoded, so a 4xx or 5xx response never runs `:decode`. Its raw text is on the failure map's `:body-text`, and its `:body` is that text parsed, keys as keywords, when the Content-Type is JSON (`json` or a `+json` suffix), else the text itself. The parse is best-effort: a body that does not parse, or exceeds the key cap, stays the raw string, and the kind is still `:rf.http/http-4xx` / `:rf.http/http-5xx`. An empty 2xx JSON body decodes to `nil` rather than failing.
 - The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
 - Every failure map also names the request it came from: `:request {:method :url}` (the method sent, `:get` when the request set none), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
 - Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
@@ -363,7 +363,7 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
 
 - A `:sensitive?` slot is redacted to `:rf/redacted` and a `:large?` slot is replaced with the size marker; a slot carrying both is treated as sensitive. Unmarked siblings are traced verbatim. A prop on the root classifies the whole body, for example `[:string {:sensitive? true}]` for a response that is an opaque token.
 - Only a Malli schema in the raw EDN vector form `[op props? …]` has per-slot marks the walker can read. Any other `:decode` (a keyword mode such as `:json` or `:text`, a custom decoder fn, a registry-keyword ref, a compiled `m/schema` object) leaves the body's shape unknown, so the body is omitted from off-box records entirely rather than shipped raw.
-- Error bodies are always omitted from off-box records, whatever `:sensitive?` says: a 4xx/5xx `:body` and a decode-failure `:body-text` are raw text that no schema has classified, and error bodies often echo request context or tokens.
+- Error bodies are always omitted from off-box records, whatever `:sensitive?` says: a 4xx/5xx `:body` and `:body-text`, and a decode-failure `:body-text`, are bodies no schema has classified, and error bodies often echo request context or tokens.
 
 !!! warning "Classification does not propagate — declare each surface a secret crosses"
 
