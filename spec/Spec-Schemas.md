@@ -3778,7 +3778,7 @@ The HTTP-response accumulator owned by the request frame during SSR. Per [011 §
    [:content-type {:optional true} :string]])                              ;; convenience accessor; mirrors headers' "content-type"
 ```
 
-Open shape — implementations may attach `:rf.response/...`-namespaced keys (e.g., `:rf.response/cache-tag`) without breaking consumers. The canonical seven fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/delete-cookie`, `:rf.server/redirect`, `:rf.server/safe-redirect`) write only the four canonical keys.
+Open shape — implementations may attach `:rf.response/...`-namespaced keys (e.g., `:rf.response/cache-tag`) without breaking consumers. The canonical six fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/delete-cookie`, `:rf.server/redirect`) write only the four canonical keys.
 
 ### `:rf.server/cookie`
 
@@ -4098,30 +4098,20 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; :rf.error/redirect-retired-target-key naming :location (no alias).
 ;; :location is OPTIONAL and a redirect with NO :location is NOT a structural error: it is
 ;; the established graceful-degradation path (the fx accepts it — :location is
-;; caller-trusted/optional — and the host adapter emits a warning trace plus a 3xx with no
+;; optional — and the host adapter emits a warning trace plus a 3xx with no
 ;; Location header so the defect is observable rather than silently shipping a broken
 ;; redirect). The schema is therefore a pure SHAPE gate (key types only) and does NOT require
 ;; :location; a target-requiring clause would 400 the no-target redirect before that
-;; warn-then-302 path runs. (`:rf.server/safe-redirect` differs — :location is its validation
-;; target and so is REQUIRED there.)
+;; warn-then-302 path runs.
 (def RedirectFxArgs
   [:map
-   [:status   {:optional true} [:maybe [:int {:min 100 :max 599}]]]         ;; default 302
-   [:location {:optional true} [:maybe :string]]])                          ;; redirect target (canonical key)
-
-;; :rf.server/safe-redirect — caller-UNtrusted redirect (open-redirect mitigation);
-;; :location is the validation target and so is REQUIRED here (unlike :rf.server/redirect,
-;; which has a documented no-target graceful path). The scheme / relative-only? / allowlist
-;; gate lives in re-frame.ssr.response/safe-redirect-fx; this is the structural shape check.
-(def SafeRedirectFxArgs
-  [:map
-   [:location       :string]
    [:status         {:optional true} [:maybe [:int {:min 100 :max 599}]]]   ;; default 302
-   [:relative-only? {:optional true} [:maybe :boolean]]
-   [:allow          {:optional true} [:maybe [:sequential :string]]]])      ;; allowlisted hosts
+   [:location       {:optional true} [:maybe :string]]                      ;; redirect target (canonical key)
+   [:allow          {:optional true} [:maybe [:or [:= :any] [:sequential :string]]]] ;; hosts beyond the request's origin, or :any
+   [:relative-only? {:optional true} :nil]])                                ;; refused: relative-only is the default
 ```
 
-Two conventions run through the seven, and both exist so that these schemas and the always-on guards in `re-frame.ssr.response` cannot answer the same question differently — a disagreement between them is an accumulator whose shape depends on the build, which is what [011 §The reserved fx guard their own args](011-SSR.md#the-reserved-fx-guard-their-own-args) forbids. **A `:status` is bounded to 100–599**, the range the HTTP status line admits, wherever one appears; a bare `:int` would let `0` / `-1` / `99999` through the boundary that exists to catch exactly that. **Every optional slot is `[:maybe …]`**, because a present `nil` is an absent key (see [§`:rf.server/cookie`](#rfservercookie)); required slots keep the bare type.
+Two conventions run through the six, and both exist so that these schemas and the always-on guards in `re-frame.ssr.response` cannot answer the same question differently — a disagreement between them is an accumulator whose shape depends on the build, which is what [011 §The reserved fx guard their own args](011-SSR.md#the-reserved-fx-guard-their-own-args) forbids. **A `:status` is bounded to 100–599**, the range the HTTP status line admits, wherever one appears; a bare `:int` would let `0` / `-1` / `99999` through the boundary that exists to catch exactly that. **Every optional slot is `[:maybe …]`**, because a present `nil` is an absent key (see [§`:rf.server/cookie`](#rfservercookie)); required slots keep the bare type. The redirect's `:relative-only?` is the one `:nil` slot: relative-only is the default, so any value but an absent one is refused.
 
 These are registered under spec ids:
 
@@ -4145,7 +4135,6 @@ These are registered under spec ids:
 | `:rf.fx.server/set-cookie-args` | `:rf.server/set-cookie` (the `:rf.server/cookie` shape) |
 | `:rf.fx.server/delete-cookie-args` | `:rf.server/delete-cookie` |
 | `:rf.fx.server/redirect-args` | `:rf.server/redirect` |
-| `:rf.fx.server/safe-redirect-args` | `:rf.server/safe-redirect` (caller-untrusted redirect; `:location` required) |
 
 The `:http` schema is **user-owned, not framework-owned** — projects that ship their own HTTP integration register their own `:schema` on their own `:http` `reg-fx`. The schema here is a reasonable starting point (the conformance corpus uses it) but is not part of the locked pattern contract.
 
