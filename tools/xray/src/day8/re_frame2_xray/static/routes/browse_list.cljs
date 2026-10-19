@@ -65,10 +65,10 @@
   `routing-helpers/filter-rows`. State on
   `:rf.xray.static.routes/query`.
 
-  `dispatch` is threaded from the routes `Panel` boundary (via
-  `render`), not a render-time capture — this whole subtree is a REAGENT
-  ISLAND crossed through `as-child` and cannot recover the frame. The
-  flex-row markup lives in the shared `search-box` component."
+  `dispatch` is the frame-bound dispatcher the routes `Panel` boundary
+  captures and threads down (via `render`); the input's handler fires
+  after the render, where an ambient `rf/dispatch` has no frame in
+  scope. The flex-row markup lives in the shared `search-box` component."
   [dispatch query total-routes filtered?]
   [search-box/search-box
    {:testid-prefix   "rf-xray-static-routes"
@@ -178,9 +178,8 @@
   [dispatch
    {:keys [silent? routes total-routes filtered? query sim-url] :as _data}
    {:keys [expanded sim-open routes-map]}]
-  ;; `dispatch` is the frame-aware dispatcher threaded from
-  ;; the routes `Panel` boundary (this subtree renders as a Reagent
-  ;; island, so it cannot recover the frame itself).
+  ;; `dispatch` is the frame-bound dispatcher the routes `Panel`
+  ;; boundary captured; this subtree's handlers fire through it.
   (cond
     silent?
     (search-box/empty-state "rf-xray-static-routes" "route")

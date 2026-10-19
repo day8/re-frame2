@@ -603,15 +603,13 @@
   rAF clock in live mode; then delegates positioning + paint to the
   machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
 
-  It is a component rather than a plain fn because of the frame:
-  rendered as a plain fn under `[rf/frame-provider {:frame :rf/xray}]`,
-  the four subscribes would route to `:rf/default` (the host app's
-  frame), which is a real frame-leak — xray-internal slots must be read
-  via xray's own frame. A boundary reads its frame from the same
-  `re-frame.adapter.context` React context that `rf/frame-provider`
-  writes, so the four reads resolve through `:rf/xray`. The reads are
-  `rf.fresco/sub`, recorded by Fresco's collector rather than by the
-  installed adapter's.
+  It is a boundary rather than a plain fn because `machine_canvas`'s
+  `Chart-view` heads it inside a Fresco tree, where a plain fn in head
+  position raises `:rf.error/fresco-bad-head`. A boundary reads its
+  frame from the same `re-frame.adapter.context` React context that
+  `rf/frame-provider` writes, so the four reads resolve through
+  `:rf/xray`. The reads are `rf.fresco/sub`, recorded by Fresco's
+  collector rather than by the installed adapter's.
 
   Two consequences of `defview`'s contract, both load-bearing here:
 
