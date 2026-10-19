@@ -67,7 +67,7 @@ Each surface maintains a framework-private registry of currently-in-flight inter
 
 ### 8. Per-frame interceptors / scoping
 
-Managed effects MUST honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters (per [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) and [011 §`:platforms`](011-SSR.md)). Tests stub `:rf.http/managed` to a canned reply via `:fx-overrides`; SSR builds short-circuit `:rf.machine/spawn` for actors that aren't `:platforms #{:client}`; stories install per-story `:interceptor-overrides`. The override seam is id-based — overrides cite the registered fx-id, not a function value, so they round-trip through the wire.
+Managed effects MUST honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters (per [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) and [011 §`:platforms`](011-SSR.md)). Tests override a managed fx by id through `:fx-overrides` (an HTTP test answers from a stub transport instead, so the real request pipeline still runs — [014 §Testing](014-HTTPRequests.md#testing)); SSR builds short-circuit `:rf.machine/spawn` for actors that aren't `:platforms #{:client}`; stories install per-story `:interceptor-overrides`. The override seam is id-based — overrides cite the registered fx-id, not a function value, so they round-trip through the wire.
 
 ### 9. Uniform reply envelope (async completions)
 
