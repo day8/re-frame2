@@ -236,7 +236,7 @@ each view and how often they change.
 | A bulk write runs every body despite equal-props bail-outs | Props contain a fresh function/JS object, or fields that change but are not rendered | Use event vectors and persistent values; select only displayed fields |
 | Filtering is slow | A large oscillating dependency set, or whole-list recomputation on each change | Give rows stable reads, chunk the model, or move filtering into a subscription |
 | A plain function or JS component is rejected as a head | `:rf.error/fresco-bad-head` | Use `h/defview` for Fresco views and `h/defhost` for foreign components |
-| Virtualized rows render but are inert or use the wrong frame | The render callback returned raw Hiccup or made a deferred read | Return the row through `h/as-element`; read values before the callback; use `h/event` for callback-produced events |
+| Virtualized rows render but are inert or use the wrong frame | The render callback is a plain function returning raw Hiccup, or made a deferred read | Write it as `h/render-fn`; read values before the callback; use `h/event` for callback-produced events |
 
 ## When not to tune or virtualize
 
@@ -307,16 +307,15 @@ let it own the visible window:
       :total-count      (count ids)
       :compute-item-key (fn [index]
                           (nth ids index))
-      :item-content     (fn [index]
-                          (h/as-element
-                           [todo-row {:id (nth ids index)}]))}]))
+      :item-content     (h/render-fn [index]
+                          [todo-row {:id (nth ids index)}])}]))
 ```
 
 This uses the fine-grained `todo-row`, which reads its own todo:
 
 - Only visible rows exist, so only their reads are retained.
 - The virtualizer calls `:item-content` during its own render, so it must stay
-  pure, and it returns a React element through `h/as-element`.
+  pure. `h/render-fn` converts the row it returns to a React element.
 - The outer view reads `ids` and the callback closes over the value. Calling
   `h/sub` inside the callback would be a deferred read, which throws.
 - `:compute-item-key` returns the same todo ids ordinary row keys would use.

@@ -13,15 +13,13 @@
 
       (h/defhost rows vendor/virtual-rows)
 
-  Two callback positions, two different contracts, and both are inferred
-  from the prop's spelling exactly as they would be on a native tag.
-  `:render-row` is where the library asks the consumer for markup, DURING
-  its own render — a render position, because it is not spelled `on*`;
-  `:on-window` is where it tells the consumer something afterwards — an
-  event position. Every other prop — `:count`, `:row-height`,
+  Two callbacks, one carrier each. `:render-row` is where the library
+  asks the consumer for markup, DURING its own render, so it takes the
+  render carrier, `h/render-fn`; `:on-window` is where it tells the
+  consumer something afterwards, so it takes the event carrier,
+  `h/event`. Every other prop — `:count`, `:row-height`,
   `:pinned-index` — is ordinary data. Nothing here needs a declaration
-  beyond the crossing itself, which is what makes this file the
-  inference witness.
+  beyond the crossing itself.
 
   ## Rule 1 — the key is the row's place in the MODEL
 
@@ -86,7 +84,7 @@
 
   No island component, no ref, no effect, no imperative handle, no memo
   hint and no second root. The application's whole interop surface is
-  `h/defhost` and `h/event`; the island the imperative-SDK row needs
+  `h/defhost` and the two carriers; the island the imperative-SDK row needs
   is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the
   declaration."
@@ -122,18 +120,17 @@
 (rf.fresco/defhost rows
   "The declared door onto the virtualizer.
 
-  `:render-row` carries the `:render` contract, so what the callback
-  returns is the vendor's render output and is emphatically not
-  dispatched — and an intent written INSIDE the call raises rather than
-  firing during a foreign render. `:on-window` carries `:event`, so a
-  vector returned from it is dispatched under the frame of the boundary
-  that wrote the crossing.
+  `:render-row` takes the render carrier, so what it returns is the
+  vendor's render output, converted to an element and not dispatched,
+  and an intent inside that row fires on the user's click into the frame
+  of the boundary that wrote the crossing. `:on-window` takes the event
+  carrier, so a vector returned from it is dispatched under that frame.
 
-  Both are `h/event` rather than intent vectors, and both for the same
-  reason: the vendor invokes them VALUE-first — `renderRow(index,
-  offset)`, `onWindow(from, to)` — so there is no event at argument one
-  and nothing for a vector's markers to read. The one callback form
-  receives the library's own arguments, in order (HD-024)."
+  Both are carriers rather than intent vectors, and for the same reason:
+  the vendor invokes them VALUE-first — `renderRow(index, offset)`,
+  `onWindow(from, to)` — so there is no event at argument one and nothing
+  for a vector's markers to read. A carrier receives the library's own
+  arguments, in order."
   rf.fresco.examples.ledger.vendor/virtual-rows)
 
 ;; ---------------------------------------------------------------------------
@@ -221,10 +218,9 @@
              :viewport-height viewport-height
              :overscan        overscan
              :pinned-index    pinned
-             :render-row      (rf.fresco/event [i offset]
-                                (rf.fresco/as-element
-                                  [ledger-row {:key    (row-key i)
-                                               :index  i
-                                               :offset offset}]))
+             :render-row      (rf.fresco/render-fn [i offset]
+                                [ledger-row {:key    (row-key i)
+                                             :index  i
+                                             :offset offset}])
              :on-window       (rf.fresco/event [from to]
                                 [::rf.fresco.examples.ledger.events/window-shown {:from from :to to}])}]]]))

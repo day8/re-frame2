@@ -105,7 +105,7 @@ the value selects one of four behaviours:
 [:li    {:on-click [:todo/toggle id]}]              ; a VECTOR — an intent
 [:input {:on-key-down {"Enter"  [:todo/commit id]   ; a MAP — a key map
                        "Escape" [:todo.ui/cancel id]}}]
-[:input {:on-change (h/event [e] …)}]                 ; the ONE callback form
+[:input {:on-change (h/event [e] …)}]                 ; the event carrier
 [:div   {:on-focus  a-plain-fn}]                    ; a plain fn, by identity
 ```
 
@@ -118,9 +118,10 @@ the value selects one of four behaviours:
   and **composition-gated centrally**, so a keystroke arriving mid-IME
   composition commits nothing. That gate is the half a hand-written `.key` test
   does not have, which is why a key map is the spelling to reach for.
-- **`h/event` is the one callback form**, for when the event itself is wanted. It
-  receives every argument the invoker passed, in order; at an `on-*` position a
-  returned vector is dispatched and any other return is ignored.
+- **`h/event` is the event carrier**, for when the event itself is wanted. It
+  receives every argument the invoker passed, in order; a returned vector is
+  dispatched and any other return is ignored, at this prop or any other. Its
+  sibling `h/render-fn` is for a callback a library calls for markup.
 - **A plain function is passed through untouched**, reaching React by identity
   so `React.memo` and every handler-identity bail-out keep working.
 

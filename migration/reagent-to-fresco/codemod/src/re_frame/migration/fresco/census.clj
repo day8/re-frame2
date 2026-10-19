@@ -371,11 +371,11 @@
         "is: Reagent is its renderer, and swapping in `h/as-element` would send those heads into "
         "Fresco's lowerer. A Fresco view, or Hiccup Fresco is meant to lower, handed to "
         "`r/as-element` is the UNSAFE bridge, because Reagent then reads Fresco's heads and props "
-        "as its own. Cross that through Fresco's own doors: `h/as-element` for one element — in a "
-        "Reagent parent's child position, or at a foreign prop under a declared `:render` callback "
-        "contract, where the closure usually runs OUTSIDE the owner's render window, so it is not "
-        "a text substitution — or a stable top-level `h/as-component` for a view handed through "
-        "raw or foreign props.")
+        "as its own. Cross that through Fresco's own doors: `h/render-fn` for a callback a "
+        "library calls for markup — the closure runs OUTSIDE the owner's render window, and the "
+        "render carrier is what carries the owner's frame into it, so it is not a text "
+        "substitution — `h/as-element` for one element in a Reagent parent's child position, or "
+        "a stable top-level `h/as-component` for a view handed through raw or foreign props.")
 
    :outward-bridge
    (str "`r/reactify-component` hands a Reagent component to React. The counterpart is "

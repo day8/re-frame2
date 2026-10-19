@@ -77,7 +77,7 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | Complaint | Raised when you | Taught in |
 |---|---|---|
 | `:rf.error/fresco-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch15 |
-| `:rf.error/fresco-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:callbacks :slots :server :fallback}`, a `:callbacks` contract outside `:event`/`:render`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
+| `:rf.error/fresco-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:slots :server :fallback}`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
 | `:rf.error/fresco-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
 | `:rf.error/fresco-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
 | `:rf.error/fresco-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
@@ -87,7 +87,7 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/fresco-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
 | `:rf.error/fresco-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |
 | `:rf.error/fresco-host-no-component` | declared a `defhost` over `nil` | — |
-| `:rf.error/fresco-host-unclaimed-callback` | wrote the one callback form at a `defhost` position declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch03, ch09, ch16 |
+| `:rf.error/fresco-host-unclaimed-callback` | wrote a carrier (`h/event` or `h/render-fn`) at a `defhost` prop declared a ReactNode slot, where markup lowers and nothing invokes a function | ch03, ch09, ch16 |
 | `:rf.error/fresco-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
 | `:rf.error/fresco-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
 | `:rf.error/fresco-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |

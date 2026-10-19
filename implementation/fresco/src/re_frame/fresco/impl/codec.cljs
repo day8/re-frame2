@@ -11,7 +11,7 @@
   |---|---|---|---|
   | Native tag | attr map, each key emitted under one canonical slot, the tag's `#id.class` shorthand folded onto the emitted object | trailing forms; a seq realized once and spliced; `nil`/`false` render nothing, `true` is an error | literal `:key` in the attr map |
   | Boundary (a marked `defview` head) | one props map crossing as a CLJS value, every lazy seq in it forced and an unforced `delay` refused (`realize-deep`) | trailing forms as `(:children props)`, a realized vector | literal `:key`, taken off before the body sees props |
-  | Host (a `defhost` head), or `[:> Component …]` | attr map converted shallowly (`host-entry`): declared `:callbacks` contracts applied, declared `:slots` lowered to elements, `:ref` untouched, the class slot coerced and composed, the rest inferred by position | trailing forms lowered to elements in the writing boundary's render window, handed on as React children | literal `:key` |
+  | Host (a `defhost` head), or `[:> Component …]` | attr map converted shallowly (`host-entry`): declared `:slots` lowered to elements, `:ref` untouched, the class slot coerced and composed, carriers lowered by their kind and intent vectors at `on*` props | trailing forms lowered to elements in the writing boundary's render window, handed on as React children | literal `:key` |
   | Fragment `[:<> …]` | optional attr map, read for the two slots React accepts there and no others: `:ref` crosses untouched onto the fragment, where React answers it with a `FragmentInstance` over the run of children | trailing forms | on the fragment |
 
   A React element is a legal child anywhere; a plain function in head
@@ -556,19 +556,12 @@
 
 (declare host-head?)
 
-(def ^:private callback-contracts
-  "The two contracts a `:callbacks` override may name — the two
-  `re-frame.fresco.impl.intent/lower-prop` infers by spelling. The
-  migration codemod's `shared_rule_test` reads this set out of the source
-  text, so it stays a literal."
-  #{:event :render})
-
 (def ^:private host-options
   "Every key a declaration may carry; anything else is refused at the
   declaration, because a door that silently ignored a misspelled
   `:server` would make a policy that was never applied look like a
   setting. `:ssr` is not an alias for `:server`."
-  #{:callbacks :slots :server :fallback})
+  #{:slots :server :fallback})
 
 ;; --- The gate -------------------------------------------------------------
 ;;
@@ -796,8 +789,7 @@
 ;; cross as a nested array and render nothing. `:slots` names those
 ;; positions, and hiccup at one is lowered by `as-element` under the
 ;; writing boundary's render window. Only the author knows which props
-;; are markup, so nothing is inferred. docs/design/fresco/decisions.md
-;; HD-024, 2026-08-11 addendum.
+;; are markup, so nothing is inferred.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -831,17 +823,10 @@
   declaration that says nothing gets and what the `[:>]` escape has
   forever.
 
-  Normalised at MINT, like `:callbacks`, so `{:slots #{:on-empty}}` and a
-  call site writing `:onEmpty` name the one position and the lookup the
-  crossing performs per prop is one `contains?`.
-
-  `callbacks` is the already-normalised contract map, and the collision
-  against it is checked HERE rather than in either walk because the two
-  declarations are read together exactly once. A slot that is also a
-  declared callback is not a resolvable position: `:render` invokes the
-  value and a slot lowers it, and no order of those two is the one the
-  author meant."
-  [host-name opts callbacks]
+  Normalised at MINT, so `{:slots #{:on-empty}}` and a call site writing
+  `:onEmpty` name the one position and the lookup the crossing performs
+  per prop is one `contains?`."
+  [host-name opts]
   ;; `contains?` and not `if-some`: an explicit `nil` is a VALUE, and the
   ;; default belongs to an ABSENT key. `:fallback` draws the line in the
   ;; same place and for the same reason — inferring the default from a nil is
@@ -867,13 +852,6 @@
                 (str "two spellings land on the one slot " (pr-str slot)
                      " — declare it once.")
                 {:position k :slot slot}))
-            (when (contains? callbacks slot)
-              (refuse-bad-slots! host-name slots
-                (str (pr-str k) " is also declared in :callbacks, where it "
-                     "carries the " (pr-str (get callbacks slot)) " contract. "
-                     "A position is a callback or it is markup; it cannot be "
-                     "both, and nothing decides which the value meant.")
-                {:position k :slot slot :contract (get callbacks slot)}))
             (conj acc slot)))
         #{}
         slots))
@@ -887,18 +865,15 @@
   `component` is anything React accepts as an element type; `nil` is
   refused here because it is the broken-import symptom (`:default`
   against a library with no default export). `opts` is a map of
-  `:callbacks` — an optional override from prop name to `:event` or
-  `:render`, for a prop whose spelling infers the wrong contract —
   `:slots`, the set of ReactNode positions (`declared-slots`),
   `:server` (`:client-only` by default, or `:render`) and `:fallback`,
-  Client-only's placeholder markup. Callback and slot names are
-  normalised to their canonical slot at mint, so the crossing's per-prop
-  lookup is one `get` and one `contains?`. Refused at the declaration: a
-  `nil` component (`:rf.error/fresco-host-no-component`); as
+  Client-only's placeholder markup. Slot names are normalised to their
+  canonical slot at mint, so the crossing's per-prop lookup is one
+  `contains?`. Refused at the declaration: a `nil` component
+  (`:rf.error/fresco-host-no-component`); as
   `:rf.error/fresco-bad-host-declaration`, with the fault named in the
-  reason, a non-map `opts`, an option outside the four, a contract
-  outside the two, a malformed `:slots` set and a position that is both a
-  slot and a callback; a `:server` value outside the two or a `:fallback`
+  reason, a non-map `opts`, an option outside the three and a malformed
+  `:slots` set; a `:server` value outside the two or a `:fallback`
   beside `:render` (`:rf.error/fresco-host-bad-ssr-policy`); and a
   boundary head inside a fallback
   (`:rf.error/fresco-host-fallback-boundary-head`).
@@ -925,7 +900,7 @@
             're-frame.fresco.impl.codec/mint-host!
             (str "defhost " host-name " was given " (pr-str opts) " as its "
                  "options, and a declaration's options are a MAP of "
-                 ":callbacks, :slots, :server and :fallback. The commonest way "
+                 ":slots, :server and :fallback. The commonest way "
                  "to arrive here is a docstring written AFTER the component "
                  "instead of before it, which leaves the real options map as "
                  "a trailing form nothing reads.")
@@ -936,30 +911,13 @@
               're-frame.fresco.impl.codec/mint-host!
               (str "defhost " host-name " was declared with " (pr-str k)
                    ", which is not an option. A declaration carries "
-                   ":callbacks, :slots, :server and :fallback. Reading past an "
+                   ":slots, :server and :fallback. Reading past an "
                    "option it does not know is how a policy comes to be set "
                    "and never applied.")
               {:host host-name :option k :options host-options})))
    (let [server   (declared-server host-name opts)
          fallback (declared-fallback host-name opts server)
-         declared
-         (reduce-kv
-           (fn [m k contract]
-             (when-not (contains? callback-contracts contract)
-               (fail! :rf.error/fresco-bad-host-declaration
-                      're-frame.fresco.impl.codec/mint-host!
-                      (str "defhost " host-name " declares " (pr-str k) " with "
-                           "the callback contract " (pr-str contract)
-                           ". The contracts are :event and :render, and a "
-                           "declaration only needs one where the prop's spelling "
-                           "infers the wrong one — an on*-named render prop.")
-                      {:host host-name :position k :contract contract}))
-             (assoc m (cached-prop-name k) contract))
-           {}
-           (or (:callbacks opts) {}))
-         ;; After `declared`, because a slot that is also a declared
-         ;; callback is refused and the contract map is what says so.
-         slots (declared-slots host-name opts declared)
+         slots    (declared-slots host-name opts)
          ;; The policy IS the type. `:render` mints no gate at all —
          ;; the foreign component is the element's own type, so the
          ;; server render, hydration's first pass and a fresh mount are
@@ -969,7 +927,6 @@
                                        component
                                        (mint-host-gate! host-name component
                                                         fallback))
-                       "callbacks"   declared
                        "slots"       slots
                        "server"      server
                        "displayName" host-name}]
@@ -1455,21 +1412,19 @@
     :else                         v))
 
 (defn- refuse-unclaimed-host-callback!
-  "An `h/event` at a position the declaration named a ReactNode slot. The
-  slot is claimed for MARKUP — it lowers hiccup (`as-element`) — so it
-  has no contract to give a function, and a function crossing as a
-  ReactNode renders nothing, silently. A PLAIN function is untouched; the
-  marked form asked for a contract, and this refuses the unanswered
-  request. Argument in docs/design/fresco/decisions.md, HD-024's
-  2026-08-11 addendum."
+  "A carrier at a position the declaration named a ReactNode slot. The
+  slot is claimed for MARKUP — it lowers hiccup (`as-element`) — so a
+  function there renders nothing, silently. A PLAIN function is
+  untouched; a carrier asked to be invoked, and nothing at a slot
+  invokes it."
   [^js head k]
   (fail! :rf.error/fresco-host-unclaimed-callback
          're-frame.fresco.impl.codec/host-element
-         (str "The host " (unchecked-get head "displayName") " was handed an "
-              "h/event at " (pr-str k) ", which its declaration names a "
-              "ReactNode slot — a markup position that lowers hiccup and has "
-              "no callback contract to give a function. Write the markup "
-              "there, or take " (pr-str k) " out of :slots.")
+         (str "The host " (unchecked-get head "displayName") " was handed a "
+              "carrier (h/event or h/render-fn) at " (pr-str k) ", which its "
+              "declaration names a ReactNode slot — a markup position that "
+              "lowers hiccup and invokes nothing. Write the markup there, or "
+              "take " (pr-str k) " out of :slots.")
          {:host     (unchecked-get head "displayName")
           :position k
           :slots    (unchecked-get head "slots")}))
@@ -1480,15 +1435,13 @@
   the presence overrides skipped in-loop, a keyword or symbol key
   answered by its cached `prop-slot`, a reserved emitted slot never
   written. Arms in precedence order: `:ref` crosses untouched; a
-  `:callbacks` override applies its declared contract
-  (`intent/lower-declared-prop`); a declared `:slots` position lowers
-  markup through `as-element` and refuses the marked form; the class slot
-  takes `class-names`; everything else is inferred from the spelling by
-  `intent/lower-prop` and converted shallowly by `host-prop-value`. The
-  reserved skip sits ABOVE every declaration arm, so no declaration can
-  talk the codec into poisoning the prototype.
-  docs/design/fresco/decisions.md HD-011, 2026-08-29 addendum."
-  [^js head declared slots o k v]
+  declared `:slots` position lowers markup through `as-element` and
+  refuses a carrier; the class slot takes `class-names`; everything else
+  is lowered by `intent/lower-prop` — a carrier by its kind, an intent
+  vector or key-map at an `on*` prop — and converted shallowly by
+  `host-prop-value`. The reserved skip sits ABOVE the declaration arm, so
+  no declaration can talk the codec into poisoning the prototype."
+  [^js head slots o k v]
   (cond
     ;; `:key` is React's, and a presence override belongs to a tray —
     ;; neither is a prop the component should see (`convert-entry`).
@@ -1507,13 +1460,6 @@
           (cond
             ref?
             v
-
-            ;; The override outranks the spelling. Through
-            ;; `host-prop-value` afterwards, so a value the contract did
-            ;; not claim — a vector at `:render` — crosses as data
-            ;; exactly as it would at an inferred position.
-            (contains? declared slot)
-            (host-prop-value slot (rf.fresco.impl.intent/lower-declared-prop k v (get declared slot)))
 
             (contains? slots slot)
             (do (when (rf.fresco.impl.intent/callback? v)
@@ -1542,11 +1488,10 @@
   untouched. docs/design/fresco/decisions.md HD-011."
   [argv]
   (let [^js head   (nth argv 0)
-        declared   (unchecked-get head "callbacks")
         slots      (unchecked-get head "slots")
         has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) {})
-        js-props   (reduce-kv (partial host-entry head declared slots) #js {} props)]
+        js-props   (reduce-kv (partial host-entry head slots) #js {} props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
 
@@ -1603,7 +1548,7 @@
 ;;
 ;; `[:> Component props & children]` is `defhost` with the declaration
 ;; erased, and what erasing it costs is exactly what the declaration
-;; carried: no crossing name, no `:callbacks`, no `:server` policy (hard
+;; carried: no crossing name, no `:slots`, no `:server` policy (hard
 ;; `:client-only` through one shared gate), refusals at render time, one
 ;; generic marker. The props walk is `host-entry` against an empty
 ;; declared roster, which is what makes `[:> X …]` -> `(defhost x X {})`
@@ -1614,12 +1559,10 @@
 (def ^:private raw-crossing
   "What `host-entry` reads at a `[:>]` prop in place of a declaration: a
   `displayName` for its refusal messages and EMPTY rosters — one
-  module-level value, nothing minted per site. `callbacks` is a CLJS map
-  because the refusals project it into their ex-data; `slots` is empty
-  because a ReactNode position is DECLARED, so hiccup at a `[:>]` prop is
-  data and `h/as-element` is the per-site spelling that crosses one."
+  module-level value, nothing minted per site. `slots` is empty because
+  a ReactNode position is DECLARED, so hiccup at a `[:>]` prop is data
+  and `h/as-element` is the per-site spelling that crosses one."
   #js {"displayName" "[:>]"
-       "callbacks"   {}
        "slots"       #{}})
 
 (def ^:private raw-gate
@@ -1700,7 +1643,7 @@
   (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
         props      (if has-props? (nth argv 2) {})
-        js-props   (reduce-kv (partial host-entry raw-crossing {} #{}) #js {} props)
+        js-props   (reduce-kv (partial host-entry raw-crossing #{}) #js {} props)
         carrier    #js {"c" component "p" js-props}]
     (when-some [k (:key props)] (unchecked-set carrier "key" k))
     (make-element raw-gate carrier argv (if has-props? 3 2))))

@@ -384,7 +384,7 @@
       (testing "explain both island outcomes"
         (is (every? #(str/includes? (:note (first es)) %)
                     ["stays as it is" "Fresco's lowerer" "a dynamic or unresolved target stays unsettled"
-                     "UNSAFE bridge" "`h/as-element`" "`h/as-component`" "`:render` callback contract"])
+                     "UNSAFE bridge" "`h/as-element`" "`h/as-component`" "`h/render-fn`"])
             (:note (first es))))))
 
   (testing "summarise the triage bucket"

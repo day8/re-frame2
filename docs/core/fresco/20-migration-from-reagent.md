@@ -61,13 +61,13 @@ classification, a sentence on how to fix it, and the component name where it
 can be found statically. The report also counts untouched sites, so a site
 missing from it was seen and needed nothing.
 
-The final suggestions block sketches an `h/defhost` per component, listing its
-event-shaped and function-valued props as commented-out `:callbacks` rows with
-no contract filled in. Fresco infers `:event` from an `on*` name, and most rows
-need nothing. Check each one against the component library's documentation: a
-prop named like an event may be a render prop whose return value the library
-uses. Left as the inferred `:event`, it returns `nil` and can blank the UI with
-no useful error, so uncomment that row as `:render`.
+The final suggestions block sketches a bare `h/defhost` per component, followed
+by its event-shaped and function-valued props as comments to check. A
+declaration carries nothing about callbacks: at each call site, a function the
+library calls for markup becomes `h/render-fn`, one whose returned intent should
+dispatch becomes `h/event`, and anything else stays a plain function. Check each
+prop against the component library's documentation, because a prop named like
+an event may be a render prop whose return value the library uses.
 
 The same run also counts every call to a view-library API, such as `r/atom`,
 `r/with-let`, `r/create-class` or `r/as-element`, under `:census` in the
@@ -166,7 +166,7 @@ place.
 | `^{:key k}` metadata | `:key` in the props map |
 | `[:> Component ...]` | remains legal; repair its prop dialect and declare repeated crossings with `h/defhost` |
 | `r/adapt-react-class` | direct `[:>]` or a declared host |
-| `r/as-element` inside a render prop | `h/as-element` inside an `h/event` at the render prop |
+| `r/as-element` inside a render prop | `h/render-fn` at the render prop, returning the Hiccup |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
 The same table for the second starting point. Every row is a spelling change:
@@ -249,8 +249,7 @@ Two differences catch people out:
   Reagent it crossed as an inert JavaScript array and never produced a working
   handler, so the migration turns a dead handler live; decide whether it was
   ever meant to run, and whether the prop is an event position at all rather
-  than a vendor's on*-named render prop, which needs a `:callbacks` override on
-  a declared host.
+  than a vendor's on*-named render prop, which takes `h/render-fn`.
 
 ### Views shared across the boundary
 
@@ -457,18 +456,20 @@ comparison on the screens the diff touched.
 
 ## What remains manual
 
-### Host declarations and callback contracts
+### Host declarations and callbacks
 
 Only the component library knows whether a prop is an event, a plain
 handler, a render callback, or a ReactNode slot, so the codemod cannot decide
-it. Review every `h/defhost` declaration yourself.
+it. Review every `h/defhost` declaration and every callback's carrier
+yourself.
 
 ### Runtime blockers
 
 Examples:
 
 - `:intent-needs-a-declaration`: decide whether the event-shaped prop is an
-  event position, or a render prop the vendor named `on*`;
+  event position, or a render prop the vendor named `on*`, which takes
+  `h/render-fn`;
 - `:dangerous-html`: Reagent may have discarded the prop while Fresco will
   pass it through, turning dead behaviour live;
 - `:r>-site` and `:f>-site`: Fresco can interpret these as unknown tag
@@ -493,7 +494,7 @@ records the site instead of guessing.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Fresco passes values by identity | Run the reporter and apply the safe codemod rewrites |
-| A former Reagent crossing starts dispatching at an `on*` prop | An event vector that crossed as inert data under Reagent now dispatches, as it does on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
+| A former Reagent crossing starts dispatching at an `on*` prop | An event vector that crossed as inert data under Reagent now dispatches, as it does on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, write the callback as `h/render-fn` |
 | Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an event vector or `h/event` |
 | A keyed `[:>]` list remounts once immediately after migration | A keyword `:key` reached React as `"foo"` under Reagent and reaches it as `":foo"` now, so each key changes once | Accept the one-time remount; the key is stable afterwards |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
