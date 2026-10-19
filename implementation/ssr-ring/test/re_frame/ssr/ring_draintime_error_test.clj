@@ -19,7 +19,7 @@
     (fn [{request :rf.server/request} _]
       {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
   (let [handler (rf.ssr.ring/ssr-handler
-                  {:initial-events [[:init/route-from-uri]]
+                  {:frame {:initial-events [[:init/route-from-uri]]}
                    :root-view      [:main "concurrent root"]
                    :payload        :rf.ssr.payload/whole-app-db})]
     (rf.ssr.ring.test-support/with-jetty [port handler]

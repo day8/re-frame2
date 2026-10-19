@@ -1,5 +1,7 @@
 # Pricing the provider SSR hole (`rf2-l0wfx`)
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 > **RULED 2026-08-05 — candidate B won, and the page below is now the dated
 > record of how it was priced rather than a live question.** The operator ruled
 > `rf2-l0wfx` and `rf2-nv07k` together: `defhost`'s `:ssr` gains a third value,
@@ -29,7 +31,7 @@
 > reconciliation law and says so.
 
 `rf2-l0wfx` was filed by raw-escape design C
-([`studio/raw-escape-design-c-ergonomics.md`](studio/raw-escape-design-c-ergonomics.md)
+(`studio/raw-escape-design-c-ergonomics.md`
 §4 and §Needs a ruling R1) and escalated as R2 in
 [`studio/raw-escape-spec.md`](studio/raw-escape-spec.md). It is `defhost`'s
 question; the `[:>]` escape only inherits the answer.
@@ -612,7 +614,7 @@ server HTML that produced it.
 
 - [`decisions.md`](decisions.md) — HD-011 and its 2026-08-04 `:ssr` addendum
   (the "there is no third value" ruling), HD-020(b)/(d)
-- [`studio/raw-escape-design-c-ergonomics.md`](studio/raw-escape-design-c-ergonomics.md)
+- `studio/raw-escape-design-c-ergonomics.md`
   — §4 (the provider use case) and §Needs a ruling R1, where this was found
 - [`studio/raw-escape-spec.md`](studio/raw-escape-spec.md) — R2, and the
   standing instruction that the escape grows no `:ssr` spelling of its own

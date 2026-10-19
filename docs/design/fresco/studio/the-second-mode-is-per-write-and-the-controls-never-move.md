@@ -1,5 +1,7 @@
 # The second mode is per-write, and the controls never move
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-77gz8`, which asks what mechanism
 puts the floor arm's `rise/W` into either of two levels 3,792 B apart at one
 revision. Written 2026-08-18 on `worker/bimodal-77gz8`, written off `858452ce35`
@@ -287,8 +289,8 @@ git cat-file -p e88d2be45efd59d023a9d23da9e4ff1f9800b5c0 | grep -n 'round %'
 - [The eight signs are one block](the-eight-signs-are-one-block.md)
   — the other re-analysis of this corpus, and the same posture: refute what the
   data refutes, and name the cause as unresolved when it is.
-- [The arms' spread does not collapse (τ refused)](the-arms-spread-does-not-collapse.md)
+- The arms' spread does not collapse (τ refused) (`docs/design/fresco/studio/the-arms-spread-does-not-collapse.md`)
   — `rf2-rs8q6`, the SPREAD within a window. This page is about its LEVEL, which
   is a different quantity and survives that gate.
-- [The control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md)
+- The control's target is not the quantity it is read against (`docs/design/fresco/studio/the-controls-target-is-not-the-quantity-it-is-read-against.md`)
   — `rf2-nkeba`, whose across-time effect this mode is large enough to explain.

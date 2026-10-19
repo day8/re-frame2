@@ -76,8 +76,9 @@
             ;; this host reads, and the entry id `server.cljs` publishes.
             [fresco.login.policy :as policy]
             ;; The application, on the JVM: every `auth.login` schema, fx,
-            ;; machine, event and sub. Requiring it is what makes
-            ;; `:initial-events` below name something that exists.
+            ;; machine, event and sub. Requiring it is what makes the
+            ;; `:initial-events` of `model/frame-config` name something that
+            ;; exists.
             [login.model :as model]))
 
 (def build-id
@@ -140,13 +141,13 @@
 
   `:payload` is the browser's allowlist; `:render-state` — an opt on the
   RENDERER, since the renderer is what projects — is
-  `policy/render-state-policy`. `:initial-events` comes from the shared
-  `model/frame-config`, so the server seeds the frame exactly as the
-  browser boot does and the two halves render the same page from the same
-  events."
+  `policy/render-state-policy`. `:frame` is the shared `model/frame-config`
+  — the var the browser boot mounts with and the Node entry hands its render
+  — so the server seeds the frame exactly as the browser boot does and the
+  two halves render the same page from the same events."
   [{:keys [endpoint build-id]}]
   (rf.ssr.ring/ssr-handler
-    {:initial-events (:initial-events model/frame-config)
+    {:frame          model/frame-config
      ;; What the BROWSER may see: the form slice, and nothing else.
      :payload        [:auth]
      ;; No `:root-view` — only the default JVM-local renderer reads one.

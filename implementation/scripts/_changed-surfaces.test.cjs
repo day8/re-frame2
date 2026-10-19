@@ -509,22 +509,16 @@ const CODEMOD_LANE = {
   // harness, so BOTH answer identically; the classpath-root row below is what
   // keeps the codemod on this one.
   sharedRule: 'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
-  // The SECOND cross-tree edge, and a different mechanism. The one
-  // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
-  // `the-callback-contracts-are-the-doors` slurps the door's own
-  // `.cljs` with a relative `io/file` and asserts the roster the codemod prints
-  // into its `defhost` sketch equals the door's `callback-contracts`.
-  door: 'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
 };
 
 test('the codemod JVM lane is scheduled by its own output and required (rf2-2rtt6.143)', () => {
   assertJvmLane(CODEMOD_LANE);
 });
 
-test('the codemod lane arms on its own tree, the shared slot rule and the door (rf2-2rtt6.143, rf2-erjv)', () => {
-  // The rule and the door sit under implementation/fresco, and
-  // shared_rule_test.clj — which runs in the codemod lane — reads both.
-  for (const file of [CODEMOD_LANE.armed, CODEMOD_LANE.sharedRule, CODEMOD_LANE.door]) {
+test('the codemod lane arms on its own tree and the shared slot rule (rf2-2rtt6.143)', () => {
+  // The rule sits under implementation/fresco, and shared_rule_test.clj —
+  // which runs in the codemod lane — loads it.
+  for (const file of [CODEMOD_LANE.armed, CODEMOD_LANE.sharedRule]) {
     assert.equal(classify(file)[CODEMOD_LANE.output], 'true', `${file} must arm ${CODEMOD_LANE.output}`);
   }
 });
@@ -553,31 +547,6 @@ test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', 
   assert.ok(
     fs.existsSync(path.join(REPO_ROOT, CODEMOD_LANE.sharedRule)),
     `${CODEMOD_LANE.sharedRule} must exist — shared_rule_test.clj pins its path and reds on a move`,
-  );
-});
-
-test('the door the codemod pin reads is the file the arm names (rf2-erjv)', () => {
-  // NON-VACUITY for the source-text edge: lift the `io/file` segments out of
-  // the pin, resolve them from the job's working directory, and require the
-  // answer to be the file the arm names.
-  const pin = fs.readFileSync(
-    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'test/re_frame/migration/fresco/shared_rule_test.clj'),
-    'utf8',
-  );
-  const form = /\(io\/file\s+((?:"[^"]*"\s*)+)\)/.exec(pin);
-  assert.notEqual(form, null, 'shared_rule_test.clj must locate the door with an (io/file ...) form');
-  const segments = form[1].match(/"([^"]*)"/g).map((s) => s.slice(1, -1));
-  const resolved = path
-    .relative(REPO_ROOT, path.resolve(REPO_ROOT, CODEMOD_LANE.dir, ...segments))
-    .replace(/\\/g, '/');
-  assert.equal(
-    resolved,
-    CODEMOD_LANE.door,
-    `the pin reads ${resolved}, so that is the path the classifier must arm on`,
-  );
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, resolved)),
-    `${resolved} must exist — the pin asserts it does and reds on a move`,
   );
 });
 

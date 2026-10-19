@@ -2,7 +2,10 @@
 
 The bar, the budgets, the phase plan, the witnesses, and the kill criteria. This
 is the programme's proof spine; EP-0038 sequences it into beads. Decisions cited
-as HD-nnn are normative in [decisions.md](decisions.md).
+as HD-nnn are recorded in [decisions.md](decisions.md). This page records how
+Fresco was designed and does not govern it: what the package promises is the
+[authoring contract](../../../implementation/fresco/spec/authoring-contract.md),
+and where this page differs from it, the contract is right.
 
 ## The bar (HD-012)
 
@@ -76,7 +79,7 @@ line on either shape, but on the two-prop shape Reagent sits at the *top* of the
 Part 3 of the same ruling would not freeze the shell / per-edge / per-unique-key
 rows from cross-instrument algebra; it gated them on a bench sweep that would
 verify the additive heap model and price the terms on one instrument in one run.
-That sweep has landed — [the fan-out heap sweep](studio/heap-fan-out-sweep.md),
+That sweep has landed — the fan-out heap sweep (`docs/design/fresco/studio/heap-fan-out-sweep.md`),
 commit `61dd44950a` (PR #7306): E/Q 1-2-4-8 at ROOTS=4 and ROOTS=1, six rounds
 each, both runs exit 0, arm-order guard reportable, 0 unverified of 126 mounts
 per run, dense-array positive control within 0.007%. It prices two of the three
@@ -96,7 +99,7 @@ offered these rows as validated by a model that predicted a rung held out of
 every identification. The audit of PR #7306 established that no rung was held
 out — the rung in question feeds a mandatory model-admissibility check — so
 **that warrant is withdrawn and each row now stands on its own evidence**
-([the sweep's §4 and §6](studio/heap-fan-out-sweep.md#4-the-additive-model)).
+(the sweep's §4 and §6 (`docs/design/fresco/studio/heap-fan-out-sweep.md`)).
 The magnitudes are unchanged; none was re-measured, because the operator
 deferred new heap measurement on 2026-07-31.
 
@@ -182,7 +185,7 @@ own slope less `.13`'s term (2,783 B/read) and the spine decomposition's
 post-fix reading (2,774 B/read scaled) — and the ~5% between the instruments is
 the offset the next paragraph governs. The working, and the withdrawn
 independence claim, are in
-[the reads ladder](studio/reads-per-boundary-heap-ladder.md#5-what-this-hands-the-programme).
+the reads ladder (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`).
 
 **`rf2-2rtt6.25` is not part of this.** It landed in the same window
 (`f784ab0adb`) and is an ancestor of the sweep's tree, but its single-build
@@ -505,7 +508,7 @@ timeline — from a nicety to the next question, and names **bulk broad** as the
 row to point it at first.
 
 **`rf2-rguy1` has now run, and it answers both halves.**
-[Cross-checked against an instrument nobody here wrote](studio/cross-checked-against-an-outside-instrument.md)
+Cross-checked against an instrument nobody here wrote (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`)
 implements the krausest/js-framework-benchmark app in **three** re-frame2 arms —
 Reagent-on-subs, UIx-on-subs and Fresco Arm 1, one shared model, canonically
 identical DOM — and runs them under **the benchmark's own driver** as well as
@@ -795,7 +798,7 @@ rather than summarised:
   from 0.8813× to 0.7596×. **The `1.5×` architecture kill is not waived by this
   ruling**, and a later red result bites exactly as registered.
 - **K3** — the row's *disposition owed explicitly* is discharged by
-  [`product/k3-disposition.md`](product/k3-disposition.md), the three-scoreboard
+  `product/k3-disposition.md`, the three-scoreboard
   record that is operative by default and operator-overturnable; no denominator
   is substituted and no scoreboard stands in for another.
 - **K4** — the WebKit half of the control matrix is **no longer a Phase 1

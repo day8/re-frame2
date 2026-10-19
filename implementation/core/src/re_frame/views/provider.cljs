@@ -263,8 +263,10 @@
        `reg-view*` attaches, else the shared context-slot read, so a plain
        fn resolves its provider too. The tree wins over a `with-frame`
        around a synchronous render, as it does for a hook.
-    2. The dynamic var (`with-frame`), which answers where no boundary is
-       above and whenever no component is rendering.
+    2. The dynamic var (`with-frame`, or the router's per-handler
+       binding), which answers where no boundary is above, whenever no
+       component is rendering, and inside an event handler the rendering
+       component ran synchronously.
     3. nil — a public frame-scoped operation then fails loudly via
        `rf.frame/require-current-frame!`.
 
@@ -272,6 +274,12 @@
   context slot means something only during a render: outside one the
   dynamic scope must stay in charge, and a slot left stale by a server
   render that threw must never outrank it.
+
+  It is skipped, too, for a handler the component's render ran — a
+  `make-frame` `:initial-events` step called from a view: the router bound
+  that handler's envelope frame, and the component is still the in-flight
+  one only because its render has not returned. A component that starts
+  rendering inside the handler is a different one, so its tree answers.
 
   The coercion inside `context-value->current-frame` is defensive cover for
   a Provider mounted via raw `[:> (.-Provider frame-context) {:value :foo}]`
@@ -281,7 +289,8 @@
   arrives intact."
   []
   (or (when-let [cmp (current-component)]
-        (tree-frame cmp))
+        (when-not (rf.frame/event-run-inside-render? cmp)
+          (tree-frame cmp)))
       rf.frame/*current-frame*))
 
 ;; ---- per-render identity --------------------------------------------------

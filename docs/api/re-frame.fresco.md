@@ -65,9 +65,9 @@ namespace does not duplicate them.
 ## Authoring macros
 
 `defview` and `defhost` each expand to a `def`, so write them at the top level of a
-namespace, never inside a view body. `event` is written inline, at a prop. On the
-JVM these three macros are the whole namespace; the other twelve vars exist only in
-ClojureScript.
+namespace, never inside a view body. The two carriers, `event` and `render-fn`, are
+written inline, at a prop. On the JVM these four macros are the whole namespace; the
+other twelve vars exist only in ClojureScript.
 
 ### `defview`
 
@@ -131,10 +131,10 @@ ClojureScript.
   (h/defhost name docstring? component opts)
   ```
 - **Description**: Declares a React component from outside Fresco once, so you can
-  use it anywhere as a hiccup head, exactly like a view. Callback props are inferred
-  from each prop's name, as on a native tag: an `on*` prop takes the shapes under
-  [Event props](#event-props), and any other prop given an `h/event` is a render
-  callback.
+  use it anywhere as a hiccup head, exactly like a view. Props behave as on a native
+  tag: an `on*` prop takes the shapes under [Event props](#event-props), and a
+  carrier keeps its meaning at every prop — [`event`](#event) dispatches what it
+  returns, [`render-fn`](#render-fn) returns markup.
     - The docstring goes before `component`. Written after it, it is read as `opts`
       and the declaration is refused.
     - Declaration errors are raised when the namespace loads.
@@ -146,10 +146,6 @@ ClojureScript.
       passed the string, not `:primary`.
     - See [Interop](../core/fresco/09-interop.md).
 - **Options**:
-    - `:callbacks`: `{prop :event|:render}`, overriding the contract a prop's name
-      implies. A vendor's `on*`-named render prop needs
-      `{:callbacks {:on-render-item :render}}`. See [Callback
-      contracts](../core/fresco/09-interop.md#callback-contracts).
     - `:slots`: the set of props that take a React element. Hiccup written at one is
       converted under the writing view's frame; at an undeclared prop a hiccup vector
       is passed through as data. See [ReactNode
@@ -163,17 +159,16 @@ ClojureScript.
 - **Errors**:
     - `:rf.error/fresco-host-no-component`: `component` is nil, usually a JS import
       that resolved nothing.
-    - `:rf.error/fresco-bad-host-declaration`: `opts` is not a map, has a key outside
-      the four, or names a contract other than `:event` or `:render`; `:slots` is not
-      a set of prop names, names `:key` or `:ref`, spells one prop twice, or names a
-      prop that `:callbacks` also names; or a form follows `opts`. Nothing is
-      silently dropped.
+    - `:rf.error/fresco-bad-host-declaration`: `opts` is not a map or has a key
+      outside the three; `:slots` is not a set of prop names, names `:key` or `:ref`,
+      or spells one prop twice; or a form follows `opts`. Nothing is silently
+      dropped.
     - `:rf.error/fresco-host-bad-ssr-policy`: a `:server` value outside the two, a
       `:fallback` beside `:server :render`, or `:fallback nil`.
     - `:rf.error/fresco-host-fallback-boundary-head`: the `:fallback` contains a
       `defview` or `defhost` head. A fallback is plain markup.
     - [`:rf.error/fresco-host-unclaimed-callback`](../core/fresco/troubleshooting.md#fresco-host-unclaimed-callback),
-      at render: an `h/event` at a prop named in `:slots`. A slot takes markup; write
+      at render: a carrier at a prop named in `:slots`. A slot takes markup; write
       hiccup there, or take the prop out of `:slots`.
 - **Example**:
   ```clojure
@@ -195,22 +190,50 @@ ClojureScript.
   ```clojure
   (h/event [args …] body …)
   ```
-- **Description**: Creates a callback, for a prop where you need the event object or
-  other arguments. It expands to a marked `fn` and nothing else, so the value is an
-  ordinary function.
+- **Description**: The event carrier: a callback for a prop where you need the event
+  object or other arguments. It expands to a marked `fn` and nothing else, so the
+  value is an ordinary function.
     - Reach for it only when an event vector cannot say what you need. To pass the
       input's value or checked flag, write `[:draft/set ::h/value]`, which needs no
       callback (see [Event props](#event-props)).
-    - Where it is written decides what its return value means. At an `on*` prop a
-      returned vector is dispatched and any other return is ignored. At any other
-      prop of a native tag, a `defhost` component or a `[:>]` crossing, it is a pure
-      render callback and its return is the render output. At `:ref`, which Fresco
-      leaves to React, it is a plain function.
-    - See [One callback form: `h/event`](../core/fresco/03-events-as-data.md#one-callback-form-hevent).
+    - A returned vector is dispatched in the writing view's frame and any other
+      return is ignored, at every prop of a native tag, a `defhost` component or a
+      `[:>]` crossing, whatever the prop is called. At `:ref`, which Fresco leaves to
+      React, it is a plain function.
+    - See [The event carrier: `h/event`](../core/fresco/03-events-as-data.md#the-event-carrier-hevent).
 - **Example**:
   ```clojure
   [:input {:type      "file"
            :on-change (h/event [e] [:app/upload (js/Array.from (.. e -target -files))])}]
+  ```
+
+### `render-fn`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (h/render-fn [args …] body …)
+  ```
+- **Description**: The render carrier: a callback a foreign component calls for
+  markup during its own render. The hiccup its body returns becomes a React element,
+  and event vectors in that markup dispatch in the frame of the view that wrote the
+  carrier, after the render has ended.
+    - It means this at every prop, whatever the prop is called: Fluent UI's
+      `onRenderItem` takes it exactly as Virtuoso's `itemContent` does.
+    - It is render output and dispatches nothing while it runs.
+    - At a prop named in a `defhost`'s `:slots` it raises
+      `:rf.error/fresco-host-unclaimed-callback`; write the hiccup there instead.
+    - See [Render callbacks](../core/fresco/09-interop.md#render-callbacks).
+- **Example**:
+  ```clojure
+  (h/defhost virtual-list Virtuoso)
+
+  (h/defview feed [{:keys [ids]}]
+    [virtual-list
+     {:total-count  (count ids)
+      :item-content (h/render-fn [i]
+                      [:li.row {:on-click [:feed/open (nth ids i)]}
+                       (str (nth ids i))])}])
   ```
 
 ## Reads
@@ -618,9 +641,8 @@ stays.
   (h/as-element hiccup) → React element
   ```
 - **Description**: Converts hiccup to a React element, under the frame of the view
-  currently rendering. Use it where Fresco does not convert hiccup for you.
-    - A declared `:render` callback's return value reaches the foreign component
-      unconverted, so a hiccup vector returned there makes React throw.
+  currently rendering. Use it where Fresco does not convert hiccup for you; a
+  [`render-fn`](#render-fn) callback and a declared `:slots` prop convert for you.
     - A `[:>]` crossing has no `:slots`, so a prop that takes an element needs one.
     - A child handed to a native React subtree needs one, because a hiccup vector
       is refused there.
@@ -630,18 +652,12 @@ stays.
       that supplied them. Outside any view render it still converts, but an event
       vector or key map in the markup raises
       `:rf.error/fresco-intent-outside-boundary`.
-    - See [Render positions](../core/fresco/09-interop.md#render-positions).
+    - See [The raw escape](../core/fresco/09-interop.md#raw--escape).
 - **Example**:
   ```clojure
-  (h/defhost virtual-list VirtualList)
-
-  (h/defview feed [{:keys [ids]}]
-    [virtual-list
-     {:item-count (count ids)
-      :render-row (h/event [i]
-                    (h/as-element
-                      [:li.row {:on-click [:feed/open (nth ids i)]}
-                       (str (nth ids i))]))}])
+  (h/defview panel [{:keys [kind]}]
+    [:> (get widgets kind)
+     {:title (h/as-element [:h2 "Tasks"])}])
   ```
 
 ### `as-component`
@@ -781,14 +797,13 @@ an event prop an *intent*. See [Events as data](../core/fresco/03-events-as-data
 | --- | --- |
 | an event vector, `[:todo/toggle id]` | dispatched in the view's frame when the event fires. At `:on-submit` the browser default is also prevented. |
 | a key map, `{"Enter" [:todo/commit id] "Escape" [:todo/cancel id]}` | the entry for the pressed key (spelled as the browser's `KeyboardEvent.key`) runs: a vector is dispatched, and a function or `h/event` is called. Presses during IME composition are ignored. See [Keyboard maps](../core/fresco/03-events-as-data.md#keyboard-maps). |
-| an `h/event` callback | called with the event; a returned vector is dispatched. |
+| an `h/event` callback | called with the event; a returned vector is dispatched. It does the same at a prop of any other name. |
 | a plain function | passed to React unchanged. |
 
 - **Errors**:
     - [`:rf.error/fresco-intent-outside-boundary`](../core/fresco/troubleshooting.md#fresco-intent-outside-boundary):
       an event vector or key map rendered with no frame in scope, or an `h/event`
-      at an `on*` prop that returns a vector with none. Render the markup under a
-      frame head.
+      that returns a vector with none. Render the markup under a frame head.
     - [`:rf.error/fresco-intent-needs-the-event`](../core/fresco/troubleshooting.md#fresco-intent-needs-the-event):
       a vector carrying `::h/value`, `::h/checked` or `::h/prevent`, a vector at
       `:on-submit`, or a key map, at a prop whose caller passes something other than

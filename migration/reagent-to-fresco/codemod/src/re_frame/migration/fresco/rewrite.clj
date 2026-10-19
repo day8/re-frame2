@@ -1113,13 +1113,13 @@
                 (entry :intent-needs-a-declaration :refused
                        {:prop ktext :value (str/trim (n/string v))}
                        (str "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an "
-                            "inert array and never fired. Fresco infers the contract from the "
-                            "spelling at a `[:>]` crossing exactly as at a native tag, so the "
-                            "same form now LOWERS to a dispatching handler. Decide two things: "
-                            "whether this handler was ever meant to run, and whether the prop is "
-                            "an event position at all — a vendor's on*-named RENDER prop (Fluent's "
-                            "`onRenderCell`, Ant's `onRow`) needs a declared host with "
-                            "`{:callbacks {… :render}}`, or a plain function."))))
+                            "inert array and never fired. At a `[:>]` crossing, exactly as at a "
+                            "native tag, Fresco lowers an intent vector at an on* prop to a "
+                            "dispatching handler. Decide two things: whether this handler was "
+                            "ever meant to run, and whether the prop is an event position at "
+                            "all — a vendor's on*-named RENDER prop (Fluent's `onRenderCell`, "
+                            "Ant's `onRow`) takes a function: `h/render-fn` where it returns "
+                            "markup, or a plain function."))))
 
          ;; ---- W4 (§4.4), amended by (A) ---------------------------------------
          (bound-call? v 'partial ctx)
@@ -1192,8 +1192,8 @@
 
 (defn- suggestions
   "The per-component suggestion block (§7.6), LABELLED AS GUESSES. The
-  tool suggests a declaration and never writes one: `:callbacks` synthesis
-  is never mechanical.
+  tool suggests a declaration and never writes one, and which carrier a
+  callback takes is never mechanical.
 
   Only a FOREIGN component earns one. A string head is a native tag —
   W6 rewrites `[:> \"input\" …]` to `[:input …]`, and the two string heads
@@ -1311,10 +1311,11 @@
                       (and props (subtree-has-reagent-call? props 'as-element ctx))
                       (conj (entry :as-element-island :refused {}
                                    (str "An `r/as-element` inside a callback body at this site. "
-                                        "Port it by hand: the closure runs when the library calls "
-                                        "it, OUTSIDE the owner's render window, so swapping "
-                                        "Reagent's lowering for Fresco's is not a text "
-                                        "substitution.")))
+                                        "Port it by hand to `h/render-fn`, the render carrier: the "
+                                        "library calls the closure OUTSIDE the owner's render window, "
+                                        "and the carrier is what carries the owner's frame into that "
+                                        "call, so swapping Reagent's lowering for Fresco's is not a "
+                                        "text substitution.")))
 
                       (and props (some #(subtree-has-reagent-call? props % ctx)
                                        '[atom cursor track reaction create-class with-let]))

@@ -1,5 +1,7 @@
 # The interpreter walk, profiled and cheapened
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Three measurements agreed the candidate's mount deficit is the runtime hiccup
 walk — 100% script, scaling with elements-per-boundary, worst on the
 one-boundary 1,202-element census page (`rf2-0qj9w`, `rf2-emvod`/`rf2-yd52q`,

@@ -1,5 +1,7 @@
 # The sign follows the pass, not the write — V2's residual under the paired mode
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-0gjqi`, discharging the obligation
 merged-PR audit #8424 set on it: *compare matched certified pairs once the
 paired mode lands, and count independent run-pair/order blocks rather than rungs
@@ -297,7 +299,7 @@ reading.** The paired figure is ≈ 110 B smaller than the unpaired
 **These figures are now the PUBLISHED floor drop, and the move is a CHANGE OF
 BASIS rather than a correction** (`rf2-2rtt6.140`, 2026-08-19). What they
 supersede is **1,769 B (9.1%)** and **1,765 B (8.9%)**, published by
-[the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md#the-floor-drops-which-is-half-the-criterion),
+the floor certifies and the control does not (`docs/design/fresco/studio/the-floor-certifies-and-the-control-does-not.md`),
 where the two writes were driven by **two sequential processes** — the only
 thing the instrument could do before `rf2-irxrw` — and each leg's median was
 taken over *that leg's own* certified rounds. This basis is
@@ -446,7 +448,7 @@ among others, and this window did not test it.
   window's `all` cells sit 0.8 – 6.1% below the 2026-08-17 published `all` cells,
   and that number is recorded rather than read: the two are different estimators
   over different certified-round subsets, which is precisely the comparison
-  [the control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md)
+  the control's target is not the quantity it is read against (`docs/design/fresco/studio/the-controls-target-is-not-the-quantity-it-is-read-against.md`)
   found inadmissible.
 - **Nothing is concluded about the R = 20 refusal's cause**, only that it has now
   reproduced three times.

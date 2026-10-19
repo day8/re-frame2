@@ -1,5 +1,7 @@
 # The 2026-08-08 row is the arm's top level
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-nkeba` — V1's allocation control has an
 across-time clause, the clause was read for the first time on 2026-08-17, and it failed
 by 16 – 20%. This page settles what the corpus does about that.
@@ -64,7 +66,7 @@ named as the path forward and both have since closed.
 | the arm's levels at one revision | two, maybe three, the high one at n = 1 – 2 runs | **four settled levels over 69 scored runs**, `rf2-c4hhk` |
 | whether the census contaminates them | open — the counter compiles into the very path the mechanism lives in | **refuted from both directions**, `rf2-c4hhk` |
 | the substrate the ladder was measured on | today's | **`4a1537cb71` — the 2026-08-08 commit itself** |
-| a within-run level witness | a proposal, unarmable at n = 1 | **armed as a refusal**, `rf2-a233t` — [the level witness armed within one run](the-level-witness-armed-within-one-run.md) |
+| a within-run level witness | a proposal, unarmable at n = 1 | **armed as a refusal**, `rf2-a233t` — the level witness armed within one run (`docs/design/fresco/studio/the-level-witness-armed-within-one-run.md`) |
 
 The hold's condition is still not met — the mechanism is *still* unnamed, and
 `rf2-6kxub` remains open on the mode's unstable rate. **But the hold was aimed at the
@@ -323,11 +325,11 @@ named three, and the corpus holds six besides this page and the studio index:
 | page | what it cites | disposition |
 |---|---|---|
 | [`allocation-instrument-rework.md`](../allocation-instrument-rework.md) | `F ≈ 24.4 KB`, and V1's clause itself | clause retired; rows marked |
-| [`product/release-scans.md`](../product/release-scans.md) | `24.4 KB` as the `rf2-2rtt6.140` non-claim leg | rows marked; the non-claim is unaffected |
-| [`the-survival-metrics-allocation-half.md`](the-survival-metrics-allocation-half.md) | the `F_old` table, and *"keeps its full force across the change"* | that sentence corrected; rows marked |
-| [`the-write-halfs-floor-is-the-pipeline.md`](the-write-halfs-floor-is-the-pipeline.md) | the clause as UNASSESSED, and the `rise/W` basis | pointer added |
-| [`the-floor-certifies-and-the-control-does-not.md`](the-floor-certifies-and-the-control-does-not.md) | the failing verdict, `17.8 – 19.7%` / `16.3 – 20.3%` | pointer added; readings stand |
-| [`the-controls-target-is-not-the-quantity-it-is-read-against.md`](the-controls-target-is-not-the-quantity-it-is-read-against.md) | the re-derivation and the unresolved residual | pointer added; residual now bounded |
+| `product/release-scans.md` | `24.4 KB` as the `rf2-2rtt6.140` non-claim leg | rows marked; the non-claim is unaffected |
+| `the-survival-metrics-allocation-half.md` | the `F_old` table, and *"keeps its full force across the change"* | that sentence corrected; rows marked |
+| `the-write-halfs-floor-is-the-pipeline.md` | the clause as UNASSESSED, and the `rise/W` basis | pointer added |
+| `the-floor-certifies-and-the-control-does-not.md` | the failing verdict, `17.8 – 19.7%` / `16.3 – 20.3%` | pointer added; readings stand |
+| `the-controls-target-is-not-the-quantity-it-is-read-against.md` | the re-derivation and the unresolved residual | pointer added; residual now bounded |
 
 ## What is NOT claimed
 
@@ -370,7 +372,7 @@ named three, and the corpus holds six besides this page and the studio index:
   three of six rounds. It is small enough to be the conversion's own error and is not
   claimed to be anything else.
 - **Nothing on this page depends on `rf2-a233t`'s level witness running.** It landed
-  while this page was being written ([the level witness armed within one
-  run](the-level-witness-armed-within-one-run.md), PR #8536), and the argument in §4 is
+  while this page was being written (the level witness armed within one
+  run (`docs/design/fresco/studio/the-level-witness-armed-within-one-run.md`), PR #8536), and the argument in §4 is
   about what the witness *cannot* adjudicate — a six-round run — which its arrival does
   not change. The witness guards runs taken from here on; it cannot reach back to 2026-08-08.

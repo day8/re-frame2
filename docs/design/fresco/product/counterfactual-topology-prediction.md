@@ -1,5 +1,7 @@
 # Counterfactual topology advice — the blinded prediction, frozen before the tournament exists
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 This record owns **phase 1** of [specification §11](specification.md#11-innovation-portfolio)'s row *Counterfactual topology advice*, whose status is **Spike** and whose deciding rule is *"Retain only if blinded calibration predicts useful coarse/fine/chunked choices"*. The detailed proposal is in [the left-field lane](lanes/left-field-ideas.md#counterfactual-topology-advice). Owned by `rf2-hic-080`.
 
 **Everything on this page was written and committed before the tournament it predicts had run.** That is the whole value of the artefact, and it is checkable rather than asserted: this file landed in its own commit on `worker/topospike-hic080`, pushed before any other work on the branch, on a tree based at `e337a1dd295f3c3d94a348ac66dd7dccdec6fb32`.
@@ -25,7 +27,7 @@ Borrowed from [the causal slice](../../../../tools/xray/src/day8/re_frame2_xray/
 
 ## The input: the slice's committed read edges
 
-Feed route, page 1, seeded database. A **membership** is one boundary→cell edge — the unit [the read-set census](readset-group-census.md#the-unit-being-counted) fixed and counted.
+Feed route, page 1, seeded database. A **membership** is one boundary→cell edge — the unit the read-set census (`docs/design/fresco/product/readset-group-census.md`) fixed and counted.
 
 | # | boundary | instances `B` | read set | `R` | entries | memberships `B·R` |
 |---|---|---|---|---|---|---|
@@ -142,7 +144,7 @@ Given the boundary invalidates at all, how many of its reads actually changed? R
 | `app` | 3 / 8 | 0.375 |
 | **pooled** (`R ≥ 2` boundaries) | **26 / 59** | **0.441** |
 
-Under half. On the face of it that argues for splitting — but the reads that fail to co-change are, in every row above, **a string or a token against a datum**: `chrome`'s locale against its theme, `pager`'s page number against its three labels, `app`'s route against its two colours. Splitting a boundary to separate its i18n reads from its data reads would mint a boundary per label, which is the shape [the census](readset-group-census.md#why-and-why-it-is-structural-rather-than-a-property-of-these-seven-applications) already priced and refused from the other side.
+Under half. On the face of it that argues for splitting — but the reads that fail to co-change are, in every row above, **a string or a token against a datum**: `chrome`'s locale against its theme, `pager`'s page number against its three labels, `app`'s route against its two colours. Splitting a boundary to separate its i18n reads from its data reads would mint a boundary per label, which is the shape the census (`docs/design/fresco/product/readset-group-census.md`) already priced and refused from the other side.
 
 **So the within-boundary figure is real and points nowhere useful on this application.** It is reported because a worksheet that dropped a computed quantity for being inconvenient would be worthless as a pre-registration.
 

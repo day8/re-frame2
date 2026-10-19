@@ -210,7 +210,7 @@ value-first foreign callback too (MIG-10).
 
 One failure mode to know: an `h/event` that returns a vector but captured no
 frame raises `:rf.error/fresco-intent-outside-boundary` at *fire* time, not at
-render. A `:render`-contract callback is pure by contract — its return is the
+render. An `h/render-fn` callback is pure by contract — its return is the
 render output — and nothing polices a dispatch from inside it beyond React's
 own render-phase warnings.
 
@@ -268,9 +268,9 @@ crossing, and an `(r/as-element [:h2 …])` handed to a foreign prop becomes
 `(h/as-element [:h2 …])`, or a `:slots` entry on the host (below).
 
 - **A one-off crossing → keep `[:> Component …]`.** It is `defhost` with the
-  declaration erased: no `:slots`, no `:callbacks` override, no server policy.
-  Callbacks are inferred from the spelling on both, so an intent or `h/event`
-  at an `on*` prop of the escape dispatches. Hiccup written at one of its props
+  declaration erased: no `:slots`, no server policy. Callbacks mean the same on
+  both, so an intent at an `on*` prop of the escape dispatches, and so does an
+  `h/event` at any prop. Hiccup written at one of its props
   is **data**, not markup — cross a single element with
   `(h/as-element [:h2 "Tasks"])` when you need one.
 - **A repeated crossing → declare it once with `h/defhost`**, and the var is a
@@ -282,29 +282,29 @@ crossing, and an `(r/as-element [:h2 …])` handed to a foreign prop becomes
   [date-picker {:selected due-date :on-change (h/event [date & _] [:task/set-due date])}]
   ```
 
-  **Callback contracts are inferred from the prop's spelling, exactly as on a
-  native tag**: an `on*` prop is an event position, any other prop that takes
-  `h/event` is a render position, and a plain function crosses untouched
-  anywhere. `:callbacks` is an **override** — `{prop :event|:render}` — written
-  only where the spelling is wrong. `:slots` names the ReactNode positions, so
+  **A callback's meaning is its carrier, at every prop**: `h/event` dispatches
+  the vector it returns, `h/render-fn` returns markup the library renders, and
+  a plain function crosses untouched. A declaration carries nothing about
+  callbacks. `:slots` names the ReactNode positions, so
   hiccup written there is lowered under the writing boundary's frame. `:server`
   is `:client-only` (default) or `:render`, and `:fallback` is Client-only's
   placeholder.
 
-**The decision you must not get wrong is the on*-named render prop**, and it is
-the one the source cannot answer. Some vendors name render props `on*` —
-Fluent's `onRender*` family, Ant's `onRow`, `onCell` and `onFilter` — and the
-inferred `:event` wrapper replaces such a callback's return with `nil`, which
-blanks the UI with no useful error. **Read the library's documentation for
-every `on*` prop's return value**, and where the library consumes it, declare
-the override once on the host:
+**The decision you must not get wrong is which carrier a callback takes**, and
+the source cannot answer it. Some vendors name render props `on*` — Fluent's
+`onRender*` family — and an `h/event` there replaces the callback's return with
+`nil`, which blanks the UI with no useful error. **Read the library's
+documentation for every callback prop's return value**: markup takes
+`h/render-fn`, whatever the prop is called; a value the library consumes
+otherwise — Ant's `onRow` (a props map), `onFilter` (a boolean) — takes a plain
+function:
 
 ```clojure
-(h/defhost details-list DetailsList {:callbacks {:on-render-item :render}})
+[details-list {:items items
+               :on-render-item (h/render-fn [item] [:span (.-name item)])}]
 ```
 
-Infer the usual case; override the vendor exception. There is no `:handler`
-contract to declare — a plain function is that contract.
+There is no `:handler` carrier — a plain function is that contract.
 
 Two migration behaviours are worth pre-empting:
 

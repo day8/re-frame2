@@ -265,9 +265,9 @@
     (is (= :idle (get-in (sim-state) [:snapshot :state])))))
 
 (deftest sim-plain-fns-do-not-self-subscribe-without-a-frame
-  ;; body / SimRail / SimChart render in their own React cycle, where a bare
-  ;; `subscribe` throws `:rf.error/no-frame-context` (Spec 000 §Plain Reagent
-  ;; fns under non-default frames). Seed under :rf/xray, render OUTSIDE it.
+  ;; body / SimRail / SimChart read nothing themselves, so they render with
+  ;; no frame in scope, where a bare `subscribe` raises
+  ;; `:rf.error/no-frame-context`. Seed under :rf/xray, render OUTSIDE it.
   (setup-xray-frame!)
   (let [vals (rf/with-frame :rf/xray
                (select-static-machine! :auth/login)

@@ -1,8 +1,8 @@
 (ns hooks.re-frame.fresco
   "clj-kondo hooks for the Fresco authoring surface.
 
-  One job. `defview`, `event` and `defhost` are `defn`-, `fn`- and `def`-shaped
-  macros, so the hooks rewrite them into those forms and let kondo's own
+  One job. `defview`, the two carriers `event` and `render-fn`, and `defhost`
+  are `defn`-, `fn`- and `def`-shaped macros, so the hooks rewrite them into those forms and let kondo's own
   analysis do the work — arglists, arity, lexical bindings, unused bindings.
   Without this a view's name and every destructured prop read as
   `Unresolved symbol`. This is the same shape as the `hooks.re-frame.core`
@@ -29,7 +29,7 @@
                      body))}))
 
 (defn event
-  "`(event [args] body+)` -> `(fn [args] body+)`."
+  "`(event [args] body+)` -> `(fn [args] body+)`, and `render-fn` alike."
   [{:keys [node]}]
   (let [[_event argv & body] (:children node)]
     {:node (api/list-node
@@ -41,7 +41,7 @@
   Not `defn`: a host declares no argument vector, because the props it
   accepts are the foreign component's business rather than the
   declaration's. `opts` is analysed as an ordinary expression so a
-  reference inside `:fallback` / `:callbacks` is neither unresolved nor unused."
+  reference inside `:fallback` is neither unresolved nor unused."
   [{:keys [node]}]
   (let [[_defhost sym & more] (:children node)
         [doc more]            (if (api/string-node? (first more))

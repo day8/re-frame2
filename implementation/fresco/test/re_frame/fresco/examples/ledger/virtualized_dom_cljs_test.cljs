@@ -96,9 +96,8 @@
                   :viewport-height rf.fresco.examples.ledger.views/viewport-height
                   :overscan        rf.fresco.examples.ledger.views/overscan
                   :pinned-index    pinned
-                  :render-row      (rf.fresco/event [i offset]
-                                     (rf.fresco/as-element
-                                       [rf.fresco.examples.ledger.views/ledger-row {:index i :offset offset}]))}]]))
+                  :render-row      (rf.fresco/render-fn [i offset]
+                                     [rf.fresco.examples.ledger.views/ledger-row {:index i :offset offset}])}]]))
 
 (rf.fresco/defview unpinned-ledger
   "**Rule 3 removed.** Identical to `views/ledger` except that the
@@ -112,11 +111,10 @@
                   :viewport-height rf.fresco.examples.ledger.views/viewport-height
                   :overscan        rf.fresco.examples.ledger.views/overscan
                   :pinned-index    -1
-                  :render-row      (rf.fresco/event [i offset]
-                                     (rf.fresco/as-element
-                                       [rf.fresco.examples.ledger.views/ledger-row {:key    (rf.fresco.examples.ledger.views/row-key i)
-                                                          :index  i
-                                                          :offset offset}]))}]]))
+                  :render-row      (rf.fresco/render-fn [i offset]
+                                     [rf.fresco.examples.ledger.views/ledger-row {:key    (rf.fresco.examples.ledger.views/row-key i)
+                                                        :index  i
+                                                        :offset offset}])}]]))
 
 (rf.fresco/defview plain-list
   "The same rows with no virtualizer at all — the contrast that makes

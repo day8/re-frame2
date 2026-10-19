@@ -1,5 +1,7 @@
 # The cold-read mount term, profiled and cheapened
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 rf2-y1jkm cheapened the interpreter walk and its closing decomposition moved
 the surviving mount gap off the walk: fresco in-page 3.300 ms against uix
 1.900 ms on the acceptance shape, concentrated in the **141 per-instance
@@ -1062,7 +1064,7 @@ below are read with that stated rather than smoothed over.
   so the twins dodge a cost the census's uix counterpart would pay. That
   fairness gap is rf2-2rtt6.54's to close, filed with the mayor rather
   than patched here. **Both were closed by `rf2-cno31` —
-  [the route-link term page](the-route-link-render-term-priced.md)**: the
+  the route-link term page (`docs/design/fresco/studio/the-route-link-render-term-priced.md`)**: the
   8.21 µs is decomposed there (77% of it routing's, not Fresco's), the
   seam call halved, and the twins now pay the routing term through the
   same two published seams the candidate's `route-link` takes. The rows

@@ -286,7 +286,7 @@ What the client sees is the projected `:status`.
 - Under the Ring handler a projected 4xx keeps the page, so the app renders its own not-found or bad-request view and still hydrates; a projected 5xx replaces the page with the error page, rendered from the public error alone by `ssr-handler`'s `:error-view` ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler) has the failure table).
 - A failed `:initial-events` step is not projected: an event handler, interceptor, coeffect or flow that throws there, or a rejected `:rf.cofx` value, aborts frame construction, and the request answers through `ssr-handler`'s `:on-error`. [`reg-error-projector`](#reg-error-projector) lists which errors reach a projector.
 - Only the response is sanitised: the full error still reaches trace listeners and the `:observability :errors` sinks.
-- Two failures are reported without changing the status: a head function that throws (the page renders with an empty head) and a refused `:rf.server/safe-redirect` (the page renders without the redirect).
+- Two failures are reported without changing the status: a head function that throws (the page renders with an empty head) and a refused `:rf.server/redirect` (the page renders without the redirect).
 
 ### `reg-error-projector`
 
@@ -379,7 +379,7 @@ What the client sees is the projected `:status`.
 
 ## Frame `:ssr` config
 
-A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, through `ssr-handler`'s `:ssr` option. Every key is optional.
+A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, in `ssr-handler`'s `:frame` config. Every key is optional.
 
 | Key | Set on | Default | Effect |
 |---|---|---|---|
@@ -389,11 +389,11 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 
 ```clojure
 ;; Server: a custom projector, with error detail while developing.
-(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
-                       :root-view      (fn [] ((rf/view :app/root)))
-                       :payload        [:articles]
-                       :ssr            {:public-error-id   :app/public-error
-                                        :dev-error-detail? true}})
+(ssr.ring/ssr-handler {:frame     {:initial-events [[:app/server-init]]
+                                   :ssr            {:public-error-id   :app/public-error
+                                                    :dev-error-detail? true}}
+                       :root-view (fn [] ((rf/view :app/root)))
+                       :payload   [:articles]})
 ```
 
 ## Events
@@ -424,7 +424,7 @@ Everything in this section is addressed by keyword rather than imported as a var
 
 ### Server-only fx
 
-All seven are server-only (`:platforms #{:server}`). They write the response accumulator, which the host adapter turns into the HTTP response. [Controlling the response](../ssr/response.md) shows them in use.
+All six are server-only (`:platforms #{:server}`). They write the response accumulator, which the host adapter turns into the HTTP response. [Controlling the response](../ssr/response.md) shows them in use.
 
 | Fx | Args |
 |---|---|
@@ -433,25 +433,24 @@ All seven are server-only (`:platforms #{:server}`). They write the response acc
 | `[:rf.server/append-header {:name :value}]` | Both strings. Adds the header and keeps existing ones of that name, for multi-valued headers. |
 | `[:rf.server/set-cookie {:name :value ?:path ?:domain ?:max-age ?:expires ?:secure ?:http-only ?:same-site}]` | `:name` and `:value` are required strings; `:path` and `:domain` strings; `:max-age` seconds (an integer or string); `:expires` epoch millis (an integer: the Ring handler refuses a string with `:rf.error/cookie-invalid-expires`); `:secure` and `:http-only` booleans; `:same-site` `:strict`, `:lax` or `:none` (or a string). An optional key present with `nil` is absent. |
 | `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | Writes the cookie with `:value ""` and `:max-age 0`. Pass the `:path` and `:domain` it was set with. |
-| `[:rf.server/redirect {?:location ?:status}]` | Default `:status 302`; the HTML body is dropped. Use it for a `:location` you trust. Without `:location` the response is a 3xx with no `Location` header, and the Ring handler emits the `:rf.ssr/ssr-redirect-no-target` warning. |
-| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow ?:status}]` | For an untrusted `:location`, such as a `?next=` parameter. `:location` is required; the checks are listed below the table. |
+| `[:rf.server/redirect {?:location ?:allow ?:status}]` | Default `:status 302`; the HTML body is dropped. Relative-only unless `:allow` names more: a vector of hosts, or `:any`. The checks are listed below the table. Without `:location` the response is a 3xx with no `Location` header, and the Ring handler emits the `:rf.ssr/ssr-redirect-no-target` warning. |
 
-`:rf.server/safe-redirect` rejects a `:location` that fails any of these checks. It reports the check's error and writes no redirect; none of them throws, so the page renders without one.
+`:rf.server/redirect` rejects a `:location` that fails any of these checks, so an untrusted `?next=` parameter is safe to pass as it is. It reports the check's error and writes no redirect; none of them throws, so the page renders without one.
 
-- The scheme, when there is one, is `http` or `https`. `javascript:`, `data:`, `vbscript:` and every other scheme fail with `:rf.error/safe-redirect-scheme-rejected`.
-- The URL parses, and a scheme comes with a host: `http:evil.example` names a scheme but no host. Otherwise `:rf.error/safe-redirect-invalid-url`.
-- The URL satisfies `:relative-only?` and `:allow`. Otherwise `:rf.error/safe-redirect-host-disallowed`.
+- The scheme, when there is one, is `http` or `https`. `javascript:`, `data:`, `vbscript:` and every other scheme fail with `:rf.error/redirect-scheme-rejected`.
+- The URL parses, and a scheme comes with a host: `http:evil.example` names a scheme but no host. Otherwise `:rf.error/redirect-invalid-url`.
+- The URL is a relative reference, or `:allow` permits its host. Otherwise `:rf.error/redirect-host-disallowed`.
 
-With neither `:relative-only?` nor `:allow`, any absolute `http` or `https` URL passes, whatever its host, so pass one of them to stop an off-origin redirect. `:allow` is a vector of host strings, matched exactly and case-insensitively; a relative `:location` always passes it.
+`:allow` is a vector of host strings, matched exactly and case-insensitively, or `:any`, which permits any host and still runs the first two checks. Without `:allow` only a relative `:location` passes; a relative `:location` always passes. A `:relative-only?` key is refused, since relative-only is the default.
 
-All seven validate their arguments ([Invalid values throw](../ssr/response.md#invalid-values-throw)):
+All six validate their arguments ([Invalid values throw](../ssr/response.md#invalid-values-throw)):
 
 - A header name outside the RFC 7230 token grammar throws `:rf.error/header-invalid-name`. A header value containing CR, LF or NUL throws `:rf.error/header-invalid-value`.
 - A cookie `:name` outside the RFC 6265 token grammar, or of an unsupported type, throws `:rf.error/cookie-invalid-name`. Any other cookie attribute (`:value`, `:path`, `:domain`, `:max-age`, `:same-site`, `:expires`) containing CR, LF or NUL throws `:rf.error/cookie-invalid-attribute`, as does a raw `;` in any attribute except the percent-encoded `:value`. The error's `:attribute` slot names the attribute.
 - A redirect `:location` containing CR, LF or NUL throws `:rf.error/redirect-invalid-location`. There are no `:url` or `:to` target keys; passing either throws `:rf.error/redirect-retired-target-key`. Use `:location`.
 - An argument of the wrong type (a non-map args map, a `:status` that is not an integer in `100`–`599`, a non-string header `:value` or redirect `:location`, a wrongly typed cookie attribute) throws `:rf.error/server-fx-args-invalid`, naming the offending `:key`. In a development build with the schemas artefact loaded, the fx's `:schema` rejects the argument first: `:rf.error/schema-validation-failure` (`:where :fx-args`) is reported and the fx is skipped. The default projector maps both to `500`.
 - `:status` and `:redirect` are last-write-wins: a later write in the same drain replaces an earlier one.
-- A throw from any of the seven is contained like any effect's: that fx is skipped, the rest of the `:fx` vector still runs, and an always-on `:rf.error/fx-handler-exception` record reaches the projector, which maps it to `500`. Under the Ring handler the request answers the error page.
+- A throw from any of the six is contained like any effect's: that fx is skipped, the rest of the `:fx` vector still runs, and an always-on `:rf.error/fx-handler-exception` record reaches the projector, which maps it to `500`. Under the Ring handler the request answers the error page.
 
 - **Example**:
   ```clojure
@@ -471,15 +470,20 @@ All seven validate their arguments ([Invalid values throw](../ssr/response.md#in
                                        :path      "/"}]
             [:rf.server/delete-cookie {:name "stale-session" :path "/"}]]}))
 
-  ;; Redirects — caller-trusted vs caller-untrusted (e.g. an attacker-supplied
-  ;; ?next= param). safe-redirect parses + allowlists before setting :redirect.
+  ;; Redirects are relative-only unless :allow names more, so an
+  ;; attacker-supplied ?next= param cannot send the browser off-origin.
   (rf/reg-event :auth/bounce
     (fn [_ _]
       {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
   (rf/reg-event :auth/continue
     (fn [_ [_ next-url]]
-      {:fx [[:rf.server/safe-redirect {:location next-url :relative-only? true}]]}))
+      {:fx [[:rf.server/redirect {:location next-url}]]}))
+
+  (rf/reg-event :auth/to-billing
+    (fn [_ _]
+      {:fx [[:rf.server/redirect {:location "https://billing.example.com/portal"
+                                  :allow    ["billing.example.com"]}]]}))
   ```
 
 ### Client-only fx

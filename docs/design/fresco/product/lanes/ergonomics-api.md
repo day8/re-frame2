@@ -1,5 +1,7 @@
 # Fresco public language and ergonomics
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 ## Recommendation
 
 Converge on a deliberately small language. Freeze laws first and names only after application/host witnesses. Fresco should feel like Hiccup plus re-frame2, not like a second React component system. The common path is data; ordinary Clojure functions provide composition; explicit functions and native React components cover the places where executable behavior is real. A small optional Fresco-native namespace lets the exceptional native path reach Fresco state without acquiring UIx. (*This sentence said the namespace made that path* "self-contained", *which described the authoring surface [retired below](#optional-native-surface) by `rf2-6c12m.3` on 2026-08-29; corrected 2026-09-04, `rf2-aunp`. What survives supplies the frame and nothing React already gives, so the path is React's own and the namespace is what it reads with. The lane's position — a small optional surface rather than a UIx clone — is unchanged, and the ruling is the strongest form of it.*) React-library interop and SSR/hydration correctness are core product contracts, while UIx, library-specific wrappers, and the deployable Node service remain optional.

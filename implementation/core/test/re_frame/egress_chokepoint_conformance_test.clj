@@ -106,10 +106,10 @@
      ;; miss has no schema to path-target.
      re-frame.routing.url-change
 
-     ;; The `:rf.error/safe-redirect-*` rejections: enums, the parsed
-     ;; `:scheme` / `:host`, the call's own `:allowlist`, and `:location`,
-     ;; scrubbed by `privacy.url/redact-url-tag` for the same reason as
-     ;; url-change. Pinned closed by `re-frame.ssr-safe-redirect-production-test`.
+     ;; The redirect gate's rejections: enums, the parsed `:scheme` /
+     ;; `:host`, the call's own `:allowlist`, and `:location`, scrubbed by
+     ;; `privacy.url/redact-url-tag` for the same reason as url-change.
+     ;; Pinned closed by `re-frame.ssr-redirect-production-test`.
      re-frame.ssr.response
 
      ;; The dev-gated `:where :app-db` rejection and `:rf.error/malformed-schema`

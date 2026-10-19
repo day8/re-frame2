@@ -41,7 +41,7 @@
   (reg-drain-boom-event!)
   (let [error-view-calls (atom 0)
         response         ((rf.ssr.ring/ssr-handler
-                            {:initial-events [[:init/set-safe] [:init/boom]]
+                            {:frame {:initial-events [[:init/set-safe] [:init/boom]]}
                              :root-view      (counting-root)
                              :error-view     (fn [_] (swap! error-view-calls inc)
                                                [:h1 "BRANDED-ERROR-MARKER"])
@@ -62,7 +62,7 @@
     (fn [_ _] {:fx [[:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
   (let [error-view-calls (atom 0)
         {:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                 {:initial-events [[:init/route-to-missing]]
+                                 {:frame {:initial-events [[:init/route-to-missing]]}
                                   :root-view      [:div "APP-NOT-FOUND-UI"]
                                   :error-view     (fn [_] (swap! error-view-calls inc) [:div])
                                   :payload        :rf.ssr.payload/whole-app-db})
@@ -78,7 +78,7 @@
     (fn [_ _] {:fx [[:test/boom-fx nil]
                     [:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
   (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                 {:initial-events [[:init/boom-then-miss]]
+                                 {:frame {:initial-events [[:init/boom-then-miss]]}
                                   :root-view      (counting-root)
                                   :payload        :rf.ssr.payload/whole-app-db})
                                request)]
@@ -92,9 +92,9 @@
       (fn [_] {:status 503 :code :unavailable :message "SERVICE-DEGRADED-MARKER" :retryable? true}))
     (reg-drain-boom-event!)
     (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                   {:initial-events [[:init/boom]]
+                                   {:frame {:initial-events [[:init/boom]]
+                                            :ssr            {:public-error-id :myapp/degraded}}
                                     :root-view      (counting-root)
-                                    :ssr            {:public-error-id :myapp/degraded}
                                     :payload        :rf.ssr.payload/whole-app-db})
                                  request)]
       (is (= 503 status))
@@ -105,7 +105,7 @@
     (rf/reg-event :init/set-500 {:platforms #{:server}}
       (fn [_ _] {:fx [[:rf.server/set-status 500]]}))
     (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                   {:initial-events [[:init/set-500]]
+                                   {:frame {:initial-events [[:init/set-500]]}
                                     :root-view      (counting-root)
                                     :payload        :rf.ssr.payload/whole-app-db})
                                  request)]
@@ -131,7 +131,7 @@
       (with-emit-recorder! [errs {:pred #(= :rf.error/ssr-ring-error-view-failed (:error %))}]
         (with-redefs [rf.interop/debug-enabled? false]
           (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                         {:initial-events [[:init/ok]]
+                                         {:frame {:initial-events [[:init/ok]]}
                                           :root-view      [(rf/view :pages/render-throws)]
                                           :error-view     error-view
                                           :payload        :rf.ssr.payload/whole-app-db})
@@ -148,7 +148,7 @@
                     [:dispatch [:init/boom]]]}))
   (reg-drain-boom-event!)
   (let [response ((rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/redirect-then-boom]]
+                    {:frame {:initial-events [[:init/redirect-then-boom]]}
                      :root-view      [:p "root"]
                      :payload        :rf.ssr.payload/whole-app-db})
                   request)]

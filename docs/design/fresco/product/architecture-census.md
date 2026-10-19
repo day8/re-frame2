@@ -1,5 +1,7 @@
 # Architecture census — the kill rules, held or not
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **rf2-hic-087**, 2026-08-14. Three censuses against the finished package, each published with the command that produced it so the final audit ([`rf2-hic-064`](correction-ledger.md)) can re-derive rather than trust.
 
 The [decision brief](decision-brief.md#part-iii--the-plan) states four kill rules about mechanism and one about tooling, and every one of them is a claim about *absence*. Absence is the hardest thing to publish honestly, because the evidence for it is a search that found nothing — and a search that found nothing is indistinguishable from a search that was never going to find anything. So each arm below is recorded with what it excluded and what a looser form of the same search would have returned.
@@ -10,17 +12,17 @@ The [decision brief](decision-brief.md#part-iii--the-plan) states four kill rule
 | [2. Retained tooling](#2-the-retained-tooling-census) | Every retained tool or diagnostic surface names its real daily consumer | **Held, with one obligation filed — and since discharged.** Every row names a consumer. The condition that had fired is now answered (`rf2-wehh0`, PR #8272), and the one checker no lane ran is now a required CI job (`rf2-st1x5`, PR #8279); both cells carry amendments below |
 | [3. Mutable globals](#3-the-post-kernel-mutable-global-re-sweep) | Later work introduced no unjustified global | **Held, and the page that records it is short.** 14 commits and 1,200 inserted lines of runtime since the roster was taken added **zero** owners; the roster's own derivation is missing an arm and its second table is missing a row |
 
-Two corrections are filed against [`globals.md`](globals.md) and one against [`prototype-suite-triage.md`](prototype-suite-triage.md); they are in [the ledger](correction-ledger.md#the-ledger) and listed [below](#what-was-filed).
+Two corrections are filed against [`globals.md`](globals.md) and one against `prototype-suite-triage.md`; they are in [the ledger](correction-ledger.md#the-ledger) and listed [below](#what-was-filed).
 
 ## How to read a census on this tree
 
 Two rules, both learned on this tree by the bead this one depends on.
 
-**Anchor the search, and say what the unanchored form returns.** [`release-scans.md`](release-scans.md)'s native-share census returned 2 anchored and 9 unanchored over one corpus, five of the extra hits being docstring prose and two being `:tags ["react"]` data. Fresco's sources are unusually exposed to this: they carry very long docstrings that quote code, so `renderToString` appears 38 times in `implementation/fresco/src` and **six** of those are calls. Every arm below is therefore run over the sources with **string literals and comments blanked out**, keeping line structure, and every count is given both ways.
+**Anchor the search, and say what the unanchored form returns.** `release-scans.md`'s native-share census returned 2 anchored and 9 unanchored over one corpus, five of the extra hits being docstring prose and two being `:tags ["react"]` data. Fresco's sources are unusually exposed to this: they carry very long docstrings that quote code, so `renderToString` appears 38 times in `implementation/fresco/src` and **six** of those are calls. Every arm below is therefore run over the sources with **string literals and comments blanked out**, keeping line structure, and every count is given both ways.
 
 That is a structural fix for a problem [`globals.md`](globals.md#what-the-searches-return-that-is-not-an-owner) currently answers by naming four docstring hits by hand. It also disposes of a trap this census fell into and had to back out of: **a Clojure predicate name ends in `?`, which is a regex quantifier**, so `grep '\bscope?\b'` searches for `scop` followed by an optional `e` and reports `re-frame.fresco.evidence/scope?` as dead code. It is not dead — it is `projection-fields`'s `:valid?` for the scope axis, referenced unqualified, three lines of the same file away. Anchoring alone would not have caught that; only re-reading the source did.
 
-**A rebase can change a census rather than reconfirm it.** [`release-scans.md`](release-scans.md) rebased past 18 commits mid-bead, `re-frame.fresco.server` landed, and one of its censuses changed outright — the sentence it replaced would have shipped false. Every figure on this page was re-taken on the base this branch merges from, and the third census is one where the tree really did move: `server.cljs` is 389 of the 1,200 lines counted below and it landed the day this census was taken.
+**A rebase can change a census rather than reconfirm it.** `release-scans.md` rebased past 18 commits mid-bead, `re-frame.fresco.server` landed, and one of its censuses changed outright — the sentence it replaced would have shipped false. Every figure on this page was re-taken on the base this branch merges from, and the third census is one where the tree really did move: `server.cljs` is 389 of the 1,200 lines counted below and it landed the day this census was taken.
 
 **One figure moved between the two takes, and it moved because the first take was wrong.** The hook call-site count below read 14 and reads 16. Nothing in the tree changed — `implementation/fresco/src` is byte-identical across the rebase — and the whole of the difference is the instrument: the first take used `git grep -E`, which on this checkout silently missed a hit that `rg` returns, and the count was then read off the screen by hand and undercounted by one more. Both arms of that are the reason every figure on this page is now taken with one tool and counted by `wc -l` rather than by eye. It is recorded rather than quietly corrected because a census that revises a number without saying so is asking to be believed on exactly the ground it just failed on.
 
@@ -34,7 +36,7 @@ and [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md)'s fourth:
 
 > No `:fast` flag, compiler fork, automatic promotion, profiling-dependent semantics, **per-boundary callback-cell table**, second state owner, or performance claim based only on render timing.
 
-**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a fourth `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
+**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a fifth `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
 
 ### 1.1 No second emitter
 
@@ -73,17 +75,18 @@ The [charter](../charter.md#constraints) permits `defn`-class macro sugar with f
 rg -n --sort path "^\s*\(defmacro\b" implementation/fresco/src
 ```
 
-**Anchored: 3. Unanchored (`rg -n "defmacro"`): 3** — this is the one arm where the two agree, because no docstring in the package quotes the word.
+**Anchored: 4. Unanchored (`rg -n "defmacro"`): 4** — this is the one arm where the two agree, because no docstring in the package quotes the word.
 
 <!-- census:mechanism-macros -->
 
 | Macro | Namespace | What it expands to | Why it is not a compiler |
 |---|---|---|---|
 | `defview` | `re-frame.fresco` | a `defn` plus one `mint-view!` call | the body is an ordinary function; nothing reads its forms |
-| `event` | `re-frame.fresco` | an anonymous view, same shape | as above |
+| `event` | `re-frame.fresco` | a `fn` marked as the event carrier | as above |
+| `render-fn` | `re-frame.fresco` | a `fn` marked as the render carrier, whose return passes through `as-element` | as above |
 | `defhost` | `re-frame.fresco` | a `def` of a `mint-host!` declaration | takes a data map, not body forms |
 
-Three macros, three rows, and each captures a source coordinate for refusal messages. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
+Four macros, four rows. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
 
 ### 1.3 No ViewCell-class graph, and no per-boundary callback-cell table
 
@@ -147,9 +150,9 @@ Three facts finish it, each checkable at source.
 | `implementation/fresco/resources/clj-kondo.exports/` | the published lint export | every consumer's `.clj-kondo`, and this repo's own; gated by `check_lint_export.py` | KEEP |
 | `bench/fresco/ssr/` (the SSR spike, **graduated**) | the prototype the shipped `server.cljs` is the product form of | five suites in the `:node-test`/`:browser-test` lanes; the driver's bytes in the bench's `npm run check`, nightly | KEEP, with [an obligation](#the-one-row-whose-condition-has-fired) |
 | `capsule_spike_cljs_test.cljs` (**stopped**) | the replayable-capsule spike | [`capsule-replay-verdict.md`](capsule-replay-verdict.md) — the reproduction its STOP verdict rests on | KEEP as evidence |
-| `pull_reads_spike_cljs_test.cljs` (**stopped**) | the pull-shaped-reads spike | [`pull-shaped-reads-verdict.md`](pull-shaped-reads-verdict.md), likewise | KEEP as evidence |
+| `pull_reads_spike_cljs_test.cljs` (**stopped**) | the pull-shaped-reads spike | `pull-shaped-reads-verdict.md`, likewise | KEEP as evidence |
 | `genspike_cljs_test.cljs` (**stopped**) | the schema-driven generative spike | its own DO-NOT-GRADUATE verdict; its docstring states the case — *"a negative verdict is worth only as much as its reproduction"* | KEEP as evidence |
-| `mcp_runtime_query_spike_cljs_test.cljs` (**part-graduated**) | the MCP runtime-query spike | [`mcp-runtime-query-spike.md`](mcp-runtime-query-spike.md); three of its doors ship as wire tools today | KEEP |
+| `mcp_runtime_query_spike_cljs_test.cljs` (**part-graduated**) | the MCP runtime-query spike | `mcp-runtime-query-spike.md`; three of its doors ship as wire tools today | KEEP |
 
 **Thirty-six rows, no removals.** That is the honest result and not a comfortable one to report, because a census whose every row passes invites the suspicion that the bar moved. Two things carried it: the npm-script half of the population is **already** gated — `scripts/check_gate_scheduling.py` asks every `test:`/`bench:`/`build:` command where it runs and currently reports *51 gate commands, 43 scheduled, 8 declared, 0 of them known holes* — and the four stopped spikes are retained under an explicit rule, that a negative verdict without its reproduction is unfalsifiable.
 
@@ -161,13 +164,13 @@ The rows that reach furthest are the ones this census would have removed if the 
 
 ### The one row whose condition has fired
 
-[`prototype-suite-triage.md`](prototype-suite-triage.md) disposes of the five bench SSR suites with a conditional:
+`prototype-suite-triage.md` disposes of the five bench SSR suites with a conditional:
 
 > Two of them (`hframe_ssr`, `instance_key_payload`) assert real package behaviour and would be worth re-expressing **if** the package ever gets its own SSR entry.
 
 **The package now has its own SSR entry.** `re-frame.fresco.server` landed on 2026-08-14, and when this census was taken the two suites still asserted against the prototype (`bench/fresco/ssr/entry.cljs`) rather than the product door. That was not a stale row — the suites run, in a standing lane, every PR — it was a disposition whose condition had been met with nobody having looked. Filed as `rf2-wehh0`, sequenced after `rf2-lb1xi`, whose repair to the package's own SSR witness decided how much was left to re-express.
 
-**[Amended 2026-08-15, `rf2-uvazt`.]** The obligation is discharged. `rf2-wehh0` landed in PR #8272 and both suites are re-expressed on `re-frame.fresco.server` — `hframe_ssr_cljs_test.cljs` whole, and `instance_key_payload_ssr_dom_cljs_test.cljs` its subject only. All five bench SSR suites correctly **stay**: their subject is the prototype entry the bake is taken from, so re-expression added a package witness beside them and moved nothing. The KEEP verdicts in the table above are unchanged and remain correct. [`prototype-suite-triage.md`](prototype-suite-triage.md) §(iii) now records what happened per suite, with the subtraction and the no-loss argument.
+**[Amended 2026-08-15, `rf2-uvazt`.]** The obligation is discharged. `rf2-wehh0` landed in PR #8272 and both suites are re-expressed on `re-frame.fresco.server` — `hframe_ssr_cljs_test.cljs` whole, and `instance_key_payload_ssr_dom_cljs_test.cljs` its subject only. All five bench SSR suites correctly **stay**: their subject is the prototype entry the bake is taken from, so re-expression added a package witness beside them and moved nothing. The KEEP verdicts in the table above are unchanged and remain correct. `prototype-suite-triage.md` §(iii) now records what happened per suite, with the subtraction and the no-loss argument.
 
 ## 3. The post-kernel mutable-global re-sweep
 
@@ -218,13 +221,13 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 
 | Arm | What reds it |
 |---|---|
-| `mechanism` | a fourth `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
+| `mechanism` | a fifth `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
 | `retained-tooling` | a checker, a `fresco` npm script or a tool namespace with no row above, or a row whose Consumer cell is empty |
 | `mutable-globals` | a module-level owner the seven arms find whose `impl.<ns>/name` identity has no row in [`globals.md`](globals.md) |
 
 Each arm is shown to bite by `--self-test`, which plants the smallest edit that would land the mechanism the arm refuses and asserts the arm reports it.
 
-**Its own consumer, by the standard this page holds everything else to, is every PR.** `docs.yml`'s unconditional `source-scans` job runs it beside its sibling census gate, [`release-scans.md`](release-scans.md)'s `scripts/check_allocation_non_claim.py`, so a change that makes this page false reds the PR that makes it. A census nobody re-runs is a sentence that was once true.
+**Its own consumer, by the standard this page holds everything else to, is every PR.** `docs.yml`'s unconditional `source-scans` job runs it beside its sibling census gate, `release-scans.md`'s `scripts/check_allocation_non_claim.py`, so a change that makes this page false reds the PR that makes it. A census nobody re-runs is a sentence that was once true.
 
 **The mutable-globals arm enforces one direction only**, and the reason is on the page rather than in the script's silence: the reverse check — every rostered row is found by some arm — is what produced this census's own correction, and it cannot be automated honestly, because six identities-roster rows are plain `def`s of React classes and components that no textual arm distinguishes from any other `def`. Enforcing it would mean either a sixth of the roster permanently red or an allowlist that fails open. The direction that *is* enforced is the one the kill rules need: a new owner arrives with no row, and reds.
 

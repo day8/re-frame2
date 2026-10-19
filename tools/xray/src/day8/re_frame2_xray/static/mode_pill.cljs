@@ -36,10 +36,8 @@
   boundary resolves its frame from REACT CONTEXT — the same context
   `rf/frame-provider` and `rf.fresco/frame-provider` both write — so its
   read lands on `:rf/xray` without either call site threading anything.
-  A plain `defn` would not (Spec 000 §Plain Reagent fns do not pick up
-  the surrounding frame / Spec 006 §Plain-fn footgun); it is a
-  registered view precisely so the read routes. The `<select>` is native
-  so keyboard + screen-reader navigation work out of the box.
+  The `<select>` is native so keyboard + screen-reader navigation work
+  out of the box.
 
   ## Production posture
 

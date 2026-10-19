@@ -1,5 +1,7 @@
 # The allocation instrument's rework — a boundary-proportional write and an observed-collection witness
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: DESIGN BRIEF, EP-0038. Bead `rf2-2rtt6.140`, criterion 1 of six.
 Written 2026-08-08, before any code.
 
@@ -9,12 +11,12 @@ built: the **boundary-proportional write** and the **in-window collection
 witness**, designed together because neither works alone. Nothing here has been
 run. Every figure it reasons from was measured by `rf2-2rtt6.138`'s window and
 is recorded on
-[the survival metric's allocation half](studio/the-survival-metrics-allocation-half.md);
+the survival metric's allocation half (`docs/design/fresco/studio/the-survival-metrics-allocation-half.md`);
 every figure it predicts is a prediction, and the witness this page specifies is
 what will decide whether the predictions were right.
 
 **V1, V2 and V3 have since been run** — 2026-08-14, results at
-[the write half's floor is the pipeline](studio/the-write-halfs-floor-is-the-pipeline.md).
+the write half's floor is the pipeline (`docs/design/fresco/studio/the-write-halfs-floor-is-the-pipeline.md`).
 The headline for a reader of this page: the largest thing this brief could not
 settle is now measured, and it went the way the brief feared. `F₀`, the event
 pipeline, is over 90% of `F`; the 300-cell rebuild this brief's write half
@@ -72,7 +74,7 @@ rather than taken.
 ## What was measured, and why the present route is dead
 
 The full record is on
-[the studio page](studio/the-survival-metrics-allocation-half.md#the-small-witness-arm-measured);
+the studio page (`docs/design/fresco/studio/the-survival-metrics-allocation-half.md`);
 this is the part the design turns on.
 
 `rf2-2rtt6.138` built the small-witness arm — B = 24 boundaries, six writes a
@@ -510,8 +512,8 @@ the controls'. If the floor cannot pass τ, that is a finding about the floor's
 measurability at small B, not a reason to widen τ.
 
 **OUTCOME — V3 has run twice and τ is NOT pinned** (`rf2-e9wr`, 2026-08-16,
-producing commit `2cf87aed5e`; results at [the arms' spread does not
-collapse](studio/the-arms-spread-does-not-collapse.md)). The first run
+producing commit `2cf87aed5e`; results at the arms' spread does not
+collapse (`docs/design/fresco/studio/the-arms-spread-does-not-collapse.md`)). The first run
 (2026-08-14) measured the controls at a worst relative leg deviation of
 **0.99%**, which by the rule above lands τ near **0.02 – 0.05** — a value that
 refused every arm on the rig, because the arms then carried a fixed ≈ 7 KB
@@ -692,7 +694,7 @@ differenced against them, and no `s(R)` from those runs may be quoted as a
 property of the new instrument. They remain valid as what they are: the record
 of the write that was, and the evidence base for this brief.
 
-[the-survival-metrics-allocation-half.md](studio/the-survival-metrics-allocation-half.md)
+the-survival-metrics-allocation-half.md
 **annotates, never erases.** The implementation PR adds a dated note to that
 page marking the affected sections superseded, naming this brief and the bead,
 and leaving every figure and every table standing. The one figure that keeps its

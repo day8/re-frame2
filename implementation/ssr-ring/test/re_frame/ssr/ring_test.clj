@@ -17,7 +17,12 @@
 
 (def ^:private req {:uri "/" :request-method :get})
 
-(def ^:private minimal {:initial-events [] :root-view [:div] :payload [:x]})
+(def ^:private minimal {:frame {:initial-events []} :root-view [:div] :payload [:x]})
+
+(defn- seeded
+  "`minimal`, its request frame booted by `events`."
+  [events]
+  (assoc-in minimal [:frame :initial-events] events))
 
 (defn- serve [opts] ((rf.ssr.ring/ssr-handler opts) req))
 
@@ -109,10 +114,10 @@
   (rf/reg-sub :articles (fn [db _] (:articles db)))
   (rf/reg-view* :pages/articles
     (fn [] (into [:ul] (for [{:keys [title]} (rf/subscribe-once [:articles])] [:li title]))))
-  (let [response (serve {:initial-events [[:init/fetch]]
-                         :root-view      (fn [] ((rf/view :pages/articles)))
-                         :fx-overrides   {:http/get :http/get.canned}
-                         :payload        :rf.ssr.payload/whole-app-db})
+  (let [response (serve {:frame     {:initial-events [[:init/fetch]]
+                                     :fx-overrides   {:http/get :http/get.canned}}
+                         :root-view (fn [] ((rf/view :pages/articles)))
+                         :payload   :rf.ssr.payload/whole-app-db})
         body     (:body response)]
     (is (= 200 (:status response)))
     (is (= ["text/html; charset=utf-8"] (header-values response "content-type")))
@@ -138,8 +143,8 @@
 (deftest handler-redirect-short-circuits
   (rf/reg-event :init/redirect {:platforms #{:server}}
     (fn [_ _] {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-  (let [response (serve (assoc minimal :initial-events [[:init/redirect]]
-                                       :root-view [:div "should not render"]))]
+  (let [response (serve (assoc (seeded [[:init/redirect]])
+                                :root-view [:div "should not render"]))]
     (is (= [302 ["/login"] ""]
            [(:status response) (header-values response "location") (:body response)]))))
 
@@ -148,7 +153,7 @@
     (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
   (let [ops (atom [])]
     (rf/register-listener! :trace ::no-target #(swap! ops conj (:operation %)))
-    (let [response (serve (assoc minimal :initial-events [[:init/redirect]]))]
+    (let [response (serve (seeded [[:init/redirect]]))]
       (rf/unregister-listener! :trace ::no-target)
       (is (= [302 []] [(:status response) (header-values response "location")]))
       (is (some #{:rf.ssr/ssr-redirect-no-target} @ops)))))
@@ -163,8 +168,9 @@
   ;; A render throw takes the error page even when the projector picks a 4xx.
   (rf/reg-error-projector :myapp/teapot
     (fn [_] {:status 418 :code :teapot :message "I'm a teapot" :retryable? false}))
-  (let [response (serve (assoc minimal :root-view throwing-root
-                                       :ssr {:public-error-id :myapp/teapot}))]
+  (let [response (serve (-> minimal
+                            (assoc :root-view throwing-root)
+                            (assoc-in [:frame :ssr] {:public-error-id :myapp/teapot})))]
     (is (= 418 (:status response)))
     (is (str/includes? (:body response) "<h1>I&#39;m a teapot</h1>"))))
 
@@ -195,8 +201,8 @@
   ;; payload is an ordinary projected 500.
   (rf/reg-event :init/wide-id {:platforms #{:server}}
     (fn [_ _] {:db {:order {:id 9007199254740993}}}))
-  (let [{:keys [status body]} (serve (assoc minimal :initial-events [[:init/wide-id]]
-                                                    :payload [:order]))]
+  (let [{:keys [status body]} (serve (assoc (seeded [[:init/wide-id]])
+                                             :payload [:order]))]
     (is (= 500 status))
     (is (str/includes? body "Something went wrong"))
     (is (= [] (filter #(str/includes? body %) ["9007199254740993" "__rf_payload"])))))
@@ -220,9 +226,10 @@
   (rf/reg-event :init/count (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
   (rf/reg-view* :app/root (fn [] [:div.app "stable"]))
   (let [serve-payload (fn [opts]
-                        (payload (:body (serve (merge {:initial-events
-                                                       (into [[:init/count]]
-                                                             (route-with-head! :route/r (fn [_ _] {:title "Page"})))
+                        (payload (:body (serve (merge {:frame
+                                                       {:initial-events
+                                                        (into [[:init/count]]
+                                                              (route-with-head! :route/r (fn [_ _] {:title "Page"})))}
                                                        :root-view (fn [] ((rf/view :app/root)))
                                                        :payload   :rf.ssr.payload/whole-app-db}
                                                       opts)))))
@@ -238,7 +245,7 @@
         (is (= p (hydrate :app/stamped p)))))))
 
 ;; ===========================================================================
-;; ssr-handler — the request and :initial-events
+;; ssr-handler — the request, :frame and its :initial-events
 ;; ===========================================================================
 
 (deftest handler-surfaces-the-request-via-cofx-and-clears-its-slot
@@ -246,7 +253,7 @@
         request {:uri "/a" :request-method :get :headers {"cookie" "session=abc"}}]
     (rf/reg-event :init/capture {:platforms #{:server} :rf.cofx/requires [:rf.server/request]}
       (fn [{frame :rf.frame/id request :rf.server/request} _] (reset! seen [frame request]) {}))
-    ((rf.ssr.ring/ssr-handler (assoc minimal :initial-events [[:init/capture]])) request)
+    ((rf.ssr.ring/ssr-handler (seeded [[:init/capture]])) request)
     (is (= request (second @seen)))
     (is (some? (first @seen)) "a nil frame id would make the slot read below vacuous")
     (is (nil? (rf.ssr/get-request (first @seen))) "the slot dies with the request frame")))
@@ -256,9 +263,9 @@
   (let [calls (atom []) booted (atom [])]
     (rf/reg-event :init/uri {:platforms #{:server}} (fn [_ [_ uri]] (swap! booted conj uri) {}))
     (let [handler (rf.ssr.ring/ssr-handler
-                    (assoc minimal :initial-events (fn [{:keys [uri]}]
-                                                     (swap! calls conj uri)
-                                                     [[:init/uri uri]])))]
+                    (seeded (fn [{:keys [uri]}]
+                              (swap! calls conj uri)
+                              [[:init/uri uri]])))]
       (handler {:uri "/p" :request-method :get})
       (handler {:uri "/q" :request-method :get})
       (is (= [["/p" "/q"] ["/p" "/q"]] [@calls @booted])))))
@@ -288,8 +295,35 @@
           :rf.error/ssr-ring-missing-initial-events]
          (for [[construct opts] [[rf.ssr.ring/ssr-handler (dissoc minimal :payload)]
                                  [rf.ssr.ring/ssr-handler (assoc minimal :payload :rf.ssr.payload/whole-db)]
-                                 [rf.ssr.ring/ssr-handler (dissoc minimal :initial-events)]]]
+                                 [rf.ssr.ring/ssr-handler (update minimal :frame dissoc :initial-events)]]]
            (error-id #(construct opts))))))
+
+(deftest handler-takes-its-frame-config-as-one-frame-map
+  (testing "the four frame-config keys refuse at the handler's top level, naming :frame"
+    (doseq [[k v] [[:initial-events [[:init/x]]]
+                   [:fx-overrides {:http/get :http/get.canned}]
+                   [:ssr {:public-error-id :myapp/teapot}]
+                   [:url-strategy nil]]]
+      (let [e (try (rf.ssr.ring/ssr-handler (assoc minimal k v)) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= {:rf.error/id :rf.error/ssr-ring-frame-opt-invalid
+                :recovery    :move-the-frame-config-into-frame
+                :keys        [k]}
+               (select-keys (ex-data e) [:rf.error/id :recovery :keys]))
+            (pr-str k))
+        (is (str/includes? (str (ex-message e)) ":frame") (pr-str k)))))
+  (testing "the handler owns the request frame's :id and :platform"
+    (doseq [k [:id :platform]]
+      (is (= {:rf.error/id :rf.error/ssr-ring-frame-opt-invalid
+              :recovery    :remove-the-handler-owned-key
+              :keys        [k]}
+             (select-keys (thrown-data #(rf.ssr.ring/ssr-handler
+                                          (assoc-in minimal [:frame k] :app/main)))
+                          [:rf.error/id :recovery :keys]))
+          (pr-str k))))
+  (testing ":frame is a map"
+    (is (= :rf.error/ssr-ring-frame-opt-invalid
+           (error-id #(rf.ssr.ring/ssr-handler (assoc minimal :frame [[:init/x]])))))))
 
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
   ;; Strings or nil only; `:script-src false` (no bootstrap script) is the one
@@ -332,10 +366,10 @@
   ;; The shell never titles a page and the request frame has no :doc, so a
   ;; document has at most the one title its head declares.
   (doseq [[opts titles]
-          [[{:initial-events []} []]
-           [{:initial-events (route-with-head! :route/titled (fn [_ _] {:title "My Page"}))}
+          [[{:frame {:initial-events []}} []]
+           [{:frame {:initial-events (route-with-head! :route/titled (fn [_ _] {:title "My Page"}))}}
             ["<title>My Page</title>"]]
-           [{:initial-events [] :head "<title>X</title>"} ["<title>X</title>"]]]
+           [{:frame {:initial-events []} :head "<title>X</title>"} ["<title>X</title>"]]]
           :let [body (:body (serve (merge minimal opts)))]]
     (is (= titles (vec (re-seq #"<title.*?</title>" body))) (pr-str titles))))
 
@@ -351,7 +385,7 @@
              "<body class=\"ok\" inert>"]]
            [{:html-attrs {:data-theme "dark"}} {:lang "ja"} ["lang=\"ja\"" "data-theme=\"dark\""]]]]
     (let [body (:body (serve (merge minimal opts
-                                    {:initial-events (route-with-head! :route/attrs (fn [_ _] head-model))})))]
+                                    {:frame {:initial-events (route-with-head! :route/attrs (fn [_ _] head-model))}})))]
       (is (= [] (remove #(str/includes? body %) expected))))))
 
 (deftest middleware-falls-through-on-non-match
@@ -371,8 +405,8 @@
       {:db (assoc db :public/title "Public Title")
        :fx [[:rf.server/set-cookie {:name "session" :value "SECRET_TOKEN_xyz" :http-only true}]
             [:rf.server/set-header {:name "X-Secret" :value "INTERNAL_abc"}]]}))
-  (let [response (serve (assoc minimal :initial-events [[:auth/login]]
-                                       :payload :rf.ssr.payload/whole-app-db))
+  (let [response (serve (assoc (seeded [[:auth/login]])
+                                :payload :rf.ssr.payload/whole-app-db))
         p        (payload-edn (:body response))]
     (is (str/includes? p "Public Title"))
     (is (= [] (filter #(str/includes? p %) [":rf/response" "SECRET_TOKEN_xyz" "INTERNAL_abc"])))
@@ -385,7 +419,7 @@
   (rf/reg-event :init/json {:platforms #{:server}}
     (fn [_ _] {:fx [[:rf.server/set-header {:name "Content-Type" :value "application/json"}]]}))
   (doseq [[opts expected] [[{:content-type "application/xhtml+xml"} ["application/xhtml+xml"]]
-                           [{:initial-events [[:init/json]]} ["application/json"]]]]
+                           [{:frame {:initial-events [[:init/json]]}} ["application/json"]]]]
     (is (= expected (header-values (serve (merge minimal opts)) "content-type")))))
 
 (deftest ssr-handler-strips-stale-app-set-content-length
@@ -394,7 +428,7 @@
   (rf/reg-event :init/cl {:platforms #{:server}}
     (fn [_ _] {:fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
                     [:rf.server/append-header {:name "content-length" :value "13"}]]}))
-  (let [response (serve (assoc minimal :initial-events [[:init/cl]]))]
+  (let [response (serve (seeded [[:init/cl]]))]
     (is (= [200 []] [(:status response) (header-values response "content-length")]))))
 
 (deftest hydration-payload-edn-token-with-angle-round-trips
@@ -447,9 +481,8 @@
   ;; The handler re-flushes the accumulator after rendering, so a buffered
   ;; head failure would project a 500; it must stay a degraded 200.
   (let [{:keys [status body]}
-        (serve (assoc minimal
-                      :initial-events (route-with-head! :route/broken-head
-                                                        (fn [_ _] (throw (ex-info "head boom" {}))))
+        (serve (assoc (seeded (route-with-head! :route/broken-head
+                                                (fn [_ _] (throw (ex-info "head boom" {})))))
                       :root-view [:div "Body rendered fine"]))]
     (is (= 200 status))
     (is (str/includes? body "Body rendered fine"))
@@ -463,8 +496,8 @@
   (doseq [initial-events ['(:not-a-vector)       ; fails in setup, outside the body's catch
                           [[:init/bad-cookie]]]]  ; fails materialising, inside it
     (is (= {:status 500 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "Internal error"}
-           (serve (assoc minimal :initial-events initial-events
-                                 :on-error (fn [_ _] (throw (ex-info "on-error boom" {})))))))))
+           (serve (assoc (seeded initial-events)
+                         :on-error (fn [_ _] (throw (ex-info "on-error boom" {})))))))))
 
 (deftest setup-failure-catch-does-not-reap-same-id-successor
   ;; make-frame rolls a failed incarnation back itself; a same-id successor
@@ -475,7 +508,7 @@
                                   (real-make {:id id :platform :server})
                                   (reset! successor [id (rf.frame/frame-incarnation-token id)])
                                   (throw (ex-info "incarnation A failed" {})))]
-      (rf.ssr.ring.pipeline/setup-request-frame! {:initial-events [] :on-error (fn [_ _] {:status 500})}
+      (rf.ssr.ring.pipeline/setup-request-frame! {:frame {:initial-events []} :on-error (fn [_ _] {:status 500})}
                                                  req))
     (is (apply rf.frame/frame-incarnation-live? @successor))
     (rf/destroy-frame! (first @successor))))

@@ -1,8 +1,8 @@
 # Interop
 
 Use `h/defhost` to give a foreign React component a named, testable boundary,
-with its slot and server policy declared once and its callbacks inferred
-exactly as on a native tag.
+with its slot and server policy declared once and its callbacks meaning exactly
+what they mean on a native tag.
 
 ```clojure
 (ns app.hosts.date-picker
@@ -43,7 +43,7 @@ Declare a host at namespace top level, never during rendering.
 | Prop values | functions, keywords and JS objects pass by identity; a CLJS map, vector or set is converted with `clj->js`, keeping nested keys as written |
 | HTML-like attribute slots | class/id/role/data/ARIA values use native-attribute coercion; Fresco class collections are joined |
 | Children | Hiccup is converted where it was authored |
-| Callbacks | contract inferred from the prop's spelling, as on a native tag — see below |
+| Callbacks | a carrier keeps its meaning at every prop; an intent vector or key map is an event only at an `on*` prop — see below |
 | Declared slots | Hiccup becomes React elements under the captured frame |
 | Server | Client-only unless the declaration says `:server :render` |
 
@@ -52,31 +52,43 @@ inside an options object, or a string where you hold a keyword, build that
 value yourself with `#js`, a string, or `(name value)`. Fresco does not guess a
 library's data model.
 
-The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`, and
-validates them when the namespace loads rather than at a later mount.
+The declaration accepts `:slots`, `:server`, and `:fallback`, and validates them
+when the namespace loads rather than at a later mount.
 
-## Callback contracts
+## Callbacks
 
-Fresco infers a callback's contract from the prop's spelling, exactly as it
-does on a native tag. An `on*` prop is an **event** position; any other prop
-that receives `h/event` is a **render** position; a plain function crosses
-untouched anywhere. No declaration is needed for the usual case:
+A callback's meaning is its **carrier**, never the prop's name. Each means the
+same thing at every prop of a native tag, a `defhost` or a `[:>]` crossing:
+
+| Carrier | The library calls it | What happens |
+| --- | --- | --- |
+| `h/event` | to report something | a returned vector is dispatched into the writing view's frame; any other return is ignored |
+| `h/render-fn` | for markup, during its own render | the returned Hiccup becomes a React element, and intents inside it dispatch into the writing view's frame |
+| a plain function | for anything else | crosses untouched, by identity |
+
+An intent vector or key map is an event at an `on*` prop, exactly as on a native
+tag, and data at any other prop. No declaration is needed for any of it:
 
 ```clojure
 (h/defhost date-picker DatePicker)
 (h/defhost virtual-list Virtuoso)
 ```
 
-### Event positions
+### Event callbacks
 
 An `on*` prop accepts an intent vector, a key map, or `h/event`. The foreign
 component passes its own arguments in its documented order. Use `h/event` for a
-value-first callback such as `onChange(date)`:
+value-first callback such as `onChange(date)`, and for an event prop the library
+does not spell `on*`, such as Virtuoso's `endReached`:
 
 ```clojure
 [date-picker {:selected  due-date
               :on-change (h/event [date _event]
                            [:todo/set-due id date])}]
+
+[virtual-list {:total-count  (count todos)
+               :end-reached  (h/event [_index] [:todo/load-more])
+               :item-content …}]
 ```
 
 A bare intent with no marker is valid even when no DOM event exists because it
@@ -84,48 +96,67 @@ does not inspect callback arguments. A marker-bearing intent remains
 event-first; if argument one is not a DOM event, Fresco raises
 `:rf.error/fresco-intent-needs-the-event` and points to `h/event`.
 
-### Render positions
+### Render callbacks
 
-A callback at any other prop runs during the foreign component's React render.
-It must be pure and must return a React element, not raw Hiccup:
+A render callback runs during the foreign component's React render. Write it
+with `h/render-fn` and return Hiccup:
 
 ```clojure
 [virtual-list
  {:total-count  (count todos)
-  :item-content (h/event [i]
+  :item-content (h/render-fn [i]
                   (let [{:keys [id title]} (nth todos i)]
-                    (h/as-element
-                     [:li.row {:on-click [:todo/toggle id]}
-                      title])))}]
+                    [:li.row {:on-click [:todo/toggle id]}
+                     title]))}]
 ```
 
-`h/as-element` converts the Hiccup result. `h/event` captures the supplying
-view's frame, so event vectors inside that result later dispatch to the correct
-frame. The callback itself is pure: its return is the render output, and
-nothing is dispatched while it runs.
+`h/render-fn` converts the Hiccup it returns and captures the supplying view's
+frame, so event vectors inside the row later dispatch to the correct frame. The
+callback itself is pure: its return is the render output, and nothing is
+dispatched while it runs.
 
-A plain function is legal at any position and passes through without a wrapper.
-It is enough when the callback returns a Fresco view head whose frame is
-resolved where React renders it. If the callback's raw Hiccup contains event
-vectors, use `h/event`; otherwise conversion has no captured frame and raises
-`:rf.error/fresco-intent-outside-boundary`. There is no separate "handler"
-contract to declare: a plain function is that contract.
+In the cell below, a few lines of React stand in for the library: `Repeat`
+calls its `itemContent` prop once per row during its own render, as a
+virtualizer does. Click a row: its event vector dispatches into the `:picker`
+frame, the frame of the view that supplied the callback.
 
-### Overriding the spelling
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[reagent.core :as r])
 
-Some libraries name render props `on*`. Fluent UI's `onRenderItem`,
-`onRenderCell` and `onRenderHeader` return UI; Ant Design's `onRow` and `onCell`
-return props maps, and `onFilter` returns a boolean. The event wrapper returns
-`nil`, so an `h/event` at one of those props would blank the list silently.
-Declare the override once, on the host:
+(rf/reg-event :row/pick (fn [{:keys [db]} [_ i]] {:db (assoc db :picked i)}))
+(rf/reg-sub   :picked   (fn [db _] (:picked db)))
+
+;; The stand-in library component.
+(defn Repeat [props]
+  (apply r/create-element "ul" nil
+         (map (.-itemContent props) (range (.-totalCount props)))))
+
+(h/defview picker [_]
+  [:div
+   [:p "Picked: " (str (h/sub [:picked]))]
+   [:> Repeat {:total-count  3
+               :item-content (h/render-fn [i]
+                               [:li [:button {:on-click [:row/pick i]}
+                                     "Row " i]])}]])
+
+[h/frame-root {:id :picker}
+ [picker {}]]
+```
+
+The prop's name does not matter. Fluent UI's `onRenderItem`, `onRenderCell` and
+`onRenderHeader` return UI and take `h/render-fn` like any other render prop:
 
 ```clojure
-(h/defhost details-list DetailsList
-  {:callbacks {:on-render-item :render}})
+[details-list {:items          items
+               :on-render-item (h/render-fn [item]
+                                 [:span.cell (.-name item)])}]
 ```
 
-A declared contract outranks the spelling. Write the override only where the
-spelling is wrong; the usual case needs none.
+A callback that returns something other than UI, such as Ant Design's `onRow`
+(a props map) or `onFilter` (a boolean), is a plain function. A plain function
+carries no frame, so markup with event vectors in it belongs in `h/render-fn`.
 
 ## ReactNode slots
 
@@ -245,22 +276,20 @@ Declare a component once it appears more than once. The raw escape loses:
 | Contract carried by `h/defhost` | Raw `[:>]` |
 | --- | --- |
 | authored name for tools | constant `"[:>]"` |
-| a `:callbacks` override for an on*-named render prop | none; the spelling decides |
 | ReactNode slot declarations | Hiccup in props remains data |
 | selectable server policy and fallback | fixed Client-only with no direct fallback |
 | one declaration-time validation site | failures occur at each crossing |
 | quarantine of JS require in a host namespace | require remains in the view namespace |
 
-Callbacks are inferred from the spelling on a raw escape exactly as on a
-declared host: an intent vector or `h/event` at an `on*` prop dispatches into
-the writing view's frame, and `h/event` at any other prop is a frame-carrying
-render callback. The escape cannot express a `:callbacks` override or a
-ReactNode slot; both need `h/defhost`.
+Callbacks work on a raw escape exactly as on a declared host: each carrier
+keeps its meaning at every prop, and an intent vector at an `on*` prop
+dispatches into the writing view's frame. The escape cannot express a ReactNode
+slot; that needs `h/defhost`.
 
 A plain function still crosses by identity but carries no frame. Ambient
 `rf/dispatch` from that function later raises `:rf.error/no-frame-context`.
 Capture the current frame during the body and close over its `:dispatch`, or
-replace the escape with a declared `:event` callback.
+write the function as `h/event`.
 
 A transparent Client-only wrapper can provide server placeholder markup around
 an escape:
@@ -312,7 +341,8 @@ back as `:todo-id`); values do not. Pass an id and read the rest with
 `h/sub`, and the conversion never arises ([Views shared across the
 boundary](20-migration-from-reagent.md#views-shared-across-the-boundary)).
 
-Use `h/as-element` for one subtree returned through a callback. Use
+Use `h/render-fn` for a subtree a library asks for through a callback, and
+`h/as-element` for one element at a prop no declaration reaches. Use
 `h/as-component` when a native parent will mount, key, and re-render the view
 as a component.
 
@@ -368,11 +398,11 @@ a row to see both work.
 | --- | --- | --- |
 | A library ignores a keyword value or a nested kebab-case key | Keyword values pass by identity, and `clj->js` keeps nested keys as written | Supply the documented JS or string shape with `#js`, camelCase keys, or `(name value)` |
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
-| React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
-| A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
-| `:rf.error/fresco-bad-host-declaration` at declaration | An unknown option, a `:callbacks` value other than `:event` or `:render` (often `:handler`), or a malformed `:slots` set; the error's reason names the fault | Pass a plain function for a handler; declare `:event` or `:render` only where the spelling is wrong |
+| React rejects an object returned by a render callback | A plain function returned raw Hiccup | Write the callback as `h/render-fn` |
+| A list renders nothing at a render prop | The callback is an `h/event`, whose wrapper returns `nil` | Write it as `h/render-fn` |
+| `:rf.error/fresco-bad-host-declaration` at declaration | An unknown option (`:callbacks` is not one), or a malformed `:slots` set; the error's reason names the fault | Remove the option; a callback's meaning is its carrier, `h/event` or `h/render-fn` |
 | `:rf.error/fresco-host-no-component` at declaration | The component resolved to `nil`, often a mistaken `:default` import | Check the require's `:default` or `:refer` form against the library's exports |
-| A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Fresco body or use a declared event callback |
+| A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Fresco body, or write the callback as `h/event` |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
 | `:rf.error/fresco-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |
 | A hosted component does not receive changed application state | The surrounding view bailed out and the host's own props did not change | Put every value that drives the host on the host's props |

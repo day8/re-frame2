@@ -1,5 +1,7 @@
 # The rider follows the position, not the substrate — the confound broken on a rig change
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-rs8q6`, option (a) of the mayor's
 2026-08-18 ruling: *break the position/substrate confound and read the result.*
 

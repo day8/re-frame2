@@ -972,9 +972,9 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 
 (def handler                                          ;; a Ring handler: one frame per request, then torn down
   (ssr-ring/ssr-handler                               ;; re-frame.ssr.ring
-    {:initial-events [[:app/server-init]]             ;; the per-request setup, drained before the render
-     :root-view      (fn [] ((rf/view :app/root)))    ;; resolved per request, after the drain
-     :payload        [:auth/user]}))                  ;; allowlist: the only app-db keys the browser sees
+    {:frame     {:initial-events [[:app/server-init]]} ;; the per-request frame's config; its setup drains before the render
+     :root-view (fn [] ((rf/view :app/root)))         ;; resolved per request, after the drain
+     :payload   [:auth/user]}))                       ;; allowlist: the only app-db keys the browser sees
 ```
 
 **Server-side `:app/server-init` handler:**

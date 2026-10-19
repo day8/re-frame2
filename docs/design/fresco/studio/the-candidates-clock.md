@@ -1,5 +1,7 @@
 # The candidate's clock — mount, bulk K=100/300, narrow, per-keystroke
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **The candidate is slower on the clock, and the correction made it slower
 still.** On the mount row, Fresco Arm 1 mounts the 300-boundary witness at
 **1.4896× Reagent-on-subs** [1.3488 – 1.5989] — on raw `TaskDuration`, which
@@ -105,7 +107,7 @@ report.
 > Event Timing reports user interactions — was **never affected**, and its two
 > clocks agree to 0.3%. §4's `M1` and §6's three rows were. `taskNet` is
 > therefore a label that meant two different things on two harnesses, and the
-> [outside cross-check](cross-checked-against-an-outside-instrument.md), which
+> outside cross-check (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`), which
 > clicks rather than evaluates, needs no restatement either.
 
 Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
@@ -120,7 +122,7 @@ Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
 Until it, **the programme had no wall-clock measurement of its own candidate.**
 Two axes were measured — hook count (2, flat across 1/7/20 reads, counted at
 React's own dispatcher) and per-read retained heap
-([the ladder's §6](reads-per-boundary-heap-ladder.md#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index))
+(the ladder's §6 (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`))
 — and every clock figure the programme has published, `M1` mount `1.0150×` and
 bulk-broad `0.6291×` on [the converged page](p0-converged-witness-set.md), is
 about the **donors**: UIx against Reagent. Nothing on the clock was about
@@ -439,7 +441,7 @@ straddles 1.0.
 **What the rebook needs is a change to the rig, not a longer window.** The
 `keystroke` row wants a control whose ratio to the floor is a property of the
 page — the three-point construction of
-[a control that differences the constant away](a-control-that-differences-the-constant-away.md)
+a control that differences the constant away (`docs/design/fresco/studio/a-control-that-differences-the-constant-away.md`)
 is the obvious donor — because until it has one, no amount of quiet produces an
 adjudicable per-keystroke magnitude. Two smaller items belong with it: the
 dataset above carries `label: null` and `load: null` because `HCLOCK_LABEL` and
@@ -792,7 +794,7 @@ taken on a different harness, on a page whose two readings are closer. What it
 says is that no published clock row in this programme had ever been checked
 against an instrument that sees past `flushSync`, and that the check is now
 cheap. It was filed and it has been done — `rf2-8nqsl` did the audit,
-[`rf2-rguy1`](cross-checked-against-an-outside-instrument.md) the outside
+`rf2-rguy1` (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`) the outside
 cross-check, and `rf2-yd52q` the re-take that found this second window was
 itself only half an operation.
 
@@ -1559,7 +1561,7 @@ inputs are gone; the durable path starts at the re-run and not before it.
   published row, and it does mean no published clock row had ever been checked on
   an instrument that sees past `flushSync`. ~~It raises `rf2-rguy1`.~~ **It did,
   and the answer arrived from three directions**: `rf2-8nqsl` audited the record,
-  [`rf2-rguy1`](cross-checked-against-an-outside-instrument.md) cross-checked it
+  `rf2-rguy1` (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`) cross-checked it
   against a driver nobody here wrote, and `rf2-yd52q` then found **this page's
   own second window was frame-only** — so the finding above understates the
   problem. Neither of the two clocks compared here held a whole operation.

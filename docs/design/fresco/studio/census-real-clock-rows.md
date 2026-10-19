@@ -1,5 +1,7 @@
 # The census-real pages, on the clock of record
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 The tier-1 shape roster (`rf2-2rtt6.51`) put four census-real pages on one
 shared state layer — RealWorld/Conduit's own screens, sizes predicted by
 arithmetic and held there by witnesses — and deliberately published no timing

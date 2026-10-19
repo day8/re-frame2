@@ -1,5 +1,7 @@
 # The typeahead resource-demand witness
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 The evidence `rf2-hic-050` decides the flagship experiment on, and nothing else. This page **records; it does not decide.** Where a criterion turns on a judgement, the judgement is named and left to the verdict, because a witness that graded itself would have made the pre-registration pointless.
 
 The criteria are frozen at commit `afbb58febc`, which is the effective revision of [`resource-demand-criteria.md`](resource-demand-criteria.md) after C2's prospective amendment and the revision every claim below is written against. The criteria text at that revision is byte-for-byte the text on `main` today; only the file's own provenance rows have moved since, which the [amendment rule](resource-demand-criteria.md#amendment-rule) explicitly does not count as an amendment. The witness commits postdate it.

@@ -1,5 +1,7 @@
 # Arm 1 — lean-React: the mechanism, and the three-rendering dogfood judgement
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **Bead:** `rf2-2rtt6.9` · **Arm:** Fresco lean-React
 ([architecture.md](../architecture.md) Arm 1) · **Branch:** `worker/arm1-2rtt6-9`
 
@@ -226,7 +228,7 @@ unmounts one to show the repaired reading is live at the point the gates take it
 **The steady-state allocation slope across warm 1/3/7/20 reads** needs the bench
 and is not taken here. It has since been *attempted* on the bench, and the
 attempt is worth reading before the next one is made:
-[the survival metric's allocation half](the-survival-metrics-allocation-half.md)
+the survival metric's allocation half (`docs/design/fresco/studio/the-survival-metrics-allocation-half.md`)
 builds the allocation row the P0 rig lacked, validates its arithmetic against a
 positive control it has to hit — and then **refuses the series**, on two counts.
 All four fits fall under the r² floor the reads ladder publishes under, and the

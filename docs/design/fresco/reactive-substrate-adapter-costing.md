@@ -1,5 +1,7 @@
 # Sizing a Fresco-shaped adapter (`rf2-hvr5h`)
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **RULED AND BUILT.** The hold this page was written under is discharged: the
 > operator ruled *build it* on 2026-08-19 01:05 AUSEST, on this page's own
 > finding that the sizing came back small, and `re-frame.fresco.substrate`

@@ -183,6 +183,11 @@ Node is handed a **projection** of the settled frame — not the frame — under
 policy the host declares, and it hands back a string. Nothing else crosses in
 either direction.
 
+Both halves make their frame from the same var, `model/frame-config`: the host
+passes it as `ssr-handler`'s `:frame`, and `server.cljs` hands it to
+`render-body` as `:frame-opts`, where its `:initial-events` do not run again
+because the JVM already drained them.
+
 ### The two policies
 
 There are two allowlists, and reading them as one is the mistake worth

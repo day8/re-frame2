@@ -7,7 +7,7 @@
 
 ## Role
 
-A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the seven standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/safe-redirect` / `:rf.server/set-cookie` / …), `reg-event`, dev-time schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
+A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the six standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/set-cookie` / …), `reg-event`, dev-time schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
 
 The pattern exists because SSR apps need progressive-enhancement-friendly form handling: a form must work without JavaScript (the server processes the POST and returns a fresh page), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload). Pattern-Forms covers the client-side lifecycle and the form-slice shape; this pattern covers the server-side POST seam and the cross-platform handler tree.
 

@@ -105,9 +105,9 @@ Judge it on the questions that do apply:
 
 - Is the crossing declared, so it is validated once and named to the tools?
 - Does every value that drives the component arrive on its own props?
-- Does each callback's inferred contract match the library? In particular, is
-  any `on*`-named prop really a render prop, which needs a
-  `{:callbacks {… :render}}` override?
+- Does each callback carry the right carrier for what the library does with
+  it? In particular, is any `on*`-named prop really a render prop, which takes
+  `h/render-fn`?
 - Does the declaration state the server policy you meant, rather than
   defaulting to Client-only?
 - If the component acquires anything, does something release it?

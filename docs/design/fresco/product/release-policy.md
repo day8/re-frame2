@@ -1,5 +1,7 @@
 # The release policy — what Fresco ships, and what an upgrade costs
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **Published by `rf2-hic-061`.** This page owns three things
 [`specification.md` §12 Phase 6](specification.md#phase-6--adoption-and-release) states and
 [§13's first bullet](specification.md#13-definition-of-done) requires — *the package … has a documented
@@ -30,7 +32,7 @@ than only the number.
 | What each React-version obligation is, per surface class | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
 | Which refusal ids exist and what stability they carry | [`complaints.md` §The stability rule](../../../../implementation/fresco/spec/complaints.md#the-stability-rule) |
 | Which spellings changed, and under whose ruling | [`naming-packet.md`](naming-packet.md#21-operator-rulings-mike-2026-08-11), [`naming-ledger.md`](naming-ledger.md) |
-| Which laws the ordinary facade is frozen under — and that names are not among them | [`facade-freeze.md`](facade-freeze.md#1-the-membership-and-how-it-was-decided) |
+| Which laws the ordinary facade is frozen under — and that names are not among them | `facade-freeze.md` |
 | What ships as an artefact, and what does not | this file |
 
 ## 1. What the artefact is
@@ -201,7 +203,7 @@ compares the two. Whoever re-measures §3 and §4 re-reads that section in the s
 | ClojureScript 1.12.145 and shadow-cljs 3.4.10 | `implementation/core/deps.edn`; `implementation/package.json` | every CLJS job | **TESTED** |
 | Production build, `:advanced` with `goog.DEBUG` false | the `fresco-release` build id in `implementation/shadow-cljs.edn` | the `build:fresco-release` step in job `cljs`, which chains production-erasure and bundle-isolation checks | **TESTED** |
 | The optional Node service, `re-frame.fresco.server` | `implementation/fresco/deps.edn`'s one `day8/re-frame2-ssr` entry | `server_render_ssr_dom_cljs_test.cljs` on the CLJS lane | **TESTED as a render witness.** The per-surface SSR/hydration policy it serves is the next row |
-| Every inventoried public surface against its SSR/hydration policy row | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | the witnesses each policy row names | **OPEN.** [`checkpoint-4-coverage.md`](checkpoint-4-coverage.md) returned **NOT MET** on the Phase 4 exit, and nothing here softens that. This row is not green and must not be read as green |
+| Every inventoried public surface against its SSR/hydration policy row | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | the witnesses each policy row names | **OPEN.** `checkpoint-4-coverage.md` returned **NOT MET** on the Phase 4 exit, and nothing here softens that. This row is not green and must not be read as green |
 
 ### 4.1 The recheck obligation, per supported React version
 
@@ -269,7 +271,7 @@ records that they are the compatibility promise Fresco currently makes.
 
 **Everything else on the door is provisional, and the documents say so in their own words.**
 [`specification.md` §4](specification.md#4-target-programming-model) opens by calling the names *"a
-provisional facade"*. [`facade-freeze.md`](facade-freeze.md#1-the-membership-and-how-it-was-decided) freezes
+provisional facade"*. `facade-freeze.md` freezes
 the ordinary surface's **laws and semantics** — fourteen of fourteen — and freezes **no name at all**, which
 it states in its second paragraph. A reader who takes that page as a naming freeze has read it backwards.
 
@@ -327,7 +329,7 @@ Three consequences, and this page states them rather than working around them:
   is tag ORDER, `v*` before `xray-v*` at the same VERSION.
 
 The other open item is not this bead's to close either: §4's last row rests on a Phase 4 exit that
-[`checkpoint-4-coverage.md`](checkpoint-4-coverage.md) returned **NOT MET**. A compatibility matrix cannot
+`checkpoint-4-coverage.md` returned **NOT MET**. A compatibility matrix cannot
 promise a green its own evidence page declines to give, so it does not.
 
 ### 6.1 The consumer app exists, and it does not yet consume an artefact

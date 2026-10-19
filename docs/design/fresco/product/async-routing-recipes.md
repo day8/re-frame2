@@ -1,5 +1,7 @@
 # The routing and async-resource recipes
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 The evidence for [specification.md](specification.md#7-complete-use-case-coverage) §7's *Validation and async normalization* row (**late result cannot clobber newer edits**), the *Async resources and mutations* row's mutation-status and settle-merge half, and the dirty-leave half of its *Routing and navigation* row.
 
 `rf2-hic-054` **changes no runtime and adds no namespace to any artefact.** It is three recipes, written as one small application on the shipped public doors, plus the two suites that hold them and the one witness that holds *this page* to them.

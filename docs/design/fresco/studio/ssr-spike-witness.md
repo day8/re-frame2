@@ -1,5 +1,7 @@
 # The SSR spike witness — X1–X5 on the hydrated dogfood screen
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Evidence for the P2 sitting. No verdict is published here and none is
 implied.** The sitting's decider is the operator
 ([the decision brief](../product/decision-brief.md) — `rf2-2rtt6.1` was

@@ -17,9 +17,17 @@ by [EP-0038](../../EP/EP-0038-the-fresco-view-layer-programme.md).
 | [validation.md](validation.md) | The bar, the budgets, the P0→P1→P2 plan, witnesses, tournament and measurement discipline, kill criteria |
 | [authoring.md](authoring.md) | The authoring surface: views, subs, intents, interop door, theming, ephemeral state, testing doors |
 
-**Authority.** decisions.md is normative; where pages differ, decisions.md
-governs, then validation.md. EP-0038 sequences the programme; the operator-owned
-standard bead carries the live bar/kill numbers.
+**Authority.** This directory is the design record — the reasoning, the
+alternatives and the measurements behind Fresco — and it does not govern the
+shipped package. The contract is
+[`implementation/fresco/spec/authoring-contract.md`](../../../implementation/fresco/spec/authoring-contract.md),
+with its sibling tables in
+[`implementation/fresco/spec/`](../../../implementation/fresco/spec/README.md);
+where any page here differs from them, the contract is right and the page is
+history. Within the record, decisions.md is the canonical statement of each
+ruling, and a page here that calls it normative means that and no more. EP-0038
+sequences the programme; the operator-owned standard bead carries the live
+bar/kill numbers.
 
 **Provenance and retention.** This record graduates — and fully absorbs — the
 exploration corpus that lived in the untracked local `ai/findings/new-view/`
@@ -29,7 +37,10 @@ there. The requirements harness was tracked at
 `docs/design/freehand/studio/fitness-harness.md`, removed from the tree with the rest of
 the Freehand record and read from git history at commit `9cee47cf38`; measured claims cite the
 repo's studio/bench record and beads. The bench lane those measurements were taken on lives at `bench/fresco/` since 2026-08-29 (rf2-6c12m.1; its README maps the older `implementation/fresco/test/re_frame/bench/fresco/` paths cited across this record). Programme measurements land in
-`docs/design/fresco/studio/` (minted by the first P0 worker).
+`docs/design/fresco/studio/` (minted by the first P0 worker). The studio and
+product pages that nothing outside this record cited were removed from the tree
+once the contract governed, and read from git history at commit `0b8fe8c3ba`; a
+page here names one as a plain-text path.
 
 This tree is excluded from the published mkdocs site and is read in the source
 tree.

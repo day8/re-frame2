@@ -129,12 +129,11 @@
                      (vreset! seen {:id      (rf/current-frame-id)
                                     :capture (:frame (rf/capture-frame))
                                     :read    (outcome #(rf/subscribe [:fresco.todo/done? 0]))}))]
-      ;; Lowered at a NON-event position inside frame-a's body, which is
-      ;; what gives it the render contract.
+      ;; A render carrier, lowered inside frame-a's body.
       (rf.fresco.impl.collector/render-body frame-a
                              (fn [_]
                                (vreset! callback
-                                        (rf.fresco.impl.intent/lower-prop :render-row (rf.fresco.impl.intent/callback probe)))
+                                        (rf.fresco.impl.intent/lower-prop :render-row (rf.fresco.impl.intent/render-carrier probe)))
                                [:li])
                              {})
       (is (some? @callback) "precondition: the render position lowered a wrapper")

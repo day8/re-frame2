@@ -1,5 +1,7 @@
 # Coverage proof suites
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 [`../specification.md`](../specification.md#7-complete-use-case-coverage) owns capability placement, phase deliverables, and release policy. This file owns the concrete proof suites: the finite witnesses and artifacts that demonstrate coverage. It does not maintain a second roadmap or paraphrase phase outcomes.
 
 ## Canonical suites

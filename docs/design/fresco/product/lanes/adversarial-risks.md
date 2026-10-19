@@ -1,5 +1,7 @@
 # Fresco adversarial risk register
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 A missing witness is not a confirmed defect. Each risk has a required contract, a deciding witness, and a remedy if the witness is red.
 
 ## Phase 1 kernel risks

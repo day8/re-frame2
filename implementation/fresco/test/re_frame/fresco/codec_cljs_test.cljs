@@ -1,6 +1,7 @@
 (ns re-frame.fresco.codec-cljs-test
   "Hiccup lowering preserves React's prop contracts and refuses invalid heads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.slot-corpus :as rf.fresco.slot-corpus]
@@ -358,7 +359,7 @@
             ref slot by identity too — wrapping would both forbid a dispatch
             that is legitimate there and change the identity React uses to
             decide whether to re-attach the node"
-    (let [f (rf.fresco.impl.intent/callback (fn [_node]))]
+    (let [f (rf.fresco/event [_node])]
       (is (identical? f (prop (rf.fresco.impl.codec/as-element [:div {"ref" f}]) "ref")))
       (is (identical? f (prop (rf.fresco.impl.codec/as-element [:div {:x/ref f}]) "ref")))))
   (testing "every :ref value passes through the ordinary conversion — the
@@ -525,19 +526,26 @@
         "the native walk's own answer, quoted so the claim is not asserted
          about a function nobody ran")))
 
-(deftest a-host-infers-the-contract-from-the-spelling-exactly-as-a-native-tag
-  ;; There is no declaration roster. `host-entry`'s `:else`
-  ;; arm IS `intent/lower-prop`, the native walk's own classifier, so a
-  ;; host prop means what the same prop means on a native tag.
+(deftest a-carrier-means-the-same-thing-at-every-host-prop
+  ;; There is no declaration roster and no spelling rule for carriers.
+  ;; `host-entry`'s `:else` arm IS `intent/lower-prop`, the native walk's
+  ;; own classifier, so a host prop means what the same prop means on a
+  ;; native tag, and a carrier means what its KIND says at every prop.
   (let [!seen (atom [])
         d     (fn [ev] (swap! !seen conj ev))]
-    (testing "an on*-spelled prop is an EVENT position with no declaration
-              at all: an h/event there dispatches its return"
-      (let [f (rf.fresco.impl.intent/with-frame d (fn [] (host-prop :on-pick (rf.fresco.impl.intent/callback (fn [x] [:row/pick x])) "onPick")))]
+    (testing "an event carrier dispatches its return at an on*-spelled prop"
+      (let [f (rf.fresco.impl.intent/with-frame d (fn [] (host-prop :on-pick (rf.fresco/event [x] [:row/pick x]) "onPick")))]
         (f 1)
         (is (= [[:row/pick 1]] @!seen))))
-    (testing "and so are the vector and key-map spellings, exactly as at a
-              native tag"
+    (testing "and at a prop with any other spelling — a carrier moved
+              between props keeps its effect, so a vendor's non-on* event
+              prop needs no declaration"
+      (reset! !seen [])
+      (let [f (rf.fresco.impl.intent/with-frame d (fn [] (host-prop :end-reached (rf.fresco/event [x] [:feed/more x]) "endReached")))]
+        (is (nil? (f 7)) "the event wrapper returns nil")
+        (is (= [[:feed/more 7]] @!seen))))
+    (testing "the vector and key-map spellings are intents at an on* prop,
+              exactly as at a native tag"
       (reset! !seen [])
       (let [f (rf.fresco.impl.intent/with-frame d (fn [] (host-prop :on-close [:dialog/cancel] "onClose")))]
         (f #js {:target #js {}})
@@ -546,68 +554,49 @@
       (let [f (rf.fresco.impl.intent/with-frame d (fn [] (host-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
         (f #js {:key "Enter" :isComposing false :target #js {}})
         (is (= [[:go]] @!seen))))
-    (testing "any other prop is a RENDER position: the h/event takes the
-              render wrapper, which rebinds the supplying boundary's frame
-              and dispatch for the call, so a row it returns dispatches
-              into that frame when clicked — after the render extent has
-              unwound"
+    (testing "a render carrier returns an ELEMENT, and the row it built
+              dispatches into the supplying boundary's frame when clicked —
+              after the render extent has unwound"
       (reset! !seen [])
       (let [render-row (rf.fresco.impl.intent/with-frame d
                          (fn [] (host-prop :render-row
-                                           (rf.fresco.impl.intent/callback
-                                             (fn [i] (rf.fresco.impl.codec/as-element [:li {:on-click [:row/pick i]}])))
+                                           (rf.fresco/render-fn [i] [:li {:on-click [:row/pick i]}])
                                            "renderRow")))
             row        (render-row 9)]
         (is (nil? rf.fresco.impl.intent/*dispatch*) "precondition: no ambient dispatch here")
         (is (= "li" (.-type row)))
         ((aget (.-props row) "onClick") #js {:target #js {}})
         (is (= [[:row/pick 9]] @!seen))))
-    (testing "the on*-named RENDER prop is the one case the spelling gets
-              wrong — Fluent's onRenderItem, Ant's onRow — and the
-              `:callbacks` override is its one-line spelling: the render
-              wrapper rather than the event wrapper, so the returned row
-              is the render output (an event wrapper returns nil) and it
-              still dispatches on click"
+    (testing "and the SAME at an on*-named render prop — Fluent's
+              onRenderItem — with no declaration: the carrier's kind, not
+              the spelling, selects the wrapper, so the list does not blank"
       (reset! !seen [])
-      (let [fluent    (rf.fresco.impl.codec/mint-host! "FluentList" a-foreign-component
-                                        {:callbacks {:on-render-item :render}})
+      (let [fluent    (rf.fresco.impl.codec/mint-host! "FluentList" a-foreign-component)
             render-fn (rf.fresco.impl.intent/with-frame d
                         (fn [] (prop (rf.fresco.impl.codec/as-element
                                        [fluent {:on-render-item
-                                                (rf.fresco.impl.intent/callback
-                                                  (fn [item] (rf.fresco.impl.codec/as-element [:li {:on-click [:row/pick item]}])))}])
+                                                (rf.fresco/render-fn [item] [:li {:on-click [:row/pick item]}])}])
                                      "onRenderItem")))
             row       (render-fn "x")]
         (is (= "li" (.-type row)) "the render output came back")
+        (is (= [] @!seen) "rendering dispatched nothing")
         ((aget (.-props row) "onClick") #js {:target #js {}})
         (is (= [[:row/pick "x"]] @!seen))))
-    (testing "an override may also say :event where the spelling infers
-              render, and the vector spelling then lowers as at a native
-              event position"
-      (reset! !seen [])
-      (let [h (rf.fresco.impl.codec/mint-host! "PickHost" a-foreign-component {:callbacks {:pick :event}})
-            f (rf.fresco.impl.intent/with-frame d (fn [] (prop (rf.fresco.impl.codec/as-element [h {:pick [:row/pick 2]}]) "pick")))]
-        (f #js {:target #js {}})
-        (is (= [[:row/pick 2]] @!seen))))
-    (testing "a PLAIN function crosses by identity at an event position and
-              at a render position alike — there is no third contract,
-              because this is what :handler named"
+    (testing "a PLAIN function crosses by identity at every prop"
       (let [f (fn [_] :whatever)]
         (is (identical? f (host-prop :on-pick f "onPick")))
         (is (identical? f (host-prop :render-row f "renderRow")))))
-    (testing "a vector at an inferred render position crosses as DATA, as
-              at a native tag; so does one at a declared :render override"
-      (is (array? (host-prop :columns ["a" "b"] "columns")))
-      (let [h (rf.fresco.impl.codec/mint-host! "ColumnsHost" a-foreign-component {:callbacks {:render-row :render}})]
-        (is (array? (prop (rf.fresco.impl.codec/as-element [h {:render-row ["a" "b"]}]) "renderRow")))))
-    (testing "and a contract outside the two is a bad declaration, refused
-              at mint where the author's stack is the declaration"
-      (let [data (try (rf.fresco.impl.codec/mint-host! "HandlerHost" a-foreign-component
-                                        {:callbacks {:on-pick :handler}})
+    (testing "a vector at a non-on* prop crosses as DATA, as at a native tag"
+      (is (array? (host-prop :columns ["a" "b"] "columns"))))
+    (testing "`:callbacks` is not an option: there is no spelling to
+              override, so a declaration carrying it is refused at mint,
+              where the author's stack is the declaration"
+      (let [data (try (rf.fresco.impl.codec/mint-host! "OverrideHost" a-foreign-component
+                                        {:callbacks {:on-render-item :render}})
                       nil
                       (catch :default e (ex-data e)))]
-        (is (= :rf.error/fresco-bad-host-declaration (:rf.error/id data))
-            ":handler is not a contract; the two are :event and :render")))))
+        (is (= :rf.error/fresco-bad-host-declaration (:rf.error/id data)))
+        (is (= :callbacks (:option data)))))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
   (testing "collections through clj->js, whose nested keys keep the spelling
@@ -787,19 +776,22 @@
                                      (fn [] (raw-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
         (f #js {:key "Enter" :isComposing false :target #js {}})
         (is (= [[:go]] @!seen))))
-    (testing "a MARKED h/event at an on* slot takes the event wrapper and
-              dispatches its return; at any other slot it takes the render
-              wrapper, whose return crosses back as the render output —
-              the spelling selects the contract, never a declaration"
+    (testing "a carrier keeps its kind at every slot of a raw crossing too:
+              the event carrier dispatches its return at an on* slot and at
+              any other, and the render carrier returns render output and
+              dispatches nothing"
       (let [!seen  (atom [])
             d      (fn [ev] (swap! !seen conj ev))
-            marked (rf.fresco.impl.intent/callback (fn [x] [:row/pick x]))
-            on     (rf.fresco.impl.intent/with-frame d (fn [] (raw-prop :on-value-change marked "onValueChange")))
-            row    (rf.fresco.impl.intent/with-frame d (fn [] (raw-prop :row-formatter marked "rowFormatter")))]
+            event  (rf.fresco/event [x] [:row/pick x])
+            render (rf.fresco/render-fn [x] [:li (str x)])
+            on     (rf.fresco.impl.intent/with-frame d (fn [] (raw-prop :on-value-change event "onValueChange")))
+            off    (rf.fresco.impl.intent/with-frame d (fn [] (raw-prop :value-changed event "valueChanged")))
+            row    (rf.fresco.impl.intent/with-frame d (fn [] (raw-prop :row-formatter render "rowFormatter")))]
         (on 3)
-        (is (= [[:row/pick 3]] @!seen) "the event wrapper dispatched")
-        (is (= [:row/pick 4] (row 4)) "the render wrapper returned the value")
-        (is (= [[:row/pick 3]] @!seen) "and dispatched nothing")))
+        (off 5)
+        (is (= [[:row/pick 3] [:row/pick 5]] @!seen) "the event wrapper dispatched at both")
+        (is (= "li" (.-type (row 4))) "the render wrapper returned an element")
+        (is (= [[:row/pick 3] [:row/pick 5]] @!seen) "and dispatched nothing")))
     (testing "a PLAIN function crosses by identity — the fence, and the
               reason React.memo and every downstream bail-out that
               compares handler identity keep working"

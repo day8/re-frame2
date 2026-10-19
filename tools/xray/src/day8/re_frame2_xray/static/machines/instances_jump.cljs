@@ -64,10 +64,11 @@
   The Static surface stays static — this pill is a JUMP affordance,
   not a mode the right pane renders.
 
-  `dispatch` is the frame-aware dispatcher threaded from the
-  caller's reg-view so the JUMP lands on the surrounding instance
-  frame (a plain fn invoked as a Reagent component cannot recover the
-  frame itself)."
+  `dispatch` is the frame-bound dispatcher the `definition_detail`
+  boundary captures and threads down, so the JUMP lands on the
+  surrounding instance frame. The click fires after the render, where
+  an ambient `rf/dispatch` has no frame in scope and raises
+  `:rf.error/no-frame-context`."
   [dispatch {:keys [machine-id live-count active?]}]
   (let [label  "Instances"
         suffix (when (and (number? live-count) (pos? live-count))

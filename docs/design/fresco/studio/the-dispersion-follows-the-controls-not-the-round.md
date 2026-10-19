@@ -1,5 +1,7 @@
 # The leg dispersion follows the controls, not the round — a re-analysis on the work census
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-rs8q6`, read against `rf2-n1b9h`'s
 work census once it landed. **No window was taken, no browser was launched, no
 rig file was touched.** Every figure below is computed from datasets already

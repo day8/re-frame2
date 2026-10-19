@@ -1,5 +1,7 @@
 # Tool-consumer census — Xray, Story and Pair against the donor surfaces
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **rf2-hic-076**, 2026-08-11 05:37:14 AUSEST; row **X13** added and the counts carried through by
 `rf2-kqls`, 2026-08-11 07:13:28 AUSEST; **Pair re-measured against merged `main` and the totals
 carried through** by `rf2-hic-076` again, 2026-08-11 09:01:41 AUSEST; row **S11** added and the

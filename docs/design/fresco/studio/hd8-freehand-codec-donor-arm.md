@@ -1,5 +1,7 @@
 # HD-008's fourth donor arm — Freehand's codec, entered
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > ## RETIRED INSTRUMENT — THIS PAGE IS A FROZEN HISTORICAL RECORD
 >
 > **The arm these figures were taken on no longer exists.** `rf2-m4rpa` retired

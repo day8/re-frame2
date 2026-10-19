@@ -56,7 +56,7 @@
   (rf/reg-view* :replay/root root))
 
 (defn- served-body []
-  (:body ((rf.ssr.ring/ssr-handler {:initial-events [[:replay/init]]
+  (:body ((rf.ssr.ring/ssr-handler {:frame {:initial-events [[:replay/init]]}
                                     :root-view      (fn [] ((rf/view :replay/root)))
                                     :payload        [:articles]})
           {:request-method :get :uri "/"})))

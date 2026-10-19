@@ -97,9 +97,8 @@
   [dispatch {:keys [definition machine-id fit-signal]}]
   ;; ELK is driven internally by xyflow inside `mv-chart/MachineChart`;
   ;; the host does no layout itself.
-  ;; `dispatch` is threaded from `body` (the Static Machines detail
-  ;; subtree is invoked as Reagent components, so render-time frame
-  ;; recovery is unavailable).
+  ;; `dispatch` is threaded from `body`: `:on-state-click` fires after
+  ;; the render, where an ambient `rf/dispatch` has no frame in scope.
   (let [engine "xyflow+elkjs"]
     [:div {:data-testid    "rf-xray-static-machines-topology-chart"
            :data-machine-id (str machine-id)

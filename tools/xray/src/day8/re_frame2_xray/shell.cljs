@@ -99,16 +99,14 @@
   own registrations under `:rf.xray/*` operate against `:rf/xray`'s
   db when called from inside the shell.
 
-  Every reading region of the shell carries the frame by construction
-  rather than by ambient lookup — a Fresco boundary declares it, and the
-  one `reg-view` region ([[event-list]]) takes it through `:contextType
-  frame-context` from the closest enclosing Provider. With plain `defn`s
-  the React-context tier would be skipped (Spec 000 §Plain Reagent fns do not pick up the
-  surrounding frame) and the ambient subscribe would RAISE
-  `:rf.error/no-frame-context` — under EP-0002 there is no `:rf/default`
-  floor for it to fall through to, so an unregistered reading region is
-  a loud refusal rather than a silent query into the host's app-db
-  (Spec 006 §Plain-fn footgun).
+  Every reading region of the shell takes its frame from the component
+  tree — a Fresco boundary declares it, and the one `reg-view` region
+  ([[event-list]]) takes it through `:contextType frame-context` from the
+  closest enclosing Provider (Spec 006 §One frame-resolution rule for
+  React hooks). An ambient read with no boundary above it and no live
+  `with-frame` RAISES `:rf.error/no-frame-context` — under EP-0002 there
+  is no `:rf/default` floor for it to fall through to, so it is a loud
+  refusal rather than a silent query into the host's app-db.
 
   ## The Dynamic chrome is a FRESCO TREE
 
@@ -1018,11 +1016,9 @@
 
   The `:theme` setting lives in Xray's `:rf/xray` frame (the
   `:rf.xray/setting` sub + `:rf.xray/settings-update` event are
-  registered against `:rf/xray` via `registry/register-xray-handlers!`).
-  A plain `defn` rendered inside the shell's `:rf/xray` frame-provider
-  would not pick up the surrounding frame (Spec 000 §Plain Reagent fns
-  / Spec 006 §Plain-fn footgun) — so the read here would RAISE
-  `:rf.error/no-frame-context` rather than route anywhere.
+  registered against `:rf/xray` via `registry/register-xray-handlers!`),
+  which the boundary resolves from the shell's frame-provider above it
+  in the tree.
 
   The READ is `rf.fresco/sub`, a plain call the shipped collector records
   an edge for — no deref, no reaction owned by the installed adapter, and

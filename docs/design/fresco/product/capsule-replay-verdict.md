@@ -1,8 +1,10 @@
 # Replayable view capsules — verdict
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **STOP. Do not adopt.** A capsule that replays one committed boundary is buildable, cheap, and works — and it does not survive the criterion it was most likely to fail. A capsule's recorded tree is **not address-free**: any view that renders an `h/route-link` bakes the recording frame's keyword into the anchor's navigate intent, so the replay, which necessarily runs on another frame, does not reproduce the tree that was recorded. Two of the slice's six boundaries fail on that alone, and nothing in the record distinguishes an address from application data spelled the same way.
 
-The criteria this applies were frozen before any capsule existed: [`capsule-replay-criteria.md`](capsule-replay-criteria.md). Read them first. Their default verdict is STOP, and four of five are met; the one that is not is decisive on its own terms.
+The criteria this applies were frozen before any capsule existed: `capsule-replay-criteria.md`. Read them first. Their default verdict is STOP, and four of five are met; the one that is not is decisive on its own terms.
 
 ## Provenance
 

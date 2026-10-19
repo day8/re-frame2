@@ -1,5 +1,7 @@
 # The topology tournament — pre-registration, then the rung-2 teaching table
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Owned by `rf2-hic-036`. This page is written in two parts and they landed in
 that order, which is the only reason the second part is worth reading.
 

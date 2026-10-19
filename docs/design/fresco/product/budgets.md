@@ -1,5 +1,7 @@
 # Fresco budgets: named reference profiles and pinned baselines
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 > **Design history since 2026-08-30 (`rf2-6c12m.8`, PR #8775).** This page was gated
 > operative contract at `implementation/fresco/spec/budgets.md` from 2026-08-21
 > (`rf2-ps7ia`) until the demotion, which deleted `check_budget_ledger.py`, its
@@ -30,7 +32,7 @@ another bead's to decide:
 | Question | Owner |
 |---|---|
 | The R=0 shell's breach of its paper-fail line — remediate, or disposition it | `rf2-hic-018` |
-| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in [`k3-disposition.md`](k3-disposition.md) |
+| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in `k3-disposition.md` |
 | Turning any row below into a blocking gate | `rf2-hic-089` (the early framework); `rf2-85og2` for the measurement half — `rf2-hic-071` held it until its 2026-08-14 close |
 
 ---
@@ -399,15 +401,15 @@ allocation instrument, and neither has been re-taken. `S6` and `S7` stay
 |---|---|---|---|---|
 | S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
 | S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
-| S3 | Per-read retained, Fresco vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
-| S4 | Per-read retained, Fresco vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
+| S3 | Per-read retained, Fresco vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
+| S4 | Per-read retained, Fresco vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
 | S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.8081x`, per-round escapes [0.6863–0.9302] over the fifteen rounds of runs A, B and C — **19.2% of mount time recovered** [7.0–31.4%]. **The figure MOVED on 2026-08-18 (`rf2-6zc2q`), and the move is a CHANGE OF BASIS rather than a correction**: the row read `0.7418x` [0.6458–0.8409] / 25.8% [15.9–35.4%] taken at `{:warmup 3 :samples 6}`, and this is the re-tuned `{:warmup 8 :samples 12}`. That old basis is RETIRED, so `0.7418x` can never be re-taken. What the new figure rests on, and the confound it does not resolve, are in the `S8` note below | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
 
 The run's evidence, its controls and its full provenance are
-[on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
+on the ladder's studio page (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`);
 what follows is only what the re-pin does to this page's rows.
 
 **S3 is the one figure that moved, and the instrument says it is the
@@ -424,7 +426,7 @@ answer is **one line**: `interop/activate-derived-value!` in the collector's
 `wire-cell!`, a ratom-only correctness repair that landed between the two
 sessions. **The figure does not move** — S3 stays `1,417 B/read` — because the
 attribution names the cost rather than removing it. The bisection is
-[on the ladder](../studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z);
+on the ladder (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`);
 the disposition is [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide).
 
 **S1 and S2 carry the substantive news for the shell.** The breach is not an
@@ -875,7 +877,7 @@ to the phase with the longest wait to a rendering opportunity, and the literal
 and floor-relative readings of *within one 60 Hz frame* land on opposite sides.
 The record, the pre-registered adjudication rule and the ruling that would
 settle `U1` are
-[the window's own page](../studio/the-u1-u2-window-on-the-slice-echo-clock.md),
+the window's own page (`docs/design/fresco/studio/the-u1-u2-window-on-the-slice-echo-clock.md`),
 and [§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
 carries the summary. No threshold was guessed and no band was widened.
 
@@ -887,7 +889,7 @@ statement about the instruments: `slice_broad_clock_app.cljs` and
 `C3` and `C4` have arms on the governed population. This window read them. **The
 blocker on all three has therefore changed in kind, and in three different ways
 that a single `UNPINNED` cell cannot distinguish** —
-[the window's own page](../studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md)
+the window's own page (`docs/design/fresco/studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md`)
 carries the record, the pre-registration and the arithmetic.
 
 - **`U3` is held by a RULING, not by an instrument.** Its numeric limb meets by
@@ -1072,7 +1074,7 @@ and its verdict is recorded there.
 ### What the package reading does to this row
 
 The shell has now been measured on `implementation/fresco` itself
-([the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)),
+(the run (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`)),
 and the freeze is **not load-bearing for the present verdict** on either tree:
 
 | R=0 shell | Reagent segment | UIx segment | worst round | vs `1,024 B` |
@@ -1291,7 +1293,7 @@ and no figure may be scaled from one onto the other.
 | Deterministic rows D1–D26, U5, U6, I9 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-85og2` (`rf2-hic-071`'s measurement remainder, split there on its 2026-08-14 close) |
 | Distributional rows S1–S8, U1–U4, C1–C8 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-0xx2` |
-| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
+| K3 per-read record | `rf2-hic-070` — `k3-disposition.md`, whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
 
 Row by row, with each verdict beside its line, that table is
 [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger). The routing
@@ -1774,7 +1776,7 @@ or `C5` changes with it.
   points against a per-round spread of `1.5`–`7.5`, and the resolution gate
   refused the theme pair outright. `C3` also still wants a second donor, since
   one adapter cannot settle *best*. `U4` is untouched and is `rf2-xc0bw`'s.
-  [The window's own page](../studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md)
+  The window's own page (`docs/design/fresco/studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md`)
   carries the record; [§4 carries the same finding from the instrument side](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
   rather than a second copy of it here.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
@@ -1953,13 +1955,13 @@ or `C5` changes with it.
   same-witness comparison actually decides it.
   **[Amended 2026-08-13.]** `C6`'s condition read *the day the K3 record is
   taken*, which promised a settlement the taking of a record cannot deliver.
-  The K3 record has now been taken — [`k3-disposition.md`](k3-disposition.md)
+  The K3 record has now been taken — `k3-disposition.md`
   is **ratified by the operator ruling of 2026-08-13**, recorded on
   `rf2-hic-085` — and `C6` stays `UNRESOLVED` across it. The ruling freezes the
   governed baseline at `2,115 B/read`, fixes the trip point at `2,326.5 B/read`
   and routes future enforcement to `rf2-hic-071`; it cannot manufacture a
   passing comparison, and
-  [that record's §8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)
+  that record's §8 (`docs/design/fresco/product/k3-disposition.md`)
   says in terms that the first forward same-witness comparison has not yet been
   taken. `S3` is untouched by it and is not recoloured: the Reagent contrast is
   a viability scoreboard, never a test of the forward 10% rule.
@@ -1978,7 +1980,7 @@ or `C5` changes with it.
   it held them for is discharged. What remains is the forward same-witness
   comparison, and the K3 record names its enforcement home in its own field
   table — `rf2-hic-071`, with the early framework at `rf2-hic-089`
-  ([§8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)),
+  (§8 (`docs/design/fresco/product/k3-disposition.md`)),
   which is also the paragraph above's *"the day the first `rf2-hic-071`
   same-witness comparison actually decides it"* read from the authority side.
   The handoff moves custody and nothing else: both rows stay `UNRESOLVED`,
@@ -2310,7 +2312,7 @@ argument: **one of them was runnable and two were not, and the drain was spent
 on the one that was.** The run count was declared per gate and committed before
 the runner was invoked once — three invocations for `C1`, zero for each of the
 other two, because neither has a runner to invoke. The record is
-[the `C1` anchor page](../studio/the-c1-anchor-on-the-package-arm.md).
+the `C1` anchor page (`docs/design/fresco/studio/the-c1-anchor-on-the-package-arm.md`).
 
 **`C1`: three runs, three admissible, and the 5% line is now known to be
 measurable.** The package arm was read on the heap ladder three times on one
@@ -2452,7 +2454,7 @@ supplies.
 useful finding.]** The window the entry above says those two rows were waiting
 on has been taken. The full record — the pre-registration, committed before the
 runner was invoked once, and the runs beneath it — is
-[the window's own page](../studio/the-u1-u2-window-on-the-slice-echo-clock.md);
+the window's own page (`docs/design/fresco/studio/the-u1-u2-window-on-the-slice-echo-clock.md`);
 what follows is the ledger's share of it.
 
 **One feasibility invocation, declared unquotable before it was taken, then

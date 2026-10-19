@@ -30,8 +30,7 @@
   consumer's code needs a human decision is a tool that gets run once."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
-            [clojure.string :as str]
-            [re-frame.migration.fresco.dest :as rf.migration.fresco.dest]))
+            [clojure.string :as str]))
 
 (def ^:private class-order
   "Report ordering within one site. Blockers first, then the refusals that
@@ -65,21 +64,15 @@
                 entries)))
 
 (def ^:private suggestion-caution
-  (str "THE USUAL CASE NEEDS NO :callbacks AT ALL — Fresco infers the contract from the "
-       "spelling, exactly as on a native tag: an on* prop is an event position, anything else a "
-       "render position, and a plain function crosses untouched. These slots are listed because "
-       "their NAMES look like event positions or because they carry a function, and a name is "
-       "not a meaning. Fluent's `onRenderCell` and Ant's `onRow` are event-SPELLED RENDER PROPS: "
-       "the caller reads their RETURN VALUE, and the inferred `:event` contract would hand one a "
-       "nil-returning wrapper and blank your cell renderer with nothing thrown. CHECK EVERY on* "
-       "ROW AGAINST THE LIBRARY'S OWN DOCUMENTATION, and uncomment a row only to OVERRIDE the "
-       "spelling — `:render` for an on*-named render prop. That is why this tool never "
-       "synthesizes a `:callbacks` map and why every position in the sketch below is left blank."))
-
-(def ^:private sketch-indent
-  "The column `:callbacks`' entries start at, which is where the `{` after
-  `{:callbacks ` lands."
-  (apply str (repeat 15 \space)))
+  (str "A DECLARATION NEEDS NO CALLBACK OPTION — a callback's meaning is its CARRIER at the call "
+       "site, never its prop's name. A function the library calls for MARKUP (a virtualizer's "
+       "`itemContent`, Fluent's `onRenderCell`) becomes `h/render-fn`; a function whose returned "
+       "intent should dispatch becomes `h/event`; anything else stays a plain function and "
+       "crosses untouched. The props listed under each sketch are there because their NAMES look "
+       "like event positions or because they carry a function, and a name is not a meaning: "
+       "Fluent's `onRenderCell` and Ant's `onRow` are event-SPELLED props whose RETURN VALUE the "
+       "caller reads. CHECK EVERY ROW AGAINST THE LIBRARY'S OWN DOCUMENTATION, which is why this "
+       "tool never picks a carrier for you."))
 
 (def ^:private simple-name
   "A name `def` will take: lowercase-initial, and none of the `/` or `.`
@@ -103,43 +96,21 @@
   (let [seg (some-> head str/trim (str/split #"[/.]") last str/lower-case)]
     (if (and seg (re-matches simple-name seg)) seg "your-host")))
 
-(defn- contract-roster
-  "`\":event or :render\"` — generated from [[rf.migration.fresco.dest/callback-contracts]]
-  rather than transcribed beside it, so the sentence the report prints and
-  the roster the door enforces cannot drift apart in prose."
-  []
-  (let [ss (mapv pr-str rf.migration.fresco.dest/callback-contracts)]
-    (str (str/join ", " (pop ss)) " or " (peek ss))))
-
 (defn- defhost-sketch
   "A ready-to-paste declaration for one component. It is TEXT in a report,
-  never a form the tool writes into a file: `:callbacks` synthesis is
-  never mechanical, and the hoist that would mint these is demand-gated
-  and out of scope.
+  never a form the tool writes into a file, and the hoist that would mint
+  these is demand-gated and out of scope.
 
-  **The sketch names no contract, because the tool does not know one —
-  and the door usually needs none.** Fresco infers the contract from the
-  spelling, so `:callbacks` is an override for the on*-named render prop
-  the spelling gets wrong. The sketch used to print `:fn` at every
-  position, which is not a contract the door accepts, so a migrator who
-  pasted what the tool suggested was refused at mint by
-  `:rf.error/fresco-unknown-callback-contract` (rf2-vi11). A diagnostic
-  that tells you what to write and is wrong is worse than one that says
-  nothing.
-
-  What is emitted instead is a SCAFFOLD, and it is acceptable to the door
-  verbatim: `:callbacks` is optional and an empty map is a legal
-  declaration, so the positions are listed inside it as comments with the
-  two contracts named above them. Paste it; uncomment a row only to
-  override the spelling. Uncommenting a row and typing NOTHING leaves the
-  map with an odd number of forms, which the reader refuses on the spot —
-  the one failure mode this shape can have is loud and immediate."
+  **The declaration carries nothing about callbacks**, because a
+  callback's meaning is its carrier at the call site, which the tool does
+  not choose. The props worth checking follow the form as comments, so
+  the sketch is acceptable to the door verbatim."
   [{:keys [head event-slots fn-slots]}]
   (let [slots (distinct (concat event-slots fn-slots))]
-    (str "(h/defhost " (host-name-for head) " " (or head "Component") "\n"
-         "  {:callbacks {;; each position takes " (contract-roster) " — see :caution\n"
-         (str/join (for [s slots] (str sketch-indent ";; " s "\n")))
-         sketch-indent "}})")))
+    (str "(h/defhost " (host-name-for head) " " (or head "Component") ")"
+         (when (seq slots)
+           (str "\n;; check the carrier at each call site — see :caution"
+                (str/join (for [s slots] (str "\n;;   " s))))))))
 
 (defn build
   "Assemble the report artefact from the per-file results.

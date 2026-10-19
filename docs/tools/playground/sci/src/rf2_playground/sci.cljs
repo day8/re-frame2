@@ -10,11 +10,11 @@
   Scittle's plugins ship stock reagent and re-frame.
 
   The last form renders through Fresco when it contains a Fresco head (an
-  `h/defview`, an `h/defhost`, or `h/frame-root` / `h/frame-provider`) or a
-  handler written as data (`:on-click [:inc]`), and through Reagent
-  otherwise. Plain hiccup renders the same either way. A Fresco view cannot
-  be a child in a Reagent tree, so one tree uses one renderer; different
-  cells may use different ones.
+  `h/defview`, an `h/defhost`, or `h/frame-root` / `h/frame-provider`), a
+  handler written as data (`:on-click [:inc]`) or a carrier (`h/event`,
+  `h/render-fn`), and through Reagent otherwise. Plain hiccup renders the
+  same either way. A Fresco view cannot be a child in a Reagent tree, so one
+  tree uses one renderer; different cells may use different ones.
 
   How the API reaches a cell:
 
@@ -25,9 +25,9 @@
       façade, so the SCI `re-frame.core` binds them to an SCI macro
       (`sci-reg-view`) and to the runtime fns `re-frame.machines/reg-machine*`
       and `re-frame.flows/reg-flow`. Cells write the same calls as real code.
-    - Fresco's `defview` and `event` are JVM-only macros too, so the SCI
-      `re-frame.fresco` binds them to SCI macros that expand to the same
-      runtime calls.
+    - Fresco's `defview`, `event` and `render-fn` are JVM-only macros too,
+      so the SCI `re-frame.fresco` binds them to SCI macros that expand to
+      the same runtime calls.
     - `dispatch`, `dispatch-sync` and `subscribe` default to the playground's
       frame, so a frame-less cell still works. A cell that creates its own
       frame with `frame-root` routes through it as a real app would.
@@ -62,8 +62,8 @@
             [re-frame.fresco.forms]
             [re-frame.fresco.overlay]
             [re-frame.fresco.motion]
-            ;; The runtime fns Fresco's `defview` and `event` expand to, and
-            ;; the head markers `renderLast` reads.
+            ;; The runtime fns Fresco's `defview`, `event` and `render-fn`
+            ;; expand to, and the head markers `renderLast` reads.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
@@ -163,7 +163,7 @@
 (def schemas-ns (sci/create-ns 're-frame.schemas nil))
 (def re-frame-schemas-namespace (sci/copy-ns re-frame.schemas schemas-ns))
 
-;; SCI versions of Fresco's JVM `defview` and `event` macros
+;; SCI versions of Fresco's JVM `defview`, `event` and `render-fn` macros
 ;; (re-frame.fresco). `defview` mints the boundary and publishes its `:view`
 ;; registrar alias, deriving the name from the cell's ns at eval time. It skips
 ;; the declaration extent that only attributes source coordinates.
@@ -193,21 +193,31 @@
   [_&form _&env argv & body]
   (list 're-frame.fresco.impl.intent/callback (list* 'fn argv body)))
 
+;; The render carrier: a marked fn whose return passes through `as-element`,
+;; so a foreign component calling it gets a React element, and the carrier
+;; carries the supplying view's frame into the call when Fresco lowers it.
+(defn- sci-render-fn
+  [_&form _&env argv & body]
+  (list 're-frame.fresco.impl.intent/render-carrier
+        (list 'fn argv (list 're-frame.fresco/as-element (cons 'do body)))))
+
 (def fresco-ns (sci/create-ns 're-frame.fresco nil))
 (def re-frame-fresco-namespace
   (merge
    (sci/copy-ns re-frame.fresco fresco-ns)
-   {'defview (sci/new-var 'defview sci-defview {:ns fresco-ns :macro true :sci/macro true})
-    'event   (sci/new-var 'event sci-event {:ns fresco-ns :macro true :sci/macro true})}))
+   {'defview   (sci/new-var 'defview sci-defview {:ns fresco-ns :macro true :sci/macro true})
+    'event     (sci/new-var 'event sci-event {:ns fresco-ns :macro true :sci/macro true})
+    'render-fn (sci/new-var 'render-fn sci-render-fn {:ns fresco-ns :macro true :sci/macro true})}))
 
-;; Only the vars the two macros expand to.
+;; Only the vars the three macros expand to.
 (def fresco-collector-ns (sci/create-ns 're-frame.fresco.impl.collector nil))
 (def fresco-intent-ns (sci/create-ns 're-frame.fresco.impl.intent nil))
 (def re-frame-fresco-collector-namespace
   {'mint-view!          (sci/copy-var rf.fresco.impl.collector/mint-view! fresco-collector-ns)
    'publish-view-alias! (sci/copy-var rf.fresco.impl.collector/publish-view-alias! fresco-collector-ns)})
 (def re-frame-fresco-intent-namespace
-  {'callback (sci/copy-var rf.fresco.impl.intent/callback fresco-intent-ns)})
+  {'callback       (sci/copy-var rf.fresco.impl.intent/callback fresco-intent-ns)
+   'render-carrier (sci/copy-var rf.fresco.impl.intent/render-carrier fresco-intent-ns)})
 
 (def fresco-forms-ns (sci/create-ns 're-frame.fresco.forms nil))
 (def fresco-overlay-ns (sci/create-ns 're-frame.fresco.overlay nil))
@@ -343,15 +353,18 @@
       (rf.fresco.impl.codec/host-head? x)
       (rf.fresco.impl.codec/frame-boundary-head? x)))
 
-;; A handler written as data — an intent vector, a key map or an `h/event`
-;; callback — at an `on-*` prop. Fresco runs these; Reagent needs a plain fn.
+;; A handler written as data — an intent vector or a key map — at an `on-*`
+;; prop, or a carrier (`h/event`, `h/render-fn`) at any prop, since a
+;; carrier's kind is its meaning wherever it sits. Fresco runs these; Reagent
+;; needs a plain fn.
 (defn- fresco-props? [x]
   (and (map? x)
        (boolean
         (some (fn [[k v]]
-                (and (keyword? k)
-                     (re-find #"^on[-A-Z]" (name k))
-                     (or (vector? v) (map? v) (rf.fresco.impl.intent/callback? v))))
+                (or (rf.fresco.impl.intent/callback? v)
+                    (and (keyword? k)
+                         (re-find #"^on[-A-Z]" (name k))
+                         (or (vector? v) (map? v)))))
               x))))
 
 (defn- fresco-tree?
