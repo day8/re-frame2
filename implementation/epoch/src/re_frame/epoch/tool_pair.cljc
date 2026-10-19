@@ -218,12 +218,12 @@
   A dynamically spawned actor carries no per-instance
   registrar entry — its liveness is derived from its (revertible)
   snapshot. Such a snapshot is a VALID restore target iff its TYPE still
-  resolves (its `:rf/machine-type` keyword names a registered machine). The
+  resolves (its `[:rf/runtime :machine-type]` keyword names a registered machine). The
   `:machines/actor-resolvable?` hook makes that
   determination from the runtime-db partition (it reads
   `[:rf.runtime/machines :snapshots <id>]`); consult it before flagging a
   snapshot whose id is not directly registered. A SINGLETON whose
-  registration was cleared (a `reg-machine`'d machine, no `:rf/machine-type`
+  registration was cleared (a `reg-machine`'d machine, no `[:rf/runtime :machine-type]`
   on its snapshot) still surfaces as missing — `actor-resolvable?` returns
   false for it. When the machines artefact is absent the hook is nil and the
   registrar-only check applies.
@@ -236,7 +236,7 @@
         ;; references a registered machine (`:rf/machine? true`, per Spec
         ;; 005 §Registration); a spawned actor has no
         ;; per-instance registration but is restorable when its
-        ;; `:rf/machine-type` resolves through `actor-resolvable?` (which
+        ;; `[:rf/runtime :machine-type]` resolves through `actor-resolvable?` (which
         ;; reads the runtime-db partition).
         missing-machines
         (for [[machine-id _snapshot] (get-in runtime-db machine-snapshots-path)
@@ -258,7 +258,7 @@
     - SINGLETON snapshots — the snapshot key IS the registered machine-id, so
       the registrar resolves the live spec by key.
     - SPAWNED-ACTOR snapshots — the key is an instance-id with NO per-instance
-      registration; the actor's TYPE rides the snapshot under `:rf/machine-type`
+      registration; the actor's TYPE rides the snapshot under `[:rf/runtime :machine-type]`
       (the registered TYPE keyword, per Spec 005 §Reserved snapshot-internal
       keys). The late-bound
       `:machines/spec-from-snapshot` hook (published by `re-frame.machines`,
@@ -270,7 +270,7 @@
   upstream by `missing-references`, not a version drift. The definition is
   resolved BEFORE its version is read, so a registered definition carrying no
   version is told apart from no definition at all. `:type` is
-  the spawned actor's `:rf/machine-type` keyword when the
+  the spawned actor's `[:rf/runtime :machine-type]` keyword when the
   snapshot carried one, nil for a singleton — surfaced so the drift trace can
   identify the actor's TYPE as well as its instance id."
   [machine-id snapshot]
@@ -278,7 +278,7 @@
     {:spec (:rf/machine registration) :type nil}
     (let [from-snapshot (rf.late-bind/get-fn :machines/spec-from-snapshot)]
       {:spec (when from-snapshot (from-snapshot snapshot))
-       :type (:rf/machine-type snapshot)})))
+       :type (get-in snapshot [:rf/runtime :machine-type])})))
 
 (defn machine-version-mismatch
   "Walk the recorded runtime-db partition's `[:rf.runtime/machines :snapshots]`
@@ -295,7 +295,7 @@
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
   frame-state. The current definition is resolved the same way dispatch
   resolves the live spec: a singleton by its snapshot key (the key is the registered
-  machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (the
+  machine-id), a SPAWNED ACTOR by its snapshot's `[:rf/runtime :machine-type]` (the
   registered type keyword — `current-definition`), so a hot-reloaded type is
   drift for every spawned actor of it. A snapshot
   whose definition does not resolve is skipped here; `missing-references`
@@ -522,7 +522,7 @@
                    ;; TYPE keyword alongside its
                    ;; instance `:machine-id`; nil/omitted for a singleton whose
                    ;; key is its own type. Spawned-actor drift is caught:
-                   ;; the current version resolves via `:rf/machine-type`, not
+                   ;; the current version resolves via `[:rf/runtime :machine-type]`, not
                    ;; the unregistered instance-id key.
                    {:outcome :fail
                     :op      :rf.epoch/restore-version-mismatch

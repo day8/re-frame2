@@ -14,7 +14,7 @@
   `:rf.machine/spawn` allocator's id sequencing) depends ONLY on the
   arguments. There is no module-level mutable state and no `app-db` read
   — the declarative-`:spawn` spawn-id allocator lives
-  INSIDE the snapshot under `:rf/spawn-counter` (a per-id-prefix integer
+  INSIDE the snapshot at `[:rf/runtime :spawn-counter]` (a per-id-prefix integer
   map), so identical triples produce identical Results and the reducer
   threads the bumped counter through the returned snapshot. That is the
   determinism the conformance corpus, the SSR pure-fn surface, and
@@ -342,7 +342,11 @@
 (defn- callback-ctx
   "Build the unified context-map handed to a `:guard` / `:action` / `:entry`
   / `:exit` callback. Per Spec 005 §Guards / §Actions
-  the base shape is `{:data :event :state :meta}`.
+  the base shape is `{:data :event :state :meta}`, plus the actor's own
+  lineage and spawned ids read off the snapshot's `:rf/runtime` map when it
+  carries them: `:self-id` / `:parent-id` (a spawned actor's own address and
+  its spawner's) and `:spawned` (the ids of the actors it spawned, keyed by
+  invoke path). Those facts live in `:rf/runtime`, never in `:data`.
   A parallel REGION's snapshot additionally
   carries the machine-wide `:tags` union and the full `:all-state` region
   map (threaded by `parallel/reduce-regions`) — the cross-region
@@ -363,14 +367,18 @@
   fixtures) that drive the engine without a router coeffect — the key is
   simply not present and the destructure binds nil."
   [machine snapshot event]
-  (cond-> {:data  (:data snapshot)
-           :event event
-           :state (:state snapshot)
-           :meta  (:meta snapshot)}
-    (contains? snapshot :all-state) (assoc :all-state (:all-state snapshot)
-                                           :tags      (:tags snapshot))
-    (contains? machine :rf/cofx) (assoc :rf.cofx
-                                        (:rf/cofx machine))))
+  (let [rt (:rf/runtime snapshot)]
+    (cond-> {:data  (:data snapshot)
+             :event event
+             :state (:state snapshot)
+             :meta  (:meta snapshot)}
+      (contains? rt :self-id)   (assoc :self-id (:self-id rt))
+      (contains? rt :parent-id) (assoc :parent-id (:parent-id rt))
+      (contains? rt :spawned)   (assoc :spawned (:spawned rt))
+      (contains? snapshot :all-state) (assoc :all-state (:all-state snapshot)
+                                             :tags      (:tags snapshot))
+      (contains? machine :rf/cofx) (assoc :rf.cofx
+                                          (:rf/cofx machine)))))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the unified
@@ -559,7 +567,7 @@
 ;; fx and assigns the spawned actor a deterministic id of the form
 ;; `<id-prefix>#<n>` — the spawn-spec's own `:id-prefix` when it carries
 ;; one, else its `:machine-id`. The counter lives inside the snapshot
-;; under the reserved key `:rf/spawn-counter` — a per-id-prefix integer
+;; at `[:rf/runtime :spawn-counter]` — a per-id-prefix integer
 ;; map, keyed by the SAME prefix the address is minted from, per Spec 005
 ;; §Spawn-id allocator — counter location. This
 ;; makes `apply-transition-once` an honest pure function: identical
@@ -568,12 +576,8 @@
 ;; the snapshot's counter via update-in and the bumped value is the
 ;; allocated id.
 ;;
-;; `build-initial-snapshot` (in re-frame.machines.parallel — unified
-;; across the singleton-registration and spawn paths) stamps
-;; `{:rf/spawn-counter {}}` on every freshly-registered machine's
-;; initial snapshot so the slot is always present for live runtime
-;; spawns. Hand-built snapshots (the conformance fixtures) may omit the
-;; key — the reducer uses `(fnil inc 0)` so absent slots default to 0.
+;; The counter is allocated lazily: a machine that never spawns carries
+;; none, and the reducer's `(fnil inc 0)` reads an absent prefix as 0.
 
 (defn- format-spawn-id
   "Format a spawned actor id of the form `<id-prefix>#<n>` preserving
@@ -585,31 +589,30 @@
 (defn- allocate-spawned-id
   "Pure allocator. Given a snapshot and the spawned actor's id-prefix,
   return `[snap' spawned-id]` where snap' carries the bumped counter at
-  `[:rf/spawn-counter <id-prefix>]` and spawned-id is
+  `[:rf/runtime :spawn-counter <id-prefix>]` and spawned-id is
   `<id-prefix>#<bumped-n>`. The counter lives in-snapshot
   so machine-transition is deterministic from its arguments."
   [snap id-prefix]
-  (let [snap' (update-in snap [:rf/spawn-counter id-prefix] (fnil inc 0))
-        n     (get-in snap' [:rf/spawn-counter id-prefix])]
+  (let [snap' (update-in snap [:rf/runtime :spawn-counter id-prefix] (fnil inc 0))
+        n     (get-in snap' [:rf/runtime :spawn-counter id-prefix])]
     [snap' (format-spawn-id id-prefix n)]))
 
-(defn- bind-spawned-id-into-parent-data
-  "Bind a declaratively-`:spawn`'d actor's assigned id into
-  the SPAWNING (parent) machine's own `:data`, at spawn-time, under the
-  reserved per-invoke map `:rf/spawned`: `{:rf/spawned {<invoke-id> <spawned-id>}}`.
+(defn- bind-spawned-id
+  "Bind a declaratively-`:spawn`'d actor's assigned id into the SPAWNING
+  (parent) machine's own snapshot, at spawn-time, under the per-invoke map
+  `[:rf/runtime :spawned]`: `{<invoke-id> <spawned-id>}`.
 
   This is the re-frame2 spelling of XState v5's `spawn(...)`-into-`context`
-  capture: an action can later read its own `:data` to obtain the id of an
-  actor it spawned and emit `[:rf.machine/destroy <id>]` — a clean first-class
-  path with NO external-atom side-channel and no runtime-db reverse-index
-  coupling. It is the REVERSE direction of the child-lineage stamps the
-  spawn-fx writes onto a spawned CHILD's own `:data` (`:rf/self-id` /
-  `:rf/parent-id` / `:rf/invoke-id`, per Spec 005 §Runtime stamps): here the
-  PARENT captures the CHILD's id, keyed by the `<invoke-id>` the child
-  records under `:rf/invoke-id` and the runtime tracks at
-  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`. Inside a
-  parallel region that key is region-qualified, `[<region> & <in-region-path>]`,
-  exactly as the child's `:rf/invoke-id` and the registry slot carry it, so
+  capture: a callback later reads the id off its context map's `:spawned`
+  and can emit `[:rf.machine/destroy <id>]` — a clean first-class path with
+  NO external-atom side-channel and no runtime-db reverse-index coupling. It
+  is the REVERSE direction of the child-lineage stamps the spawn-fx writes
+  onto a spawned CHILD's own `:rf/runtime` (`:self-id` / `:parent-id` /
+  `:invoke-id`, per Spec 005 §Runtime stamps): here the PARENT captures the
+  CHILD's id, keyed by the `<invoke-id>` the child records and the runtime
+  tracks at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`. Inside
+  a parallel region that key is region-qualified, `[<region> & <in-region-path>]`,
+  exactly as the child's `:invoke-id` and the registry slot carry it, so
   two regions spawning from same-named states keep separate entries and a
   region action names its own region to read its entry. The spawn install, a
   rejection's clear and the teardown projection all address this same entry
@@ -626,12 +629,12 @@
       `:children` so all N children under the one shared `<invoke-id>` are
       recorded without clobber.
 
-  The write threads through the parent's snapshot like `:rf/spawn-counter`, so
+  The write threads through the parent's snapshot like the spawn counter, so
   it reverts atomically with the cascade and survives `pr-str` / `read-string`
   and SSR. Always-written on a declarative spawn (cheap, predictable — no
   opt-in)."
   [snap invoke-id spawned-id-or-children]
-  (assoc-in snap [:data :rf/spawned invoke-id] spawned-id-or-children))
+  (assoc-in snap [:rf/runtime :spawned invoke-id] spawned-id-or-children))
 
 ;; ---- state-path helpers (hierarchical) ------------------------------------
 ;;
@@ -982,8 +985,8 @@
   (second (select-passing-candidate-indexed machine candidates snapshot event)))
 
 (defn- after-epoch-path
-  "Return the path inside the snapshot's `:data` map where the
-  `:after`-timer epoch MAP lives for `machine`.
+  "Return the path inside the snapshot where the `:after`-timer epoch MAP
+  lives for `machine`.
 
   Per Spec 005 §Delayed `:after` transitions §Hierarchy interaction, the
   epoch is tracked **per scheduling node** — the slot holds a map
@@ -995,17 +998,17 @@
   exits the parent bumps the parent's entry so its pending timers go
   stale on next firing.
 
-  For flat / compound machines the map lives at `[:data :rf/after-epoch]`.
+  For flat / compound machines the map lives at `[:rf/runtime :after-epoch]`.
   Per Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping:
   when `machine` is a region of a parallel-region
   parent (signalled by `:rf/region`), the map is region-scoped —
-  `[:data :rf/after-epoch-by-region <region-name>]` — so a sibling
+  `[:rf/runtime :after-epoch-by-region <region-name>]` — so a sibling
   region's transition doesn't invalidate this region's in-flight timers
-  via the shared `:data` slot."
+  through the shared map."
   [machine]
   (if-let [rn (:rf/region machine)]
-    [:data :rf/after-epoch-by-region rn]
-    [:data :rf/after-epoch]))
+    [:rf/runtime :after-epoch-by-region rn]
+    [:rf/runtime :after-epoch]))
 
 (defn node-epoch
   "Read the per-node `:after` epoch for the scheduling node at `decl-path`
@@ -1446,7 +1449,7 @@
       `invoke-id` is no longer on the active path;
     - `:rf.machine.spawn/attempt-superseded` — the node is active but was
       re-entered since this child was spawned, so the snapshot's
-      `[:rf/spawn-attempts invoke-id]` no longer equals the carried attempt.
+      `[:rf/runtime :spawn-attempts invoke-id]` no longer equals the carried attempt.
 
   Per Spec 005 §Stale suppression a stale carrier gets no `:on-done` fold, no
   `:on-error`, and no engine step. `invoke-id` is the carrier's own path, which
@@ -1467,7 +1470,7 @@
       (and (seq invoke-id) (not (and path (prefix-of? rel path))))
       :rf.machine.spawn/state-exited
 
-      (not= carried-attempt (get-in snapshot [:rf/spawn-attempts invoke-id]))
+      (not= carried-attempt (get-in snapshot [:rf/runtime :spawn-attempts invoke-id]))
       :rf.machine.spawn/attempt-superseded)))
 
 (defn- live-spawn-node
@@ -2475,7 +2478,7 @@
 ;; region's transitions through that region's per-region epoch).
 ;;
 ;; The root machine is NOT a region, so its `:after` epoch lives at the flat
-;; slot `[:data :rf/after-epoch []]` (decl-path `[]` — the root). Scheduling
+;; slot `[:rf/runtime :after-epoch []]` (decl-path `[]` — the root). Scheduling
 ;; reuses the SAME `:scheduled` trace + `:after-schedule` fx that every state's
 ;; `:after` emits; firing reuses the SAME `normalise-candidates` /
 ;; `select-passing-candidate-indexed` grammar and the per-path epoch
@@ -2607,13 +2610,13 @@
 
 (defn- spawn-id-prefix
   "The base the generated `<prefix>#<n>` address is minted from, and the key
-  the in-snapshot `:rf/spawn-counter` sequences it under: `spawn-spec`'s own
+  the in-snapshot spawn counter sequences it under: `spawn-spec`'s own
   `:id-prefix` when it carries one, else its `:machine-id` (the registered
   machine TYPE).
 
   Per Spec 005 §Spawn-spec keys, `:id-prefix` is `optional; defaults to
   :machine-id`, and §Spawn-id allocator — counter location keys the
-  declarative counter at `[:rf/spawn-counter <id-prefix>]`. Reading
+  declarative counter at `[:rf/runtime :spawn-counter <id-prefix>]`. Reading
   `:machine-id` unconditionally would silently ignore an author's documented
   `:id-prefix`, and that matters beyond tidiness: a generated address held by
   a live actor fails closed, and `:id-prefix` is the author's only
@@ -2675,7 +2678,7 @@
   exception.
 
   Every entry also bumps this invoke's ATTEMPT token
-  at `[:rf/spawn-attempts <attempt-key>]` and stamps it on the spawn args as
+  at `[:rf/runtime :spawn-attempts <attempt-key>]` and stamps it on the spawn args as
   `:rf/invoke-attempt`. The child carries it back on both completion
   carriers, and the parent delivers a carrier only while the carried attempt
   is still the current one (`spawn-carrier-stale-reason`). The key is the
@@ -2686,8 +2689,8 @@
   (let [spawn-spec   (:spawn n)
         invoke-id    (vec prefix)
         attempt-key  (if region (into [region] invoke-id) invoke-id)
-        s            (update-in s [:rf/spawn-attempts attempt-key] (fnil inc 0))
-        attempt      (get-in s [:rf/spawn-attempts attempt-key])
+        s            (update-in s [:rf/runtime :spawn-attempts attempt-key] (fnil inc 0))
+        attempt      (get-in s [:rf/runtime :spawn-attempts attempt-key])
         [s-alloc id] (allocate-one s spawn-spec)
         args-builder (fn [spec' spawned-id]
                        (-> spec'
@@ -2702,12 +2705,12 @@
     (if (rf.machines.result/fail? spawn-r)
       (reduced spawn-r)
       (let [spawn-fx (rf.machines.result/fx spawn-r)]
-        ;; Bind the assigned actor id into the parent's
-        ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
-        ;; parity) so a later action can read the id and imperatively
+        ;; Bind the assigned actor id into the parent's own
+        ;; `[:rf/runtime :spawned <invoke-id>]` (XState-context parity) so a
+        ;; later callback reads it as `:spawned` and can imperatively
         ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
         ;; The key is the region-qualified one the registry slot uses.
-        [(bind-spawned-id-into-parent-data s-alloc attempt-key id)
+        [(bind-spawned-id s-alloc attempt-key id)
          (into acc-fx spawn-fx)]))))
 
 (defn- handle-spawn-all-decl
@@ -2739,7 +2742,7 @@
   `:action-ref :rf.machine.spawn-all/data-fn`, `:invoke-id`, and the failing
   `:child-id`) on `:data` failure.
 
-  The parent's `[:data :rf/spawned …]` mirror entry is keyed by the
+  The parent's `[:rf/runtime :spawned …]` mirror entry is keyed by the
   REGION-QUALIFIED invoke path inside a parallel region, the key the registry
   slot carries."
   [parent-id region s acc-fx prefix n event]
@@ -2811,11 +2814,11 @@
                       :rf/invoke-id invoke-id
                       :join-state   join-state
                       :child-args   (mapv second spawn-fxs-r)}]]
-        ;; Bind the `:spawn-all`'s children id-map into the
-        ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
+        ;; Bind the `:spawn-all`'s children id-map into the parent's own
+        ;; `[:rf/runtime :spawned <invoke-id>]` (the whole
         ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
-        ;; `:children`), so an action can read it without an external atom.
-        [(bind-spawned-id-into-parent-data s-alloc mirror-key children-map)
+        ;; `:children`), so a callback reads it without an external atom.
+        [(bind-spawned-id s-alloc mirror-key children-map)
          (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
 
 (defn final-state-node?
@@ -3179,8 +3182,8 @@
   "Spawn the machine root's `:spawn` child at birth, against `snap` — the
   snapshot the root's `:entry` left, before any state is entered — exactly as
   an entered state's `:spawn` is spawned (`handle-spawn-decl`): its attempt at
-  `[:rf/spawn-attempts []]`, its id from the in-snapshot counter, the
-  `[:data :rf/spawned []]` mirror and one `[:rf.machine/spawn …]` fx. A root
+  `[:rf/runtime :spawn-attempts []]`, its id from the in-snapshot counter, the
+  `[:rf/runtime :spawned []]` mirror and one `[:rf.machine/spawn …]` fx. A root
   that declares no `:spawn` returns `snap` unchanged; a throwing `:data` fn
   returns its `:fail`."
   [machine snap]
@@ -3750,7 +3753,7 @@
     (if (or internal? (not (seq after-map)))
       [snap-final []]
       (let [;; The root epoch lives at the flat slot (the root is not a
-            ;; region — `after-epoch-path` returns `[:data :rf/after-epoch]`).
+            ;; region — `after-epoch-path` returns `[:rf/runtime :after-epoch]`).
             ;; Bump `[]`'s entry so the scheduled timer carries a non-zero
             ;; epoch that a teardown / epoch advance can invalidate, mirroring
             ;; `commit-snapshot`'s `bump-after-epochs` for an entered node.
@@ -3900,7 +3903,7 @@
   and the state path is unchanged.
 
   Per Spec 005 §Delayed :after transitions, every external transition
-  advances :data.:rf/after-epoch (so any in-flight timer captured before
+  advances the node's `[:rf/runtime :after-epoch]` entry (so any in-flight timer captured before
   the change becomes stale). A target leaf that declares :after schedules
   a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
 

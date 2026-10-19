@@ -50,10 +50,10 @@ A request issued **directly from an ordinary `reg-event` handler** — not via a
  {:spawn {:machine-id :rf.http/managed                ;; child issues the HTTP
            :data       {:request {:method :post
                                   :url    "/api/login"
-                                  :body   credentials}}}
+                                  :body   credentials}}
+           :on-done    :authenticated}
   :after  {30000 :auth-failed}                         ;; wall-clock — spans retries
-  :on     {:succeeded :authenticated
-           :user/cancelled :idle}}}
+  :on     {:user/cancelled :idle}}}
 ```
 
 Three independent triggers all cause the same cleanup:

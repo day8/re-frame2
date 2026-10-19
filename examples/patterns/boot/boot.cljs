@@ -85,8 +85,8 @@
 ;; Note what is NOT there. No parent address, because this child never
 ;; dispatches anything home. No label naming which asset it is, because
 ;; nothing here reads one: the spawn `:id` is what the parent tells its
-;; children apart by, and `:rf/self-id` is how the reply finds its way
-;; back. A field a copier can see but never watch anything read is a field
+;; children apart by, and the `:self-id` every callback receives is how
+;; the reply finds its way back. A field a copier can see but never watch anything read is a field
 ;; they will faithfully carry into their own app. Each instance is born in
 ;; `:idle`; the runtime drops a
 ;; `:rf.machine.spawn/spawned` event into it, which moves it to `:loading` and
@@ -108,17 +108,16 @@
 
    :actions
    {:begin-fetch
-    ;; Fire the GET. The reply is addressed back to THIS child via
-    ;; :rf/self-id (the spawn fx stamps it into :data), landing as the
+    ;; Fire the GET. The reply is addressed back to THIS child via the
+    ;; `:self-id` on the action's context, landing as the
     ;; `:asset/replied` event — so the loader sorts success from failure
     ;; itself before it ever bothers the parent.
-    (fn [{data :data}]
-      (let [self-id (:rf/self-id data)]
-        {:fx [[:rf.http/managed
-               {:request    {:method :get :url (:url data)}
-                :decode     :json
-                :on-success [self-id [:asset/replied :success]]
-                :on-failure [self-id [:asset/replied :failure]]}]]}))}
+    (fn [{:keys [data self-id]}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :get :url (:url data)}
+              :decode     :json
+              :on-success [self-id [:asset/replied :success]]
+              :on-failure [self-id [:asset/replied :failure]]}]]})}
 
    :states
    {;; :idle is where every loader starts. The runtime drops a

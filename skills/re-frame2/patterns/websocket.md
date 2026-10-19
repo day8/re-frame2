@@ -23,7 +23,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 | `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
 | Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/disconnect`, `:ws/send`, `:ws/subscribe`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. The first three are the doors *out*: each destroys the socket actor, so each settles `:in-flight` on the way out. `:reconnecting` and `:failed` are siblings of `:active`, not leaves, so they inherit none of it and carry their own. |
-| Connection-epoch staleness check | Live socket-actor's `:rf/self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
+| Connection-epoch staleness check | Live socket-actor's `:self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
 
 ## Credential discipline (load-bearing — read before the snippet)
 
@@ -40,19 +40,19 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 `reg-machine` **is** the registration home for the connection machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the `:rf/machine` sub, the declarative `:spawn` resolver, and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade.)
 
 ```clojure
-;; The socket actor is spawned on the :active parent, so the runtime binds its
-;; id into our own :data under the reserved :rf/spawned map, keyed by the
-;; spawn-bearing state's path — [:active]. Read it straight back: there is NO
+;; The socket actor is spawned on the :active parent, so the runtime records
+;; its id for us, keyed by the spawn-bearing state's path — [:active] — in the
+;; :spawned map every callback receives. Read it straight back: there is NO
 ;; :socket-id data key, no spawn callback, and no :exit cleanup — the
-;; runtime CLEARS the slot on teardown, so a torn-down socket reads nil on its
+;; runtime CLEARS the entry on teardown, so a torn-down socket reads nil on its
 ;; own (which is what makes :current-socket? a safe connection clock).
 (def socket-invoke-id [:active])
-(defn socket-id [data] (get-in data [:rf/spawned socket-invoke-id]))
+(defn socket-id [spawned] (get spawned socket-invoke-id))
 
 ;; The connection-epoch test both guards share: is this event stamped with the
 ;; socket we are using RIGHT NOW? A torn-down socket reads nil, so stragglers fail free.
-(defn from-live-socket? [data source-socket-id]
-  (let [live (socket-id data)]
+(defn from-live-socket? [spawned source-socket-id]
+  (let [live (socket-id spawned)]
     (and (some? live) (= source-socket-id live))))
 
 ;; YOUR closed inbound wire union (the example's schema/InboundMessage), compiled
@@ -93,13 +93,13 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     ;; may dispatch in flight while the cascade tears it down. Guards EVERY
     ;; socket-sourced event — the lifecycle transitions (:ws/opened,
     ;; :ws/auth-ok, :ws/auth-failed, :ws/closed) as much as :ws/received.
-    (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
-      (from-live-socket? data source-socket-id))
+    (fn [{spawned :spawned [_ {:keys [source-socket-id]}] :event}]
+      (from-live-socket? spawned source-socket-id))
     :trusted-frame?
     ;; Vouching for the SENDER is not vouching for the BYTES. One named guard,
     ;; not an :and of two — 005 ships no guard combinator data form.
-    (fn [{data :data [_ {:keys [source-socket-id body]}] :event}]
-      (and (from-live-socket? data source-socket-id)
+    (fn [{spawned :spawned [_ {:keys [source-socket-id body]}] :event}]
+      (and (from-live-socket? spawned source-socket-id)
            (valid-inbound-frame? body)))}
 
    :actions
@@ -122,25 +122,25 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                            (update :data assoc :error error)))
     :on-connected
     ;; :entry takes one fn / id, never a vector — consolidate.
-    (fn [{data :data}]
+    (fn [{data :data spawned :spawned}]
       {:data (assoc data :retries 0)
-       :fx   (mapv (fn [t] [:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]])
+       :fx   (mapv (fn [t] [:dispatch [(socket-id spawned) [:send {:type :subscribe :topic t}]]])
                    (:subscriptions data))})
-    :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
-                               :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
+    :flush-queue (fn [{data :data spawned :spawned}] {:data (assoc data :queue [])
+                               :fx (mapv (fn [m] [:dispatch [(socket-id spawned) [:send m]]])
                                          (:queue data))})
     :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})
     ;; A subscribe is RECORDED everywhere, and sent too only on :connected;
     ;; :on-connected re-issues every recorded topic on the next connect.
     :record-subscription   (fn [{data :data [_ t] :event}] {:data (update data :subscriptions conj t)})
-    :register-subscription (fn [{data :data [_ t] :event}]
+    :register-subscription (fn [{data :data spawned :spawned [_ t] :event}]
                              {:data (update data :subscriptions conj t)
-                              :fx   [[:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]]]})
+                              :fx   [[:dispatch [(socket-id spawned) [:send {:type :subscribe :topic t}]]]]})
     ;; Handshake on :authenticating entry. NO token in the payload — the actor
     ;; resolved the bearer from :cred-ref host-side and puts it on the wire itself.
-    :send-auth (fn [{data :data}] {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
+    :send-auth (fn [{spawned :spawned}] {:fx [[:dispatch [(socket-id spawned) [:send {:type :auth}]]]]})
     ;; :connected overrides the parent's :ws/send — straight to the wire, no queue.
-    :send-now  (fn [{data :data [_ m] :event}] {:fx [[:dispatch [(socket-id data) [:send m]]]]})
+    :send-now  (fn [{spawned :spawned [_ m] :event}] {:fx [[:dispatch [(socket-id spawned) [:send m]]]]})
     ;; A vetted frame. A :reply settles the :in-flight slot it names ONLY when the
     ;; echoed :request-token matches the REGISTRATION in it (ids are reusable — see
     ;; §Anti-patterns); every frame goes on to your boundary-checked ingress event.
@@ -173,10 +173,10 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     {;; Socket actor anchored on the PARENT — lifetime spans all three leaves.
      ;; The actor receives only :url + :cred-ref; it resolves the bearer
      ;; via a client-only cofx inside its own JS context, then opens the
-     ;; socket. The bearer never re-enters dispatch. The runtime binds the
-     ;; newborn's id into :data under :rf/spawned [:active] — read via the
-     ;; socket-id helper above; no spawn callback, no :exit cleanup (teardown
-     ;; clears the slot). See examples/patterns/websocket/connection.cljs.
+     ;; socket. The bearer never re-enters dispatch. The runtime records the
+     ;; newborn's id under [:active] in the callbacks' :spawned map — read via
+     ;; the socket-id helper above; no spawn callback, no :exit cleanup
+     ;; (teardown clears the entry). See examples/patterns/websocket/connection.cljs.
      :spawn  {:machine-id :websocket/socket
                ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.
                :data       (fn [{snap :snapshot}] {:url      (-> snap :data :url)

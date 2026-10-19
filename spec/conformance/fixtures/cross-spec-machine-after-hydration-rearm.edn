@@ -23,7 +23,7 @@
 ;;                `:after` never armed on the server, so there is no running
 ;;                countdown to resume and nothing durable records a schedule
 ;;                instant.
-;;   EPOCH     -- the hydrated snapshot's `:rf/after-epoch` is RETAINED,
+;;   EPOCH     -- the hydrated snapshot's `[:rf/runtime :after-epoch]` is RETAINED,
 ;;                never bumped. Hydration re-establishes host work for a
 ;;                visit that already happened; it is not a fresh state entry.
 ;;   NO REPLAY -- no `:entry`, `:action`, `:raise`, `:spawn` or `:always`
@@ -75,7 +75,7 @@
 ;;     `:rf/ssr-rendered-at`, a header, or a client clock read) would arm
 ;;     something smaller, and a host that treated a past-due timer as
 ;;     fire-immediately would arm 0 or fire at once.
-;;   * `:epoch 1` on that trace, and `:rf/after-epoch {[:waiting] 1}` in the
+;;   * `:epoch 1` on that trace, and `:after-epoch {[:waiting] 1}` in the
 ;;     pre-expiry snapshot -- a host that treated hydration as a state ENTRY
 ;;     would bump to 2, stranding the very snapshot it just restored.
 ;;   * `:entries 1` in both snapshots -- a host that re-fired the entry
@@ -84,7 +84,7 @@
 ;;     interval elapses.
 ;;   * `:live 1` -- exactly one timer per active declaration, and it is still
 ;;     there. Cardinality, not merely emission.
-;;   * `:state :timeout` and `:rf/after-epoch {[:waiting] 2}` in
+;;   * `:state :timeout` and `:after-epoch {[:waiting] 2}` in
 ;;     `:final-runtime-db`, with `/fired :fired? true` and the
 ;;     `:rf.machine/transition` row -- the retained epoch is the OPERATIVE
 ;;     one: the hydrated timer's own callback drives the declared
@@ -147,9 +147,9 @@
                 :rf/runtime-db  {:rf.runtime/machines
                                  {:snapshots
                                   {:auth/probe
-                                   {:state :waiting
-                                    :data  {:entries        1
-                                            :rf/after-epoch {[:waiting] 1}}}}}}}]]
+                                   {:state      :waiting
+                                    :data       {:entries 1}
+                                    :rf/runtime {:after-epoch {[:waiting] 1}}}}}}}]]
 
  ;; The controlled host clock. Runs after `:fixture/dispatches`, with the
  ;; Spec 005 §Clock-abstraction primitives (`schedule-after!` /
@@ -167,9 +167,9 @@
    :expect {:rf.runtime/machines
             {:snapshots
              {:auth/probe
-              {:state :waiting
-               :data  {:entries        1
-                       :rf/after-epoch {[:waiting] 1}}}}}}}
+              {:state      :waiting
+               :data       {:entries 1}
+               :rf/runtime {:after-epoch {[:waiting] 1}}}}}}}
 
   ;; Expire it -- by invoking the client's own captured host callback, not by
   ;; manufacturing an elapsed event. Everything in `:fixture/expect` about
@@ -187,9 +187,9 @@
   {:rf.runtime/machines
    {:snapshots
     {:auth/probe
-     {:state :timeout
-      :data  {:entries        1
-              :rf/after-epoch {[:waiting] 2}}}}}}
+     {:state      :timeout
+      :data       {:entries 1}
+      :rf/runtime {:after-epoch {[:waiting] 2}}}}}}
 
   ;; The load-bearing trace contract. The hydrate event runs with
   ;; :source :ssr-hydration (Spec 011 §The :rf/hydrate event), and the
@@ -235,10 +235,12 @@
    {:operation :rf.machine/transition
     :tags      {:actor-id :auth/probe
                 :event    [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
-                :before   {:state :waiting
-                           :data  {:entries 1 :rf/after-epoch {[:waiting] 1}}}
-                :after    {:state :timeout
-                           :data  {:entries 1 :rf/after-epoch {[:waiting] 2}}}}}]}
+                :before   {:state      :waiting
+                           :data       {:entries 1}
+                           :rf/runtime {:after-epoch {[:waiting] 1}}}
+                :after    {:state      :timeout
+                           :data       {:entries 1}
+                           :rf/runtime {:after-epoch {[:waiting] 2}}}}}]}
 
  ;; Mode B companion (pure, run AFTER the dispatches and the clock phase):
  ;; the same transition, taken as a pure function of an explicit snapshot and
@@ -256,11 +258,13 @@
                           :waiting {:entry :note-entry
                                     :after {5000 :timeout}}
                           :timeout {}}}
-   :snapshot   {:state :waiting
-                :data  {:entries 1 :rf/after-epoch {[:waiting] 1}}}
+   :snapshot   {:state      :waiting
+                :data       {:entries 1}
+                :rf/runtime {:after-epoch {[:waiting] 1}}}
    :event      [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
-   :expect-next-snapshot {:state :timeout
-                          :data  {:entries 1 :rf/after-epoch {[:waiting] 2}}}
+   :expect-next-snapshot {:state      :timeout
+                          :data       {:entries 1}
+                          :rf/runtime {:after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:waiting]}]]}]}

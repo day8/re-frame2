@@ -2417,8 +2417,8 @@ structured before→after state object.
 - **Scope = `{:state :tags}` ONLY** (`projection/machine-logical-
   state`). `:data` is EXCLUDED — the per-action `↳ data Δ` already
   carries it (folding it in double-shows it); the framework-owned
-  `:rf/*` snapshot slots (`:rf/spawn-counter`, after-epoch counters —
-  Spec 005 §Reserved snapshot-internal keys) are EXCLUDED (not user
+  `:rf/runtime` map (spawn counters, after-epoch counters —
+  Spec 005 §Reserved snapshot-internal keys) is EXCLUDED (not user
   state — a raw snapshot-diff would dump them). `select-keys [:state
   :tags]` filters everything else by construction.
 - **Data source** — the transition row's `:before` / `:after` snapshots

@@ -141,7 +141,7 @@
       (let [snap (rf.machines.test-support/snapshot :lose/m)]
         (rf.machines.timer/rearm-hydrated-after-timer!
           :rf/default :lose/m [:waiting] :waiting five-seconds
-          (get-in snap [:data :rf/after-epoch [:waiting]]) snap))
+          (get-in snap [:rf/runtime :after-epoch [:waiting]]) snap))
       (is (= [1 2] [(count (inner)) (count @thunks)])
           "the same-epoch re-arm superseded the one live entry")
       ((first @thunks))

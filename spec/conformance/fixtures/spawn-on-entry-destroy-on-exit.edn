@@ -11,8 +11,8 @@
 ;;      [:rf.runtime/machines :spawned <parent-id> <invoke-id>] (the runtime
 ;;      tracks the spawn-id itself).
 ;;   2. The transition reducer binds the assigned actor id into the
-;;      parent's :data under the reserved per-invoke map :rf/spawned
-;;      (XState-context parity) — the one id-recording story.
+;;      parent's `:rf/runtime` map under the per-invoke `:spawned` map —
+;;      the one id-recording story.
 ;;   3. Exiting the state emits a :rf.machine/destroy fx whose args carry
 ;;      :rf/parent-id + :rf/invoke-id (NOT the actor id directly). The fx
 ;;      handler reads [:rf.runtime/machines :spawned <parent-id> <invoke-id>] from the
@@ -35,7 +35,7 @@
 ;; :rf/transition-pure.
 ;;
 ;; The spawn-id allocator lives inside the snapshot at
-;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
+;; `[:rf/runtime :spawn-counter]` (a per-id-prefix integer map). A fresh fixture
 ;; snapshot starts without the slot; the first spawn bumps the slot under
 ;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
 ;; spec supplies none — as here — so the slot lands at `{:http/post 1}`
@@ -45,7 +45,7 @@
 {:fixture/id           :machine/spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn}
- :fixture/doc          "Declarative :spawn on a state node desugars to entry/exit :rf.machine/spawn / :rf.machine/destroy fx at registration time. Verifies that entering the state emits :rf.machine/spawn with the declared spec, the transition reducer binds the spawned id into the parent's :data under :rf/spawned, and exiting the state emits :rf.machine/destroy with the recorded id."
+ :fixture/doc          "Declarative :spawn on a state node desugars to entry/exit :rf.machine/spawn / :rf.machine/destroy fx at registration time. Verifies that entering the state emits :rf.machine/spawn with the declared spec, the transition reducer binds the spawned id into the parent's [:rf/runtime :spawned], and exiting the state emits :rf.machine/destroy with the recorded id."
 
  :fixture/registry
  {:machine
@@ -78,19 +78,19 @@
    :event        [:submit]
    ;; After the transition, :authenticating's auto-spawn entry has run.
    ;; The RUNTIME binds the
-   ;; assigned actor id into the parent's :data under the reserved per-invoke
-   ;; map :rf/spawned (XState-context parity) — {[:authenticating] :http/post#1};
-   ;; the parent's USER-domain :data is untouched.
+   ;; assigned actor id into the parent's `:rf/runtime` map under the per-invoke
+   ;; `:spawned` map — {[:authenticating] :http/post#1}; the parent's :data is
+   ;; untouched.
    ;; The fixture harness assigns the deterministic id :http/post#1 for
-   ;; spawn-fx in test mode; an action reads the id from this :data slot (the
-   ;; first-class path) — equivalently it remains at the runtime-tracked
+   ;; spawn-fx in test mode; an action reads the id from its callback ctx's
+   ;; `:spawned` (the first-class path) — equivalently it remains at the runtime-tracked
    ;; [:rf.runtime/machines :spawned <parent> <invoke-id>] slot.
-   :expect-next-snapshot {:state             :authenticating
-                          :data              {:credentials {:user "alice" :pass "secret"}
-                                              :rf/spawned  {[:authenticating] :http/post#1}}
-                          :rf/spawn-counter  {:http/post 1}
-                          ;; The entry's spawn attempt token.
-                          :rf/spawn-attempts {[:authenticating] 1}}
+   :expect-next-snapshot {:state      :authenticating
+                          :data       {:credentials {:user "alice" :pass "secret"}}
+                          :rf/runtime {:spawned        {[:authenticating] :http/post#1}
+                                       :spawn-counter  {:http/post 1}
+                                       ;; The entry's spawn attempt token.
+                                       :spawn-attempts {[:authenticating] 1}}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/login"
                                                               :body {:user "alice" :pass "secret"}}
@@ -134,6 +134,6 @@
                                                 :rf/invoke-id [:authenticating]}]]}]
 
  ;; The spawn carries no user callback: the id-recording story is the
- ;; reducer's `[:data :rf/spawned <invoke-id>]` bind, asserted above.
+ ;; reducer's `[:rf/runtime :spawned <invoke-id>]` bind, asserted above.
  :fixture/handlers
  {}}

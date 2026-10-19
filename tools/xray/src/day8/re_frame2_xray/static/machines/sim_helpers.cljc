@@ -439,8 +439,8 @@
 
   The engine already computes both — the leaf path for a compound
   root, the region->state map for a parallel one — and its snapshot
-  carries the slots the runtime expects (`:rf/spawn-counter`, `:meta`,
-  the initial tag union guards read). Re-deriving that here would be a
+  carries the slots the runtime expects (`:meta`, the initial tag union
+  guards read). Re-deriving that here would be a
   second copy of the initial cascade to keep in step, so the engine is
   asked instead.
 

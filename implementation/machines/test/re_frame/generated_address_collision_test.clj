@@ -58,7 +58,7 @@
   (rf/dispatch-sync [:gac/child#1 [:mark :FIRST]])
   (rf/dispatch-sync [:gac/fire])
   (rf/dispatch-sync [:gac/hire :gac/p])
-  (is (= {} (:rf/spawn-counter (snapshot :gac/p)))
+  (is (nil? (get-in (snapshot :gac/p) [:rf/runtime :spawn-counter]))
       "the new incarnation's counter is seeded fresh")
   (rf.machines.test-support/reset-captured!)
   (rf/dispatch-sync [:gac/p [:go]])

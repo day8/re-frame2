@@ -64,7 +64,7 @@
     (rf/dispatch-sync [:ref/fork [:rf.machine/start]])
     (is (= [:wait :wait]
            (mapv rf.machines.test-support/machine-state [:ref/the-kid :ref/fork-kid])))
-    (is (= :ref/kid-type (:rf/machine-type (rf.machines.test-support/snapshot :ref/the-kid)))
+    (is (= :ref/kid-type (get-in (rf.machines.test-support/snapshot :ref/the-kid) [:rf/runtime :machine-type]))
         "the actor's type is the registered keyword")))
 
 (defn- hand-spawn! [event-id spawn-args]

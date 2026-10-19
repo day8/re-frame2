@@ -14,7 +14,7 @@
       [<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]
 
   at the child's finality, reading the exact-attempt coordinate straight out
-  of the child's runtime-stamped `:rf/join-child` membership record. Because
+  of the child's runtime-stamped `[:rf/runtime :join-child]` membership record. Because
   the RUNTIME both mints and consumes that carrier, the coordinate never has
   to survive an application-authored event: there is no transport fx, no
   recordable cofx fact, and no completion vocabulary on the child. The
@@ -99,8 +99,8 @@
 ;; respawned, and a straggler from the prior attempt is indistinguishable by
 ;; VALUE from a live one — most sharply for a `:fixed-actor-id` child, whose
 ;; address is identical across attempts. The runtime therefore stamps each
-;; child's `:data` at spawn with the framework-reserved `:rf/join-child`
-;; membership record (parent/invoke identity, logical child id, its own spawned
+;; child's snapshot at spawn with the framework-reserved
+;; `[:rf/runtime :join-child]` membership record (parent/invoke identity, logical child id, its own spawned
 ;; instance address, the opaque per-attempt token `spawn-all-init-fx` minted
 ;; into the join state, and the private work generation), and `finalize` copies
 ;; that coordinate onto the completion carrier it mints when the child reaches
@@ -134,7 +134,7 @@
 
 (defn- completion-attempt
   "The exact-attempt coordinate the fold fences on, projected off the
-  completion carrier `finalize` minted from the child's `:rf/join-child`
+  completion carrier `finalize` minted from the child's `:join-child`
   membership record: parent/invoke identity, logical child id, the child's own
   spawned instance address, and the opaque per-attempt token. Work generation
   is carried as evidence for a SUPERSEDED attempt, whose join state no
@@ -460,7 +460,7 @@
                             reply-facts))))))
 
 (defn- live-attempt-member?
-  "True iff `spawned-id` is still a LIVE actor whose `:rf/join-child`
+  "True iff `spawned-id` is still a LIVE actor whose `:join-child`
   membership authenticates against THIS join attempt — parent, invoke path,
   logical child id, its own address, and the attempt token (the same test
   `destroy/authenticated-join-child` applies before a teardown).
@@ -471,8 +471,8 @@
   torn itself down; it is no survivor, and cancelling it would give one attempt
   contradictory terminals."
   [runtime-db parent-id invoke-id join-state child-id spawned-id]
-  (let [member (get-in runtime-db (conj (rf.machines.paths/snapshot-path spawned-id :data)
-                                        :rf/join-child))]
+  (let [member (get-in runtime-db (rf.machines.paths/snapshot-path spawned-id :rf/runtime
+                                                                   :join-child))]
     (and (map? member)
          (= parent-id  (:parent-id member))
          (= invoke-id  (:invoke-id member))
@@ -718,7 +718,7 @@
 
         ;; Exact-attempt fence. The carrier's coordinate must
         ;; equal THIS join attempt: the coordinate `finalize` copied off the
-        ;; child's `:rf/join-child` membership record must equal the current
+        ;; child's `:join-child` membership record must equal the current
         ;; join's parent/invoke identity, logical child id, exact current actor
         ;; id, and exact attempt token. A carrier with NO coordinate (a
         ;; hand-authored `[:rf.machine.spawn/done …]` dispatch that never came

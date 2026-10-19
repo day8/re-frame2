@@ -8,9 +8,9 @@
   `spawn-fx` seeds the actor's initial snapshot at
   `[:rf.runtime/machines :snapshots <spawned-id>]` in the spawning
   frame's runtime-db, stamping the revertible type reference at
-  `:rf/machine-type`. There is NO per-instance event-handler
+  `[:rf/runtime :machine-type]`. There is NO per-instance event-handler
   registration — the actor's liveness IS that snapshot's presence in the
-  (revertible) frame value, and the snapshot's `:rf/machine-type` lets
+  (revertible) frame value, and the snapshot's type reference lets
   the lazy resolver (`lifecycle-fx.resolver`) re-materialise the actor's
   handler on dispatch. Spawn and destroy update runtime-db only. Epoch restore
   replaces the whole captured frame state, so actor liveness rewinds without
@@ -55,7 +55,7 @@
   005 §`:spawn` map keys: `:fixed-actor-id` is an explicit
   actor-address literal (per-state singleton); `:rf/spawned-id` is stamped
   by the transition reducer (allocated from the parent snapshot's
-  `:rf/spawn-counter`). Returns nil for hand-emitted
+  `[:rf/runtime :spawn-counter]`). Returns nil for hand-emitted
   `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
   the caller (`spawn-fx`) allocates such ids from the frame's runtime-db
   spawn-counter slot at `[:rf.runtime/machines :spawn-counter]` inside
@@ -110,8 +110,8 @@
 (defn- spawn-shape-error
   "The throw a `:rf.machine/spawn` that does not name a registered TYPE earns,
   or nil: args carrying an inline `:definition`, or no `:machine-id` keyword.
-  A spawned child is a registered machine type, so its `:rf/machine-type` is
-  a keyword and its snapshot stays EDN. Registration refuses the declarative
+  A spawned child is a registered machine type, so its
+  `[:rf/runtime :machine-type]` is a keyword and its snapshot stays EDN. Registration refuses the declarative
   shapes (`validate-spawn!` / `validate-spawn-all!`, same id); this is the
   same rule for a hand-emitted `[:rf.machine/spawn …]`, which no registration
   sees. Without it such a spawn would resolve no spec, allocate no address,
@@ -129,7 +129,7 @@
       {:recovery :no-recovery})))
 
 (defn- clear-rejected-mirror!
-  "Remove the parent's `[:data :rf/spawned <invoke-id>]` entry for a REJECTED
+  "Remove the parent's `[:rf/runtime :spawned <invoke-id>]` entry for a REJECTED
   declarative `:spawn`. The transition reducer binds that mirror when it
   allocates the child's address, before this fx decides; the install writes it
   beside the registry slot on success (`install-spawn!`), and each rejection
@@ -138,7 +138,7 @@
 
   Removes only an entry naming THIS spawn's address — at its region-qualified
   key for a region spawn (`paths/spawned-mirror-path`) — and prunes an emptied
-  `:rf/spawned` map as the teardown projection does. A spawn with no
+  `:spawned` map as the teardown projection does. A spawn with no
   `:rf/parent-id` / `:rf/invoke-id` (hand-emitted) has no mirror, so this is a
   no-op for it. Bound to the event owner's exact incarnation, like the install.
   Returns nil."
@@ -146,18 +146,14 @@
   (let [parent-id (:rf/parent-id args)
         invoke-id (:rf/invoke-id args)
         address   (pre-allocated-actor-id args)
-        spawned   (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
         tracked?  (and parent-id invoke-id (some? address))
         rt-now    (when tracked? (rf.frame/frame-runtime-db-value frame-id))
         mirror    (when tracked?
                     (rf.machines.paths/spawned-mirror-path rt-now parent-id invoke-id))]
     (when (and tracked? (= address (get-in rt-now mirror)))
       (let [clear       (fn [rt]
-                          (let [rt' (update-in rt spawned dissoc (peek mirror))]
-                            (if (empty? (get-in rt' spawned))
-                              (update-in rt' (rf.machines.paths/snapshot-path parent-id :data)
-                                         dissoc :rf/spawned)
-                              rt')))
+                          (update-in rt (rf.machines.paths/snapshot-path parent-id)
+                                     rf.machines.paths/prune-runtime-in :spawned (peek mirror)))
             owner-token (rf.frame/current-event-owner-token)]
         (if owner-token
           (rf.frame/swap-runtime-db-exact! frame-id owner-token clear)
@@ -305,39 +301,40 @@
                        (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id))]
       (boolean (and (map? slot) (:rf/spawn-all-rejected? slot))))))
 
-(defn- stamp-framework-data
-  "Stamp framework-reserved keys into the spawned actor's
-  initial `:data` so the actor knows its own address (`:rf/self-id`)
-  and, for declarative-`:spawn` spawns, its parent's address +
-  invoke-id. `join-child` (a `:spawn-all` child's private join-membership
-  record — see `join-child-record`) rides under `:rf/join-child` when
-  present. `invoke-attempt` (a declarative single `:spawn`'s attempt token)
-  rides under `:rf/invoke-attempt` when present; the child's
-  completion carriers hand it back to the parent's currency gate. That
-  attempt's exact `work-generation` rides under `:rf/work-generation`, where
-  its replies and its cancel row read it."
-  [spec spawned-id parent-id invoke-id join-child invoke-attempt work-generation]
-  (when spec
-    (let [base-data (or (:data spec) {})
-          data'     (cond-> (assoc base-data :rf/self-id spawned-id)
-                      parent-id  (assoc :rf/parent-id parent-id)
-                      invoke-id  (assoc :rf/invoke-id invoke-id)
-                      join-child (assoc :rf/join-child join-child)
-                      invoke-attempt (assoc :rf/invoke-attempt invoke-attempt)
-                      work-generation (assoc :rf/work-generation work-generation))]
-      (assoc spec :data data'))))
+(defn- actor-runtime
+  "The identity a spawn of `args` stamps into the spawned actor's
+  `:rf/runtime` map: its own address (`:self-id`) and, for declarative
+  spawns, its parent's address + invoke-id. `join-child` (a `:spawn-all`
+  child's private join-membership record — see `join-child-record`) rides
+  under `:join-child` when present. A declarative single `:spawn`'s attempt
+  token rides under `:invoke-attempt`; the child's completion carriers hand
+  it back to the parent's currency gate. That attempt's exact work
+  generation rides under `:work-generation`, where its replies and its
+  cancel row read it. Only the spawn args say whether a single `:spawn`'s id
+  was authored, so the generation is chosen here, as `join-child-record`
+  chooses a `:spawn-all` child's. None of it touches the actor's `:data`."
+  [args spawned-id join-child]
+  (let [attempt (:rf/invoke-attempt args)]
+    (cond-> {:self-id spawned-id}
+      (:rf/parent-id args) (assoc :parent-id (:rf/parent-id args))
+      (:rf/invoke-id args) (assoc :invoke-id (:rf/invoke-id args))
+      join-child           (assoc :join-child join-child)
+      attempt              (assoc :invoke-attempt attempt
+                                  :work-generation
+                                  (rf.machines.reply/spawn-work-generation
+                                    (contains? args :fixed-actor-id) spawned-id attempt)))))
 
 (defn- join-child-record-from-state
   "`join-child-record`'s pure core — build the record from an already-in-hand
   join-state VALUE rather than reading it back out of runtime-db.
 
   Split out so `spawn-all-init-fx`'s invoke-level PREFLIGHT can
-  build the candidate child `:data` it validates against the join-state it is
-  ABOUT to seed: that state is not in runtime-db yet, and for a REJECTED
-  invoke it never will be. Sharing this core is what makes the preflight's
-  `:rf/join-child` stamp byte-identical to the one the later per-child install
-  writes, so the two paths can never reach different schema verdicts for the
-  same child.
+  build the candidate child snapshot against the join-state it is ABOUT to
+  seed: that state is not in runtime-db yet, and for a REJECTED invoke it
+  never will be. Sharing this core is what makes the preflight's
+  `:join-child` stamp byte-identical to the one the later per-child install
+  writes, so the two paths can never land different snapshots for the same
+  child.
 
   Returns nil unless `join-state` is a live child-bearing join (the reject
   sentinel carries no `:children`)."
@@ -362,7 +359,7 @@
 
 (defn- join-child-record
   "Build the PRIVATE join-membership record the runtime stamps into a
-  `:spawn-all` child's `:data` under `:rf/join-child`. It
+  `:spawn-all` child's `[:rf/runtime :join-child]`. It
   carries the exact coordinates of the join ATTEMPT this child instance
   belongs to — the parent/invoke identity, the logical child id, the
   child's own spawned instance address, the opaque per-attempt token the
@@ -390,38 +387,10 @@
       (get-in runtime-db (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id))
       args spawned-id)))
 
-(defn- stamp-spawn-spec
-  "Apply the spawn's `:data` override and the framework's `:rf/self-id` /
-  `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child` stamps to an
-  ALREADY-RESOLVED TYPE spec, yielding the exact spec a spawn of `args` would
-  install. Returns nil for a nil `spec`.
-
-  Split out from `candidate-spawn-spec` so `prepare-spawn-all-child` can
-  stamp the definition it has already resolved for its verdict, without a
-  second registry read."
-  [spec args spawned-id join-child]
-  (let [spec'   (if (and spec (contains? args :data))
-                  (assoc spec :data (:data args))
-                  spec)
-        attempt (:rf/invoke-attempt args)]
-    (stamp-framework-data spec' spawned-id
-                          (:rf/parent-id args)
-                          (:rf/invoke-id args)
-                          join-child
-                          attempt
-                          ;; Only the spawn args say whether a single
-                          ;; `:spawn`'s id was authored, so the attempt's work
-                          ;; generation is chosen here, as `join-child-record`
-                          ;; chooses a `:spawn-all` child's.
-                          (when attempt
-                            (rf.machines.reply/spawn-work-generation
-                              (contains? args :fixed-actor-id) spawned-id attempt)))))
-
 (defn- candidate-spawn-spec
-  "The fully framework-stamped machine spec a spawn of `args` WOULD install:
-  the registered `:machine-id`'s TYPE spec, the args' materialised `:data`
-  override applied, and the framework's `:rf/self-id` / `:rf/parent-id` /
-  `:rf/invoke-id` / `:rf/join-child` keys stamped into `:data`. Returns nil
+  "The machine spec a spawn of `args` WOULD install: the registered
+  `:machine-id`'s TYPE spec with the args' materialised `:data` override
+  applied. Returns nil
   when the type resolves to no spec (an unregistered `:machine-id` — the
   `unregistered-spawn-type?` gate's child, or an admitted `:spawn-all` child
   whose type was unregistered after its preflight).
@@ -432,14 +401,27 @@
   transition reducer already materialised any user `:data` fn into a VALUE on
   the args (`spawn-one`), so this evaluates no application code and allocates
   no id — it may be called on both paths without double-running user code."
-  [args spawned-id join-child]
-  (stamp-spawn-spec (resolve-spawn-machine args) args spawned-id join-child))
+  [args]
+  (let [spec (resolve-spawn-machine args)]
+    (if (and spec (contains? args :data))
+      (assoc spec :data (:data args))
+      spec)))
+
+(defn- initial-actor-snapshot
+  "The initial snapshot a spawn of `args` installs at `spawned-id` from
+  `candidate-spawn-spec`'s `spec`: the shared initial snapshot, bootstrap
+  pending, with the actor's identity (`actor-runtime`) in its `:rf/runtime`.
+  Returns nil for a nil `spec`."
+  [spec args spawned-id join-child]
+  (when spec
+    (-> (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true})
+        (update :rf/runtime merge (actor-runtime args spawned-id join-child)))))
 
 ;; The spawned actor's initial snapshot is built by
 ;; `rf.machines.parallel/build-initial-snapshot` — the single source of truth shared
 ;; with the singleton-registration path
 ;; (`lifecycle-fx.registration/make-machine-handler`); the shared builder
-;; seeds `:rf/spawn-counter` and `:meta` consistently across both paths.
+;; seeds `:data` and `:meta` consistently across both paths.
 ;; The spawn path passes `:bootstrap-pending? true` because the actor's
 ;; first dispatch must fire the initial-entry cascade.
 
@@ -454,7 +436,7 @@
   install, the spawn-order record, AND the `:start` dispatch — the
   rejected actor leaves NO half-installed bookkeeping (no registered
   handler, no actor state, no phantom `:rf/machine?` registry entry) —
-  and clears the parent's `:rf/spawned` mirror entry
+  and clears the parent's `:spawned` mirror entry
   (`clear-rejected-mirror!`).
 
   Only a literal `false` from the validator (a genuine schema violation) is a
@@ -467,7 +449,7 @@
 
 (defn- install-spawn!
   "Atomically install the spawned actor's `initial-snap` (with its
-  revertible `:rf/machine-type` TYPE reference stamped at the root) and
+  revertible TYPE reference stamped at `[:rf/runtime :machine-type]`) and
   the runtime-owned spawn registry slot into the frame's runtime-db.
 
   Returns an EXPLICIT result: `:committed` when the runtime-db swap landed,
@@ -477,7 +459,7 @@
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
-  frame value, and the snapshot's `:rf/machine-type` lets the lazy
+  frame value, and the snapshot's type reference lets the lazy
   resolver re-materialise the handler on dispatch. Spawn is therefore a
   pure runtime-db write.
 
@@ -503,7 +485,7 @@
   here (`install-base-after-replacing-occupant!`); this fn simply installs
   whatever base it is given.
 
-  `machine-id` is the registered TYPE keyword stamped at `:rf/machine-type`,
+  `machine-id` is the registered TYPE keyword stamped at `[:rf/runtime :machine-type]`,
   the reference the lazy resolver reads back on every dispatch. The install
   lands whenever there is an `initial-snap` to land — including an ADMITTED
   `:spawn-all` child whose TYPE was unregistered between its preflight and
@@ -521,7 +503,7 @@
         ;; the lazy resolver can re-materialise the handler from runtime-db
         ;; alone.
         initial-snap (cond-> initial-snap
-                       initial-snap (assoc :rf/machine-type machine-id))
+                       initial-snap (assoc-in [:rf/runtime :machine-type] machine-id))
         install-fn (fn [_rt]
                      (cond-> rt-after-alloc
                        initial-snap (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
@@ -538,7 +520,7 @@
                        ;; snapshots.
                        initial-snap (rf.machines.spawn-order/record-in-runtime-db spawned-id)
                        track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
-                       ;; Write the parent's `:rf/spawned`
+                       ;; Write the parent's `:spawned`
                        ;; mirror beside the registry slot it mirrors: the
                        ;; teardown projection clears the two TOGETHER, so the
                        ;; install writes them together (and a rejected spawn
@@ -666,18 +648,19 @@
       spawn: emit the always-on `:rf.error/machine-spawn-unregistered-type`
       and return without installing anything — no snapshot, no slot, no
       spawned-id allocation, no spawn-order record, no trace, no `:start`
-      dispatch — and clear the parent's `[:data :rf/spawned <invoke-id>]`
+      dispatch — and clear the parent's `[:rf/runtime :spawned <invoke-id>]`
       entry the reducer bound (`clear-rejected-mirror!`). There is no
       implicit \"spec-less spawn\" lifecycle.
    1. Resolve the spawn's machine spec from the registrar.
    2. Initialise the actor's snapshot at `[:rf.runtime/machines
       :snapshots <spawned-id>]` using the spec's `:initial` / `:data`
       (overridden by the spawn args' `:data`), stamping the revertible
-      TYPE reference — the `:machine-id` keyword — at `:rf/machine-type`,
-      so the lazy resolver (`lifecycle-fx.resolver`) can re-materialise
-      the actor's handler from runtime-db alone. The runtime stamps
-      `:rf/self-id` (the spawned actor's own address) and, when applicable,
-      `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
+      TYPE reference — the `:machine-id` keyword — at
+      `[:rf/runtime :machine-type]`, so the lazy resolver
+      (`lifecycle-fx.resolver`) can re-materialise the actor's handler from
+      runtime-db alone. The runtime stamps `:self-id` (the spawned actor's
+      own address) and, when applicable, `:parent-id` + `:invoke-id` into
+      the actor's `:rf/runtime` — never its `:data`.
       Re-spawn at an address a LIVE actor still occupies REPLACES that
       actor, and replacement is a CLEAN destroy-then-install: the spawn
       runs the occupant through the ordinary `[:rf.machine/destroy
@@ -690,7 +673,7 @@
    3. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar), bind the spawned id at
       `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` and at the
-      parent's `[:data :rf/spawned <invoke-id>]` mirror of that slot.
+      parent's `[:rf/runtime :spawned <invoke-id>]` mirror of that slot.
    4. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent,
       the runtime dispatches a synthetic `[<spawned-id>
@@ -784,7 +767,7 @@
   become the new one. NOBODY NAMES A GENERATED ADDRESS. `<type>#<n>` is minted
   by a counter, and the counter can hand out a live actor's address because the
   two allocators do not share a home — the declarative reducer's counter lives
-  IN THE SPAWNING PARENT'S SNAPSHOT (`:rf/spawn-counter`,
+  IN THE SPAWNING PARENT'S SNAPSHOT (`[:rf/runtime :spawn-counter]`,
   `transition/allocate-spawned-id`) while the address space it allocates into is
   FRAME-GLOBAL. So a parent destroyed and respawned at the same address begins
   counting from zero beside its own still-live orphans, and two parents spawning
@@ -829,7 +812,7 @@
   the caller's cascade gate suppresses the whole spawn — no snapshot, no
   spawn-order entry, no `:rf.machine.spawn/spawned`, no `:start` dispatch —
   exactly as the schema-reject and unregistered-TYPE paths do. The rejecting
-  parent's `:rf/spawned` mirror entry, which names the occupant's address, is
+  parent's `:spawned` mirror entry, which names the occupant's address, is
   cleared (`clear-rejected-mirror!`).
 
   ONE CATEGORY FOR ONE FAILURE. `:rf.error/machine-spawn-all-duplicate-id`
@@ -1009,7 +992,7 @@
         owner-token (rf.frame/current-event-owner-token)
         ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
-        ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
+        ;; snapshot's `[:rf/runtime :spawn-counter]`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's runtime-db spawn-counter slot
         ;; at `[:rf.runtime/machines :spawn-counter]` serves
         ;; as the fallback allocator, bumped inside the same db-swap as
@@ -1063,17 +1046,16 @@
         ;; prepared one — and it is nil when the child's TYPE was
         ;; unregistered after its preflight: the admitted child still installs
         ;; (inert), exactly as any live actor whose type is unregistered.
-        spec''     (candidate-spawn-spec args spawned-id
-                                         (join-child-record old-rt args spawned-id))
+        spec''     (candidate-spawn-spec args)
         ;; The initial snapshot the install lands. Consumed verbatim from the
         ;; preflight for a `:spawn-all` child (built ONCE there); built ONCE
         ;; here otherwise, so the schema-rejection decision can gate every side
         ;; effect below and `install-spawn!` threads the same value.
         initial-snap (if prepared
                        (:snap prepared)
-                       (when spec''
-                         (rf.machines.parallel/build-initial-snapshot
-                           spec'' {:bootstrap-pending? true})))
+                       (initial-actor-snapshot
+                         spec'' args spawned-id
+                         (join-child-record old-rt args spawned-id)))
         ;; Decide schema rejection BEFORE the trace and the
         ;; install. Gating both on `(not rejected?)` makes a rejected spawn
         ;; FULLY atomic — it installs no snapshot, records no spawn-order
@@ -1094,7 +1076,7 @@
         rejected?  (if prepared
                      false
                      (spawn-rejected? spec'' spawned-id initial-snap))]
-    ;; A schema-rejected spawn clears the parent's `:rf/spawned` mirror entry
+    ;; A schema-rejected spawn clears the parent's `:spawned` mirror entry
     ;; the reducer bound, as the unregistered-TYPE and generated-collision
     ;; rejects do.
     (when rejected?
@@ -1159,7 +1141,7 @@
                     :invoke-id  invoke-id})
       ;; NO per-instance handler registration. The actor's liveness IS its
       ;; snapshot's presence in the (revertible) frame value; the snapshot's
-      ;; `:rf/machine-type` (stamped by `install-spawn!`) lets the lazy resolver
+      ;; `[:rf/runtime :machine-type]` (stamped by `install-spawn!`) lets the lazy resolver
       ;; re-materialise the handler on dispatch. Spawn is a pure runtime-db
       ;; write.
       ;;
@@ -1254,7 +1236,7 @@
   ;; Monotonic per-seed attempt-token source (mirrors
   ;; `timer/after-attempt-counter`). Every LIVE `:spawn-all` seed mints one
   ;; opaque token into the join state under `:rf/attempt`, and the same token
-  ;; is stamped into each child's private `:rf/join-child` membership record —
+  ;; is stamped into each child's private `:join-child` membership record —
   ;; so the parent's join interceptor can bind every completion carrier to the
   ;; exact join ATTEMPT that spawned it. Actor ids alone cannot discriminate a
   ;; re-entry respawn (`:fixed-actor-id` children reuse the SAME id across
@@ -1268,8 +1250,8 @@
 
 (defn- prepare-spawn-all-child
   "The AUTHORITATIVE single preparation of ONE `:spawn-all` per-child spawn for
-  an attempt. Resolves the child's TYPE, stamps its
-  framework `:data`, builds its initial snapshot, and runs its `[:schemas :data]`
+  an attempt. Resolves the child's TYPE, builds its initial snapshot (its
+  identity in `:rf/runtime`), and runs its `[:schemas :data]`
   validator EXACTLY ONCE — against the join-state about to be seeded — and
   returns the prepared result:
 
@@ -1289,27 +1271,26 @@
   is reported under exactly one of them.
 
   `:spawned-id` is nil (nothing prepared) for a child with no pre-allocated id:
-  its `:rf/self-id` stamp — and therefore its `:data` — is unknowable until an
+  its `:self-id` stamp — and therefore its snapshot — is unknowable until an
   install allocates one, so there is nothing faithful to prepare. The transition
   reducer pre-allocates every declarative `:spawn-all` child; the runtime-db
   fallback allocator serves only hand-emitted `:rf.machine/spawn` fxs, which
   belong to no invoke."
   [args join-state]
   (let [spawned-id (pre-allocated-actor-id args)
-        ;; The framework stamp runs through the SAME `candidate-spawn-spec`
-        ;; path the per-child install runs, so the two can never disagree
-        ;; about the value that gets validated.
+        ;; The spec and snapshot run through the SAME `candidate-spawn-spec` /
+        ;; `initial-actor-snapshot` path the per-child install runs, so the
+        ;; two can never disagree about the value that gets validated.
         spec       (when spawned-id
-                     (candidate-spawn-spec
-                       args spawned-id
-                       (join-child-record-from-state join-state args spawned-id)))
+                     (candidate-spawn-spec args))
         ;; Unregistered ⟺ a `:machine-id` that resolved to no spec — read off
         ;; the SAME resolution above, not a second lookup.
         unregistered? (boolean (and (some? spawned-id)
                                     (some? (:machine-id args))
                                     (nil? spec)))
-        snap       (when spec
-                     (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
+        snap       (initial-actor-snapshot
+                     spec args spawned-id
+                     (join-child-record-from-state join-state args spawned-id))
         schema-reject? (boolean (and snap (some? spawned-id)
                                      (spawn-rejected? spec spawned-id snap)))]
     {:args           args
@@ -1377,10 +1358,10 @@
   not land.
 
   `mirror` is set in the SAME swap at the parent's
-  `[:data :rf/spawned <invoke-id>]` (`paths/spawned-mirror-path`): the
+  `[:rf/runtime :spawned <invoke-id>]` (`paths/spawned-mirror-path`): the
   children map the slot's `:children`
   mirrors on the live-join accept path, and nil — the entry removed, an emptied
-  `:rf/spawned` map pruned — when `value` is the reject sentinel. The exit-cascade
+  `:spawned` map pruned — when `value` is the reject sentinel. The exit-cascade
   clear removes slot and mirror together, so the seed moves them together on
   both outcomes: a macrostep that exits and re-enters the `:spawn-all` state
   drains the old batch's clear FIRST, taking the successor batch's freshly bound
@@ -1389,7 +1370,7 @@
   ([frame-id owner-token parent-id invoke-id value]
    (write-spawned-slot! frame-id owner-token parent-id invoke-id value nil))
   ([frame-id owner-token parent-id invoke-id value mirror]
-   (let [spawned (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
+   (let [spawned (rf.machines.paths/snapshot-path parent-id :rf/runtime :spawned)
          swap-fn (fn [rt]
                    (let [rt'        (assoc-in rt (rf.machines.paths/spawned-path parent-id invoke-id) value)
                          mirror-at  (rf.machines.paths/spawned-mirror-path rt' parent-id invoke-id)
@@ -1405,11 +1386,8 @@
                        rt'
 
                        :else
-                       (let [rt'' (update-in rt' spawned dissoc mirror-key)]
-                         (if (empty? (get-in rt'' spawned))
-                           (update-in rt'' (rf.machines.paths/snapshot-path parent-id :data)
-                                      dissoc :rf/spawned)
-                           rt'')))))]
+                       (update-in rt' (rf.machines.paths/snapshot-path parent-id)
+                                  rf.machines.paths/prune-runtime-in :spawned mirror-key))))]
      (if owner-token
        (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
        (rf.frame/swap-runtime-db! frame-id swap-fn)))))
@@ -1420,7 +1398,7 @@
   `:rf.machine/spawn` fx later in THIS entry vector reads it
   (`spawn-all-invoke-rejected?`) and suppresses itself, so a rejected invoke
   spawns NOTHING rather than orphaning registered siblings under no live join.
-  The same write removes the parent's `:rf/spawned` children map for the
+  The same write removes the parent's `:spawned` children map for the
   invoke, which the transition reducer bound before this fx decided.
 
   Bound to the event owner's raw token. Returns nil — the fx's reject-path
@@ -1459,7 +1437,7 @@
 
   Each child's completion is its own `:final?` state: `lifecycle-fx.finalize`
   mints the reserved `:rf.machine.spawn/done` carrier from the child's
-  `:rf/join-child` record, and the parent's `make-machine-handler` boundary
+  `:join-child` record, and the parent's `make-machine-handler` boundary
   routes it to `intercept-spawn-done-event` (in `lifecycle-fx.join`).
 
   This fx fires FIRST in the entry `:fx` vector — BEFORE the per-child
@@ -1549,7 +1527,7 @@
         ;; prefixes the init-fx's top-level `:rf/invoke-id` AND every per-child
         ;; `:rf.machine/spawn` fx's top-level `:rf/spawn-all-id`, but NOT the
         ;; `:child-args` nested here — so their `:rf/spawn-all-id` is the
-        ;; UN-prefixed path. The preflight RETAINS the `:rf/join-child`
+        ;; UN-prefixed path. The preflight RETAINS the `:join-child`
         ;; membership record built from these args (its `:invoke-id` among
         ;; them), and
         ;; the per-child install consumes it, so that record must carry the SAME
@@ -1562,7 +1540,7 @@
                                    :rf/spawn-all-id invoke-id)
                          (:child-args args))
         ;; Mint the attempt token BEFORE the preflight so the candidate
-        ;; snapshots validated below carry the very `:rf/join-child` record the
+        ;; snapshots built below carry the very `:join-child` record the
         ;; per-child installs will stamp — identical values, identical
         ;; verdicts. A REJECTED invoke simply discards the token: it is an
         ;; opaque monotonic counter whose only contract is uniqueness, so a gap
@@ -1654,7 +1632,7 @@
           ;; The all-valid fast path. `join-state` already carries the opaque
           ;; per-attempt token minted above: one LIVE seed = one join
           ;; ATTEMPT, and the token rides both the join state and each child's
-          ;; `:rf/join-child` membership record (stamped by the per-child spawn
+          ;; `:join-child` membership record (stamped by the per-child spawn
           ;; fxs that run AFTER this fx in the same entry vector), binding every
           ;; completion carrier to this exact attempt.
           ;;

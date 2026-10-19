@@ -368,7 +368,7 @@
                    ;; it reshapes the runtime-db value being installed. Machines
                    ;; needs the other half: HOST work. A machine hydrated in an
                    ;; `:after`-bearing state carries the right `:state` / `:data`
-                   ;; / `:rf/after-epoch` and no live timer, because the server
+                   ;; / `:after` epochs and no live timer, because the server
                    ;; suppressed timer scheduling (Spec 005 §SSR mode) and a
                    ;; wall-clock handle is not serialisable. Spec 011 §`:after`
                    ;; is no-op under SSR requires those timers to begin running

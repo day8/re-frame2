@@ -64,7 +64,7 @@
     (rf/dispatch-sync [:tsp/p1 [:stop]])
     (is (= {:slot nil :mirror nil :reasons [:explicit] :exits 1}
            {:slot    (tracked-slot :tsp/p1)
-            :mirror  (get-in (snapshot :tsp/p1) [:data :rf/spawned [:working]])
+            :mirror  (get-in (snapshot :tsp/p1) [:rf/runtime :spawned [:working]])
             :reasons (destroyed-reasons-for child-id)
             :exits   @exit-count})
         "the stale slot and mirror are pruned with no second destroyed trace or :exit")))

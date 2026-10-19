@@ -85,7 +85,7 @@
   (testing "a SPAWNED actor (no per-instance handler) whose transition action
             returns schema-violating :data must roll back the macrostep and
             emit :where :machine-data — the schema resolves off the snapshot's
-            :rf/machine-type, not via the registry projection"
+            [:rf/runtime :machine-type], not via the registry projection"
     (let [child-spec  {:initial :booting
                        :data    {:n 1}
                        :schemas {:data [:map [:n pos-int?]]}

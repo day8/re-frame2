@@ -1,5 +1,5 @@
 (ns re-frame.spawn-rejected-mirror-test
-  "A rejected spawn leaves no `[:data :rf/spawned <invoke-id>]` entry on its
+  "A rejected spawn leaves no `[:rf/runtime :spawned <invoke-id>]` entry on its
   parent, for each rejection (unregistered type, generated-address collision,
   `:spawn-all` rejected whole, spawn-time `[:schemas :data]`), and the schema
   rejection's cleanup never touches a same-id successor frame's mirror."
@@ -21,9 +21,14 @@
     {:adapter rf.substrate.plain-atom/adapter})
   rf.machines.test-support/trace-capture-fixture)
 
-(def ^:private machine-data rf.machines.test-support/machine-data)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 (def ^:private machine-state rf.machines.test-support/machine-state)
 (def ^:private events-of rf.machines.test-support/events-of)
+
+(defn- mirror
+  "The parent's spawned-id mirror, `[:rf/runtime :spawned]`."
+  [parent-id]
+  (get-in (snapshot parent-id) [:rf/runtime :spawned]))
 
 (defn- reg-child! [id]
   (rf/reg-machine id {:initial :running :states {:running {}}}))
@@ -40,7 +45,7 @@
   (reg-parent! :srm/p1 {:machine-id :srm/ghost})
   (rf/dispatch-sync [:srm/p1 [:start]])
   (is (= :busy (machine-state :srm/p1)) "the parent entered :busy, so the reducer bound the mirror")
-  (is (not (contains? (machine-data :srm/p1) :rf/spawned))
+  (is (nil? (mirror :srm/p1))
       "the mirror entry is cleared and the emptied map pruned"))
 
 (deftest generated-address-collision-reject-clears-the-mirror
@@ -51,7 +56,7 @@
     (rf/dispatch-sync [:srm/pa [:start]])
     (rf/dispatch-sync [:srm/pb [:start]])
     (is (= 1 (count (events-of :rf.error/machine-spawn-all-duplicate-id))))
-    (is (not (contains? (:rf/spawned (machine-data :srm/pb)) [:busy]))
+    (is (not (contains? (mirror :srm/pb) [:busy]))
         "the rejected parent's mirror does not name the first parent's live child")))
 
 (deftest spawn-all-reject-clears-the-mirror
@@ -67,7 +72,7 @@
     (is (= [true false]
            [(get-in (rf.machines.test-support/runtime-db)
                     [:rf.runtime/machines :spawned :srm/fan [:busy] :rf/spawn-all-rejected?])
-            (contains? (:rf/spawned (machine-data :srm/fan)) [:busy])]))))
+            (contains? (mirror :srm/fan) [:busy])]))))
 
 (def ^:private StrictData [:map [:n pos-int?]])
 
@@ -88,7 +93,7 @@
          [(machine-state :srm/ps)
           (count (filter #(= :spawn (get-in % [:tags :phase]))
                          (events-of :rf.error/schema-validation-failure)))
-          (contains? (machine-data :srm/ps) :rf/spawned)])))
+          (some? (mirror :srm/ps))])))
 
 (deftest schema-reject-after-owner-loss-leaves-the-successor-mirror-alone
   (testing "a failing validator that destroys the owning frame and publishes a
@@ -100,8 +105,9 @@
           address  :srm/lost#1
           seed     (fn [rt]
                      (assoc-in rt [:rf.runtime/machines :snapshots parent]
-                               {:state :busy
-                                :data  {:rf/spawned {[:busy] address}}}))
+                               {:state      :busy
+                                :data       {}
+                                :rf/runtime {:spawned {[:busy] address}}}))
           fired?   (atom false)
           b-seeded (atom nil)
           orig     (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]

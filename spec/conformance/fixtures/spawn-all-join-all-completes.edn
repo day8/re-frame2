@@ -23,7 +23,7 @@
 ;; :rf/transition-pure.
 ;;
 ;; The spawn-id allocator lives inside the snapshot at
-;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
+;; `[:rf/runtime :spawn-counter]` (a per-id-prefix integer map). A fresh fixture
 ;; snapshot starts without the slot; each child spawn bumps the slot under
 ;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
 ;; spec supplies none — as here — so the three children land at #1 each.
@@ -65,19 +65,20 @@
    :snapshot     {:state :idle :data {}}
    :event        [:start]
    ;; A :spawn-all binds the WHOLE {<child-id> <spawned-id>}
-   ;; map into the parent's :data under :rf/spawned, keyed by the shared
-   ;; invoke-id `[:hydrating]` (XState-context parity; all N children
+   ;; map into the parent's `:rf/runtime` map under `:spawned`, keyed by the shared
+   ;; invoke-id `[:hydrating]` (all N children
    ;; recorded under the one key, no clobber).
-   :expect-next-snapshot {:state            :hydrating
-                          :data             {:rf/spawned {[:hydrating] {:cfg  :load-config#1
-                                                                        :flag :load-feature-flags#1
-                                                                        :user :load-user-profile#1}}}
-                          :rf/spawn-counter {:load-config        1
-                                             :load-feature-flags 1
-                                             :load-user-profile  1}}
+   :expect-next-snapshot {:state      :hydrating
+                          :data       {}
+                          :rf/runtime {:spawned       {[:hydrating] {:cfg  :load-config#1
+                                                                     :flag :load-feature-flags#1
+                                                                     :user :load-user-profile#1}}
+                                       :spawn-counter {:load-config        1
+                                                       :load-feature-flags 1
+                                                       :load-user-profile  1}}}
    :expect-effects
    ;; The runtime emits 1 init fx + N spawn fxs in this order. Spawn-id
-   ;; allocation is deterministic via the snapshot's `:rf/spawn-counter`
+   ;; allocation is deterministic via the snapshot's `:spawn-counter`
    ;; (per id-prefix); each spawn-id is `:<machine-id>#1`
    ;; because each child's :id-prefix defaults to its own :machine-id,
    ;; giving each its own counter slot starting from 0.

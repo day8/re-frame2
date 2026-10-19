@@ -1,6 +1,6 @@
 (ns re-frame.spawn-reentry-mirror-cljs-test
   "Exiting and re-entering a `:spawn`-bearing state in ONE macrostep leaves the
-  parent's `[:data :rf/spawned <invoke-id>]` mirror naming the NEW child, as the
+  parent's `[:rf/runtime :spawned <invoke-id>]` mirror naming the NEW child, as the
   registry slot does: the old child's teardown clears both, so the successor's
   install (and the `:spawn-all` seed) writes both."
   (:require
@@ -24,7 +24,7 @@
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 (defn- mirror [parent-id invoke-id]
-  (get-in (snapshot parent-id) [:data :rf/spawned invoke-id]))
+  (get-in (snapshot parent-id) [:rf/runtime :spawned invoke-id]))
 
 (def ^:private idle-child
   {:initial :waiting

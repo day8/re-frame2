@@ -6,9 +6,8 @@
    - The `:ws/connection` machine's `:data` map: the URL and the opaque
      credential reference, the retry counters, `:subscriptions`, the
      offline `:queue`, and the `:in-flight` map of awaited replies. The
-     live socket actor's id isn't a field here — it lives in the
-     framework-maintained `:rf/spawned` slot (see `connection.cljs`'s
-     `socket-id`). This map hangs off the machine as `[:schemas :data]`,
+     live socket actor's id isn't a field here — the runtime hands it to
+     every callback as `:spawned` (see `connection.cljs`'s `socket-id`). This map hangs off the machine as `[:schemas :data]`,
      because a machine validates its own `:data` — there's no app-schema
      involved. See docs/machines/concepts.md#validating-a-machines-data.
      (The spawned socket actor's small `:data` map gets the same
@@ -91,33 +90,16 @@
    ;; value that lands in durable machine state has to survive replay, and a
    ;; snapshot-resident counter does by construction.
    [:next-token     :int]
-   [:error          [:maybe :any]]
-   ;; The runtime binds a declaratively-spawned actor's id into the SPAWNING
-   ;; machine's own :data here, keyed by the :spawn-bearing state's path
-   ;; (`{[:active] <socket-actor-id>}`). It doubles as the connection's
-   ;; clock — the live socket id *is* the epoch — and the runtime clears the
-   ;; entry on teardown, so it's never stale. Optional, because it's absent
-   ;; until the first :active entry. See connection.cljs's `socket-id`.
-   [:rf/spawned     {:optional true} [:map-of :any :any]]
-   ;; Framework keys the runtime stamps into a *spawned* actor's :data.
-   ;; Optional, because the parent machine never gets them — only the
-   ;; children the runtime spawns do.
-   [:rf/self-id     {:optional true} :any]
-   [:rf/parent-id   {:optional true} :any]
-   [:rf/invoke-id  {:optional true} :any]])
+   [:error          [:maybe :any]]])
 
 (def SocketActorData
   "The spawned `:websocket/socket` actor's `:data` map — the URL and the
-   same opaque `:cred-ref` the parent carries, plus the framework keys the
-   runtime stamps into every spawned actor's `:data`. Like the parent's
+   same opaque `:cred-ref` the parent carries. Like the parent's
    map, it holds a credential REFERENCE only; the bearer lives in the
    actor's private host closure and nowhere the framework can see."
   [:map
    [:url          [:maybe :string]]
-   [:cred-ref     [:maybe :keyword]]
-   [:rf/self-id   {:optional true} :any]
-   [:rf/parent-id {:optional true} :any]
-   [:rf/invoke-id {:optional true} :any]])
+   [:cred-ref     [:maybe :keyword]]])
 
 ;; ============================================================================
 ;; INBOUND WIRE CONTRACT — the untrusted-ingress schemas

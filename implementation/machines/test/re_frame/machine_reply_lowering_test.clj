@@ -26,7 +26,7 @@
                :ready     {}
                :timed-out {}}})
   (rf/dispatch-sync [:rl/after [:rf.machine/start]])
-  (let [epoch (or (get-in (snapshot :rl/after) [:data :rf/after-epoch [:loading]]) 0)]
+  (let [epoch (or (get-in (snapshot :rl/after) [:rf/runtime :after-epoch [:loading]]) 0)]
     ;; :done exits :loading, so the originally scheduled timer is now stale.
     (rf/dispatch-sync [:rl/after [:done]])
     (rf/dispatch-sync [:rl/after [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
@@ -121,7 +121,7 @@
   (rf/dispatch-sync [:rl/cparent [:go]])
   (rf/dispatch-sync [:rl/the-canceller [:finish]])
   (rf/dispatch-sync [:rl/cparent [:go]])
-  (is (= 2 (get-in (snapshot :rl/the-canceller) [:data :rf/invoke-attempt]))
+  (is (= 2 (get-in (snapshot :rl/the-canceller) [:rf/runtime :invoke-attempt]))
       "the second attempt is live")
   (rf/dispatch-sync [:rl/cparent [:cancel]])
   (is (nil? (snapshot :rl/the-canceller)) "leaving :loading destroyed the second attempt")
@@ -196,9 +196,9 @@
   (rf/reg-machine :rl/kparent
     {:initial :idle
      :states  {:idle    {:on {:go :loading}}
-               :loading {:on    {:kill {:action (fn [{data :data}]
+               :loading {:on    {:kill {:action (fn [{:keys [spawned]}]
                                                   {:fx [[:rf.machine/destroy
-                                                         (get-in data [:rf/spawned [:loading]])]]})}}
+                                                         (get spawned [:loading])]]})}}
                          :spawn {:machine-id :rl/kchild
                                  :on-done    :idle}}}})
   (rf/dispatch-sync [:rl/kparent [:go]])

@@ -59,8 +59,8 @@
   deterministically but with no reverse-creation claim attached — there is
   no order to honour for actors nothing ever sequenced.
 
-  A restored SPAWNED actor's snapshot carries `:rf/machine-type` at its
-  root (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
+  A restored SPAWNED actor's snapshot carries `[:rf/runtime :machine-type]`
+  (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
   — `actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
   The walk SPLITS on that durable
   discriminator: spawned actors run the full
@@ -91,7 +91,7 @@
 (defn- spawned-snapshot?
   "True iff `snapshot` is a spawned actor's snapshot, not
   a singleton's. The durable runtime-db discriminator is the presence
-  of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps the
+  of `[:rf/runtime :machine-type]`: `install-spawn!` stamps the
   registered TYPE keyword on every spawned actor, and a
   singleton's `build-initial-snapshot` snapshot never carries it
   (`actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
@@ -100,7 +100,7 @@
   snapshot value, so a restored spawned actor is still recognised as
   spawned."
   [snapshot]
-  (some? (:rf/machine-type snapshot)))
+  (some? (get-in snapshot [:rf/runtime :machine-type])))
 
 (defn- unsequenced-order
   "Deterministic walk order for spawned actors the durable spawn-order
@@ -186,11 +186,11 @@
          because the vector is durable runtime-db state rather than
          process-side bookkeeping.
       b. UNSEQUENCED spawned actors — snapshots carrying
-         `:rf/machine-type` that the durable vector does not name. Only a
+         `[:rf/runtime :machine-type]` that the durable vector does not name. Only a
          directly-assoc'd fixture / hand-built payload reaches here.
          Walked in `unsequenced-order`: deterministic, with no
          reverse-creation claim, because nothing ever sequenced them.
-      c. Singleton stragglers — snapshots with no `:rf/machine-type`
+      c. Singleton stragglers — snapshots with no `[:rf/runtime :machine-type]`
          (registered via `reg-machine`, seeded directly). Runtime-db iteration
          order — there is no reverse-creation contract for singletons.
    3. For each actor:
@@ -203,7 +203,7 @@
          timer cancel → unified teardown projection →
          registrar cleanup.
       c. Singletons (registered via `reg-machine`, snapshot present but no
-         `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
+         `[:rf/runtime :machine-type]`): run the `:exit` cascade + HTTP abort, but
          DO NOT unregister the handler — a `reg-machine` registration is a
          shared load-time DEFINITION whose lifetime is the registrar's,
          never any one actor's or frame's (Spec 005 §Liveness is derived
@@ -231,7 +231,7 @@
           unsequenced  (->> (keys snapshots)
                             (remove durable-set)
                             distinct
-                            ;; Partition on the durable `:rf/machine-type`
+                            ;; Partition on the durable `[:rf/runtime :machine-type]`
                             ;; discriminator: a spawned snapshot MUST get the
                             ;; full teardown (registrar cleanup / timer
                             ;; cancel / snapshot dissoc), while

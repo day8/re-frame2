@@ -31,7 +31,7 @@
       (rf/dispatch-sync [:http/flow [:fetch]])
       ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
       (let [s (snapshot :http/flow)]
-        (is (= [:loading 1] [(:state s) (get-in s [:data :rf/after-epoch [:loading]])])
+        (is (= [:loading 1] [(:state s) (get-in s [:rf/runtime :after-epoch [:loading]])])
             "entering the :after-bearing state advanced its epoch"))
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/scheduled (:operation ev))
@@ -43,7 +43,7 @@
       (reset! traces [])
       (rf/dispatch-sync [:http/flow [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (let [s (snapshot :http/flow)]
-        (is (= [:timeout 2] [(:state s) (get-in s [:data :rf/after-epoch [:loading]])])
+        (is (= [:timeout 2] [(:state s) (get-in s [:rf/runtime :after-epoch [:loading]])])
             "the matching-epoch firing transitioned :loading → :timeout and advanced
              the node's epoch on that exit"))
       (is (some (fn [ev]

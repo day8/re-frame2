@@ -52,7 +52,8 @@
   ;; :timeout "PT10S" desugars onto the state's :after {10000 …}, so entry also
   ;; emits the after-schedule fx keyed by the RESOLVED 10000 ms (not "PT10S")
   ;; with epoch 1. The parent snapshot carries the runtime-tracked spawn id
-  ;; under :rf/spawned and the per-path timer epoch under :rf/after-epoch.
+  ;; under :spawned and the per-path timer epoch under :after-epoch, both in
+  ;; its :rf/runtime map.
   {:call         :machine-transition
    :definition   {:initial :idle
                   :data    {}
@@ -66,12 +67,13 @@
                    :timed-out {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:load]
-   :expect-next-snapshot {:state            :loading
-                          :data             {:rf/spawned     {[:loading] :fetch/user#1}
-                                             :rf/after-epoch {[:loading] 1}}
-                          :rf/spawn-counter {:fetch/user 1}
-                          ;; The entry's spawn attempt token.
-                          :rf/spawn-attempts {[:loading] 1}}
+   :expect-next-snapshot {:state      :loading
+                          :data       {}
+                          :rf/runtime {:spawned        {[:loading] :fetch/user#1}
+                                       :after-epoch    {[:loading] 1}
+                                       :spawn-counter  {:fetch/user 1}
+                                       ;; The entry's spawn attempt token.
+                                       :spawn-attempts {[:loading] 1}}}
    :expect-effects [[:rf.machine/spawn
                      {:machine-id    :fetch/user
                       :id-prefix     :fetch/user
@@ -105,13 +107,15 @@
                              :on    {:done :loaded}}
                    :loaded    {}
                    :timed-out {}}}
-   :snapshot     {:state :loading
-                  :data  {:rf/spawned     {[:loading] :fetch/user#1}
-                          :rf/after-epoch {[:loading] 1}}}
+   :snapshot     {:state      :loading
+                  :data       {}
+                  :rf/runtime {:spawned     {[:loading] :fetch/user#1}
+                               :after-epoch {[:loading] 1}}}
    :event        [:rf.machine.timer/after-elapsed 10000 1 [:loading]]
-   :expect-next-snapshot {:state :timed-out
-                          :data  {:rf/spawned     {[:loading] :fetch/user#1}
-                                  :rf/after-epoch {[:loading] 2}}}
+   :expect-next-snapshot {:state      :timed-out
+                          :data       {}
+                          :rf/runtime {:spawned     {[:loading] :fetch/user#1}
+                                       :after-epoch {[:loading] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:loading]}]

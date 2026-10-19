@@ -14,7 +14,7 @@
     - Declared :internal-events that only the machine's raise queue may drive.
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
-      actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
+      actor ids via the in-snapshot [:rf/runtime :spawn-counter] (declarative) / the
       frame's runtime-db [:rf.runtime/machines :spawn-counter <id-prefix>]
       slot (hand-emitted) — no process-global state.
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
@@ -70,7 +70,7 @@
 ;; `:require [re-frame.machines :as rf.machines]`) all see one surface.
 
 ;; Declarative spawns allocate ids in the parent snapshot's
-;; `:rf/spawn-counter`; hand-emitted spawns use the frame's runtime-db
+;; `[:rf/runtime :spawn-counter]`; hand-emitted spawns use the frame's runtime-db
 ;; `[:rf.runtime/machines :spawn-counter <id-prefix>]` slot.
 
 (def reg-machine*           rf.machines.lifecycle-fx.registration/reg-machine*)
@@ -213,7 +213,7 @@
   without touching sibling frames.
 
   Spawn-id allocation lives inside the parent snapshot's
-  `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
+  `[:rf/runtime :spawn-counter]` slot (declarative `:spawn`) or the frame's
   runtime-db at `[:rf.runtime/machines :spawn-counter <id-prefix>]`
   (hand-emitted spawn); both reset automatically with the registrar
   snapshot/restore + frame reset, so this hook only handles the
@@ -266,7 +266,7 @@
 ;; snapshots. Deliberately NOT a state-entry replay — see
 ;; `re-frame.machines.hydrate`.
 (rf.fx/reg-fx :rf.machine/hydrate-rearm
-  {:doc "Machine-internal: for the frame's just-installed machine snapshots, restore each actor's machine classification claims from its machine definition, then reconstruct the host `:after` timer table at each snapshot's existing `:rf/after-epoch`, without replaying entry effects. Emitted by `:rf/hydrate` (per Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\") and by `:rf/install-frame-state` (per Spec 002 §Installing a persisted frame-state). Not for direct application use."}
+  {:doc "Machine-internal: for the frame's just-installed machine snapshots, restore each actor's machine classification claims from its machine definition, then reconstruct the host `:after` timer table at each snapshot's existing `[:rf/runtime :after-epoch]`, without replaying entry effects. Emitted by `:rf/hydrate` (per Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\") and by `:rf/install-frame-state` (per Spec 002 §Installing a persisted frame-state). Not for direct application use."}
   (fn [{frame-id :frame} _args]
     (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
           ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
@@ -373,14 +373,14 @@
 ;;
 ;; Managed HTTP ownership is machines-owned because it depends on the private
 ;; snapshot shape. A request belongs to `event-id` exactly when that id has a
-;; live snapshot carrying `:rf/machine-type`. This includes declarative and
+;; live snapshot carrying `[:rf/runtime :machine-type]`. This includes declarative and
 ;; imperative spawns, excludes singleton machines, and matches the destroy
 ;; side's actor discriminator.
 
 (defn owning-actor-id
   "Return `event-id` when it names a live spawned actor in `frame-id`, else nil.
 
-  Spawned actors are identified by `:rf/machine-type` on their live snapshot;
+  Spawned actors are identified by `[:rf/runtime :machine-type]` on their live snapshot;
   singleton machines do not carry that marker.
 
   Published through late-bind so HTTP does not depend on this optional
@@ -390,7 +390,7 @@
   (let [rt (rf.frame/frame-runtime-db-value frame-id)]
     (when (map? rt)
       (let [snapshot (get-in rt (rf.machines.paths/snapshot-path event-id))]
-        (when (some? (:rf/machine-type snapshot))
+        (when (some? (get-in snapshot [:rf/runtime :machine-type]))
           event-id)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
@@ -475,7 +475,7 @@
 (rf.late-bind/set-fn! :machines/actor-resolvable?      rf.machines.lifecycle-fx.resolver/resolvable?)
 ;; The epoch restore version-drift precondition resolves a SPAWNED actor's
 ;; CURRENT definition the same way dispatch does: from the
-;; snapshot's `:rf/machine-type` (the registered TYPE keyword, resolved
+;; snapshot's `[:rf/runtime :machine-type]` (the registered TYPE keyword, resolved
 ;; through the registrar).
 ;; `machine-version-mismatch` reads the resolved spec's
 ;; `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded
@@ -504,7 +504,7 @@
 ;; the registry shape, so the structural walk lives here; http reaches it
 ;; via late-bind and falls back to nil when machines is absent (apps without
 ;; state machines pay nothing). See the `owning-actor-id` docstring for the
-;; set semantics (snapshot `:rf/machine-type` membership — declarative AND
+;; set semantics (snapshot `[:rf/runtime :machine-type]` membership — declarative AND
 ;; imperative spawns).
 (rf.late-bind/set-fn! :machines/owning-actor-id        owning-actor-id)
 (rf.late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)

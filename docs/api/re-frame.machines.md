@@ -367,11 +367,11 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Payload**: a `spawn-spec` map with a `:machine-id` (the registered machine to instantiate), plus the optional keys below.
 - **Description**: Starts a new instance of a machine, called an actor. Emit it from any event handler's `:fx`, including a machine action's. A declarative `:spawn` state node emits it for you.
     - Choose by lifetime. When a child should live exactly as long as one state of a parent machine, put `:spawn` on that state: leaving the state, or destroying the parent, destroys the child. Emit this effect yourself when the actor's lifetime is not one state, such as a logger started with the session. Nothing tracks an actor you spawn this way; it lives until a [`:rf.machine/destroy`](#rfmachinedestroy-actor-id) names it.
-    - A supplied `:data` map replaces the machine's initial `:data`; omitting it uses the definition's data. The runtime adds the actor's own id to it as `:rf/self-id`.
+    - A supplied `:data` map replaces the machine's initial `:data`; omitting it uses the definition's data. The runtime adds nothing to it: the actor's own id reaches its callbacks as `:self-id`.
     - `:id-prefix` sets the prefix of the actor's id, which is the deterministic `<prefix>#<n>` from a per-type counter. The prefix defaults to `:machine-id`.
     - `:fixed-actor-id` gives the actor an explicit id instead. Use it when the spawner needs to hold the child's address: choose a fresh keyword, store it in ordinary `:data`, and pass it here. Spawning at a `:fixed-actor-id` that a live actor already holds destroys that actor first (its `:exit` actions run) and then installs the new one.
     - `:start` is an event vector dispatched to the new actor as `[<spawned-id> <start>]`. Without it, the runtime dispatches `[<spawned-id> [:rf.machine.spawn/spawned]]`. Either way the actor's initial `:entry` actions run first.
-    - A declarative `:spawn` state node accepts the same keys plus `:on-done`, `:on-error`, `:timeout` and `:on-timeout`, and stores the child's id in the parent's `:data` at `[:rf/spawned <invoke-id>]`. See [Actors](../machines/actors.md#spawn-spec-keys).
+    - A declarative `:spawn` state node accepts the same keys plus `:on-done`, `:on-error`, `:timeout` and `:on-timeout`, and records the child's id on the parent, where every parent callback reads it as `(get spawned <invoke-id>)`. See [Actors](../machines/actors.md#spawn-spec-keys).
 - **Errors**:
     - `:rf.error/machine-spawn-unregistered-type`: `:machine-id` names no registered machine. Nothing is spawned.
     - `:rf.error/machine-spawn-bad-shape`: the spec has no `:machine-id`, or carries an inline `:definition`. The effect handler throws, the effect runner reports it as `:rf.error/fx-handler-exception`, and nothing is spawned.
@@ -448,7 +448,7 @@ Any other value throws `:rf.error/machine-bad-on-done-clause` at registration. S
 
 To send an event to another machine, dispatch it at that machine's id: `[:dispatch [<actor-id> <event>]]`. There is no separate name registry.
 
-A child spawned declaratively has its id stored in the parent's `:data` at `[:rf/spawned <invoke-id>]`, so the parent reads the address from its own snapshot. A hand-emitted `:rf.machine/spawn` has no invoke-id, so the spawner chooses a fresh keyword, passes it as `:fixed-actor-id` and stores it in ordinary `:data`.
+A child spawned declaratively has its id recorded on the parent at `[:rf/runtime :spawned <invoke-id>]`, and every parent callback receives that map as `:spawned`. A hand-emitted `:rf.machine/spawn` has no invoke-id, so the spawner chooses a fresh keyword, passes it as `:fixed-actor-id` and stores it in ordinary `:data`.
 
 ## Querying registered machines
 
@@ -589,7 +589,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   (re-frame.machines/spawn-fx fx-ctx spawn-spec)
   ```
 - **Description**: The handler for `:rf.machine/spawn`. Installs the new actor's snapshot at `[:rf.runtime/machines :snapshots <spawned-id>]` in the spawning frame's `runtime-db`.
-    - It stores the machine type in the snapshot under `:rf/machine-type`, so the runtime and epoch restore can rebuild the actor from `runtime-db` alone. The actor has no event-handler registration of its own; it exists while that snapshot does.
+    - It stores the machine type in the snapshot at `[:rf/runtime :machine-type]`, so the runtime and epoch restore can rebuild the actor from `runtime-db` alone. The actor has no event-handler registration of its own; it exists while that snapshot does.
     - A `:machine-id` that names no registered machine emits `:rf.error/machine-spawn-unregistered-type` and installs nothing.
 
 #### `re-frame.machines/spawn-all-init-fx`
@@ -656,7 +656,7 @@ These run the registration-time checks and the `:data` schema checks. The three 
   ```
 - **Description**: Validates the `:data` of every snapshot under `[:rf.runtime/machines :snapshots]` in `runtime-db` against its machine's `[:schemas :data]` schema. This is the `:where :machine-data` boundary: the router runs it with `validate-app-schema!` against the candidate `runtime-db`, before commit.
     - Returns `true` when every snapshot conforms or has no schema or validator, and `false` otherwise. It validates every snapshot without stopping at the first failure, so each failing machine emits its own trace. On `false` the router rejects the whole candidate, as it does for a `:where :app-db` failure.
-    - It finds the schema for a registered machine through the `:rf/machine` registration, and for a spawned actor through the snapshot's `:rf/machine-type`.
+    - It finds the schema for a registered machine through the `:rf/machine` registration, and for a spawned actor through the snapshot's `[:rf/runtime :machine-type]`.
 
 #### `re-frame.machines/validate-spawn-data!`
 
@@ -701,7 +701,7 @@ These run the registration-time checks and the `:data` schema checks. The three 
   (re-frame.machines/owning-actor-id frame-id event-id) → actor-id or nil
   ```
 - **Description**: Returns `event-id` when it is the address of a spawned actor whose snapshot is installed at `[:rf.runtime/machines :snapshots <event-id>]` in `frame-id`, and `nil` otherwise, meaning the event belongs to an ordinary handler or a registered machine.
-    - Membership is decided by `:rf/machine-type` at the snapshot root, so it covers declarative `:spawn` / `:spawn-all` actors and actors started with `[:rf.machine/spawn …]`.
+    - Membership is decided by `[:rf/runtime :machine-type]` on the snapshot, so it covers declarative `:spawn` / `:spawn-all` actors and actors started with `[:rf.machine/spawn …]`.
     - Managed HTTP uses it to find which actor owns a request's originating event, so it can abort the request when that actor is destroyed, without requiring this artefact. Without the machines artefact, HTTP treats every request as unowned.
 
 ## See also

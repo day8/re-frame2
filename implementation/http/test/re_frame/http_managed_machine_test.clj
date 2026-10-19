@@ -1,8 +1,9 @@
 (ns re-frame.http-managed-machine-test
   "Spec 014 §Machine-shape wrapper: `:rf.http/managed` is also a
   child-invokable machine. A parent `:spawn`s it with `{:request ...}` in
-  `:data`; the wrapper fires the fx on entry and replies to its parent (via the
-  injected `:rf/parent-id`) with `[:succeeded value]` or `[:failed failure]`.
+  `:data`; the wrapper fires the fx on entry and completes like any child: its
+  parent's `:on-done` receives the decoded value, its `:on-error` the
+  classified failure.
   Destroying the wrapper aborts its in-flight request through the actor-destroy
   cascade. A parent's `:after` leaving the state uses the same cascade, which
   the machines suite pins."
@@ -74,7 +75,7 @@
 (defn- snapshot [machine-id]
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots machine-id]))
 
-(deftest spawn-success-parent-transitions-via-succeeded
+(deftest spawn-success-parent-transitions-via-on-done
   (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -84,8 +85,8 @@
           {:initial :idle
            :data    {:result nil}
            :actions {:store-result
-                     (fn [{data :data ev :event}]
-                       {:data (assoc data :result (second ev))})}
+                     (fn [{data :data [_ _ completion] :event}]
+                       {:data (assoc data :result (:result completion))})}
            :states
            {:idle {:on {:login :authenticating}}
 
@@ -93,9 +94,9 @@
             {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/api/me")
                                               :method :get}
-                                   :decode  :json}}
-             :on     {:succeeded {:target :authenticated :action :store-result}
-                      :failed    {:target :login-failed}}}
+                                   :decode  :json}
+                     :on-done    {:target :authenticated :action :store-result}
+                     :on-error   :login-failed}}
 
             :authenticated {}
             :login-failed  {}}})
@@ -103,10 +104,10 @@
         (await-condition!
           #(= :authenticated (:state (snapshot :app/auth))))
         (is (= {:id 42} (:result (:data (snapshot :app/auth))))
-            "the :succeeded event carries the decoded value")
+            "the completion carries the decoded value")
         (finally (stop-server! srv)))))
 
-(deftest spawn-failure-parent-transitions-via-failed
+(deftest spawn-failure-parent-transitions-via-on-error
   (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -116,8 +117,8 @@
           {:initial :idle
            :data    {:failure nil}
            :actions {:record-failure
-                     (fn [{data :data ev :event}]
-                       {:data (assoc data :failure (second ev))})}
+                     (fn [{data :data [_ _ failure] :event}]
+                       {:data (assoc data :failure failure)})}
            :states
            {:idle {:on {:login :authenticating}}
 
@@ -125,9 +126,9 @@
             {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/api/me")
                                               :method :get}
-                                   :decode  :json}}
-             :on     {:succeeded {:target :authenticated}
-                      :failed    {:target :login-failed :action :record-failure}}}
+                                   :decode  :json}
+                     :on-done    :authenticated
+                     :on-error   {:target :login-failed :action :record-failure}}}
 
             :authenticated {}
             :login-failed  {}}})
@@ -154,10 +155,10 @@
             {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/slow")
                                               :method :get}
-                                   :decode  :json}}
-             :on     {:cancel    :idle
-                      :succeeded :authenticated
-                      :failed    :idle}}
+                                   :decode  :json}
+                     :on-done    :authenticated
+                     :on-error   :idle}
+             :on     {:cancel :idle}}
 
             :authenticated {}}})
         (rf/dispatch-sync [:app/cancel [:login]])
@@ -191,9 +192,8 @@
                             :data       {:request  {:url "http://127.0.0.1:1/me"}
                                          :decode   :json
                                          :reply-to [:app/somewhere]}
-                            :on-error   :load-failed}
-                    :on    {:succeeded :ready
-                            :failed    :load-failed}}
+                            :on-done    :ready
+                            :on-error   :load-failed}}
           :ready       {}
           :load-failed {}}})
       (rf/dispatch-sync [:app/reply-keys [:go]])

@@ -32,7 +32,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 | `:request-id` abort | Stable `=`-comparable id; `[:rf.http/managed-abort id]` cancels in-flight, delivering a `{:status :cancelled …}` envelope (its `:error` carries `{:kind :rf.http/aborted …}`) to your reply target. |
 | Seven-category failure taxonomy | `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`. Closed set. |
 | Request decoration (`rf/reg-http-interceptor`) | Auth / tracing / tenant headers or a common base URL for *every* managed request a frame issues live once in an HTTP interceptor — registered at the top level, run by each frame that names it in `:http-interceptors` — not in each request map. Recipe: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-the-managed-http-seam) — it decorates plain `:rf.http/managed` calls exactly as it does resource reads. |
-| Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:spawn` it like any other; on reply it transitions to `:succeeded` / `:failed` and dispatches `[<parent-id> [:succeeded value]]` / `[<parent-id> [:failed failure]]` back. Destroying the wrapper aborts in-flight. |
+| Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:spawn` it like any other; on reply it reaches a `:final?` `:succeeded` / `:failed` leaf, so the spawn's `:on-done` receives the value as the completion's `:result` and its `:on-error` the failure. Destroying the wrapper aborts in-flight. |
 
 ## Canonical declaration — fx form
 
@@ -86,16 +86,16 @@ The reply dispatched to `:article/load-replied` is `[:article/load-replied {:sta
                            :decode  :json
                            :retry   {:on #{:rf.http/transport :rf.http/http-5xx}
                                      :max-attempts 4
-                                     :backoff {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}}}
-     :after  {30000 :timed-out}
-     :on     {:succeeded :authenticated
-              :failed    :login-failed}}
+                                     :backoff {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}}
+              :on-done    :authenticated
+              :on-error   :login-failed}
+     :after  {30000 :timed-out}}
     :authenticated {} :login-failed {} :timed-out {}}})
 ```
 
-The wrapper handles its own internal events and dispatches `[parent-id [:succeeded value]]` or `[parent-id [:failed failure]]` to the parent — ordinary FSM events.
+The wrapper handles its own internal events and completes like any child machine: its decoded value reaches the parent's `:on-done` as the completion's `:result`, and its failure reaches `:on-error`. It dispatches nothing to the parent.
 
-**Args carrier.** Every fx-form key passes through (`:request`, `:decode`, `:accept`, `:retry`, `:timeout-ms`, etc). **Reply addressing is overridden**: the wrapper assigns `:on-success` / `:on-failure` back to itself to self-route, so any `:reply-to` / `:on-success` / `:on-failure` you put in `:data` is ignored — you address the parent through the wrapper's `:succeeded` / `:failed` transitions, not a reply-target key.
+**Args carrier.** Every fx-form key passes through (`:request`, `:decode`, `:accept`, `:retry`, `:timeout-ms`, etc). **Reply addressing is the wrapper's**: it assigns `:on-success` / `:on-failure` back to itself, so a `:data` carrying `:reply-to`, `:on-success` or `:on-failure` is refused when the wrapper starts (`:rf.error/http-bad-reply-target`, routed to the parent's `:on-error`) — you read the result through the spawn's `:on-done` / `:on-error`, not a reply-target key.
 
 **Multiple concurrent requests under one parent.** Use `:spawn-all`:
 

@@ -247,7 +247,7 @@
                  :waiting {:timeout 5000 :on-timeout on-timeout}
                  :done    {}}})
     (rf/dispatch-sync [id [:go]])
-    (let [epoch (get-in (rf.machines.test-support/snapshot id) [:data :rf/after-epoch [:waiting]])]
+    (let [epoch (get-in (rf.machines.test-support/snapshot id) [:rf/runtime :after-epoch [:waiting]])]
       (rf/dispatch-sync [id [:rf.machine.timer/after-elapsed 5000 epoch [:waiting]]]))
     (is (= :done (machine-state id)) (str id " took its :on-timeout transition")))
   (is (= :GENERATED (get-in (rf.machines.test-support/snapshot :attach/timeout-action) [:data :captured]))

@@ -36,11 +36,13 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
    {:under-retry-limit? (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
 
    :actions
-   {:record-config (fn [{machine-data :data [_ config-value] :event}]
+   {;; A child's completion arrives as the carrier's third element:
+    ;; {:result value} on :on-done, the failure itself on :on-error.
+    :record-config (fn [{machine-data :data [_ _ {config-value :result}] :event}]
                      {:data (assoc machine-data :config config-value)})
-    :record-user   (fn [{machine-data :data [_ user-value] :event}]
+    :record-user   (fn [{machine-data :data [_ _ {user-value :result}] :event}]
                      {:data (assoc machine-data :user user-value)})
-    :record-error  (fn [{machine-data :data [_ error-value] :event}]
+    :record-error  (fn [{machine-data :data [_ _ error-value] :event}]
                      {:data (assoc machine-data :error error-value)})
     :bump-attempt  (fn [{:keys [data]}]            {:data (update data :phase-attempt inc)})
 
@@ -65,19 +67,19 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
    {:configuring
     {:entry  :phase-configuring
      :spawn {:machine-id :rf.http/managed
-              :data       {:request {:method :get :url "/config"} :decode :json}}
-     :on     {:succeeded {:target :authenticating :action :record-config}
-              :failed    {:target :fatal-error    :action :record-error}}}
+              :data       {:request {:method :get :url "/config"} :decode :json}
+              :on-done    {:target :authenticating :action :record-config}
+              :on-error   {:target :fatal-error    :action :record-error}}}
 
     :authenticating
     {:entry  :phase-auth
      :spawn {:machine-id :auth/restore-session
               ;; :spawn :data fn takes ONE context-map arg {:keys [snapshot event]};
               ;; the parent's data lives at (:data snapshot), not the top-level arg.
-              :data       (fn [{:keys [snapshot]}] {:auth-url (-> snapshot :data :config :auth-url)})}
-     :on     {:succeeded {:target :loading-profile}
-              :failed    [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
-                          {:target :auth-failed :action :record-error}]}}
+              :data       (fn [{:keys [snapshot]}] {:auth-url (-> snapshot :data :config :auth-url)})
+              :on-done    :loading-profile
+              :on-error   [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
+                           {:target :auth-failed :action :record-error}]}}
 
     :retrying-auth {:after {2000 {:target :authenticating}}}
 
@@ -86,9 +88,9 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
      :spawn {:machine-id :rf.http/managed
               :data       (fn [{:keys [snapshot]}]
                             {:request {:method :get :url (-> snapshot :data :config :profile-url)}
-                             :decode  :json})}
-     :on     {:succeeded {:target :hydrating :action :record-user}
-              :failed    {:target :profile-failed :action :record-error}}}
+                             :decode  :json})
+              :on-done    {:target :hydrating :action :record-user}
+              :on-error   {:target :profile-failed :action :record-error}}}
 
     ;; Both exit events are APP-prefixed and app-produced — nothing under
     ;; :rf.route/* is dispatched INTO an app machine. :hydrate/done comes from

@@ -14,7 +14,7 @@
   into:
 
     - `rf.machines.parallel/build-initial-snapshot` — initial-state
-      cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
+      cascade, `:data` / `:meta` seeding, tag union
       stamping (lazily, on first event). Single source of truth shared
       with the spawn path.
     - the returned handler fn — frame stamping, `intercept-spawn-all-
@@ -55,9 +55,9 @@
 ;; The initial-snapshot builder lives in `parallel.cljc` as
 ;; `build-initial-snapshot` — single source of truth for both the
 ;; singleton-registration path (here) and the spawn path
-;; (`lifecycle-fx.spawn/install-spawn!`), so both seed `:rf/spawn-counter` and
+;; (`lifecycle-fx.spawn/install-spawn!`), so both seed `:data` and
 ;; `:meta` identically. See `rf.machines.parallel/build-initial-snapshot` for the canonical
-;; 6-step shape.
+;; shape.
 
 ;; ---- handler factory ------------------------------------------------------
 
@@ -194,9 +194,7 @@
     ;; drift. D5 itself is not fenced — an ordinary AUTHORED event
     ;; re-creates the address; what is fenced is framework-owned failure
     ;; delivery.
-    (let [child-data (:data snapshot)
-          parent-id  (:rf/parent-id child-data)
-          invoke-id  (:rf/invoke-id child-data)]
+    (let [{:keys [parent-id invoke-id invoke-attempt]} (:rf/runtime snapshot)]
       (when (and (rf.machines.lifecycle-fx.spawn-error/parent-instance-live? runtime-db parent-id)
                  (some? invoke-id))
         (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
@@ -210,7 +208,7 @@
            :exception-data    ex-data
            :reason            reason}
           ;; The spawn attempt, for the parent's currency gate.
-          (:rf/invoke-attempt child-data))))
+          invoke-attempt)))
     {}))
 
 (defn- handle-step-failure!
@@ -248,7 +246,7 @@
 ;;      steps read.
 ;;   2. `maybe-boot`           — if bootstrap-pending and not intercepted,
 ;;      run `apply-initial-entry-cascade`. Returns a Result whose `::snap`
-;;      is the post-boot snapshot with `:rf/bootstrap-pending?` cleared.
+;;      is the post-boot snapshot with `[:rf/runtime :bootstrap-pending?]` cleared.
 ;;   3. `run-step`             — call `machine-transition` on the
 ;;      post-boot snapshot + inner event. Returns the Result from the
 ;;      pure engine.
@@ -273,11 +271,11 @@
 ;; snapshot — singleton-bootstrap path has no snapshot to validate. On
 ;; trip, the snapshot is rebuilt from `@base-initial` (with the
 ;; bootstrap-pending marker stamped so the new initial state's `:entry`
-;; actions fire). The transient runtime-internal slots
-;; (`:rf/spawn-counter`, `:rf/after-epoch`, region-scoped epochs) reset
+;; actions fire). The runtime counters (`:spawn-counter`,
+;; `:spawn-attempts`, `:after-epoch`, region-scoped epochs) reset
 ;; with the snapshot — restoring an incompatible snapshot means
 ;; restarting the machine, not patching it. A SPAWNED actor's identity
-;; envelope (`:rf/machine-type` + its `:data` lineage) is carried across
+;; envelope (its `:rf/runtime` type and lineage) is carried across
 ;; the reset, though: restarting an actor must not un-address it
 ;; (see `lifecycle-fx.resolver/carry-actor-identity`).
 ;;
@@ -328,7 +326,7 @@
 
 (defn- rebuild-incompatible-snapshot
   "Emit the named `:rf.error/*` trace and return the freshly-derived
-  initial snapshot (with `:rf/bootstrap-pending? true` so the new
+  initial snapshot (with `[:rf/runtime :bootstrap-pending?] true` so the new
   initial state's `:entry` cascade fires on this same handler call),
   carrying `existing-snap`'s spawned-actor identity envelope across so a
   reset actor stays addressable.
@@ -357,20 +355,20 @@
   ;;
   ;; The framework-owned spawned-actor IDENTITY envelope is carried across,
   ;; though: resetting an actor's definition must not silently
-  ;; un-address the actor. `:rf/machine-type` is the only key the lazy
+  ;; un-address the actor. `[:rf/runtime :machine-type]` is the only key the lazy
   ;; resolver can re-materialise a spawned actor's handler from, so dropping
   ;; it leaves a snapshot that is physically present in runtime-db yet
   ;; rejects its next event as `:rf.error/no-such-handler` — a state Spec 005
   ;; §Liveness is derived from runtime-db has no room for ("liveness IS the
   ;; presence of its snapshot ... nothing else"), and one §Persistence
-  ;; posture forbids ("the only transient snapshot-root slot is
-  ;; `:rf/bootstrap-pending?`"). The lineage keys ride along for the same
+  ;; posture forbids ("the only transient runtime slot is
+  ;; `:bootstrap-pending?`"). The lineage keys ride along for the same
   ;; reason: the parent's exit cascade and the `:spawn-all` join fold address
   ;; the child through them. A singleton snapshot carries none of these, so
   ;; this is a no-op on the singleton path.
   (rf.machines.lifecycle-fx.resolver/carry-actor-identity
     existing-snap
-    (assoc @base-initial :rf/bootstrap-pending? true)))
+    (assoc-in @base-initial [:rf/runtime :bootstrap-pending?] true)))
 
 (defn- reconcile-snapshot
   "Apply the Spec 005 §Snapshot shape stability invariants 3 & 4 at
@@ -411,14 +409,14 @@
       being lazily synthesised right now.
     - Spawn path: `spawn-fx` pre-seeded the snapshot at
       `[:rf.runtime/machines :snapshots <spawned-id>]` and stamped
-      `:rf/bootstrap-pending? true` so the actor's first dispatch sees
+      `[:rf/runtime :bootstrap-pending?] true` so the actor's first dispatch sees
       the marker and runs the cascade before processing the event.
 
   When an existing snapshot is found, run the Spec 005
   §Snapshot shape stability invariants 3 & 4 reconciler before
   threading it onward — a hot-reload that dropped a state, or a
   `:rf/snapshot-version` bump, replaces the snapshot with a fresh
-  initial-state derivative (with `:rf/bootstrap-pending? true` so
+  initial-state derivative (with `[:rf/runtime :bootstrap-pending?] true` so
   `:entry` fires this same handler call) and emits the named
   `:rf.error/machine-state-not-in-definition` or
   `:rf.error/machine-snapshot-version-mismatch` event.
@@ -469,7 +467,7 @@
         existing-snap (get-in runtime-db path)
         snapshot      (cond
                         (nil? existing-snap)
-                        (assoc @base-initial :rf/bootstrap-pending? true)
+                        (assoc-in @base-initial [:rf/runtime :bootstrap-pending?] true)
 
                         :else
                         (reconcile-snapshot machine machine-id frame-id
@@ -487,12 +485,12 @@
      ;; distinguish the FRESH flavours for the `:rf.machine/started` `:cause`:
      ;;   - nil snapshot  → singleton (`:explicit` / `:lazy`, by trigger);
      ;;   - replaced by the reconciler → reset (`:reset`), singleton or spawned;
-     ;;   - present + `:rf/bootstrap-pending?` → spawn-pre-seeded (`:spawned`).
+     ;;   - present + `:bootstrap-pending?` → spawn-pre-seeded (`:spawned`).
      :existing-snap?   (some? existing-snap)
      :reset?           (and (some? existing-snap)
                             (not (identical? snapshot existing-snap)))
      :needs-bootstrap? (or (nil? existing-snap)
-                           (true? (:rf/bootstrap-pending? snapshot)))
+                           (true? (get-in snapshot [:rf/runtime :bootstrap-pending?])))
      :inner-event      (route-inner-event event)}))
 
 (defn- start-cause
@@ -507,7 +505,7 @@
                     `:rf.error/machine-snapshot-version-mismatch` trace beside
                     it names which.
     - `:spawned`  — the handler found a snapshot ALREADY in runtime-db (the
-                    spawn fx pre-seeded it + stamped `:rf/bootstrap-pending?`);
+                    spawn fx pre-seeded it + stamped `:bootstrap-pending?`);
                     init ran on the actor's first dispatch.
     - `:explicit` — no pre-existing snapshot (singleton) AND the dispatched
                     trigger WAS the reserved `:rf.machine/start` marker — a
@@ -560,7 +558,7 @@
   `apply-initial-entry-cascade` once before processing the user event.
   Bootstrap fx flow OUT of the handler ahead of any fx the user event
   produces — entry happens-before user-event handling. Returns a Result
-  whose `::snap` has `:rf/bootstrap-pending?` cleared on success.
+  whose `::snap` has `[:rf/runtime :bootstrap-pending?]` cleared on success.
 
   The bootstrap cascade fires the initial state's `:entry`
   actions; a Result `:fail` short-circuits the rest of the pipeline.
@@ -581,7 +579,7 @@
       (if (rf.machines.result/fail? r)
         r
         (rf.machines.result/with-ok [snap fx] r
-          (let [booted (dissoc snap :rf/bootstrap-pending?)]
+          (let [booted (rf.machines.paths/dissoc-runtime snap :bootstrap-pending?)]
             (rf.trace/emit! :rf.machine :rf.machine/started
                          {:machine-id (:machine-id ctx)
                           :frame      (:frame-id ctx)
@@ -728,7 +726,7 @@
                                     :invoke-id invoke-id
                                     :attempt   {:carried attempt
                                                 :current (get-in (:snapshot ctx)
-                                                                 [:rf/spawn-attempts invoke-id])}}}
+                                                                 [:rf/runtime :spawn-attempts invoke-id])}}}
                             (some? completed-at) (assoc :rf.reply/completed-at completed-at)))
           {})))))
 
@@ -934,7 +932,7 @@
 
   The body is decomposed into:
     - `rf.machines.parallel/build-initial-snapshot` — initial-state cascade, `:data` /
-      `:meta` seeding, `:rf/spawn-counter` seeding, tag union stamping
+      `:meta` seeding, tag union stamping
       (unified with the spawn path).
     - the returned handler fn — frame stamping, intercept-spawn-all-
       event branch (in `lifecycle-fx.join`), bootstrap-pending detection

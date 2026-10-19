@@ -83,8 +83,8 @@
   size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
-  The snapshot's NON-`:data` slots (`:state`, `:tags`, the `:rf/machine-type`
-  TYPE keyword, the reserved spawn-counter slot, …) are durable structural
+  The snapshot's NON-`:data` slots (`:state`, `:tags`, the `:rf/runtime`
+  map with its TYPE keyword and counters, …) are durable structural
   facts the client needs
   to re-materialise the actor — they ride VERBATIM. Returns the snapshot with
   its `:data` projected (or unchanged when the snapshot carries no `:data`, or

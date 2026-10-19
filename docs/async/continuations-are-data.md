@@ -143,9 +143,10 @@ superseded request never reaches it. The [HTTP reference](../api/re-frame.http.m
 lists the identity and timing fields of a reply; a stub transport's replies carry them too.
 
 This common runtime model does not make every public completion payload identical.
-A [managed HTTP child machine](http-machines.md) sends its parent
-`[:succeeded value]` or `[:failed failure]`. A machine's `:on-done` callback receives
-its declared result. Use the documented completion form of the surface you call.
+A [managed HTTP child machine](http-machines.md) completes like any child
+machine: its parent's `:on-done` receives the decoded value as the completion's
+`:result`, and its `:on-error` the classified failure. Use the documented
+completion form of the surface you call.
 
 Record completion time from the reply's `:completed-at` or HTTP's recorded
 [`:rf/time-ms` coeffect](http.md#timestamps-come-from-a-coeffect), rather than

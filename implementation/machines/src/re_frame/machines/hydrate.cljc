@@ -9,7 +9,7 @@
   statically and schedules NO wall-clock timer (Spec 005 §SSR mode; the
   pure side emits `:rf.machine.timer/skipped-on-server` in place of
   `/scheduled`). The hydration payload then carries the snapshot — right
-  `:state`, right `:data`, right `:rf/after-epoch` — and the client
+  `:state`, right `:data`, right `:after` epochs — and the client
   installs it verbatim. Nothing else in that path reconstructs the host-side
   timer table, so without this namespace a machine hydrated while sitting in
   an `:after`-bearing state would have the correct durable state and NO live
@@ -250,7 +250,7 @@
   birth-time lowering never reaches it. Each actor's spec resolves the way
   dispatch resolves it — a singleton through the destination's registrar, a
   spawned actor through the registered type its snapshot's
-  `:rf/machine-type` names — so the claims come from the definition that runs the actor, never from its
+  `[:rf/runtime :machine-type]` names — so the claims come from the definition that runs the actor, never from its
   `:data`.
 
   This is `rf.machines.classification/lower-at-spawn!` run once per actor, so

@@ -15,17 +15,17 @@
        never name a dead actor or omit a live one.
     2. clear `[:rf.runtime/machines :spawned parent-id invoke-id]` slot
        (declarative form)
-    3. clear the PARENT snapshot's own `:rf/spawned` data slot at
-       `[:rf.runtime/machines :snapshots parent-id :data :rf/spawned
+    3. clear the PARENT snapshot's own mirror entry at
+       `[:rf.runtime/machines :snapshots parent-id :rf/runtime :spawned
        invoke-id]` (declarative form; `paths/spawned-mirror-path`) so the
-       parent-side data slot
-       (mechanism 1 — XState-context parity) mirrors the runtime registry
+       parent-side mirror
+       (mechanism 1 — XState-context parity) matches the runtime registry
        (step 2) EXACTLY, per Spec 005 §Reserved snapshot-internal keys.
-       Without this an action reading `[:data :rf/spawned <invoke-id>]` AFTER the
+       Without this a callback reading `:spawned` AFTER the
        child completed would get a DEAD id — the stale-id footgun.
     4. prune the per-parent `[:rf.runtime/machines :spawned parent-id]`
        map, the `[:rf.runtime/machines :spawned]` slot, and the emptied
-       parent-side `:rf/spawned` data map if they just emptied
+       parent-side `:spawned` mirror (and then `:rf/runtime`) if they just emptied
        (lazy-allocation invariant: spawn ALLOCATES the maps lazily, so
        destroy mirrors that by pruning when emptied — see Spec 005
        §Spawning §Lazy allocation).
@@ -62,12 +62,12 @@
 
   When `:parent-id` and `:invoke-id` are both supplied, the
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot is
-  cleared AND the parent snapshot's own `:rf/spawned` data slot at
-  `[:rf.runtime/machines :snapshots <parent-id> :data :rf/spawned
+  cleared AND the parent snapshot's own mirror entry at
+  `[:rf.runtime/machines :snapshots <parent-id> :rf/runtime :spawned
   <invoke-id>]` (`paths/spawned-mirror-path`) is cleared, so the parent-side
-  data slot mirrors the
+  mirror matches the
   runtime registry EXACTLY (Spec 005 §Reserved snapshot-internal keys). Both the parent map /
-  `:spawned` root AND the emptied parent-side `:rf/spawned` data map are
+  `:spawned` root AND the emptied parent-side `:spawned` mirror are
   pruned under the lazy-allocation invariant (matching how spawn
   ALLOCATES the maps lazily — see Spec 005 §Spawning §Lazy allocation).
   The `[:rf.runtime/machines :snapshots]` map is NOT pruned when
@@ -78,20 +78,19 @@
   is contract."
   [db {:keys [actor-id parent-id invoke-id]}]
   (let [track?       (and parent-id invoke-id)
-        ;; The parent's own `:rf/spawned` data slot is cleared (step 4)
-        ;; ONLY when the parent snapshot is still present. A parent already
-        ;; torn down (its snapshot dissoc'd) has nothing to mirror, and
-        ;; touching it would materialise a phantom `{:data {:rf/spawned {}}}`
-        ;; on a dead parent — so guard the parent-side clear on presence.
-        clear-parent-data? (and track?
-                                (contains? (get-in db (rf.machines.paths/snapshot-path))
-                                           parent-id))
-        mirror-path  (when clear-parent-data?
-                       (rf.machines.paths/spawned-mirror-path db parent-id invoke-id))
-        ;; (1)+(2)+(3): the primary slot mutations. (3) clears the
-        ;; PARENT snapshot's own `[:data :rf/spawned <invoke-id>]` slot so
-        ;; the parent-side data slot (mechanism 1) mirrors the runtime
-        ;; registry (step 2) EXACTLY — see ns docstring.
+        ;; The parent's own mirror entry is cleared (step 3) ONLY when the
+        ;; parent snapshot is still present. A parent already torn down (its
+        ;; snapshot dissoc'd) has nothing to mirror, and touching it would
+        ;; materialise a phantom snapshot on a dead parent — so guard the
+        ;; parent-side clear on presence.
+        clear-mirror? (and track?
+                           (contains? (get-in db (rf.machines.paths/snapshot-path))
+                                      parent-id))
+        ;; (1)+(2)+(3): the primary slot mutations. (3) clears the PARENT
+        ;; snapshot's own `[:rf/runtime :spawned <invoke-id>]` entry so the
+        ;; parent-side mirror (mechanism 1) matches the runtime registry
+        ;; (step 2) EXACTLY, pruning the emptied `:spawned` map and then an
+        ;; emptied `:rf/runtime` (lazy allocation) — see ns docstring.
         new-db       (cond-> db
                        actor-id     (update-in (rf.machines.paths/snapshot-path)
                                                dissoc actor-id)
@@ -108,8 +107,9 @@
                        actor-id     (rf.machines.spawn-order/forget-in-runtime-db actor-id)
                        track?       (update-in (rf.machines.paths/spawned-path parent-id)
                                                 dissoc invoke-id)
-                       clear-parent-data?
-                       (update-in (pop mirror-path) dissoc (peek mirror-path)))
+                       clear-mirror?
+                       (update-in (rf.machines.paths/snapshot-path parent-id)
+                                  rf.machines.paths/prune-runtime-in :spawned invoke-id))
         ;; (4a): prune the per-parent `:spawned` map if empty.
         new-db       (cond-> new-db
                        (and track?
@@ -122,16 +122,5 @@
                        (and (contains? (get-in new-db [:rf.runtime/machines])
                                        :spawned)
                             (empty? (get-in new-db (rf.machines.paths/spawned-path))))
-                       (update-in [:rf.runtime/machines] dissoc :spawned))
-        ;; (4c): prune the parent snapshot's now-empty `:rf/spawned` data
-        ;; map (lazy-allocation mirror of the registry prune above) so a
-        ;; parent that spawned exactly one child leaves NO empty
-        ;; `{:rf/spawned {}}` residue in its `:data` after the child dies.
-        ;; Only touch a still-present parent snapshot.
-        new-db       (cond-> new-db
-                       (and clear-parent-data?
-                            (empty? (get-in new-db (rf.machines.paths/snapshot-path parent-id
-                                                                        :data :rf/spawned))))
-                       (update-in (rf.machines.paths/snapshot-path parent-id :data)
-                                  dissoc :rf/spawned))]
+                       (update-in [:rf.runtime/machines] dissoc :spawned))]
     new-db))

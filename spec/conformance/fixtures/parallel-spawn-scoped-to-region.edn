@@ -42,16 +42,17 @@
    ;; `:fetcher` slot to 1.
    ;;
    ;; The runtime binds the spawned id into the parent's
-   ;; (region-shared) `:data` under :rf/spawned (XState-context parity),
+   ;; (region-shared) `:rf/runtime` map under `:spawned`,
    ;; keyed by the region-qualified prefix-path `[:data :loading]`. The
    ;; mirror, the runtime-owned registry slot, the spawn ATTEMPT token and
-   ;; the child's `:rf/invoke-id` all agree on that key, so sibling regions
+   ;; the child's `:invoke-id` all agree on that key, so sibling regions
    ;; spawning from same-named states keep separate entries. The entry also
    ;; bumps the attempt token.
-   :expect-next-snapshot {:state            {:data :loading :ui :neutral}
-                          :data             {:rf/spawned {[:data :loading] :fetcher#1}}
-                          :rf/spawn-counter {:fetcher 1}
-                          :rf/spawn-attempts {[:data :loading] 1}}
+   :expect-next-snapshot {:state      {:data :loading :ui :neutral}
+                          :data       {}
+                          :rf/runtime {:spawned        {[:data :loading] :fetcher#1}
+                                       :spawn-counter  {:fetcher 1}
+                                       :spawn-attempts {[:data :loading] 1}}}
    :expect-effects
    [[:rf.machine/spawn
      {:machine-id    :fetcher

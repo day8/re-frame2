@@ -25,12 +25,12 @@ HTTP reply and final-state pattern as the [login request actor](actors.md#state-
    :data {}
    :actions
    {:fetch
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :get :url (:url data)}
               :decode :json
-              :on-success [(:rf/self-id data) [:loaded]]
-              :on-failure [(:rf/self-id data) [:failed]]}]]})
+              :on-success [self-id [:loaded]]
+              :on-failure [self-id [:failed]]}]]})
     :keep-value (fn [{[_ reply] :event}]
                   {:data {:value (:value reply)}})
     :keep-error (fn [{[_ reply] :event}]
@@ -117,12 +117,12 @@ the parent enters `:failed` with no results. **Retry** re-enters
    :data {}
    :actions
    {:fetch
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :get :url (:url data)}
               :decode :json
-              :on-success [(:rf/self-id data) [:loaded]]
-              :on-failure [(:rf/self-id data) [:failed]]}]]})
+              :on-success [self-id [:loaded]]
+              :on-failure [self-id [:failed]]}]]})
     :keep-value (fn [{[_ reply] :event}]
                   {:data {:value (:value reply)}})
     :keep-error (fn [{[_ reply] :event}]

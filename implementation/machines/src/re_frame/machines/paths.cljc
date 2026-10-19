@@ -15,7 +15,7 @@
   spawned actors, and it is the ONLY authority for the reverse-creation
   disposal contract (Spec 005 §Cross-Spec Interactions §1). It exists
   because no other durable fact carries a frame-global sequence:
-  `:spawn-counter` (and the parent-snapshot-resident `:rf/spawn-counter`
+  `:spawn-counter` (and the parent snapshot's `[:rf/runtime :spawn-counter]`
   the declarative path bumps) are **per-id-prefix** allocators, so the
   `#<n>` suffix of an actor-id sequences that prefix ALONE and cannot
   order two actors of different machine types — and an id supplied
@@ -92,7 +92,7 @@
 
 (defn spawned-mirror-path
   "Path (in the runtime-db value `db`) to the parent's
-  `[:data :rf/spawned <key>]` mirror entry for the `:spawned` slot at
+  `[:rf/runtime :spawned <key>]` mirror entry for the `:spawned` slot at
   `invoke-id`.
 
   The mirror is keyed by the slot's own `invoke-id` — region-qualified under
@@ -102,4 +102,32 @@
   entry the transition reducer bound. `db` is unused: the key needs nothing
   from the runtime-db."
   [_db parent-id invoke-id]
-  (conj (snapshot-path parent-id :data :rf/spawned) invoke-id))
+  (conj (snapshot-path parent-id :rf/runtime :spawned) invoke-id))
+
+;; ---- the snapshot's `:rf/runtime` map --------------------------------------
+;;
+;; A snapshot keeps every framework-owned fact in ONE root map, `:rf/runtime`
+;; (Spec 005 §Reserved snapshot-internal keys): a spawned actor's type and lineage, the
+;; spawn and `:after` counters, and the ids of the actors it spawned. `:data`
+;; holds the machine's own memory and nothing else. The map is allocated
+;; lazily and dropped when it empties, so a machine with nothing to keep has
+;; a snapshot of exactly `{:state :data}`.
+
+(defn dissoc-runtime
+  "Remove `k` from `snap`'s `:rf/runtime` map, dropping the map when that
+  empties it."
+  [snap k]
+  (let [rt (dissoc (:rf/runtime snap) k)]
+    (if (empty? rt)
+      (dissoc snap :rf/runtime)
+      (assoc snap :rf/runtime rt))))
+
+(defn prune-runtime-in
+  "Within `snap`'s `:rf/runtime`, dissoc `k` from the map at `slot` (e.g.
+  `:spawned`), dropping `slot` when that empties it and then `:rf/runtime`
+  when that empties too."
+  [snap slot k]
+  (let [m (dissoc (get-in snap [:rf/runtime slot]) k)]
+    (if (empty? m)
+      (dissoc-runtime snap slot)
+      (assoc-in snap [:rf/runtime slot] m))))

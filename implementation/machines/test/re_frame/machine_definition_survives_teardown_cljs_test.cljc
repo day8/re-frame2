@@ -32,8 +32,8 @@
     (rf/reg-machine :xjee/fd-spawned
       {:initial :running
        :data    {}
-       :states  {:running {:exit (fn [{data :data}]
-                                   (swap! exits conj (:rf/self-id data))
+       :states  {:running {:exit (fn [{:keys [self-id]}]
+                                   (swap! exits conj self-id)
                                    {})}}})
     (rf/reg-event :xjee/fd-spawn-pair
       (fn [_ _]

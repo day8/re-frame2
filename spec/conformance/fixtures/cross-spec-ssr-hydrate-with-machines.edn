@@ -68,9 +68,9 @@
                 :rf/runtime-db {:rf.runtime/machines
                                 {:snapshots
                                  {:auth.session/abc
-                                  {:state :authenticated
-                                   :data  {:user {:id "u-1" :name "Server-Settled"}
-                                           :rf/after-epoch {[:authenticated] 3}}}}}}}]
+                                  {:state      :authenticated
+                                   :data       {:user {:id "u-1" :name "Server-Settled"}}
+                                   :rf/runtime {:after-epoch {[:authenticated] 3}}}}}}}]
   ;; A regular event after hydrate reads the machine snapshot.
   [:auth/poll-status]]
 
@@ -82,9 +82,9 @@
   {:rf.runtime/machines
    {:snapshots
     {:auth.session/abc
-     {:state :authenticated
-      :data  {:user {:id "u-1" :name "Server-Settled"}
-              :rf/after-epoch {[:authenticated] 3}}}}}}
+     {:state      :authenticated
+      :data       {:user {:id "u-1" :name "Server-Settled"}}
+      :rf/runtime {:after-epoch {[:authenticated] 3}}}}}}
 
   :sub-values
   {[:auth-state] :authenticated

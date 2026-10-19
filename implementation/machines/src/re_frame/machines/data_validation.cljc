@@ -274,7 +274,7 @@
   is `snapshot` (the candidate / freshly-committed value). A SINGLETON
   resolves through the registered event handler (`:machines/machine-meta`);
   a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
-  `:rf/machine-type` reserved slot, so it resolves through
+  `[:rf/runtime :machine-type]` reserved slot, so it resolves through
   `:machines/spec-from-snapshot`. Returns the `[:data schema]` MAP ENTRY
   (presence-carrying — the entry exists exactly when the spec declares the
   key, so a present nil / false schema token is distinguishable from no
@@ -307,7 +307,7 @@
 
   Schema resolution goes through `resolve-data-schema`, which resolves a
   SINGLETON via `spec-from-registry` AND falls back to the snapshot's
-  `:rf/machine-type` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
+  `[:rf/runtime :machine-type]` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
   A spawned actor has no per-instance registration, so the snapshot fallback
   is what validates its `:data` at the macrostep boundary — without it a
   schema-violating action on a spawned actor would install unvalidated

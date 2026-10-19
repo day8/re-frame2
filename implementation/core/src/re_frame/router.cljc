@@ -457,7 +457,7 @@
   (`:machines/resolve-actor-handler-meta`): a dynamically-spawned actor
   has no per-instance registration — its liveness is derived from its
   (revertible) app-db snapshot — so the resolver rebuilds the actor's
-  handler-meta from the snapshot's `:rf/machine-type` on demand. This is
+  handler-meta from the snapshot's `[:rf/runtime :machine-type]` on demand. This is
   how an actor's liveness becomes a pure function of app-db: spawn/destroy
   write only the snapshot, and `restore-epoch!` reverts liveness with zero
   registrar drift.

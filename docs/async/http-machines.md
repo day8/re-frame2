@@ -38,13 +38,11 @@ The cell registers the machine and runs it against a stubbed article URL.
     {:spawn {:machine-id :rf.http/managed
              :data       {:request {:url "/api/articles/intro"}
                           :decode :json}
+             :on-done    {:target :ready
+                          :action (fn [{data :data [_ _ completion] :event}]
+                                    {:data (assoc data :article (:result completion))})}
              :on-error   :failed}
-     :on    {:succeeded
-             {:target :ready
-              :action (fn [{data :data [_ value] :event}]
-                        {:data (assoc data :article value)})}
-             :failed         :failed
-             :article/cancel :idle}}
+     :on    {:article/cancel :idle}}
 
     :ready  {:on {:article/load :loading}}
     :failed {:on {:article/load :loading}}}})
@@ -64,9 +62,10 @@ The cell registers the machine and runs it against a stubbed article URL.
 Add `day8/re-frame2-machines` and `day8/re-frame2-http` to the app's dependencies.
 Requiring both namespaces registers the HTTP child machine. The parent's
 [`:spawn`](../machines/actors.md#state-bound-spawn) starts it on entry to
-`:loading`; a successful completion sends `[:succeeded value]`. Its action stores the
-decoded article in the parent's `:data` and enters `:ready`.
-Failure enters `:failed`; `:on-error` also handles a child that fails to start.
+`:loading`; its `:on-done` receives the child's completion, whose `:result` is
+the decoded article. Its action stores the article in the parent's `:data` and
+enters `:ready`. Failure reaches `:on-error`, which also handles a child that
+fails to start.
 
 The stub transport answers at once, so the cell moves from `:idle` straight to `:ready`.
 In the tutorial's mounted frame, start the machine from the REPL with:
@@ -88,9 +87,10 @@ It rejects those keys even when their value is `nil`, with
 `:rf.error/http-bad-reply-target`; the parent's `:spawn :on-error` handles that
 startup failure.
 
-A single child reports `[:succeeded value]` or `[:failed failure]`, rather than
-the event-effect form's full reply map. A child's `:on-done` fold reads the same
-successful `value` as `result`.
+A single child completes like any child machine, rather than with the
+event-effect form's full reply map: the spawn's `:on-done` reads the decoded
+`value` as the completion's `:result`, and its `:on-error` reads the
+classified failure.
 
 ## Cancellation
 

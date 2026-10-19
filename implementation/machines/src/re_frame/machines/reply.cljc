@@ -43,7 +43,7 @@
       specialized stale-gated instance of the reply pattern
       (EP-0011 §Timer Reply, Managed-Effects §Stale suppression): the
       synthetic timer-elapsed event carries the scheduling node's
-      declaring path + per-path `:rf/after-epoch`, validated against the
+      declaring path + per-path `:after` epoch, validated against the
       live snapshot on receipt. This ns expresses that drop as
       the envelope's stale-suppression *vocabulary* — the **declaring
       path + epoch are the data-only suppression gate** — and shapes the
@@ -105,11 +105,11 @@
 ;;                         minted this instance); an explicit `:fixed-actor-id`
 ;;                         names the SAME address on every attempt, so it
 ;;                         carries its spawn's runtime-minted attempt instead —
-;;                         a single `:spawn` child's `:rf/invoke-attempt`, a
+;;                         a single `:spawn` child's `:invoke-attempt`, a
 ;;                         `:spawn-all` child's join-attempt token. The spawn
 ;;                         applies the rule while its args say whether the id
 ;;                         was authored, and stamps the result on the child
-;;                         (`:rf/work-generation`, or `:rf/join-child`'s
+;;                         (`[:rf/runtime :work-generation]`, or `:join-child`'s
 ;;                         `:work-generation`), so no reader decides provenance
 ;;                         from the actor keyword. Where no attempt is in hand
 ;;                         (a hand-emitted `:rf.machine/spawn` mints none), a
@@ -170,7 +170,7 @@
   (the allocator counter for a known generated actor, or the join attempt
   for an explicitly fixed actor, so the join path never decides provenance
   by parsing the actor keyword), and a single `:spawn` child's is the
-  `:rf/work-generation` its spawn stamped (`spawn-work-generation`). The
+  `[:rf/runtime :work-generation]` its spawn stamped (`spawn-work-generation`). The
   2-arity, for a caller with no attempt in hand, parses `generation` off the
   `<type>#<n>` instance id, or 1 for an id with no such suffix.
   `=`-comparable and EDN-serializable."
@@ -418,7 +418,7 @@
 ;; ---------------------------------------------------------------------------
 ;; `:after` timer — the specialized stale-gated reply instance
 ;; (EP-0011 §Timer Reply; Managed-Effects §Stale suppression). The declaring
-;; path + per-path `:rf/after-epoch` ARE the data-only suppression gate.
+;; path + per-path `:after` epoch ARE the data-only suppression gate.
 ;; ---------------------------------------------------------------------------
 
 (defn timer-work-id
@@ -435,7 +435,7 @@
   node's `:after` entries apart: each is an independent timer, and two
   `:delays` names can resolve to the same milliseconds. An inline delay fn
   is not data, so it stands as `:fn`, its `:delay-source`. The `epoch` is the
-  per-path `:rf/after-epoch` the timer was
+  per-path `:after` epoch the timer was
   SCHEDULED in, which discriminates one timer attempt from a re-armed one on
   node re-entry (one attempt has one work id — EP-0007). `=`-comparable and
   EDN-serializable. `decl-path` nil (the node was exited — no live
@@ -647,7 +647,7 @@
   (optional), `:work-bearing-path` (the spawn declaring path — optional),
   optional exact `:work-generation` (the attempt's, as its spawn stamped it:
   a `:spawn-all` child's join membership, or a single `:spawn` child's
-  `:rf/work-generation`), `:frame`, `:reason` (the cancel reason)."
+  `:work-generation`), `:frame`, `:reason` (the cancel reason)."
   [{:keys [actor-id parent-id work-bearing-path work-generation frame reason]
     :as ctx}]
   (cond-> {:status        :cancelled

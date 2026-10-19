@@ -107,9 +107,9 @@
   (let [exit-log (atom [])
         child    {:initial :running
                   :data    {}
-                  :states  {:running {:exit (fn [{data :data}]
+                  :states  {:running {:exit (fn [{:keys [self-id]}]
                                                (swap! exit-log
-                                                      conj (:rf/self-id data))
+                                                      conj self-id)
                                                {})}}}
         spawn    [:rf.machine/spawn {:machine-id :rf2-vsigt/child
                                      :id-prefix  :rf2-vsigt/child}]

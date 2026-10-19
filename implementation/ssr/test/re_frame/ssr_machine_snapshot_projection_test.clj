@@ -62,7 +62,7 @@
   (rf/dispatch-sync [:rf.ssr-machine/parent [:rf.machine/start]])
   (let [runtime-db        (:rf.db/runtime (rf/frame-state-value :rf/default))
         [kid-id snapshot] (->> (get-in runtime-db [:rf.runtime/machines :snapshots])
-                               (filter #(= :rf.ssr-machine/kid (:rf/machine-type (val %))))
+                               (filter #(= :rf.ssr-machine/kid (get-in (val %) [:rf/runtime :machine-type])))
                                first)
         projected         (get-in (rf.ssr.payload-policy/project-runtime-db runtime-db :rf/default)
                                   [:rf.runtime/machines :snapshots kid-id :data])]

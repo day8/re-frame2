@@ -101,7 +101,7 @@
     (let [payload (server-render! :ssrrearm/one)
           snap    (get-in payload [:rf/runtime-db :rf.runtime/machines
                                    :snapshots :ssrrearm/one])
-          epoch   (get-in snap [:data :rf/after-epoch [:waiting]])
+          epoch   (get-in snap [:rf/runtime :after-epoch [:waiting]])
           thunks  (atom [])
           armed   (atom [])
           cfid    (fresh-frame! :client)

@@ -1458,12 +1458,10 @@
                                      :machine-id :door/main
                                      :before {:state :locked
                                               :data {:tries 0}
-                                              :tags #{:locked}
-                                              :rf/spawn-counter {}}
+                                              :tags #{:locked}}
                                      :after  {:state :open
                                               :data {:tries 1}
-                                              :tags #{:open}
-                                              :rf/spawn-counter {}}
+                                              :tags #{:open}}
                                      :from-state :locked
                                      :to-state   :open
                                      :event [:door/open]
@@ -1483,13 +1481,12 @@
                 :machine {:cascade [{:kind :transition :step 1
                                      :machine-id :door/main
                                      ;; :state + :tags identical; only :data
-                                     ;; + :rf/spawn-counter differ.
+                                     ;; + :rf/runtime differ.
                                      :before {:state :open :tags #{:open}
-                                              :data {:tries 1}
-                                              :rf/spawn-counter {}}
+                                              :data {:tries 1}}
                                      :after  {:state :open :tags #{:open}
                                               :data {:tries 2}
-                                              :rf/spawn-counter {:foo 1}}
+                                              :rf/runtime {:spawn-counter {:foo 1}}}
                                      :from-state :open
                                      :to-state   :open
                                      :event [:door/poke]

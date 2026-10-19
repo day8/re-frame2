@@ -75,7 +75,7 @@
 (defn- seed
   "A fresh pure-call snapshot positioned at `state`."
   [state]
-  {:state state :data {} :rf/spawn-counter {}})
+  {:state state :data {}})
 
 ;; ---- spec/009 trace-shape proofs -----------------------------------------
 ;;
@@ -239,7 +239,6 @@
   (testing "inside a region the domain is the pseudo-state's parent in that region; the sibling region stays put"
     (let [before {:state            {:r1 [:p :b :b2] :r2 :x}
                   :data             {:log []}
-                  :rf/spawn-counter {}
                   :rf/history       {[:r1 :p] :b}}
           after  (step region-child-declared before [:go])]
       (is (= {:r1 [:p :b :b1] :r2 :x} (:state after)))

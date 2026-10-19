@@ -79,7 +79,7 @@
   (testing "a SPAWNED actor transitions under its `<type>#<n>` instance
             address, which no key of the registered-id definitions map
             names, so the record resolves the definition through the TYPE
-            its snapshot carries at `:rf/machine-type`. Producer-derived:
+            its snapshot carries at `[:rf/runtime :machine-type]`. Producer-derived:
             the machines runtime spawns the actor and emits the transition"
     (with-real-runtime
       (fn []
@@ -95,7 +95,9 @@
         (let [snapshots (get-in (rf.frame/frame-runtime-db-value :rf/default)
                                 [:rf.runtime/machines :snapshots])
               actor     (some (fn [[id snap]]
-                                (when (= spawn-child-type (:rf/machine-type snap)) id))
+                                (when (= spawn-child-type
+                                         (get-in snap [:rf/runtime :machine-type]))
+                                  id))
                               snapshots)
               defs      (store-definitions [spawn-parent-id spawn-child-type])]
           (is (some? actor) "PRECONDITION: the parent spawned a child actor")

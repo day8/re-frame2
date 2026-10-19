@@ -136,17 +136,17 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 - **Payload**: `:data` is an `:rf.http/managed` args map without reply addressing.
 - **Description**: Runs one request as a child machine, so the request lives exactly as long as the parent state that spawns it.
     - The child finishes in a final `:succeeded` or `:failed` state holding the reply's `:value`, or its `:error` failure map, under `:rf/result`.
-    - Under `:spawn`, the parent receives `[:succeeded value]` or `[:failed failure]`. Under `:spawn-all`, the result folds into the join and no event is sent.
-    - Leaving the parent state aborts the request, and neither event is sent.
+    - The child completes like any child machine: under `:spawn`, the parent's `:on-done` receives the value as the completion's `:result` and its `:on-error` the failure; under `:spawn-all`, the result folds into the join.
+    - Leaving the parent state aborts the request, and the parent receives no completion.
     - The child sets its own `:on-success` / `:on-failure`, so `:data` must not carry `:reply-to`, `:on-success` or `:on-failure`. Any of them makes the child throw `:rf.error/http-bad-reply-target` (`:reason :machine-owns-reply`, `:keys` naming them) when it starts, before a request is sent. The runtime reports the throw as `:rf.error/machine-action-exception`, with the error in its `:exception-data`, and routes it to the parent's `:spawn :on-error`.
     - See [From a state machine](../async/http.md#from-a-state-machine), which also shows `:spawn-all` fan-out.
 - **Example**:
   ```clojure
   :loading
   {:spawn {:machine-id :rf.http/managed
-           :data       {:request {:url "/api/me"} :decode :json}}
-   :on    {:succeeded :ready
-           :failed    :load-failed}}
+           :data       {:request {:url "/api/me"} :decode :json}
+           :on-done    :ready
+           :on-error   :load-failed}}
   ```
 
 ## Replies

@@ -88,14 +88,14 @@
   (start! flat-parent :rsf/p :rsf/kid {})
   (is (= [:rsf/kid#1 :rsf/kid#1 []]
          [(slot :rsf/p [])
-          (get-in (snapshot :rsf/p) [:data :rf/spawned []])
-          (get-in (snapshot :rsf/kid#1) [:data :rf/invoke-id])])))
+          (get-in (snapshot :rsf/p) [:rf/runtime :spawned []])
+          (get-in (snapshot :rsf/kid#1) [:rf/runtime :invoke-id])])))
 
 (deftest parallel-root-spawns-its-child-at-birth
   (start! parallel-parent :rsp/p :rsp/kid {})
   (is (= [:rsp/kid#1 :rsp/kid#1 true]
          [(slot :rsp/p [])
-          (get-in (snapshot :rsp/p) [:data :rf/spawned []])
+          (get-in (snapshot :rsp/p) [:rf/runtime :spawned []])
           (some? (snapshot :rsp/kid#1))])))
 
 (deftest root-spawn-follows-root-entry-and-precedes-the-descent
@@ -150,7 +150,7 @@
          [(snapshot :rfd/kid#1)
           (get-in (snapshot :rfd/p) [:data :got])
           (slot :rfd/p [])
-          (get-in (snapshot :rfd/p) [:data :rf/spawned])])))
+          (get-in (snapshot :rfd/p) [:rf/runtime :spawned])])))
 
 (deftest flat-root-transition-on-done-targets-a-top-level-state
   (start! flat-parent :rft/p :rft/kid {:spawn {:machine-id :rft/kid :on-done :b}})
@@ -180,9 +180,9 @@
 
 (deftest a-root-carrier-from-a-superseded-attempt-is-dropped
   (are [reason snap invoke-id] (= reason (rf.machines.transition/spawn-carrier-stale-reason snap invoke-id 1))
-    :rf.machine.spawn/attempt-superseded {:state {:x :x1 :y :y1} :rf/spawn-attempts {[] 2}}      []
+    :rf.machine.spawn/attempt-superseded {:state {:x :x1 :y :y1} :rf/runtime {:spawn-attempts {[] 2}}}      []
     ;; control: a region child's carrier still goes stale when its state exits
-    :rf.machine.spawn/state-exited       {:state {:x :x1 :y :y1} :rf/spawn-attempts {[:x :x2] 1}} [:x :x2]))
+    :rf.machine.spawn/state-exited       {:state {:x :x1 :y :y1} :rf/runtime {:spawn-attempts {[:x :x2] 1}}} [:x :x2]))
 
 ;; ---- teardown --------------------------------------------------------------
 

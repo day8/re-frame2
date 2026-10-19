@@ -82,7 +82,8 @@
     ;; Per Spec 005 §Child completion protocol, completion IS finality.
     ;; `:final? true` alone completes this child: the runtime notices the
     ;; finality, folds it into the join at
-    ;; [:rf/spawned :deep/main [:work :phase-b]], and destroys the child.
+    ;; [:rf.runtime/machines :spawned :deep/main [:work :phase-b]], and
+    ;; destroys the child.
     ;; It dispatches nothing and carries no parent vocabulary, which is
     ;; what lets one `:helper/job` sit under `:spawn` or `:spawn-all`
     ;; unchanged.
@@ -103,7 +104,7 @@
 ;;
 ;;   :health  — flat region with :after-driven transition. Provides
 ;;              a separate region clock that a consumer can verify
-;;              keeps its own `:rf/after-epoch-by-region` slot per
+;;              keeps its own `[:rf/runtime :after-epoch-by-region]` slot per
 ;;              [spec/005 §Per-region scoping].
 
 (def main-machine
@@ -177,8 +178,8 @@
               ;;
               ;; Carries the :spawn declaration — the desugared
               ;; entry/exit fx spawn / destroy the :helper/tick
-              ;; child. A consumer that walks `[:rf/spawned
-              ;; :deep/main [:work :phase-a :sub-a :nested-a :deep-a
+              ;; child. A consumer that walks `[:rf.runtime/machines
+              ;; :spawned :deep/main [:work :phase-a :sub-a :nested-a :deep-a
               ;; :leaf-a]]` sees the spawned child while this leaf
               ;; is active.
               ;;
@@ -224,7 +225,7 @@
       ;; parallel; each child completes by reaching its terminal
       ;; `:final?` `:done` leaf, dispatching nothing. The runtime
       ;; folds each finality into the join state at
-      ;; [:rf/spawned :deep/main [:work :phase-b]], and — once all
+      ;; [:rf.runtime/machines :spawned :deep/main [:work :phase-b]], and — once all
       ;; three are final — dispatches the parent's
       ;; `:on-all-complete` event vector (`[:helper/all-finished]`)
       ;; which the parent's :on table routes to `:done-b`. The block
@@ -255,8 +256,8 @@
     :health
     ;; Independent of :work. Cycles :cold → :warming → :ready via an
     ;; :after delay. Per [spec/005 §Per-region scoping] the
-    ;; :rf/after-epoch slot is per-region (lives at
-    ;; `[:data :rf/after-epoch-by-region :health]`) — a :work
+    ;; `:after` epoch slot is per-region (lives at
+    ;; `[:rf/runtime :after-epoch-by-region :health]`) — a :work
     ;; transition does not invalidate this region's in-flight
     ;; timer.
     {:initial :cold
@@ -286,9 +287,9 @@
   (fn [_ _]
     ;; Start the parent machine to its initial state (idle + cold) — the
     ;; eager kick (xstate `createActor(m).start()`). It
-    ;; runs the initial-entry cascade then STOPS. The runtime stamps
-    ;; :rf/bootstrap-pending? on the synthesised snapshot and clears it
-    ;; after the cascade.
+    ;; runs the initial-entry cascade then STOPS. The runtime records
+    ;; [:rf/runtime :bootstrap-pending?] on the synthesised snapshot and
+    ;; clears it after the cascade.
     {:fx [[:dispatch [:deep/main [:rf.machine/start]]]]}))
 
 ;; ----------------------------------------------------------------------------

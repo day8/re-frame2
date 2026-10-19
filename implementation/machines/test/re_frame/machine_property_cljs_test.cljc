@@ -3,7 +3,7 @@
   machines and event sequences, run from `build-initial-snapshot`, must keep
   invariants that hold for ANY machine — INVARIANT 1 the state is a leaf,
   2 `:tags` is the active-configuration union, 4 transition is deterministic,
-  5 `:rf/spawn-counter` never rewinds and user `:data` keys are never dropped,
+  5 the spawn counter never rewinds and user `:data` keys are never dropped,
   8 parallel selection ignores region order, 9 parallel `:always` rounds are
   parent-owned.
 
@@ -287,8 +287,8 @@
 ;; ---- INVARIANT 5: spawn-counter monotone, user :data keys never dropped ----
 
 (deftest prop-spawn-counter-monotone-and-data-non-corrupt
-  (testing ":rf/spawn-counter never rewinds, and :data stays a map that never loses a user key"
-    (let [counter-total #(reduce + 0 (vals (:rf/spawn-counter %)))
+  (testing "the spawn counter never rewinds, and :data stays a map that never loses a user key"
+    (let [counter-total #(reduce + 0 (vals (get-in % [:rf/runtime :spawn-counter])))
           user-keys     #(set/intersection #{:n :touched} (set (keys %)))]
       (is (nil? (first-failure 5005 400 (draw-with gen-machine)
                   (fn [[m evs]]

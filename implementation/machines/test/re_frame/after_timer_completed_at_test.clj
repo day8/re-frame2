@@ -78,7 +78,7 @@
   (rf.machines.test-support/with-trace-capture captured
     (rf/dispatch-sync [:hawtjr/stale [:fetch]])
     (let [epoch (get-in (rf.machines.test-support/snapshot :hawtjr/stale)
-                        [:data :rf/after-epoch [:loading]])]
+                        [:rf/runtime :after-epoch [:loading]])]
       ;; Leaving :loading makes its timer stale; fire it by hand with a scripted token.
       (rf/dispatch-sync [:hawtjr/stale [:loaded]])
       (rf/dispatch-sync [:hawtjr/stale [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]]

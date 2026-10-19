@@ -62,6 +62,6 @@
                        [(filterv #(and (= (namespace worker-mid) (namespace %)) (not= driver-mid %))
                                  (keys (:snapshots machines)))
                         (contains? machines :spawned)
-                        (get-in machines [:snapshots driver-mid :rf/spawn-counter worker-mid])]))
+                        (get-in machines [:snapshots driver-mid :rf/runtime :spawn-counter worker-mid])]))
                    threads))
           "per frame: no leaked worker, the :spawned slot pruned, one allocation per cycle"))))

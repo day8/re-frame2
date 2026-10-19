@@ -61,10 +61,11 @@
    `:connected` without re-spawning on every leaf transition.
 
    Where does the parent learn the spawned actor's id? It doesn't have to
-   ask. Every declarative `:spawn` binds the newborn's id into the SPAWNING
-   machine's own `:data` under the reserved `:rf/spawned` map, keyed by the
-   `:spawn`-bearing state's path — here `[:active]`. So the id is simply
-   `(get-in data [:rf/spawned [:active]])`, and `socket-id` (below) reads it.
+   ask. Every declarative `:spawn` records the newborn's id on the SPAWNING
+   machine, and every one of its callbacks receives that record as
+   `:spawned` on its context map, keyed by the `:spawn`-bearing state's
+   path — here `[:active]`. So the id is simply `(get spawned [:active])`,
+   and `socket-id` (below) reads it. `:data` stays the machine's own.
    This is re-frame2's spelling of XState v5's `spawn(...)`-into-`context`
    capture — no spawn callback, no side-channel atom.
    See docs/machines/actors.md#recording-the-spawned-id and
@@ -72,7 +73,7 @@
 
    And because the runtime CLEARS that slot the instant the actor is torn
    down (leaving `:active` by any door), a stale read is impossible: the
-   moment the socket dies, `(socket-id data)` goes `nil` on its own. That is
+   moment the socket dies, `(socket-id spawned)` goes `nil` on its own. That is
    what makes it a safe connection clock — THIS machine needs no `:exit`
    action to null the id out. (The host socket itself is another matter: a
    live `WebSocket` is not a value the runtime can drop, so the SPAWNED actor
@@ -95,26 +96,26 @@
 ;; ============================================================================
 
 ;; The socket actor is spawned on the `:active` parent state, so the id the
-;; runtime binds into our `:data :rf/spawned` map is keyed by that state's
+;; runtime hands us as `:spawned` is keyed by that state's
 ;; path. Naming the key once keeps the reads below honest.
 (def ^:private socket-invoke-id [:active])
 
 (defn- socket-id
-  "The live socket-actor id, read straight from the parent's own `:data`
-   under the framework-maintained `:rf/spawned` slot. Returns nil whenever
+  "The live socket-actor id, read from the `:spawned` map every callback
+   receives on its context. Returns nil whenever
    no socket is spawned — before the first `:active` entry, and (crucially)
    the moment the actor is torn down, because the runtime clears the slot on
    teardown. That auto-clear is why this doubles as the connection's clock."
-  [data]
-  (get-in data [:rf/spawned socket-invoke-id]))
+  [spawned]
+  (get spawned socket-invoke-id))
 
 (defn- from-live-socket?
   "The connection-epoch test, factored out because two guards below need
    it: is this event stamped with the id of the socket we are actually
    using right now? A torn-down socket reads nil, so every straggler from
    a replaced connection fails here for free."
-  [data source-socket-id]
-  (let [live (socket-id data)]
+  [spawned source-socket-id]
+  (let [live (socket-id spawned)]
     (and (some? live)
          (= source-socket-id live))))
 
@@ -169,7 +170,7 @@
      ;; `:data` is the connection's memory — everything that has to survive
      ;; a reconnect, from the URL down to the in-flight requests. Note
      ;; there's no `:socket-id` here: the live socket's id lives in the
-     ;; framework's `:rf/spawned` slot (read via `socket-id`), which the
+     ;; callback context's `:spawned` map (read via `socket-id`), which the
      ;; runtime keeps current for us.
      ;;
      ;; And note `:cred-ref`, not a token. Machine `:data` is
@@ -208,13 +209,13 @@
       ;; The connection-epoch check: "is this from the socket we're
       ;; actually using right now?" Every inbound event stamps the id of
       ;; the socket it came from (`:source-socket-id`, the actor's
-      ;; `:rf/self-id`). We let it through only if that matches the live
+      ;; `:self-id`). We let it through only if that matches the live
       ;; socket — otherwise it's a straggler from a connection we've
       ;; already replaced, and we drop it. `socket-id` reads the live id
-      ;; from `:rf/spawned`, so a torn-down socket compares as nil and every
+      ;; from `:spawned`, so a torn-down socket compares as nil and every
       ;; straggler is dropped for free.
-      (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
-        (from-live-socket? data source-socket-id))
+      (fn guard-current-socket? [{spawned :spawned [_ {:keys [source-socket-id]}] :event}]
+        (from-live-socket? spawned source-socket-id))
 
       :own-request-timeout?
       ;; The deadline gate, and like `:trusted-frame?` it asks BOTH questions
@@ -240,9 +241,9 @@
       ;; what makes having no timer-cancellation facility safe: an obsolete
       ;; timer is not cancelled, it is simply inert — it fires, fails this
       ;; guard, and is dropped like any other straggler.
-      (fn guard-own-request-timeout? [{data :data
+      (fn guard-own-request-timeout? [{data :data spawned :spawned
                                        [_ {:keys [source-socket-id request-id token]}] :event}]
-        (and (from-live-socket? data source-socket-id)
+        (and (from-live-socket? spawned source-socket-id)
              (when-let [entry (get-in data [:in-flight request-id])]
                (= token (:token entry)))))
 
@@ -264,8 +265,8 @@
       ;; One named guard rather than an `:and` of two, per 005 §No
       ;; combinator data form: compound logic is ordinary Clojure inside
       ;; one guard whose NAME carries the meaning.
-      (fn guard-trusted-frame? [{data :data [_ {:keys [source-socket-id body]}] :event}]
-        (and (from-live-socket? data source-socket-id)
+      (fn guard-trusted-frame? [{spawned :spawned [_ {:keys [source-socket-id body]}] :event}]
+        (and (from-live-socket? spawned source-socket-id)
              (schema/valid-inbound-frame? body)))}
 
      :actions
@@ -356,8 +357,8 @@
       ;; the socket's private host closure resolves the bearer from
       ;; `:cred-ref` at the auth write and attaches it to the wire frame
       ;; itself. The credential never rides a dispatch.
-      (fn action-send-auth [{data :data}]
-        {:fx [[:dispatch [(socket-id data)
+      (fn action-send-auth [{:keys [spawned]}]
+        {:fx [[:dispatch [(socket-id spawned)
                           [:send {:type :auth}]]]]})
 
       :flush-queue-and-resubscribe
@@ -367,10 +368,10 @@
       ;; the other end of a *new* socket needs telling about them again.
       ;; The queued-message flush is a separate `:always` step below; this
       ;; action deliberately leaves the `:queue` untouched for it to find.
-      (fn action-on-connected [{data :data}]
+      (fn action-on-connected [{:keys [data spawned]}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [topic]
-                       [:dispatch [(socket-id data)
+                       [:dispatch [(socket-id spawned)
                                    [:send {:type :subscribe :topic topic}]]])
                      (:subscriptions data))})
 
@@ -402,8 +403,8 @@
       ;; While `:connected`, sending is easy: straight to the wire, no
       ;; queue. This is the leaf overriding the parent's `:ws/send` (which
       ;; enqueues) — same event, different answer depending on where we are.
-      (fn action-send-now [{data :data [_ msg] :event}]
-        {:fx [[:dispatch [(socket-id data) [:send msg]]]]})
+      (fn action-send-now [{spawned :spawned [_ msg] :event}]
+        {:fx [[:dispatch [(socket-id spawned) [:send msg]]]]})
 
       :record-subscription
       ;; Subscribe while we're not connected? Just note the topic down; the
@@ -416,9 +417,9 @@
         {:data (update data :subscriptions conj topic)})
 
       :register-subscription
-      (fn action-register-subscription [{data :data [_ topic] :event}]
+      (fn action-register-subscription [{data :data spawned :spawned [_ topic] :event}]
         {:data (update data :subscriptions conj topic)
-         :fx   [[:dispatch [(socket-id data)
+         :fx   [[:dispatch [(socket-id spawned)
                             [:send {:type :subscribe :topic topic}]]]]})
 
       :register-request
@@ -460,10 +461,11 @@
       ;; leftovers are already inert: its timer's token is no longer the one
       ;; in the slot, and neither is the token its wire reply will carry.
       (fn action-register-request [{data :data [_ {:keys [request-id body reply timeout-ms]
-                                            :or   {timeout-ms 30000}}] :event}]
+                                            :or   {timeout-ms 30000}}] :event
+                                     spawned :spawned}]
         (let [token     (:next-token data)
               displaced (:reply-event (get-in data [:in-flight request-id]))
-              send+arm  [[:dispatch [(socket-id data)
+              send+arm  [[:dispatch [(socket-id spawned)
                                      [:send (assoc body
                                                    :request-id    request-id
                                                    :request-token token)]]]
@@ -476,7 +478,7 @@
                                    [:ws/request-timeout
                                     {:request-id       request-id
                                      :token            token
-                                     :source-socket-id (socket-id data)}]]}]]]
+                                     :source-socket-id (socket-id spawned)}]]}]]]
           {:data (-> data
                      (assoc :next-token (inc token))
                      (assoc-in [:in-flight request-id]
@@ -593,7 +595,7 @@
       {;; Spawn the socket actor here, on the parent, so one socket lives
        ;; across :connecting -> :authenticating -> :connected. The instant
        ;; we leave :active — by any door — the runtime tears it down (and
-       ;; clears its id from our :rf/spawned slot, so `socket-id` reads nil).
+       ;; clears its id from our `:spawned` record, so `socket-id` reads nil).
        ;; See docs/machines/concepts.md#when-the-machine-grows.
        :spawn {:machine-id :websocket/socket
                 ;; Hand the child the URL and the opaque `:cred-ref` from
