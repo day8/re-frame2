@@ -242,7 +242,7 @@
   (when-some [misplaced (seq (filter #(contains? opts %) frame-config-opts))]
     (rf.error/throw-error!
       :rf.error/ssr-ring-frame-opt-invalid
-      'rf.ssr/ssr-handler
+      'rf.ssr.ring/ssr-handler
       (str "ssr-handler takes the app's frame config as one :frame map; move "
            (pr-str (vec misplaced)) " inside :frame, e.g. "
            "{:frame {:initial-events [[:app/server-init]]}}.")
@@ -251,14 +251,14 @@
   (when-not (or (nil? frame) (map? frame))
     (rf.error/throw-error!
       :rf.error/ssr-ring-frame-opt-invalid
-      'rf.ssr/ssr-handler
+      'rf.ssr.ring/ssr-handler
       "ssr-handler's :frame is the app's frame config, a map; pass one as :frame."
       {:recovery :supply-a-frame-config-map
        :extra    {:received (rf.error/diag-value-summary frame)}}))
   (when-some [owned (seq (filter #(contains? frame %) handler-owned-frame-keys))]
     (rf.error/throw-error!
       :rf.error/ssr-ring-frame-opt-invalid
-      'rf.ssr/ssr-handler
+      'rf.ssr.ring/ssr-handler
       (str "ssr-handler owns the request frame's :id and :platform; remove "
            (pr-str (vec owned)) " from :frame.")
       {:recovery :remove-the-handler-owned-key

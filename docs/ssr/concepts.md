@@ -97,16 +97,16 @@ Wire the Ring adapter once. It runs the whole lifecycle above — frame create, 
 
 (def handler
   (ssr-ring/ssr-handler
-    {:initial-events [[:app/server-init]]
-     :root-view      (fn [] ((rf/view :app/root)))
-     :payload        [:articles :session-user]}))   ;; allowlist of app-db keys to ship
+    {:frame     {:initial-events [[:app/server-init]]}
+     :root-view (fn [] ((rf/view :app/root)))
+     :payload   [:articles :session-user]}))        ;; allowlist of app-db keys to ship
 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
 Three options do the work:
 
-- **`:initial-events`** — the per-request setup, passed as the per-request frame's `:initial-events` (step 2). It takes a vector of events, or a `(fn [request] → initial-events-vector)` when the setup depends on the Ring request.
+- **`:frame`** — the per-request frame's config, the map `make-frame` takes, so the config your client boot mounts with serves here too. Its `:initial-events` are the per-request setup (step 2): a vector of events, or a `(fn [request] → initial-events-vector)` when the setup depends on the Ring request. The handler gives each request frame its own `:id` and `:platform :server`, so those two stay out of `:frame`.
 - **`:root-view`** — what the adapter renders once the frame settles (step 4): a 0-arity fn returning hiccup, as shown, or the hiccup itself, `[(rf/view :app/root)]`. Both render the same HTML. The head of the tree must be a callable view reference — the Var `rf/reg-view` defines, or `(rf/view :id)`. A bare keyword head is an HTML element.
 - **`:payload`** — the allowlist of top-level app-db keys to send to the client (step 5). It is a security boundary, covered [below](#payload--the-fail-closed-allowlist).
 
@@ -130,11 +130,11 @@ A real server also serves static files, an API and form posts. `ssr-middleware` 
 (def app
   (-> api-handler                                  ;; your own Ring handler for /api/…
       ((ssr-ring/ssr-middleware
-         {:initial-events [[:app/server-init]]
-          :root-view      (fn [] ((rf/view :app/root)))
-          :payload        [:articles :session-user]
-          :match?         (fn [req] (and (#{:get :post} (:request-method req))
-                                         (not (str/starts-with? (:uri req) "/api/"))))}))
+         {:frame     {:initial-events [[:app/server-init]]}
+          :root-view (fn [] ((rf/view :app/root)))
+          :payload   [:articles :session-user]
+          :match?    (fn [req] (and (#{:get :post} (:request-method req))
+                                    (not (str/starts-with? (:uri req) "/api/"))))}))
       (wrap-resource "public")                     ;; /main.js and CSS never reach the renderer
       wrap-session
       wrap-cookies
@@ -397,10 +397,10 @@ The Ring handler has two error options, for two different failures. `:error-view
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events [[:app/server-init]]
+  {:frame          {:initial-events [[:app/server-init]]
+                    :ssr            {:public-error-id :myapp/public-error}}
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
-   :ssr            {:public-error-id :myapp/public-error}
    ;; A 5xx page, rendered from the public error alone. A registered view id
    ;; works too: :error-view :app/error-page renders [(rf/view :app/error-page) public-error].
    :error-view     (fn [{:keys [status message]}]
@@ -524,9 +524,9 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
      (rf/init! ssr/adapter)
      (def handler
        (ssr-ring/ssr-handler
-         {:initial-events [[:app/server-init]]
-          :root-view      (fn [] ((rf/view :app/root)))
-          :payload        [:session-user]}))              ;; required allowlist
+         {:frame     {:initial-events [[:app/server-init]]}
+          :root-view (fn [] ((rf/view :app/root)))
+          :payload   [:session-user]}))                   ;; required allowlist
      (defn -main []
        (jetty/run-jetty handler {:port 3000 :join? false}))))
 
@@ -585,12 +585,11 @@ A few things change between your REPL and a production server:
 | Option | Use it to |
 |---|---|
 | `:client-frame-id` | Stamp a stable frame id into the payload when server and client agree on one in advance ([hydrate, then adopt](#the-client-side-hydrate-then-adopt)). |
-| `:url-strategy` | Give the per-request frame the client's URL strategy, so `route-link` hrefs in the server markup match the hydrated client's. Under the Node renderer that frame does not render the body: pass the same strategy in the render module's `:frame-opts` ([Render on Node](#render-on-node)). |
-| `:ssr` | Set the per-request frame's `:ssr` config — the [error projector](#when-the-server-throws) and dev error detail. |
 | `:schema-digest` | Stamp the schema digest the client's [deploy-drift check](#deploy-drift-checks-come-along-for-free) compares. |
-| `:fx-overrides` | Replace fx for the per-request frame — usually to stub `:rf.http/managed` in tests. |
 | `:error-view`, `:on-error` | Render a 5xx page and answer a transport failure — [When the server throws](#when-the-server-throws). |
 | `:script-src`, `:app-element-id`, `:lang`, `:head`, `:body-end`, `:html-shell`, `:content-type` | Shape the HTML document around your app — [The page shell](#the-page-shell). |
+
+The per-request frame's own settings are frame config, so they go inside `:frame`, beside `:initial-events`: the `:ssr` config (the [error projector](#when-the-server-throws) and dev error detail), `:fx-overrides` (usually to stub `:rf.http/managed` in tests), and `:url-strategy`, which keeps `route-link` hrefs in the server markup matching the hydrated client's. Written at the handler's top level, each is refused at construction with a message naming `:frame`. Under the Node renderer the request frame does not render the body: hand the render module the same config var as its `:frame-opts` ([Render on Node](#render-on-node)).
 
 ### The page shell
 
@@ -598,7 +597,7 @@ The handler wraps your rendered body in a small HTML document, `default-html-she
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events [[:app/server-init]]
+  {:frame          {:initial-events [[:app/server-init]]}
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
    :script-src     "/js/main.js"       ;; where your client bundle is served
@@ -624,7 +623,7 @@ Sometimes the user's own browser needs a classified value: a CSRF token the page
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events            [[:app/server-init]]
+  {:frame                     {:initial-events [[:app/server-init]]}
    :root-view                 (fn [] ((rf/view :app/root)))
    :payload                   [:session :articles]
    :payload-include-sensitive [[:session :csrf]]})   ;; app-db PATHS, not keys
@@ -653,7 +652,7 @@ The version stamp is automatic. The schema digest is opt-in: compute it once at 
 ```clojure
 ;; requires [re-frame.schemas :as schemas]
 (ssr-ring/ssr-handler
-  {:initial-events [[:app/server-init]]
+  {:frame          {:initial-events [[:app/server-init]]}
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
    :schema-digest  (schemas/app-schemas-digest {:frame :rf/default})})
@@ -825,8 +824,8 @@ Add one option; nothing else about the handler changes:
 
 (def handler
   (ssr-ring/ssr-handler
-    {:initial-events (:initial-events policy/frame-config)
-     :url-strategy   (:url-strategy policy/frame-config)
+    {;; The frame config the render module hands `:frame-opts` in step 2.
+     :frame          policy/frame-config
      ;; What the BROWSER may see — an `ssr-handler` opt.
      :payload        [:todos]
      ;; No :root-view — only the default JVM-local renderer reads one.
@@ -848,7 +847,7 @@ ignored, because `ssr-handler` has no such option, so the render projects under
 whatever the renderer was given. For the same reason, step 2's entry table and
 this step's `:entry` read one shared Var rather than two literals that happen
 to agree today, and so do step 2's `:frame-opts` and this step's
-`:url-strategy`.
+`:frame`.
 
 `:renderer` is validated at construction, so a misconfigured deployment fails
 at boot rather than at the first request. Omitting it keeps the JVM-local

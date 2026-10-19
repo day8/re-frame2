@@ -17,13 +17,13 @@ Assuming the app's `:app/init` event is registered, the sidecar is running, and 
 (rf/init! ssr/adapter)
 
 (ssr.ring/ssr-handler
-  {:initial-events [[:app/init]]
-   :payload        [:todos]
-   :renderer       (node/renderer
-                     {:entry        "my-app/root"
-                      :build-id     (System/getenv "MY_APP_BUILD_ID")
-                      :render-state {:app-db     [:todos :session]
-                                     :runtime-db [:rf.runtime/routing]}})})
+  {:frame    {:initial-events [[:app/init]]}
+   :payload  [:todos]
+   :renderer (node/renderer
+               {:entry        "my-app/root"
+                :build-id     (System/getenv "MY_APP_BUILD_ID")
+                :render-state {:app-db     [:todos :session]
+                               :runtime-db [:rf.runtime/routing]}})})
 ```
 
 ## The renderer

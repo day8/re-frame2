@@ -379,7 +379,7 @@ What the client sees is the projected `:status`.
 
 ## Frame `:ssr` config
 
-A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, through `ssr-handler`'s `:ssr` option. Every key is optional.
+A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, in `ssr-handler`'s `:frame` config. Every key is optional.
 
 | Key | Set on | Default | Effect |
 |---|---|---|---|
@@ -389,11 +389,11 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 
 ```clojure
 ;; Server: a custom projector, with error detail while developing.
-(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
-                       :root-view      (fn [] ((rf/view :app/root)))
-                       :payload        [:articles]
-                       :ssr            {:public-error-id   :app/public-error
-                                        :dev-error-detail? true}})
+(ssr.ring/ssr-handler {:frame     {:initial-events [[:app/server-init]]
+                                   :ssr            {:public-error-id   :app/public-error
+                                                    :dev-error-detail? true}}
+                       :root-view (fn [] ((rf/view :app/root)))
+                       :payload   [:articles]})
 ```
 
 ## Events

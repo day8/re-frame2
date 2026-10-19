@@ -482,10 +482,11 @@ The server goes in its own JVM-only namespace, which loads `app.core`'s registra
 
 (def handler
   (ssr.ring/ssr-handler
-    {:initial-events (fn [request]                      ;; Step 2's boot event, built per request
-                       [[:app/server-init {:limit (app.core/request-limit request)}]])
-     :root-view      (fn [] ((rf/view :app/root)))      ;; Step 2's render target
-     :payload        [:articles]}))                     ;; Step 3's allowlist
+    {:frame     {:initial-events                         ;; Step 2's boot event, built per request
+                 (fn [request]
+                   [[:app/server-init {:limit (app.core/request-limit request)}]])}
+     :root-view (fn [] ((rf/view :app/root)))           ;; Step 2's render target
+     :payload   [:articles]}))                          ;; Step 3's allowlist
 
 (def app
   (-> handler
@@ -541,7 +542,7 @@ Step 3 ignores these effects, because it writes its own response map.
 
 | Half | Surface | You supply |
 |---|---|---|
-| Server | `ssr.ring/ssr-handler` | `:initial-events`, `:root-view`, a `:payload` allowlist; `:rf.server/*` effects for status, headers and cookies |
+| Server | `ssr.ring/ssr-handler` | a `:frame` config with its `:initial-events`, `:root-view`, a `:payload` allowlist; `:rf.server/*` effects for status, headers and cookies |
 | Client | `ssr/hydrate!` then `reagent-adapter/render!` with `{:hydrate? (some? payload)}` | The same `:frame` as `frame-provider` |
 
 The hand-rolled lifecycle from Steps 2–3 is what the adapter runs, which makes it the
