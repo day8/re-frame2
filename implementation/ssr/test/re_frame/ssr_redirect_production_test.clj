@@ -1,17 +1,18 @@
-(ns re-frame.ssr-safe-redirect-production-test
-  "A rejected `:rf.server/safe-redirect` is refused, leaves the wire alone
-  (no redirect, no 500), and ships exactly ONE always-on record an off-box
-  shipper sees under the production gate. That record is a closed structural
-  projection: framework keywords and the frame id only — never the URL, any
-  URL component, the raw scheme or host, or the app's own allowlist — so it
-  can carry no caller bytes and cannot be inflated or fragmented by the
-  caller. Every assertion is posture-independent.
+(ns re-frame.ssr-redirect-production-test
+  "`:rf.server/redirect` is relative-only by default: `:allow` names the hosts
+  permitted beyond the request's own origin, and `:allow :any` is the explicit
+  trusted spelling. A refused redirect leaves the wire alone (no redirect, no
+  500) and ships exactly ONE always-on record an off-box shipper sees under the
+  production gate. That record is a closed structural projection: framework
+  keywords and the frame id only — never the URL, any URL component, the raw
+  scheme or host, or the app's own allowlist — so it can carry no caller bytes
+  and cannot be inflated or fragmented by the caller. Every assertion is
+  posture-independent.
 
-  The dev trace's diagnostics and the URI parse-failure cases live in
-  `re-frame.ssr-end-to-end-test`."
+  The dev trace's diagnostics, the CR/LF/NUL gate and the URI parse-failure
+  cases live in `re-frame.ssr-end-to-end-test`."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -24,10 +25,10 @@
 ;; projection listener there is what decides whether a rejection becomes a 500.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-(defn- reject!
-  "Drive `:rf.server/safe-redirect` with `args` on a fresh server frame.
-  Returns the frame, every always-on record a shipper stand-in saw, and the
-  resolved response."
+(defn- redirect!
+  "Drive `:rf.server/redirect` with `args` on a fresh server frame. Returns
+  the frame, every always-on record a shipper stand-in saw, and the resolved
+  response."
   [args]
   (let [f    (rf.frame/make-anon-frame-record!
                {:platform :server
@@ -36,25 +37,29 @@
         id   (keyword "rf.test" (str "cap-" (name (gensym "s"))))
         seen (atom [])]
     (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
-    (rf/reg-event ::attempt (fn [_ [_ a]] {:fx [[:rf.server/safe-redirect a]]}))
+    (rf/reg-event ::attempt (fn [_ [_ a]] {:fx [[:rf.server/redirect a]]}))
     (rf/dispatch-sync [::attempt args] {:frame f})
     (rf.error-emit/unregister-error-listener! id)
     {:frame    f
      :records  @seen
      :response (:response (rf.ssr/flush-response-result! f))}))
 
-(defn- safe-redirect-records [records]
-  (filter #(str/starts-with? (name (:error %)) "safe-redirect-") records))
+(def ^:private scheme-rejected :rf.error/redirect-scheme-rejected)
+(def ^:private invalid-url     :rf.error/redirect-invalid-url)
+(def ^:private host-disallowed :rf.error/redirect-host-disallowed)
+
+(defn- gate-records [records]
+  (filter (comp #{scheme-rejected invalid-url host-disallowed} :error) records))
 
 (defn- refusal
   "`[redirect status records]` for `args`, each record with `:frame` and
   `:time` reduced to whether they are this frame's id and a clock reading."
   [args]
-  (let [{:keys [frame records response]} (reject! args)]
+  (let [{:keys [frame records response]} (redirect! args)]
     [(:redirect response)
      (:status response)
      (mapv #(-> % (update :frame = frame) (update :time number?))
-           (safe-redirect-records records))]))
+           (gate-records records))]))
 
 (defn- refused-with
   "The `refusal` of a rejected redirect whose one record is `slots` plus the
@@ -62,9 +67,47 @@
   [slots]
   [nil 200 [(merge {:frame true :time true :recovery :no-recovery} slots)]])
 
-(def ^:private scheme-rejected :rf.error/safe-redirect-scheme-rejected)
-(def ^:private invalid-url     :rf.error/safe-redirect-invalid-url)
-(def ^:private host-disallowed :rf.error/safe-redirect-host-disallowed)
+(defn- landed
+  "`[location records]` for `args`: the `:location` the response's redirect
+  carries, and the gate records the attempt shipped."
+  [args]
+  (let [{:keys [records response]} (redirect! args)]
+    [(:location (:redirect response)) (vec (gate-records records))]))
+
+(deftest an-absolute-url-needs-allow-to-name-its-host
+  (testing "without :allow an absolute URL is refused through the guard,
+            whatever host it names"
+    (is (= (refused-with {:error host-disallowed :reason :relative-only-violation})
+           (refusal {:location "https://app.example.com/home"}))))
+  (testing ":allow names the hosts permitted beyond the request's own origin,
+            and only those"
+    (is (= ["https://app.example.com/home" []]
+           (landed {:location "https://app.example.com/home" :allow ["app.example.com"]})))
+    (is (= ["https://APP.example.com/home" []]
+           (landed {:location "https://APP.example.com/home" :allow ["app.example.com"]})))
+    (doseq [allow [["app.example.com"] []]]
+      (is (= (refused-with {:error host-disallowed :reason :not-in-allowlist})
+             (refusal {:location "https://evil.example.com/home" :allow allow}))
+          (pr-str allow)))))
+
+(deftest allow-any-permits-any-well-formed-url
+  (testing "the explicit trusted spelling skips the host check"
+    (doseq [location ["https://anywhere.example/x"
+                      "http://other.example.org:8443/deep/path"
+                      "//cdn.example.com/asset"]]
+      (is (= [location []] (landed {:location location :allow :any})) location)))
+  (testing "and nothing else: the scheme and parse checks still refuse"
+    (is (= (refused-with {:error scheme-rejected :scheme-class :javascript})
+           (refusal {:location "javascript:alert(1)" :allow :any})))
+    (is (= (refused-with {:error invalid-url :reason :parse-failed})
+           (refusal {:location "https://example.com/search?q=a b" :allow :any})))))
+
+(deftest a-relative-path-is-accepted
+  (doseq [args [{:location "/account/settings"}
+                {:location "dashboard"}
+                {:location "/dashboard" :allow ["trusted.example"]}
+                {:location "/dashboard" :allow :any}]]
+    (is (= [(:location args) []] (landed args)) (pr-str args))))
 
 (deftest each-rejection-arm-refuses-and-ships-one-closed-record
   (testing "every arm refuses with no redirect and no 500, and its one record
@@ -80,9 +123,9 @@
               {:error scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
              [{:location "https:s3cr3t-opaque-token.evil.example"}
               {:error invalid-url :reason :scheme-without-host :scheme-class :https}]
-             [{:location "https://s3cr3t-session-id.evil.example/x" :relative-only? true}
+             [{:location "https://s3cr3t-session-id.evil.example/x"}
               {:error host-disallowed :reason :relative-only-violation}]
-             [{:location "//evil.example.com/" :relative-only? true}
+             [{:location "//evil.example.com/"}
               {:error host-disallowed :reason :relative-only-violation}]
              [{:location "https://alice:s3cr3t-pw@a.b.s3cr3t-label.evil.example/reset/s3cr3t-token?s3cr3t-flag"
                :allow    ["app.example.com" "s3cr3t-internal-admin.example.com"]}
@@ -99,21 +142,11 @@
 (deftest a-network-path-reference-cannot-satisfy-either-policy
   (testing "locations a browser resolves off-origin while java.net.URI reports
             no usable host (no authority, or an authority with no host) are
-            refused by relative-only and by an allowlist alike"
+            refused by the relative-only default and by an allowlist alike"
     (doseq [location ["///evil.example/path" "////evil.example/path" "//evil_example/path"]
-            [args reason] [[{:location location :relative-only? true} :relative-only-violation]
+            [args reason] [[{:location location} :relative-only-violation]
                            [{:location location :allow ["trusted.example"]} :not-in-allowlist]]]
       (is (= (refused-with {:error host-disallowed :reason reason}) (refusal args))
-          (pr-str args)))))
-
-(deftest each-policy-still-passes-its-legitimate-targets
-  (doseq [args [{:location "/dashboard" :relative-only? true}
-                {:location "/dashboard" :allow ["trusted.example"]}
-                {:location "https://trusted.example/path" :allow ["trusted.example"]}
-                {:location "https://TRUSTED.example/path" :allow ["trusted.example"]}]]
-    (let [{:keys [records response]} (reject! args)]
-      (is (= [(:location args) []]
-             [(:location (:redirect response)) (vec (safe-redirect-records records))])
           (pr-str args)))))
 
 (deftest the-probe-class-is-normalised-for-aggregation
@@ -125,8 +158,8 @@
                     "https:evil.example.com"  :https}]
       (is (= expected
              (into {} (for [loc (keys expected)]
-                        [loc (:scheme-class (first (safe-redirect-records
-                                                     (:records (reject! {:location loc})))))])))))))
+                        [loc (:scheme-class (first (gate-records
+                                                     (:records (redirect! {:location loc})))))])))))))
 
 (deftest the-class-vocabulary-tracks-the-gates-own-scheme-sets
   (testing "a scheme added to the gate but not to the class map would silently

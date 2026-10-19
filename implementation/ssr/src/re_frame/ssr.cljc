@@ -27,7 +27,7 @@
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.response :as rf.ssr.response]
-            ;; Plain-data schemas attached to the seven server effects.
+            ;; Plain-data schemas attached to the six server effects.
             [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
             [re-frame.ssr.substrate :as rf.ssr.substrate]))
 
@@ -254,7 +254,7 @@ the client's registered app-schema digest. A mismatch emits a structured
    :platforms #{:client}}
   rf.ssr.hydrate/check-schema-digest-fx)
 
-;; ---- the seven :rf.server/* response-shape fxs ----------------------------
+;; ---- the six :rf.server/* response-shape fxs ------------------------------
 ;;
 ;; Per Spec 011 §HTTP response contract.
 
@@ -298,46 +298,32 @@ on the wire. Per Spec 011 §Cookie shape."
   rf.ssr.response/delete-cookie-fx)
 
 (rf.fx/reg-fx :rf.server/redirect
-  {:doc       "Set :redirect on the response accumulator. Defaults
-:status to 302 if absent. Last-write-wins. Per Spec 011
-§Redirect precedence.
+  {:doc       "Set :redirect on the response accumulator after the URL gate.
+Relative-only by default: :allow names the hosts permitted beyond the
+request's own origin, and :allow :any is the explicit trusted spelling.
+Defaults :status to 302. Last-write-wins. Per Spec 011 §HTTP response
+contract §Standard fx and §Redirect precedence.
 
-Caller-trusted :location — accepts arbitrary URL strings without
-allowlist or relative-only gating. For caller-untrusted location strings
-(e.g. a `?next=` URL param), use :rf.server/safe-redirect (below).
-The trusted path still rejects header-splitting characters."
+Args:
+  {:location \"/dashboard\"
+   :allow    [\"app.example.com\" \"alt.example.com\"]   ;; or :any
+   :status   302}
+
+Validation order: a malformed call throws first (a non-string :location,
+a bad :status or :allow, a :relative-only?, :url or :to key, CR/LF/NUL in
+:location — :allow :any included). The gate then rejects, in order: a
+javascript:/data:/vbscript: scheme prefix, before parsing —
+:rf.error/redirect-scheme-rejected; a URL that does not parse —
+:rf.error/redirect-invalid-url; any scheme other than http/https —
+:rf.error/redirect-scheme-rejected; a scheme with no host —
+:rf.error/redirect-invalid-url; with no :allow, a URL that is not a
+relative reference — :rf.error/redirect-host-disallowed (:reason
+:relative-only-violation); with :allow hosts, a non-relative URL whose host
+is not among them — :rf.error/redirect-host-disallowed (:reason
+:not-in-allowlist). A URL that passes sets :redirect."
    :schema    rf.ssr.server-fx-schemas/redirect-args
    :platforms #{:server}}
   rf.ssr.response/redirect-fx)
-
-(rf.fx/reg-fx :rf.server/safe-redirect
-  {:doc       "Set :redirect after a five-step validation gate (per
-Spec 011 §HTTP response contract §Standard fx). Mitigation for the
-open-redirect class — an attacker-controlled `?next=...` URL parameter
-cannot redirect off-origin when the app uses :rf.server/safe-redirect
-instead of :rf.server/redirect.
-
-Args:
-  {:location       \"/dashboard\"
-   :relative-only? true                                ;; reject hosts
-   :allow          [\"app.example.com\" \"alt.example.com\"]
-   :status         302}
-
-Validation order: a malformed call throws first (a non-string :location,
-a bad :status, :relative-only? or :allow, a :url / :to key, CR/LF/NUL in
-:location). The gate then rejects, in order: a javascript:/data:/vbscript:
-scheme prefix, before parsing — :rf.error/safe-redirect-scheme-rejected;
-a URL that does not parse — :rf.error/safe-redirect-invalid-url; any
-scheme other than http/https — :rf.error/safe-redirect-scheme-rejected;
-a scheme with no host — :rf.error/safe-redirect-invalid-url;
-:relative-only? and a URL that is not a relative reference —
-:rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation);
-:allow and a non-relative URL whose host is not in it —
-:rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
-A URL that passes sets :redirect."
-   :schema    rf.ssr.server-fx-schemas/safe-redirect-args
-   :platforms #{:server}}
-  rf.ssr.response/safe-redirect-fx)
 
 ;; ---- :rf.server/request cofx ----------------------------------------------
 ;;

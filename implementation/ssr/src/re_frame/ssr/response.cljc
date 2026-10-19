@@ -1,5 +1,5 @@
 (ns re-frame.ssr.response
-  "HTTP response accumulator and the seven `:rf.server/*` effect handlers.
+  "HTTP response accumulator and the six `:rf.server/*` effect handlers.
 
   The runtime owns a per-request response accumulator in a
   framework-private side-channel atom keyed by frame-id — `response-slots`
@@ -81,14 +81,14 @@
 ;;   [:rf.server/set-status "not-an-int"]              → :status "not-an-int"
 ;;   [:rf.server/set-header {:name "X-Foo"}]           → ["X-Foo" nil]
 ;;   [:rf.server/set-cookie {:name "session"}]         → {:name "session"}
-;;   [:rf.server/safe-redirect {:location "/ok"
-;;                              :status "not-int"}]    → the malformed redirect
+;;   [:rf.server/redirect {:location "/ok"
+;;                         :status "not-int"}]         → the malformed redirect
 ;;
 ;; THE RULE. The general step-5 gate for USER fx
 ;; is dev-only — trust-the-programmer covers user declarations, and paying
-;; a hot-path validation cost in every app to protect seven closed framework
+;; a hot-path validation cost in every app to protect six closed framework
 ;; effects is posture-hostile. What trust-the-programmer does NOT cover is the
-;; framework's own wire-adjacent contract: these seven fx are a CLOSED set the
+;; framework's own wire-adjacent contract: these six fx are a CLOSED set the
 ;; framework itself publishes, their args feed the HTTP response head, and the
 ;; accumulator is a PUBLIC host-adapter surface whose shape must not depend on
 ;; which build you are running. So the reserved family guards its own args
@@ -115,11 +115,10 @@
 ;;
 ;; TAXONOMY — the line this gate does NOT cross. A malformed framework CALL is
 ;; a programmer error and throws. An untrusted-INPUT policy decision — a
-;; `:rf.server/safe-redirect` target that parses but points off-origin — is
-;; the non-projecting emit-and-no-op (see `safe-redirect-fx`). A
-;; caller-untrusted `:location` that is a STRING reaches the five-step gate;
-;; only a `:location` that is not a string at all (a
-;; missing key, a keyword, a URI object) is a call the programmer got wrong.
+;; `:rf.server/redirect` target that parses but points off-origin — is the
+;; non-projecting emit-and-no-op (see `redirect-fx`). A `:location` that is a
+;; STRING reaches the URL gate; only a `:location` that is not a string at all
+;; (a keyword, a URI object) is a call the programmer got wrong.
 ;;
 ;; POSTURE. Only the DIAGNOSTIC differs by build: dev-with-schemas gets the
 ;; Malli step-5 skip plus its rich `:where :fx-args` diagnostic; production (or
@@ -344,15 +343,11 @@
   `?next=https://example.com%0d%0aSet-Cookie:%20stolen=1` URL-decodes
   into literal CRLF and would split the header on the wire.
 
-  This is the SHARED CR/LF/NUL gate — both `:rf.server/redirect` (caller-
-  trusted) and `:rf.server/safe-redirect` (caller-untrusted) run it as a
-  defence-in-depth first step, and it is the ONLY structural gate on the
-  caller-trusted path: no URL-shape check is applied, so a raw space or
-  RFC 3986 shape quirk a browser accepts in a `Location` header passes
-  through). It deliberately does NOT do any URL-shape / scheme / host
-  validation: `safe-redirect-fx` does its own full parse + scheme + host
-  gate (emitting the specific `:rf.error/safe-redirect-*` categories) for
-  the caller-untrusted path."
+  `:rf.server/redirect` runs it before its URL gate, and no `:allow` policy
+  reaches it: even `:allow :any` refuses a header-splitting character. It
+  deliberately does NOT do any URL-shape / scheme / host validation — the URL
+  gate in `redirect-fx` does that, emitting the specific
+  `:rf.error/redirect-*` categories."
   [location]
   (let [location-string (str location)]
     (when (rf.ssr.http-validation/contains-injection-char? location-string)
@@ -650,7 +645,7 @@
   [headers header-name header-value]
   (conj (vec headers) [(str header-name) header-value]))
 
-;; ---- handler fns for the seven :rf.server/* fxs --------------------------
+;; ---- handler fns for the six :rf.server/* fxs ----------------------------
 
 (defn set-status-fx
   "Handler fn for `:rf.server/set-status`. Last-write-wins. Throws
@@ -749,6 +744,8 @@
       (fn [response]
         (update response :cookies (fnil conj []) cookie)))))
 
+;; ---- :rf.server/redirect --------------------------------------------------
+;;
 ;; The redirect target key is `:location`, matching the HTTP `Location` response
 ;; header, so it uses header vocabulary (routing/navigation surfaces may
 ;; use `:url` / `:to`; HTTP-response redirect surfaces use `:location`).
@@ -759,8 +756,7 @@
 ;; would hide the API vocabulary error behind a malformed-redirect warning.
 (def ^:private retired-redirect-target-keys
   "Redirect-target spellings unsupported in favour of canonical `:location`.
-  Detected on a `:rf.server/redirect` /
-  `:rf.server/safe-redirect` args map so they fail loudly rather than
+  Detected on a `:rf.server/redirect` args map so they fail loudly rather than
   degrade into the malformed-no-target path."
   [:url :to])
 
@@ -788,84 +784,19 @@
          :extra    {:retired-keys  retired-keys
                     :canonical-key :location}}))))
 
-(defn redirect-fx
-  "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if
-  absent. Last-write-wins. Throws `:rf.error/redirect-invalid-location` on a
-  location carrying CR/LF/NUL — a `?next=…` query-param
-  redirect would otherwise let an attacker forge headers — per Spec 011
-  §CRLF fail-fast. The CR/LF/NUL header-splitting gate is the ONLY gate
-  on this caller-trusted path: no URL-shape check is applied, so a raw
-  space or other RFC 3986 shape quirk every browser accepts in a
-  `Location` header passes through unchanged (URL-shape + origin
-  validation is `:rf.server/safe-redirect`'s job).
-
-  **Canonical redirect target key is `:location`.** The unsupported
-  synonyms `:url` / `:to` throw `:rf.error/redirect-retired-
-  target-key` naming `:location` — there is no back-compat alias.
-
-  **Caller-trusted `:location`** — accepts arbitrary URL strings without
-  allowlist or relative-only gating. For caller-untrusted location
-  strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`, which
-  parses the URL, rejects javascript:/data:/vbscript:
-  schemes, and supports `:relative-only?` / `:allow [...]` policies.
-  See Spec 011 §HTTP response contract §Standard fx.
-
-  Throws `:rf.error/server-fx-args-invalid` — in EVERY build —
-  on a non-string `:location` or a `:status` outside the integer 100–599
-  range. The documented NO-TARGET graceful path stands: `:location`
-  is OPTIONAL, so a target-less redirect sets `:redirect` and
-  falls through to the adapter's `:rf.ssr/ssr-redirect-no-target` warn→3xx."
-  [{:keys [frame]} redirect-map]
-  (validate-args-map! :rf.server/redirect redirect-map)
-  (reject-retired-redirect-keys! redirect-map)
-  (let [;; The canonical and only redirect target key.
-        location  (:location redirect-map)
-        _         (when (some? location)
-                    ;; SHAPE first: the CR/LF/NUL gate below
-                    ;; `str`-coerces, so a keyword or URI object would
-                    ;; otherwise sail through it and land on the accumulator.
-                    (validate-string-arg! :rf.server/redirect :location location))
-        _         (when (some? location)
-                    ;; Shared CR/LF/NUL header-splitting gate only — the
-                    ;; sole structural gate on the caller-trusted path
-                    ;; (Spec 011 §CRLF fail-fast). No URL-shape check:
-                    ;; `:rf.server/redirect` is caller-trusted, so a raw
-                    ;; space or RFC 3986 shape quirk a browser accepts
-                    ;; passes through. safe-redirect-fx runs
-                    ;; this same gate plus its own emit-based parse.
-                    (validate-redirect-location! location))
-        status    (or (:status redirect-map) 302)
-        ;; The redirect's :status flows through to the response :status
-        ;; (Spec 011 §Redirect precedence step 1), so it is held to the same
-        ;; always-on range gate as :rf.server/set-status.
-        _          (validate-status! :rf.server/redirect status)
-        normalised-redirect (cond-> (assoc redirect-map :status status)
-                              location (assoc :location location))]
-    (swap-response!
-      frame
-      (fn [response]
-        (-> response
-            (assoc :redirect normalised-redirect)
-            ;; Spec 011 §Redirect precedence step 1: the redirect's :status
-            ;; flows through to the response :status so the host adapter
-            ;; writes the redirect status on the wire even if no explicit
-            ;; :rf.server/set-status fired.
-            (assoc :status status))))))
-
-;; ---- :rf.server/safe-redirect ---------------------------------------------
+;; THE URL GATE. A redirect `:location` is routinely built from untrusted
+;; input — a `?next=` parameter after sign-in is the canonical case — so the
+;; one redirect fx is safe by default. It parses the URL and gates on the
+;; parsed URL SHAPE, not merely on the presence of a host, before populating
+;; the :redirect slot:
 ;;
-;; The caller-untrusted variant of :rf.server/redirect. Where redirect-fx
-;; accepts arbitrary :location strings, safe-redirect-fx parses the URL
-;; and gates on the parsed URL SHAPE — not merely on the presence of a
-;; host — before populating the :redirect slot:
-;;
-;;   1. URL must parse — :rf.error/safe-redirect-invalid-url on failure.
+;;   1. URL must parse — :rf.error/redirect-invalid-url on failure.
 ;;   2. Reject javascript: / data: / vbscript: schemes —
-;;      :rf.error/safe-redirect-scheme-rejected.
+;;      :rf.error/redirect-scheme-rejected.
 ;;   2b. Reject any scheme outside #{http https} outright — a redirect
 ;;      Location is only ever an http(s) absolute URL or a relative
 ;;      reference; mailto:, ftp:, and other schemes have no place as a
-;;      redirect target — :rf.error/safe-redirect-scheme-rejected.
+;;      redirect target — :rf.error/redirect-scheme-rejected.
 ;;   2c. Reject a SCHEME-BEARING URL whose host is not extractable. An
 ;;      http(s) URI that is opaque (`http:evil.example.com` — scheme
 ;;      present, authority absent) or hierarchical-without-authority
@@ -874,43 +805,48 @@
 ;;      (steps 3/4) cannot see them — yet a browser given
 ;;      `Location: http:evil.example.com` navigates OFF-ORIGIN. These
 ;;      have no defensible redirect interpretation →
-;;      :rf.error/safe-redirect-invalid-url (:reason :scheme-without-host).
-;;   3. :relative-only? true AND the URL is NOT a relative reference →
-;;      :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation).
+;;      :rf.error/redirect-invalid-url (:reason :scheme-without-host).
+;;   3. No :allow AND the URL is NOT a relative reference →
+;;      :rf.error/redirect-host-disallowed (:reason :relative-only-violation).
 ;;      A relative reference is `scheme == nil AND authority == nil` AND
 ;;      the raw string does not begin `//` (e.g. `/dashboard`, `dashboard`,
 ;;      `a/b`). A protocol-relative `//evil.example.com` is NOT relative,
 ;;      and neither is `///evil.example.com`: java.net.URI reports that one
 ;;      with no authority at all, but a browser skips the extra slashes and
 ;;      takes the next segment as the HOST.
-;;   4. :allow [...] supplied AND the URL is not a relative reference AND
-;;      its host is not in the allowlist →
-;;      :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
+;;   4. :allow [...] AND the URL is not a relative reference AND its host is
+;;      not in the allowlist →
+;;      :rf.error/redirect-host-disallowed (:reason :not-in-allowlist).
+;;      An empty :allow names no host, so it refuses every absolute target.
 ;;      A non-relative target whose host java.net.URI cannot extract
 ;;      (`//evil_example/path`, `///evil.example/path`) names no allowlisted
 ;;      host, so it is rejected rather than waved through.
-;;   5. Pass — set Location header (same shape as redirect-fx).
+;;   5. Pass — set :redirect.
+;;
+;; `:allow :any` is the explicit trusted spelling. It skips steps 3 and 4 and
+;; nothing else, so a target the app built itself must still parse and carry
+;; an http(s) scheme or none. There is no other policy language.
 ;;
 ;; All failure modes EMIT (via re-frame.trace) rather than THROW.
 ;; Throwing would bubble out as :rf.error/fx-handler-exception and the
 ;; programmer reading the trace would see a generic fx-handler-exception
-;; pointing at safe-redirect-fx rather than the specific category.
+;; pointing at redirect-fx rather than the specific category.
 ;; Emit-and-no-op preserves the dispatch context — the cascade continues,
 ;; the response's :redirect stays unchanged, and the programmer sees
-;; the specific :rf.error/safe-redirect-* category.
+;; the specific :rf.error/redirect-* category.
 ;;
 ;; This fail-closed shape prevents caller-controlled targets from redirecting
 ;; off-origin, including opaque scheme-bearing forms such as
 ;; `http:evil.example.com` that defeat a host-presence-only test.
 
 (def ^:private rejected-schemes
-  "Closed set of schemes the safe-redirect effect rejects outright.
+  "Closed set of schemes the redirect gate rejects outright.
 
   This set and [[allowed-schemes]] are also the always-on record's CLASS
   vocabulary: their union is mirrored by `egress/scheme-classes`, which turns
   a caller-chosen scheme string into one of these framework-owned keywords
   before it can egress. A scheme added here must be added there too, and a
-  parity test in `re-frame.ssr-safe-redirect-production-test` reddens if it
+  parity test in `re-frame.ssr-redirect-production-test` reddens if it
   is not — the failure would otherwise be silent, the new scheme degrading to
   `:other` on every dashboard that was watching for it."
   #{"javascript" "data" "vbscript"})
@@ -919,7 +855,7 @@
   "Closed set of schemes a redirect Location may legitimately carry. A
   redirect target is either a relative reference (no scheme) or an
   absolute http(s) URL — every other scheme (mailto, ftp, file, tel, …)
-  is rejected outright as a redirect target. The safe-redirect gate decides non-http(s)
+  is rejected outright as a redirect target. The redirect gate decides non-http(s)
   schemes by rejecting them rather than by maintaining a per-app scheme
   allowlist — an opt-in scheme allowlist can be layered later if a real
   use case appears."
@@ -946,44 +882,147 @@
     (when-some [scheme-match (re-find scheme-prefix-re location)]
       (clojure.string/lower-case (second scheme-match)))))
 
+#?(:cljs
+   (def ^:private uri-chars-re
+     "The characters RFC 3986 admits in a URI reference: unreserved, reserved
+     and `%`. A reference carrying any other character — a raw space, a
+     backslash, `<`, a quote — does not parse, as java.net.URI refuses it."
+     #"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*$"))
+
+#?(:cljs
+   (def ^:private uri-reference-re
+     "RFC 3986 Appendix B's reference grammar, through the authority: group 2
+     is the scheme and group 4 the authority, present (possibly empty) exactly
+     when the reference carries `//`."
+     #"^(([^:/?#]+):)?(//([^/?#]*))?"))
+
+#?(:cljs
+   (def ^:private host-re
+     "A hostname or an IP literal — the hosts java.net.URI extracts from a
+     server-based authority. Anything else leaves the host nil."
+     #"^(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.?)$"))
+
+#?(:cljs
+   (defn- authority-host
+     "The host of `authority` with userinfo and port stripped, or nil when
+     what remains is not a hostname or an IP literal."
+     [authority]
+     (let [host-port (subs authority (inc (.lastIndexOf authority "@")))
+           host      (if (clojure.string/starts-with? host-port "[")
+                       (re-find #"^\[[^\]]*\]" host-port)
+                       (clojure.string/replace host-port #":[0-9]*$" ""))]
+       (when (and host (re-matches host-re host))
+         host))))
+
 (defn- parse-url-safely
-  "Parse `location` as a URL. Returns the parsed URI on success, nil on a
-  parse failure (caller emits the trace). Empty / blank strings count
-  as unparseable — a redirect to an empty location has no defensible
-  interpretation."
+  "Parse `location` as a URI reference. Returns `{:scheme :host :authority}`,
+  each nil where the reference has none, or nil on a parse failure (the
+  caller emits the trace). Empty / blank strings count as unparseable — a
+  redirect to an empty location has no defensible interpretation.
+
+  The JVM parses with java.net.URI. CLJS has no such parser, so it reads the
+  same three components with RFC 3986's own reference grammar and refuses
+  what java.net.URI refuses that matters to the gate: a character outside
+  the URI character set fails the parse, and a host survives only as a
+  hostname or an IP literal."
   [location]
-  #?(:clj
-     (when (and (string? location) (not (clojure.string/blank? location)))
+  (when (and (string? location) (not (clojure.string/blank? location)))
+    #?(:clj
        (try
-         (URI. ^String location)
+         (let [uri (URI. ^String location)]
+           {:scheme    (.getScheme uri)
+            :host      (.getHost uri)
+            :authority (.getAuthority uri)})
          (catch URISyntaxException _ nil)
          (catch NullPointerException _ nil)
-         (catch IllegalArgumentException _ nil)))
-     :cljs
-     ;; Server-side fx (:platforms #{:server}) — the CLJS branch exists
-     ;; only so this .cljc compiles; the fx is silently no-op'd by
-     ;; :rf.fx/skipped-on-platform on client builds. Per Spec 011
-     ;; §Effect handling on the server.
-     nil))
+         (catch IllegalArgumentException _ nil))
+       :cljs
+       (when (re-matches uri-chars-re location)
+         (let [[_ _ scheme _ authority] (re-find uri-reference-re location)
+               authority                (not-empty authority)]
+           {:scheme    scheme
+            :host      (some-> authority authority-host)
+            :authority authority})))))
 
-(defn- safe-redirect-tags
-  "The `:rf.error/safe-redirect-*` DIAGNOSTIC tag map for a rejected redirect
+(defn- gate-refusal
+  "Run the URL gate over `location` — a string the CR/LF/NUL gate has already
+  passed — under the `:allow` policy. Returns nil when the redirect may be
+  written, else the `[error-id tags]` of the first check it fails, in the
+  order the block above lists. The prefix half of step 2 runs BEFORE the
+  parse, because a `data:text/html,<script>` body fails java.net.URI parsing
+  and must still surface as a scheme rejection rather than as an invalid URL."
+  [location allow]
+  (let [detected-scheme (detect-scheme location)]
+    (if (and detected-scheme (rejected-schemes detected-scheme))
+      [:rf.error/redirect-scheme-rejected {:scheme detected-scheme}]
+      (if-some [{:keys [scheme host authority]} (parse-url-safely location)]
+        (let [normalised-scheme (some-> scheme clojure.string/lower-case)
+              ;; A relative reference carries neither a scheme nor an
+              ;; authority — `/dashboard`, `dashboard`, `a/b` — and the
+              ;; browser resolves it against the current origin. A raw `//`
+              ;; prefix is a NETWORK-PATH reference whatever the parser makes
+              ;; of it: java.net.URI parses `///evil.example/path` with NO
+              ;; authority, yet a browser skips the extra slashes and
+              ;; navigates to https://evil.example/path.
+              relative?         (and (nil? scheme)
+                                     (nil? authority)
+                                     (not (clojure.string/starts-with? location "//")))]
+          (cond
+            ;; Step 2: a rejected scheme whose body DID parse
+            ;; (`javascript:foo` without parens).
+            (and normalised-scheme (rejected-schemes normalised-scheme))
+            [:rf.error/redirect-scheme-rejected {:scheme scheme}]
+
+            ;; Step 2b: any other non-http(s) scheme.
+            (and normalised-scheme (not (allowed-schemes normalised-scheme)))
+            [:rf.error/redirect-scheme-rejected {:scheme scheme :reason :scheme-not-allowed}]
+
+            ;; Step 2c: a scheme-bearing URL with no extractable host.
+            (and normalised-scheme (nil? host))
+            [:rf.error/redirect-invalid-url {:scheme scheme :reason :scheme-without-host}]
+
+            ;; A relative reference stays on the request's own origin, and
+            ;; `:allow :any` waives the host check.
+            (or relative? (= :any allow))
+            nil
+
+            ;; Step 3: relative-only, the default.
+            (nil? allow)
+            [:rf.error/redirect-host-disallowed {:host host :reason :relative-only-violation}]
+
+            ;; Step 4: the allowlist. DNS hostnames are case-insensitive
+            ;; (RFC 1035 §2.3.3), so lower-case both sides — matching the
+            ;; header/cookie token-grammar treatment elsewhere in this file.
+            (not (and host
+                      (contains? (into #{} (map clojure.string/lower-case) allow)
+                                 (clojure.string/lower-case host))))
+            [:rf.error/redirect-host-disallowed {:host      host
+                                                 :reason    :not-in-allowlist
+                                                 :allowlist (vec allow)}]))
+        ;; Step 1: parse failure. `:reason` is a closed framework keyword,
+        ;; not prose: this slot rides the always-on record off-box, where an
+        ;; aggregatable value is worth more than a sentence — and free prose
+        ;; on an attacker-influenced arm is how raw material finds its way
+        ;; back into a record.
+        [:rf.error/redirect-invalid-url {:reason :parse-failed}]))))
+
+(defn- redirect-gate-tags
+  "The `:rf.error/redirect-*` DIAGNOSTIC tag map for a refused redirect
   — built ONCE, so the production record and the dev trace cannot disagree
   about the same rejection.
 
   This is the RICH map: it goes to the dev trace as-is, and
-  `dispatch-safe-redirect-record!` projects it down to a closed structural
+  `dispatch-redirect-gate-record!` projects it down to a closed structural
   subset before the always-on axis sees it (see
-  `egress/safe-redirect-record-tags`). That is the ordinary EP-0015
+  `egress/redirect-record-tags`). That is the ordinary EP-0015
   relationship: a local operator sees their own process in full, and the
   off-box record is a strict projection of it, never a copy. Note that the
   projection is by NAME as well as by slot — the record's `:scheme-class` is a
   classification of this map's `:scheme`, not a copy of it — so nothing here
   can widen the record by accident.
 
-  EP-0015: `:location` is BY CONSTRUCTION caller-untrusted —
-  that is the entire reason `:rf.server/safe-redirect` exists as the sibling
-  of the caller-trusted `:rf.server/redirect` — and a rejected target
+  EP-0015: a refused `:location` is caller-untrusted — an untrusted
+  `?next=` parameter is the case the gate exists for — and a rejected target
   routinely looks like `?next=https://evil.example.com/cb?token=…`.
   `re-frame.privacy.url/redact-url-tag` — core's ONE URL-carrier policy, reachable from
   here because it lives in the only artefact SSR depends on —
@@ -1003,13 +1042,13 @@
   (-> (merge {:recovery :no-recovery} tags)
       (rf.privacy.url/redact-url-tag :location)))
 
-(defn- dispatch-safe-redirect-record!
-  "Fan the rejected redirect out on the ALWAYS-ON error axis —
+(defn- dispatch-redirect-gate-record!
+  "Fan the refused redirect out on the ALWAYS-ON error axis —
   the production-survivable sibling of the dev `trace/emit-error!` emitted
   beside it.
 
   WHY. `trace/emit-error!` is gated on `interop/debug-enabled?`. The
-  five-step gate itself is production-real and REJECTS correctly under
+  URL gate itself is production-real and REJECTS correctly under
   `-Dre-frame.debug=false`, but the
   rejection is a silent no-op on the wire (the fx returns nil, the response
   carries no redirect), so with the dev trace alone an attacker-supplied
@@ -1034,11 +1073,11 @@
   scrubbed `:location`, the `:host`, the `:allowlist`, everything the dev trace
   shows — and this function is the ONE place that reaches an off-box shipper,
   so it is where the diagnostics are projected down to
-  `egress/safe-redirect-record-tags`: `#{:frame :recovery :reason
-  :scheme-class}` and nothing else. Projecting HERE rather than at the eight
-  call sites is what makes it fail-closed — a future emit arm cannot forget,
+  `egress/redirect-record-tags`: `#{:frame :recovery :reason
+  :scheme-class}` and nothing else. Projecting HERE rather than at each
+  rejection arm is what makes it fail-closed — a future arm cannot forget,
   and a tag slot added upstream has no route to Sentry unless someone edits
-  `egress/safe-redirect-record-slots` and reddens the test pinning it.
+  `egress/redirect-record-slots` and reddens the test pinning it.
 
   Why a projection and not a wider scrub is argued in full in
   `re-frame.ssr.egress`; the short version is that a rejected target is an
@@ -1058,250 +1097,104 @@
   (when-let [dispatch-error-record!
              (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      (assoc (rf.ssr.egress/safe-redirect-record-tags tags)
+      (assoc (rf.ssr.egress/redirect-record-tags tags)
              :error operation
              :time  (rf.interop/now-ms))))
   nil)
 
-(defn- emit-safe-redirect-error!
-  "Fan a structured `:rf.error/safe-redirect-*` rejection along BOTH error
-  axes and return nil so the fx body can `(or (emit-...) ...)` to a no-op.
+(defn- emit-redirect-gate-error!
+  "Fan a structured `:rf.error/redirect-*` gate refusal along BOTH error
+  axes and return nil.
 
   Axis 1 is the ALWAYS-ON `error-emit` record — the half that
   reaches an off-box shipper in a production build, and which receives a
   closed STRUCTURAL PROJECTION of the map rather than the map. Axis 2 is the
   dev trace, which receives the diagnostics whole. The tag map is built once
-  by [[safe-redirect-tags]], with the URL scrub applied there, so the two
+  by [[redirect-gate-tags]], with the URL scrub applied there, so the two
   cannot disagree about the rejection they describe."
   [operation tags]
-  (let [tags (safe-redirect-tags tags)]
-    (dispatch-safe-redirect-record! operation tags)
+  (let [tags (redirect-gate-tags tags)]
+    (dispatch-redirect-gate-record! operation tags)
     (rf.trace/emit-error! operation tags))
   nil)
 
-(defn safe-redirect-fx
-  "Handler fn for `:rf.server/safe-redirect`. The caller-untrusted variant
-  of `redirect-fx` — validates `:location` against a five-step gate
-  (parse → scheme → relative-only → allowlist → pass, with the scheme
-  step's prefix check running before the parse) before populating the
-  response accumulator's `:redirect` slot.
+(defn- validate-allow!
+  "Throw `:rf.error/server-fx-args-invalid` unless `allow` is absent, `:any`,
+  or a sequence of host strings. A scalar `:allow \"app.example.com\"` would
+  `seq` into CHARACTERS and silently build a per-character allowlist —
+  fail-closed, but a policy the caller never wrote. Reject the call instead."
+  [allow]
+  (when-not (or (nil? allow)
+                (= :any allow)
+                (and (sequential? allow) (every? string? allow)))
+    (reject-arg! :rf.server/redirect :allow allow
+                 ":any or a sequence of host strings")))
+
+(defn redirect-fx
+  "Handler fn for `:rf.server/redirect`. Relative-only by default: `:allow`
+  names the hosts permitted beyond the request's own origin, and `:allow :any`
+  is the explicit trusted spelling. A `:location` that fails the URL gate is
+  refused — the fx emits the specific `:rf.error/redirect-*` category and
+  writes no redirect — so an attacker-controlled `?next=...` parameter cannot
+  redirect off-origin, including through opaque URIs such as
+  `http:evil.example.com`. See Spec 011 §HTTP response contract §Standard fx.
 
   Args map:
 
-    {:location       \"/dashboard\"      ;; or full URL
-     :relative-only? true                  ;; reject any URL with a host
-     :allow          [\"app.example.com\" \"alt.example.com\"]  ;; host allowlist
-     :status         302}                  ;; defaults 302 if absent
+    {:location \"/dashboard\"            ;; relative, or an absolute URL :allow names
+     :allow    [\"app.example.com\"]     ;; or :any; absent means relative-only
+     :status   302}                    ;; defaults to 302
 
-  A malformed CALL throws before the gate runs: the args map, a retired
-  `:url` / `:to` key, a non-string `:location`, the `:status`,
-  `:relative-only?` and `:allow` shapes, then CR / LF / NUL in `:location`.
+  A malformed CALL throws before the gate runs, in every build: a non-map
+  args value, a retired `:url` / `:to` key (`:rf.error/redirect-retired-
+  target-key`, naming `:location`, with no alias), a non-string `:location`,
+  a `:status` outside the integer 100–599 range, a malformed `:allow`, or a
+  `:relative-only?` key (each `:rf.error/server-fx-args-invalid`), then CR /
+  LF / NUL in `:location` (`:rf.error/redirect-invalid-location`, Spec 011
+  §CRLF fail-fast), which no `:allow` waives. The URL gate then runs in the
+  order the block above lists.
 
-  Validation order. The gate is on the parsed URL shape, not merely on
-  host presence, and step 2 runs its prefix check BEFORE step 1, because a
-  `data:text/html,<script>` body fails java.net.URI parsing and must still
-  surface as a scheme rejection:
-
-    2.  `<scheme>:` prefix ∈ #{javascript data vbscript} →
-        :rf.error/safe-redirect-scheme-rejected
-    1.  URL parses → :rf.error/safe-redirect-invalid-url on failure
-    2.  parsed scheme ∈ #{javascript data vbscript} →
-        :rf.error/safe-redirect-scheme-rejected
-    2b. scheme ∉ #{http https} → :rf.error/safe-redirect-scheme-rejected
-        (:reason :scheme-not-allowed) — mailto:, ftp:, file:, … rejected
-    2c. scheme present but host not extractable (opaque `http:evil` or
-        authority-less `http:/evil`) → :rf.error/safe-redirect-invalid-url
-        (:reason :scheme-without-host) — the scheme-bearing open-redirect
-        bypass that defeats a host-presence-only gate
-    3.  :relative-only? true + URL is NOT a relative reference (has a
-        scheme OR an authority OR a raw `//` prefix — incl. protocol-relative
-        `//host` and `///host`) →
-        :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)
-    4.  :allow supplied + non-relative URL whose host ∉ allow (a host
-        java.net.URI cannot extract is ∉ allow) →
-        :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)
-    5.  Pass → set :redirect (same shape as :rf.server/redirect)
-
-  An attacker-controlled `?next=...` parameter therefore cannot redirect
-  off-origin, including through opaque URIs such as `http:evil.example.com`."
-  [{:keys [frame]} {:keys [location relative-only? allow status]
-                    :as redirect-map}]
-  ;; Reject the unsupported `:url` / `:to` spellings with a clear
-  ;; diagnostic naming `:location` before anything else — a safe-redirect
-  ;; keyed on a retired spelling would otherwise present as a missing
-  ;; (nil) `:location` and fail as a generic parse error, hiding the
-  ;; vocabulary mistake.
-  (validate-args-map! :rf.server/safe-redirect redirect-map)
+  `:location` is optional: a target-less redirect sets `:redirect` and
+  falls through to the adapter's `:rf.ssr/ssr-redirect-no-target` warn→3xx.
+  Last-write-wins, and the redirect's `:status` flows through to the
+  response `:status`."
+  [{:keys [frame]} {:keys [location allow status] :as redirect-map}]
+  (validate-args-map! :rf.server/redirect redirect-map)
   (reject-retired-redirect-keys! redirect-map)
-  ;; SHAPE gate, always-on, before anything is parsed. Note the
-  ;; taxonomy line this respects: a malformed CALL is a programmer error and
-  ;; throws; an untrusted INPUT that is a well-typed string but points
-  ;; off-origin stays the five-step gate's emit-and-no-op below. `:location`
-  ;; is REQUIRED here (unlike the caller-trusted `:rf.server/redirect`'s
-  ;; documented no-target path) because it is this fx's validation TARGET —
-  ;; a target-less safe-redirect has no defensible interpretation. A blank
-  ;; string is still a string and still takes the parse-failure arm.
-  (validate-string-arg! :rf.server/safe-redirect :location location)
-  (validate-status!     :rf.server/safe-redirect (or status 302))
-  (when (some? relative-only?)
-    (when-not (boolean? relative-only?)
-      (reject-arg! :rf.server/safe-redirect :relative-only? relative-only?
-                   "a boolean")))
-  (when (some? allow)
-    (when-not (and (sequential? allow) (every? string? allow))
-      ;; A scalar `:allow "app.example.com"` would `seq` into CHARACTERS and
-      ;; silently build a per-character allowlist — fail-closed, but a
-      ;; policy the caller never wrote. Reject the call instead.
-      (reject-arg! :rf.server/safe-redirect :allow allow
-                   "a sequence of host strings")))
-  ;; Run the CR/LF/NUL gate next — same defence-in-depth as the
-  ;; caller-trusted redirect-fx. A safe-redirect caller
-  ;; passing a CRLF-bearing location is presumably trying both vectors;
-  ;; reject at the same fx boundary the trusted variant uses.
-  (validate-redirect-location! location)
-
-  ;; Validation order follows Spec 009 §Error event catalogue.
-  ;;
-  ;; Scheme rejection (step 2) runs BEFORE URL parse (step 1) for the
-  ;; rejected-schemes set because schemes like `data:text/html,<script>`
-  ;; carry illegal characters in their opaque part that java.net.URI
-  ;; rejects at parse time. The security-relevant signal — "this scheme
-  ;; is dangerous" — must surface as :rf.error/safe-redirect-scheme-rejected
-  ;; rather than getting swallowed by :rf.error/safe-redirect-invalid-url.
-  ;; A simple `<scheme>:` prefix match is enough to identify the rejected
-  ;; schemes; the URI parser is still the source of truth for everything
-  ;; else (host extraction, allowlist matching).
-  (let [detected-scheme (detect-scheme location)]
-    (if (and detected-scheme (rejected-schemes detected-scheme))
-      (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
-                                 {:frame    frame
-                                  :location location
-                                  :scheme   detected-scheme})
-      (let [parsed-uri (parse-url-safely location)]
-        (cond
-          ;; Step 1: parse failure
-          (nil? parsed-uri)
-          ;; `:reason` is a closed framework keyword, not prose:
-          ;; this slot rides the always-on record off-box, where an
-          ;; aggregatable value is worth more than a sentence — and free
-          ;; prose on an attacker-influenced arm is how raw material finds
-          ;; its way back into a record. The sentence lives here, in the
-          ;; source, where a reader who needs it is already standing.
-          (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
-                                     {:frame    frame
-                                      :location location
-                                      :reason   :parse-failed})
-
-          :else
-          (let [scheme            #?(:clj (.getScheme    ^URI parsed-uri) :cljs nil)
-                host              #?(:clj (.getHost       ^URI parsed-uri) :cljs nil)
-                authority         #?(:clj (.getAuthority  ^URI parsed-uri) :cljs nil)
-                normalised-scheme (when scheme
-                                    (clojure.string/lower-case scheme))
-                ;; A relative reference carries neither a scheme nor an
-                ;; authority — `/dashboard`, `dashboard`, `a/b`. This is
-                ;; the open-redirect-safe shape: the browser resolves it
-                ;; against the current origin. A protocol-relative
-                ;; `//evil.example.com` has an authority (host non-nil)
-                ;; and is NOT relative. A scheme-bearing opaque URI
-                ;; `http:evil.example.com` has a scheme and is NOT
-                ;; relative — even though Java reports its host as nil.
-                ;; The policy is based on URL shape, not host presence alone.
-                ;;
-                ;; A raw `//` prefix is a NETWORK-PATH reference whatever
-                ;; java.net.URI makes of it. URI parses
-                ;; `///evil.example/path` with NO authority, yet a browser
-                ;; skips the extra slashes and navigates to
-                ;; https://evil.example/path. The prefix, not URI's
-                ;; authority alone, decides that a target is not relative.
-                relative? (and (nil? scheme)
-                               (nil? authority)
-                               (not (clojure.string/starts-with? location "//")))]
-            (cond
-              ;; Step 2: scheme rejection (post-parse path — covers
-              ;; schemes whose body DID parse cleanly, e.g.
-              ;; `javascript:foo` without parens).
-              (and normalised-scheme (rejected-schemes normalised-scheme))
-              (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
-                                         {:frame    frame
-                                          :location location
-                                          :scheme   scheme})
-
-              ;; Step 2b: any non-http(s) scheme is rejected outright. A
-              ;; redirect Location is an http(s) absolute URL or a
-              ;; relative reference — mailto:, ftp:, file:, tel:, etc.
-              ;; have no defensible redirect interpretation and would
-              ;; otherwise slip the host-based gates (nil host).
-              (and normalised-scheme (not (allowed-schemes normalised-scheme)))
-              (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
-                                         {:frame    frame
-                                          :location location
-                                          :scheme   scheme
-                                          :reason   :scheme-not-allowed})
-
-              ;; Step 2c: a scheme-bearing http(s) URL whose host is not
-              ;; extractable — an opaque URI (`http:evil.example.com`) or
-              ;; a hierarchical URI with no authority (`http:/evil`).
-              ;; These parse cleanly with a nil host, so the host-based
-              ;; gates below cannot see them, yet a browser navigates
-              ;; off-origin on `Location: http:evil.example.com`. No
-              ;; defensible redirect interpretation.
-              (and normalised-scheme (nil? host))
-              (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
-                                         {:frame    frame
-                                          :location location
-                                          :scheme   scheme
-                                          :reason   :scheme-without-host})
-
-              ;; Step 3: :relative-only? gate — reject anything that is
-              ;; NOT a relative reference (has a scheme OR an authority),
-              ;; not merely anything whose host is extractable. This
-              ;; closes the opaque-URI and protocol-relative bypasses.
-              (and relative-only? (not relative?))
-              (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
-                                         {:frame    frame
-                                          :location location
-                                          :host     host
-                                          :reason   :relative-only-violation})
-
-              ;; Step 4: :allow [...] allowlist. A relative reference (no
-              ;; host) is allowed through — :allow gates absolute targets,
-              ;; it does not block same-origin relative redirects. Every
-              ;; NON-relative target must name an allowlisted host, and one
-              ;; whose host java.net.URI cannot extract names none: step 2c
-              ;; only catches that for a scheme-bearing URL, while a browser
-              ;; still resolves a host for `//evil_example/path` and
-              ;; `///evil.example/path`. DNS hostnames are
-              ;; case-insensitive (RFC 1035 §2.3.3), so lower-case both
-              ;; sides — matching the header/cookie token-grammar
-              ;; treatment elsewhere in this file.
-              (and (seq allow)
-                   (not relative?)
-                   (not (and host
-                             (contains? (into #{} (map clojure.string/lower-case) allow)
-                                        (clojure.string/lower-case host)))))
-              (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
-                                         {:frame    frame
-                                          :location location
-                                          :host     host
-                                          :reason    :not-in-allowlist
-                                          :allowlist (vec allow)})
-
-              ;; Step 5: pass — populate :redirect, mirror redirect-fx's
-              ;; status-flow-through behaviour. Strip :allow / :relative-only?
-              ;; from the persisted shape — they're policy inputs, not part
-              ;; of the wire redirect.
-              :else
-               (let [final-status        (or status 302)
-                     normalised-redirect (-> redirect-map
-                                             (dissoc :allow :relative-only?)
-                                             (assoc :status   final-status
-                                                    :location location))]
-                 (swap-response!
-                   frame
-                   (fn [response]
-                     (-> response
-                         (assoc :redirect normalised-redirect)
-                         ;; Spec 011 §Redirect precedence
-                         ;; step 1: status flows through.
-                         (assoc :status final-status))))))))))))
+  ;; SHAPE gate, always-on, before anything is parsed. Note the taxonomy line
+  ;; this respects: a malformed CALL is a programmer error and throws; an
+  ;; untrusted INPUT that is a well-typed string but points off-origin stays
+  ;; the URL gate's emit-and-no-op below. The CR/LF/NUL gate `str`-coerces,
+  ;; so a keyword or URI object would otherwise sail through it and land on
+  ;; the accumulator.
+  (when (some? location)
+    (validate-string-arg! :rf.server/redirect :location location))
+  ;; The redirect's :status flows through to the response :status (Spec 011
+  ;; §Redirect precedence step 1), so it is held to the same always-on range
+  ;; gate as :rf.server/set-status.
+  (validate-status! :rf.server/redirect (or status 302))
+  (validate-allow! allow)
+  (when (some? (:relative-only? redirect-map))
+    (reject-arg! :rf.server/redirect :relative-only? (:relative-only? redirect-map)
+                 (str "absent: the redirect is relative-only by default,"
+                      " and :allow names any other host")))
+  (when (some? location)
+    (validate-redirect-location! location))
+  (if-some [[error-id tags] (when (some? location)
+                              (gate-refusal location allow))]
+    (emit-redirect-gate-error! error-id (assoc tags :frame frame :location location))
+    (let [final-status        (or status 302)
+          ;; `:allow` is a policy input, not part of the wire redirect.
+          normalised-redirect (-> redirect-map
+                                  (dissoc :allow)
+                                  (assoc :status final-status))]
+      (swap-response!
+        frame
+        (fn [response]
+          (-> response
+              (assoc :redirect normalised-redirect)
+              ;; Spec 011 §Redirect precedence step 1: the redirect's :status
+              ;; flows through to the response :status so the host adapter
+              ;; writes the redirect status on the wire even if no explicit
+              ;; :rf.server/set-status fired.
+              (assoc :status final-status)))))))

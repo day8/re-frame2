@@ -355,7 +355,7 @@ Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md
 | `head-model` | Fn | `(head-model frame-id)` / `(head-model frame-id {:head-id id :route route})` → `:rf/head-model`. The ONE head read (there is no `render-head` / `active-head`). Selection: an explicit `:head-id`, else the effective route's `:head`, else `default-head`; a selected-but-unregistered id raises `:rf.error/no-such-head`. The effective route is `:route` when the key is present (an explicit `nil` means *no route*), else the frame's `[:rf.runtime/routing :current]` slice — and the head fn is evaluated against that SAME route. Re-exported on `re-frame.ssr` from `re-frame.ssr.head`. Head rendering is a frame-scoped read, so the frame is **carried, not ambient**: there is no no-arg form (EP-0002) and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. | v1 | advanced | 011 |
 | `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string. Re-exported on `re-frame.ssr` from `re-frame.ssr.head` | v1 | advanced | 011 |
 | `hydrate!` | Fn | `(hydrate! {:frame f :payload p :root-id id})` → the applied payload, or `nil` on a client-only first load and for a `:frame` that is not live. The supported client boot: READ the payload (from `:payload`, else the DOM's `__rf_payload`) → `dispatch-sync [:rf/hydrate …]` against `:frame`. Hydration mismatches are reported by the hydrating root's React adoption, not by `hydrate!`. Install is idempotent across a page's roots; a conflicting payload for the same id raises `:rf.error/frame-payload-conflict`. Per [011 §Client-side hydration boot helper](011-SSR.md#client-side-hydration-boot-helper) | v1 | advanced | 011 |
-| `re-frame.ssr.ring/ssr-handler` | Fn | `(ssr-handler opts)` → a synchronous Ring handler `(fn [ring-request] ring-response)` rendering one request per call: a per-request frame, the `:initial-events` drain, the `:root-view` render in the HTML shell with the hydration payload. Per [011 §HTTP response contract](011-SSR.md#http-response-contract) | v1 | advanced | 011 |
+| `re-frame.ssr.ring/ssr-handler` | Fn | `(ssr-handler opts)` → a synchronous Ring handler `(fn [ring-request] ring-response)` rendering one request per call: a per-request frame made from the app's `:frame` config, the drain of its `:initial-events`, the `:root-view` render in the HTML shell with the hydration payload. Per [011 §HTTP response contract](011-SSR.md#http-response-contract) | v1 | advanced | 011 |
 | `re-frame.ssr.ring/ssr-middleware` | Fn | `(ssr-middleware opts)` → Ring middleware `(fn [handler] wrapped-handler)` that renders the requests its `:match?` predicate accepts through `ssr-handler` and passes the rest to the wrapped handler | v1 | advanced | 011 |
 
 Standard SSR-related events:
@@ -373,8 +373,7 @@ Standard SSR-related fx (server-only; `:platforms #{:server}`):
 | `:rf.server/append-header` | `{:name :value}` (per `:rf.fx.server/append-header-args`) | 011 |
 | `:rf.server/set-cookie` | `:rf.server/cookie` map | 011 |
 | `:rf.server/delete-cookie` | `{:name ?:path ?:domain}` | 011 |
-| `:rf.server/redirect` | `{:location ?:status}` (default `:status 302`); truncates HTML. **Caller-trusted** `:location` | 011 |
-| `:rf.server/safe-redirect` | `{:location ?:relative-only? ?:allow ?:status}` — the **caller-untrusted** variant; parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings | 011 |
+| `:rf.server/redirect` | `{:location ?:allow ?:status}` (default `:status 302`); truncates HTML. **Relative-only by default:** `:allow` names the hosts permitted beyond the request's own origin, and `:allow :any` waives the host check. A `:location` failing the URL gate (a `javascript:` / `data:` / `vbscript:` or other non-http(s) scheme, an unparseable URL, a host not permitted) is refused and no redirect is written. Open-redirect mitigation for attacker-controlled `?next=` strings | 011 |
 
 Standard SSR-related fx (client-side hydration compatibility checks; `:platforms #{:client}`):
 
@@ -776,7 +775,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.server/cookie` | Structured-cookie shape for `:rf.server/set-cookie` / `:rf.server/delete-cookie` | 011 |
 | `:rf/head-model` | SSR head/meta data model (title, meta, link, json-ld, html/body attrs) | 011 |
 | `:rf/public-error` | Sanitised, client-safe projection of an internal error trace event | 011 |
-| `:rf.fx.server/set-status-args` / `:rf.fx.server/set-header-args` / `:rf.fx.server/append-header-args` / `:rf.fx.server/set-cookie-args` / `:rf.fx.server/delete-cookie-args` / `:rf.fx.server/redirect-args` / `:rf.fx.server/safe-redirect-args` | Args of standard `:rf.server/*` SSR fx | 011 |
+| `:rf.fx.server/set-status-args` / `:rf.fx.server/set-header-args` / `:rf.fx.server/append-header-args` / `:rf.fx.server/set-cookie-args` / `:rf.fx.server/delete-cookie-args` / `:rf.fx.server/redirect-args` | Args of standard `:rf.server/*` SSR fx | 011 |
 | `:rf/frame-meta` | Returned by `(frame-meta frame-id)` | 002 |
 | `:rf/variant` | Story-variant artefact contract (post-v1 lib) — variants are data, no fn-valued slots | 007 |
 | `:rf/epoch-record` | Per-frame epoch snapshot record (Tool-Pair) | Tool-Pair |

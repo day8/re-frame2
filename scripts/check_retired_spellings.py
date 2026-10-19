@@ -3,7 +3,7 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Seven retired spellings are
+repo source is a CI failure, not a doc note. Eight retired spellings are
 lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1).
@@ -12,11 +12,10 @@ lintable:
       `:rf.frame/id` ONLY.
 
   (b) The redirect-target keys `:url` / `:to` on an SSR redirect effect
-      (sweep item 4). The `:rf.server/redirect` /
-      `:rf.server/safe-redirect` fx writes an HTTP `Location` response
-      header, so it uses header vocabulary — the canonical (and only)
-      target key is `:location`. `:url` / `:to` are retired and throw
-      `:rf.error/redirect-retired-target-key`.
+      (sweep item 4). The `:rf.server/redirect` fx writes an HTTP
+      `Location` response header, so it uses header vocabulary — the
+      canonical (and only) target key is `:location`. `:url` / `:to` are
+      retired and throw `:rf.error/redirect-retired-target-key`.
 
   (c) Route metadata `:query-retain` (EP-0037 R5). A destination
       address is taken LITERALLY: the router does not fold ambient
@@ -58,6 +57,13 @@ lintable:
       is a NAME rather than a code shape, and every consequence below follows
       from that — see WHY RULE (g) IS THE ONLY WIDE ONE.
 
+  (h) The SSR fx id `:rf.server/safe-redirect`. There is one redirect fx,
+      `:rf.server/redirect`, and it is safe by default: relative-only, with
+      `:allow` naming the hosts permitted beyond the request's own origin.
+      A second, validated fx beside it would make the short name the
+      dangerous one, so the id is retired with NO alias, and so is its
+      `:rf.error/safe-redirect-*` error family.
+
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
 `:frame` and `:url` are both heavily SANCTIONED elsewhere — a bare grep for
@@ -89,8 +95,7 @@ retired SHAPES:
 
   (b) a `:url` / `:to` KEY appearing in a map that is — in the same form —
       tagged as an SSR redirect: a literal `{... :url ...}` (or `:to`) whose
-      enclosing form also names `:rf.server/redirect` or
-      `:rf.server/safe-redirect`. This catches the
+      enclosing form also names `:rf.server/redirect`. This catches the
       `(dispatch [... [:rf.server/redirect {:url "/x"}]])` /
       `{:fx [[:rf.server/redirect {:to "/x"}]]}` reintroduction without
       firing on `(navigate {:url "/x"})` client-nav, where no
@@ -270,6 +275,14 @@ retired SHAPES:
           someone migrating FROM v1. Only a migration document
           has a reason to show the retired form, and a new teaching page
           showing it is wrong by definition.
+
+  (h) The retired fx id, and the error ids it emitted, as Clojure KEYWORD
+      TOKENS — `:rf.server/safe-redirect` and `:rf.error/safe-redirect-*`,
+      delimited exactly as rule (c) delimits `:query-retain`. Neither has a
+      sanctioned code use, so a delimited token IS the violation wherever it
+      appears: an `:fx` entry, a `reg-fx`, a listener's category set. A
+      retirement note spells it as backticked prose, and the opening
+      backtick denies the token-start boundary.
 
 WHY RULE (g) IS THE ONLY WIDE ONE
 
@@ -929,11 +942,11 @@ _COEFFECT_PATTERNS = (
 # (b) The retired `:url` / `:to` redirect-TARGET key. Scoped to a form that
 #     also names an SSR redirect fx id, so client-navigation `:url` (no
 #     `:rf.server/*redirect` tag nearby) never matches. We detect, within a
-#     window that mentions `:rf.server/redirect` or `:rf.server/safe-redirect`,
+#     window that mentions `:rf.server/redirect`,
 #     a `:url` or `:to` MAP KEY (a keyword immediately followed by whitespace
 #     and a value — the map-entry shape, distinguishing a key from a bare
 #     keyword used as a value).
-_SSR_REDIRECT_FX_RE = re.compile(r":rf\.server/(?:safe-)?redirect\b")
+_SSR_REDIRECT_FX_RE = re.compile(r":rf\.server/redirect\b")
 
 # A retired redirect-target key in map-entry position: `:url <something>` or
 # `:to <something>` where the keyword opens a map entry. The trailing
@@ -950,6 +963,15 @@ _RETIRED_REDIRECT_KEY_RE = re.compile(r":(?:url|to)\b(?!/)\s")
 _RETIRED_QUERY_RETAIN_RE = re.compile(
     r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
     r":query-retain"
+    r"(?=[\s)\]},]|$)"           # keyword-token end
+)
+
+# (h) The retired SSR fx id `:rf.server/safe-redirect` and its
+#     `:rf.error/safe-redirect-*` error ids, as delimited Clojure KEYWORD
+#     TOKENS — the rule (c) shape, for the same reason: no sanctioned code use.
+_RETIRED_SAFE_REDIRECT_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
+    r":rf\.(?:server/safe-redirect|error/safe-redirect-[a-z-]+)"
     r"(?=[\s)\]},]|$)"           # keyword-token end
 )
 
@@ -1335,6 +1357,15 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
                         raw_snippet(line_no))
             )
 
+    # (h) The retired `:rf.server/safe-redirect` fx id and its error ids —
+    #     line-local for the reason (c) is: no sanctioned code use at all.
+    for line_no, line in enumerate(masked, start=1):
+        if _RETIRED_SAFE_REDIRECT_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-safe-redirect-fx",
+                        raw_snippet(line_no))
+            )
+
     # (e) The retired facade fn `machine-has-tag?`. RAW lines, not masked —
     #     a carrier can sit inside a `;;` comment, and the qualified shape has
     #     no legitimate prose use. See (e) in the module docstring for the
@@ -1680,10 +1711,19 @@ _FIX_HINTS = {
         "The redirect-target keys `:url` / `:to` are retired by "
         "EP-0007. The SSR redirect fx writes an HTTP `Location` header, so it "
         "uses header vocabulary: the canonical (and only) redirect-target key "
-        "is `:location`. Rewrite the `:rf.server/redirect` / "
-        "`:rf.server/safe-redirect` arg as `{:location \"...\"}`. (`:url` is "
+        "is `:location`. Rewrite the `:rf.server/redirect` arg as "
+        "`{:location \"...\"}`. (`:url` is "
         "still the canonical key on CLIENT navigation surfaces — different "
         "concept, different word, per spec/Conventions.md §The naming rules.)"
+    ),
+    "retired-safe-redirect-fx": (
+        "`:rf.server/safe-redirect` is retired with no alias: "
+        "`:rf.server/redirect` is relative-only by default, so pass an "
+        "untrusted location (a `?next=` parameter) to it as it is, and name "
+        "any other host it may reach in `:allow` — `:allow :any` trusts any "
+        "well-formed URL. Its errors are `:rf.error/redirect-invalid-url`, "
+        "`:rf.error/redirect-scheme-rejected` and "
+        "`:rf.error/redirect-host-disallowed` (Spec 011 §Standard fx)."
     ),
     "retired-query-retain-key": (
         "Route metadata `:query-retain` is retired by EP-0037 R5 with no "
@@ -1796,7 +1836,8 @@ def main(argv: list[str]) -> int:
         description=(
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
             "repo source (the bare :frame coeffect; redirect :url/:to; "
-            "route :query-retain; a fresco front.*/arm1.* bench coordinate, "
+            "route :query-retain; the SSR fx :rf.server/safe-redirect; "
+            "a fresco front.*/arm1.* bench coordinate, "
             "as a symbol OR as a string; the retired facade fn "
             "machine-has-tag?, qualified or redefined; the retired product "
             "name hicasso, in file content and in file paths)."
@@ -1965,6 +2006,7 @@ _FIXTURE_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     ("scan", "positive/redirect_url_key.cljc",            1),
     ("scan", "positive/redirect_url_multiline.cljc",      1),
     ("scan", "positive/query_retain_reg_route_meta.cljc", 1),
+    ("scan", "positive/safe_redirect_fx.cljc",            2),
     ("coord", "coord/positive/where_symbol_front.cljc",     1),
     ("coord", "coord/positive/assertion_string_front.cljc", 1),
     ("coord", "coord/positive/syntax_quoted_symbol.cljc",   1),

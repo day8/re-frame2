@@ -20,7 +20,7 @@
   (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
   (with-redefs [rf.interop/debug-enabled? false]
     (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
-                                   {:initial-events [[:init/ok]]
+                                   {:frame {:initial-events [[:init/ok]]}
                                     :root-view      [(rf/view :pages/uses-throwing-sub)]
                                     :payload        :rf.ssr.payload/whole-app-db})
                                  {:uri "/uses-throwing-sub" :request-method :get})]

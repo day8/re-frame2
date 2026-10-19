@@ -1168,7 +1168,7 @@
   ;; would exist only to give the guided `:rf.error/ssr-artefact-missing` to an
   ;; app that calls an SSR fn without the artefact -- but loading
   ;; `re-frame.ssr` is what REGISTERS the SSR runtime (`:rf/hydrate`, the
-  ;; `:rf.ssr/check-*` fx, the seven `:rf.server/*` fx, the
+  ;; `:rf.ssr/check-*` fx, the six `:rf.server/*` fx, the
   ;; `:rf.server/request` cofx), so no server-rendering app can be that app
   ;; and the guided failure would be unreachable. The two REGISTRARS
   ;; (`reg-error-projector` / `reg-head`) are on the

@@ -41,8 +41,8 @@ assert on the markup:
       (is (str/includes? html "Hello, server")))))
 ```
 
-`:initial-events` is the key `ssr-handler` uses to boot each per-request frame, so
-the test frame boots the way a request's frame does.
+`ssr-handler` makes each per-request frame from its `:frame` config, whose
+`:initial-events` boot it, so the test frame boots the way a request's frame does.
 
 When the assertion is about structure rather than the serialised string, walk the
 hiccup as in [Test a view](../core/testing/views.md). Use `render-to-string` when
@@ -60,9 +60,9 @@ Jetty and no port:
   [[:app/server-init {:limit (app.core/request-limit request)}]])
 
 (def handler
-  (ssr.ring/ssr-handler {:initial-events boot-events
-                         :root-view      (fn [] ((rf/view :app/root)))
-                         :payload        [:articles]}))
+  (ssr.ring/ssr-handler {:frame     {:initial-events boot-events}
+                         :root-view (fn [] ((rf/view :app/root)))
+                         :payload   [:articles]}))
 
 (def request {:request-method :get :uri "/" :query-params {"limit" "1"}})
 
@@ -111,9 +111,9 @@ with its status, a `Location` header and an empty body. Each cookie becomes one
     (fn [_ _]
       {:fx [[:rf.server/set-cookie {:name "flash" :value "moved" :path "/"}]
             [:rf.server/redirect   {:location "/articles" :status 301}]]}))
-  (let [response ((ssr.ring/ssr-handler {:initial-events [[:test/moved]]
-                                         :root-view      (fn [] ((rf/view :app/root)))
-                                         :payload        [:articles]})
+  (let [response ((ssr.ring/ssr-handler {:frame     {:initial-events [[:test/moved]]}
+                                         :root-view (fn [] ((rf/view :app/root)))
+                                         :payload   [:articles]})
                   {:request-method :get :uri "/old-articles"})]
     (is (= 301 (:status response)))
     (is (= "/articles" (get-in response [:headers "Location"])))
@@ -126,18 +126,19 @@ The reset fixture rolls back the registration made inside the test.
 
 ### Keep the network out
 
-`:fx-overrides` on the handler is passed to every per-request frame, so it stubs an
-effect for the whole server render. Redirect `:rf.http/managed` to a function and
+`:fx-overrides` in the handler's `:frame` reaches every per-request frame, so it
+stubs an effect for the whole server render. Redirect `:rf.http/managed` to a function and
 the test sees each request the render fires, without sending it:
 
 ```clojure
 (deftest the-server-render-sends-no-requests
   (let [sent    (atom [])
         handler (ssr.ring/ssr-handler
-                  {:initial-events boot-events
-                   :root-view      (fn [] ((rf/view :app/root)))
-                   :payload        [:articles]
-                   :fx-overrides   {:rf.http/managed (fn [_frame-ctx args] (swap! sent conj args))}})]
+                  {:frame     {:initial-events boot-events
+                               :fx-overrides   {:rf.http/managed
+                                                (fn [_frame-ctx args] (swap! sent conj args))}}
+                   :root-view (fn [] ((rf/view :app/root)))
+                   :payload   [:articles]})]
     (handler request)
     (is (empty? @sent))))
 ```
@@ -232,8 +233,8 @@ first request. Thrown framework errors carry their id in `ex-data`, so
 ```clojure
 (deftest payload-policy-is-mandatory
   (is (= :rf.error/ssr-missing-payload-policy
-         (try (ssr.ring/ssr-handler {:initial-events [[:app/server-init]]  ;; every required opt but :payload
-                                     :root-view      (fn [] ((rf/view :app/root)))})
+         (try (ssr.ring/ssr-handler {:frame     {:initial-events [[:app/server-init]]} ;; every required opt but :payload
+                                     :root-view (fn [] ((rf/view :app/root)))})
               (catch Exception e (:rf.error/id (ex-data e)))))))
 ```
 

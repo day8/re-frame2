@@ -8,11 +8,11 @@
 
   This namespace also runs under `-Dre-frame.debug=false`
   (`clojure -M:test:prod-gate`). The security gates (CR/LF/NUL in header
-  values and cookie attributes, the cookie-attribute grammar, safe-redirect)
-  reject in that lane, so their assertions read the always-on `:errors` axis
+  values and cookie attributes, the cookie-attribute grammar, the redirect
+  gate) reject in that lane, so their assertions read the always-on `:errors` axis
   rather than the dev trace. Only genuinely dev-only observations — the
   `:rf.warning/*` family, the Spec 010 step-5
-  diagnostic and safe-redirect's raw diagnostics — sit in
+  diagnostic and the redirect gate's raw diagnostics — sit in
   `(when interop/debug-enabled? …)` arms, each beside the positive it
   belongs to, because a negative over the dev ring passes vacuously under
   the gate."
@@ -281,14 +281,19 @@
       (let [[_ traces] (drive-fx! fx-id args)]
         (expect-fx-error-keyword! traces error-id (pr-str [fx-id args]))))))
 
-(deftest ssr-redirect-crlf-nul-gate-survives-on-both-fx
-  (testing "both redirect fx run the shared CR/LF/NUL gate, safe-redirect
-            before its own URL gate"
-    (doseq [[fx-id loc] [[:rf.server/redirect      "https://example.com\r\nSet-Cookie: stolen=1"]
-                         [:rf.server/safe-redirect "https://example.com/a\rb"]]]
-      (let [[_ traces] (drive-fx! fx-id {:location loc})]
+(deftest ssr-redirect-crlf-nul-gate-survives-every-allow-policy
+  (testing "the CR/LF/NUL gate runs before the URL gate and no :allow reaches
+            it — :allow :any still rejects header-splitting characters"
+    (doseq [loc   ["https://example.com\r\nSet-Cookie: stolen=1"
+                   "https://example.com/a\rb"
+                   "/a\nb"
+                   (str "/a" (char 0) "b")]
+            allow [nil ["example.com"] :any]]
+      (let [[f traces] (drive-fx! :rf.server/redirect
+                                  (cond-> {:location loc} allow (assoc :allow allow)))]
         (expect-fx-error-keyword! traces :rf.error/redirect-invalid-location
-                                  (str fx-id " rejects " (pr-str loc)))))))
+                                  (str (pr-str allow) " rejects " (pr-str loc)))
+        (is (nil? (:redirect (settled-response f))))))))
 
 (deftest ssr-header-clean-values-still-accepted
   (testing "commas, semicolons, spaces and a TAB are legal header-value
@@ -303,20 +308,10 @@
                    ["X-Whitespace" "tab\there space"]])))))
 
 ;; ===========================================================================
-;; :rf.server/redirect — caller-trusted
+;; :rf.server/redirect — the response shape. The URL gate's arms and the
+;; record each ships are pinned on the always-on axis in
+;; `re-frame.ssr-redirect-production-test`.
 ;; ===========================================================================
-
-(deftest ssr-redirect-trusted-path-has-no-url-shape-gate
-  (testing "the caller-trusted redirect applies no URL-shape, origin or
-            relative-only check: these targets, each of which safe-redirect
-            would refuse or reshape, pass through verbatim"
-    (doseq [loc ["https://example.com/search?q=a b"           ;; raw unencoded space
-                 "https://other.example.org:8443/deep/path"   ;; any origin
-                 "//cdn.example.com/asset"]]                  ;; protocol-relative
-      (rf/reg-event :redirect/trusted
-        (fn [_ _] {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:redirect/trusted]]})]
-        (is (= loc (-> (settled-response f) :redirect :location)))))))
 
 (deftest ssr-redirect-populates-redirect-and-status
   (testing "redirect fills :redirect and flows its :status onto the response.
@@ -333,7 +328,24 @@
     (rf/reg-event :auth/check-no-status
       (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:auth/check-no-status]]})]
-      (is (= 302 (-> (settled-response f) :redirect :status))))))
+      (is (= 302 (-> (settled-response f) :redirect :status)))))
+
+  (testing ":allow is policy, not wire: the redirect that lands omits it"
+    (rf/reg-event :auth/check-allowed
+      (fn [_ _] {:fx [[:rf.server/redirect {:location "https://app.example.com/home"
+                                            :allow    ["app.example.com"]}]]}))
+    (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:auth/check-allowed]]})]
+      (is (= {:status 302 :location "https://app.example.com/home"}
+             (:redirect (settled-response f)))))))
+
+(deftest ssr-redirect-relative-only-key-is-refused
+  (testing "relative-only is the default, so :relative-only? is refused rather
+            than read, whatever its value, and no :redirect lands. The dev
+            schema and the always-on guard each refuse it; which one speaks
+            in which posture is `ssr-server-fx-args-schema-boundary`'s to pin"
+    (doseq [v [true false]]
+      (let [[f _] (drive-fx! :rf.server/redirect {:location "/x" :relative-only? v})]
+        (is (nil? (:redirect (settled-response f))) (pr-str v))))))
 
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
   (testing ":url / :to are rejected, not normalised: the diagnostic names the
@@ -493,90 +505,81 @@
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
-;; :rf.server/safe-redirect — caller-untrusted. Every rejection arm and the
-;; record it ships are pinned on the always-on axis in
-;; `re-frame.ssr-safe-redirect-production-test`; what stays here is the
-;; validation order, the dev trace's raw diagnostics, and the pass shape.
+;; The :rf.server/redirect URL gate. Every rejection arm and the record it
+;; ships are pinned on the always-on axis in
+;; `re-frame.ssr-redirect-production-test`; what stays here is the validation
+;; order and the dev trace's raw diagnostics.
 ;; ===========================================================================
 
-(defn- safe-redirect-error? [op]
-  (and (keyword? op)
-       (= "rf.error" (namespace op))
-       (str/starts-with? (name op) "safe-redirect-")))
+(def ^:private redirect-gate-errors
+  #{:rf.error/redirect-invalid-url
+    :rf.error/redirect-scheme-rejected
+    :rf.error/redirect-host-disallowed})
 
-(defn- capture-safe-redirect-traces!
-  "`:rf.error/safe-redirect-*` rejections during `body-fn`, from the ALWAYS-ON
-  axis only (it fires in both postures, so a count is posture-independent),
-  normalised to `{:operation … :tags …}`."
+(defn- capture-redirect-gate-traces!
+  "Redirect-gate rejections during `body-fn`, from the ALWAYS-ON axis only (it
+  fires in both postures, so a count is posture-independent), normalised to
+  `{:operation … :tags …}`."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
     (rf.error-emit/register-error-listener! tag
       (fn [r]
-        (when (safe-redirect-error? (:error r))
+        (when (redirect-gate-errors (:error r))
           (swap! traces conj {:operation (:error r) :tags r}))))
     (try (body-fn) @traces
          (finally (rf.error-emit/unregister-error-listener! tag)))))
 
-(defn- capture-safe-redirect-dev-traces!
+(defn- capture-redirect-gate-dev-traces!
   "The dev-trace companion: the trace receives the diagnostics whole, while
   the always-on record deliberately omits `:allowlist`, `:host` and the raw
-  `:scheme` (`re-frame.ssr.egress/safe-redirect-record-slots`)."
+  `:scheme` (`re-frame.ssr.egress/redirect-record-slots`)."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-dev-cap-" (name (gensym "c"))))]
     (rf/register-listener! :trace tag
       (fn [ev]
-        (when (safe-redirect-error? (:operation ev))
+        (when (redirect-gate-errors (:operation ev))
           (swap! traces conj ev))))
     (try (body-fn) @traces
          (finally (rf/unregister-listener! :trace tag)))))
 
-(deftest safe-redirect-validation-order-scheme-prefix-precedes-parse
+(deftest redirect-validation-order-scheme-prefix-precedes-parse
   (testing "a location both unparseable and `javascript:`-prefixed reports the
             scheme rejection only — the prefix check runs before the parse and
             short-circuits (Spec 009 §Error event catalogue)"
     (rf/reg-event :sr/order-parse-first
-      (fn [_ _] {:fx [[:rf.server/safe-redirect {:location "javascript: not a real url "}]]}))
+      (fn [_ _] {:fx [[:rf.server/redirect {:location "javascript: not a real url "}]]}))
     (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
+          traces (capture-redirect-gate-traces!
                    #(rf/dispatch-sync [:sr/order-parse-first] {:frame f}))]
-      (is (= [:rf.error/safe-redirect-scheme-rejected] (mapv :operation traces))))))
+      (is (= [:rf.error/redirect-scheme-rejected] (mapv :operation traces))))))
 
-(deftest safe-redirect-dev-trace-carries-the-raw-diagnostics
+(deftest redirect-gate-dev-trace-carries-the-raw-diagnostics
   ;; DEV ARM — these tags are excluded from the always-on record on purpose:
   ;; the raw scheme and rejected host are the caller's unbounded URL text, and
   ;; the allowlist is the app's own security configuration.
   (when rf.interop/debug-enabled?
-    (testing "a rejected safe-redirect's dev trace names the raw diagnostics"
+    (testing "a refused redirect's dev trace names the raw diagnostics"
       (rf/reg-event :sr/dev-diagnostics
-        (fn [_ [_ args]] {:fx [[:rf.server/safe-redirect args]]}))
+        (fn [_ [_ args]] {:fx [[:rf.server/redirect args]]}))
       (doseq [[args op expected-tags]
               [[{:location "mailto:user@example.com"}
-                :rf.error/safe-redirect-scheme-rejected
+                :rf.error/redirect-scheme-rejected
                 {:scheme "mailto"}]
-               [{:location "https://evil.example.com/phish" :relative-only? true}
-                :rf.error/safe-redirect-host-disallowed
+               [{:location "https://evil.example.com/phish"}
+                :rf.error/redirect-host-disallowed
                 {:host "evil.example.com"}]
                [{:location "https://evil.example.com/phish"
                  :allow    ["app.example.com" "alt.example.com"]}
-                :rf.error/safe-redirect-host-disallowed
+                :rf.error/redirect-host-disallowed
                 {:host "evil.example.com" :allowlist ["app.example.com" "alt.example.com"]}]]]
         (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-              traces (capture-safe-redirect-dev-traces!
+              traces (capture-redirect-gate-dev-traces!
                        #(rf/dispatch-sync [:sr/dev-diagnostics args] {:frame f}))
               ev     (first (filter #(= op (:operation %)) traces))]
           (is (= expected-tags (select-keys (:tags ev) (keys expected-tags)))
               (str (pr-str args) "; saw: " (pr-str (mapv :operation traces)))))))))
-
-(deftest safe-redirect-accepts-normal-relative-path-control
-  (testing "CONTROL: a relative path passes :relative-only? and lands with the
-            default 302"
-    (rf/reg-event :sr/relative-control
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect {:location "/account/settings" :relative-only? true}]]}))
-    (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:sr/relative-control]]})]
-      (is (= {:status 302 :location "/account/settings"} (:redirect (settled-response f)))))))
 
 ;; ===========================================================================
 ;; Tag-name injection (emit). A tag name is written into the markup
@@ -714,10 +717,10 @@
     :rf.server/delete-cookie [:rf.server/delete-cookie {:path "/"}]]
    [":rf.server/redirect with a non-int :status"
     :rf.server/redirect      [:rf.server/redirect {:location "/x" :status "oops"}]]
-   [":rf.server/safe-redirect with a non-int :status"
-    :rf.server/safe-redirect [:rf.server/safe-redirect {:location "/ok" :status "not-int"}]]
-   [":rf.server/safe-redirect missing :location"
-    :rf.server/safe-redirect [:rf.server/safe-redirect {:status 302}]]])
+   [":rf.server/redirect with a scalar :allow"
+    :rf.server/redirect      [:rf.server/redirect {:location "/ok" :allow "app.example.com"}]]
+   [":rf.server/redirect with :relative-only?"
+    :rf.server/redirect      [:rf.server/redirect {:location "/ok" :relative-only? true}]]])
 
 (defn- drive-server-fx!
   "Dispatch `fx-vec` on a fresh server frame; return the public response

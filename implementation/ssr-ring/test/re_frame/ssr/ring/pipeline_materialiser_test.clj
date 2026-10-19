@@ -79,7 +79,7 @@
   (rf/reg-view* :pages/mw-blank (fn [] [:div "ssr body"]))
   (let [from-wrapped {:status 201 :headers {} :body "from wrapped"}
         app          ((rf.ssr.ring/ssr-middleware
-                        {:initial-events [[:init/mw-blank]]
+                        {:frame {:initial-events [[:init/mw-blank]]}
                          :root-view      [(rf/view :pages/mw-blank)]
                          :payload        :rf.ssr.payload/whole-app-db})
                       (constantly from-wrapped))]

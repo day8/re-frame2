@@ -341,12 +341,13 @@
             snapshot rides the runtime partition."
     (let [{:keys [url]} (sidecar!)
           h (rf.ssr.ring/ssr-handler
-              {:initial-events [[:auth.login/initialise-form]
-                                ;; `:idle` -> `:submitting`, action
-                                ;; `:clear-error`. A pure data transition —
-                                ;; the HTTP request is fired by
-                                ;; `submit-form`, not by the machine.
-                                [:auth.login/flow [:auth.login/submit]]]
+              {:frame          {:initial-events
+                                [[:auth.login/initialise-form]
+                                 ;; `:idle` -> `:submitting`, action
+                                 ;; `:clear-error`. A pure data transition —
+                                 ;; the HTTP request is fired by
+                                 ;; `submit-form`, not by the machine.
+                                 [:auth.login/flow [:auth.login/submit]]]}
                :payload        [:auth]
                :renderer       (rf.ssr.ring.node/renderer
                                  {:endpoint     url
@@ -376,8 +377,8 @@
         {:db (assoc db :auth.login/not-on-the-list "widened")}))
     (let [{:keys [url]} (sidecar!)
           widened (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:auth.login/initialise-form]
-                                      [:login-host-test/seed-extra]]
+                    {:frame          {:initial-events [[:auth.login/initialise-form]
+                                                       [:login-host-test/seed-extra]]}
                      :payload        [:auth]
                      :renderer       (rf.ssr.ring.node/renderer
                                        {:endpoint     url

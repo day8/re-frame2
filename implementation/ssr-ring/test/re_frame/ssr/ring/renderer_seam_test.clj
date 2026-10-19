@@ -31,7 +31,7 @@
   (rf/reg-sub :seam/heading (fn [db _] (:heading db)))
   (rf/reg-view* :seam/root
     (fn [] [:main.page [:h1 (rf/subscribe-once [:seam/heading])] [:p "jvm body"]]))
-  ((rf.ssr.ring/ssr-handler (merge {:initial-events [[:rf.test.seam/init]]
+  ((rf.ssr.ring/ssr-handler (merge {:frame {:initial-events [[:rf.test.seam/init]]}
                                     :payload        :rf.ssr.payload/whole-app-db}
                                    opts))
    request))
@@ -53,7 +53,7 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf\.error/ssr-ring-missing-root-view"
                           (rf.ssr.ring/ssr-handler
-                            (merge {:initial-events [[:rf.test.seam/init]]
+                            (merge {:frame {:initial-events [[:rf.test.seam/init]]}
                                     :payload        :rf.ssr.payload/whole-app-db}
                                    opts))))))
 
@@ -65,14 +65,14 @@
                                       :app-db  (rf/app-db-value frame-id)
                                       :scoped  (rf/subscribe-once [:seam/heading])
                                       :request request
-                                      :opts    (select-keys opts [:initial-events :payload])})
+                                      :opts    (select-keys opts [:frame :payload])})
                         {:body-html "<p>seen</p>"})})
     (is (= {:keys    #{:frame-id :request :opts}
             :app-db  {:heading "Seam"}
             :scoped  "Seam"
             :request request
-            :opts    {:initial-events [[:rf.test.seam/init]]
-                      :payload        :rf.ssr.payload/whole-app-db}}
+            :opts    {:frame   {:initial-events [[:rf.test.seam/init]]}
+                      :payload :rf.ssr.payload/whole-app-db}}
            @seen))))
 
 (deftest the-body-is-never-rewritten

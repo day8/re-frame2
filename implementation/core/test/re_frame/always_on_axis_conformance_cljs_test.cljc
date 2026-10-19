@@ -56,9 +56,9 @@
     :rf.error/drain-depth-exceeded
     :rf.error/reprojection-failed
     :rf.error/unsupported-scroll-strategy
-    :rf.error/safe-redirect-invalid-url
-    :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed
+    :rf.error/redirect-invalid-url
+    :rf.error/redirect-scheme-rejected
+    :rf.error/redirect-host-disallowed
     :rf.error/schema-validation-failure
     :rf.error/classification-effect-shape
     :rf.error/effect-map-shape
@@ -82,9 +82,9 @@
     :rf.error/drain-depth-exceeded
     :rf.error/reprojection-failed
     :rf.error/root-boot-failed
-    :rf.error/safe-redirect-invalid-url
-    :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed
+    :rf.error/redirect-invalid-url
+    :rf.error/redirect-scheme-rejected
+    :rf.error/redirect-host-disallowed
     :rf.error/schema-validation-failure
     :rf.ssr/hydration-mismatch})
 
