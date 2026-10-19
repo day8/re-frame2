@@ -324,7 +324,7 @@
           arm-maps)))
 
 (defn- parse-tags-schemas
-  "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}`."
+  "`{\"HandlerExceptionTags\" #{:failing-id :exception-message …}, …}`."
   ([] (parse-tags-schemas (slurp spec-schemas-file)))
   ([text]
    (let [m (re-matcher tags-schema-def-re text)]
