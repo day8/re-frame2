@@ -56,7 +56,8 @@ active route is in [runtime-db](../core/glossary.md#runtime-db), and you read it
 
 So a loading bar is a small view over `:rf.route/transition`, wherever it sits in the
 tree. An auth guard is a [`:can-enter`](glossary.md#route-guard) subscription named on
-the route itself rather than a wrapper component around a subtree.
+the route itself rather than a wrapper component around a subtree. Named on a parent
+route, it guards every route below it.
 
 ### Navigation is an event
 
@@ -95,8 +96,9 @@ are dispatched and not waited on; a handler that throws reports on the ordinary 
 error channel and does not affect the route.
 
 With `:parent`, a child route includes its ancestors' `:resources`, and identical
-requests are fetched once. Nothing else is inherited: `:on-match`, `:scroll`, `:tags`
-and the guards stay per route.
+requests are fetched once. Entering the child also checks its ancestors' `:can-enter`
+guards, parent first. Nothing else is inherited: `:on-match`, `:scroll`, `:tags` and
+`:can-leave` stay per route.
 
 ### Leaving asks the reader; entering asks the app
 
