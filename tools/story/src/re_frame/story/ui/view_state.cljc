@@ -260,34 +260,29 @@
 (defn network-summary
   "Provenance summary for the network world input — the per-route managed
   HTTP stubs off the compiled plan's `:explain` `:network` slot
-  (`{:routes {[method url] {:reply …}} :lowered-to {fx-id stub-fx}}`).
-  Network is a WORLD INPUT, not a fidelity rung (spec/018 §12.6); it is
-  summarised here as state-source provenance alongside the rungs. Returns
+  (`{:routes {[method url] response}}`). Network is a WORLD INPUT, not a
+  fidelity rung (spec/018 §12.6); it is summarised here as state-source
+  provenance alongside the rungs. Returns
 
-      {:present? bool :route-count int :routes [[method url] …]
-       :lowered-to {fx-id stub-fx}}
+      {:present? bool :route-count int :routes [[method url] …]}
 
   Pure data → data."
   [explain]
   (let [routes (get-in explain [:network :routes])]
     {:present?    (boolean (seq routes))
      :route-count (count routes)
-     :routes      (vec (keys routes))
-     :lowered-to  (get-in explain [:network :lowered-to])}))
+     :routes      (vec (keys routes))}))
 
 (defn fx-overrides-summary
-  "Provenance summary for the non-HTTP fx-override world input — the
-  `[:world :frame :fx-overrides]` map off the compiled `plan` MINUS the
-  managed-HTTP fx (which the Network summary already owns; spec/017 §The
-  network surface — `:network` is the higher-level affordance for
-  `:rf.http/managed`). A world input, not a fidelity rung. Returns
+  "Provenance summary for the fx-override world input — the
+  `[:world :frame :fx-overrides]` map off the compiled `plan`. A world
+  input, not a fidelity rung. Returns
 
       {:present? bool :fx-count int :fx-ids [fx-id …]}
 
   Pure data → data."
   [plan]
-  (let [overrides (-> (get-in plan [:world :frame :fx-overrides])
-                      (dissoc rf.story.plan/managed-fx-id))]
+  (let [overrides (get-in plan [:world :frame :fx-overrides])]
     {:present? (boolean (seq overrides))
      :fx-count (count overrides)
      :fx-ids   (vec (sort-by str (keys overrides)))}))

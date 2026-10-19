@@ -53,8 +53,8 @@
   (`:artifact/kind`, `:seed`, `:event-program`, `:fx-decisions`,
   `:network`, `:shrink-path`, `:created-at`, `:source`) WITHOUT the bulky
   captured evidence (`:epoch-tape`, `:trace`, `:result`). `:network`
-  rides the core (not the evidence) because replay RE-INSTALLS the
-  per-route stubs from it; without it a `:network`-stubbed run cannot be
+  rides the core (not the evidence) because replay answers its managed
+  requests from those routes; without it a `:network`-stubbed run cannot be
   re-derived. A curated variant can explain where
   it came from and re-derive the run; it does not drag a full epoch tape
   into the registrar side-table.
@@ -287,38 +287,32 @@
 ;; are lifted onto the variant BODY itself:
 ;;
 ;;   - the artifact's `:network` route map → the body's `:network` slot
-;;     (the plan compiler keeps it at `[:world :network]` and lowers it to
-;;     the managed-stub fx-override the runner installs);
+;;     (the plan compiler keeps it at `[:world :network]` and the runner
+;;     installs it on the variant frame as a stub transport);
 ;;   - the artifact's `:fx-decisions` → the body's `:fx-overrides` slot
 ;;     (the same `{fx-id override}` shape the per-frame `:fx-overrides`
 ;;     takes — Spec 002 §`:fx-overrides`).
 ;;
-;; THE MANAGED-STUB REDIRECT OVERLAP. A `:network`-stubbed artifact's
-;; `:fx-decisions` ALSO carries the lowered redirect `{:rf.http/managed
-;; :rf.http/managed-test-stub}` (the plan lowered `:network` to it at
-;; capture time). The body's `:network` slot re-derives that SAME redirect
-;; via `rf.story.plan/lower-network`, and the compiler's `check-network-fx-conflict!`
+;; THE MANAGED-HTTP OVERLAP. The compiler's `check-network-fx-conflict!`
 ;; HARD-FAILS when both `:network` and an explicit `:fx-overrides` target
-;; `:rf.http/managed`. So when `:network` is present we DROP `:rf.http/managed`
-;; from the lifted `:fx-overrides` — `:network` owns that key. Any OTHER
-;; fx-decision (a non-HTTP override) rides `:fx-overrides`.
+;; `:rf.http/managed`, because an override replaces the effect the routes
+;; answer. So when `:network` is present we DROP `:rf.http/managed` from the
+;; lifted `:fx-overrides` — `:network` owns that key. Any OTHER fx-decision
+;; (a non-HTTP override) rides `:fx-overrides`.
 
 (def managed-fx-id
   "Re-export of the managed-HTTP fx id (`rf.story.plan/managed-fx-id`,
-  `:rf.http/managed`) the `:network` slot owns. A `:network`-stubbed
-  artifact's `:fx-decisions` carries the lowered redirect for this id; we
-  drop it from the lifted `:fx-overrides` so it does not conflict with the
-  body's `:network` slot."
+  `:rf.http/managed`) the `:network` slot owns. We drop it from the lifted
+  `:fx-overrides` so it does not conflict with the body's `:network` slot."
   rf.story.plan/managed-fx-id)
 
 (defn lift-fx-overrides
   "Project an artifact's `:fx-decisions` onto a variant body's
   `:fx-overrides` slot. Pure data → data.
 
-  Drops the `:rf.http/managed` redirect when `network?` is true: the
-  body's `:network` slot re-derives that redirect through
-  `rf.story.plan/lower-network`, and carrying it on BOTH surfaces is a hard
-  `:rf.error/story-network-fx-conflict`. Returns nil when nothing
+  Drops any `:rf.http/managed` override when `network?` is true: the body's
+  `:network` slot owns that effect, and carrying it on BOTH surfaces is a
+  hard `:rf.error/story-network-fx-conflict`. Returns nil when nothing
   survives (so the caller omits the slot rather than emitting an empty
   map)."
   [fx-decisions network?]
@@ -340,17 +334,14 @@
   lives on the original artifact the tool keeps.
 
   `:network` is in the core because it is load-bearing for re-derivation,
-  not bulk: the `:fx-decisions` managed-stub REDIRECT
-  (`{:rf.http/managed :rf.http/managed-test-stub}`) survives on its own,
-  but `replay-run-artifact` / `with-network-stubs!` RE-INSTALL the actual
-  per-route stubs from the artifact's `:network` map (spec/017
+  not bulk: `replay-run-artifact` / `with-network-stubs!` answer the
+  replay's managed requests from the artifact's `:network` map (spec/017
   §The network surface). Drop it and a variant promoted from a
   `:network`-stubbed run carries a link that fail-closes on every managed
-  HTTP request (\"no stub matched\") — a DIFFERENT run than the one
-  promoted, breaking the docstring's re-derivability promise. Route
-  replies are part of run identity (already in `:world :network` /
-  artifact `:network`), so the slot is replayable + identifying, not
-  evidence."
+  HTTP request — a DIFFERENT run than the one promoted, breaking the
+  docstring's re-derivability promise. Route responses are part of run
+  identity (already in `:world :network` / artifact `:network`), so the
+  slot is replayable + identifying, not evidence."
   #{:artifact/kind :seed :event-program :fx-decisions :network
     :shrink-path :created-at :source})
 
@@ -429,11 +420,11 @@
   The RUNNABLE reproducibility inputs are lifted onto the body too
   so a promoted variant runs the SAME as the source artifact,
   not just the artifact's replay:
-  - `:network` — the artifact's per-route HTTP reply map, onto the body's
-    `:network` slot (compiler keeps it at `[:world :network]` and lowers
-    it to the managed-stub fx-override the runner installs);
+  - `:network` — the artifact's per-route HTTP response map, onto the
+    body's `:network` slot (compiler keeps it at `[:world :network]`; the
+    runner installs it on the variant frame as a stub transport);
   - `:fx-overrides` — the artifact's `:fx-decisions`, onto the body's
-    `:fx-overrides` slot. The `:rf.http/managed` redirect is dropped when
+    `:fx-overrides` slot. Any `:rf.http/managed` override is dropped when
     `:network` is present (the `:network` slot owns it — see
     `lift-fx-overrides`), so the two surfaces never conflict.
 

@@ -628,41 +628,38 @@
 ;; ---- :network — managed HTTP request stubs ------------------------------
 
 (def NetworkRoute
-  "A single `:network` route key — a `[method url]` pair matching the
-  managed-request stub helper's lookup. `method` is an HTTP-verb keyword
-  (`:get` / `:post` / `:put` / `:patch` / `:delete` / `:head` /
-  `:options`); `url` is the request URL string. Per
+  "A single `:network` route key — a `[method url]` pair matching a route
+  transport's lookup. `method` is an HTTP-verb keyword (`:get` / `:post` /
+  `:put` / `:patch` / `:delete` / `:head` / `:options`); `url` is the url
+  the request goes out on, after the `:before` interceptors, with any
+  `:params` merged in as a query string. Per
   `tools/story/spec/017-Testing-Story.md` §Network world the key shape
-  mirrors `re-frame.http.test-support/install-managed-request-stubs!`."
+  mirrors `re-frame.http.stub-transport/route-transport`."
   [:tuple
    [:enum :get :post :put :patch :delete :head :options]
    :string])
 
-(def NetworkReply
-  "A single route's reply spec. EXACTLY one of `:ok` / `:failure` —
-  `{:reply {:ok <data>}}` synthesises a success response, `{:reply
-  {:failure {:kind <:rf.http/*> …}}}` synthesises a failure. The `:ok`
-  data is the decoded response value; the `:failure` map carries the
-  closed `:rf.http/*` failure `:kind` (Spec 014) plus any tags. Data-
-  shaped only — no fn-valued slots (the variant body stays EDN-round-
-  trippable)."
-  [:and
-   [:map
-    [:reply
-     [:and
-      [:map
-       [:ok      {:optional true} :any]
-       [:failure {:optional true} [:map-of :any :any]]]
-      [:fn {:error/message
-            ":reply must carry exactly one of :ok / :failure"}
-       ;; `reply` is the :reply VALUE (`{:ok …}` / `{:failure …}`), so
-       ;; the xor check runs against it directly.
-       (fn [reply]
-         (= 1 (count (filter #(contains? reply %) [:ok :failure]))))]]]]
-   ;; the `:reply` inner :fn already enforces xor; the outer :and keeps
-   ;; the entry shape closed-ish (open map, but :reply is required).
-   [:fn {:error/message ":network route value must carry a :reply"}
-    (fn [m] (contains? m :reply))]])
+(def NetworkResponse
+  "A single route's answer — the response a stub transport gives
+  (`re-frame.http.stub-transport`). `{:status :headers :body}`, each
+  optional: `:status` defaults to 200, and a non-string `:body` is
+  JSON-encoded. `:body-binary` replaces `:body` for a binary read,
+  `:delay-ms` holds the answer back, and `{:failure {:kind
+  :rf.http/transport}}` (or `:rf.http/timeout`, with any tags) is a network
+  failure instead of a response. The real pipeline decodes and classifies
+  the answer, so a 4xx / 5xx `:status` is how a variant asks for
+  `:rf.http/http-4xx` / `-5xx`. Closed, so a misspelt key fails loudly, and
+  data-shaped only — no fn-valued slots (the variant body stays
+  EDN-round-trippable)."
+  [:map {:closed true}
+   [:status      {:optional true} :int]
+   [:status-text {:optional true} :string]
+   [:headers     {:optional true} [:map-of :any :any]]
+   [:body        {:optional true} :any]
+   [:body-binary {:optional true} :any]
+   [:delay-ms    {:optional true} :int]
+   [:failure     {:optional true}
+    [:map [:kind {:optional true} [:enum :rf.http/transport :rf.http/timeout]]]]])
 
 ;; ---- :sub-overrides — view-state subscription overrides -----------------
 
@@ -723,21 +720,21 @@
 
 (def NetworkSpec
   "Schema for the `:network` slot on a story / variant / fragment body —
-  first-class managed-HTTP request stubs. A map of
-  `[method url]` route keys to `{:reply {:ok|:failure …}}` reply specs.
+  first-class managed-HTTP request stubs. A map of `[method url]` route
+  keys to the responses a stub transport gives.
 
   Per `tools/story/spec/017-Testing-Story.md` §Network world the plan
-  compiler lowers `:network` to `[:world :network]` and then to the
-  managed-request stub machinery
-  (`re-frame.http.test-support/install-managed-request-stubs!`). It is the
-  higher-level affordance for `:rf.http/managed` — route-level replies,
-  mixed success/failure, and per-route intent — distinct from the coarse
-  generic `:fx-overrides` surface, which serves non-HTTP effects.
+  compiler keeps `:network` at `[:world :network]`, and the runner installs
+  it on the variant frame as a route transport
+  (`re-frame.http.stub-transport/route-transport`). It is the higher-level
+  affordance for `:rf.http/managed` — route-level responses, mixed
+  success/failure, and per-route intent — distinct from the coarse generic
+  `:fx-overrides` surface, which serves non-HTTP effects.
 
-  Unmatched managed requests fail closed at run time with the helper's
-  'no stub matched' transport failure; the schema does not (and
-  cannot) enumerate every URL a run might issue."
-  [:map-of NetworkRoute NetworkReply])
+  An unmatched managed request fails closed at run time as a
+  `:rf.http/transport` failure naming its method and url; the schema does
+  not (and cannot) enumerate every URL a run might issue."
+  [:map-of NetworkRoute NetworkResponse])
 
 (def Variant
   "Schema for the body of `reg-variant`.
@@ -841,12 +838,11 @@
     ;; that wants a narrower props schema does it on the per-variant
     ;; `:component` view's metadata, not on the variant body.
     ;; First-class managed-HTTP request stubs. A map of
-    ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
-    ;; lowers `:network` to `[:world :network]` and on to the managed-
-    ;; request stub fx (`re-frame.http.test-support`). The higher-level
-    ;; affordance for `:rf.http/managed`; generic `:fx-overrides`
-    ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
-    ;; world.
+    ;; `[method url]` → a stub-transport response. The plan compiler
+    ;; keeps `:network` at `[:world :network]` and the runner installs it
+    ;; on the frame as a route transport. The higher-level affordance for
+    ;; `:rf.http/managed`; generic `:fx-overrides` serves non-HTTP
+    ;; effects. See `NetworkSpec` + spec/017 §Network world.
     [:network               {:optional true} NetworkSpec]
     ;; View-state subscription overrides. A map of exact
     ;; subscription query vectors → data values the renderer surfaces

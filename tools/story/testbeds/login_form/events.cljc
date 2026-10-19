@@ -21,11 +21,11 @@
   its runtime-db partition (EP-0001 — machine snapshots are durable
   runtime-db state).
 
-  Per Spec 014 §Testing the stub layer: `:rf.http/managed` is the
-  fx-id the machine emits; the Story variants override that id via
-  the `force-fx-stub` decorator at the frame level, so the real
-  network call never fires. The fx body below would run in the live
-  app; in Story it's intercepted."
+  `:rf.http/managed` is the fx-id the machine emits. The Story
+  variants override that id via the `force-fx-stub` decorator at the
+  frame level, so no request is issued; the live page answers it from
+  the demo backend `login-form.core` installs as the frame's stub
+  transport (Spec 014 §Testing)."
   (:require [re-frame.core :as rf]
             ;; Loads the machine substrate's late-bind hooks behind
             ;; rf/reg-machine; without them the registration below
@@ -34,13 +34,7 @@
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
-            [re-frame.http.managed]
-            ;; This testbed resolves
-            ;; :rf.http/managed-canned-success/failure via registrar lookup.
-            ;; The canned-stub fx ids register from
-            ;; re-frame.http.test-support, not re-frame.http.managed.
-            [re-frame.http.test-support]
-            [re-frame.registrar :as rf.registrar]))
+            [re-frame.http.managed]))
 
 ;; ============================================================================
 ;; MACHINE — :login/flow
@@ -78,8 +72,8 @@
     :issue-request
     ;; Issue the login HTTP request. The fx-id `:rf.http/managed`
     ;; is the override seam: in Story variants `force-fx-stub`
-    ;; intercepts this id at the frame level; in the live app the
-    ;; production fx body fires the real network call.
+    ;; intercepts this id at the frame level; on the live page the
+    ;; request goes to the demo backend's stub transport.
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
              {:request    {:method :post
@@ -97,9 +91,9 @@
     ;; visible difference between :error and :submitting-retry
     ;; once the retry lands.
     ;; The classified failure map rides under :error on the
-    ;; canonical reply. The fallback differs from every seeded and
-    ;; canned message, so a reply that loses its message cannot
-    ;; pass for one that carried it.
+    ;; canonical reply. The fallback differs from every seeded
+    ;; message, so a reply that loses its message cannot pass for
+    ;; one that carried it.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts (fnil inc 0))
@@ -163,40 +157,3 @@
     {:tags #{:auth/authenticated}
      :on   {:login/sign-out {:target :idle
                              :action :clear-error}}}}})
-
-;; ============================================================================
-;; DEMO FX — for the LIVE testbed page (not for Story variants)
-;; ============================================================================
-;;
-;; The Story variants override `:rf.http/managed` per-frame via the
-;; `force-fx-stub` decorator. The live testbed page at `#/` needs a
-;; real fx body so a curious visitor can click *Sign in* and see
-;; the flow drive through. Password `correct-horse` succeeds; anything
-;; else fails after a 250ms artificial delay so :submitting is visible.
-
-(rf/reg-fx :login/demo-http
-  {:doc       "Demo override for :rf.http/managed — routes any login
-               request to a canned success or failure based on the
-               password value, with a 250ms artificial latency so
-               the :submitting state is observable on the live page."
-   :platforms #{:client :server}}
-  (fn fx-login-demo-http [frame-ctx args-map]
-    (let [{:keys [body]} (:request args-map)
-          good?          (= "correct-horse" (:password body))
-          ok-stub        (rf.registrar/handler :fx :rf.http/managed-canned-success)
-          fail-stub      (rf.registrar/handler :fx :rf.http/managed-canned-failure)
-          respond!       (fn []
-                           (if good?
-                             (ok-stub frame-ctx
-                                      (assoc args-map :value {:user  {:email (:email body)}
-                                                              :token "demo-token"}))
-                             (fail-stub frame-ctx
-                                        (assoc args-map
-                                               :kind :rf.http/http-4xx
-                                               :tags {:status 401
-                                                      :message "Invalid credentials."}))))]
-      ;; The latency is for the live page, which is a browser. This is the
-      ;; one host-specific form in the namespace: a JVM host answers at once,
-      ;; which is what lets story-mcp load the testbed at all.
-      #?(:cljs (js/setTimeout respond! 250)
-         :clj  (respond!)))))

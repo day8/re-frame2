@@ -11,7 +11,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.http.managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
-            [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.artifact  :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
@@ -255,7 +254,7 @@
         {:fx [[:rf.http/managed {:request  {:method :get :url "/api/cart"}
                                  :decode   :json
                                  :reply-to [:promo-snip/get-cart msg]}]]})))
-  (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+  (let [routes {[:get "/api/cart"] {:body {:items [{:sku "A"}]}}}
         run    (replayed-run :story.promo-snip/net
                              {:network routes
                               :script  [[:dispatch [:promo-snip/get-cart]]]})

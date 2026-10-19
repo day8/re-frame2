@@ -219,8 +219,8 @@
                                         [{:name "happy" :script (play 2)}]]
                                 [:sub-overrides {[:cart/total] 0} {[:cart/total] 999}]
                                 [:db-seed {[:count] 1} {[:count] 2}]
-                                [:network {[:get "/api/x"] {:reply {:ok {:status 200}}}}
-                                          {[:get "/api/x"] {:reply {:ok {:status 500}}}}]]]
+                                [:network {[:get "/api/x"] {:status 200}}
+                                          {[:get "/api/x"] {:status 500}}]]]
         (rf.story/reg-variant :story.id-render/v {:setup [] k before})
         (let [h1 (content-hash :story.id-render/v)]
           (rf.story/reg-variant :story.id-render/v {:setup [] k after})

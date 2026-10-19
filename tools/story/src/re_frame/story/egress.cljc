@@ -176,8 +176,9 @@
   - A `:sub-overrides` value that is a function is `:view-only` for that
     subscription: the recipient cannot reconstruct the closure (an exact
     pinned-data override is fine — it serialises).
-  - A `:network` route whose `:reply` is a function is `:partial`: the
-    recipient loses the dynamic reply but the route + static shape carry.
+  - A `:network` route whose response carries a function is `:partial`:
+    the recipient loses the dynamic reply but the route + static shape
+    carry.
   - `:setup` events / a `:script` carrying a function step is `:partial`:
     most of the program serialises; the fn step degrades."
   [plan]

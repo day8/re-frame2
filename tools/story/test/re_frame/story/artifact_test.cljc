@@ -7,9 +7,9 @@
             [re-frame.epoch  :as rf.epoch]
             [re-frame.frame  :as rf.frame]
             [re-frame.http.managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
-            [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.determinism :as rf.story.determinism]
@@ -275,15 +275,21 @@
 ;; :network route stubs survive replay
 ;; ===========================================================================
 ;;
-;; The `:network` world slot lowers to an `:fx-decisions` redirect onto the
-;; managed test stub, which only matches routes once they are installed. The
-;; artifact carries the routes in `:network`, and replay re-installs them;
-;; without that, every replayed request fails closed on "no stub matched".
+;; The artifact carries the routes in `:network`, and replay answers the run's
+;; requests from them through a stub transport; without that, no replayed
+;; request is answered — a different run.
+
+;; Captured at ns load, while `:rf.http/managed` is registered. A fixture
+;; (this ns's or a sibling's) can clear the registrar before a network test
+;; runs, and a replay issues its requests through the real fx, so each network
+;; test restores this first.
+(def ^:private ns-load-registrar (rf.test-support/snapshot-registrar))
 
 (defn- register-network-event!
   "Register `event-id`, which issues a managed-HTTP request to `[method url]`
   and records the reply under `:got`."
   [event-id [method url]]
+  (rf.test-support/restore-registrar! ns-load-registrar)
   (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg reply]]
       (if reply
@@ -305,12 +311,12 @@
 
 (deftest replay-reinstalls-network-success-route
   (register-network-event! :net/get-cart [:get "/api/cart"])
-  (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+  (let [routes {[:get "/api/cart"] {:body {:items [{:sku "A"}]}}}
         art    (network-artifact routes [[:dispatch [:net/get-cart]]])
         res    (rf.story.artifact/replay-run-artifact art)]
     (is (= {:status :ok :value {:items [{:sku "A"}]}}
            (select-keys (:got (:app-db res)) [:status :value]))
-        "the re-installed route stub matched and replied with the recorded payload")))
+        "the replay answered from the recorded route")))
 
 ;; ===========================================================================
 ;; EXACT narrative attribution from runner-recorded settle boundaries

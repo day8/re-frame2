@@ -67,7 +67,7 @@
                       :script        [[:dispatch [:counter/add 5]]]
                       :db-seed       {:count 1}
                       :sub-overrides {[:count] 6}
-                      :network       {[:get "/x"] {:reply {:ok {}}}}}))))))
+                      :network       {[:get "/x"] {:body {}}}}))))))
   (testing "a bare variant with no world inputs surfaces no chips"
     (is (= [] (rf.story.ui.docs/world-input-chips (rf.story.plan/variant-plan {}))))))
 

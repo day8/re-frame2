@@ -131,7 +131,7 @@
   (testing "when the source variant body declares the unwired slices, they are
             captured-as-declared (carried forward via :extends), warned, honest"
     (let [body     {:sub-overrides {[:s] :v}
-                    :network       {[:get "/u"] {:reply {}}}
+                    :network       {[:get "/u"] {}}
                     :fx-overrides  {:my/fx 1}
                     :db-seed       {:count 1}
                     :setup         [[:e]]
@@ -139,7 +139,7 @@
           report   (rf.story.save-variant/capture-slices {:n 1} body {})
           by-slice (into {} (map (juxt :slice identity)) report)]
       (doseq [[s v] {:sub-overrides {[:s] :v}
-                     :network       {[:get "/u"] {:reply {}}}
+                     :network       {[:get "/u"] {}}
                      :fx-overrides  {:my/fx 1}
                      :db-seed       {:count 1}
                      :viewport      :tablet}]

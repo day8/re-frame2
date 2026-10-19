@@ -160,7 +160,7 @@
           (is (str/includes? (:note row) "app-db state is not captured"))
           (is (not (str/includes? (:note row) ":setup"))))))))
 
-(def ^:private cart-route {[:get "/api/cart"] {:reply {:ok {:items []}}}})
+(def ^:private cart-route {[:get "/api/cart"] {:body {:items []}}})
 
 (defn- saved-rows
   "The capture report `save-current-as-variant!` builds for `variant-id`,
@@ -195,16 +195,15 @@
         (is (= [:not-wired nil] ((juxt :status :value) (rows s))) (str s))))))
 
 (deftest save-current-as-variant!-fx-overrides-row-reads-the-declared-slot
-  (testing "a source's :network lowers to a managed-stub fx override in the
-            compiled plan, and the row never reports that lowering"
+  (testing "a source's :network is not an fx override, so the row reports none"
     (rf.story/reg-variant :story.fx/net {:args {:n 1} :network cart-route})
-    (is (= {:rf.http/managed :rf.http/managed-test-stub}
+    (is (= cart-route
            (get-in (rf.story.plan/variant-plan {:extends :story.fx/net :args {:n 1}})
-                   [:world :frame :fx-overrides]))
-        "control: the compiled world does carry the lowering")
+                   [:world :network]))
+        "control: the compiled world does carry the routes")
     (let [row (:fx-overrides (saved-rows :story.fx/net))]
       (is (= :not-wired (:status row)))
-      (is (nil? (:value row)) "the managed-stub lowering is not an fx override")))
+      (is (nil? (:value row)) "the routes are not an fx override")))
   (testing "an fx override the source inherits is not shown, and the note says so"
     (rf.story/reg-variant :story.fx/parent {:args {:n 1} :fx-overrides {:app/toast :noop}})
     (rf.story/reg-variant :story.fx/child {:extends :story.fx/parent})

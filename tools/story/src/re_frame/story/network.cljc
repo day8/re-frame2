@@ -1,219 +1,55 @@
 (ns re-frame.story.network
   "Realize a compiled variant's authored `:network` fixture on the LIVE run
-  paths (spec/017 §The network surface — \"the runner installs the route map
-  and points `:fx-overrides` at the stub fx\").
+  paths (spec/017 §The network surface).
 
-  `rf.story.plan/lower-network` is pure: it keeps the authored route map at
-  the plan's `[:world :network]` and emits the `{:rf.http/managed
-  :rf.http/managed-test-stub}` redirect at `[:world :frame :fx-overrides]`.
-  Naming the stub id REGISTERS NOTHING — `re-frame.http.test-support/
-  install-managed-request-stubs!` is what creates the fx over a route map.
-  Without this namespace the only executable call to it in Story would be
-  `rf.story.artifact/with-network-stubs!` (artifact REPLAY), so a live
-  registered-variant run would reach the real `:rf.http/managed` transport and a
-  live inline-plan run would redirect to an unregistered fx id. This namespace is
-  the realization step; the runtime calls it either side of a frame's
-  lifetime.
+  A variant's `:network` is a route map, `{[method url] response}`, which the
+  plan compiler keeps at `[:world :network]`. The runtime installs it on the
+  variant's frame as a stub transport
+  (`re-frame.http.stub-transport/route-transport`) BEFORE the frame is
+  allocated, so the routes answer from the first `:frame-setup` `:init`,
+  loader, `:setup` or script effect onward. A stub transport replaces only
+  the network hop: the variant's requests run through the real
+  `:rf.http/managed` — its `:decode`, `:accept`, retry and privacy scrub — and
+  only the answer comes from the route map.
 
-  ## Why one install, and why a frame-scoped route map
+  The transport is installed per frame, so two mounted variants each answer
+  from their own routes, and destroying the frame drops it. A variant with no
+  `:network` installs nothing: its `:preset :story` frame sets
+  `:rf.http/stub-only?`, so a managed request it issues fails as
+  `:rf.http/transport` rather than reaching the network."
+  ;; CLJS requires the stub transports directly. On the JVM they are resolved
+  ;; LAZILY at call time, so requiring this ns from the `re-frame.story`
+  ;; MACRO-ns does not drag the http artefact's JVM-only transitive deps onto
+  ;; the macro classpath. Same boundary `rf.story.artifact` uses.
+  #?(:cljs (:require [re-frame.http.stub-transport :as rf.http.stub-transport])))
 
-  `install-managed-request-stubs!` re-registers ONE global fx id
-  (`:rf.http/managed-test-stub`) with a route map CLOSED OVER at install
-  time, and its stack is snapshot/restore (LIFO), not a merge. So the naive
-  \"install per mounted variant\" makes the second variant's routes answer for
-  BOTH — exactly the silent cross-variant overwrite Story must prevent.
-
-  Two facts make per-frame isolation reachable from inside Story, with NO
-  second HTTP simulator, the one lowered fx id (the id the recorded
-  `:fx-decisions` redirect, `spec/017` and the artifact replay path all name)
-  and nothing added to the `re-frame.http` artefact:
-
-  - `re-frame.http.test-support/stub-handler` reads its route map with a
-    plain `(get stubs [method url])`, so `stubs` need only satisfy `ILookup`
-    — it does not have to be a literal map; and
-  - `re-frame.router` binds `re-frame.frame/*current-frame*` to the
-    envelope's frame for the WHOLE handler chain, the fx walk included
-    (`router.cljc` §2 of the `process-event!` bindings).
-
-  So Story installs ONE route-map-shaped object whose lookup resolves
-  `[method url]` against `{frame-id → routes}` keyed on the frame in flight.
-  Ownership is per frame; the single install/uninstall pair is refcounted by
-  the registry — installed when it goes empty→non-empty, uninstalled when it
-  goes non-empty→empty — because Story's mount/destroy order is NOT LIFO and
-  an install-per-variant would unbalance that stack.
-
-  A frame with no fixture (or a request from no frame at all) resolves to
-  `nil`, so `stub-handler` falls through to its own canned
-  `\"no stub matched\"` transport failure — spec/017 §Network stubs, reused
-  rather than reimplemented.
-
-  ## Reaching the stub through a selected image
-
-  `install-managed-request-stubs!` registers into the process SOURCE STORE
-  through the fn-alias `reg-fx` path, so the descriptor carries no
-  `:rf.provenance/ns`. A variant frame created with NO `:images` resolves the
-  whole registration store live, so it sees that registration. A
-  variant that DECLARES an app image (or inherits one from its parent story)
-  resolves through a SELECTED, sealed generation instead, and an image selects
-  by `:rf.provenance/ns`, so no namespace glob can select the stub. With
-  nothing else supplying it, the
-  frame would receive the `:fx-overrides` redirect, fail to resolve the target,
-  and the request would fall through to the REAL `:rf.http/managed` transport.
-
-  An explicit composition is layered over the
-  FRAMEWORK BASE (`:rf/framework`): every loaded registration with no source
-  namespace whose id sits under the reserved `:rf` root. The stub id,
-  `:rf.http/managed-test-stub`, is one of them, so the base alone makes it
-  resolvable from a selected generation.
-
-  `fixture-image` is a library-owned image carrying EXACTLY ONE inline
-  `:reg-fx` — the very
-  handler the install just registered, over the very same `FrameScopedRoutes`
-  object. `frames/compose-variant-images` layers it after the app images (so
-  nothing authored can shadow it) whenever the frame being allocated owns a
-  fixture. It duplicates the base's entry and is harmless: it shadows the
-  base's entry for
-  the same handler, and the shadow report names `:rf/framework` as the loser.
-  One implementation, one route map, two projections."
-  (:require [re-frame.core     :as rf]
-            [re-frame.frame    :as rf.frame]
-            ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
-            ;; (its home namespace, not the `re-frame.core` façade). CLJS
-            ;; requires it directly; on the JVM it is resolved LAZILY at call
-            ;; time so requiring this ns from the `re-frame.story` MACRO-ns
-            ;; does not drag the http artefact's JVM-only transitive deps onto
-            ;; the macro classpath. Same boundary `rf.story.artifact` uses.
-            #?(:cljs [re-frame.http.test-support :as rf.http.test-support])))
-
-(def stub-fx-id
-  "The fx id `rf.story.plan/lower-network` points `:rf.http/managed` at, and
-  the one `re-frame.http.test-support/install-managed-request-stubs!`
-  registers. Named here so `fixture-image` can read the installed handler back
-  out of the source store; the recorded
-  `:fx-decisions` redirect, `spec/017` and `plan_network_cljs_test` all
-  pin the id."
-  :rf.http/managed-test-stub)
-
-(def fixture-image-id
-  "The stable `:rf.image/id` of the library-owned fixture image — reported in
-  the generation's `:rf.gen/shadows` and by tooling. Library-owned under the
-  reserved `:rf.story/*` namespace (spec/Conventions.md), and deliberately NOT
-  an authored behaviour image (it never appears on a run result's `:images`)."
-  :rf.story/network-fixture)
-
-(defonce
-  ^{:doc "frame-id → the frame's authored `{[method url] {:reply …}}` route
-         map. The SSOT for which live Story frame owns which canned network
-         replies. Populated by `install-for-frame!`, evicted by
-         `release-frame!`."}
-  frame-routes
-  (atom {}))
-
-(defn routes-for
-  "The route map owned by `frame-id`, or `nil`. Read by the frame-scoped
-  lookup below and by tests."
-  [frame-id]
-  (get @frame-routes frame-id))
-
-(defn- current-frame-id
-  "The frame id of the cascade in flight, or `nil` outside one.
-
-  `re-frame.frame/*current-frame*` may carry a frame VALUE (`with-frame` /
-  `with-new-frame` bind `make-frame`'s token) where the router binds the
-  id, so normalize through `frame-value->id` exactly as the framework's own
-  `:frame/current-frame-id` late-bind hook does. Keying the
-  registry on an un-normalized value would miss every value-bound extent."
-  []
-  (rf.frame/frame-value->id (rf.frame/current-frame)))
-
-;; The route-map-shaped object handed to `install-managed-request-stubs!`.
-;; `stub-handler` only ever asks it for `[method url]`, so `ILookup` is the
-;; whole contract; resolving the frame at LOOKUP time (not install time) is
-;; what gives two concurrently mounted variants their own replies.
-(deftype FrameScopedRoutes []
-  #?(:clj clojure.lang.ILookup :cljs ILookup)
-  (#?(:clj valAt :cljs -lookup) [_ k]
-    (get (routes-for (current-frame-id)) k))
-  (#?(:clj valAt :cljs -lookup) [_ k not-found]
-    (get (routes-for (current-frame-id)) k not-found)))
-
-(def ^:private frame-scoped-routes
-  "The single `stubs` object every Story install shares. One instance: the
-  per-frame answer comes from the registry it reads, never from the object."
-  (->FrameScopedRoutes))
-
-(defn- install!
-  "Register `:rf.http/managed-test-stub` over the frame-scoped route map."
-  []
-  (let [install #?(:clj  (requiring-resolve 're-frame.http.test-support/install-managed-request-stubs!)
-                   :cljs rf.http.test-support/install-managed-request-stubs!)]
-    (install frame-scoped-routes)))
-
-(defn- uninstall!
-  []
-  (let [uninstall #?(:clj  (requiring-resolve 're-frame.http.test-support/uninstall-managed-request-stubs!)
-                     :cljs rf.http.test-support/uninstall-managed-request-stubs!)]
-    (uninstall)))
-
-(defn release-frame!
-  "Drop `frame-id`'s ownership of its canned replies, and uninstall the stub
-  fx once no Story frame owns any — the non-empty→empty edge of the single
-  install/uninstall pair. Called from frame teardown (`destroy!` /
-  `destroy-inline!`), so a reset, a destroy and an inline run's completion
-  all release exactly the one fixture they own and leave every other mounted
-  variant's replies intact. Idempotent — releasing an unowned frame is a
-  no-op and never touches the install stack."
-  [frame-id]
-  (when (contains? @frame-routes frame-id)
-    (swap! frame-routes dissoc frame-id)
-    (when (empty? @frame-routes) (uninstall!)))
-  nil)
+(defn- stub-transport-fn
+  "The `re-frame.http.stub-transport` fn `sym` names, or nil when the http
+  artefact is not loaded and `require?` is false."
+  [sym require?]
+  #?(:clj  (let [qualified (symbol "re-frame.http.stub-transport" (name sym))]
+             (if require?
+               (requiring-resolve qualified)
+               (some-> (find-ns 're-frame.http.stub-transport) (ns-resolve sym))))
+     :cljs (case sym
+             install-transport! rf.http.stub-transport/install-transport!
+             route-transport    rf.http.stub-transport/route-transport)))
 
 (defn install-for-frame!
-  "Take ownership of `routes` for `frame-id` and make sure the stub fx the
-  plan's `:fx-overrides` redirect names is registered.
+  "Answer `frame-id`'s managed requests from `routes`, the variant's
+  `:network` route map, through a route transport installed on the frame.
 
   Called by the runtime BEFORE the frame is allocated — so before any
   `:frame-setup` `:init`, loader, `:setup` or script effect can issue a
-  managed request. Idempotent: re-running the same variant re-asserts the
-  same ownership without a second install.
+  managed request. Re-running the same variant re-installs the same routes.
 
-  An empty/absent `routes` RELEASES any ownership `frame-id` held, so a
-  variant recompiled without `:network` stops answering from a stale
-  fixture. Returns `frame-id`."
+  An empty/absent `routes` uninstalls any transport the frame held, so a
+  variant recompiled without `:network` stops answering from a stale fixture.
+  Returns `frame-id`."
   [frame-id routes]
-  (if-not (seq routes)
-    (do (release-frame! frame-id) frame-id)
-    (let [was-empty? (empty? @frame-routes)]
-      (swap! frame-routes assoc frame-id routes)
-      (when was-empty? (install!))
-      frame-id)))
-
-(defn fixture-image
-  "The library-owned image that projects the installed stub fx into a frame's
-  SELECTED generation — `nil` when no Story fixture is installed. The framework
-  base carries the same fx as well, so this image duplicates it.
-
-  Read the ns docstring §Reaching the stub through a selected image for the
-  why. The what is one line of image: a single inline `:reg-fx` republishing the handler
-  `install-managed-request-stubs!` just put in the source store, so the SAME
-  closure over the SAME `FrameScopedRoutes` object answers on both projections.
-  Nothing else rides along — the app image keeps its isolation, and only the
-  one fx id the plan's redirect actually names becomes resolvable.
-
-  Taking the handler from the store (rather than rebuilding one) is what keeps
-  this a projection instead of a second network simulator: there is no canned
-  reply implementation here to drift from `re-frame.http.test-support`'s.
-  Read at composition time, which the runtime orders AFTER
-  `install-for-frame!`, so the top of the helper's install stack is Story's own.
-
-  PURE — `rf/image` builds inert data; this registers nothing."
-  []
-  (when-let [handler (:handler-fn (rf/handler-meta {:source :store :kind :fx :id stub-fx-id}))]
-    (rf/image
-      {:id            fixture-image-id
-       :registrations {:reg-fx [[stub-fx-id
-                                 {:doc (str "Story :network fixture — the frame-scoped "
-                                            "managed-request stub, projected into a "
-                                            "selected image generation.")}
-                                 handler]]}})))
+  (if (seq routes)
+    ((stub-transport-fn 'install-transport! true)
+     frame-id ((stub-transport-fn 'route-transport true) routes))
+    (when-let [install (stub-transport-fn 'install-transport! false)]
+      (install frame-id nil)))
+  frame-id)

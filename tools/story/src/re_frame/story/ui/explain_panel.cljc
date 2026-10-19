@@ -133,7 +133,7 @@
 ;;   :steps      — an ordered vector of step/check/assertion forms
 ;;   :compose    — the composed fragment/check vector
 ;;   :conflicts  — the strict-conflict trail
-;;   :network    — the network lowering ({:routes :lowered-to})
+;;   :network    — the network routes ({:routes})
 ;;   :sub-ovr    — the sub-override lowering ({:overrides :validation})
 ;;   :runner     — the required-runner capability set
 ;;   :badges     — a set rendered as inline chips (platforms / tags / fidelity)
@@ -445,16 +445,11 @@
 
 #?(:cljs
    (defn- network-view
-     "Render the network lowering — per-route reply stubs + the managed-
-     stub fx the routes lower to."
-     [{:keys [routes lowered-to]}]
+     "Render the network routes — each route's stub-transport response."
+     [{:keys [routes]}]
      [:div
       (when (seq routes)
-        [kv-table routes])
-      (when (seq lowered-to)
-        [:div {:style (:section styles)}
-         [:div {:style (:empty styles)} "lowered to:"]
-         [kv-table lowered-to]])]))
+        [kv-table routes])]))
 
 #?(:cljs
    (defn- sub-ovr-view

@@ -11,8 +11,8 @@
             [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.http.managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
-            [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.story :as rf.story]
             [re-frame.story.args :as rf.story.args]
             [re-frame.story.artifact :as rf.story.artifact]
@@ -140,13 +140,20 @@
 ;; A :network-stubbed run: the link and the promoted body both re-derive it
 ;; ===========================================================================
 ;;
-;; Replay re-installs the per-route stubs from `:network`; without it every
-;; managed request fail-closes on "no stub matched" — a different run.
+;; Replay answers the run's requests from the `:network` routes through a stub
+;; transport; without it no replayed request is answered — a different run.
+
+;; Captured at ns load, while `:rf.http/managed` is registered. A fixture
+;; (this ns's or a sibling's) can clear the registrar before a network test
+;; runs, and a replay issues its requests through the real fx, so each network
+;; test restores this first.
+(def ^:private ns-load-registrar (rf.test-support/snapshot-registrar))
 
 (defn- register-network-event!
   "Register an event that issues a managed-HTTP request to `[method url]` and
   records the reply (routed back via `:reply-to`) in app-db under `:got`."
   [event-id [method url]]
+  (rf.test-support/restore-registrar! ns-load-registrar)
   (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg reply]]
       (if reply
@@ -156,8 +163,8 @@
                                  :reply-to [event-id msg]}]]}))))
 
 (defn- network-artifact
-  "The artifact a recorded HTTP run produces: its `:network` route map plus
-  the `:fx-decisions` managed-stub redirect."
+  "The artifact a recorded HTTP run produces, carrying its `:network` route
+  map."
   [routes script]
   (let [variant-id :story.promo-net/v
         plan       (rf.story.plan/variant-plan
@@ -168,7 +175,7 @@
 
 (deftest promotion-link-of-network-run-re-derives-it
   (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-  (let [art (network-artifact {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+  (let [art (network-artifact {[:get "/api/cart"] {:body {:items [{:sku "A"}]}}}
                               [[:dispatch [:promo-net/get-cart]]])
         run (rf.story.artifact/replay-run-artifact (rf.story.promotion/provenance-link art))
         got (:got (:app-db run))]
@@ -180,18 +187,19 @@
   (testing "the promoted BODY carries :network, so body → plan → ->artifact →
             replay reproduces the source run's reply"
     (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-    (let [art  (network-artifact {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+    (let [art  (network-artifact {[:get "/api/cart"] {:body {:items [{:sku "A"}]}}}
                                  [[:dispatch [:promo-net/get-cart]]])
           src  (rf.story.artifact/replay-run-artifact art)
           ran  (rf.story.artifact/replay-run-artifact
                  (rf.story.determinism/->artifact
                    (rf.story.plan/variant-plan (rf.story.promotion/artifact->variant-body art))))]
       (is (= (:status src) (:status ran) :pass))
-      ;; `:rf.frame/id` is a fresh per-replay frame id.
-      (is (= (dissoc (:got (:app-db src)) :rf.frame/id)
-             (dissoc (:got (:app-db ran)) :rf.frame/id)))
+      ;; `:rf.frame/id` is a fresh per-replay frame id, and `:completed-at`
+      ;; the reply's wall-clock time.
+      (is (= (dissoc (:got (:app-db src)) :rf.frame/id :completed-at)
+             (dissoc (:got (:app-db ran)) :rf.frame/id :completed-at)))
       (is (= :ok (:status (:got (:app-db ran))))
-          "the route stub matched — not a fail-closed 'no stub matched'"))))
+          "the route answered — not a fail-closed unmatched request"))))
 
 ;; ===========================================================================
 ;; A promoted regression fails for the reason its source failed

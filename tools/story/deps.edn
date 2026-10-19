@@ -32,14 +32,13 @@
          ;; lifecycle cannot run, so this is a runtime dependency.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
-         ;; Story's first-class `:network` world slot lowers to the
-         ;; managed-request stub
-         ;; machinery in `re-frame.http.test-support/install-managed-
-         ;; request-stubs!` (Spec 014 §Testing). Installing the stub fx
-         ;; for a `:network` variant frame is a RUNTIME concern, so the
-         ;; dep belongs in the main `:deps` (not the `:test` alias). The
-         ;; managed-HTTP fx surface (`:rf.http/managed`) ships in this same
-         ;; artefact under `re-frame.http.managed`.
+         ;; Story's first-class `:network` world slot is answered by a
+         ;; stub transport installed on the variant frame
+         ;; (`re-frame.http.stub-transport`, Spec 014 §Testing). That
+         ;; install is a RUNTIME concern, so the dep belongs in the main
+         ;; `:deps` (not the `:test` alias). The managed-HTTP fx surface
+         ;; (`:rf.http/managed`) ships in this same artefact under
+         ;; `re-frame.http.managed`.
          day8/re-frame2-http     {:local/root "../../implementation/http"}
 
          ;; Xray is Story's diagnostic engine, not an optional plugin.

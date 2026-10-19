@@ -34,8 +34,7 @@
    :substitutions [{:key :label :value "Hi"}]
    :effective-args {:label "Hi" :count 3}
    :view-args-validation {:status :ok :missing [] :malformed []}
-   :network      {:routes     {[:get "/api/cart"] {:reply {:ok {:items []}}}}
-                  :lowered-to {:rf.http/managed :rf.http/managed-test-stub}}
+   :network      {:routes {[:get "/api/cart"] {:body {:items []}}}}
    :sub-overrides {:overrides  {[:cart/total] 42}
                    :validation {:status :ok :violations []}}
    :fidelity     #{:real-setup :sub-overrides}
