@@ -16,7 +16,7 @@
 
 (deftest canonical-replies-validate
   (testing ":status :ok success, with the response's wire facts riding :meta verbatim"
-    (let [meta* {:status 200 :status-text "OK"
+    (let [meta* {:http-status 200 :status-text "OK"
                  :headers {"content-type" "application/json" "set-cookie" ["a=1; Path=/" "b=2; Path=/"]}}
           r     (rf.http.reply/success-reply ctx {:title "Welcome"} meta*)]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
@@ -30,9 +30,9 @@
                                           (rf.http.reply/success-reply ctx {:v 1} nil)])
           "absent metadata is omitted, never fabricated")))
   (testing ":status :error failure"
-    (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
+    (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/http-5xx :http-status 503})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= {:status :error :rf.reply/work-status :failed :error {:kind :rf.http/http-5xx :status 503}}
+      (is (= {:status :error :rf.reply/work-status :failed :error {:kind :rf.http/http-5xx :http-status 503}}
              (select-keys r [:status :rf.reply/work-status :error])))))
   (testing "timeout is :status :error with :rf.reply/work-status :timed-out"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]

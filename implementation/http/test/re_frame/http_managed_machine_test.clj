@@ -135,8 +135,8 @@
         (rf/dispatch-sync [:app/auth2 [:login]])
         (await-condition!
           #(= :login-failed (:state (snapshot :app/auth2))))
-        (is (= {:kind :rf.http/http-4xx :status 404}
-               (select-keys (:failure (:data (snapshot :app/auth2))) [:kind :status])))
+        (is (= {:kind :rf.http/http-4xx :http-status 404}
+               (select-keys (:failure (:data (snapshot :app/auth2))) [:kind :http-status])))
         (finally (stop-server! srv)))))
 
 (deftest spawn-cancellation-parent-destroys-mid-flight

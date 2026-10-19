@@ -90,7 +90,7 @@
                   #(fire! {:request {:url url} :decode :json}))]
       (is (= [:ok {:id 1 :name "one"} 1]
              [(:status reply) (:value reply) (:attempt reply)]))
-      (is (= {:status 200 :status-text "" :headers {"x-total" "1" "content-type" "application/json"}}
+      (is (= {:http-status 200 :status-text "" :headers {"x-total" "1" "content-type" "application/json"}}
              (:meta reply))
           "the response meta, header names lower-cased as the hosts deliver them")
       (is (= [:rf.work/http 1 1] (:rf.reply/work-id reply)))

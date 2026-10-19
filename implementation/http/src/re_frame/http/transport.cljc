@@ -348,7 +348,7 @@
 ;; `:rf.frame/id`, `:completed-at`, and `:correlation {:request-id …}` (the
 ;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
 ;; A live-transport SUCCESS additionally carries the response wire facts under
-;; `:meta` — `{:status :status-text :headers}` as the transport normalized
+;; `:meta` — `{:http-status :status-text :headers}` as the transport normalized
 ;; them, so `:after` middleware and the app target can read the
 ;; actual status/headers on success as the failure paths already do on `:error`.
 ;; `reply-ctx` below supplies that map's correlation and identity facts; the
@@ -619,7 +619,7 @@
   final `:status` picks the target.
 
   The ctx's `:response-meta` (the successful response's
-  actual `:status` / `:status-text` / normalized `:headers`, threaded from
+  actual `:http-status` / `:status-text` / normalized `:headers`, threaded from
   `handle-response!`'s 2xx branch) rides the canonical reply under `:meta`
   so both the `:after` chain and the app reply target can read it."
   [ctx value]
@@ -1080,7 +1080,7 @@
   raw text otherwise. The request's `:decode` never runs here."
   [kind ctx {:keys [status status-text headers body-text]}]
   {:kind        kind
-   :status      status
+   :http-status status
    :status-text status-text
    :body        (rf.http.decode/decode-error-body body-text headers (:max-decoded-keys ctx))
    :body-text   body-text
@@ -1204,7 +1204,7 @@
                 ;; Cache-Control `:after` use cases parse).
                 ctx'    (assoc ctx
                                :decoded decoded
-                               :response-meta {:status      status
+                               :response-meta {:http-status status
                                                :status-text status-text
                                                :headers     headers})
                 ;; RESPONSE-BODY classification (EP-0015 §8,

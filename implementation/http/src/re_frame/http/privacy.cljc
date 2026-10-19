@@ -450,7 +450,7 @@
   `[:meta :headers]` before the reply rides a trace surface.
 
   A successful completion's reply carries the response wire facts under
-  `:meta` (`{:status :status-text :headers}` — `re-frame.http.reply/
+  `:meta` (`{:http-status :status-text :headers}` — `re-frame.http.reply/
   success-reply`). The reply DELIVERED to the app rides raw (on-box app
   data — the caller's own response); this redactor fires only on the
   trace-egress path, substituting `:rf/redacted` for every header whose
