@@ -1,11 +1,12 @@
 (ns re-frame.source-coord-jvm-test
   "`:rf.trace/call-site` on `:rf.error/*` trace events: the invocation line of
-  the user-facing `dispatch-sync` / `subscribe` macro call that produced the
-  error, as a flat top-level `{:ns :file :line :column}` sibling of
-  `:rf.trace/trigger-handler`. The macro stamps it; the owning-ns fn-form
-  (`re-frame.router/dispatch-sync!`) does not. The macros expand on the JVM for
-  both targets and the delivery path is platform-neutral `.cljc`, so this
-  JVM-only suite (`-jvm-test` keeps it off `:node-test`) covers both hosts.
+  the user-facing `dispatch-sync` macro call that produced the error, as a flat
+  top-level `{:ns :file :line :column}` sibling of `:rf.trace/trigger-handler`.
+  The macro stamps it; the owning-ns fn-form (`re-frame.router/dispatch-sync!`)
+  does not, and neither does `subscribe`, a plain fn with no expansion to
+  capture its line. The macros expand on the JVM for both targets and the
+  delivery path is platform-neutral `.cljc`, so this JVM-only suite
+  (`-jvm-test` keeps it off `:node-test`) covers both hosts.
 
   ## Posture split
 
@@ -96,11 +97,16 @@
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))
 
-(deftest subscribe-macro-stamps-call-site-on-no-such-sub
-  (let [{:keys [traces errors]} (record-both #(rf/subscribe [:rf2-ts1a/no-such-sub]))]
+(deftest subscribe-omits-call-site-on-no-such-sub
+  ;; A plain fn: the miss reaches the same production record and its dev trace
+  ;; carries no call-site. A `reg-view` body's reads carry the view's coord
+  ;; instead (`reg_view_injection_test.clj`).
+  (let [{:keys [traces errors]} (record-both #(rf/subscribe [:rf2-ts1a/no-such-sub]))
+        [miss] (errors-of traces :rf.error/no-such-sub)]
     (assert-production-record errors :rf.error/no-such-sub)
     (when rf.interop/debug-enabled?
-      (assert-call-site-shape (first (errors-of traces :rf.error/no-such-sub))))))
+      (is (some? miss))
+      (is (not (contains? miss :rf.trace/call-site))))))
 
 (deftest dispatch-sync-macro-stamps-call-site-on-handler-exception
   ;; The call-site rides the envelope into errors emitted inside the handler

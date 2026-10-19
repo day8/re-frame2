@@ -1,9 +1,10 @@
 (ns re-frame.subscribe-opts-arity-cljs-test
-  "The public `subscribe` arities, end-to-end through the `rf/subscribe` macro
+  "The public `subscribe` arities, end-to-end through `rf/subscribe`
   (002-Frames §Frame-targeted dispatch and subscribe; API.md §Dispatch and
   subscribe): `(subscribe query-v {:frame target})` reads the named frame, and
   the 1-arity, or opts without `:frame`, resolves the carried `with-frame`
   scope and fails loud with `:rf.error/no-frame-context` absent one.
+  `subscribe` is a plain fn on both hosts, so it is also a value.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -54,3 +55,15 @@
           (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))
           (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val] {:other true}))
           (:rf.error/id (ex-data-of #(deref (rf/subscribe [:soa/val] {:other true}))))])))
+
+(deftest subscribe-is-a-value-on-both-hosts
+  ;; A plain fn composes: mapped over query vectors in the carried scope, and
+  ;; partially applied over per-frame opts.
+  (setup!)
+  (rf/reg-sub :soa/tag (fn [db _] [:tag (:v db)]))
+  (is (= [:A [:tag :A]]
+         (rf/with-frame :soa/t1
+           (mapv deref (map rf/subscribe [[:soa/val] [:soa/tag]])))))
+  (is (= [:A :B]
+         (mapv deref (map (partial rf/subscribe [:soa/val])
+                          [{:frame :soa/t1} {:frame :soa/t2}])))))
