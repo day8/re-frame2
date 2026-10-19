@@ -92,11 +92,37 @@ and wrap the root view's `case` in it:
       {})))
 ```
 
-**Signing in and out change the reader.** Signing in needs nothing extra: login ends by navigating, and a newly entered route plans its reads under the new reader. Signing out needs one more step.
+**Signing in and out change the reader, and both say so with the same event.** Signing in ends by navigating, and the new route plans its reads under the new reader, but navigating clears nothing: the anonymous reader's entries stay cached, and whatever still holds one keeps refetching it on focus, reconnect or an invalidation, now with the new token. Extend Part 3's `:auth.login-form/submit-success` in `auth.cljc`, and add `[conduit.scope]` to that file's requires, because sign-in now names the viewer resolver:
+
+```clojure
+(rf/reg-event :auth.login-form/submit-success
+  {:sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value correlation]}]]
+    (if (not= (:auth-generation db) (second (:request-id correlation)))
+      {}
+      (let [user (:user value)
+            return-to (get-in db [:auth :return-to])]
+        {:db (-> db
+                 (update :auth-generation inc)
+                 (assoc-in [:auth :user] (dissoc user :token))
+                 (assoc-in [:auth :token] (:token user))
+                 (update :auth dissoc :return-to)
+                 (update-in [:auth :login-form]
+                            #(assoc % :status :submitted :submitted (:draft %))))
+         :fx [[:auth.session/persist {:token (:token user)}]
+              [:dispatch [:rf.resource/change-principal
+                          {:from  [(rf/resolve-resource-scope db :conduit/viewer)]
+                           :cause [:login]}]]
+              [:dispatch (if return-to
+                           [:rf.route/navigate (assoc return-to :replace? true)]
+                           [:rf.route/navigate {:to :conduit/home :replace? true}])]]}))))
+```
+
+`rf/resolve-resource-scope` runs the viewer resolver against the handler's `db`, the value *before* this event, so it names the reader who is leaving: the anonymous one, or whoever was signed in before. The change of principal is queued ahead of the navigate, so that reader's entries are gone before the next page plans its reads. The generation guard and the classified token payload are Part 3's, unchanged.
 
 ## Sign-out clears the reader's cache
 
-Part 3's `:auth/logout` ends the session. Now it also leaves a reader's cache behind. Replace it in `auth.cljc`, and add `[conduit.scope]` to that file's requires, because logout now names the viewer resolver:
+Part 3's `:auth/logout` ends the session. Now it also leaves a reader's cache behind. Replace it in `auth.cljc`:
 
 ```clojure
 (rf/reg-event :auth/logout
