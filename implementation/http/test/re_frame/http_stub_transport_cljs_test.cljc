@@ -143,6 +143,24 @@
   (rf.frame/destroy-frame! app)
   (is (nil? (rf.http.registry/frame-transport app)) "destroying the frame drops it"))
 
+(deftest a-live-frame-value-installs-under-its-id
+  (let [f        (fresh-frame!)
+        by-id    (answering {:body {:via "id"}})
+        by-value (answering {:body {:via "value"}})]
+    (testing "installing by the live value is installing by the id"
+      (rf.http.stub-transport/install-transport! app by-id)
+      (rf.http.stub-transport/install-transport! f by-value)
+      (is (identical? by-value (rf.http.registry/frame-transport app)))
+      (is (nil? (rf.http.registry/frame-transport f)) "nothing is keyed under the value")
+      (is (= {:via "value"} (:value (fire! {:request {:url url} :decode :json})))))
+    (testing "uninstalling by the value clears it"
+      (rf.http.stub-transport/install-transport! f nil)
+      (is (nil? (rf.http.registry/frame-transport app))))
+    (testing "destroying the frame drops a transport installed by its value"
+      (rf.http.stub-transport/install-transport! f by-value)
+      (rf/destroy-frame! f)
+      (is (nil? (rf.http.registry/frame-transport app))))))
+
 (deftest an-unmatched-route-fails-as-a-transport-failure
   (fresh-frame!)
   (let [reply (rf.http.stub-transport/with-transport (rf.http.stub-transport/route-transport {})

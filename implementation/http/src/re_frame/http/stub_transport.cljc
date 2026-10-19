@@ -43,6 +43,7 @@
   (:require [re-frame.http.decode    :as rf.http.decode]
             [re-frame.http.json      :as rf.http.json]
             [re-frame.http.registry  :as rf.http.registry]
+            [re-frame.frame          :as rf.frame]
             [re-frame.http.transport :as rf.http.transport]
             [re-frame.interop        :as rf.interop]))
 
@@ -148,9 +149,10 @@
     (thunk)))
 
 (defn install-transport!
-  "Send every `:rf.http/managed` request the frame `frame-id` issues through
-  `transport` — a demo's fake backend — until the frame is destroyed. `nil`
-  uninstalls it. A `with-transport` scope still wins for the requests issued
-  inside it. Returns nil."
-  [frame-id transport]
-  (rf.http.registry/install-frame-transport! frame-id transport))
+  "Send every `:rf.http/managed` request `frame` issues through `transport` —
+  a demo's fake backend — until the frame is destroyed. `frame` is a frame id
+  or a live frame value, which names the same frame. `nil` uninstalls it. A
+  `with-transport` scope still wins for the requests issued inside it.
+  Returns nil."
+  [frame transport]
+  (rf.http.registry/install-frame-transport! (rf.frame/frame-value->id frame) transport))
