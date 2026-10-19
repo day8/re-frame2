@@ -69,7 +69,8 @@
 
   `:strategy` is REQUIRED — `scroll-fx-entry` always seeds it, and a
   strategy-less scroll has no defensible interpretation. The vocabulary
-  is the CLOSED three-keyword enum `:top` / `:restore` / `:preserve`.
+  is the CLOSED enum `:top` / `:restore`. \"Don't scroll\" is no strategy:
+  `:scroll false` on a route or a navigation emits no effect at all.
 
   There is no map-shaped \"host-extensible\" strategy. Nothing would
   interpret one — `scroll-fx-handler` has no extension seam, so a map
@@ -80,11 +81,9 @@
   the `:fx-args` boundary for an app that emits `:rf.nav/scroll` itself (a
   navigation's `:scroll` is refused earlier, by the navigate gate or by
   `reg-route`) — an unsupported strategy is rejected (fx skipped, `:rf.error/schema-validation-failure
-  :where :fx-args`) BEFORE the handler runs. The handler's own default
-  branch is the schemas-absent backstop: it emits
-  `:rf.error/unsupported-scroll-strategy` rather than returning nil, so
-  the contract is loud on every host regardless of whether the optional
-  schemas artefact is on the classpath.
+  :where :fx-args`) BEFORE the handler runs. Without the optional schemas
+  artefact the handler throws on it instead, surfacing as
+  `:rf.error/fx-handler-exception`, so the contract is loud on every host.
 
   `:saved-pos` members are `number?`, not `:int`. The position is read
   straight off `window.scrollX` / `window.scrollY`, which are
@@ -99,7 +98,7 @@
   registration). Both are optional: the initial navigation has no
   `:from`, and `scroll-fx-entry` omits either when nil."
   [:map
-   [:strategy  [:enum :top :restore :preserve]]                         ;; CLOSED vocabulary
+   [:strategy  [:enum :top :restore]]                                   ;; CLOSED vocabulary
    [:from      {:optional true} [:map
                                  [:id     :keyword]
                                  [:params {:optional true} :map]

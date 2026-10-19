@@ -486,17 +486,20 @@
     (is (= :route/no-events (rf/reg-route :route/no-events {:on-match nil} "/no-events")))))
 
 (deftest reg-route-refuses-an-unsupported-scroll
-  (testing "a :scroll outside :top / :restore / :preserve / false is refused at
+  (testing "a :scroll outside :top / :restore / false is refused at
             registration rather than failing inside the :rf.nav/scroll fx"
-    (doseq [v [{:behavior :smooth} :smooth true]]
+    (doseq [v [{:behavior :smooth} :smooth true :preserve]]
       (is (= {:rf.error/id :rf.error/route-bad-metadata :keys [:scroll] :value v}
              (select-keys (thrown-data #(rf/reg-route :route/bad-scroll {:scroll v} "/bad-scroll"))
                           [:rf.error/id :keys :value]))
           (pr-str v))))
+  (testing "the refusal names false, the one spelling for don't scroll"
+    (is (re-find #"or false, got :preserve"
+                 (:reason (thrown-data #(rf/reg-route :route/keep {:scroll :preserve} "/keep")))))))
   (testing "the vocabulary, false and nil register"
-    (is (= [:route/s0 :route/s1 :route/s2 :route/s3 :route/s4]
+    (is (= [:route/s0 :route/s1 :route/s2 :route/s3]
            (map-indexed (fn [i v] (rf/reg-route (keyword "route" (str "s" i)) {:scroll v} (str "/s" i)))
-                        [:top :restore :preserve false nil])))))
+                        [:top :restore false nil])))))
 
 ;; Spec 001 §Production elision contract: a programmatic registration carries
 ;; no captured source ns, so stamping a bare `:ns` is how it becomes

@@ -70,8 +70,9 @@
 
 (def scroll-strategies
   "The CLOSED scroll strategy vocabulary (Spec 012 §Scroll restoration),
-  ordered for diagnostics. The `:rf.nav/scroll` fx takes exactly these."
-  [:top :restore :preserve])
+  ordered for diagnostics. The `:rf.nav/scroll` fx takes exactly these.
+  \"Don't scroll\" is not a strategy: `false` suppresses the effect."
+  [:top :restore])
 
 (defn valid-scroll?
   "True when `v` may stand as a `:scroll` policy, on a navigation request or

@@ -1,7 +1,7 @@
 (ns re-frame.routing-nav-fx-schemas-cljs-test
   "End-to-end proof that the runtime `:schema` on the standard `:rf.nav/*` fx
-  gates the handlers, and that the scroll handler's own always-on rejection
-  holds where no schema gate runs.
+  gates the handlers, and that where no schema gate runs an unsupported scroll
+  strategy still surfaces, as the ordinary `:rf.error/fx-handler-exception`.
 
   All four nav fx are `:platforms #{:client}`, so on the JVM
   `re-frame.fx/handle-one-fx` skips them before the Spec 010 step-5
@@ -19,6 +19,7 @@
   onto the `scrollX` / `scrollY` fields the handlers read."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.scroll :as rf.routing.scroll]
@@ -59,9 +60,6 @@
 
 (defn- violations [traces]
   (filterv #(= :rf.error/schema-validation-failure (:operation %)) traces))
-
-(defn- unsupported [traces]
-  (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %)) traces))
 
 (defn- scroll-xy []
   [(.-scrollX js/window) (.-scrollY js/window)])
@@ -111,42 +109,72 @@
             "exactly one :fx-args violation, recovery :skipped")))))
 
 ;; =========================================================================
-;; The scroll handler's always-on leg
+;; An unsupported scroll strategy is an ordinary fx exception
 ;; =========================================================================
 
-(deftest scroll-handler-emits-the-unsupported-strategy-error-directly
-  (testing "with no schemas artefact, fx-args validation soft-passes and the
-            handler is the last line of defence; called directly, it emits
-            :rf.error/unsupported-scroll-strategy for a map-form strategy and
-            scrolls nothing"
-    (set-scroll! 0 700)
-    (with-trace-recorder! [traces]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                           {:strategy {:to :element :selector "#article"}})
-      ;; `:recovery` rides on the envelope, not in :tags (Spec 009 §Core fields).
-      (is (= [[{:strategy  {:to :element :selector "#article"}
-                :supported [:top :restore :preserve]
-                :frame     :rf/default
-                :reason    rf.routing.scroll/unsupported-strategy-reason
-                :recovery  :no-scroll}]
-              [0 700]]
-             [(mapv #(assoc (select-keys (:tags %) [:strategy :supported :frame :reason])
-                            :recovery (:recovery %))
-                    (unsupported @traces))
-              (scroll-xy)])
-          "one loud rejection naming the value, the vocabulary and the frame, and no scroll"))))
+(defn- without-fx-schemas
+  "Run `f` as a host without the optional schemas artefact runs it: with
+  `:schemas/validate-fx!` unpublished, the `:fx-args` gate soft-passes."
+  [f]
+  (let [validate-fx! (rf.late-bind/get-fn :schemas/validate-fx!)]
+    (try
+      (rf.late-bind/set-fn! :schemas/validate-fx! nil)
+      (f)
+      (finally (rf.late-bind/set-fn! :schemas/validate-fx! validate-fx!)))))
 
-(deftest scroll-handler-positive-control-the-three-supported-strategies
-  (testing "each supported strategy drives its own branch and emits no
-            unsupported-strategy error (one emit feeds both the dev trace and
-            the always-on record, so the trace speaks for both)"
+(defn- always-on-records
+  "Run `f` and return the always-on error records it fanned out."
+  [f]
+  (let [records (atom [])]
+    (rf.error-emit/register-error-listener! ::recorder #(swap! records conj %))
+    (try
+      (f)
+      (finally (rf.error-emit/unregister-error-listener! ::recorder)))
+    @records))
+
+(deftest a-directly-emitted-unsupported-strategy-is-one-fx-handler-exception
+  (rf/reg-event :test/bogus-scroll
+                (fn [_ _] {:fx [[:rf.nav/scroll {:strategy :bogus}]
+                                [:test/witness  nil]]}))
+  (let [witness (sibling-calls)]
+    (testing "with no schemas artefact the handler throws, so exactly one
+              always-on :rf.error/fx-handler-exception names the fx and says how
+              to not scroll; nothing scrolls and the sibling fx still runs"
+      (set-scroll! 0 700)
+      (let [records (always-on-records
+                      #(without-fx-schemas (fn [] (rf/dispatch-sync [:test/bogus-scroll]))))]
+        (is (= [[:rf.error/fx-handler-exception :rf.nav/scroll]]
+               (mapv (juxt :rf.error/id :failing-id) records)))
+        (is (re-find #":scroll false" (str (:reason (first records)))))
+        (is (= [1 [0 700]] [@witness (scroll-xy)]))))
+    (testing "with the schemas artefact the :fx-args gate refuses it first, and
+              the handler never runs"
+      (reset! witness 0)
+      (with-trace-recorder! [traces]
+        (let [records (always-on-records #(rf/dispatch-sync [:test/bogus-scroll]))]
+          (is (= [[:fx-args :rf.nav/scroll :skipped]]
+                 (mapv (juxt (comp :where :tags) (comp :rf.fx/id :tags) :recovery)
+                       (violations @traces))))
+          (is (= [] (filterv #(= :rf.error/fx-handler-exception (:rf.error/id %)) records)))
+          (is (= 1 @witness)))))))
+
+(deftest scroll-handler-throws-on-every-strategy-outside-the-vocabulary
+  (testing "called directly, the handler throws for :preserve, an unknown
+            keyword and a map alike, and scrolls nothing"
+    (doseq [strategy [:preserve :bogus {:to :element :selector "#article"}]]
+      (set-scroll! 0 700)
+      (is (= [:rf.error/fx-handler-exception [0 700]]
+             [(try (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy strategy})
+                   nil
+                   (catch :default e (:rf.error/id (ex-data e))))
+              (scroll-xy)])
+          (pr-str strategy)))))
+
+(deftest scroll-handler-positive-control-the-two-strategies
+  (testing "each strategy drives its own branch and throws nothing"
     (doseq [[args expected] [;; no fragment element in the stub, so :top lands at (0,0)
                              [{:strategy :top}                            [0 0]]
-                             [{:strategy :restore :saved-pos [12 3400.5]} [12 3400.5]]
-                             ;; a documented no-op, which is not a rejection
-                             [{:strategy :preserve}                       [0 700]]]]
+                             [{:strategy :restore :saved-pos [12 3400.5]} [12 3400.5]]]]
       (set-scroll! 0 700)
-      (with-trace-recorder! [traces]
-        (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args))
-        (is (= [expected []] [(scroll-xy) (unsupported @traces)])
-            (str (:strategy args)))))))
+      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args))
+      (is (= expected (scroll-xy)) (str (:strategy args))))))
