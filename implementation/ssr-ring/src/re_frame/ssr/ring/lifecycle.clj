@@ -169,7 +169,7 @@
       {:head-html "" :html-attrs nil :body-attrs nil})))
 
 (defn resolve-initial-events!
-  "Resolve the caller's `:initial-events` opt to the setup vector
+  "Resolve the `:initial-events` of the handler's `:frame` to the setup vector
   (an ordered vector of events) dispatched at per-request frame creation,
   given the live Ring `request`. Two accepted forms:
 
@@ -215,25 +215,72 @@
       :rf.error/invalid-initial-events
       'rf.ssr/ssr-handler
       (str ":initial-events must be a vector OR a (fn [request] initial-events-vector); "
-           "pass one of those as :initial-events.")
+           "pass one of those as :initial-events inside :frame.")
       {:recovery :supply-a-vector-or-a-fn-of-the-request
        :extra    {:received initial-events}})))
 
+(def ^:private frame-config-opts
+  "Frame-config keys a handler takes inside `:frame`, refused at the
+  handler's top level so a config split across the two places cannot be
+  half-read."
+  [:initial-events :fx-overrides :ssr :url-strategy])
+
+(def ^:private handler-owned-frame-keys
+  "Frame-config keys the handler sets on every request frame itself: `:id`
+  is the fresh per-request id the request slot is keyed by, and `:platform`
+  is `:server`. A `:frame` carrying either is refused rather than obeyed or
+  silently overridden."
+  [:id :platform])
+
+(defn validate-frame-opt!
+  "Throw `:rf.error/ssr-ring-frame-opt-invalid` unless the handler's frame
+  config is one `:frame` map: no frame-config key at the handler's top level
+  (`:recovery :move-the-frame-config-into-frame`), a `:frame` that is a map
+  (`:supply-a-frame-config-map`), and neither `:id` nor `:platform` inside it
+  (`:remove-the-handler-owned-key`). Returns `opts` unchanged."
+  [{:keys [frame] :as opts}]
+  (when-some [misplaced (seq (filter #(contains? opts %) frame-config-opts))]
+    (rf.error/throw-error!
+      :rf.error/ssr-ring-frame-opt-invalid
+      'rf.ssr/ssr-handler
+      (str "ssr-handler takes the app's frame config as one :frame map; move "
+           (pr-str (vec misplaced)) " inside :frame, e.g. "
+           "{:frame {:initial-events [[:app/server-init]]}}.")
+      {:recovery :move-the-frame-config-into-frame
+       :extra    {:keys (vec misplaced)}}))
+  (when-not (or (nil? frame) (map? frame))
+    (rf.error/throw-error!
+      :rf.error/ssr-ring-frame-opt-invalid
+      'rf.ssr/ssr-handler
+      "ssr-handler's :frame is the app's frame config, a map; pass one as :frame."
+      {:recovery :supply-a-frame-config-map
+       :extra    {:received (rf.error/diag-value-summary frame)}}))
+  (when-some [owned (seq (filter #(contains? frame %) handler-owned-frame-keys))]
+    (rf.error/throw-error!
+      :rf.error/ssr-ring-frame-opt-invalid
+      'rf.ssr/ssr-handler
+      (str "ssr-handler owns the request frame's :id and :platform; remove "
+           (pr-str (vec owned)) " from :frame.")
+      {:recovery :remove-the-handler-owned-key
+       :extra    {:keys (vec owned)}}))
+  opts)
+
 (defn validate-required-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required handler opt. `:initial-events` is always
-  required; `:root-view` is required iff no `:renderer` is supplied —
+  caller omits a required handler opt. `:initial-events` inside `:frame` is
+  always required; `:root-view` is required iff no `:renderer` is supplied —
   only the default JVM-local renderer reads it, so with a custom renderer
   it is optional and ignored.
 
   The handler fails at construction rather than on the first request.
   Returns `opts` unchanged."
-  [{:keys [initial-events root-view renderer] :as opts}]
-  (when-not initial-events
+  [{:keys [frame root-view renderer] :as opts}]
+  (when-not (:initial-events frame)
     (rf.error/throw-error!
       :rf.error/ssr-ring-missing-initial-events
       'rf.ssr/ssr-handler
-      "ssr-handler requires :initial-events (a vector of events); supply :initial-events in the handler opts."
+      (str "ssr-handler requires :initial-events inside :frame (a vector of events, "
+           "or a (fn [request] events)); supply {:frame {:initial-events [...]}}.")
       {:recovery :supply-the-initial-events-opt}))
   (when-not (or root-view renderer)
     (rf.error/throw-error!
@@ -246,12 +293,14 @@
   opts)
 
 (defn validate-construction-opts!
-  "Run the full fail-closed-at-boot validation triple for
+  "Run the full fail-closed-at-boot validation for
   `re-frame.ssr.ring/ssr-handler`. A misconfigured handler
   refuses to construct rather than failing per request. The checks are:
 
-    1. required-opt presence (`:initial-events` / `:root-view`) via
-       `validate-required-opts!`.
+    0. the frame config is one `:frame` map, without the `:id` and
+       `:platform` the handler owns, via `validate-frame-opt!`.
+    1. required-opt presence (`:initial-events` inside `:frame`,
+       `:root-view`) via `validate-required-opts!`.
     2. hydration-payload policy (the single `:payload` opt — vector
        allowlist or whole-app-db keyword — and its optional
        `:payload-include-sensitive` permit) via
@@ -273,6 +322,7 @@
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
   [opts]
+  (validate-frame-opt! opts)
   (validate-required-opts! opts)
   (rf.ssr.payload-policy/validate-policy-opts! opts)
   (rf.ssr.ring.trust/validate-trusted-shell-opts! opts))

@@ -49,7 +49,7 @@
     (fn [] [:input {:type "hidden" :name "csrf" :value (rf/subscribe-once [:rf.hjz4r/csrf])}])))
 
 (def ^:private handler-opts
-  {:initial-events            [[:rf.hjz4r/seed-session]]
+  {:frame {:initial-events            [[:rf.hjz4r/seed-session]]}
    :payload                   [:session]
    :payload-include-sensitive [[:session :csrf]]})
 

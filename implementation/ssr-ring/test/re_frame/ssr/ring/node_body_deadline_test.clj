@@ -64,7 +64,7 @@
   (with-stalling-peer
     (fn [url release]
       (let [h (rf.ssr.ring/ssr-handler
-                {:initial-events [[:rf.test.body-deadline/init]]
+                {:frame {:initial-events [[:rf.test.body-deadline/init]]}
                  :payload        [:heading]
                  :renderer       (rf.ssr.ring.node/renderer
                                    {:endpoint     url

@@ -166,7 +166,7 @@
                   (fn [] [(keyword "has space")]))
 
     (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/ok-bad-tag]]
+                    {:frame {:initial-events [[:init/ok-bad-tag]]}
                      :root-view [(rf/view :pages/bad-tag)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (rf.ssr.ring.test-support/with-jetty [port handler]
@@ -237,7 +237,7 @@
                   (fn [] [:div.page "rendered after projection"]))
 
     (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/bad-cookie]]
+                    {:frame {:initial-events [[:init/bad-cookie]]}
                      :root-view [(rf/view :pages/bad-cookie-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (rf.ssr.ring.test-support/with-jetty [port handler]
@@ -283,7 +283,7 @@
                   (fn [] [:div.page "rendered after projection"]))
 
     (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/bad-header]]
+                    {:frame {:initial-events [[:init/bad-header]]}
                      :root-view [(rf/view :pages/bad-header-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (rf.ssr.ring.test-support/with-jetty [port handler]
@@ -335,7 +335,7 @@
                        [:p "Bytes-on-wire e2e proof."]])))
 
     (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/ok]]
+                    {:frame {:initial-events [[:init/ok]]}
                      :root-view (fn [] ((rf/view :pages/greeting)))
                      :payload :rf.ssr.payload/whole-app-db})]
       (rf.ssr.ring.test-support/with-jetty [port handler]

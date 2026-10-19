@@ -454,7 +454,7 @@
   builds the ONE `HttpClient` the renderer reuses, and returns the fn.
 
       (ssr-ring/ssr-handler
-        {:initial-events [[:app/init]]
+        {:frame          {:initial-events [[:app/init]]}
          :payload        [:todos]
          :renderer       (node/renderer
                            {:endpoint     \"http://127.0.0.1:8148\"

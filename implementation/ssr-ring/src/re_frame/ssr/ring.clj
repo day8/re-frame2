@@ -95,10 +95,31 @@
 
   Required opts:
 
-    :initial-events — ordered event vector, or `(fn [request] events)` called
-                      once before the drain. Put durable request-derived facts
-                      in an event payload; use the `:rf.server/request` coeffect
-                      for ambient request reads.
+    :frame          — the app's frame config, the map `make-frame` takes and
+                      the browser mounts with, so one var serves both halves.
+                      It reaches each request frame whole: `:fx-overrides`
+                      (e.g. stubbing `:rf.http/managed` in tests), `:ssr`
+                      (e.g. `{:dev-error-detail? true
+                      :public-error-id :myapp/projector}`), `:url-strategy`
+                      (Spec 012 §URL strategies, e.g. `(with-base-path
+                      history-url-strategy \"/realworld\")`, so `route-link`
+                      hrefs in the server shell encode exactly as the hydrated
+                      client re-encodes them; a malformed value — an explicit
+                      nil included — fails the request with
+                      `:rf.error/invalid-url-strategy` through `:on-error`)
+                      and every other frame-config key. The handler owns
+                      `:id` (a fresh per-request id) and `:platform`
+                      (`:server`) and refuses either here; the frame-config
+                      keys refuse at the handler's top level, naming `:frame`.
+
+                      `:frame`'s `:initial-events` is required: an ordered
+                      event vector, or `(fn [request] events)` called once
+                      per request, after the request slot is filled and
+                      before the drain. It lives inside `:frame` because it
+                      is frame config — the browser boot runs the same
+                      events. Put durable request-derived facts in an event
+                      payload; use the `:rf.server/request` coeffect for
+                      ambient request reads.
     :root-view      — hiccup vector or 0-arity fn returning hiccup, rendered
                       (head must be a CALLABLE — the Var reg-view defs, or
                       (rf/view :id); a keyword head is an HTML element, never
@@ -126,12 +147,6 @@
                       through a classified ancestor. Absent, every
                       classified value arrives as `:rf/redacted`. A
                       malformed value fails at handler construction.
-    :fx-overrides   — per-frame `:fx-overrides` map, passed through
-                      verbatim to `(rf/make-frame ...)`. Useful for
-                      stubbing `:rf.http/managed` during tests.
-    :ssr            — per-frame `:ssr` config map (e.g.
-                      `{:dev-error-detail? true
-                        :public-error-id   :myapp/projector}`).
     :ssr-blocking-timeout-ms
                     — how long, in ms, the request waits for the route's
                       blocking resources to settle before it renders;
@@ -139,19 +154,6 @@
                       deadline settles as a first-load failure, so the
                       request never hangs. Passed to
                       `re-frame.ssr/drain-blocking-resources!`.
-    :url-strategy   — per-request frame `:url-strategy` (Spec 012 §URL
-                      strategies), e.g.
-                      `(with-base-path history-url-strategy \"/realworld\")`,
-                      threaded verbatim into `(rf/make-frame ...)` so
-                      `route-link` hrefs in the server shell encode
-                      exactly as the hydrated client re-encodes them.
-                      Validated at frame construction exactly as on the
-                      client: a malformed value — an explicit nil
-                      included — fails the request with
-                      `:rf.error/invalid-url-strategy` through
-                      `:on-error`. Omit the key to keep the default
-                      path-form history strategy. Declared by the
-                      programmer; never inferred from the request.
     :client-frame-id — stable frame id stamped as the payload's WIRE
                       `:rf/frame-id`, when the deployment fixes one both
                       server and client agree on ahead of time. Default
@@ -238,7 +240,7 @@
   Per-request lifecycle (see ns docstring for full detail):
 
     (ssr/set-request! frame-id request)            ;; before drain
-      → make-frame                  (drains :initial-events synchronously;
+      → make-frame :frame           (drains :initial-events synchronously;
                                      the `:rf.server/request` cofx
                                      reads from the populated slot)
         → flush-response-result!     (flushes error projections once;
@@ -262,7 +264,7 @@
     ;; in-repo example boot follows.
     (rf/init! ssr/adapter)
     (def handler
-      (ssr-ring/ssr-handler {:initial-events [[:app/server-init]]
+      (ssr-ring/ssr-handler {:frame          {:initial-events [[:app/server-init]]}
                              :root-view      [(rf/view :app/root)]
                              ;; A vector allowlists top-level app-db keys;
                              ;; `:rf.ssr.payload/whole-app-db` opts into
@@ -352,7 +354,7 @@
     (def app
       (-> default-handler
           ((ssr-ring/ssr-middleware
-             {:initial-events [[:app/server-init]]
+             {:frame          {:initial-events [[:app/server-init]]}
               :root-view      [(rf/view :app/root)]
               :payload        [:articles :session-user]
               :match?         (fn [req] (= :get (:request-method req)))}))

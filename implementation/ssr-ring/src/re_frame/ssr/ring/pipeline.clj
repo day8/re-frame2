@@ -285,14 +285,16 @@
   `make-frame` explicitly (`:id frame-id`) — the same lifecycle order,
   through the ONE public constructor.
 
-  A handler-declared `:url-strategy` is threaded into the
-  make-frame config BY PRESENCE, not truthiness — make-frame's preflight
-  treats a present key (an explicit nil included) as a declaration and
-  validates it at the one frame-config commit chokepoint exactly as on the
-  client (`:rf.error/invalid-url-strategy`, Spec 012 §URL strategies) —
-  so `route-link` hrefs rendered under this frame encode through the
-  declared strategy. The programmer declares it; nothing here infers it
-  from the request.
+  The handler's `:frame` — the app's frame config — reaches `make-frame`
+  whole, under the handler's own `:id` and `:platform :server`, with its
+  `:initial-events` resolved against the request. So a `:url-strategy` in it
+  arrives BY PRESENCE, not truthiness — make-frame's preflight treats a
+  present key (an explicit nil included) as a declaration and validates it
+  at the one frame-config commit chokepoint exactly as on the client
+  (`:rf.error/invalid-url-strategy`, Spec 012 §URL strategies) — so
+  `route-link` hrefs rendered under this frame encode through the declared
+  strategy. The programmer declares it; nothing here infers it from the
+  request.
 
   On failure mid-drain, the request slot is cleared so it does not leak
   across requests. The failed incarnation itself is NOT reaped here:
@@ -302,7 +304,7 @@
   before the throw reaches this catch. A bare-id reap here would be
   address-directed and could destroy a same-id successor B seated after that
   release."
-  [{:keys [initial-events fx-overrides ssr on-error] :as opts} request]
+  [{frame-config :frame :keys [on-error]} request]
   ;; The alphabetic prefix keeps the payload frame id valid for strict EDN
   ;; readers; keyword construction itself does not validate local names.
   (let [frame-id (keyword "rf.frame" (str (gensym "f")))]
@@ -312,24 +314,17 @@
       ;; handler's teardown consumes for incarnation-EXACT cleanup.
       (let [frame-value
             (rf/make-frame
-              ;; No `:doc`: the default head rolls a frame's `:doc` into the
-              ;; page `<title>`, and the adapter does not know the app's
-              ;; title.
-              (cond-> {:id        frame-id
-                       :platform  :server
-                        ;; Resolve after `set-request!`: the function form can derive
-                        ;; durable event payloads while handlers use the request coeffect
-                        ;; for ambient reads.
-                       :initial-events (rf.ssr.ring.lifecycle/resolve-initial-events! initial-events request)}
-                fx-overrides (assoc :fx-overrides fx-overrides)
-                ssr          (assoc :ssr           ssr)
-                ;; BY PRESENCE, not truthiness: make-frame's preflight reads a
-                ;; PRESENT :url-strategy — an explicit nil included — as a
-                ;; declaration and fails loud on a malformed one
-                ;; (:rf.error/invalid-url-strategy), exactly as on the client
-                ;; Omission keeps the default history strategy.
-                (contains? opts :url-strategy)
-                (assoc :url-strategy (:url-strategy opts))))]
+              ;; The handler adds no `:doc`: the default head rolls a frame's
+              ;; `:doc` into the page `<title>`, and the adapter does not
+              ;; know the app's title.
+              (assoc frame-config
+                     :id             frame-id
+                     :platform       :server
+                     ;; Resolve after `set-request!`: the function form can
+                     ;; derive durable event payloads while handlers use the
+                     ;; request coeffect for ambient reads.
+                     :initial-events (rf.ssr.ring.lifecycle/resolve-initial-events!
+                                       (:initial-events frame-config) request)))]
         {:frame-id frame-id :frame frame-value})
       (catch Throwable t
         ;; Clear only the request side channel. Core construction is the
