@@ -844,7 +844,8 @@
   attribution the caller wants on the always-on record (axis 1) INDEPENDENT of
   the dev-trace tags — e.g. the flow-eval category lifts `{:flow-id … :where
   :flow-eval}` so its attribution survives an egress profile that drops
-  `:exception`. It is NOT read from `trace-tags` (a `:where` there
+  `:exception`, and an interceptor failure lifts its `:phase` (`:before` /
+  `:after`). It is NOT read from `trace-tags` (a `:where` there
   would leak onto unrelated categories' records); the caller passes exactly
   the tight slots it wants lifted. `nil`
   (the default) adds nothing.

@@ -946,7 +946,8 @@
     - a user interceptor `:before` / `:after` throw (any `:id` that is not
       a handler-wrapper) → `:rf.error/interceptor-exception`,
       `:failing-id` = the interceptor `:id` (the `:phase` slot, carried on
-      the trace tags, distinguishes `:before` from `:after`);
+      the trace tags and the always-on record, distinguishes `:before` from
+      `:after`);
     - the event HANDLER itself throwing (the terminal `:before`, `:id` in
       `handler-wrapping-interceptor-ids`) → `:rf.error/handler-exception`,
       `:failing-id` = the event id.
@@ -1065,8 +1066,15 @@
     ;; production builds with the trace surface elided still observe the error.
     ;; Trigger-handler / dispatch-id enrichment is dev-only and rides the trace
     ;; path (`tags`). Axis 2 — the dev-only `rf.trace/emit-error!` (DCE'd in prod).
+    ;;
+    ;; An interceptor failure's `:phase` also rides the always-on record (the
+    ;; trailing record-attrs), so a `:before` and an `:after` throw of one
+    ;; interceptor stay distinct in production, where `:reason` prose is the
+    ;; only other place the phase appears. The handler's own phase is always
+    ;; `:before`, which its category already says.
     (rf.error-emit/emit-error-both!
-      operation emit-event event-id frame exception elapsed-ms end-ms tags)))
+      operation emit-event event-id frame exception elapsed-ms end-ms tags
+      (when-not handler-throw? {:phase (:phase error)}))))
 
 (defn- run-candidate-validation!
   "Per Spec 010 §Per-step recovery row 4: validate the COMPLETE CANDIDATE

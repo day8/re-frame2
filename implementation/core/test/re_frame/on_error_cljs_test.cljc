@@ -124,9 +124,8 @@
 
 (deftest interceptor-exception-record-attributes-the-failing-interceptor-and-phase
   (testing "an interceptor throw in either phase names the interceptor in
-            :failing-id beside the event's :event-id. `:phase` is not lifted
-            onto the record, so :reason is its only production-visible phase
-            discriminator"
+            :failing-id beside the event's :event-id, and carries the :phase
+            it threw in"
     (doseq [[phase icpt event-id] [[:before :mlh1h/boom-before :mlh1h/before-throws]
                                    [:after  :mlh1h/boom-after  :mlh1h/after-throws]]]
       (testing (name phase)
@@ -135,8 +134,8 @@
         (let [seen (recording-listener!)]
           (rf/dispatch-sync [event-id])
           (let [r (first-of :rf.error/interceptor-exception seen)]
-            (is (= {:event-id event-id :failing-id icpt}
-                   (select-keys r [:event-id :failing-id])))
+            (is (= {:event-id event-id :failing-id icpt :phase phase}
+                   (select-keys r [:event-id :failing-id :phase])))
             (is (re-find (re-pattern (str "`" (name phase) "` phase")) (:reason r)))))))))
 
 (deftest sub-exception-record-carries-sub-source-coord
