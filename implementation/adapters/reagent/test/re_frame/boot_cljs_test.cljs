@@ -1,16 +1,16 @@
 (ns re-frame.boot-cljs-test
   "Drives the boot example (`examples/patterns/boot/`, whose source stays
    test-free) through its Pattern-Boot trajectory: each test makes a fresh
-   frame that fires `:boot/initialise`, with `:rf.http/managed` routed by
-   `:fx-overrides` to per-URL wrappers over the framework's canned stubs
-   (Spec 014 §Testing). The ns requires `boot.core` so the example's
-   machine, loader, subs and fxs are registered, and the snapshot/restore
-   fixture keeps those ns-load registrations intact for later namespaces."
+   frame that fires `:boot/initialise` inside a `with-transport` scope, so
+   the boot's managed requests are answered by a stub transport (Spec 014
+   §Testing). The ns requires `boot.core` so the example's machine, loader,
+   subs and fxs are registered, and the snapshot/restore fixture keeps those
+   ns-load registrations intact for later namespaces."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
-            [re-frame.registrar :as rf.registrar]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
@@ -21,69 +21,43 @@
             [re-frame.schemas.malli]
             [boot.schema :as boot-schema]
             [re-frame.views]
-            ;; The canned-stub helpers below resolve
-            ;; :rf.http/managed-canned-success / failure via registrar
-            ;; lookup. Those fx ids register from
-            ;; re-frame.http.test-support, NOT re-frame.http.managed.
-            ;; boot.core already requires re-frame.http.test-support via
-            ;; the boot.schema / boot.boot graph; require explicitly here
-            ;; too so this test ns is self-sufficient if a future refactor
-            ;; unhooks the transitive load.
-            [re-frame.http.test-support]
             [boot.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
-;; PER-URL CANNED STUBS
+;; STUB TRANSPORTS
 ;; ============================================================================
-;;
-;; A local copy of the realworld helper, so this ns need not load realworld.
 
-(defn- reg-canned-success-by-url!
-  "Register an fx-id that delegates to :rf.http/managed-canned-success,
-   choosing `:value` per the request URL. `url->value` is a 1-arity fn
-   receiving the URL string and returning the synthesised :value."
-  [fx-id url->value]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      (let [stub  (rf.registrar/handler :fx :rf.http/managed-canned-success)
-            url   (-> args :request :url)
-            value (url->value url)]
-        (stub frame-ctx (assoc args :value value))))))
+(defn- boot-frame!
+  "A fresh frame that fires `:boot/initialise`, its managed requests answered
+   by `transport`. The boot issues every request from the frame's synchronous
+   initial drain, so a `with-transport` scope around the construction reaches
+   them all."
+  [transport]
+  (rf.http.stub-transport/with-transport transport
+    #(rf.frame/make-anon-frame-record! {:initial-events [[:boot/initialise]]})))
 
-(defn- reg-canned-failure!
-  "Register an fx-id that delegates to :rf.http/managed-canned-failure."
-  [fx-id kind tags]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-        (stub frame-ctx (assoc args :kind kind :tags tags))))))
+(defn- answering-by-url
+  "A route transport answering each request 200 with `(url->value url)`."
+  [url->value]
+  (rf.http.stub-transport/route-transport (fn [{:keys [url]}] {:body (url->value url)})))
 
-(defn- reg-join-failure-stub!
-  "Register an fx-id for the JOIN-child failure path. /config.json answers
-   `config` and /user.json fails. /routes.json and /flags.json are NEVER
-   answered, so those two siblings are still in flight whenever the failure
+(defn- join-failure-transport
+  "The JOIN-child failure path. /config.json answers `config` and /user.json
+   answers 503. /routes.json and /flags.json are held on `held`, a pending
+   transport, so those two siblings are still in flight whenever the failure
    lands. That makes the cancellation deterministic without depending on
    which reply arrives first."
-  [fx-id config]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      (let [url (str (-> args :request :url))]
-        (cond
-          (re-find #"/config\.json$" url)
-          ((rf.registrar/handler :fx :rf.http/managed-canned-success)
-           frame-ctx (assoc args :value config))
-
-          (re-find #"/user\.json$" url)
-          ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
-           frame-ctx (assoc args :kind :rf.http/http-5xx
-                                 :tags {:status 503 :message "user.json outage"}))
-
-          ;; routes / flags: held in flight — no reply at all.
-          :else nil)))))
+  [config held]
+  (let [answer (rf.http.stub-transport/route-transport
+                 (fn [{:keys [url]}]
+                   (if (re-find #"/user\.json$" url)
+                     {:status 503 :body "user.json outage"}
+                     {:body config})))]
+    (fn [wire callbacks]
+      (if (re-find #"/(routes|flags)\.json$" (:url wire))
+        ((:transport held) wire callbacks)
+        (answer wire callbacks)))))
 
 ;; ============================================================================
 ;; DEMO PAYLOADS
@@ -94,13 +68,13 @@
 
 (def ^:private test-config
   {:api-base "/api"
-   :env      :dev
+   :env      "dev"
    :build    "test-build"
    :title    "Boot test app"})
 
 (def ^:private test-routes
-  [{:id :boot.demo/home  :path "/"}
-   {:id :boot.demo/about :path "/about"}])
+  [{:id "home"  :path "/"}
+   {:id "about" :path "/about"}])
 
 (def ^:private test-flags
   {:dark-mode?       true
@@ -147,13 +121,9 @@
 
 (deftest boot-machine-progression
   (testing "happy path: boot machine traverses :configuring → :loading-deps → :hydrating → :ready and all slices land"
-    (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
-
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:boot/initialise]]
-                          :fx-overrides {:rf.http/managed
-                                         :boot.test/canned-boot-success}})]
-      ;; The synchronous drain runs all four canned-success stubs to completion.
+    (with-new-frame [f (boot-frame! (answering-by-url payload-for))]
+      ;; A route answers inline, so the synchronous drain runs all four
+      ;; requests to completion.
       (let [db       (rf/frame-state-value f)
             payloads [test-config test-routes test-flags test-user]]
         (is (= :ready (rf/compute-sub [:app.boot/state] db)))
@@ -163,16 +133,9 @@
 
 (deftest boot-failure-path
   (testing "a failure during the parallel phase routes the boot to :failed and records the error"
-    (reg-canned-failure! :boot.test/canned-boot-fail
-                         :rf.http/http-5xx
-                         {:status 500
-                          :body   "boot dependency unreachable"})
-
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:boot/initialise]]
-                          :fx-overrides {:rf.http/managed
-                                         :boot.test/canned-boot-fail}})]
-      ;; The blanket stub fails every child; the first failure routes the
+    (with-new-frame [f (boot-frame! (rf.http.stub-transport/route-transport
+                                      (constantly {:status 500 :body "boot dependency unreachable"})))]
+      ;; The blanket 500 fails every child; the first failure routes the
       ;; boot to :failed.
       (let [db (rf/frame-state-value f)]
         (is (= [:failed true]
@@ -188,14 +151,11 @@
     ;; `:on-done` to fold the 503 map into `:user` (`[:maybe User]`), the
     ;; schema rollback would swallow the carrier and the boot would hang at
     ;; `:loading-deps` for ever.
-    (reg-join-failure-stub! :boot.test/fail-user-json test-config)
-    (let [traces (atom [])]
+    (let [traces (atom [])
+          held   (rf.http.stub-transport/pending-transport)]
       (rf/register-listener! :trace ::join-failure (fn [ev] (swap! traces conj ev)))
       (try
-        (with-new-frame [f (rf.frame/make-anon-frame-record!
-                             {:initial-events [[:boot/initialise]]
-                              :fx-overrides {:rf.http/managed
-                                             :boot.test/fail-user-json}})]
+        (with-new-frame [f (boot-frame! (join-failure-transport test-config held))]
           (let [db        (rf/frame-state-value f)
                 boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])
                 cancels   (filterv #(= :rf.machine.spawn/cancelled-on-join-resolution
@@ -208,16 +168,17 @@
                 rejected  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                                          (= :machine-data (-> % :tags :where)))
                                    @traces)]
-            (is (= [:failed 503 nil [] #{:routes :flags} true]
+            (is (= [:failed 503 nil [] #{:routes :flags} true [true true]]
                    [(rf/compute-sub [:app.boot/state] db)
                     (:status (rf/compute-sub [:app.boot/error] db))
                     (:user boot-data)
                     rejected
                     cancelled
-                    (not-any? live? (map #(-> % :tags :spawned-id) cancels))])
+                    (not-any? live? (map #(-> % :tags :spawned-id) cancels))
+                    (mapv #((:cancelled? %)) @(:exchanges held))])
                 (str ":on-any-failed took the boot to :failed recording the /user.json 503, which "
                      "never reached the :user fold or a :machine-data rejection, and cancelled and "
-                     "tore down both in-flight siblings"))))
+                     "tore down both in-flight siblings, aborting their held requests"))))
         (finally (rf/unregister-listener! :trace ::join-failure))))))
 
 ;; ============================================================================
@@ -246,22 +207,17 @@
 
 (deftest boot-malformed-data-fails-boundary
   (testing "a config child returning a malformed Config drives :promote-staged to write bad :data, failing the :machine-data boundary"
-    ;; canned-success returns a structurally-WRONG config (missing
+    ;; The backend answers a structurally-WRONG config (missing
     ;; :env / :build / :title) for /config.json; the other URLs are
     ;; never reached because the config macrostep fails first.
-    (reg-canned-success-by-url!
-      :boot.test/canned-bad-config
-      (fn [url]
-        (if (re-find #"/config\.json$" (str url))
-          {:api-base "/api"}     ;; missing :env :build :title → violates Config
-          {})))
-    (let [frame  (atom nil)
-          traces (collect-machine-data-traces!
-                   #(reset! frame
-                      (rf.frame/make-anon-frame-record!
-                        {:initial-events [[:boot/initialise]]
-                         :fx-overrides {:rf.http/managed
-                                        :boot.test/canned-bad-config}})))]
+    (let [bad-config (answering-by-url
+                       (fn [url]
+                         (if (re-find #"/config\.json$" (str url))
+                           {:api-base "/api"}     ;; missing :env :build :title → violates Config
+                           {})))
+          frame      (atom nil)
+          traces     (collect-machine-data-traces!
+                       #(reset! frame (boot-frame! bad-config)))]
       (try
         ;; `:recovery` rides the trace ENVELOPE, not :tags, as on the
         ;; :where :app-db projection.

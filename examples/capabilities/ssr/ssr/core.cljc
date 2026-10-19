@@ -51,17 +51,10 @@
             ;; has something to resolve to.
             [re-frame.schemas]
             ;; Brings in the `:rf.http/managed` effect we use for the article
-            ;; fetch. During render we don't want a real network call, so we
-            ;; redirect it through the per-frame `:fx-overrides` seam to a
-            ;; canned-success stub. Skip this require and the override would be
-            ;; pointing at an fx-id nobody registered.
+            ;; fetch. There's no backend behind this example: the headless
+            ;; tests answer the fetch with a stub transport, which replaces
+            ;; only the network hop beneath this same effect.
             [re-frame.http.managed]
-            ;; The canned stubs themselves (`:rf.http/managed-canned-success`
-            ;; and `-canned-failure`). There's no backend behind this example,
-            ;; so :fx-overrides drives these instead — and pulling in a test
-            ;; affordance is the kind of thing you want to opt into out loud,
-            ;; not by accident.
-            [re-frame.http.test-support]
             ;; The SSR machinery: the `:rf.server/*` server-only effects, the
             ;; framework-owned `:rf/hydrate` event, the default error
             ;; projector, the render hooks the calls below ride on, and the
@@ -113,8 +106,9 @@
 ;; ============================================================================
 ;;
 ;; HTTP goes through the framework's `:rf.http/managed` effect. The headless
-;; test swaps it, via the `:fx-overrides` seam, for a per-frame canned-success
-;; stub — so the JVM render runs the whole event pipeline end to end without a
+;; test answers it from a stub transport, which stands in for the server
+;; beneath the effect — so the JVM render runs the whole event pipeline, the
+;; real decode included, end to end without a
 ;; single packet leaving the building.
 
 ;; Some effects only make sense in a browser. localStorage is the textbook
@@ -554,7 +548,7 @@
 ;; covered:
 ;;   - `ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch` — the
 ;;     whole round trip: per-request frame, :app/server-init, the article fetch
-;;     through a canned stub, render-to-string, and a payload the client frame
+;;     answered by a stub transport, render-to-string, and a payload the client frame
 ;;     installs when it hydrates.
 ;;   - `ssr-example-handle-request-tears-down-on-throw` — the per-request frame
 ;;     and its request slot are released even when the render throws; the

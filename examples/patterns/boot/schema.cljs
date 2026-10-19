@@ -42,7 +42,7 @@
    plausible payload."
   [:map
    [:api-base    :string]
-   [:env         [:enum :dev :staging :prod]]
+   [:env         [:enum "dev" "staging" "prod"]]
    [:build       :string]
    [:title       :string]])
 
@@ -69,7 +69,7 @@
    parallel `:spawn-all` step has something to fan out over."
   [:vector
    [:map
-    [:id   :keyword]
+    [:id   :string]
     [:path :string]]])
 
 ;; ============================================================================

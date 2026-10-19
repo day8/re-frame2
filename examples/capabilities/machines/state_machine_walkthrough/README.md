@@ -86,13 +86,12 @@ at it, poke here.
   [managed HTTP](../../../../docs/async/http.md) appends the reply to that
   inner event and dispatches it straight back into the machine. That is
   [the uniform reply](../../../../docs/core/glossary.md#the-uniform-reply), and
-  it's why the async boundary needs no glue code. The network is swapped out via
-  the [`:fx-overrides`](../../../../docs/core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides)
-  seam: the browser demo redirects `:rf.http/managed` to
-  `:walkthrough.login/canned-failure`, and the headless tests pick
-  `:walkthrough.login/canned-failure` or `:walkthrough.login/canned-success` per scenario —
-  both thin wrapper effects in [`core.cljc`](core.cljc) that fix this example's
-  payloads. No real traffic, identical reply shape.
+  it's why the async boundary needs no glue code. The network is swapped out
+  beneath `:rf.http/managed` by a stub transport: the browser demo installs
+  `rejecting-server` on its frame, and the headless tests pick
+  `rejecting-server` or `accepting-server` per scenario — both defined in
+  [`core.cljc`](core.cljc), each answering every login as a server would. No
+  real traffic, and the real pipeline decodes and classifies every answer.
 
 ## Why .cljc
 
