@@ -249,11 +249,10 @@
         evs       (errors-of (record-error-traces!
                                #(settle-failure! (article-key "intro") {:status 503 :message "upstream down"}))
                              :rf.error/resource-route-blocking)]
-    (is (= [{:category    :rf.error/resource-route-blocking
-             :resource-id :article/by-slug
+    (is (= [{:resource-id :article/by-slug
              :nav-token   nav-token
              :error       {:status 503 :message "upstream down"}}]
-           (mapv #(select-keys (:tags %) [:category :resource-id :nav-token :error]) evs))
+           (mapv #(select-keys (:tags %) [:resource-id :nav-token :error]) evs))
         "exactly one blocking-failure trace, carrying the first-load envelope")
     (is (string? (:reason (:tags (first evs)))))
     (is (= [:error :rf.error/resource-route-blocking]

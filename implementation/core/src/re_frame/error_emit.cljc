@@ -16,7 +16,7 @@
     Corpus-wide listener registry (surface #4) — every fn registered
     through [[register-error-listener!]] receives a tight error-record:
 
-         {:error        <kw>     ;; e.g. :rf.error/handler-exception
+         {:rf.error/id  <kw>     ;; e.g. :rf.error/handler-exception
           :event        <vector> ;; dispatched event vector (registration
                                  ;; marks + app-db elision applied)
           :event-id     <kw>
@@ -257,7 +257,7 @@
   when the record's `:event-id` slot carries a SUB id — a `:rf.error/sub-*`
   category, or a frame-destroyed record whose `:op` is `:subscribe`."
   [record]
-  (let [{:keys [error event-id frame source-coord op]} record
+  (let [{error :rf.error/id :keys [event-id frame source-coord op]} record
         sub?  (or (contains? sub-error-categories error)
                   (and (= :rf.error/frame-destroyed error) (= :subscribe op)))
         coord (when-some [ns (:ns source-coord)]
@@ -297,7 +297,7 @@
                     (try (ex-message ex) (catch #?(:clj Throwable :cljs :default) _ nil)))
                   (:reason record))
         locus (try (summary-locus record) (catch #?(:clj Throwable :cljs :default) _ nil))]
-    (cond-> (str (:error record))
+    (cond-> (str (:rf.error/id record))
       (seq text)  (str " — " text)
       (some? locus) (str " " locus))))
 
@@ -569,7 +569,7 @@
 
   ## Payload hygiene (production-surviving — enforce at every site)
 
-  The listener record (`{:error :event :event-id :frame :time
+  The listener record (`{:rf.error/id :event :event-id :frame :time
   :exception :elapsed-ms}`, plus an optional `:failing-id` / `:reason`)
   is production-surviving and is NOT privacy-
   gated like the dev trace. Every caller MUST keep identifiers tight,
@@ -706,7 +706,7 @@
          ;; record is production-surviving and NOT privacy-gated.
          attribution (into {} (remove (comp nil? val)) attrs)
          record      (cond-> (merge attribution
-                                     {:error      error-kw
+                                     {:rf.error/id error-kw
                                       :event      elided-event
                                       :event-id   event-id
                                       :frame      frame-id
@@ -889,14 +889,14 @@
 ;; takes a PRE-BUILT union record and fans it out unchanged. The one union
 ;; shape every non-event always-on record uses:
 ;;
-;;     {:error <kw>          ;; the :rf.error/* category (REQUIRED)
-;;      :frame <id-or-nil>   ;; the owning frame, or nil (frameless)
-;;      :time  <millis>      ;; when (REQUIRED)
-;;      …flat category keys… ;; :exception / :phase / :reason / :recovery /
-;;                           ;; :hook-failures / :projector-id / :where / …}
+;;     {:rf.error/id <kw>          ;; the :rf.error/* category (REQUIRED)
+;;      :frame       <id-or-nil>   ;; the owning frame, or nil (frameless)
+;;      :time        <millis>      ;; when (REQUIRED)
+;;      …flat category keys…       ;; :exception / :phase / :reason / :recovery /
+;;                                 ;; :hook-failures / :projector-id / :where / …}
 ;;
 ;; The SSR error-emit-projection-listener consumes these generically (every
-;; non-`:error` slot rides onto its synthesised `:tags`), so a custom
+;; non-`:rf.error/id` slot rides onto its synthesised `:tags`), so a custom
 ;; projector reading `(get-in event [:tags :exception])` sees the same keys
 ;; on this path as on the trace path. The same records also flow through the
 ;; EP-0015 §9 frame-owned observability sink routing (the sink projects the
@@ -948,7 +948,7 @@
   the dev trace surface is elided.
 
   `record` is the union shape (see §General non-event always-on record):
-  `{:error <kw> :frame <id-or-nil> :time <millis> …flat category keys…}`.
+  `{:rf.error/id <kw> :frame <id-or-nil> :time <millis> …flat category keys…}`.
   The caller builds the record (it owns the category-specific slots), keeps
   identifiers tight, and carries no raw app-db slice — this record is
   production-surviving and is NOT privacy-gated like the dev trace.
@@ -1046,7 +1046,7 @@
      ;; frame-owned sink and must not redirect the report into same-id B.
      ;; The 3-arity keeps direct/live-frame callers on the frame route.
      (dispatch-error-record*
-       {:error          :rf.error/frame-teardown-failed
+       {:rf.error/id    :rf.error/frame-teardown-failed
         :frame          frame-id
         :hook-failures  (vec hook-failures)
         :recovery       :ignored

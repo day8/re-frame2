@@ -26,13 +26,13 @@ are observed too:
             [app.config :as config]))
 
 (defn report-error! [record]
-  (let [context (clj->js {:tags {:category (str (:error record))
+  (let [context (clj->js {:tags {:category (str (:rf.error/id record))
                                 :event-id (str (:event-id record))
                                 :frame (str (:frame record))}
                          :extra {:elapsed-ms (:elapsed-ms record)}})]
     (if-let [exception (:exception record)]
       (Sentry/captureException exception context)
-      (Sentry/captureMessage (str (:error record)) context))))
+      (Sentry/captureMessage (str (:rf.error/id record)) context))))
 
 (defn init! []
   (rf/configure!
@@ -91,7 +91,7 @@ that stream is compiled out.
 
 ## 3. Branch on the category, never the prose
 
-Group and filter on `(:error record)`, such as `:rf.error/handler-exception`.
+Group and filter on `(:rf.error/id record)`, such as `:rf.error/handler-exception`.
 Human-readable messages may change. The bridge keeps the category, event id and
 frame as tags even when there is no exception.
 
@@ -144,7 +144,7 @@ Because the error stream runs in dev, you can check the branching before you shi
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
   (fn [record]
-    (println :rf-error (:error record)
+    (println :rf-error (:rf.error/id record)
              :event-id       (:event-id record)
              :frame          (:frame record)
              :event          (:event record)
@@ -178,7 +178,7 @@ The `:handled-events` stream answers the other production question: how many eve
         {:event-id (str event-id) :frame (str frame) :outcome (name outcome)}))))
 ```
 
-The handled-event record carries `:time` (when the event settled, in milliseconds since the epoch) and `:outcome` on every profile, as error records carry `:time` and `:error`.
+The handled-event record carries `:time` (when the event settled, in milliseconds since the epoch) and `:outcome` on every profile, as error records carry `:time` and `:rf.error/id`.
 
 `:outcome` describes whether the event pipeline reached its commit and effect walk. It takes one of five values:
 
@@ -207,7 +207,7 @@ When a frame is destroyed it runs best-effort cleanup hooks: [flow](../glossary.
 The runtime builds the record with flat, category-specific keys:
 
 ```clojure
-{:error         :rf.error/frame-teardown-failed
+{:rf.error/id   :rf.error/frame-teardown-failed
  :frame         :some-frame-id
  :hook-failures [{:hook :flows/teardown-on-frame-destroy! :exception <ex> :where :safe-call-hook!}
                  {:hook :resources/on-frame-destroyed!    :exception <ex> :where :safe-call-hook!}]
@@ -215,14 +215,14 @@ The runtime builds the record with flat, category-specific keys:
  :time          1718900000000}
 ```
 
-On the way to a sink, every key other than the summary keys (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map. The frame is already gone when this record is emitted, so no frame policy is consulted: only the process default ([Records no frame owns](#records-no-frame-owns)) receives it, projected with no governing frame. Under the off-box profiles `:tags` therefore arrives as `:rf/redacted`, so send the summary keys; `(get-in record [:tags :hook-failures])` is readable only on a `:rf.egress/local-raw` entry. The SSR categories below also move their keys under `:tags`.
+On the way to a sink, every key other than the summary keys (`:frame`, `:rf.error/id`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map. The frame is already gone when this record is emitted, so no frame policy is consulted: only the process default ([Records no frame owns](#records-no-frame-owns)) receives it, projected with no governing frame. Under the off-box profiles `:tags` therefore arrives as `:rf/redacted`, so send the summary keys; `(get-in record [:tags :hook-failures])` is readable only on a `:rf.egress/local-raw` entry. The SSR categories below also move their keys under `:tags`.
 
 `report-error!` already sends this record as a message tagged with its category and frame. For a clearer title, handle it before falling back to that function:
 
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
   (fn [record]
-    (case (:error record)
+    (case (:rf.error/id record)
       ;; The frame-teardown report: frame-keyed, NO :event, NO top-level :exception.
       ;; It reaches the process default only, and its :tags arrive redacted.
       :rf.error/frame-teardown-failed

@@ -19,7 +19,7 @@
   (let [records (atom [])]
     (rf.error-emit/register-error-listener! ::status-rewrite-watch
       (fn [record]
-        (when (= :rf.error/ssr-ring-response-status-invalid (:error record))
+        (when (= :rf.error/ssr-ring-response-status-invalid (:rf.error/id record))
           (swap! records conj record))))
     (try
       (thunk)
@@ -37,7 +37,7 @@
                                   "<p>x</p>")))]
     (is (= {:status 500 :headers {"content-type" "text/html"} :body "<p>x</p>"}
            @ring))
-    (is (= [{:error       :rf.error/ssr-ring-response-status-invalid
+    (is (= [{:rf.error/id :rf.error/ssr-ring-response-status-invalid
              :frame       nil
              :where       :ssr-ring/ssr-response->ring-response
              :status-type "java.lang.String"

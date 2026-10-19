@@ -585,8 +585,7 @@
     ;; `(:op-type ev)`.
     (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :warning :rf.warning/trace-buffer-unrecognised-opts
-             {:category :rf.warning/trace-buffer-unrecognised-opts
-              :opts     opts
+             {:opts     opts
               :reason   (str "(configure! {:trace-buffer ...}) accepts only "
                               "{:events-retained N} where N is a non-negative "
                               "integer; got " (pr-str opts) ". Retention is "

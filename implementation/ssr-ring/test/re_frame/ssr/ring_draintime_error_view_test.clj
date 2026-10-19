@@ -128,7 +128,7 @@
                                   "error-view-broke-detail"]
                                  [:myapp/sub-error-view "DEGRADED-ERROR-VIEW-MARKER"]]]
       (reset! calls 0)
-      (with-emit-recorder! [errs {:pred #(= :rf.error/ssr-ring-error-view-failed (:error %))}]
+      (with-emit-recorder! [errs {:pred #(= :rf.error/ssr-ring-error-view-failed (:rf.error/id %))}]
         (with-redefs [rf.interop/debug-enabled? false]
           (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
                                          {:frame {:initial-events [[:init/ok]]}

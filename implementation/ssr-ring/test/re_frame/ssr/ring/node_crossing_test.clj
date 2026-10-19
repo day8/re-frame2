@@ -218,13 +218,13 @@
   records' exceptions — the codes an operator reads in the trace stream."
   [records]
   (->> records
-       (filter #(= :rf.error/ssr-render-failed (:error %)))
+       (filter #(= :rf.error/ssr-render-failed (:rf.error/id %)))
        (map #(-> % :exception ex-data :rf.error/id))
        vec))
 
 (defn- render-failure-data [records]
   (->> records
-       (filter #(= :rf.error/ssr-render-failed (:error %)))
+       (filter #(= :rf.error/ssr-render-failed (:rf.error/id %)))
        (map #(-> % :exception ex-data))
        first))
 

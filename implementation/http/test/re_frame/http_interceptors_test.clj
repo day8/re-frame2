@@ -360,7 +360,7 @@
         (fn [traces]
           (rf/dispatch-sync [:core-row/load])
           [(first (filter #(= :rf.error/fx-handler-exception (:operation %)) @traces))
-           (first (filter #(= :rf.error/fx-handler-exception (:error %)) @records))]))
+           (first (filter #(= :rf.error/fx-handler-exception (:rf.error/id %)) @records))]))
       (finally
         (rf.error-emit/unregister-error-listener! error-id)))))
 

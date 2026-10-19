@@ -1613,7 +1613,7 @@
   source namespace name — structural, never a runtime value."
   [frame-id ex]
   (let [data (ex-data ex)
-        base {:error    :rf.error/reprojection-failed
+        base {:rf.error/id :rf.error/reprojection-failed
               :frame    frame-id
               :recovery :kept-prior-generation
               :time     (rf.interop/now-ms)}]
@@ -1659,7 +1659,7 @@
                   (rf.error-emit/dispatch-error-record! record)
                   (rf.trace/emit-error! :rf.error/reprojection-failed
                                         (-> record
-                                            (dissoc :error :time)
+                                            (dissoc :rf.error/id :time)
                                             (assoc :exception ex
                                                    :where :reproject-live-frame!)))
                   (assoc-in result [:failed id] record)))))
@@ -1858,8 +1858,7 @@
     (flush-projection-if-dirty!)
     (catch #?(:clj Throwable :cljs :default) ex
       (rf.trace/emit-error! :rf.warning/reprojection-flush-failed
-                         {:category  :rf.warning/reprojection-flush-failed
-                          :exception ex
+                         {:exception ex
                           :where     :deferred-flush!})))
   nil)
 

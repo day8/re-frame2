@@ -50,8 +50,7 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}
    {:operation :rf.error/no-such-handler
-    :op-type   :error
-    :tags      {:category :rf.error/no-such-handler}}]
+    :op-type   :error}]
 
   ;; Public-error shape produced by the runtime's default projector.
   ;; Hosts read this via (ssr/project-error frame-id trace-event).

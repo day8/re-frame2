@@ -112,7 +112,7 @@
   (testing "a listener that returns `true` claims the record, and nothing prints"
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! ::owner
-                                              (fn [r] (swap! seen conj (:error r)) true))
+                                              (fn [r] (swap! seen conj (:rf.error/id r)) true))
       (expect-silence
         (captured-err #(rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app}))
         "a claiming :errors listener owns the record")
@@ -121,7 +121,7 @@
   (testing "a listener that returns anything else owns nothing, even a truthy value"
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! ::bystander
-                                              (fn [r] (swap! seen conj (:error r))))
+                                              (fn [r] (swap! seen conj (:rf.error/id r))))
       (expect-one-line
         (captured-err #(rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app}))
         [":rf.error/no-such-handler" "event :unobserved/typo"])
@@ -141,15 +141,15 @@
     (let [out (captured-err
                 (fn []
                   (rf.test-support/with-emit-recorder!
-                    [errs {:pred (fn [r] (= :rf.error/no-such-handler (:error r)))}]
+                    [errs {:pred (fn [r] (= :rf.error/no-such-handler (:rf.error/id r)))}]
                     (rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app})
-                    (is (= [:rf.error/no-such-handler] (mapv :error @errs))))))]
+                    (is (= [:rf.error/no-such-handler] (mapv :rf.error/id @errs))))))]
       (expect-silence out "the window claimed the record its predicate accepted")))
   (testing "a predicate that does not match leaves the record unclaimed, so it prints"
     (let [out (captured-err
                 (fn []
                   (rf.test-support/with-emit-recorder!
-                    [errs {:pred (fn [r] (= :rf.error/no-such-fx (:error r)))}]
+                    [errs {:pred (fn [r] (= :rf.error/no-such-fx (:rf.error/id r)))}]
                     (rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app})
                     (is (empty? @errs)))))]
       (expect-one-line out [":rf.error/no-such-handler" "event :unobserved/typo"]))))

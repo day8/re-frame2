@@ -98,7 +98,7 @@
   "The `:rf.error/frame-destroyed` records attributable to the Static
   Machines hydrate — the console line these tests guard against."
   [records]
-  (filterv (fn [{:keys [error event-id]}]
+  (filterv (fn [{error :rf.error/id :keys [event-id]}]
              (and (= :rf.error/frame-destroyed error)
                   (= :rf.xray.static.machines/hydrate event-id)))
            records))

@@ -219,7 +219,7 @@
     (rf.error-emit/register-error-listener! ::destroy-then-throw
       (fn [record]
         (when (= :bnd/thrower (:frame record))
-          (swap! errors conj (:error record)))))
+          (swap! errors conj (:rf.error/id record)))))
     (rf/reg-event :bnd/destroy-then-throw
       (fn [_ _]
         (rf/destroy-frame! :bnd/thrower)

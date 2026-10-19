@@ -55,15 +55,15 @@
         :where          :safe-call-hook!}]
       12345)
     (testing "the corpus-wide listener receives the raw record"
-      (is (= [:rf.error/frame-teardown-failed] (mapv :error @listener-seen)))
+      (is (= [:rf.error/frame-teardown-failed] (mapv :rf.error/id @listener-seen)))
       (is (re-find (re-pattern secret) (pr-str (first @listener-seen)))))
     (testing "the frame's :errors sink receives the record projected"
       (is (= 1 (count @sink-seen)))
       (let [r (first @sink-seen)]
         (is (= {:kind  :rf.observe/error
                 :frame :obs/teardown
-                :error :rf.error/frame-teardown-failed}
-               (select-keys r [:kind :frame :error])))
+                :rf.error/id :rf.error/frame-teardown-failed}
+               (select-keys r [:kind :frame :rf.error/id])))
         (is (= :rf/redacted (get-in r [:tags :hook-failures 0 :exception-data :token])))
         (is (string? (get-in r [:tags :reason])) ":reason rides :tags")
         (is (not (re-find (re-pattern secret) (pr-str r)))
@@ -77,7 +77,7 @@
                     {:errors [{:sink :test.sinks/public
                                :rf.egress/profile :rf.egress/public-error}]}})
     (rf.error-emit/dispatch-error-record!
-      {:error     :rf.error/ssr-render-failed
+      {:rf.error/id :rf.error/ssr-render-failed
        :frame     :obs/public
        :time      7
        :exception (ex-info "render blew up" {:internal :detail})
@@ -85,8 +85,8 @@
     (is (= 1 (count @sink-seen)))
     (let [r (first @sink-seen)]
       (is (not (contains? r :exception)) ":exception dropped under :rf.egress/public-error")
-      (is (= {:frame :obs/public :error :rf.error/ssr-render-failed}
-             (select-keys r [:frame :error]))))))
+      (is (= {:frame :obs/public :rf.error/id :rf.error/ssr-render-failed}
+             (select-keys r [:frame :rf.error/id]))))))
 
 (deftest unroutable-records-reach-the-listener-and-no-sink
   (let [sink-seen     (atom [])
@@ -103,7 +103,7 @@
               :rf.error/frame-teardown-failed]
              ["a frameless record (the pre-frame hydration-parse path)"
               #(rf.error-emit/dispatch-error-record!
-                 {:error      :rf.error/malformed-hydration-payload
+                 {:rf.error/id :rf.error/malformed-hydration-payload
                   :frame      nil
                   :time       3
                   :where      :rf/read-server-payload
@@ -113,7 +113,7 @@
               :rf.error/malformed-hydration-payload]
              ["a never-registered frame, with no :rf/default synthesis"
               #(rf.error-emit/dispatch-error-record!
-                 {:error         :rf.error/frame-teardown-failed
+                 {:rf.error/id   :rf.error/frame-teardown-failed
                   :frame         :obs/ghost
                   :time          1
                   :hook-failures hook-failures})
@@ -122,4 +122,4 @@
       (reset! listener-seen [])
       (emit!)
       (is (empty? @sink-seen) why)
-      (is (= [error] (mapv :error @listener-seen)) why))))
+      (is (= [error] (mapv :rf.error/id @listener-seen)) why))))

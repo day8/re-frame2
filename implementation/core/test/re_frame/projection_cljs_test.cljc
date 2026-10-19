@@ -210,13 +210,13 @@
   (mk-frame! :proj/err)
   (let [out (rf/project-egress {:kind      :rf.observe/error
                                 :frame     :proj/err
-                                :error     :rf.error/handler-exception
+                                :rf.error/id :rf.error/handler-exception
                                 :event-id  :auth/login
                                 :event     [:auth/login {:auth {:token "tok"}}]
                                 :exception {:internal "raw stacktrace + secret"}}
                                {:frame :proj/err :rf.egress/profile :rf.egress/public-error})]
     (is (= [false :rf.error/handler-exception :auth/login]
-           [(contains? out :exception) (:error out) (:event-id out)]))))
+           [(contains? out :exception) (:rf.error/id out) (:event-id out)]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame ownership, decided by key PRESENCE: an explicit opts `:frame` (nil
@@ -229,7 +229,7 @@
 (defn- error-record [frame-id]
   {:kind  :rf.observe/error
    :frame frame-id
-   :error :rf.error/handler-exception
+   :rf.error/id :rf.error/handler-exception
    :event [:auth/login {:auth {:token "super-secret-token"}}]})
 
 (deftest record-frame-governs-when-opts-omit-frame

@@ -34,7 +34,7 @@
       (rf/dispatch-sync [::attempt args] {:frame fid})
       (if (:redirect (rf.ssr/peek-response fid))
         :landed
-        (some (fn [{:keys [error reason]}]
+        (some (fn [{error :rf.error/id :keys [reason]}]
                 (when (#{:rf.error/redirect-invalid-url
                          :rf.error/redirect-scheme-rejected
                          :rf.error/redirect-host-disallowed} error)

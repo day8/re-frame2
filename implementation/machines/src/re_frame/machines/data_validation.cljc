@@ -134,7 +134,7 @@
   (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      {:error      :rf.error/schema-validation-failure
+      {:rf.error/id :rf.error/schema-validation-failure
        :where      :machine-data
        :machine-id machine-id
        :failing-id machine-id

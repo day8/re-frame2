@@ -120,7 +120,7 @@
 (deftest retired-forms-fan-out-throw-and-register-nothing
   (let [seen-errors (atom [])]
     (rf.error-emit/register-error-listener! :evt-conf/removal-recorder
-      #(swap! seen-errors conj (:error %)))
+      #(swap! seen-errors conj (:rf.error/id %)))
     (doseq [[retired-form error-id event-id]
             [[rf/reg-event-db  :rf.error/reg-event-db-removed  :evt-conf/db-noreg]
              [rf/reg-event-fx  :rf.error/reg-event-fx-removed  :evt-conf/fx-noreg]

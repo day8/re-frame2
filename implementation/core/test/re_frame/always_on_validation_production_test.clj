@@ -79,10 +79,10 @@
     (assoc captured :ex @ex)))
 
 (defn- record-of [{:keys [errors]} error-kw]
-  (first (filter #(= error-kw (:error %)) errors)))
+  (first (filter #(= error-kw (:rf.error/id %)) errors)))
 
 (defn- boundary-records [{:keys [errors]}]
-  (filterv #(= :rf.error/schema-validation-failure (:error %)) errors))
+  (filterv #(= :rf.error/schema-validation-failure (:rf.error/id %)) errors))
 
 (defn- outcome-of [{:keys [events]} event-id]
   (:outcome (first (filter #(= event-id (:event-id %)) events))))
@@ -91,7 +91,7 @@
   "The CLOSED key set of the always-on boundary-rejection record. It egresses
   to Sentry / Datadog, so widening it is an EGRESS decision: read
   `re-frame.egress-chokepoint-conformance-test`'s allow-list entry first."
-  #{:error :where :source :event-id :failing-id :schema-id :frame :recovery :time})
+  #{:rf.error/id :where :source :event-id :failing-id :schema-id :frame :recovery :time})
 
 (defn- db-of [] (rf/app-db-value :rf/default))
 
@@ -189,7 +189,7 @@
         "the handler was skipped, nothing committed, and exactly one record fanned")
     (is (= {:where :event :source :boundary :event-id :prod/boundary :failing-id :prod/boundary
             :schema-id :prod/boundary :frame :rf/default :recovery :no-recovery}
-           (dissoc rec :error :time))
+           (dissoc rec :rf.error/id :time))
         ":where :event (the SSR projector answers 400) and :source :boundary")
     (is (= boundary-record-keys (set (keys rec))) "the key set is CLOSED")
     (is (number? (:time rec)))

@@ -30,6 +30,6 @@
 (deftest always-on-path-head-failure-record-is-not-buffered-or-projected
   (let [f (server-frame)]
     (rf.ssr.error-listener/error-emit-projection-listener
-      {:error :rf.error/ssr-head-resolution-failed :frame f :time 0
+      {:rf.error/id :rf.error/ssr-head-resolution-failed :frame f :time 0
        :exception (ex-info "head boom" {})})
     (is (= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))

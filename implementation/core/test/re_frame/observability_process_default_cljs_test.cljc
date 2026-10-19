@@ -55,7 +55,7 @@
 ;; `:auth` is not a summary slot, so routing lifts it onto `:tags`.
 (defn- payload-record
   [error frame]
-  {:error error
+  {:rf.error/id error
    :frame frame
    :time  1
    :auth  {:token "secret" :user "ann"}})
@@ -96,7 +96,7 @@
         (reset! seen 0)
         (rf/make-frame {:id frame-id :observability policy})
         (rf.error-emit/dispatch-error-record!
-          {:error :rf.error/test-union :frame frame-id :time 1})
+          {:rf.error/id :rf.error/test-union :frame frame-id :time 1})
         (is (= deliveries @seen) why)))))
 
 (deftest explicit-nil-clears-the-default
@@ -106,7 +106,7 @@
     (let [seen   (atom 0)
           policy {:errors [{:sink :test.sinks/sentry}]}
           fire!  #(rf.error-emit/dispatch-error-record!
-                    {:error :rf.error/test-union :frame :obs.default/cleared :time 1})]
+                    {:rf.error/id :rf.error/test-union :frame :obs.default/cleared :time 1})]
       (rf/register-observability-sink! :test.sinks/sentry (fn [_] (swap! seen inc)))
       (rf/configure! {:observability policy})
       (rf/make-frame {:id :obs.default/cleared})
@@ -154,7 +154,7 @@
           (payload-record :rf.error/no-frame-context nil)))
       (is (zero? (count @ambient-seen)) "the carried frame's policy was not consulted")
       (is (= [[nil :rf.error/no-frame-context 1 :rf/redacted]]
-             (mapv (juxt :frame :error :time :tags) @default-seen))
+             (mapv (juxt :frame :rf.error/id :time :tags) @default-seen))
           "the default receives it once: no frame claimed, summary intact, tree slot
            failed closed rather than walked under the carried frame"))))
 
@@ -187,7 +187,7 @@
       (is (= [0 0] [(count @successor-seen) (count @ambient-seen)])
           "neither the successor nor the carried bystander sees the report")
       (is (= [[:obs.default/reborn :rf.error/frame-teardown-failed 7 :rf/redacted]]
-             (mapv (juxt :frame :error :time :tags) @default-seen))
+             (mapv (juxt :frame :rf.error/id :time :tags) @default-seen))
           "the default delivers it, keeping the stale id as a diagnostic, with the
            tree payload failed closed"))))
 
@@ -201,7 +201,7 @@
                       {:errors [{:sink :test.sinks/raw
                                  :rf.egress/profile :rf.egress/local-raw}]}})
       (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/no-frame-context :frame nil :time 1 :reason "r"})
+        {:rf.error/id :rf.error/no-frame-context :frame nil :time 1 :reason "r"})
       (is (= ["r"] (mapv #(get-in % [:tags :reason]) @seen))))))
 
 (deftest a-registered-default-sink-owns-the-record
@@ -209,7 +209,7 @@
             unregistered sink owns nothing, a registered one owns the record"
     (rf/configure! {:observability {:errors [{:sink :test.sinks/never-wired}]}})
     (is (zero? (rf.observability/route-error-record!
-                 {:error :rf.error/no-frame-context :frame nil :time 1})))
+                 {:rf.error/id :rf.error/no-frame-context :frame nil :time 1})))
     (rf/register-observability-sink! :test.sinks/never-wired (fn [_] nil))
     (is (= 1 (rf.observability/route-error-record!
-               {:error :rf.error/no-frame-context :frame nil :time 1})))))
+               {:rf.error/id :rf.error/no-frame-context :frame nil :time 1})))))

@@ -25,7 +25,7 @@
       (finally
         (rf.error-emit/unregister-error-listener! ::rec)))
     (into []
-          (comp (filter #(and (= :rf.error/schema-validation-failure (:error %))
+          (comp (filter #(and (= :rf.error/schema-validation-failure (:rf.error/id %))
                               (= :app-db (:where %))))
                 (map :reason))
           @errors)))

@@ -228,7 +228,7 @@
               {:root-id :page/r2 :frame (nth frames 2) :phase :mount
                :recovery :warned-and-continued}]
              (->> records
-                  (filter #(= :rf.error/root-boot-failed (:error %)))
+                  (filter #(= :rf.error/root-boot-failed (:rf.error/id %)))
                   (mapv #(select-keys % [:root-id :frame :phase :recovery]))))))))
 
 (deftest the-always-on-record-is-structural-and-the-outcome-keeps-the-throwable
@@ -244,8 +244,8 @@
                                           :root-id  :page/a
                                           :payload  (payload-for {:count 7})
                                           :mount-fn (fn [] (throw (ex-info secret {})))}]))))
-          boot-failed (filterv #(= :rf.error/root-boot-failed (:error %)) records)]
-      (is (= [#{:error :frame :time :where :root-id :phase :recovery}]
+          boot-failed (filterv #(= :rf.error/root-boot-failed (:rf.error/id %)) records)]
+      (is (= [#{:rf.error/id :frame :time :where :root-id :phase :recovery}]
              (mapv (comp set keys) boot-failed))
           "one record, carrying structural keys only")
       (is (not (str/includes? (pr-str boot-failed) secret))
@@ -270,7 +270,7 @@
                                                       :root-id :page/a})))]
         (is (= [nil true nil]
                [@returned
-                (boolean (some #(and (= :rf.error/frame-destroyed (:error %)) (= fid (:frame %)))
+                (boolean (some #(and (= :rf.error/frame-destroyed (:rf.error/id %)) (= fid (:frame %)))
                                records))
                 (rf.ssr.install/installed-payload fid)])
             label)))))

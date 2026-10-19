@@ -74,7 +74,7 @@
                                     :admission-ms 0
                                     :render-state {:app-db [:heading]}})
                  :error-view     (fn [_] [:main#body-deadline-error])})]
-        (with-emit-recorder! [errs {:pred #(= :rf.error/ssr-render-failed (:error %))}]
+        (with-emit-recorder! [errs {:pred #(= :rf.error/ssr-render-failed (:rf.error/id %))}]
           (let [t0         (System/nanoTime)
                 {:keys [status body]} (h {:uri "/body-deadline" :request-method :get})
                 elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]

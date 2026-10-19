@@ -53,7 +53,7 @@
 
       (let [r (first @seen)]
         (is (= [[1 :rf.observe/error ::routed :rf.error/handler-exception ::boom] :rf/redacted]
-               [[(count @seen) (:kind r) (:frame r) (:error r) (:event-id r)]
+               [[(count @seen) (:kind r) (:frame r) (:rf.error/id r) (:event-id r)]
                 (get-in (:event r) [1 :auth :token])]))))))
 
 (deftest a-frame-without-the-policy-routes-nothing

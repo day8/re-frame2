@@ -40,7 +40,7 @@
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 (def ^:private rejection-record-keys
-  #{:error :where :registered-path :event-id :failing-id :frame
+  #{:rf.error/id :where :registered-path :event-id :failing-id :frame
     :rollback? :recovery :reason :time})
 
 (def ^:private planted-value "rf2-xpd8-planted-payload-must-not-egress")
@@ -92,7 +92,7 @@
        :events   @events})))
 
 (defn- errors-where [captured error where]
-  (filterv #(and (= error (:error %)) (or (nil? where) (= where (:where %))))
+  (filterv #(and (= error (:rf.error/id %)) (or (nil? where) (= where (:where %))))
            (:errors captured)))
 
 (defn- traces-where [captured operation where]
@@ -106,7 +106,7 @@
   (let [seqd    (:sequence captured)
         rec-idx (first-index (fn [[kind v]]
                                (and (= :errors kind)
-                                    (= :rf.error/schema-validation-failure (:error v))
+                                    (= :rf.error/schema-validation-failure (:rf.error/id v))
                                     (= where (:where v))))
                              seqd)
         trc-idx (first-index (fn [[kind v]]
@@ -137,7 +137,7 @@
 (def ^:private malformed-record-keys
   "Both malformed-schema records; the router's backstop carries it minus
   `:registered-path`, because a wholesale throw names no registration."
-  #{:error :where :registered-path :event-id :failing-id :frame
+  #{:rf.error/id :where :registered-path :event-id :failing-id :frame
     :rollback? :recovery :reason :time})
 
 (defn- runtime-db-value [frame]
@@ -181,7 +181,7 @@
                    :frame machine-frame-id}]
                [(count records)
                 (select-keys r [:where :machine-id :failing-id :phase :rollback? :recovery :frame])]))
-        (is (= #{:error :where :machine-id :failing-id :phase :frame :rollback? :recovery :reason :time}
+        (is (= #{:rf.error/id :where :machine-id :failing-id :phase :frame :rollback? :recovery :reason :time}
                (set (keys r)))
             "the key set is CLOSED and EQUAL"))
       (testing "no payload: the machine's :data is what :sensitive protects"

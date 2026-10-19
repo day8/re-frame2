@@ -48,9 +48,9 @@
             data       (ex-data (:exception r))
             msg        (ex-message (:exception r))]
         (is (nil? more))
-        (is (= {:error :rf.error/flow-eval-exception :where :flow-eval
+        (is (= {:rf.error/id :rf.error/flow-eval-exception :where :flow-eval
                 :flow-id :flow/output-write :phase :output-write}
-               (select-keys r [:error :where :flow-id :phase])))
+               (select-keys r [:rf.error/id :where :flow-id :phase])))
         (is (= {:rf.flow/failed-id :flow/output-write :rf.flow/failed-phase :output-write
                 :rf.flow/output-path path}
                (select-keys data [:rf.flow/failed-id :rf.flow/failed-phase :rf.flow/output-path])))

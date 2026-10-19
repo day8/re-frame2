@@ -380,7 +380,7 @@
     (let [tape [(epoch {:trace-events
                         [{:operation :rf.error/schema-validation-failure
                           :tags {:where :app-db :failing-id :db :registered-path [:k] :path [:k]}}
-                         {:op-type :warn :operation :rf.warning/x :tags {:category :perf}}]
+                         {:op-type :warn :operation :rf.warning/x :tags {}}]
                         :effects [{:fx-id :http :outcome :ok}]
                         :renders [{:view :v}]})]
           slots [:schema-violations :warnings :effects :renders]]

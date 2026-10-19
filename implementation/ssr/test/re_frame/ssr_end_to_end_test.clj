@@ -81,8 +81,8 @@
           (swap! traces conj ev))))
     (rf.error-emit/register-error-listener! tag
       (fn [r]
-        (when (= :rf.error/fx-handler-exception (:error r))
-          (swap! traces conj {:operation (:error r) :tags r}))))
+        (when (= :rf.error/fx-handler-exception (:rf.error/id r))
+          (swap! traces conj {:operation (:rf.error/id r) :tags r}))))
     (try
       (body-fn)
       @traces
@@ -369,8 +369,8 @@
   lifts it."
   [record]
   {:op-type   :error
-   :operation (:error record)
-   :tags      (-> (dissoc record :error)
+   :operation (:rf.error/id record)
+   :tags      (-> (dissoc record :rf.error/id)
                   (update :recovery #(or % :no-recovery)))})
 
 (defn- with-error-capture!
@@ -525,8 +525,8 @@
         tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
     (rf.error-emit/register-error-listener! tag
       (fn [r]
-        (when (redirect-gate-errors (:error r))
-          (swap! traces conj {:operation (:error r) :tags r}))))
+        (when (redirect-gate-errors (:rf.error/id r))
+          (swap! traces conj {:operation (:rf.error/id r) :tags r}))))
     (try (body-fn) @traces
          (finally (rf.error-emit/unregister-error-listener! tag)))))
 
@@ -775,7 +775,7 @@
               what an off-box shipper receives"
       (doseq [[label fx-id fx-vec] malformed-server-fx]
         (let [{:keys [records]} (drive-server-fx! fx-vec)]
-          (is (some #(and (= :rf.error/fx-handler-exception (:error %))
+          (is (some #(and (= :rf.error/fx-handler-exception (:rf.error/id %))
                           (= fx-id (:failing-id %)))
                     records)
-              (str label "; saw: " (pr-str (mapv (juxt :error :failing-id) records)))))))))
+              (str label "; saw: " (pr-str (mapv (juxt :rf.error/id :failing-id) records)))))))))

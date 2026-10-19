@@ -383,7 +383,7 @@
 ;; deliberately NOT here — it is prose that interpolates app values, so both
 ;; error routes ride it on the `:tags` tree slot below.
 (def ^:private error-summary-keys
-  #{:kind :frame :error :event-id :status :elapsed-ms :correlation :time
+  #{:kind :frame :rf.error/id :event-id :status :elapsed-ms :correlation :time
     :failing-id :flow-id :where :source-coord})
 
 (def ^:private error-tree-keys

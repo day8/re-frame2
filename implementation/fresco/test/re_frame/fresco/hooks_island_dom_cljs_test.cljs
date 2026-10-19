@@ -887,7 +887,7 @@
   (let [seen (atom [])
         k    ::destroyed-listener]
     (rf.error-emit/register-error-listener!
-      k (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
+      k (fn [r] (when (= :rf.error/frame-destroyed (:rf.error/id r)) (swap! seen conj r))))
     (try (thunk) @seen
          (finally (rf.error-emit/unregister-error-listener! k)))))
 

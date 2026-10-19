@@ -324,7 +324,7 @@
       ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
       ;; re-project on a later flush). Union record shape.
       (rf.ssr.error-projector/emit-always-on-error!
-        {:error :rf.error/ssr-render-failed
+        {:rf.error/id :rf.error/ssr-render-failed
          :frame frame-id
          :time  (rf.interop/now-ms)
          :exception         t
@@ -407,17 +407,17 @@
   `re-frame.error-emit` fans out onto the per-frame pending-error-traces
   buffer, in the same trace-event shape the projector consumes.
 
-  The error-emit record arrives in the UNION shape `{:error <kw> :frame
+  The error-emit record arrives in the UNION shape `{:rf.error/id <kw> :frame
   <id-or-nil> :time <ms> + flat category-specific keys}`. The event-centric
   `dispatch-on-error!` path carries `:event` / `:event-id` / `:elapsed-ms`
   / `:source-coord`; other SSR records carry `:exception` /
   `:phase` / `:reason` / `:projector-id` / … instead. We synthesise the
   `{:operation :op-type :tags}` envelope the projector pipeline
   expects — symmetric with the trace-cb delivery — by lifting EVERY
-  non-`:error` slot onto `:tags` generically, so a custom
+  non-`:rf.error/id` slot onto `:tags` generically, so a custom
   projector reading `(get-in event [:tags :exception])` sees the same keys
   on this always-on path as on the trace-cb path regardless of which
-  category was promoted. `:operation` is the record's `:error`; `:recovery`
+  category was promoted. `:operation` is the record's `:rf.error/id`; `:recovery`
   defaults to `:no-recovery` when the record didn't carry one.
 
   `re-frame.ssr` publishes it as the `:ssr/capture-error-record` late-bind
@@ -430,7 +430,7 @@
   `interop/debug-enabled? = false` — Spec 011 §Server error projection
   holds when development tracing is disabled."
   [record]
-  (let [operation (:error record)]
+  (let [operation (:rf.error/id record)]
     ;; Symmetric with the trace-cb guard above — refuse our own
     ;; sanitisation records to avoid recursion: `project-error` fans them
     ;; out on this substrate, and buffering one would re-enter projection.
@@ -455,7 +455,7 @@
             ;; Synthesise a trace-event-shaped envelope GENERICALLY
             ;; The projector reads `(:operation event)` and
             ;; tag-shaped custom projectors read `(get-in event [:tags …])`.
-            ;; Lift EVERY non-`:error` slot of the union record onto `:tags`
+            ;; Lift EVERY non-`:rf.error/id` slot of the union record onto `:tags`
             ;; — both the event-centric `dispatch-on-error!` slots
             ;; (`:event` / `:event-id` / `:elapsed-ms` / `:source-coord`)
             ;; and flat category-specific slots (`:exception` / `:phase` / `:reason` /
@@ -465,7 +465,7 @@
             ;; slot here.
             trace-event {:operation operation
                          :op-type   :error
-                         :tags      (-> (dissoc record :error)
+                         :tags      (-> (dissoc record :rf.error/id)
                                         (update :recovery #(or % :no-recovery)))}]
         (when (and direct-frame-id
                    (rf.ssr.error-projector/server-frame? direct-frame-id))

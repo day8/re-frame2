@@ -35,6 +35,6 @@
           "neither ambiguous id ran, and the walk continued past the ambiguous fx")
       (is (= [[:event :probe/ev] [:fx :probe/fx]]
              (mapv :registration
-                   (filter #(= :rf.error/ambiguous-registration (:error %)) @seen))))
+                   (filter #(= :rf.error/ambiguous-registration (:rf.error/id %)) @seen))))
       (finally
         (rf.error-emit/unregister-error-listener! ::recorder)))))

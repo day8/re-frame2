@@ -61,9 +61,9 @@
     {:traces @traces :errors @errors}))
 
 (defn- error-of
-  "The first always-on error record whose `:error` is `kw`."
+  "The first always-on error record whose `:rf.error/id` is `kw`."
   [recs kw]
-  (first (filterv #(= kw (:error %)) recs)))
+  (first (filterv #(= kw (:rf.error/id %)) recs)))
 
 (defn- assert-trigger-shape
   "`ev`'s `:rf.trace/trigger-handler` names `expected-kind` / `expected-id` and

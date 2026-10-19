@@ -77,7 +77,7 @@
 ;; never carry. The independence is the point: a test that read the production
 ;; set would agree with it by construction and could only ever pass.
 ;;
-;;   :error       the category (union-record shape)
+;;   :rf.error/id the category (union-record shape)
 ;;   :frame       ALWAYS nil — see [[report-non-integer-status!]]
 ;;   :time        the emit instant (union-record shape)
 ;;   :where       the call site; a constant keyword, and the slot the three
@@ -125,7 +125,7 @@
   (let [;; Computed ONCE and shared by both axes.
         status-type (some-> status class .getName)]
     (rf.ssr.ring.lifecycle/emit-always-on-error!
-      {:error       :rf.error/ssr-ring-response-status-invalid
+      {:rf.error/id :rf.error/ssr-ring-response-status-invalid
        :frame       nil
        :time        (rf.interop/now-ms)
        :where       :ssr-ring/ssr-response->ring-response
@@ -404,7 +404,7 @@
                        (merge common detail-map))
     (rf.ssr.ring.lifecycle/emit-always-on-error!
       (merge common detail-map
-             {:error :rf.error/ssr-ring-error-view-failed
+             {:rf.error/id :rf.error/ssr-ring-error-view-failed
               :time  (rf.interop/now-ms)}))
     nil))
 

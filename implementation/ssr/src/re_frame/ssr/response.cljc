@@ -1104,7 +1104,7 @@
              (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       (assoc (rf.ssr.egress/redirect-record-tags tags)
-             :error operation
+             :rf.error/id operation
              :time  (rf.interop/now-ms))))
   nil)
 

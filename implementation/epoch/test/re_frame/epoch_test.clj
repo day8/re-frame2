@@ -1091,7 +1091,7 @@
                          @recorded)]
       (is (some? trace) "the refusal's trace still fires")
       (is (= (-> (:tags trace)
-                 (dissoc :category :recovery :rf.epoch/id)
+                 (dissoc :recovery :rf.epoch/id)
                  (assoc :ok? false :reason (:operation trace) :epoch-id :no-such-epoch))
              refused))))
   (testing "the bad-keys diagnostic rides as :cause, under the op-level :reason"
@@ -1125,14 +1125,12 @@
       (rf/dispatch-sync [:try-restore eid] {:frame :test/main})
       (is (= {:frame :test/main :rf.epoch/id eid}
              (tags-of @recorded :rf.epoch/restored)))
-      (is (= {:category     :rf.epoch/restore-unknown-epoch
-              :frame        :test/main
+      (is (= {:frame        :test/main
               :rf.epoch/id  :no-such-epoch
               :history-size 2}
              (tags-of @recorded :rf.epoch/restore-unknown-epoch)))
       ;; In-drain, the envelope adds :rf.trace/dispatch-id for correlation.
-      (is (= {:category    :rf.epoch/restore-during-drain
-              :frame       :test/main
+      (is (= {:frame       :test/main
               :rf.epoch/id eid}
              (dissoc (tags-of @recorded :rf.epoch/restore-during-drain)
                      :rf.trace/dispatch-id))))))

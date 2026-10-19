@@ -49,7 +49,7 @@
 (def ^:private host-disallowed :rf.error/redirect-host-disallowed)
 
 (defn- gate-records [records]
-  (filter (comp #{scheme-rejected invalid-url host-disallowed} :error) records))
+  (filter (comp #{scheme-rejected invalid-url host-disallowed} :rf.error/id) records))
 
 (defn- refusal
   "`[redirect status records]` for `args`, each record with `:frame` and
@@ -77,7 +77,7 @@
 (deftest an-absolute-url-needs-allow-to-name-its-host
   (testing "without :allow an absolute URL is refused through the guard,
             whatever host it names"
-    (is (= (refused-with {:error host-disallowed :reason :relative-only-violation})
+    (is (= (refused-with {:rf.error/id host-disallowed :reason :relative-only-violation})
            (refusal {:location "https://app.example.com/home"}))))
   (testing ":allow names the hosts permitted beyond the request's own origin,
             and only those"
@@ -86,7 +86,7 @@
     (is (= ["https://APP.example.com/home" []]
            (landed {:location "https://APP.example.com/home" :allow ["app.example.com"]})))
     (doseq [allow [["app.example.com"] []]]
-      (is (= (refused-with {:error host-disallowed :reason :not-in-allowlist})
+      (is (= (refused-with {:rf.error/id host-disallowed :reason :not-in-allowlist})
              (refusal {:location "https://evil.example.com/home" :allow allow}))
           (pr-str allow)))))
 
@@ -97,9 +97,9 @@
                       "//cdn.example.com/asset"]]
       (is (= [location []] (landed {:location location :allow :any})) location)))
   (testing "and nothing else: the scheme and parse checks still refuse"
-    (is (= (refused-with {:error scheme-rejected :scheme-class :javascript})
+    (is (= (refused-with {:rf.error/id scheme-rejected :scheme-class :javascript})
            (refusal {:location "javascript:alert(1)" :allow :any})))
-    (is (= (refused-with {:error invalid-url :reason :parse-failed})
+    (is (= (refused-with {:rf.error/id invalid-url :reason :parse-failed})
            (refusal {:location "https://example.com/search?q=a b" :allow :any})))))
 
 (deftest a-relative-path-is-accepted
@@ -116,26 +116,26 @@
             allowlist entry) and no oversized input reaches it"
     (doseq [[args slots]
             [[{:location "javascript:alert(1)"}
-              {:error scheme-rejected :scheme-class :javascript}]
+              {:rf.error/id scheme-rejected :scheme-class :javascript}]
              [{:location "s3cr3t-probe-scheme:payload"}
-              {:error scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
+              {:rf.error/id scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
              [{:location (str "s" (apply str (repeat 20000 "x")) ":payload")}
-              {:error scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
+              {:rf.error/id scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
              [{:location "https:s3cr3t-opaque-token.evil.example"}
-              {:error invalid-url :reason :scheme-without-host :scheme-class :https}]
+              {:rf.error/id invalid-url :reason :scheme-without-host :scheme-class :https}]
              [{:location "https://s3cr3t-session-id.evil.example/x"}
-              {:error host-disallowed :reason :relative-only-violation}]
+              {:rf.error/id host-disallowed :reason :relative-only-violation}]
              [{:location "//evil.example.com/"}
-              {:error host-disallowed :reason :relative-only-violation}]
+              {:rf.error/id host-disallowed :reason :relative-only-violation}]
              [{:location "https://alice:s3cr3t-pw@a.b.s3cr3t-label.evil.example/reset/s3cr3t-token?s3cr3t-flag"
                :allow    ["app.example.com" "s3cr3t-internal-admin.example.com"]}
-              {:error host-disallowed :reason :not-in-allowlist}]
+              {:rf.error/id host-disallowed :reason :not-in-allowlist}]
              [{:location (str "https://" (apply str (repeat 20000 "h")) ".evil.example/"
                               (apply str (repeat 20000 "p")))
                :allow    ["app.example.com"]}
-              {:error host-disallowed :reason :not-in-allowlist}]
+              {:rf.error/id host-disallowed :reason :not-in-allowlist}]
              [{:location ""}
-              {:error invalid-url :reason :parse-failed}]]]
+              {:rf.error/id invalid-url :reason :parse-failed}]]]
       (is (= (refused-with slots) (refusal args))
           (subs (pr-str args) 0 (min 120 (count (pr-str args))))))))
 
@@ -146,7 +146,7 @@
     (doseq [location ["///evil.example/path" "////evil.example/path" "//evil_example/path"]
             [args reason] [[{:location location} :relative-only-violation]
                            [{:location location :allow ["trusted.example"]} :not-in-allowlist]]]
-      (is (= (refused-with {:error host-disallowed :reason reason}) (refusal args))
+      (is (= (refused-with {:rf.error/id host-disallowed :reason reason}) (refusal args))
           (pr-str args)))))
 
 (deftest the-probe-class-is-normalised-for-aggregation

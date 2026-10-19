@@ -99,7 +99,7 @@
                 (str "the summary names the category first; got " (pr-str summary)))
             (is (re-find #"kaboom" summary)
                 (str "and carries the exception's own message; got " (pr-str summary)))
-            (is (= :rf.error/handler-exception (:error record)))
+            (is (= :rf.error/handler-exception (:rf.error/id record)))
             (is (identical? ex (:exception record))
                 "the original exception rides as its own argument")
             (is (= "kaboom" (ex-message ex))))
@@ -118,7 +118,7 @@
                    (second args))
                 (str "never an empty string, never invented prose; got "
                      (pr-str (second args))))
-            (is (= :rf.error/no-such-handler (:error (nth args 2))))))))))
+            (is (= :rf.error/no-such-handler (:rf.error/id (nth args 2))))))))))
 
 (deftest a-typod-setup-step-reaches-the-dev-console
   (if-not (browser?)
@@ -156,7 +156,7 @@
           (is (re-find #"^:rf\.error/frame-teardown-failed\b" summary))
           (is (re-find #"teardown step\(s\) threw" summary)
               (str "the summary falls back to :reason; got " (pr-str summary)))
-          (is (= :rf.error/frame-teardown-failed (:error record))))))))
+          (is (= :rf.error/frame-teardown-failed (:rf.error/id record))))))))
 
 ;; `emit-no-frame-context!` and `emit-bad-frame-provider-arg!` pass no
 ;; exception (nothing threw), so the record's `:reason` is the only place the
@@ -173,7 +173,7 @@
           (rf.frame/emit-no-frame-context! payload)
           (rf.error-emit/unregister-error-listener! :fu75/ladder)
           (let [record (first @seen)]
-            (is (= :rf.error/no-frame-context (:error record)))
+            (is (= :rf.error/no-frame-context (:rf.error/id record)))
             (is (= (:reason payload) (:reason record)))
             (is (= :supply-frame (:recovery record))))))
 
@@ -341,7 +341,7 @@
                                    {:frame :fu75.rollback/frame}))
               rollback (filterv (fn [args]
                                   (= :rf.error/schema-validation-failure
-                                     (:error (nth args 2 nil))))
+                                     (:rf.error/id (nth args 2 nil))))
                                 console)]
           (is (= 2 (count rollback))
               (str "one line per violated registration; got "
@@ -362,7 +362,7 @@
                 (capture-console
                   #(rf/dispatch-sync [:fu75.rollback/write]
                                      {:frame :fu75.rollback/frame}))]
-            (is (= 2 (count (filter #(= :rf.error/schema-validation-failure (:error %))
+            (is (= 2 (count (filter #(= :rf.error/schema-validation-failure (:rf.error/id %))
                                     @seen)))
                 "premise: the owner got both records")
             (is (empty? console)

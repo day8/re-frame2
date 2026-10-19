@@ -41,7 +41,7 @@
     :probe/frame #(rf.routing.resolve/redact-declared-url url)))
 
 (defn- ambiguities [records]
-  (filterv #(= :rf.error/ambiguous-registration (:error %)) records))
+  (filterv #(= :rf.error/ambiguous-registration (:rf.error/id %)) records))
 
 (def ^:private overlap-url
   "A URL both `/:token/reset` and `/login/:token` match."

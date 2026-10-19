@@ -90,8 +90,7 @@
  {:trace-emissions
   [{:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :where      :machine-data
+    :tags      {:where      :machine-data
                 :machine-id :data/m
                 :failing-id :data/m
                 :phase      :macrostep

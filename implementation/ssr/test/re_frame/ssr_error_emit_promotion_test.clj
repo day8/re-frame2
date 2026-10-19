@@ -38,7 +38,7 @@
     seen))
 
 (defn- records-of [seen category]
-  (filterv #(= category (:error %)) @seen))
+  (filterv #(= category (:rf.error/id %)) @seen))
 
 (deftest ssr-render-failed-reaches-listener-under-debug-off
   (let [f    (server-frame)
@@ -90,5 +90,5 @@
                                [:rf.error/ssr-render-failed 500]]]
       (let [f (server-frame)]
         (rf.ssr.error-listener/error-emit-projection-listener
-          {:error category :frame f :time 0 :exception (ex-info "synthetic" {})})
+          {:rf.error/id category :frame f :time 0 :exception (ex-info "synthetic" {})})
         (is (= status (:status (:response (rf.ssr/flush-response-result! f)))) (str category))))))

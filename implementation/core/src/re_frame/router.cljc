@@ -1173,7 +1173,7 @@
         (fn [where ex]
           (when rf.interop/debug-enabled?
             (rf.error-emit/dispatch-error-record!
-              {:error      :rf.error/malformed-schema
+              {:rf.error/id :rf.error/malformed-schema
                :where      where
                :event-id   event-id
                :failing-id event-id
@@ -2512,7 +2512,7 @@
   records."
   [event-id frame]
   (rf.error-emit/dispatch-error-record!
-    {:error      :rf.error/schema-validation-failure
+    {:rf.error/id :rf.error/schema-validation-failure
      :where      :event
      :source     :boundary
      :event-id   event-id
@@ -3042,7 +3042,7 @@
     ;; id-vector ONLY — no event args, no `:reason` prose — per Spec 009 §The
     ;; promotion criterion (structured data only) and the elision discipline.
     (rf.error-emit/dispatch-error-record!
-      {:error             :rf.error/drain-depth-exceeded
+      {:rf.error/id       :rf.error/drain-depth-exceeded
        :frame             frame-id
        :time              (rf.interop/now-ms)
        :depth             depth

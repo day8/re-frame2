@@ -62,7 +62,7 @@
         (rf.error-emit/unregister-error-listener! ::recorder)))))
 
 (defn- errors-of [seen error-id]
-  (filterv #(= error-id (:error %)) @seen))
+  (filterv #(= error-id (:rf.error/id %)) @seen))
 
 (defn- register-forget-who! []
   (rf/reg-event :test/forget-who (fn [{:keys [db]} _] {:db (dissoc db :who)})))

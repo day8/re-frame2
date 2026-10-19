@@ -101,8 +101,7 @@ Every `:rf.error/*` trace event emitted while a registered handler is executing 
                                            :file   "src/myapp/events.cljs"
                                            :line   142
                                            :column 3}}
- :tags      {:category   :rf.error/unregistered-cofx
-             :failing-id :user/profile
+ :tags      {:failing-id :user/profile
              :reason     "no coeffect registered for :user/profile"}}
 ```
 

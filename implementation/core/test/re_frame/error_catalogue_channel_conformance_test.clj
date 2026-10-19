@@ -125,13 +125,13 @@
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private always-on-record-mechanism-re
-  "The `:error` value of a literal record passed to `dispatch-error-record!`.
+  "The `:rf.error/id` value of a literal record passed to `dispatch-error-record!`.
   The category is a map value, not a positional argument, so the positional
   pattern above matches nothing here. The bounded window spans the newline the
   record usually follows. `dispatch-frame-teardown-report!` builds its category
   inside its own body, so no call-site scan can harvest it; the always-on
   literal pins that one."
-  (re-pattern (str "dispatch-error-record!(?:[\\s\\S]{0,64}?):error\\s+"
+  (re-pattern (str "dispatch-error-record!(?:[\\s\\S]{0,64}?):rf\\.error/id\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private dev-gated-record-categories
@@ -324,7 +324,7 @@
           arm-maps)))
 
 (defn- parse-tags-schemas
-  "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}`."
+  "`{\"HandlerExceptionTags\" #{:failing-id :exception-message …}, …}`."
   ([] (parse-tags-schemas (slurp spec-schemas-file)))
   ([text]
    (let [m (re-matcher tags-schema-def-re text)]
@@ -418,12 +418,6 @@
           {}
           rows))
 
-(def ^:private envelope-only-tag-keys
-  "The slot 009 excludes from every trace-event row's `:tags` cell by rule.
-  `:recovery` is deliberately absent: `build-event` hoists it to the envelope,
-  so a schema declaring it under `:tags` is a defect and must red."
-  #{:category})
-
 (defn tags-column-findings
   "`[{:category … :schema … :missing #{…}} …]`: every row paired to exactly one
   schema whose `:tags` cell omits a key that schema declares."
@@ -433,7 +427,6 @@
                (when (= 1 (count group))
                  (let [row     (first group)
                        missing (set/difference (get schemas schema-name)
-                                               envelope-only-tag-keys
                                                (cell-tag-keys (:tags-cell row)))]
                    (when (seq missing)
                      {:category (:category row)
@@ -590,8 +583,7 @@
   (when rf.interop/debug-enabled?
     (let [schema     (tags-schema-form "HydrationMismatchTags")
           declared   (get (parse-tags-schemas) "HydrationMismatchTags")
-          documented (set/union (cell-tag-keys (catalogue-tags-cell :rf.ssr/hydration-mismatch))
-                                envelope-only-tag-keys)
+          documented (cell-tag-keys (catalogue-tags-cell :rf.ssr/hydration-mismatch))
           described  (fn [label tags]
                        (is (malli/validate schema tags)
                            (str label ": emitted `:tags` must validate against the "
@@ -618,8 +610,6 @@
             (is (qualified-symbol? where)
                 (str rel-path " stamps a quoted, namespace-qualified `:where`. Found: "
                      (pr-str (:where form))))
-            (is (not (contains? tags :category))
-                "a `:warning` envelope carries no `[:tags :category]`, as the cell says")
             (is (= :warned-and-replaced (:recovery ev))
                 "`:recovery` is hoisted to the envelope on the `:warning` branch too")
             (described rel-path tags)
@@ -655,7 +645,7 @@
 
 (def ^:private route-plan-schemas
   {"ResourceRoutePlanTags"
-   #{:category :reason :route-id :frame :contributor :plan-cause}})
+   #{:reason :route-id :frame :contributor :plan-cause}})
 
 (defn- catalogue-fixture
   "A minimal catalogue section carrying `rows` verbatim, so the real parser is
@@ -689,8 +679,8 @@
                                   "`:plan-cauze` (see [`:plan-cause`](#error-event-catalogue))"))
              route-plan-schemas)))))
 
-(deftest tags-column-arm-exempts-only-the-category-slot
-  (testing "`:category` is exempt; every other undocumented schema key reds"
+(deftest tags-column-arm-reds-every-undocumented-key
+  (testing "no slot is exempt: every schema key the cell omits reds"
     (is (= [{:category :rf.error/resource-route-plan
              :schema   "ResourceRoutePlanTags"
              :missing  #{:reason :frame :contributor :plan-cause}}]
@@ -724,7 +714,7 @@
                       "| … | `:dropped` | `:rf.reply/status` |")
                  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
                       "| diagnostic | … | `:dropped` | `:carried-token` |")))
-             {"StaleSuppressedTags" #{:category :carried-token}})))))
+             {"StaleSuppressedTags" #{:carried-token}})))))
 
 (deftest tags-column-reader-honours-the-escaped-pipe
   (testing "every active row splits to the same field count, so no row's

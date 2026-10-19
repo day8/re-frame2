@@ -33,11 +33,11 @@
     (rf/dispatch-sync [:prod/flow-throw])
     (is (= 1 (count @seen)) "the listener fires exactly once")
     (let [r (first @seen)]
-      (is (= {:error    :rf.error/flow-eval-exception
+      (is (= {:rf.error/id :rf.error/flow-eval-exception
               :event    [:prod/flow-throw]
               :event-id :prod/flow-throw
               :frame    :rf/default}
-             (select-keys r [:error :event :event-id :frame])))
+             (select-keys r [:rf.error/id :event :event-id :frame])))
       (is (number? (:time r)))
       (is (integer? (:elapsed-ms r))
           "the substrate boundary rounds the float performance.now() value"))))

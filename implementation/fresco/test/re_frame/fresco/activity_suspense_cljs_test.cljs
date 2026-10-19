@@ -433,7 +433,7 @@
   (let [seen (atom [])
         key  (keyword "rf2-hic-014" (name (gensym "refusal")))]
     (rf.error-emit/register-error-listener!
-      key (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
+      key (fn [r] (when (= :rf.error/frame-destroyed (:rf.error/id r)) (swap! seen conj r))))
     (try {:result (thunk) :refusals @seen}
          (finally (rf.error-emit/unregister-error-listener! key)))))
 
@@ -467,11 +467,11 @@
         (is (= 1 (count refusals))
             "exactly one always-on record — the only observable separating
              refused from silently delivered to the wrong frame")
-        (is (= {:error    :rf.error/frame-destroyed
+        (is (= {:rf.error/id :rf.error/frame-destroyed
                 :frame    frame-id
                 :event-id :acs/mark
                 :op       :dispatch-sync}
-               (select-keys (first refusals) [:error :frame :event-id :op]))
+               (select-keys (first refusals) [:rf.error/id :frame :event-id :op]))
             "asserted as a MAP — id, target frame, refused event head and
              operation realm together. A `thrown?`-shaped assertion would
              stay green for a refusal raised by a different layer for a

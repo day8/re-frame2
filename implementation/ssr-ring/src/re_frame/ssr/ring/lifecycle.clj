@@ -24,7 +24,7 @@
 (defn emit-always-on-error!
   "Fan a pre-built always-on SSR error record through the
   error-emit registry via the `:error-emit/dispatch-error-record` late-bind
-  hook. `record` is the union shape `{:error <kw> :frame <id-or-nil> :time
+  hook. `record` is the union shape `{:rf.error/id <kw> :frame <id-or-nil> :time
   <ms> + flat category keys}`. No-op when the producer hasn't loaded.
   Returns nil."
   [record]
@@ -161,7 +161,7 @@
       ;; Always-on but non-projecting: observability must not turn a degraded
       ;; empty head into an error response.
       (emit-always-on-error!
-        {:error     :rf.error/ssr-head-resolution-failed
+        {:rf.error/id :rf.error/ssr-head-resolution-failed
          :frame     frame-id
          :time      (rf.interop/now-ms)
          :exception t

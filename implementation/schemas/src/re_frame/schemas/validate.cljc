@@ -514,7 +514,7 @@
   (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      {:error           :rf.error/schema-validation-failure
+      {:rf.error/id     :rf.error/schema-validation-failure
        :where           :app-db
        :registered-path registered-path
        :event-id        event-id
@@ -578,7 +578,7 @@
   (when-let [dispatch-error-record! (rf.late-bind/get-fn
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      {:error           :rf.error/malformed-schema
+      {:rf.error/id     :rf.error/malformed-schema
        :where           :app-db
        :registered-path registered-path
        :event-id        event-id

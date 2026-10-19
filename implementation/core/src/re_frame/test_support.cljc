@@ -1321,7 +1321,7 @@
 
          (with-emit-recorder! [errs]
            (rf/dispatch-sync [:boom])
-           (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+           (is (= [:rf.error/handler-exception] (mapv :rf.error/id @errs))))
 
      Example — the event stream, filtered to one frame (`:app/main`
      made with `rf/make-frame`):

@@ -37,7 +37,7 @@
     (rf.error-emit/register-error-listener! ::recorder (fn [r] (swap! seen conj r)))
     (try
       (thunk)
-      (filterv #(= :rf.error/machine-spawn-unregistered-type (:error %)) @seen)
+      (filterv #(= :rf.error/machine-spawn-unregistered-type (:rf.error/id %)) @seen)
       (finally (rf.error-emit/unregister-error-listener! ::recorder)))))
 
 (defn- reject-traces []
@@ -60,7 +60,7 @@
       (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
           "the spawn cascade never ran")
       (testing "the always-on record and the dev trace carry structural context only"
-        (is (= [{:error      :rf.error/machine-spawn-unregistered-type
+        (is (= [{:rf.error/id :rf.error/machine-spawn-unregistered-type
                  :machine-id :ghost/worker
                  :frame      :rf/default
                  :recovery   :no-recovery

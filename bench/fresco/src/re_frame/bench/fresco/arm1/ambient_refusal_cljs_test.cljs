@@ -80,7 +80,7 @@
            point of the mistake, so the refusal must survive production
            elision"
     (let [f (make-frame!)]
-      (is (some #(= :rf.error/ambient-frame-refused (:error %))
+      (is (some #(= :rf.error/ambient-frame-refused (:rf.error/id %))
                 (captured-errors #(in-body f (fn [] @(rf/subscribe [:rt122/v])))))))))
 
 (deftest the-refusal-unwinds-with-the-body

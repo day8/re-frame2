@@ -107,7 +107,7 @@
       (rf.error-emit/unregister-error-listener! ::pcb-miss)
       (is (nil? result))
       (is (empty? @(:sub-cache (rf.frame/frame :fh/race))))
-      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))))))
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:rf.error/id %)) @errs)))))))
 
 (deftest live-capture-subscribe-miss-still-reads-its-own-incarnation
   (testing "control: a live captured subscribe that misses builds against its own
@@ -133,7 +133,7 @@
       (run-supersede-at-build :fh/race [:fh/value] #(subscribe [:fh/derived]))
       (rf.error-emit/unregister-error-listener! ::pcb-rec)
       (is (empty? @(:sub-cache (rf.frame/frame :fh/race))))
-      (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)))))
+      (is (some #(= :rf.error/frame-destroyed (:rf.error/id %)) @errs)))))
 
 ;; ---- A lost after the token match -------------------------------------------
 ;;
@@ -184,7 +184,7 @@
           (supersede! fid #(op-fn [:fh/mark]))
           (rf.error-emit/unregister-error-listener! ::post-token)
           (is (nil? (:marked-by (rf/app-db-value fid))))
-          (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))))))))
+          (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:rf.error/id %)) @errs)))))))))
 
 ;; ---- no scope ---------------------------------------------------------------
 

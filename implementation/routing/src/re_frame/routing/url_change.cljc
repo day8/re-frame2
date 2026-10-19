@@ -96,14 +96,14 @@
   `:rf.error/no-such-handler` as always-on with `:kind :route`.
 
   The record is the general NON-EVENT union shape
-  `{:error <kw> :frame <id-or-nil> :time <ms> + flat category keys}` — this
+  `{:rf.error/id <kw> :frame <id-or-nil> :time <ms> + flat category keys}` — this
   is not a dispatched-event failure, so it rides `dispatch-error-record!`
   rather than the event-centric `dispatch-on-error!`. `tags` arrives already
   redacted (see [[route-miss-tags]]): the record carries the category,
   `:kind :route`, `:frame`, `:time`, `:recovery` and the structured
   `:reason` / redacted `:url` — never a raw query / fragment carrier value or
   declared path segment, and never an app-db slice. The SSR
-  `error-emit-projection-listener` lifts every non-`:error` slot onto `:tags`
+  `error-emit-projection-listener` lifts every non-`:rf.error/id` slot onto `:tags`
   generically, so `[:tags :kind]` reaches the projector's `404` gate
   identically on both axes.
 
@@ -115,7 +115,7 @@
              (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       (assoc tags
-             :error :rf.error/no-such-handler
+             :rf.error/id :rf.error/no-such-handler
              :time  (rf.interop/now-ms))))
   nil)
 

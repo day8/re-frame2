@@ -488,18 +488,18 @@
 
 (defn- error-record->trace-event
   "Synthesise the `{:operation :op-type :tags}` envelope the projector
-  pipeline consumes from an EP-0008 union error record `{:error <kw>
+  pipeline consumes from an EP-0008 union error record `{:rf.error/id <kw>
   :frame <id> :time <ms> + flat category keys}`.
 
   This is the SAME generic lift `error-emit-projection-listener`
-  performs — every non-`:error` slot rides onto `:tags`, `:recovery`
+  performs — every non-`:rf.error/id` slot rides onto `:tags`, `:recovery`
   defaults to `:no-recovery` — so an event handed to `ssr/project-error`
   from here is byte-for-byte the event the runtime's own always-on
   projection capture would have handed it."
   [record]
   {:op-type   :error
-   :operation (:error record)
-   :tags      (-> (dissoc record :error)
+   :operation (:rf.error/id record)
+   :tags      (-> (dissoc record :rf.error/id)
                   (update :recovery #(or % :no-recovery)))})
 
 (defn- collect-always-on-errors

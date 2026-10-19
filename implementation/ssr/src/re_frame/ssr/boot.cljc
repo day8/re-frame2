@@ -37,7 +37,7 @@
   (when-let [dispatch-error-record!
              (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      {:error      :rf.error/malformed-hydration-payload
+      {:rf.error/id :rf.error/malformed-hydration-payload
        :frame      nil
        :time       (rf.interop/now-ms)
        :where      where
@@ -389,7 +389,7 @@
   record — the rule `re-frame.substrate.spine/dispatch-hydration-mismatch-record!`
   keeps for the hydration-recovery record."
   [{:keys [where frame root-id phase exception]}]
-  (let [record {:error    :rf.error/root-boot-failed
+  (let [record {:rf.error/id :rf.error/root-boot-failed
                 :frame    frame
                 :time     (rf.interop/now-ms)
                 :where    where
@@ -398,7 +398,7 @@
                 :recovery :warned-and-continued}]
     (when rf.interop/debug-enabled?
       (rf.trace/emit-error! :rf.error/root-boot-failed
-                            (assoc (dissoc record :error :time)
+                            (assoc (dissoc record :rf.error/id :time)
                                    :reason    (str "root " (pr-str root-id) " failed to boot during "
                                                    (name phase) " and was ISOLATED: the page's other "
                                                    "roots hydrated and are running. This root is not "

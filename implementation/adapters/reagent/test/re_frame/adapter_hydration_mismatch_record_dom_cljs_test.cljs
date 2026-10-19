@@ -81,7 +81,7 @@
 (def ^:private record-keys
   "Every key the adoption record may carry. The spine's door does not know
   the frame, so its record carries no `:frame`."
-  #{:error :where :recovery :time})
+  #{:rf.error/id :where :recovery :time})
 
 (deftest a-hydrating-root-fans-one-structural-record-with-debug-off
   (testing "a nested text mismatch delivers exactly one structural record to
@@ -106,7 +106,7 @@
           (rf.error-emit/register-error-listener!
             ::records
             (fn [r]
-              (when (= :rf.ssr/hydration-mismatch (:error r))
+              (when (= :rf.ssr/hydration-mismatch (:rf.error/id r))
                 (swap! records conj r)
                 true)))
           (set! rf.interop/debug-enabled? false)
@@ -133,7 +133,7 @@
                         (str "the record is structural only. Keys: " (pr-str (sort (keys rec)))))
                     (is (= [:rf.ssr/hydration-mismatch 're-frame.substrate.spine/make-render
                             :warned-and-replaced true]
-                           [(:error rec) (:where rec) (:recovery rec) (number? (:time rec))]))
+                           [(:rf.error/id rec) (:where rec) (:recovery rec) (number? (:time rec))]))
                     (is (not-any? string? (vals rec))
                         "no slot carries text, so React's message cannot be in it")))
                 (testing "the reporter is installed whatever debug reads"

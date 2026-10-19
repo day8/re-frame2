@@ -40,7 +40,7 @@
      (rf.routing.scroll/scroll-fx-handler
        (cond-> {:frame :rf/default} event (assoc :event event))
        {:strategy strategy})
-     (let [errs (filterv #(= :rf.error/unsupported-scroll-strategy (:error %)) @records)]
+     (let [errs (filterv #(= :rf.error/unsupported-scroll-strategy (:rf.error/id %)) @records)]
        (is (= 1 (count errs))
            "exactly one always-on record — the rejection still fires")
        (first errs)))))

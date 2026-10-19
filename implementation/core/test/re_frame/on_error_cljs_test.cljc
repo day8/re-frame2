@@ -39,9 +39,9 @@
     seen))
 
 (defn- first-of
-  "The first record in `seen` whose `:error` is `category`."
+  "The first record in `seen` whose `:rf.error/id` is `category`."
   [category seen]
-  (some #(when (= category (:error %)) %) @seen))
+  (some #(when (= category (:rf.error/id %)) %) @seen))
 
 (deftest error-listener-fires-on-handler-exception
   (testing "a handler throw yields exactly one record with the tight key set;
@@ -51,10 +51,10 @@
       (rf/dispatch-sync [:err/throw])
       (is (= 1 (count @seen)))
       (let [{sc :source-coord ms :elapsed-ms :as r} (first @seen)]
-        (is (= {:error :rf.error/handler-exception :event [:err/throw]
+        (is (= {:rf.error/id :rf.error/handler-exception :event [:err/throw]
                 :event-id :err/throw :frame :rf/default}
-               (select-keys r [:error :event :event-id :frame])))
-        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms :source-coord}
+               (select-keys r [:rf.error/id :event :event-id :frame])))
+        (is (= #{:rf.error/id :event :event-id :frame :time :exception :elapsed-ms :source-coord}
                (set (keys r))))
         (is (some? (:exception r)))
         (is (number? (:time r)))
@@ -81,18 +81,18 @@
       (testing (name op)
         (let [seen (recording-listener!)]
           (is (nil? (dispatch!)))
-          (is (= [{:error :rf.error/frame-destroyed :frame :gone/frame
+          (is (= [{:rf.error/id :rf.error/frame-destroyed :frame :gone/frame
                    :event :rf/redacted :event-id :whatever :op op}]
-                 (mapv #(select-keys % [:error :frame :event :event-id :op]) @seen))))))))
+                 (mapv #(select-keys % [:rf.error/id :frame :event :event-id :op]) @seen))))))))
 
 (deftest listener-fires-on-no-such-handler
   (testing "dispatching an unregistered id returns normally and emits exactly
             one :rf.error/no-such-handler record"
     (let [seen (recording-listener!)]
       (rf/dispatch-sync [:no/handler-here])
-      (is (= [{:error :rf.error/no-such-handler :event [:no/handler-here]
+      (is (= [{:rf.error/id :rf.error/no-such-handler :event [:no/handler-here]
                :event-id :no/handler-here :frame :rf/default}]
-             (mapv #(select-keys % [:error :event :event-id :frame]) @seen))))))
+             (mapv #(select-keys % [:rf.error/id :event :event-id :frame]) @seen))))))
 
 (deftest listener-fires-on-no-such-sub
   (let [seen (recording-listener!)]
@@ -251,7 +251,7 @@
         (let [records (records-for op :audit/collide realms)
               r       (first records)]
           (is (= 1 (count records)))
-          (is (= {:error :rf.error/frame-destroyed :op op} (select-keys r [:error :op])))
+          (is (= {:rf.error/id :rf.error/frame-destroyed :op op} (select-keys r [:rf.error/id :op])))
           (if (= ::absent expected)
             (is (not (contains? r :source-coord)))
             (is (= expected (:source-coord r)))))))))
@@ -264,9 +264,9 @@
     (seed-coords! :alk8a/collide #{:event :sub})
     (let [seen (recording-listener!)]
       (is (nil? (rf/subscribe-once [:alk8a/collide] {:frame :alk8a/gone-frame})))
-      (is (= [{:error :rf.error/frame-destroyed :frame :alk8a/gone-frame :op :subscribe
+      (is (= [{:rf.error/id :rf.error/frame-destroyed :frame :alk8a/gone-frame :op :subscribe
                :event [:alk8a/collide] :source-coord sub-coord}]
-             (mapv #(select-keys % [:error :frame :op :event :source-coord]) @seen))))))
+             (mapv #(select-keys % [:rf.error/id :frame :op :event :source-coord]) @seen))))))
 
 (deftest ordinary-dispatch-frame-destroyed-resolves-the-event-coord
   (testing "an ordinary dispatch or dispatch-sync into a missing frame stamps
@@ -278,9 +278,9 @@
       (testing (name op)
         (let [seen (recording-listener!)]
           (dispatch!)
-          (is (= [{:error :rf.error/frame-destroyed :frame :p3c7n/gone :op op
+          (is (= [{:rf.error/id :rf.error/frame-destroyed :frame :p3c7n/gone :op op
                    :source-coord event-coord}]
-                 (mapv #(select-keys % [:error :frame :op :source-coord]) @seen))))))))
+                 (mapv #(select-keys % [:rf.error/id :frame :op :source-coord]) @seen))))))))
 
 (deftest interceptor-after-throw-leaves-app-db-unchanged-no-db-changed
   (testing "an interceptor :after throw aborts the event before the :db install,

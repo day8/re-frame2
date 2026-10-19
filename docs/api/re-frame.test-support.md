@@ -266,7 +266,7 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
         - `:stream`: `:errors` (default; one record per error the always-on error stream carries) or `:events` (one record per processed event). Any other value throws at macroexpansion.
         - `:pred`: a 1-arg `(fn [record] truthy?)` filter. Default: accept every record.
         - `:key`: the listener key. Default: a fresh keyword each time the bracket runs, so brackets never collide, even nested ones.
-    - An `:errors` record is `{:error … :event … :event-id … :frame … :time … :exception … :elapsed-ms … :source-coord …}`, `:error` being the `:rf.error/*` id. Only runtime errors carried on the always-on stream produce one, such as a handler, effect or subscription failure, or a dispatch to an unregistered event (`:rf.error/no-such-handler`). An error reported only on the trace stream produces none, such as a registration-time error or a refusal from `rf.epoch/restore-epoch!` or `rf.epoch/replace-frame-state!`; record those with `with-trace-recorder!`. An error thrown to the caller, such as `:rf.error/poll-until-timeout`, produces none either, so catch that one instead.
+    - An `:errors` record is `{:rf.error/id … :event … :event-id … :frame … :time … :exception … :elapsed-ms … :source-coord …}`, `:rf.error/id` being the `:rf.error/*` id. Only runtime errors carried on the always-on stream produce one, such as a handler, effect or subscription failure, or a dispatch to an unregistered event (`:rf.error/no-such-handler`). An error reported only on the trace stream produces none, such as a registration-time error or a refusal from `rf.epoch/restore-epoch!` or `rf.epoch/replace-frame-state!`; record those with `with-trace-recorder!`. An error thrown to the caller, such as `:rf.error/poll-until-timeout`, produces none either, so catch that one instead.
     - An `:events` record is `{:event … :event-id … :frame … :time … :outcome … :elapsed-ms …}`. `:outcome` is `:ok`, `:error` (the handler or an interceptor threw), `:rolled-back` (a schema rejected the new `app-db`), `:flow-error` (a flow's output threw) or `:rejected` (a `:boundary? true` handler's `:schema` refused the payload). An event whose handler sets `:rf.trace/no-emit? true` produces no record.
     - In both, `:event` has already passed the off-box elision: a declared-sensitive argument reads `:rf/redacted`, and an oversized one a `:rf.size/large-elided` marker. The rest of the record is unprojected, which is what a test wants: `:exception` is the raw throwable.
     - These streams have no public listener function, and `rf/register-listener!` has no `:events` or `:errors` stream: an application reads production records, projected, through a frame's `:observability` sink or the `(rf/configure! {:observability …})` process default.
@@ -275,7 +275,7 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
   ;; Default stream (:errors): capture what one dispatch fails with.
   (ts/with-emit-recorder! [errs]
     (rf/dispatch-sync [:boom])
-    (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+    (is (= [:rf.error/handler-exception] (mapv :rf.error/id @errs))))
 
   ;; The event stream, filtered to one frame (:app/main made with rf/make-frame).
   (ts/with-emit-recorder! [seen {:stream :events

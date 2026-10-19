@@ -164,7 +164,7 @@
            [#{:checks}            (assoc base :checks [{:check :c/x :status :fail :assertions []}])]
            [#{:effects}           (assoc base :effects [{:fx :analytics/track}])]
            [#{:schema-violations} (assoc base :schema-violations [{:selector [:event :go]}])]
-           [#{:warnings}          (assoc base :warnings [{:operation :slow :category :perf}])]
+           [#{:warnings}          (assoc base :warnings [{:operation :slow}])]
            [#{:sub-overrides}     (assoc base :sub-overrides {[:login/state] :error})]
            [#{:fidelity}          (assoc base :fidelity #{:real-setup :sub-overrides})]]]
       (doseq [[facets cur] perturbations]

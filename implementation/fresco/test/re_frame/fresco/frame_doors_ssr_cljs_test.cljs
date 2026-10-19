@@ -148,5 +148,5 @@
         (let [page (ex-data thrown)]
           (is (= :rf.error/ssr-render-failed (:rf.error/id page))
               (str "expected the whole-page door to fail the render; got " (pr-str page)))
-          (is (= :rf.error/ambient-frame-refused (:error (:record page)))
+          (is (= :rf.error/ambient-frame-refused (:rf.error/id (:record page)))
               "and the record the door names is the read's own"))))))

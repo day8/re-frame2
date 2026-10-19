@@ -43,7 +43,7 @@
                           {:frame :err-record/app})
         (let [redacted [:err-record/login {:user "bob" :password rf.privacy/redacted-sentinel}]
               event-of (fn [records]
-                         (:event (first (filter #(= :rf.error/handler-exception (:error %))
+                         (:event (first (filter #(= :rf.error/handler-exception (:rf.error/id %))
                                                 records))))]
           (is (= redacted (event-of @sunk))
               "control: the sink record's :event is redacted by the registration")

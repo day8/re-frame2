@@ -51,7 +51,7 @@
     (let [f       (server-frame)
           records (miss! f "/no-such-page?token=s3cr3t-query-value&flag#s3cr3t-fragment-value")
           url     (:url (first records))]
-      (is (= [{:error :rf.error/no-such-handler :kind :route :frame f
+      (is (= [{:rf.error/id :rf.error/no-such-handler :kind :route :frame f
                :time true :recovery :replaced-with-default :url true}]
              (mapv #(-> % (update :time integer?) (update :url string?)) records)))
       (is (str/starts-with? url "/no-such-page?token="))
@@ -61,4 +61,4 @@
   (let [f      (server-frame)
         record (first (miss! f "/bad%ZZ-encoding"))]
     (is (= [:rf.error/no-such-handler :malformed-url 404]
-           [(:error record) (:reason record) (:status (:response (rf.ssr/flush-response-result! f)))]))))
+           [(:rf.error/id record) (:reason record) (:status (:response (rf.ssr/flush-response-result! f)))]))))

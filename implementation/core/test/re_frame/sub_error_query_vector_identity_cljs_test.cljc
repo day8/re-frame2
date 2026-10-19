@@ -76,11 +76,11 @@
                             [:rf.error/frame-destroyed {:op :subscribe}]]]
     (let [{:keys [walker listener sink]} (emitted error-kw query-v :patient/record attrs)]
       (is (= [[:patient/record :rf/redacted]
-              [{:error error-kw :event-id :patient/record :event query-v}]
-              [{:kind :rf.observe/error :error error-kw :event query-v}]]
+              [{:rf.error/id error-kw :event-id :patient/record :event query-v}]
+              [{:kind :rf.observe/error :rf.error/id error-kw :event query-v}]]
              [walker
-              (mapv #(select-keys % [:error :event-id :event]) listener)
-              (mapv #(select-keys % [:kind :error :event :re-frame.projection/raw-event?]) sink)])
+              (mapv #(select-keys % [:rf.error/id :event-id :event]) listener)
+              (mapv #(select-keys % [:kind :rf.error/id :event :re-frame.projection/raw-event?]) sink)])
           (str error-kw)))))
 
 (deftest dispatched-event-error-still-elides-on-both-routes

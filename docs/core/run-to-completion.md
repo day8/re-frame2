@@ -17,7 +17,7 @@ input never reaches it. When a family reaches the limit with events still queued
 runtime halts that family and emits an always-on [error record](glossary.md#error-record):
 
 ```clojure
-{:error             :rf.error/drain-depth-exceeded
+{:rf.error/id       :rf.error/drain-depth-exceeded
  :frame             :rf/default
  :depth             1000                       ; events this family already settled
  :queue-size        7                          ; the family's queued events, dropped unrun

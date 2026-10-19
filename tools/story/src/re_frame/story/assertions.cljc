@@ -122,7 +122,7 @@
 ;; (the `:rf.egress/local-redacted` default, EP-0015), so a sensitive event
 ;; vector never lands raw on an assertion record's `:actual`. Warning
 ;; records
-;; carry only `:operation` / `:category` metadata (no payload), so the
+;; carry only `:operation` / `:reason` metadata (no payload), so the
 ;; `:warnings` projection — which agrees with the run-result slot — counts
 ;; them without a payload-leak risk.
 ;; ---------------------------------------------------------------------------

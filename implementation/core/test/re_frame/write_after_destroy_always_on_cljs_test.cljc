@@ -31,7 +31,7 @@
       (finally
         (rf/unregister-listener! :trace ::rec)))
     (testing "exactly one always-on record, carrying no event, frame or exception"
-      (let [reports (filter #(= :rf.error/write-after-destroy (:error %)) @seen)
+      (let [reports (filter #(= :rf.error/write-after-destroy (:rf.error/id %)) @seen)
             r       (first reports)]
         (is (= [1 [nil nil nil] true]
                [(count reports) ((juxt :event :frame :exception) r)

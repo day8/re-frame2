@@ -48,12 +48,10 @@
       (finally (rf.trace.tooling/unregister-listener! k)))
     (when rf.interop/debug-enabled?
       (is (= [{:operation :rf.error/derived-container-replaced
-               :category  :rf.error/derived-container-replaced
                :recovery  :no-recovery
                :reason?   true}]
              (for [ev @seen
                    :when (= :rf.error/derived-container-replaced (:operation ev))]
                {:operation (:operation ev)
-                :category  (get-in ev [:tags :category])
                 :recovery  (:recovery ev)
                 :reason?   (string? (get-in ev [:tags :reason]))}))))))

@@ -56,7 +56,7 @@ Listener registration is **one stream-parameterized verb** — `(register-listen
 ```clojure
 ;; Production error egress — always-on, and the ONLY production door.
 ;; Declared once for the process here; a frame may declare its own instead.
-;; Branch on (:error record): a teardown report carries no :exception.
+;; Branch on (:rf.error/id record): a teardown report carries no :exception.
 (rf/configure! {:observability {:errors [{:sink :audit/sentry}]}})
 
 (rf/register-observability-sink! :audit/sentry

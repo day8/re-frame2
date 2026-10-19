@@ -70,7 +70,7 @@
 
 (defn- frame-destroyed-records [seen]
   (rf.error-emit/unregister-error-listener! error-capture-id)
-  (filterv #(= :rf.error/frame-destroyed (:error %)) @seen))
+  (filterv #(= :rf.error/frame-destroyed (:rf.error/id %)) @seen))
 
 (defn- flush-xray-queue!
   "Drain whatever `:rf/xray`'s router is holding without waiting on the host

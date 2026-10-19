@@ -110,6 +110,6 @@
     (let [before (db)]
       (rf/dispatch-sync [:vectorise])
       (is (= {:n 5 :out {:doubled 10}} before (db)) "the event aborted before its install")
-      (is (= [{:error :rf.error/flow-eval-exception :where :flow-eval
+      (is (= [{:rf.error/id :rf.error/flow-eval-exception :where :flow-eval
                :flow-id :doubled :phase :output-write}]
-             (mapv #(select-keys % [:error :where :flow-id :phase]) @errors))))))
+             (mapv #(select-keys % [:rf.error/id :where :flow-id :phase]) @errors))))))

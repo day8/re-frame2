@@ -270,12 +270,12 @@
              :rf.egress/profile :rf.egress/off-box-observability}]})
 
 (defn- report-error! [record]
-  ;; `record` is a projected `:rf.observe/error`: `:error` is the canonical
+  ;; `record` is a projected `:rf.observe/error`: `:rf.error/id` is the canonical
   ;; `:rf.error/*` discriminator, `:event-id` names what was in flight, and
   ;; `:exception` carries the host throwable when the failure had one (several
   ;; record shapes do not — branch, never assume).
   (js/console.error "[conduit] re-frame2 error record"
-                    #js {:error     (str (:error record))
+                    #js {:error     (str (:rf.error/id record))
                          :frame     (str (:frame record))
                          :eventId   (str (:event-id record))
                          :exception (:exception record)}))

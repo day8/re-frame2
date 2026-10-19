@@ -474,7 +474,7 @@
            (for [ev @traces :when (= :rf.error/ssr-head-resolution-failed (:operation ev))]
              [(:op-type ev) (:recovery ev) (select-keys (:tags ev) [:frame :exception])])))
     (is (= [[:rf.frame/f boom]]
-           (for [r @records :when (= :rf.error/ssr-head-resolution-failed (:error r))]
+           (for [r @records :when (= :rf.error/ssr-head-resolution-failed (:rf.error/id r))]
              [(:frame r) (:exception r)])))))
 
 (deftest handler-throwing-head-fn-ships-degraded-200-not-projected-error

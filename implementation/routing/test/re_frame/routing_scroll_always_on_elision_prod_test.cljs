@@ -96,5 +96,5 @@
                :reason        rf.routing.scroll/unsupported-strategy-reason
                :frame         :prod.scroll/frame}]
              (->> @records
-                  (filter #(= :rf.error/unsupported-scroll-strategy (:error %)))
+                  (filter #(= :rf.error/unsupported-scroll-strategy (:rf.error/id %)))
                   (map #(select-keys % [:supported :recovery :strategy-type :reason :frame]))))))))

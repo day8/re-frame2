@@ -52,7 +52,7 @@
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (defn- ambiguities [records]
-  (filterv #(= :rf.error/ambiguous-registration (:error %)) records))
+  (filterv #(= :rf.error/ambiguous-registration (:rf.error/id %)) records))
 
 (defn- with-recorded-errors
   "Run `(f seen)` with every always-on error record appended to the atom

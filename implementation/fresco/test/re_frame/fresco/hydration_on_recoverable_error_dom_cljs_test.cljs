@@ -59,7 +59,7 @@
         (rf.error-emit/register-error-listener!
           ::records
           (fn [r]
-            (when (= :rf.ssr/hydration-mismatch (:error r))
+            (when (= :rf.ssr/hydration-mismatch (:rf.error/id r))
               (swap! records conj r)
               true)))
         (rf.fresco.roots-frames-support/settle-row!

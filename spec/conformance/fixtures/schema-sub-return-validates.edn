@@ -50,8 +50,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :items/break}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :failing-id :items
+    :tags      {:failing-id :items
                 :where      :sub-return
                 :rf.sub/id     :items}
     :recovery  :replaced-with-default}]}}

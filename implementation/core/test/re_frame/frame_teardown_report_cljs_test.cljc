@@ -52,7 +52,7 @@
        :machines/on-frame-destroyed!      (throwing-hook :machines)
        :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
       (fn [] (rf/destroy-frame! :teardown/n-failures)))
-    (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
+    (let [reports (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)
           r       (first reports)]
       (is (= [1
               :teardown/n-failures
@@ -62,7 +62,7 @@
               :ignored
               true
               true
-              #{:error :frame :hook-failures :recovery :reason :time}
+              #{:rf.error/id :frame :hook-failures :recovery :reason :time}
               #{#{:hook :exception :where}}]
              [(count reports)
               (:frame r)
@@ -82,7 +82,7 @@
                                             (fn [record] (swap! seen conj record)))
     (rf/make-frame {:id :teardown/clean :doc "no hooks throw"})
     (rf/destroy-frame! :teardown/clean)
-    (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)))))
+    (is (empty? (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)))))
 
 (deftest partial-teardown-abort-still-flushes-collected-entries
   ;; two hooks fail, then a later non-hook step throws out of destroy-frame!;
@@ -100,7 +100,7 @@
                         (throw (ex-info "mid-teardown collapse" {})))]
           (is (thrown? #?(:clj Throwable :cljs js/Error)
                        (rf/destroy-frame! :teardown/abort))))))
-    (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
+    (let [reports (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)]
       (is (= [1 [:machines/on-frame-destroyed! :ssr/on-frame-destroyed]]
              [(count reports) (sort (map :hook (:hook-failures (first reports))))])))))
 
@@ -140,7 +140,7 @@
     (with-hooks*
       {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
       (fn [] (rf/destroy-frame! :teardown/step2)))
-    (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
+    (let [reps (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @reports)]
       ;; fully torn down, :on-destroy ran once, and the failure is one entry of
       ;; the one report, recorded at the direct-step boundary
       (is (= [nil 1 1 [:safe-teardown-step!]]
@@ -171,7 +171,7 @@
        :machines/on-frame-destroyed!      (throwing-hook :machines)
        :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
       (fn [] (rf/destroy-frame! :teardown/outer-A)))
-    (let [reports  (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
+    (let [reports  (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)
           expected [:flows/teardown-on-frame-destroy!
                     :machines/on-frame-destroyed!
                     :ssr/on-frame-destroyed]]

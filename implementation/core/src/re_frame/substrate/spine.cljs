@@ -1185,7 +1185,7 @@
   [where frame]
   (when-let [dispatch-error-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      (cond-> {:error    :rf.ssr/hydration-mismatch
+      (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
                :where    where
                :recovery :warned-and-replaced
                :time     (rf.interop/now-ms)}

@@ -42,8 +42,7 @@
     :id        id
     :time      (+ 1700000000000 (* id 10))
     :recovery  (:recovery tags :no-recovery)
-    :tags      (merge {:category :rf.error/schema-validation-failure
-                       :where    where
+    :tags      (merge {:where    where
                        :frame    :story.x/y}
                       tags)}))
 

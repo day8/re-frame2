@@ -49,7 +49,7 @@
         errors (atom [])]
     (rf/init! rf.substrate.plain-atom/adapter)
     (rf.error-emit/register-error-listener!
-      ::probe (fn [record] (swap! errors conj (:error record))))
+      ::probe (fn [record] (swap! errors conj (:rf.error/id record))))
     (rf/make-frame {:id frame-id})
     (rf/reg-event event-id
                   (fn [{:keys [db]} _]

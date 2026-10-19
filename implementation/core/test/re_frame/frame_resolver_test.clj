@@ -63,7 +63,7 @@
     (try
       (try (rf.frame/require-current-frame! :subscribe) (catch clojure.lang.ExceptionInfo _ nil))
       (finally (rf.error-emit/unregister-error-listener! ::probe)))
-    (is (= [nil] (mapv :frame (filterv #(= :rf.error/no-frame-context (:error %)) @records)))
+    (is (= [nil] (mapv :frame (filterv #(= :rf.error/no-frame-context (:rf.error/id %)) @records)))
         "exactly one frameless record reached the always-on listener")))
 
 ;; The refusal tier: a substrate withdraws the AMBIENT find for an extent it

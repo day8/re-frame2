@@ -850,7 +850,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 
 The error category schemas in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
-**Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when an ordinary drain observes, at an event boundary, that its exact frame incarnation has been claimed for destruction (or is already dead/absent) and therefore terminates before its next dequeue. Its `:dropped-count` combines ordinary events removed atomically by an immediate claim with the events removed from both lanes at the observing check — for a pending destroy, everything still queued behind the destroying event, its own descendants included; the private destroy-owned cleanup cascade is not counted. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-interrupted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :rf.frame` discriminator places it alongside the rest of the `:rf.frame/*` lifecycle family (`:rf.frame/created`, `:rf.frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+**Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when an ordinary drain observes, at an event boundary, that its exact frame incarnation has been claimed for destruction (or is already dead/absent) and therefore terminates before its next dequeue. Its `:dropped-count` combines ordinary events removed atomically by an immediate claim with the events removed from both lanes at the observing check — for a pending destroy, everything still queued behind the destroying event, its own descendants included; the private destroy-owned cleanup cascade is not counted. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :rf.frame` discriminator places it alongside the rest of the `:rf.frame/*` lifecycle family (`:rf.frame/created`, `:rf.frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
 
 ### `:rf/error-event`
 
@@ -885,7 +885,6 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
                                [:line   {:optional true} :int]
                                [:column {:optional true} :int]]]
    [:tags      [:map
-                [:category    {:optional true} :keyword]  ;; PRESENT IFF :op-type is :error — see below
                 [:failing-id  {:optional true} :any]
                 [:frame       {:optional true} :keyword]
                 [:reason      {:optional true} :string]]]])    ;; remaining keys are category-specific
@@ -893,7 +892,7 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
 
 The `:op-type` discriminates severity: `:error` halts or recovers a specific operation; `:warning` is an advisory the runtime emitted alongside continuing default behaviour. Consumers branch on `:op-type` for severity routing and on `:operation` for category-specific handling.
 
-**`:tags :category` is present iff `:op-type` is `:error`.** `re-frame.trace/build-event` merges `{:category <operation>}` into `:tags` on the `:error` branch only; a `:warning` envelope gets no such key, and its category rides the top-level `:operation`. The optionality above is that discrimination expressed in one Malli slot rather than a two-arm `:multi` — `:operation` is required on every envelope and always carries the category, so `[:tags :category]` is a convenience duplicate on the error branch, never the discriminator. Consumers that branch on category MUST read `:operation`; reading `[:tags :category]` silently misses every warning. The same asymmetry governs the per-category `:tags` schemas below: a schema for an `:error`-envelope category declares `:category`, one for a `:warning` / `:info` / run-body envelope does not. Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+**The category rides `:operation` alone.** `:operation` is required on every envelope and always carries the category, and no envelope repeats it under `:tags` — so a consumer branches on `:operation` whatever the severity, and no per-category `:tags` schema below declares a category key. Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 `:recovery` is likewise never a `:tags` key on either branch — `build-event` strips it from the supplied tags map and hoists it to the envelope top level (typed by the shared open `Recovery` vocabulary above), so no per-category `:tags` schema declares it. The thrown-error shape is the one place `:recovery` IS a peer data key: `re-frame.error/thrown-ex-info` writes it directly into `ex-data` alongside `:rf.error/id` / `:where` / `:reason` (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)) — that is ex-data, not a trace envelope's `:tags`.
 
@@ -923,7 +922,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 
 Each error / warning category enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
 
-Which slots a catalogue ROW omits from its `:tags` cell — and why each is omitted — is stated once, in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) under *Reading the two right-hand columns*. This section does not restate it, and a schema is not a catalogue row: the schemas below are **standalone**, so each declares every key its category actually carries **under `:tags` on the wire** — including the ones the `:rf/error-event` envelope above already types (`:category`, `:failing-id`, `:reason`, `:frame`) and the ones `re-frame.trace/build-event` supplies rather than the emit site. One schema therefore validates a real tags map on its own, without being composed with the envelope. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
+Which slots a catalogue ROW omits from its `:tags` cell — and why each is omitted — is stated once, in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) under *Reading the two right-hand columns*. This section does not restate it, and a schema is not a catalogue row: the schemas below are **standalone**, so each declares every key its category actually carries **under `:tags` on the wire** — including the ones the `:rf/error-event` envelope above already types (`:failing-id`, `:reason`, `:frame`) and the ones `re-frame.trace/build-event` supplies rather than the emit site. One schema therefore validates a real tags map on its own, without being composed with the envelope. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
 A schema and its catalogue row are **co-edited**, and a conformance test holds them to it: the keys a schema below declares are diffed against the keys its row's `:tags` cell names, so adding a key here without naming it there fails the gate. Which side to change is a judgement — a key the category genuinely carries belongs in the row, a key it does not carry should leave the schema.
 
@@ -937,7 +936,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; own categories below. `:failing-id` and `:handler-id`
   ;; are both the event id; `:phase` is :before (the handler-wrapper's slot).
   [:map
-   [:category          [:= :rf.error/handler-exception]]
    [:failing-id        :keyword]
    [:reason            :string]
    [:event             [:vector :any]]
@@ -958,7 +956,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; handler is skipped, nothing staged is committed, and the event settles
   ;; `:error`. No `:handler-id` (the handler never ran).
   [:map
-   [:category          [:= :rf.error/coeffect-exception]]
    [:rf.cofx/id        :keyword]
    [:failing-id        :keyword]
    [:rf.trace/event-id :keyword]
@@ -976,7 +973,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; throws at context assembly, before the chain runs, and `re-frame.cofx`
   ;; emits CoeffectExceptionTags for it.
   [:map
-   [:category          [:= :rf.error/interceptor-exception]]
    [:failing-id        :keyword]
    [:reason            :string]
    [:event             [:vector :any]]
@@ -988,7 +984,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def FxHandlerExceptionTags
   [:map
-   [:category          [:= :rf.error/fx-handler-exception]]
    [:failing-id        :keyword]
    [:rf.fx/id          :keyword]
    [:rf.fx/args        :any]
@@ -997,7 +992,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def SubExceptionTags
   [:map
-   [:category          [:= :rf.error/sub-exception]]
    [:failing-id        :keyword]
    [:rf.sub/id         :keyword]
    [:sub-query         [:vector :any]]
@@ -1012,7 +1006,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; empty, since the miss is detected on the `sub-meta` lookup before any
   ;; input is resolved).
   [:map
-   [:category         :keyword]         ;; [:= :rf.error/no-such-sub] in a closed schema
    [:rf.sub/id        :keyword]
    [:unresolved-input [:vector :any]]
    [:resolved-inputs  [:vector :any]]
@@ -1029,7 +1022,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; envelope's own optional `[:tags :frame]` covers the degenerate case of a
   ;; registration performed inside a run; it is not a slot this category carries.
   [:map
-   [:category   [:= :rf.error/reg-sub-bad-args]]
    [:rf.sub/id  :keyword]
    [:received   :any]                       ;; the offending arg shape
    [:reason     :string]])
@@ -1040,7 +1032,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `:where` discriminates the reactive cache-miss path from the pure
   ;; `compute-sub` resolution path.
   [:map
-   [:category          [:= :rf.error/sub-input-fn-exception]]
    [:rf.sub/id         :keyword]
    [:rf.sub/query-v    [:vector :any]]
    [:where             [:enum :reactive :compute-sub]]
@@ -1053,7 +1044,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; vectors (scalar, map, bare keyword, reaction, derefable, malformed query
   ;; vector). `:returned` carries the offending return shape / class.
   [:map
-   [:category   [:= :rf.error/sub-input-fn-bad-return]]
    [:rf.sub/id  :keyword]
    [:rf.sub/query-v [:vector :any]]
    [:where      [:enum :reactive :compute-sub]]
@@ -1063,7 +1053,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def NoSuchHandlerTags
   [:map
-   [:category          :keyword]
    [:rf.trace/event-id {:optional true} :keyword]
    [:rf.event/v        {:optional true} [:vector :any]]
    [:frame             {:optional true} :keyword]
@@ -1072,28 +1061,24 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def NoSuchFxTags
   [:map
-   [:category  :keyword]
    [:rf.fx/id  :keyword]
    [:rf.fx/args :any]
    [:frame     {:optional true} :keyword]])
 
 (def NoSuchCofxTags
   [:map
-   [:category          :keyword]            ;; EP-0017: a required cofx id with no registration is `:rf.error/unregistered-cofx` (the typo case); a registered-but-unsatisfiable fact is `:rf.error/missing-required-cofx`.
    [:rf.cofx/id        :keyword]
    [:rf.cofx/arg       {:optional true} :any]   ;; the requirement-arg, present only for a parameterized `[id arg]` requirement (the requirement-arg rides `:rf.cofx/arg`; `:rf.cofx/value` is reserved for the PRODUCED coeffect value on `:rf.cofx/run`)
    [:rf.trace/event-id {:optional true} :keyword]])
 
 (def OverrideFallthroughTags
   [:map
-   [:category      :keyword]
    [:failing-id    :keyword]
    [:overrides-map [:map-of :keyword :any]]
    [:looked-up-id  :keyword]])
 
 (def UnwrapBadEventShapeTags
   [:map
-   [:category :keyword]
    [:event    [:vector :any]]
    [:expected :string]])
 
@@ -1101,7 +1086,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def SchemaValidationFailureTags
   [:map
-   [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
    [:where           [:enum :event :sub-return :app-db :fx-args :flow-output :machine-data :machine-output :sub-override]] ;; :machine-data is the `reg-machine` [:schemas :data] boundary; :machine-output is the [:schemas :output] completion-payload boundary (EP-0029 A8 — Spec 005 §Completion-output validation); both per Spec 010 §Per-step recovery row 7; :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides). :cofx is NOT a :where of this category — a bad recordable coeffect is the separate hard error :rf.error/cofx-value-invalid (EP-0017; Spec 010 §Per-step recovery row 2)
@@ -1143,7 +1127,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; false` (the machine already finished), and PROCEEDS — a schema typo
   ;; surfaces loudly yet never deadlocks a finishing machine.
   [:map
-   [:category        [:= :rf.error/malformed-schema]]
    [:where           [:enum :app-db :machine-data :machine-output]]
    [:reason          :string]
    [:failing-id      {:optional true} :keyword]
@@ -1163,7 +1146,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `:last-event` vector, no `:reason`) documented in the Spec 009 catalogue
   ;; row's `:tags` cell; see `:tail-event-ids` there for the cycle evidence.
   [:map
-   [:category          :keyword]
    [:frame             :keyword]
    [:depth             :int]
    [:queue-size        :int]
@@ -1183,7 +1165,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def DispatchSyncInHandlerTags
   [:map
-   [:category   :keyword]
    [:frame      :keyword]
    [:rf.event/v [:vector :any]]
    [:reason     :string]])
@@ -1264,7 +1245,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; a claim the runtime does not honour.
   ;;
   [:map
-   [:category       :keyword]
    [:frame          :keyword]
    [:op             [:enum :dispatch :dispatch-sync :subscribe]]
    [:event          {:optional true} :any]
@@ -1295,7 +1275,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; core, http, machines, routing, flows, resources and ssr, plus the
   ;; `where` argument threaded through `require-frame-provider-target!`.
   [:map
-   [:category    :keyword]                         ;; [:= :rf.error/no-frame-context] in a closed schema
    [:operation   :keyword]                          ;; the failing frame-scoped op — open set (above)
    [:where       {:optional true} :symbol]          ;; the resolving call site, a SYMBOL; the 1-arity requiring forms omit it
    [:event-id    {:optional true} :keyword]         ;; the query-id / event-id the op carried
@@ -1331,14 +1310,12 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; contract alone: the catalogue conformance gate diffs KEY SETS only, so
   ;; `:any` here would enforce nothing while reading as though it did.
   [:map
-   [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
    [:received :any]                                  ;; the offending value (neither keyword nor frame value)
    [:where    {:optional true} :symbol]              ;; the validating provider call site, a SYMBOL
    [:reason   {:optional true} :string]])
 
 (def EffectMapShapeTags
   [:map
-   [:category          :keyword]
    [:failing-id        :keyword]
    [:rf.trace/event-id :keyword]
    [:rf.event/v        [:vector :any]]
@@ -1348,7 +1325,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def EffectHandlerBadReturnTags
   [:map
-   [:category      [:= :rf.error/effect-handler-bad-return]]
    [:event-id      {:optional true} :keyword]
    [:event         [:vector :any]]
    [:returned      :any]
@@ -1357,7 +1333,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def FlowEvalExceptionTags
   [:map
-   [:category :keyword]
    [:frame    :keyword]
    [:event    [:vector :any]]
    [:exception :any]])
@@ -1370,7 +1345,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; reserved for the registered TYPE. `:failing-id` / `:handler-id` (already
   ;; distinctly named) carry the same instance address for domain clarity.
   [:map
-   [:category          [:= :rf.error/machine-action-exception]]
    [:actor-id          :keyword]
    [:action-id         :any]
    [:state-path        [:vector :any]]
@@ -1385,54 +1359,45 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def MachineRaiseDepthExceededTags
   ;; The aborting actor is a LIVE INSTANCE (`:actor-id`).
   [:map
-   [:category :keyword]
    [:actor-id :keyword]
    [:depth    :int]])
 
 (def MachineAlwaysDepthExceededTags
   ;; The aborting actor is a LIVE INSTANCE (`:actor-id`).
   [:map
-   [:category :keyword]
    [:actor-id :keyword]
    [:depth    :int]
    [:path     [:vector :any]]])
 
 (def MachineUnresolvedGuardTags
   [:map
-   [:category   :keyword]
    [:guard      :keyword]
    [:machine-id :keyword]])
 
 (def MachineUnresolvedActionTags
   [:map
-   [:category   :keyword]
    [:action     :keyword]
    [:machine-id :keyword]])
 
 (def MachineBadGuardFormTags
   [:map
-   [:category :keyword]
    [:guard    :any]])
 
 (def MachineBadActionFormTags
   [:map
-   [:category :keyword]
    [:action   :any]])
 
 (def MachineBadStateFormTags
   [:map
-   [:category :keyword]
    [:state    :any]])
 
 (def MachineBadOnClauseTags
   [:map
-   [:category :keyword]
    [:value    :any]])
 
 (def MachineActionWroteDbTags
   ;; The offending action ran in a LIVE actor (`:actor-id`).
   [:map
-   [:category        :keyword]
    [:actor-id        :keyword]
    [:action-id       :any]
    [:state-path      [:vector :any]]
@@ -1445,7 +1410,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; CLJS reference claims every capability, so it never emits this row — a
   ;; PORT that declines one does, and it has no substitute string to supply.
   [:map
-   [:category   :keyword]
    [:machine-id :keyword]
    [:feature    :keyword]])
 
@@ -1460,26 +1424,22 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def MachineStateNotInDefinitionTags
   [:map
-   [:category   :keyword]
    [:machine-id :keyword]
    [:state      :any]])
 
 (def MachineSnapshotVersionMismatchTags
   [:map
-   [:category         :keyword]
    [:machine-id       :keyword]
    [:version-recorded :any]
    [:version-current  :any]])
 
 (def MachineAlwaysSelfLoopTags
   [:map
-   [:category   :keyword]
    [:state      :keyword]
    [:machine-id :keyword]])
 
 (def MachineCompoundStateMissingInitialTags
   [:map
-   [:category   :keyword]
    [:machine-id :keyword]
    [:state      :any]])
 
@@ -1560,18 +1520,15 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def NoSuchRouteTags
   [:map
-   [:category :keyword]
    [:route-id :keyword]])
 
 (def MissingRouteParamTags
   [:map
-   [:category :keyword]
    [:param    :keyword]
    [:route-id :keyword]])
 
 (def DuplicateUrlBindingTags
   [:map
-   [:category        :keyword]
    [:existing-frame  :keyword]
    [:offending-frame :keyword]])
 
@@ -1600,7 +1557,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; [Conventions §`:rf.trace/*`](Conventions.md#the-single-root-reserved-set)
   ;; — never the bare `:event-id`.
   [:map
-   [:category          :keyword]
    [:carried-token     :any]
    [:current-token     :any]
    [:rf.trace/event-id {:optional true} :keyword]])
@@ -1615,7 +1571,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceMissingScopePolicyTags
   ;; reg-resource declared no valid :scope policy (REQUIRED, fail-closed).
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:scope       {:optional true} :any]
    [:reason      :string]])
@@ -1625,7 +1580,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; spec was not a map. (:scope is validated first + separately, raising
   ;; ResourceMissingScopePolicyTags.) Registration-time, dev+prod (a caller bug).
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:value       {:optional true} :any]   ;; present when the spec was not a map
    [:reason      :string]])
@@ -1634,7 +1588,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; a params / scope map carried a host / opaque value at the cache-key
   ;; boundary — the scoped resource key MUST be serializable EDN.
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:kind        :keyword]            ;; :params | :scope
    [:value       {:optional true} :any]
@@ -1643,7 +1596,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceInvalidParamsTags
   ;; params failed conformance against the resource's :params-schema.
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:params      {:optional true} :any]
    [:error       {:optional true} :any]   ;; the Malli explainer payload
@@ -1652,7 +1604,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceNotRegisteredTags
   ;; a resource operation referenced an unregistered resource id.
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:reason      :string]])
 
@@ -1660,7 +1611,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; a resource declared a :transport other than the only initial-scope
   ;; built-in (:rf.http/managed).
   [:map
-   [:category  :keyword]
    [:transport :any]
    [:reason    :string]])
 
@@ -1673,7 +1623,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; an app-supplied reply target would bypass stale suppression. Rejected at
   ;; the managed-HTTP lower seam; the request is NOT lowered.
   [:map
-   [:category     :keyword]
    [:keys         [:vector :keyword]]   ;; the rejected reserved key(s)
    [:resource/key {:optional true} :any]   ;; the scoped resource key (:rf/scoped-resource-key) — the one spelling for the key on data shapes
    [:reason       :string]])
@@ -1694,7 +1643,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; so a slot left `:any` is not weakly enforced but UNENFORCED. The slot is
   ;; OPTIONAL.
   [:map
-   [:category  :keyword]
    [:where     {:optional true} :symbol]
    [:frame     {:optional true} :any]
    [:timed-out [:vector :any]]        ;; the scoped resource keys that timed out
@@ -1717,7 +1665,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; an activation failure. Per Spec 016 §Route integration / §Route-plan
   ;; replan — same-token reconciliation.
   [:map
-   [:category    :keyword]
    [:route-id    :keyword]                    ;; the LEAF activation target
    [:resource-id {:optional true} :keyword]   ;; absent for a branch-resolution / collapse-cycle failure that names no single resource
    [:contributor {:optional true} [:map [:route-id :keyword] [:local-id {:optional true} :any]]]  ;; the CONTRIBUTING route + local declaration; every contributor's :when/:params/:scope runs against the LEAF target, so :route-id alone cannot say which declaration failed. Absent for a failure belonging to no single declaration (branch resolution / collapse cycle)
@@ -1737,7 +1684,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; NOT an activation trace: no :rf.route/activated / nav-token-allocated pair
   ;; fires for a prefetch.
   [:map
-   [:category   {:optional true} :keyword]
    [:route-id   :keyword]
    [:warmed     :int]
    [:plan-error {:optional true} :boolean]
@@ -1751,7 +1697,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; untouched. Distinct from :rf.error/resource-route-plan (a well-formed
   ;; address whose plan could not be built). Per Spec 012 §Route-plan prefetch.
   [:map
-   [:category  {:optional true} :keyword]
    [:where     :keyword]                  ;; :event
    [:reason    :keyword]                  ;; the first extraction-law violation (e.g. :unknown-keys / :bad-address)
    [:keys      {:optional true} [:vector :any]]
@@ -1768,7 +1713,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; request whose plan could not be built — a committed failed replan). Per
   ;; Spec 012 §Replanning the active route's resources.
   [:map
-   [:category  {:optional true} :keyword]
    [:where     :keyword]                  ;; :event
    [:reason    :keyword]                  ;; the first violation (e.g. :missing-cause / :unknown-key / :no-active-route)
    [:keys      {:optional true} [:vector :any]]  ;; the offending keys; [] for the arity / map / slice reasons
@@ -1785,7 +1729,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; carries the resource's own first-load failure :error. Per Spec 016 §Route
   ;; integration.
   [:map
-   [:category    :keyword]
    [:resource-id :keyword]
    [:nav-token   :any]
    [:error       {:optional true} :any]   ;; the resource's first-load failure envelope
@@ -1801,7 +1744,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; reg-mutation omitted a REQUIRED key (:request / :params-schema) or the
   ;; spec was not a map. Registration-time, dev+prod (a caller bug).
   [:map
-   [:category    :keyword]
    [:mutation-id :keyword]
    [:value       {:optional true} :any]   ;; present when the spec was not a map
    [:reason      :string]])
@@ -1809,7 +1751,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def MutationNotRegisteredTags
   ;; :rf.mutation/execute referenced an unregistered mutation id.
   [:map
-   [:category    :keyword]
    [:mutation-id :keyword]
    [:reason      :string]])
 
@@ -1817,7 +1758,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; a mutation's params failed conformance against its :params-schema (the
   ;; pluggable late-bound Malli validator). nil vs missing is schema-defined.
   [:map
-   [:category    :keyword]
    [:mutation-id :keyword]
    [:params      {:optional true} :any]
    [:error       {:optional true} :any]   ;; the Malli explainer payload
@@ -1827,7 +1767,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def BadAppSchemasArgTags
   [:map
-   [:category :keyword]
    [:received :any]
    [:expected :string]])
 
@@ -1845,20 +1784,17 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; catalogue (`:rf.error/app-schema-runtime-path`) + Spec 010 §App
   ;; schemas validate the app-db partition only.
   [:map
-   [:category    [:= :rf.error/app-schema-runtime-path]]
    [:received    :any]
    [:reason      :string]
    [:rf.error/id [:= :rf.error/app-schema-runtime-path]]])
 
 (def UnknownPresetTags
   [:map
-   [:category :keyword]
    [:preset   :any]
    [:valid    [:set :keyword]]])
 
 (def AdapterAlreadyInstalledTags
   [:map
-   [:category  :keyword]
    [:installed :any]
    [:attempted :any]])
 
@@ -1868,7 +1804,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; calling (rf/init!) with no args, nil, or a non-map argument (e.g. a
   ;; keyword) raises this error. Surfaced as a thrown ex-info, not a trace.
   [:map
-   [:category :keyword]
    [:where    [:or :symbol :string]]
    [:received {:optional true} :any]
    [:expected {:optional true} :string]
@@ -1896,18 +1831,15 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def RenderOnHeadlessAdapterTags
   [:map
-   [:category :keyword]
    [:reason   :string]])
 
 (def NoHiccupEmitterBoundTags
   [:map
-   [:category    :keyword]
    [:reason      :string]
    [:render-tree :any]])
 
 (def SanitisedOnProjectionTags
   [:map
-   [:category                   :keyword]
    [:projector-id               :keyword]
    [:original-operation         {:optional true} :keyword]
    [:projection-failure-reason  {:optional true} :string]
@@ -1919,29 +1851,24 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def FlowCycleTags
   [:map
-   [:category :keyword]
    [:cycle    [:vector :any]]])
 
 (def FlowMissingIdTags
   [:map
-   [:category :keyword]
    [:flow     :map]])
 
 (def FlowBadInputsTags
   [:map
-   [:category :keyword]
    [:flow     :map]
    [:reason   :string]])
 
 (def FlowBadOutputTags
   [:map
-   [:category :keyword]
    [:flow     :map]
    [:reason   :string]])
 
 (def FlowBadPathTags
   [:map
-   [:category :keyword]
    [:flow     :map]
    [:reason   :string]])
 
@@ -1952,7 +1879,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; routing, schemas, machines, http, epoch, resources. Each surfaces as a
   ;; thrown ex-info with this payload; not a trace event.
   [:map
-   [:category :keyword]
    [:where    [:or :symbol :string]]
    [:reason   :string]
    ;; per-artefact optional context keys
@@ -1970,14 +1896,12 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def RestoreUnknownEpochTags
   [:map
-   [:category     :keyword]
    [:frame        :keyword]
    [:rf.epoch/id  :any]
    [:history-size :int]])
 
 (def RestoreSchemaMismatchTags
   [:map
-   [:category               :keyword]
    [:frame                  :keyword]
    [:rf.epoch/id            :any]
    [:schema-digest-recorded :any]
@@ -1986,14 +1910,12 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def RestoreMissingHandlerTags
   [:map
-   [:category    :keyword]
    [:frame       :keyword]
    [:rf.epoch/id :any]
    [:missing     [:vector [:map [:kind :keyword] [:id :keyword]]]]])
 
 (def RestoreVersionMismatchTags
   [:map
-   [:category         :keyword]
    [:frame            :keyword]
    [:rf.epoch/id      :any]
    [:machine-id       :keyword]
@@ -2002,7 +1924,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def RestoreDuringDrainTags
   [:map
-   [:category    :keyword]
    [:frame       :keyword]
    [:rf.epoch/id :any]])
 
@@ -2024,7 +1945,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; slot — the injection was rejected before any synthetic record was
   ;; assembled).
   [:map
-   [:category :keyword]
    [:frame    :keyword]])
 
 (def ReplaceSchemaMismatchTags
@@ -2034,7 +1954,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; the framework-owned runtime-db validator). :failing-paths enumerates
   ;; the paths that did not validate.
   [:map
-   [:category      :keyword]
    [:frame         :keyword]
    [:failing-paths [:vector :any]]])
 
@@ -2056,9 +1975,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; ONE ARM: the hydrating root's adoption reporter.
   ;; `re-frame.substrate.spine/native-hydration-reporter` and
   ;; `re-frame.fresco.impl.mount/hydration-reporter` emit through plain
-  ;; `trace/emit!` with a `:warning` envelope, so there is NO
-  ;; `[:tags :category]` (the category rides the top-level `:operation`), no
-  ;; hash, and no `:root-id` — a React-element root has none. `:error` carries
+  ;; `trace/emit!` with a `:warning` envelope. There is no hash and no
+  ;; `:root-id` — a React-element root has none. `:error` carries
   ;; the recoverable error's `.message`, which is `nil` when the error carries
   ;; none. `:recovery` is stripped and hoisted to the envelope top level, so
   ;; the schema does not declare it. There is no head-mismatch category and no
@@ -2069,7 +1987,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def InterceptorsInMetadataMapTags
   [:map
-   [:category       :keyword]
    [:reg-fn         :string]
    [:id             :keyword]
    [:offending-keys [:vector :keyword]]
@@ -2106,10 +2023,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 ;;
 ;; ENVELOPE PLACEMENT. The category is shaped for the canonical dev-only seam
 ;; `trace/emit! :warning`, so `re-frame.trace/build-event` shapes it: the category
-;; is carried by the top-level `:operation` (`:rf.warning/cross-frame-carried-op`) —
-;; `build-event` synthesizes `{:category operation}` into `:tags` only on the
-;; `:error` branch, NEVER for a `:warning`, so there is no `:tags :category`; and
-;; `:recovery :warned-and-continued` is HOISTED to the envelope top-level and
+;; is carried by the top-level `:operation` (`:rf.warning/cross-frame-carried-op`),
+;; and `:recovery :warned-and-continued` is HOISTED to the envelope top-level and
 ;; STRIPPED from `:tags` (per §`:rf/trace-event`). `:tags` therefore carries ONLY
 ;; origin/ambient/query/reason. `CrossFrameCarriedOpEvent` below is the canonical
 ;; category contract that validates the full warning (envelope + `:tags`);
@@ -2123,10 +2038,10 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:origin-frame   :keyword]                        ;; the captured (committed) frame the bundle was minted under
    [:ambient-frame  :keyword]                        ;; the foreign ambient frame the carried `:subscribe` ran beneath
    [:rf.sub/query-v [:vector :any]]                  ;; the attempted subscription query vector (the read that CONTINUED against origin)
-   [:reason         :string]])                       ;; NO :category (a :warning synthesizes none) and NO :recovery (hoisted top-level) under :tags
+   [:reason         :string]])                       ;; NO :recovery under :tags (hoisted top-level)
 
 ;; The full-event category contract: the `:rf/error-event` envelope specialised to
-;; this warning's placement — category on `:operation` (no `:tags :category`),
+;; this warning's placement — category on `:operation`,
 ;; severity `:warning`, `:recovery` hoisted top-level, `:tags` the four
 ;; fields. It is a genuine REFINEMENT
 ;; of `ErrorEvent`, not an independent subset: it restates every one of the
@@ -2140,11 +2055,10 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:op-type   [:= :warning]]
    [:time      :any]                                    ;; shared ErrorEvent core field (host clock at emit)
    [:recovery  [:= :warned-and-continued]]              ;; TOP-LEVEL (build-event hoisted it out of :tags)
-   [:tags      CrossFrameCarriedOpTags]])               ;; NO :category — the :warning branch synthesizes none
+   [:tags      CrossFrameCarriedOpTags]])
 
 (def DecodeDefaultedTags
   [:map
-   [:category         :keyword]
    [:request-id       :any]
    [:url              :string]
    [:content-type     {:optional true} :string]
@@ -2152,7 +2066,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def WriteAfterDestroyTags
   [:map
-   [:category :keyword]
    [:reason   :string]])
 
 ;; --- warning: dev-mode advisory when the walker observes a large value at an undeclared path ---
@@ -2198,7 +2111,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def HttpInterceptorFailedTags
   [:map
-   [:category       :keyword]
    [:frame          :keyword]
    [:interceptor-id :keyword]
    [:url            {:optional true} [:maybe :string]]
@@ -2231,7 +2143,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def FxHandledTags
   [:map
-   [:category   :keyword]
    [:rf.fx/id   :keyword]
    [:rf.fx/args :any]
    [:frame      {:optional true} :keyword]])
@@ -2240,7 +2151,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def DrainInterruptedTags
   [:map
-   [:category      [:= :rf.frame/drain-interrupted]]
    [:frame         :keyword]
    [:dropped-count :int]])
 ```

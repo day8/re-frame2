@@ -166,6 +166,6 @@
            (run-with-host-clock #(rf/dispatch-sync [:search/bad-cancel] {:frame :rf/default}))))
     (is (= [:dispatch-later]
            (->> @errors
-                (filter #(= :rf.error/fx-handler-exception (:error %)))
+                (filter #(= :rf.error/fx-handler-exception (:rf.error/id %)))
                 (mapv :failing-id)))
         "one always-on refusal names the :dispatch-later fx")))

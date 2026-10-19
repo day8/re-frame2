@@ -185,7 +185,7 @@
         errors (atom [])
         held   (fn [] [(:status @vm) (:data @vm) @status @data? (:status @feed)])]
     (is (= [:loaded {:for "jake"} :loaded true :loading] (held)) "precondition: jake's entries")
-    (rf.error-emit/register-error-listener! ::errors #(swap! errors conj (:error %)))
+    (rf.error-emit/register-error-listener! ::errors #(swap! errors conj (:rf.error/id %)))
     (try
       (rf/dispatch-sync [:t/logout])
       (is (= {:status :unresolved :data nil :error nil :refresh-error nil

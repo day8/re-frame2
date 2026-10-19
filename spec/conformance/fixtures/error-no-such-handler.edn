@@ -34,8 +34,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}
    {:operation :rf.error/no-such-handler
     :op-type   :error
-    :tags      {:category :rf.error/no-such-handler
-                :rf.event/v    [:does-not-exist]
+    :tags      {:rf.event/v    [:does-not-exist]
                 :kind     :event}
     :recovery  :replaced-with-default}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}]}}

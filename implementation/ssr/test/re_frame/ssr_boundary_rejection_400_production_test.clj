@@ -65,7 +65,7 @@
             from the dev-only members of the category, and no slot carries
             the rejected value or the undeclared key"
     (let [{:keys [frame records]} (ingest! bad-payload)]
-      (is (= [{:error      :rf.error/schema-validation-failure
+      (is (= [{:rf.error/id :rf.error/schema-validation-failure
                :where      :event
                :source     :boundary
                :event-id   :api/ingest

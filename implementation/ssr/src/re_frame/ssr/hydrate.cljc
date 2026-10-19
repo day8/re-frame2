@@ -221,7 +221,7 @@
                                         (str ":rf/redacted"))
                            reason)]
          (dispatch-error-record!
-           (merge {:error  error-id
+           (merge {:rf.error/id error-id
                    :time   (rf.interop/now-ms)}
                   base
                   {:reason safe-reason}

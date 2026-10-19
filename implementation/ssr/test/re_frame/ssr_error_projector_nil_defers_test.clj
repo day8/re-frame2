@@ -51,7 +51,7 @@
         tag (keyword (str *ns*) (name (gensym "capture")))
         hit (fn [op] (when (= :rf.error/sanitised-on-projection op) (swap! n inc)))]
     (rf/register-listener! :trace tag #(hit (:operation %)))
-    (rf.error-emit/register-error-listener! tag #(hit (:error %)))
+    (rf.error-emit/register-error-listener! tag #(hit (:rf.error/id %)))
     (try
       [(body-fn) @n]
       (finally
