@@ -2449,7 +2449,7 @@
   (when-not (or (nil? from) (vector? from))
     (rf.error/throw-error!
       :rf.error/resource-invalid-scope
-      'rf.resource/change-principal
+      're-frame.resources.events/change-principal-handler
       (str ":rf.resource/change-principal was given :from " (pr-str from)
            " — :from is a VECTOR of the departing principal's concrete scopes, "
            "e.g. {:from [old-session old-viewer]}, so a single scope is wrapped: "
@@ -2461,7 +2461,7 @@
         cscopes    (into []
                          (comp (remove nil?)
                                (map #(rf.resources.state/canonicalize-scope
-                                       % 'rf.resource/change-principal nil))
+                                       % 're-frame.resources.events/change-principal-handler nil))
                                (distinct))
                          from)
         {rdb :rdb fx :fx}

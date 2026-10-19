@@ -250,7 +250,7 @@
   never picks one. An unregistered `resource-id` is
   `:rf.error/resource-not-registered`, as on every resource read."
   [runtime-db resource-id]
-  (rf.resources.registry/require-resource-spec! resource-id 'rf/route-resource)
+  (rf.resources.registry/require-resource-spec! resource-id 're-frame.resources.subs/route-resource-key)
   (let [nav-token  (get-in runtime-db (conj (rf.resources.route/current-path) :nav-token))
         identities (when (some? nav-token)
                      (vals (get-in runtime-db (rf.resources.route/plan-path nav-token))))
@@ -261,7 +261,7 @@
       1 (first matches)
       (rf.error/throw-error!
         :rf.error/resource-route-read-ambiguous
-        'rf/route-resource
+        're-frame.resources.subs/route-resource-key
         (str "[:rf/route-resource " (pr-str resource-id) "] is ambiguous: the "
              "active route's plan holds " (pr-str resource-id) " under "
              (count matches) " identities — " (pr-str (vec matches)) ". A "
