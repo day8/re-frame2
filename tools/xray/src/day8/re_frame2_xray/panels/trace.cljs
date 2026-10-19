@@ -1118,8 +1118,8 @@
 ;; `[(:panel tab)]`, `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE, and `render-panel!` builds the component VECTOR
 ;; `[panel-view]` — none of which a React component is (it IS `fn?`, but
-;; calling it outside a render extent is the plain-fn footgun, not a
-;; render). `rf.fresco/as-component` is Fresco's own outward door for
+;; calling it is not rendering it: `rf.fresco/sub` refuses outside a
+;; render window). `rf.fresco/as-component` is Fresco's own outward door for
 ;; exactly this: it answers a real React component a React parent mounts
 ;; UNDER THE FRAME IT IS ALREADY IN, taking the frame from React context
 ;; rather than from a second root. No second root, no adapter-kind branch,
