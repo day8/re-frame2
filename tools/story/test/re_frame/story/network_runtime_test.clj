@@ -61,8 +61,8 @@
                         {:extends :story.netext/ok
                          :network {[:get "/api/cart"] {:status 409 :body {:error "sold out"}}}})
   (let [db (:app-db (run-target :story.netext/fails))]
-    (is (= {:kind :rf.http/http-4xx :status 409}
-           (select-keys (get-in db [:error :error]) [:kind :status])))))
+    (is (= {:kind :rf.http/http-4xx :http-status 409}
+           (select-keys (get-in db [:error :error]) [:kind :http-status])))))
 
 (deftest inline-plan-realizes-and-releases-its-network-fixture
   (let [result (run-target {:network cart-fixture
