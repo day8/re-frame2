@@ -289,7 +289,7 @@ Scroll behaviour belongs to route or navigation data:
 | --- | --- | --- |
 | `:top` | scroll to the top on entry | forward navigation |
 | `:restore` | restore the saved position | Back/Forward |
-| `:preserve` | leave the viewport unchanged | in-place query or filter changes |
+| `false` | no scroll effect, so the viewport stays put | in-place query or filter changes |
 
 For example, a pagination button that should keep the current viewport can
 dispatch the navigation as an intent:
@@ -297,7 +297,7 @@ dispatch the navigation as an intent:
 ```clojure
 [:button
  {:on-click [:rf.route/navigate {:query-merge {:page 2}
-                                 :scroll      :preserve}]}
+                                 :scroll      false}]}
  "Next page"]
 ```
 
