@@ -1437,8 +1437,6 @@ Everything in this subsection is **CLJS-implementation detail**, not pattern con
 
 The `read-frame-from-context` function is implemented as a tiered lookup over the dynamic-binding tier and the React-context read — Reagent's reads the tree first while a component renders, UIx's imperative reader the dynamic tier first — **bottoming out at nil** (no scope). The middle tier — the React-context read — is **substrate-specific**: each adapter carries its own impl as its map's `:current-frame` capability, which `install-adapter!` publishes into the `:adapter/current-frame` late-bind slot (per [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)). The dynamic-var tier is shared. **There is no `:rf/default` tier** (EP-0002): the reader returns nil when no scope names a frame, and the public frame-scoped operation turns that nil into `:rf.error/no-frame-context` via `require-current-frame!`.
 
-An event handler that a Reagent render runs synchronously, such as a `make-frame` `:initial-events` step called from a view, resolves the frame its envelope targets rather than the rendering component's tree; a component that starts rendering inside the handler still reads its own tree (per [006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks)).
-
 ```clojure
 ;; The createContext default is the NO-PROVIDER SENTINEL, not :rf/default —
 ;; absence of a provider must be detectable as absence (per EP-0002), so the
@@ -1449,10 +1447,11 @@ An event handler that a Reagent render runs synchronously, such as a `make-frame
 
 ;; Reagent — while a component renders, the tree answers first
 (defn- read-frame-from-context-reagent []
-  (or (when-let [cmp (reagent.core/current-component)]   ;; tier: closest enclosing boundary
-        (if (identical? frame-context (.. cmp -constructor -contextType))
-          (classify (.-context cmp))                     ;;   a `reg-view*` head's public read
-          (classify (active-slot frame-context))))       ;;   any other form: the renderer's slot
+  (or (when-let [cmp (reagent.core/current-component)]   ;; tier: closest enclosing boundary,
+        (when-not (bound-inside-render? cmp)             ;;   unless this render's own code bound the frame
+          (if (identical? frame-context (.. cmp -constructor -contextType))
+            (classify (.-context cmp))                   ;;   a `reg-view*` head's public read
+            (classify (active-slot frame-context)))))    ;;   any other form: the renderer's slot
       *current-frame*))                                   ;; tier: dynamic var; then nil
 
 ;; UIx (function components, hook-driven)
@@ -1471,7 +1470,7 @@ How the React-context tier wires up:
 
 1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record. The shared context object lives in `re-frame.adapter.context/frame-context`; every adapter (Reagent, UIx, Fresco) reads and writes the same `createContext` object, so a tree mixing substrates resolves to a single frame chain.
 2. `subscribe` and `dispatch` reach the resolution chain through the `:adapter/current-frame` late-bind hook, which `install-adapter!` fills with the installed adapter's `:current-frame` capability, so `re-frame.subs` / `re-frame.router` (CLJC) stay free of a static dep on this CLJS-only file.
-3. **Reagent's path reads the tree while a component renders**: `(.-context cmp)` for a component whose `:contextType` is the frame context (the wiring `reg-view*` attaches), and the renderer's active context-value slot for every other form, a plain fn included. So a plain Reagent fn under a `frame-provider` resolves the provider's frame, and the tree wins over a `with-frame` around a synchronous render, as it does for a hook. Outside a render no component is rendering, so the dynamic var alone answers; with none bound the reader returns nil, and a public frame-scoped op raises `:rf.error/no-frame-context` (EP-0002).
+3. **Reagent's path reads the tree while a component renders**: `(.-context cmp)` for a component whose `:contextType` is the frame context (the wiring `reg-view*` attaches), and the renderer's active context-value slot for every other form, a plain fn included. So a plain Reagent fn under a `frame-provider` resolves the provider's frame, and the tree wins over a `with-frame` around a synchronous render, as it does for a hook. A frame binding the render's own code takes decides instead: a `with-frame` in the view body or in an `:epoch` listener or trace callback the render notifies, and the router's binding for an event handler the render runs synchronously, such as a `make-frame` `:initial-events` step called from a view, which resolves the frame its envelope targets. That binding is the nearest, most explicit statement of the frame, while one around the render belongs to a different extent; a component that starts rendering inside it still reads its own tree. Outside a render no component is rendering, so the dynamic var alone answers; with none bound the reader returns nil, and a public frame-scoped op raises `:rf.error/no-frame-context` (EP-0002).
 4. **UIx's function-component path** (`_currentValue`) reflects the closest enclosing Provider regardless of any class-static metadata, because function components have no `(.-context cmp)` slot. UIx's `use-context` is sugar over this read, so an imperative `subscribe` / `dispatch` performed *during* a render sees the same enclosing Provider the hooks do.
 5. **The HOOKS are not on this chain at all**, and the divergence is deliberate. `use-frame` and `use-sub` — UIx's and `re-frame.fresco.native`'s alike — classify the React-context value and stop there: no dynamic-var tier, and no boundary above raises `:rf.error/no-frame-context`. The reader above keeps all its tiers for the imperative surfaces. The reason is that the two run at different instants: an imperative call runs inside the extent that bound the var, while a hook runs when React renders the component a body returned, by which time the extent has unwound — so the dynamic tier would answer for a different render than the one asking, and would answer at all only under a synchronous flush (`act()`, `flushSync`, a server render). See [006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks) for the rule and its full reason. The Reagent reader agrees with the hooks during a render; UIx's imperative reader keeps the dynamic tier first, because a function component offers no render-in-flight signal ([006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks)).
 
