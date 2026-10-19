@@ -6,7 +6,7 @@ This page tests that chain end to end: an event goes in, the queue drains, and y
 
 ??? info "Coming from MSW?"
 
-    Mock Service Worker intercepts at the network boundary and answers with canned responses. re-frame2 intercepts earlier: the request is an effect, data the handler returns, so the test redirects that effect to a different handler and never reaches the network stack.
+    Mock Service Worker intercepts at the network boundary and answers with mock responses. A re-frame2 stub transport sits at the same boundary, inside the runtime: the real `:rf.http/managed` builds, classifies and decodes every request, and only the wire is fake, so there is no service worker to install. And because the request is an effect, data the handler returns, a test can also inspect it without sending it.
 
 ## The shape of every pipeline-run test
 
@@ -67,7 +67,7 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
 (ns my-app.sync-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support :as http-test-support]   ;; test-only; never in production requires
+            [re-frame.http.stub-transport :as stub-transport]   ;; test-only; never in production requires
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]
             [my-app.todos]    ;; :todo/add, :todo/toggle, :todo/set-showing, …
@@ -78,9 +78,9 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
 
 (deftest fetch-happy-path
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/todos"]
-       {:reply {:ok [{:id 1 :title "Buy milk" :done? false}]}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/todos"] {:body [{:id 1 :title "Buy milk" :done? false}]}})
       (fn []
         (rf/dispatch-sync [:todo/fetch] {:rf.cofx {:rf/time-ms 1781078400000}})
         (let [db (rf/app-db-value f)]
@@ -90,9 +90,9 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
 
 (deftest fetch-server-error
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/todos"]
-       {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/todos"] {:status 503}})
       (fn []
         (rf/dispatch-sync [:todo/fetch])
         (is (= :error            (:sync-status (rf/app-db-value f))))
@@ -107,29 +107,32 @@ The router stamps `:rf/time-ms` on every dispatch, which is why the second test 
 
 A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/fetch})`.
 
-### Answer the HTTP: canned replies by method and URL
+### Answer the HTTP: a stub transport
 
-`with-request-stubs` (in `re-frame.http.test-support`) takes a route map of `[method url]` → reply, and a zero-argument function. While that function runs, every `:rf.http/managed` request that matches a route is answered from the table: `{:reply {:ok value}}` produces a success reply and `{:reply {:failure {:kind … :status …}}}` a failure. The reply has the same shape as a live one and lands inside the same `dispatch-sync` drain, so the reply handler can't tell the difference.
+`with-transport` (in `re-frame.http.stub-transport`) takes a transport and a zero-argument function. While that function runs, every `:rf.http/managed` request goes out through that transport instead of the network. `route-transport` builds one from a route map of `[method url]` → response: `{:body value}` answers 200 with `value` as a JSON body, `{:status 503}` answers with that status, and `{:failure {:kind :rf.http/transport}}` (or `:rf.http/timeout`) fails the request before any response arrives. Only the wire is fake. The request still runs through the `:before` and `:after` interceptors, status classification, `:decode`, `:accept` and retry, so the 503 above arrives as a `:rf.http/http-5xx` failure, the reply is a live one in every respect, and it lands inside the same `dispatch-sync` drain.
 
-One table can hold several routes. A request is matched on its `:request :method` and `:request :url`:
+The body travels as JSON, so it decodes as a server's would: under the default `:decode :auto`, or `:json`, object keys arrive as keywords and keyword values arrive as strings, so `{:body {:status :done}}` reaches the handler as `{:status "done"}`. A test that wants a reply no server could send dispatches the reply event itself, `(rf/dispatch-sync [:todo/fetched {:status :ok :value …}])`.
+
+One map can hold several routes. A request is matched on its method and on the URL it goes out on:
 
 ```clojure
-(http-test-support/with-request-stubs
-  {[:get    "/api/todos"]   {:reply {:ok []}}
-   [:post   "/api/todos"]   {:reply {:ok {:todo {:id 3 :title "Call mum"}}}}
-   [:delete "/api/todos/2"] {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
+(stub-transport/with-transport
+  (stub-transport/route-transport
+    {[:get    "/api/todos"]   {:body []}
+     [:post   "/api/todos"]   {:body {:todo {:id 3 :title "Call mum"}}}
+     [:delete "/api/todos/2"] {:status 403}})
   (fn []
     ;; ... dispatch the events whose handlers fire those three requests ...
     ))
 ```
 
-The URL is matched as the request map spells it, before `:params` are appended, so key a request carrying `:params {:page 2}` by its base URL, `"/api/todos"`.
+That URL is the one the `:before` interceptors leave, with any `:params` merged in as a query string, so key a request carrying `:params {:page 2}` as `"/api/todos?page=2"`. A route's value can also be `(fn [wire-request] response)`, which sees the encoded request as it would go out.
 
-A request that matches no route is answered with a `:rf.http/transport` failure tagged `"no stub matched"`, through the normal `:on-failure` path. The miss shows up in your failure handler's state, where the next assertion catches it, so the table must name every request the path under test fires.
+A request that matches no route fails as `:rf.http/transport`, with a message naming its method and URL, through the normal `:on-failure` path. The miss shows up in your failure handler's state, where the next assertion catches it, so the map must name every request the path under test fires.
 
 ### Redirect any effect: `:fx-overrides`
 
-The stub table is built on a more general mechanism. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch, to a function or to another registered effect:
+A stub transport answers a request; `:fx-overrides` replaces the effect that would send it. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch, to a function or to another registered effect:
 
 ```clojure
 (deftest fetch-sends-the-right-request
@@ -142,27 +145,26 @@ The stub table is built on a more general mechanism. A per-dispatch `:fx-overrid
       (is (= "/api/todos" (get-in @sent [:request :url]))))))
 ```
 
-An override value is either another registered fx id (a keyword) or a function `(fn [frame-ctx args] …)`. The function receives the exact args map the handler built, so you assert on the request without performing it, and its return value is ignored. The same option captures your own effects, such as `:todo.storage/save`, or redirects by keyword to the shipped success stub:
+An override value is either another registered fx id (a keyword) or a function `(fn [frame-ctx args] …)`. The function receives the exact args map the handler built, so you assert on the request without performing it, and its return value is ignored. The same option captures your own effects, such as `:todo.storage/save`. An overridden request sends nothing, so nothing replies; to test the reply handler as well, answer the request through a stub transport, or dispatch the reply event directly:
 
 ```clojure
-(rf/dispatch-sync [:todo/fetch]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-;; The stub replies {:status :ok :value {:stubbed true} …}; supply :value in
-;; the args map to change it.
+(rf/dispatch-sync [:todo/fetched {:status :ok :value [{:id 1 :title "Buy milk" :done? false}]}])
 ```
 
 ### The `:test` preset
 
-Most test frames want HTTP redirected to a stub and generated facts strict. `{:preset :test}` on `rf/make-frame` does both:
+Most test frames want HTTP kept off the network and generated facts strict. `{:preset :test}` on `rf/make-frame` does both:
 
 ```clojure
 ;; Never reaches the network; an unsupplied generated cofx raises an error.
 (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-  (rf/dispatch-sync [:todo/fetch])
+  (stub-transport/with-transport
+    (stub-transport/route-transport {[:get "/api/todos"] {:body []}})
+    #(rf/dispatch-sync [:todo/fetch]))
   (is (= :loaded (:sync-status (rf/app-db-value f)))))
 ```
 
-The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`, `:rf.cofx/mint-policy :strict` and `:drain-depth 1000`, the framework default. The canned stub is registered by `re-frame.http.test-support`, which the test namespace above already requires. Your own keys win over the expansion, key by key rather than deep: a frame that passes its own `:fx-overrides` replaces the preset's, HTTP redirect included. To keep both, add the redirect to your map, `{:preset :test :fx-overrides {:todo.storage/save (fn [_ _] nil) :rf.http/managed :rf.http/managed-canned-success}}`. Use `with-request-stubs` when a test needs different replies per route.
+The preset expands to `:rf.http/stub-only? true`, `:rf.cofx/mint-policy :strict` and `:drain-depth 1000`, the framework default. Under `:rf.http/stub-only?` a request that no stub transport answers fails as `:rf.http/transport`, with a message naming `with-transport` and `install-transport!`, so a forgotten stub shows up as a failure instead of a live call. Your own keys win over the expansion.
 
 ## Asserting on what would dispatch
 
@@ -193,8 +195,8 @@ Suppose `:todo/fetched` also returns `:fx [[:dispatch [:todo/set-showing :all]]]
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [dispatched (atom [])]
       (rf/with-fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}
-        (http-test-support/with-request-stubs
-          {[:get "/api/todos"] {:reply {:ok []}}}
+        (stub-transport/with-transport
+          (stub-transport/route-transport {[:get "/api/todos"] {:body []}})
           (fn [] (rf/dispatch-sync [:todo/fetch]))))
       (is (= :loaded (:sync-status (rf/app-db-value f))))
       (is (= [[:todo/set-showing :all]] @dispatched)))))
@@ -272,8 +274,9 @@ Because the handler itself can't be replaced, a passing test says that the produ
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A stubbed test fails with a `:rf.http/transport` failure tagged `"no stub matched"` | A request the path fires has no route; URLs match before `:params` are appended | Add the route, keyed by the base URL |
-| The real `:rf.http/managed` runs despite a keyword override; `:rf.error/override-fallthrough` in the trace | The override names an unregistered effect | Require `re-frame.http.test-support`, which registers `:rf.http/managed-canned-success` |
+| A stubbed test fails with a `:rf.http/transport` failure whose message reads `no stub route for …` | A request the path fires has no route; the key is the URL the request goes out on, `:params` included as a query string | Add the route, keyed by the method and URL the message names |
+| Under `{:preset :test}`, a request fails as `:rf.http/transport` with a message naming `with-transport` | The preset keeps HTTP off the network, and no stub transport answered | Wrap the dispatch in `stub-transport/with-transport` |
+| The real effect runs despite a keyword override; `:rf.error/override-fallthrough` in the trace | The override names an unregistered effect | Require the namespace that registers it, or override with a function |
 | A test runs on the live clock despite `:rf.cofx`; `:rf.warning/unknown-dispatch-opt` in the trace | A misspelt opt such as `:rf/cofx` is ignored | Spell it `:rf.cofx` |
 | `:rf.error/missing-required-cofx` or `:rf.error/unregistered-cofx` | A declared fact the runtime can't supply, or nothing registers it | Supply it under `:rf.cofx`, or register the cofx |
 | `dispatch-sync` stops with partly advanced state; `:rf.error/drain-depth-exceeded` | A handler re-dispatches itself, or a stubbed reply re-fires its request | Break the cycle; see [A runaway family](#a-runaway-family-halts-at-drain-depth) |
@@ -282,28 +285,25 @@ Because the handler itself can't be replaced, a passing test says that the produ
 
 ### Observing the `:loading` state before the reply lands
 
-The tests above assert the settled state, so they never see `:sync-status :loading`. To test the in-flight state (a spinner, a disabled button), delay the reply. The route table has no delay option, but the canned stub reads an `:after-ms` key from its args. Redirect `:rf.http/managed` to a wrapper that adds `:after-ms` (and the reply `:value`) and calls the registered `:rf.http/managed-canned-success` handler. The reply then arrives on a later tick:
+The tests above assert the settled state, so they never see `:sync-status :loading`. To test the in-flight state (a spinner, a disabled button), hold the reply. `pending-transport` returns a transport that answers nothing until the test does, and an atom of the requests it holds, in issue order; each one's `:respond!` answers it with a response map, and `:fail!` fails it. The reply then arrives as a new dispatch, after `dispatch-sync` has returned:
 
 ```clojure
 (deftest fetch-shows-loading-then-loaded
   (rf/with-new-frame [f (rf/make-frame {})]
-    (let [canned (:handler-fn (rf/handler-meta {:source :store :kind :fx
-                                                :id     :rf.http/managed-canned-success}))]
-      (rf/dispatch-sync [:todo/fetch]
-                        {:fx-overrides {:rf.http/managed
-                                        (fn [frame-ctx args]
-                                          (canned frame-ctx
-                                                  (assoc args
-                                                         :after-ms 20
-                                                         :value    [])))}})
+    (let [{:keys [transport exchanges]} (stub-transport/pending-transport)]
+      (stub-transport/with-transport transport
+        #(rf/dispatch-sync [:todo/fetch]))
       ;; The request fired but the reply hasn't landed yet.
       (is (= :loading (:sync-status (rf/app-db-value f))))
-      ;; Wait for the deferred reply, then assert the final state.
+      ;; Answer it, wait for the reply, then assert the final state.
+      ((:respond! (first @exchanges)) {:body []})
       (ts/poll-until #(= :loaded (:sync-status (rf/app-db-value f))))
       (is (= :loaded (:sync-status (rf/app-db-value f)))))))
 ```
 
-`ts/poll-until` retries a predicate after a falsy result until it succeeds or its timeout is exceeded (defaults `:timeout-ms 2000`, `:interval-ms 5`). Keep the predicate quick: the timeout is checked between failed probes and does not interrupt a blocked predicate or a CLJS Promise that never settles. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a delayed reply, a machine `:after` transition, a `:dispatch-later`.
+The held request still goes out through the transport the scope gave it, so answering it after `with-transport` returns is fine.
+
+`ts/poll-until` retries a predicate after a falsy result until it succeeds or its timeout is exceeded (defaults `:timeout-ms 2000`, `:interval-ms 5`). Keep the predicate quick: the timeout is checked between failed probes and does not interrupt a blocked predicate or a CLJS Promise that never settles. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a held or delayed reply, a machine `:after` transition, a `:dispatch-later`.
 
 Don't use `poll-until` to wait out a timer window such as a debounce. There the duration is what you are testing, so use a `Thread/sleep` and say so in a comment.
 
@@ -326,8 +326,9 @@ Instead of `:on-success` and `:on-failure`, a request can name one event, `:repl
 ;; test/my_app/sync_test.clj
 (deftest fetch-single-reply-target
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/todos/2"] {:reply {:ok {:id 2 :title "Walk the dog" :done? false}}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/todos/2"] {:body {:id 2 :title "Walk the dog" :done? false}}})
       (fn []
         (rf/dispatch-sync [:todo/fetch-one 2])
         (is (= "Walk the dog" (get-in (rf/app-db-value f) [:todos 2 :title])))))))
@@ -355,4 +356,4 @@ If a handler re-dispatches itself, or a stubbed reply re-fires the request that 
 
 `with-new-frame [f expr]` takes a vector: it evaluates `expr`, binds the result, runs the body, and destroys the frame on exit. `with-frame :some-id` takes a keyword: it makes an existing frame current and neither creates nor destroys it. The wrong shape fails at compile time with `:rf.error/with-new-frame-keyword-form` or `:rf.error/with-frame-vector-form`. Use `with-new-frame` per test, and `with-frame` for a frame shared across several `deftest`s.
 
-Frames, dispatch opts and drain behaviour are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md), the reply map and stubs in [Managed HTTP](../../async/http.md), and the test helpers in the [test-support API reference](../../api/re-frame.test-support.md).
+Frames, dispatch opts and drain behaviour are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md), the reply map and stub transports in [Managed HTTP](../../async/http.md#testing-without-a-network), and the test helpers in the [test-support API reference](../../api/re-frame.test-support.md).

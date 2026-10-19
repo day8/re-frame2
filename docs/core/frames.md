@@ -390,24 +390,29 @@ Notes:
 4. **`:drain-depth`** caps how many events one family runs: an event from outside
    plus everything it dispatches ([run to completion](run-to-completion.md#when-the-drain-wont-stop)).
    The default is 1000.
-5. **`:preset`** expands into a bundle of defaults. `:test` stubs `:rf.http/managed`,
-   sets `:drain-depth` to 1000, and makes coeffect minting strict; `:story` stubs HTTP
-   and sets `:drain-depth` to 16. Your own keys win, and `(rf/frame-meta :todos/work)`
+5. **`:preset`** expands into a bundle of defaults. `:test` keeps `:rf.http/managed`
+   off the network, sets `:drain-depth` to 1000, and makes coeffect minting strict;
+   `:story` keeps HTTP off the network and sets `:drain-depth` to 16. Under either, a
+   request no [stub transport](../async/http.md#testing-without-a-network) answers
+   fails as `:rf.http/transport`. Your own keys win, and `(rf/frame-meta :todos/work)`
    shows the result.
 
-Here two frames run the same registrations with different `:fx-overrides`. One
-routes `:rf.http/managed` to a stub that answers from a route map. The other routes
-it to `:rf.http/managed-canned-failure`, which fails every request as if the network
-were down. Click **Sync** in each:
+Here two frames run the same registrations, each with its own stub transport in
+place of the network. One answers from a route map. The other fails every request
+as if the network were down. Click **Sync** in each:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/todos"] {:reply {:ok [{:id 1 :title "Write report"}
-                                     {:id 2 :title "Book flights"}]}}})
+;; the new idea: each frame has its own backend
+(stub-transport/install-transport! :todos/online
+  (stub-transport/route-transport
+    {[:get "/api/todos"] {:body [{:id 1 :title "Write report"}
+                                 {:id 2 :title "Book flights"}]}}))
+(stub-transport/install-transport! :todos/offline
+  (stub-transport/route-transport (fn [_] {:failure {:kind :rf.http/transport}})))
 
 (rf/reg-event :todo/sync
   (fn [_ _]
@@ -436,13 +441,10 @@ were down. Click **Sync** in each:
        todos [:ul (for [{:keys [id title]} todos] ^{:key id} [:li title])]
        :else [:p "Not synced"])]))
 
-;; the new idea: each frame decides what :rf.http/managed does
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id           :todos/online
-                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [rf/frame-root {:id :todos/online}
   [sync-panel]]
- [rf/frame-root {:id           :todos/offline
-                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+ [rf/frame-root {:id :todos/offline}
   [sync-panel]]]
 ```
 

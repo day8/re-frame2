@@ -104,8 +104,11 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 Per-test isolated frame (the shape tests and harnesses use):
 
 ```clojure
-(rf/with-new-frame [f (rf/make-frame
-                        {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
+(rf/with-new-frame [f (rf/make-frame {})]
+  ;; (:require [re-frame.http.stub-transport :as rf.http.stub-transport])
+  (rf.http.stub-transport/install-transport! f
+    (rf.http.stub-transport/route-transport
+      {[:post "/api/login"] {:body {:user {:id "u1"} :token "t"}}}))
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                        {:email "user@example.com"
                                         :password "correct-horse"}]]
@@ -116,7 +119,7 @@ Per-test isolated frame (the shape tests and harnesses use):
   (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))))
 ```
 
-Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Passing the returned value straight back in (`{:frame f}`, `(rf/frame-state-value f)`) is the sanctioned harness shape: the frame is born in the test scope, dies with it (`rf/with-new-frame` destroys it on block exit), and never enters the named frame registry. Reach for an `:id`-registered frame only when mounted code must address it by id.
+Each test gets its own frame with its own app-db and its own HTTP transport — concurrent tests can run with no cross-contamination. Passing the returned value straight back in (`{:frame f}`, `(rf/frame-state-value f)`) is the sanctioned harness shape: the frame is born in the test scope, dies with it (`rf/with-new-frame` destroys it on block exit), and never enters the named frame registry. Reach for an `:id`-registered frame only when mounted code must address it by id.
 
 Two spellings in that block are load-bearing, and both fail quietly if you “tidy” them:
 
@@ -127,9 +130,12 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
 
 ```clojure
 (rf/make-frame
-  {:id           :app/login                   ;; an explicit app-frame id (a migration may pick :rf/default)
-   :doc          "Login demo frame."
-   :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
+  {:id  :app/login                   ;; an explicit app-frame id (a migration may pick :rf/default)
+   :doc "Login demo frame."})
+
+;; The demo has no server, so a stub transport answers its HTTP in place of the
+;; network — `demo-backend` is a `rf.http.stub-transport/route-transport`.
+(rf.http.stub-transport/install-transport! :app/login demo-backend)
 
 ;; ...then scope it at the root so bare dispatch/subscribe resolve to it
 ;; (frame-provider {:frame …} — the frame already exists from make-frame above).

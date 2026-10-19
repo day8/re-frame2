@@ -242,12 +242,12 @@ drain are on [Run to completion](run-to-completion.md). You don't need them to u
 
 A request is an effect like any other. The handler describes it, and the
 `:rf.http/managed` effect performs it. This cell answers its requests from a stub
-instead of a server. Click **Fetch todos**, then **Fetch archived todos**:
+transport instead of a server. Click **Fetch todos**, then **Fetch archived todos**:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
 (rf/reg-event :todo/fetch
   (fn [{:keys [db]} [_ url]]
@@ -269,11 +269,12 @@ instead of a server. Click **Fetch todos**, then **Fetch archived todos**:
   (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (assoc db :loading? false :fetch-error error)}))
 
-;; a stand-in server: canned replies keyed by [method url]
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/todos"]          {:reply {:ok [{:id 1 :title "Buy milk"     :done? false}
-                                              {:id 2 :title "Walk the dog" :done? true}]}}
-   [:get "/api/todos/archived"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+;; a stand-in server for this frame: one response per [method url]
+(stub-transport/install-transport! :todos/http
+  (stub-transport/route-transport
+    {[:get "/api/todos"]          {:body [{:id 1 :title "Buy milk"     :done? false}
+                                          {:id 2 :title "Walk the dog" :done? true}]}
+     [:get "/api/todos/archived"] {:status 404}}))
 
 (rf/reg-sub :todo/loading?    (fn [db _] (:loading? db)))
 (rf/reg-sub :todo/fetch-error (fn [db _] (:fetch-error db)))
@@ -294,9 +295,7 @@ instead of a server. Click **Fetch todos**, then **Fetch archived todos**:
       (for [{:keys [id title]} @(subscribe [:todo/all])]
         ^{:key id} [:li title])]]))
 
-;; :fx-overrides sends this frame's :rf.http/managed rows to the stub
-[rf/frame-root {:id           :todos/http
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :todos/http}
  [todo-fetcher]]
 ```
 
@@ -307,11 +306,12 @@ success carries `:value`, failure carries `:error`, and every managed async
 effect answers the same way. Here the first reply reaches `:todo/fetched`; the
 second is a 404, so it reaches `:todo/fetch-failed` with `:kind :rf.http/http-4xx`.
 
-The stub comes from `re-frame.http.test-support`. `install-managed-request-stubs!`
-registers an effect that answers from the map, and the frame's `:fx-overrides`
-routes `:rf.http/managed` to it, so the handlers are the ones a real app runs. A stub
-replies at once, inside the same [drain](#run-to-completion), so `Loading…` never renders
-here; against a real server it shows while the request is in flight.
+The stub comes from `re-frame.http.stub-transport`. `install-transport!` gives the
+frame a fake backend that answers from the map, and replaces only the network hop:
+the real `:rf.http/managed` builds the request, classifies the 404 and decodes the
+body, and the handlers are the ones a real app runs. The stub transport replies at
+once, inside the same [drain](#run-to-completion), so `Loading…` never renders here;
+against a real server it shows while the request is in flight.
 
 All three handlers are pure. Each tests as a plain function, and the request tests
 as data: assert on the `:fx` row, with no network.

@@ -56,8 +56,7 @@ managed-HTTP affordance
 ```clojure
 (story/reg-variant :story.checkout/network-failure
   {:extends :story.checkout/happy-path
-   :network {[:post "/api/checkout"]
-             {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}})
+   :network {[:post "/api/checkout"] {:status 503}}})
 ```
 
 Any other effect replies through the app's own event. Dispatch it in

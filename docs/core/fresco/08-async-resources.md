@@ -93,13 +93,14 @@ alone fetches nothing.
 (require '[re-frame.core :as rf]
          '[re-frame.resources]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.http.stub-transport :as stub-transport]
          '[re-frame.fresco :as h])
 
-;; Stand-in server: GET /api/todos answers from this map.
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/todos"] {:reply {:ok [{:id 1 :title "Buy milk"}
-                                     {:id 2 :title "Walk the dog"}]}}})
+;; Stand-in server for this frame: GET /api/todos answers from this map.
+(stub-transport/install-transport! :rf/default
+  (stub-transport/route-transport
+    {[:get "/api/todos"] {:body [{:id 1 :title "Buy milk"}
+                                 {:id 2 :title "Walk the dog"}]}}))
 
 (rf/reg-resource :todo/list
   {:params-schema [:map]
@@ -152,8 +153,7 @@ alone fetches nothing.
    [:p "Status: "
     (pr-str (:status (h/sub [:rf/resource {:resource :todo/list :params {}}])))]])
 
-[h/frame-root {:id           :rf/default
-               :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[h/frame-root {:id :rf/default}
  [resource-demo]]
 ```
 

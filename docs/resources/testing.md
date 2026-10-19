@@ -3,7 +3,7 @@
 This page shows how to test the cache: that a read loads, that a write invalidates
 what it should, and that it sends exactly the requests you expect.
 
-Dispatch the operation under test, answer the network with canned replies, and
+Dispatch the operation under test, answer the network from a stub transport, and
 assert the same subscriptions a view reads. These JVM tests need no live server.
 
 A test reads the `:rf/resource` and `:rf/mutation` subscriptions without the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only in those subscriptions.
@@ -18,7 +18,7 @@ The setup every test below shares:
             [re-frame.core :as rf]
             [re-frame.resources]
             [re-frame.http.managed]
-            [re-frame.http.test-support :as http-test-support]     ;; canned stubs — test-only, never in production requires
+            [re-frame.http.stub-transport :as stub-transport]      ;; stub transports — test-only, never in production requires
             [re-frame.substrate.plain-atom :as plain-atom]         ;; the JVM substrate a frame needs
             [re-frame.test-support :as ts]
             [re-frame.schemas]))
@@ -80,9 +80,9 @@ Ensure is the cause; the stub answers; the projection settles — all inside one
 ```clojure
 (deftest article-loads-into-the-cache
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/articles/intro"]
-       {:reply {:ok {:article {:slug "intro" :title "Welcome"}}}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/articles/intro"] {:body {:article {:slug "intro" :title "Welcome"}}}})
       (fn []
         (rf/dispatch-sync [:rf.resource/ensure {:resource :test/article
                                                 :params   {:slug "intro"}
@@ -99,8 +99,8 @@ The registration under test is the same shape as [the model](concepts.md#registe
 and [tutorial Part 2](tutorial/02-server-data.md). Three contracts worth pinning:
 
 - **A subscription never fetches.** Read the state *before* any cause fires and it's `:idle` — a test that asserts that is the honest check for "my view was a permanent skeleton because I forgot the cause."
-- **A first-load failure is `:error` with no data.** Stub `{:reply {:failure {:kind :rf.http/http-5xx :status 503}}}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind` — [branch on the category, never the prose](../core/errors.md#test-the-structure-not-the-string).
-- **A fresh ensure is a cache hit.** Ensure the same key twice against a stub table and the second dispatch fetches nothing — count the requests with the interceptor ledger in [section 4](#4-exactly-these-requests) to pin it. A request that matches no stub never reaches the network: it settles as a `:rf.http/transport` failure ("no stub matched").
+- **A first-load failure is `:error` with no data.** Answer `{:status 503}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind`, `:rf.http/http-5xx` — [branch on the category, never the prose](../core/errors.md#test-the-structure-not-the-string).
+- **A fresh ensure is a cache hit.** Ensure the same key twice against a stub transport and the second dispatch fetches nothing — count the requests with the interceptor ledger in [section 4](#4-exactly-these-requests) to pin it. A request no route matches never reaches the network: it settles as a `:rf.http/transport` failure ("no stub route for …").
 
 Pin the distinction between initial failure and refresh failure with one more
 test. Both failures use the same HTTP category; only the available data differs:
@@ -113,16 +113,17 @@ test. Both failures use the same HTTP category; only the available data differs:
                     [:rf.resource/refetch {:resource :test/article :params {:slug "intro"}
                                            :cause [:manual :test/retry]}])
           state #(rf/compute-sub query (rf/frame-state-value f))
-          unavailable {[:get "/api/articles/intro"]
-                       {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}]
+          unavailable (stub-transport/route-transport
+                        {[:get "/api/articles/intro"] {:status 503}})]
       (is (= :idle (:status (state))))
-      (http-test-support/with-request-stubs unavailable fetch!)
+      (stub-transport/with-transport unavailable fetch!)
       (is (= :error (:status (state))))
       (is (false? (:has-data? (state))))
-      (http-test-support/with-request-stubs
-        {[:get "/api/articles/intro"] {:reply {:ok {:article {:title "Welcome"}}}}}
+      (stub-transport/with-transport
+        (stub-transport/route-transport
+          {[:get "/api/articles/intro"] {:body {:article {:title "Welcome"}}}})
         fetch!)
-      (http-test-support/with-request-stubs unavailable fetch!)
+      (stub-transport/with-transport unavailable fetch!)
       (is (= :loaded (:status (state))))
       (is (= "Welcome" (get-in (state) [:data :article :title])))
       (is (nil? (:error (state))))
@@ -149,15 +150,16 @@ Returning `nil` makes the missing identity explicit. A subscription raises an un
 
 A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence.
 
-The read it invalidates is *setup*, not the subject, so it goes in the frame's `:initial-events`. The stub table wraps frame creation, because stubs apply for their dynamic extent and the seed fetches as the frame boots. An entry with no owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite registered above `:populates` the article from its reply, and a populated entry counts as freshly loaded:
+The read it invalidates is *setup*, not the subject, so it goes in the frame's `:initial-events`. The `with-transport` scope wraps frame creation, because it answers the requests issued in its dynamic extent and the seed fetches as the frame boots. An entry with no owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite registered above `:populates` the article from its reply, and a populated entry counts as freshly loaded:
 
 ```clojure
 (deftest favorite-invalidates-the-list
-  (http-test-support/with-request-stubs
-    {[:get  "/api/articles"]                {:reply {:ok {:articles [{:slug "intro"}]}}}
-     [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
+  (stub-transport/with-transport
+    (stub-transport/route-transport
+      {[:get  "/api/articles"]                {:body {:articles [{:slug "intro"}]}}
+       [:post "/api/articles/intro/favorite"] {:body {:article {:slug "intro" :favorited true}}}})
     (fn []
-      ;; the frame boots with the list already loaded — through the canned reply
+      ;; the frame boots with the list already loaded — through the stub transport
       (rf/with-new-frame [f (rf/make-frame
                               {:initial-events
                                [[:rf.resource/ensure {:resource :test/articles
@@ -183,7 +185,7 @@ A mutation that `:populates` asserts the other consequence — the target key re
 
 ## 4. Exactly these requests
 
-The stub table answers requests; it doesn't count them. When the claim is about *reach* — a favorite costs one POST plus the refetch its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request, and name it in the test frame's `:http-interceptors`: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
+The stub transport answers requests; it doesn't count them. When the claim is about *reach* — a favorite costs one POST plus the refetch its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request, and name it in the test frame's `:http-interceptors`: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
 
 ```clojure
 (def issued (atom []))
@@ -194,10 +196,11 @@ The stub table answers requests; it doesn't count them. When the claim is about 
              ctx)})
 
 (deftest favorite-issues-exactly-these-requests
-  (http-test-support/with-request-stubs
-    {[:get  "/api/articles"]                {:reply {:ok {:articles [{:slug "intro"}]}}}
-     [:get  "/api/articles/intro"]          {:reply {:ok {:article {:slug "intro"}}}}
-     [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
+  (stub-transport/with-transport
+    (stub-transport/route-transport
+      {[:get  "/api/articles"]                {:body {:articles [{:slug "intro"}]}}
+       [:get  "/api/articles/intro"]          {:body {:article {:slug "intro"}}}
+       [:post "/api/articles/intro/favorite"] {:body {:article {:slug "intro" :favorited true}}}})
     (fn []
       (rf/with-new-frame [f (rf/make-frame
                               {:http-interceptors [:test/issued]
@@ -226,7 +229,7 @@ an unowned entry is marked stale, as section 3 asserts.
 
 !!! note "Why not record through `rf/with-fx-overrides`?"
 
-    Overriding `:rf.http/managed` with a recording fn *replaces* the transport, so nothing replies: the ledger shows the POST, the mutation stays `:pending`, and the refetches its reply would cause never happen. `with-request-stubs` is built on that same override, so the two don't stack either — whichever binding is innermost wins. The interceptor sits inside the pipeline instead, so the stubs keep answering.
+    Overriding `:rf.http/managed` with a recording fn *replaces* the whole effect, so nothing replies: the ledger shows the POST, the mutation stays `:pending`, and the refetches its reply would cause never happen. A stub transport replaces only the host send, so the frame's `:before` chain still runs: the interceptor records each request, and the stub answers it.
 
 ## What lives elsewhere
 

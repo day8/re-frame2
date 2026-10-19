@@ -167,7 +167,7 @@ Required normalized plan shape:
          :setup [setup-step ...]
          :db-seed optional-db-or-patch    ; schema-checked direct state seed (§Setup — Direct app-db seeding)
          :render {:sub-overrides {query-vector data}} ; view-state affordance
-         :network {[method url] {:reply {:ok data}}}  ; or {:reply {:failure data}}
+         :network {[method url] response}  ; stub-transport response, or {:failure {:kind …}}
          :fidelity #{:real-setup :db-seed :sub-overrides}
          :decorators [...]                ; view wrapping
          :modes {...} :viewports [...] :backgrounds [...] :variants-grid {...} :substrates [...]
@@ -342,7 +342,7 @@ Required P1 shape:
  :seed optional
  :event-program [...]
  :fx-decisions {fx-id override}
- :network {[method url] {:reply …}}  ; optional — per-route HTTP stubs, re-installed on replay
+ :network {[method url] response}  ; optional — per-route HTTP responses, answered on replay
  :epoch-tape [...]
  :trace [...]
  :result run-result
@@ -408,13 +408,28 @@ not an authoring surface. Story inherits this model directly:
 Managed HTTP stubbing is first-class world input:
 
 ```clojure
-{:network {[:get "/api/cart"]      {:reply {:ok {:items []}}}
-           [:post "/api/checkout"] {:reply {:failure {:kind :rf.http/http-4xx
-                                                       :status 409}}}}}
+{:network {[:get "/api/cart"]      {:body {:items []}}
+           [:post "/api/checkout"] {:status 409 :body {:error "conflict"}}}}
 ```
 
-The plan compiler MUST lower `:network` to the existing managed-request
-stub machinery. `:network` is not a replacement for generic
+A `:network` value is a route map, `{[method url] response}`, of the
+responses a stub transport gives
+([Spec 014 §Stub transports](../../../spec/014-HTTPRequests.md#stub-transports--the-real-pipeline-over-a-fake-wire)):
+`{:status :status-text :headers :body :body-binary :delay-ms}`, each
+optional, or `{:failure {:kind :rf.http/transport}}` (or `:rf.http/timeout`)
+for a network failure. The plan keeps it at `[:world :network]`, and the
+runner installs it on the variant frame as a `route-transport` before the
+frame is allocated. The transport replaces only the network hop beneath the
+real `:rf.http/managed`, so each answer is classified, decoded and
+delivered exactly as a server's would be: a 4xx / 5xx `:status` is how a
+variant asks for `:rf.http/http-4xx` / `-5xx`, and a body crosses the wire
+as JSON, so keyword values arrive as strings unless the request's `:decode`
+schema coerces them. A variant with no `:network` relies on the `:story`
+preset's `:rf.http/stub-only?`, so its managed requests fail as
+`:rf.http/transport`. Replay of a run artifact answers from the same routes
+through `with-transport`, and `explain` shows them as `{:routes …}`.
+
+`:network` is not a replacement for generic
 `:fx-overrides`; it is the higher-level affordance for `:rf.http/managed`
 because route-level replies, mixed success/failure, and flaky/retry cases
 are otherwise flattened into one coarse fx replacement.
@@ -784,20 +799,21 @@ carriage is the React context above.
 
 ### Network stubs
 
-Top-level `:network` lowers to `[:world :network]` and then to the
-existing managed HTTP request-stub machinery. It is the preferred
+Top-level `:network` compiles to `[:world :network]`, which the runner
+installs on the variant frame as a stub transport. It is the preferred
 Story/test surface for `:rf.http/managed` because it preserves
 request-level intent:
 
 ```clojure
-{:network {[:get "/api/session"] {:reply {:ok {:user/id 42}}}
-           [:post "/api/login"]  {:reply {:failure {:kind :rf.http/http-4xx
-                                                     :status 401}}}}}
+{:network {[:get "/api/session"] {:body {:user/id 42}}
+           [:post "/api/login"]  {:status 401 :body {:error "bad credentials"}}}}
 ```
 
-Rules: keys are `[method url]` pairs matching the managed request helper;
-values are data-shaped replies; unmatched requests fail closed with the
-existing "no stub matched" failure; `:network` participates in `explain`,
+Rules: keys are `[method url]` pairs — the url the request goes out on,
+after its `:before` interceptors, with any `:params` as its query string;
+values are data-shaped stub-transport responses (§The network surface);
+an unmatched request fails closed as `:rf.http/transport`, naming its
+method and url; `:network` participates in `explain`,
 `:plan-hash`, and narrative/evidence projection; generic `:fx-overrides`
 still exists for non-HTTP effects and unusual cases.
 
@@ -2731,90 +2747,49 @@ epoch db-after, warning) MUST canonicalize `not=` and hash unequal.
 
 ## Network world
 
-The author-facing `:network` surface and its `[method url] → {:reply …}`
+The author-facing `:network` surface and its `[method url] → response`
 shape are introduced in §The network surface and §Network stubs. This
-section pins the **compiler contract** for the first-class `:network`
-world slot — the lowering to the managed-request stub
-machinery, the conflict semantics versus generic `:fx-overrides`, and the
-explain / `:plan-hash` participation.
+section pins the **compiler and runner contract** for the first-class
+`:network` world slot — the stub transport the runner installs, the
+conflict semantics versus generic `:fx-overrides`, and the explain /
+`:plan-hash` participation.
 
 ### Reuse, not reinvention
 
-`:network` MUST lower to the existing managed-request stub helper
-`re-frame.http.test-support/install-managed-request-stubs!` (Spec 014
-§Testing) — Story does NOT introduce a second HTTP mock. That helper takes
-the same `{[method url] {:reply <:ok|:failure>}}` route map the author
-writes, registers a per-call stub fx (id `:rf.http/managed-test-stub`),
-and returns the fx id; an unmatched managed request synthesises the
-helper's existing "no stub matched" transport failure (fail-closed). The
-helper lives in the `day8/re-frame2-http` artefact; Story declares it as a
-runtime dependency (the stub install is a runtime concern for running a
-`:network` variant, so the dep rides Story's main `:deps`, not the `:test`
-alias).
+`:network` MUST be answered by the HTTP artefact's own stub transport,
+`re-frame.http.stub-transport/route-transport`
+([Spec 014 §Stub transports](../../../spec/014-HTTPRequests.md#stub-transports--the-real-pipeline-over-a-fake-wire))
+— Story does NOT introduce a second HTTP mock. The route map the author
+writes is the route map `route-transport` takes. A stub transport replaces
+only the host send: the variant's request runs through the real
+`:rf.http/managed` — its interceptor chains, `:decode`, `:accept`, retry,
+privacy scrub and reply envelope — and only the answer comes from the
+route. An unmatched request fails closed as `:rf.http/transport`, naming its
+method and url. The transports live in the `day8/re-frame2-http` artefact;
+Story declares it as a runtime dependency (answering a `:network` variant
+is a runtime concern, so the dep rides Story's main `:deps`, not the
+`:test` alias).
 
-#### One install, per-frame replies
+#### One transport per variant frame
 
-The helper registers **one** global stub fx id over a route map captured at
-install time, and its install stack is snapshot/restore (LIFO), not a merge.
-An install-per-variant would therefore make the second mounted variant's
-routes answer for both — the silent cross-variant overwrite. Story's
-mount/destroy order is not LIFO either, so it cannot balance that stack
-per variant.
+The runner (`re-frame.story.network/install-for-frame!`) installs the
+variant's routes on the variant frame with
+`re-frame.http.stub-transport/install-transport!`, **before** the frame is
+allocated — so the routes answer from the first `:frame-setup` `:init`,
+loader, `:setup` or script effect onward. The transport is the frame's own:
+two variants mounted at once that stub the SAME url with DIFFERENT
+responses each answer from their own routes, and frame teardown
+(`destroy!` / `destroy-inline!`) drops the transport with the frame.
+Re-running a variant re-installs its routes; a variant recompiled without
+`:network` uninstalls whatever transport its frame held, so it never
+answers from a stale fixture. The transport belongs to the frame, not to
+an image, so the variant's `:images` — declared or inherited from its
+parent story — have no bearing on which routes answer.
 
-So the runner (`re-frame.story.network`) installs **once** and hands the
-helper a route map that resolves `[method url]` against
-`{frame-id → routes}` keyed on the frame in flight — legitimate because the
-helper reads its map with a plain `get` (any `ILookup` will do) and because
-`re-frame.router` binds the envelope's frame for the whole handler chain,
-the fx walk included. Ownership is per frame: the runner takes it before
-allocation — ahead of any `:frame-setup` `:init`, loader, `:setup` or script
-effect — and frame teardown (`destroy!` / `destroy-inline!`) releases exactly
-that one frame's fixture. The single install/uninstall pair is refcounted by
-that registry: installed when it goes empty → non-empty, uninstalled when it
-returns to empty.
-
-Two consequences the surface depends on. Two variants mounted at once
-stubbing the SAME url with DIFFERENT replies each keep their own; and a
-frame owning no fixture (or a request outside any frame) resolves to no
-route, so the helper's own "no stub matched" transport failure
-fires. The lowered fx id is `:rf.http/managed-test-stub`, so the
-recorded `:fx-decisions` redirect and the artifact replay path are
-unaffected.
-
-#### Reaching the fixture through a selected app image
-
-The helper registers into the process **source store**. A variant frame
-created with no `:images` projects that whole store (the EP-0026 DEFAULT
-image), so it resolves the stub. A variant that declares an app image — or
-inherits one from its parent story — resolves through a **selected, sealed
-generation** instead, and an image selects by `:rf.provenance/ns`. The
-helper registers through the fn-alias `reg-fx` path, which records no
-source namespace, so no namespace glob can select the stub. What makes it
-resolvable there is the **framework base** every explicit composition is
-layered over
-([spec/002 §Image resolution and composition](../../../spec/002-Frames.md#image-resolution-and-composition)):
-the loaded registrations with no source namespace whose id sits under the
-reserved `:rf` root, `:rf.http/managed-test-stub` among them. Without that
-base such a frame would receive the `:fx-overrides` redirect, fail to
-resolve its target, and fail **open**: the request would fall through to
-the REAL `:rf.http/managed` transport.
-
-A frame that owns a fixture is also composed with one further library-owned
-image, `:rf.story/network-fixture` (`re-frame.story.network/fixture-image`),
-carrying **exactly one** inline `:reg-fx` — the handler the install just put
-in the source store, over the same frame-scoped route map. It is layered
-after every app image (so nothing authored shadows the fixture) and before
-the runtime image, which keeps its LAST position; the two select disjoint
-sets. The framework base makes it redundant, and it is harmless: its
-one registration shadows the base's entry for the same handler, which the
-shadow report records against `:rf/framework`. Two properties are normative
-here. The fixture image MUST republish
-the installed handler rather than build its own, so there is one canned-reply
-implementation and two projections of it; and it MUST carry that one fx id
-and nothing else — **widening the app image to the whole store is not an
-acceptable repair**, because it trades this defect for the loss of the
-isolation the image exists to provide. It is a library contract, not an
-authored behaviour image: it never appears on a run result's `:images`.
+A variant with no `:network` installs nothing. Its frame is on the `:story`
+preset, whose `:rf.http/stub-only?` keeps managed requests off the
+network, so a request it issues fails as `:rf.http/transport` rather than
+reaching a real server.
 
 ### What the compiler emits
 
@@ -2823,25 +2798,24 @@ is non-empty, `re-frame.story.plan/compile-body`:
 
 | Plan slot | Value | Why |
 |---|---|---|
-| `[:world :network]` | the per-route reply map, verbatim | the **source of truth** — feeds `:plan-hash` (through the `:world` slot of `plan-hash-input-keys`), `explain`, and the narrative/run-artifact evidence |
-| `[:world :frame :fx-overrides]` | the author's frame overrides **merged with** `{:rf.http/managed :rf.http/managed-test-stub}` | the **lowering** — points the variant frame's `:rf.http/managed` at the stub fx; the runner installs the route map via `install-managed-request-stubs!` when it creates the frame |
-| `[:explain :network]` | `{:routes <route-map> :lowered-to {:rf.http/managed :rf.http/managed-test-stub}}` | per-route stubs + the managed-stub lowering are visible in `explain` |
+| `[:world :network]` | the per-route response map, verbatim | the **source of truth** — feeds `:plan-hash` (through the `:world` slot of `plan-hash-input-keys`), `explain`, the narrative/run-artifact evidence, and the transport the runner installs on the variant frame |
+| `[:explain :network]` | `{:routes <route-map>}` | the per-route responses are visible in `explain` |
 
-`re-frame.story.plan/managed-fx-id` (`:rf.http/managed`) and
-`re-frame.story.plan/managed-stub-fx-id` (`:rf.http/managed-test-stub`)
-name the two fx ids so the plan declares the lowering without a
-compile-time dependency on the http artefact; `lower-network` is the pure
-data → data primitive that derives the override map. The
-per-route reply data may carry `[:arg key]` placeholders, substituted on
-the same pass as setup / script / sub-overrides; an undeclared arg FAILS
-plan construction with `:rf.error/story-missing-arg`.
+`:network` contributes nothing to `[:world :frame :fx-overrides]`: the
+variant frame's `:rf.http/managed` is the real effect, with the stub
+transport beneath it. `re-frame.story.plan/managed-fx-id`
+(`:rf.http/managed`) names the fx `:network` answers for, which the
+conflict check below reads, without a compile-time dependency on the http
+artefact. The per-route response data may carry `[:arg key]` placeholders,
+substituted on the same pass as setup / script / sub-overrides; an
+undeclared arg FAILS plan construction with `:rf.error/story-missing-arg`.
 
 Because `:network` is world context, it **inherits through `:extends`**,
 merged **per route** root → child: a child's route replaces the parent's
-reply for that same route wholesale (so a child can flip a route from `:ok`
-to `:failure`), routes only the parent names are inherited, and the single
-managed-stub override covers the inherited and own routes alike. A route's
-reply is never deep-merged — it carries exactly one of `:ok` / `:failure`.
+response for that same route wholesale (so a child can flip a route from a
+200 to a 503 or a `{:failure …}`), routes only the parent names are
+inherited, and the one transport answers the inherited and own routes
+alike. A route's response is never deep-merged.
 
 ### Conflict with generic `:fx-overrides`
 
@@ -2854,32 +2828,29 @@ conflicting `:fx-id`, the `:network` routes, and the author
 `:fx-overrides`). Letting one silently win would flatten exactly the
 route-level intent `:network` exists to preserve, so the two-owner case is
 a hard error the author resolves by dropping one surface. An
-`:fx-overrides` on any **other** fx coexists cleanly — it merges alongside
-the derived managed-stub entry.
+`:fx-overrides` on any **other** fx coexists cleanly.
 
 ### Plan-hash participation
 
 `:network` participates in `:plan-hash` with no extra wiring: the route
 map lives under `[:world :network]`, and `plan-hash-input-keys` already
-hashes the whole `:world` slot. A semantic change to any per-route reply
-(success payload, failure `:kind`, status) therefore perturbs the
-`:plan-hash`; a `canonicalize`-volatile change does not.
+hashes the whole `:world` slot. A semantic change to any per-route response
+(body, status, failure `:kind`) therefore perturbs the `:plan-hash`; a
+`canonicalize`-volatile change does not.
 
-**Run-artifact wiring.** The per-route reply data is
+**Run-artifact wiring.** The per-route response data is
 preserved in `explain`, `:plan-hash`, (through `[:world :network]`) the
 narrative evidence, AND the low-level run artifact. When a plan is
 coerced to a `:rf.test/run-artifact` (the determinism gate / golden
 capture's `re-frame.story.determinism/->artifact`), its
 `[:world :network]` route map is carried onto the artifact's `:network`
-slot alongside the `[:world :frame :fx-overrides]` redirect on
-`:fx-decisions`. `replay-run-artifact` then **re-installs** those route
-stubs (`re-frame.http.test-support/install-managed-request-stubs!`, the
-same seam a live run uses) around the replay, so a replayed `:network` request
-matches its route and synthesises the recorded reply rather than
-fail-closing on "no stub matched". Carrying only the `:fx-decisions`
-redirect would point the replay at a stub fx registered with NO routes,
-so every replayed request would fail-closed — the `:network` artifact
-slot is what makes the round-trip succeed (§Run artifact and replay).
+slot. `replay-run-artifact` then answers the replay from a route transport
+over those routes, inside a `with-transport` scope
+(`re-frame.story.artifact/with-network-stubs!`), so a replayed `:network`
+request matches its route and gets the recorded response through the same
+pipeline a live run uses, rather than failing closed as
+`:rf.http/transport`. The `:network` artifact slot is what makes the
+round-trip succeed (§Run artifact and replay).
 
 ## Unit and integration testing adjustments
 
@@ -3329,7 +3300,7 @@ A run artifact is a map carrying:
  :seed          optional
  :event-program [step …]               ; the dispatch program (setup ⧺ script)
  :fx-decisions  {fx-id override}       ; the fx overrides reapplied on replay
- :network       {[method url] {:reply …}} ; per-route HTTP stubs re-installed on replay
+ :network       {[method url] response}  ; per-route HTTP responses, answered on replay
  :epoch-tape    [epoch-record …]       ; the captured tape, when retained
  :trace         [trace-event …]        ; optional flat trace
  :result        run-result             ; the projected run-result (§Run result)
@@ -3356,15 +3327,11 @@ A run artifact is a map carrying:
   per-frame frame-config `:fx-overrides` slot carry (Spec 002
   §`:fx-overrides`). Replay REAPPLIES them, so a run that stubbed an HTTP
   effect replays against the same stub rather than firing the live effect.
-- `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`,
-  §The network surface) captured from the plan's `[:world :network]` slot
-  when the artifact was materialized. The `:network` world slot
-  lowers to a `:fx-decisions` redirect (`{:rf.http/managed
-  :rf.http/managed-test-stub}`) — but that redirect targets a stub fx that
-  is only registered WITH the routes by
-  `install-managed-request-stubs!`. So `:fx-decisions` alone is not enough:
-  replay carries `:network` to RE-INSTALL the route stubs (below), without
-  which a replayed `:network` request would fail-closed.
+- `:network` is the per-route HTTP response map
+  (`{[method url] response}`, §The network surface) captured from the
+  plan's `[:world :network]` slot when the artifact was materialized.
+  Replay answers from it (below); without it a replayed `:network` request
+  would fail closed as `:rf.http/transport`.
 
 `re-frame.story.artifact/make-run-artifact` is the **pure** constructor
 (data → data, JVM-runnable): it coerces the `:event-program`, folds
@@ -3422,18 +3389,17 @@ Replay MUST:
   (possibly richer-adapter) runner owns. A bare step (no recorded
   envelope) still replays strict; with no declared recordable fact the
   policy is inert (zero ceremony).
-- **Re-install the `:network` route stubs** (when the artifact carries a
-  non-empty `:network` map) — replay calls
-  `re-frame.http.test-support/install-managed-request-stubs!` with the route
-  map for the duration of the replay (then uninstalls in a `finally`), the SAME seam a
-  live `:network` run uses. This registers `:rf.http/managed-test-stub`
-  WITH the routes, so the `:fx-decisions` redirect resolves to a stub that
-  matches each request and synthesises the recorded reply. Without this a
-  replayed `:network` request would fail-closed on "no stub matched".
-  The install routes through `re-frame.http.test-support`
-  (Spec 014 §Testing); the http artefact rides Story's main `:deps`, so the
-  namespace is always present (the JVM resolves it lazily via
-  `requiring-resolve`).
+- **Answer from the `:network` routes** (when the artifact carries a
+  non-empty `:network` map) — replay runs inside
+  `re-frame.http.stub-transport/with-transport` over a `route-transport`
+  of those routes (`re-frame.story.artifact/with-network-stubs!`), the same
+  stub transport a live `:network` run installs on its frame. Each replayed
+  request runs through the real `:rf.http/managed` and gets its route's
+  recorded response; the scope unwinds on exit, so a replay never leaks its
+  routes into a later test. Without this a replayed `:network` request
+  would fail closed as `:rf.http/transport`. The http artefact rides
+  Story's main `:deps`, so the namespace is always present (the JVM
+  resolves it lazily via `requiring-resolve`).
 - **Capture a NEW epoch tape** — read from `re-frame.epoch/epoch-history`
   after the program settles, NOT the artifact's captured tape. The replay
   proves what the program does NOW.
@@ -3549,7 +3515,7 @@ shrink is still a smaller, valid artifact).
 A fault lattice sweep (`sweep-faults!`) replays ONE base program across a
 small lattice of FAULT cells, where each cell is a different `:fx-decisions`
 map — the **same fx-override world input** `replay-run-artifact` already
-reapplies, and the same surface the `:network` world slot lowers to. A
+reapplies. A
 "fault" is just an fx override that fails / delays / mis-replies; there is
 **no new fault-injection contract surface**. The sweep collects one
 seed-bearing `:rf.test/run-artifact` per cell (each carrying its faulted
@@ -4093,7 +4059,7 @@ version ships in the docs guide):
 | `loaders` | `:loaders` (+ `:loaders-teardown`) | async preconditions before render |
 | `play` function | `:script` | ordered behaviour; tagged steps, not imperative `userEvent` calls |
 | `expect(...)` in `play` | `:assertions` / `[:assert …]` | the one assertion atom, terminal or mid-script checkpoint |
-| MSW network mocks | `:network` | route-level managed-HTTP stubs (lowered to the managed-request stub fx) |
+| MSW network mocks | `:network` | route-level managed-HTTP responses, answered by a stub transport beneath the real `:rf.http/managed` |
 | `render` / custom render | `:component` + `:sub-overrides` | the active view + the design-fidelity view-state overrides |
 | docs / autodocs | `:doc` + the narrative projection | the scrubbable epoch-tape storyboard is the asset Storybook cannot copy |
 
@@ -4138,8 +4104,8 @@ P1 is complete when:
   folded; no `:no-schema-errors` knob is introduced;
 - schema violations are projected from epoch trace events and fail unless
   exactly consumed (multiset matching);
-- `:network` lowers to existing managed-request stubs and supports mixed
-  route replies;
+- `:network` is answered by the HTTP artefact's stub transport and
+  supports mixed route responses;
 - capabilities are sets; the plan runs single-pass under the
   selected/requested runner policy; assertions whose required evidence is
   unavailable report `:cannot-run`; refusal carries

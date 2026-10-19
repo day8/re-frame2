@@ -25,18 +25,23 @@ Without the require, using the effect reports `:rf.error/no-such-fx` and sends n
 
 Issuing a request takes two kinds of handler: one to send, one to receive. Here is the whole thing — three registrations.
 
-This page has no server, so the cell starts by installing stubs for the
-article URLs the tutorial uses, and ends with a button that dispatches the load
-and a readout of `[:article]`:
+This page has no server, so the cell starts by defining a stub transport — a
+fake backend that answers the article URLs the tutorial uses — and installing
+it on the cell's frame. It ends with a button that dispatches the load and a
+readout of `[:article]`:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/intro"]  {:reply {:ok {:slug "intro" :title "Welcome" :body "Your first article."}}}
-   [:get "/api/articles/broken"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+;; The fake backend: one response per route. A real app has no such thing.
+(def article-backend
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"]  {:body {:slug "intro" :title "Welcome" :body "Your first article."}}
+     [:get "/api/articles/broken"] {:status 503}}))
+
+(stub-transport/install-transport! :tutorial/step-1 article-backend)
 
 ;; Send: return the request as data. The handler finishes immediately.
 (rf/reg-event :article/load
@@ -68,8 +73,7 @@ and a readout of `[:article]`:
    [:button {:on-click #(dispatch [:article/load "intro"])} "Load intro"]
    [:pre (pr-str @(subscribe [:tutorial/article]))]])
 
-;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
-[rf/frame-root {:id :tutorial/step-1 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :tutorial/step-1}
  [step-1-view]]
 ```
 
@@ -84,7 +88,7 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 
 That map is the **reply map**, using the framework's [uniform reply](../core/glossary.md#the-uniform-reply) shape. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
 
-**What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map. The stub answers at once, so the cell's readout goes straight to `:loaded`.
+**What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map. The stub transport answers at once, so the cell's readout goes straight to `:loaded`.
 
 ## Step 2 — turn the failure into something a user can read
 
@@ -126,11 +130,12 @@ namespace, which requires `app.article` so the registrations load first:
             [app.article]))
 ```
 
-The cell runs both against Step 1's stubs. Its second button loads an article
-whose stub answers 503:
+The cell runs both against Step 1's fake backend. Its second button loads an
+article whose route answers 503:
 
 ```cljs-rf2
-(require '[re-frame.core :as rf])
+(require '[re-frame.core :as rf]
+         '[re-frame.http.stub-transport :as stub-transport])
 
 ;; In app.article, beside the handlers:
 (rf/reg-sub :article/view-state
@@ -148,9 +153,11 @@ whose stub answers 503:
        :error   [:p.error message]
        [:p "Choose an article."])]))
 
+;; Step 1's fake backend answers this frame's requests; a real app leaves it out.
+(stub-transport/install-transport! :app/articles article-backend)
+
 ;; Mount this tree with your app's adapter. The frame supplies dispatch context.
-;; :fx-overrides sends its requests to Step 1's stubs; a real app leaves it out.
-[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/articles}
  [article-view]]
 ```
 
@@ -255,14 +262,14 @@ also covers frame teardown and requests owned by machine actors.
 
 ## Step 6 — test it without a network
 
-The request goes out as data and the reply comes back as data, so a test needs no HTTP server and no mock library. Stub the route, dispatch, assert on app-db:
+The request goes out as data and the reply comes back as data, so a test needs no HTTP server and no mock library. Answer the route from a stub transport, dispatch, assert on app-db:
 
 ```clojure
 ;; test/app/article_test.clj
 (ns app.article-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support :as http-test-support]   ;; test-only: canned replies + stubs
+            [re-frame.http.stub-transport :as stub-transport]   ;; test-only: a fake backend
             [re-frame.substrate.plain-atom :as plain-atom]       ;; the headless JVM adapter
             [re-frame.test-support :as ts]
             [app.article]))                ;; loads the registrations
@@ -272,9 +279,9 @@ The request goes out as data and the reply comes back as data, so a test needs n
 
 (deftest article-loads
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/articles/intro"]
-       {:reply {:ok {:slug "intro" :title "Welcome" :body "…"}}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/articles/intro"] {:body {:slug "intro" :title "Welcome" :body "…"}}})
       (fn []
         (rf/dispatch-sync [:article/load "intro"])
         (is (= :loaded (get-in (rf/app-db-value f) [:article :status])))
@@ -282,19 +289,21 @@ The request goes out as data and the reply comes back as data, so a test needs n
 
 (deftest article-load-fails
   (rf/with-new-frame [f (rf/make-frame {})]
-    (http-test-support/with-request-stubs
-      {[:get "/api/articles/intro"]
-       {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}
+    (stub-transport/with-transport
+      (stub-transport/route-transport
+        {[:get "/api/articles/intro"] {:status 503}})
       (fn []
         (rf/dispatch-sync [:article/load "intro"])
         (is (= :error (get-in (rf/app-db-value f) [:article :status])))))))
 ```
 
 These tests exercise the issuing and receiving handlers with success and failure
-replies. Stubs supply an already-decoded value: they do not test `ArticleResponse`,
-`:accept`, retry timing, timeout or supersession. Verify those transport behaviors
-against a controlled server; [the stub reference](../api/re-frame.http.md#testing-without-a-network)
-explains the boundary. [Test a pipeline run](../core/testing/pipeline-runs.md)
+replies. A stub transport replaces only the network hop: the request still runs
+through `:rf.http/managed`, so the route's body is decoded as a server's would be,
+`:accept` and retry run, and the 503 is classified `:rf.http/http-5xx`. The answer
+lands inside the `dispatch-sync` that issued the request, so the assertions can
+follow it directly. [The stub reference](../api/re-frame.http.md#testing-without-a-network)
+covers held requests, latency and failures. [Test a pipeline run](../core/testing/pipeline-runs.md)
 covers the shared fixture and effect overrides.
 
 !!! note "Do, observe"

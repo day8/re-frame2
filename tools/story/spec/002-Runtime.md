@@ -46,7 +46,7 @@ So `allocate!` ALWAYS composes the variant frame's `:images` vector
 ([EP-0026 §Layered Resolution](../../../docs/EP/EP-0026-image-api-simplification.md)):
 
 ```
-[<story-images…> <variant-images…> network-fixture-image? runtime-image]
+[<story-images…> <variant-images…> runtime-image]
 ```
 
 - **story images** — the parent story's `:images` slot (see
@@ -57,17 +57,6 @@ So `allocate!` ALWAYS composes the variant frame's `:images` vector
   its own image — **behaviour variant -> image**: two variants reusing the SAME
   global event/sub id under DIFFERENT images resolve it to their own image's
   descriptor, with NO global-registrar clobber between runs).
-- **network-fixture image** — PRESENT ONLY when the frame owns an authored
-  `:network` fixture. The library-owned `:rf.story/network-fixture`
-  (`re-frame.story.network/fixture-image`) carries exactly ONE inline
-  `:reg-fx`: the frame-scoped managed-request stub the plan's `:fx-overrides`
-  redirect names. A variant with an explicit app image already resolves that
-  stub through the framework base every explicit composition is layered over,
-  so this image is redundant there but harmless. Layered after every app image
-  (so nothing authored shadows it) and before the runtime image, which the two
-  do not contest. [017-Testing-Story.md §Reaching the fixture through a
-  selected app image](017-Testing-Story.md#reaching-the-fixture-through-a-selected-app-image)
-  owns the contract.
 - **runtime image** — the canonical Story **runtime image**
   (`re-frame.story.runtime-image/runtime-image`), composed LAST. It selects
   Story's own runtime registrations (`:select-ns {:include
@@ -317,7 +306,8 @@ whatever is true at that moment decides the run. A loader whose
 readiness arrives asynchronously must therefore make that readiness
 observable *synchronously, inside the loader drain*. The supported
 routes answer the request inside the drain: `:network` for managed
-HTTP, whose canned reply is dispatched from the fx walk (see
+HTTP, whose stub transport answers a route with no `:delay-ms` inline,
+inside the drain that issues the request (see
 [`017-Testing-Story.md`](017-Testing-Story.md) §The network surface),
 or a first-class `:fx-overrides` redirect to a registered stub fx that
 dispatches the app's reply event. The `force-fx-stub` decorator (see

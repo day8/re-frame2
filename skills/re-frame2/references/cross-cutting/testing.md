@@ -233,21 +233,24 @@ The pure transition fn — `(re-frame.machines/machine-transition machine snapsh
 
 ## HTTP and other side-effecting fx
 
-For `:rf.http/managed`, install per-call stubs around the body:
+For `:rf.http/managed`, answer the requests from a stub transport around the body. It replaces only the network hop, so decode, `:accept`, retry, the privacy scrub and the reply envelope all run for real:
 
 ```clojure
-;; (:require [re-frame.http.test-support :as http-test-support])
-(http-test-support/with-request-stubs
-  ;; :reply is a MAP — {:ok <value>} for success, {:failure {:kind ...}} for
-  ;; failure. The runtime branches on (contains? reply :ok) / (:failure);
-  ;; a bare keyword like :reply :ok matches nothing and falls through to the
-  ;; "no stub matched" transport failure.
-  {[:get "/api/items"] {:reply {:ok {:items [...]}}}
-   [:post "/api/cart"] {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}}
+;; (:require [re-frame.http.stub-transport :as rf.http.stub-transport])
+(rf.http.stub-transport/with-transport
+  ;; A route is keyed by [method url] — the url the request goes out on, with
+  ;; any :params as its query string — and answers with a response map. A
+  ;; non-string :body goes out as JSON; {:failure {:kind :rf.http/transport}}
+  ;; is a network failure. An unmatched request fails as :rf.http/transport.
+  (rf.http.stub-transport/route-transport
+    {[:get "/api/items"] {:body {:items [...]}}
+     [:post "/api/cart"] {:status 500}})
   (fn []
     (rf/dispatch-sync [:cart/fetch])
     (ts/assert-path-equals [:cart :status] :ready)))
 ```
+
+A route with no `:delay-ms` answers inside the `dispatch-sync` that issued the request. The body crosses the fake wire as JSON, so keyword values arrive as strings unless the request's `:decode` schema coerces them. To hold requests and answer them one at a time, use `pending-transport`; to give a frame its own fake backend, `install-transport!`. A frame on the `:test` or `:story` preset never reaches the network: a request no stub transport answers fails as `:rf.http/transport`.
 
 For arbitrary fx on the reset fixture's ambient frame, override the registered handler from inside the test — that frame resolves the live registrar, and the fixture rolls the registration back on the way out. A frame the test makes resolves an image instead, where re-registering a product's id never wins ([`testing-doubles.md` §Mocks under explicit images](testing-doubles.md#mocks-under-explicit-images)); there, use the per-call `:fx-overrides` below, which reaches any frame and leaves nothing to roll back.
 
@@ -269,23 +272,11 @@ The dispatch-opts `:fx-overrides` map also accepts **function values** — a one
   (is (= [{:items [...]}] @calls)))
 ```
 
-For HTTP stubs, the fn form lets the test return a canned response shape without registering a parallel `:rf.http/managed-canned-success` fx:
-
-```clojure
-(rf/dispatch-sync [:user/login {:email "user@example.com"}]
-  {:fx-overrides {:rf.http/managed
-                  (fn [m args]
-                    ;; Deliver the CANONICAL reply envelope ({:status :ok :value …}),
-                    ;; appended to the request's reply target — NOT a raw
-                    ;; {:status 200 :body …}, which no reply target reads.
-                    (when-let [target (or (:reply-to args) (:on-success args))]
-                      (rf/dispatch (conj target {:status :ok :value {:user "u1"}})
-                                   {:frame (:frame m)})))}})
-```
+For HTTP, answer with a stub transport (above) rather than overriding `:rf.http/managed`: an override replaces the whole effect, so nothing past it runs. A test that wants a reply no server would send dispatches the reply event directly, carrying the canonical envelope — `(rf/dispatch-sync [:user/login-reply {:status :ok :value {:user "u1"}}])`.
 
 For a *block* of dispatches that all want the same stub, `(rf/with-fx-overrides {…} & body)` binds the map for the body's lexical scope instead of repeating the opt on every call — precedence is per-call opt > lexical `with-fx-overrides` > per-frame, and it composes with `with-frame`.
 
-Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
+Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:app/persist :app/persist-in-memory}`) redirects to another registered fx and is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke handler.
 
 ## Capturing traces and error records
 

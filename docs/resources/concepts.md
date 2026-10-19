@@ -133,22 +133,24 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
 | `:unresolved` | The scope resolver returned `nil`, so the read has no identity yet | A sign-in prompt or a restoring line |
 
 The cell below runs the registration, route and view from this page against
-canned replies, and shows the raw status above the view. The `draft` link's
-reply is a 503, so its first load ends in `:error`; Retry fails the same way,
-because a canned reply never changes. The stub answers at once, so `:loading`
-and `:fetching` pass too quickly to see.
+a stub transport, and shows the raw status above the view. The `draft` link's
+answer is a 503, so its first load ends in `:error`; Retry fails the same way,
+because the stub answers a URL the same way every time. It answers at once, so
+`:loading` and `:fetching` pass too quickly to see.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
          '[re-frame.resources]
          '[re-frame.routing]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-;; Canned replies: "hello" loads, "draft" fails with a 503.
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/hello"] {:reply {:ok {:article {:title "Hello" :body "The first article."}}}}
-   [:get "/api/articles/draft"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+;; A stub transport answers this frame's requests: "hello" loads, "draft" fails
+;; with a 503. A real app installs none, and its requests go to the server.
+(stub-transport/install-transport! :rf/default
+  (stub-transport/route-transport
+    {[:get "/api/articles/hello"] {:body {:article {:title "Hello" :body "The first article."}}}
+     [:get "/api/articles/draft"] {:status 503}}))
 
 (rf/reg-resource :app/article
   {:params-schema [:map [:slug :string]]
@@ -199,8 +201,7 @@ and `:fetching` pass too quickly to see.
      [article-page]]))
 
 [rf/frame-root {:id :rf/default
-                :initial-events [[:rf.route/navigate {:to :app/article :params {:slug "hello"}}]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                :initial-events [[:rf.route/navigate {:to :app/article :params {:slug "hello"}}]]}
  [shell]]
 ```
 

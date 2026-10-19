@@ -90,16 +90,20 @@ shows that form.
 
 Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. Both handlers receive the same reply map; the two keys only choose which handler it goes to.
 
-This page has no server, so the cell below installs stubs: `intro` answers with an article and `missing` with a 404. Click each button to send one request down each path:
+This page has no server, so the cell below installs a stub transport on its frame — a fake backend where `intro` answers with an article and `missing` with a 404. Click each button to send one request down each path:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/intro"]   {:reply {:ok {:title "Welcome" :body "The first article."}}}
-   [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+;; The fake backend: one response per route. A real app has no such thing.
+(def article-backend
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"]   {:body {:title "Welcome" :body "The first article."}}
+     [:get "/api/articles/missing"] {:status 404}}))
+
+(stub-transport/install-transport! :app/articles article-backend)
 
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
@@ -125,12 +129,11 @@ This page has no server, so the cell below installs stubs: `intro` answers with 
    [:button {:on-click #(dispatch [:article/load "missing"])} "Load missing"]
    [:pre (pr-str @(subscribe [:article]))]])
 
-;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
-[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/articles}
  [article-view]]
 ```
 
-`missing` reaches `:article/load-error` with a failure map whose `:kind` is `:rf.http/http-4xx`. The stubs answer at once, so the `:loading` status never shows.
+`missing` reaches `:article/load-error` with a failure map whose `:kind` is `:rf.http/http-4xx`. The stub transport answers at once, so the `:loading` status never shows.
 
 Prefer this shape when the success and failure paths are substantial or diverge: each handler reads and tests on its own.
 
@@ -228,12 +231,13 @@ form accepts the same args map, with the child managing its own reply address.
 
 ## Testing without a network
 
-Tests need no network. Require `re-frame.http.test-support` from test code and use either of its two tools:
+Tests need no network. A **stub transport**, from `re-frame.http.stub-transport`, replaces only the network hop: the request still runs through `:rf.http/managed` — the `:before` interceptors, status classification, `:decode`, `:accept`, retry, the privacy scrub, supersession and abort — and only the answer comes from the stub.
 
-- `with-request-stubs` answers requests from a route map while a function runs. It matches a request on its `:method` and on its `:url` as the `:before` interceptors leave it, before `:params` is merged in. A request that matches no route receives a `:rf.http/transport` failure whose `:message` is `"no stub matched"`.
-- The canned-stub effects, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, deliver one reply inline from `:fx`.
+- `route-transport` answers each request from a route map, `{[method url] response}`, keyed on the `:url` as the `:before` interceptors leave it with any `:params` merged in as a query string. A response is `{:status :headers :body}` (status 200 by default; a non-string body is sent as JSON) or `{:failure {:kind :rf.http/transport}}` (or `:rf.http/timeout`). A request that matches no route fails as `:rf.http/transport`, naming its method and URL. An optional `{:delay-ms n}` makes each answer wait.
+- `pending-transport` holds every request until the test answers, fails or abandons it — for in-flight, abort and late-completion tests.
+- `with-transport` sends every request issued while a function runs through a transport; `install-transport!` gives one frame its own transport until the frame is destroyed.
 
-Both deliver the `:status` / `:value` / `:error` shape a live request does, without the live reply's identity and timing keys (`:rf.reply/work-id`, `:completed-at`). They supply an already-decoded reply: body encoding, `:decode`, `:accept`, retries, timeouts and request-id supersession do not run. Test those behaviors against a controlled HTTP endpoint. The [tutorial's test step](tutorial.md#step-6--test-it-without-a-network) shows the pattern, [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe, and the [API reference](../api/re-frame.http.md#testing-without-a-network) documents every stub surface.
+The body travels as JSON, so it is decoded exactly as a server's would be: object keys arrive as keywords, and keyword values arrive as strings. An answer with no delay lands inside the `dispatch-sync` that issued the request. A test that wants a reply shape no server could send dispatches the reply event itself. A frame made with the `:test` or `:story` [preset](../core/frames.md#the-rest-of-the-frame-config) never reaches the network: a request no stub transport answers fails as `:rf.http/transport`. The [tutorial's test step](tutorial.md#step-6--test-it-without-a-network) shows the pattern, [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe, and the [API reference](../api/re-frame.http.md#testing-without-a-network) documents every stub transport.
 
 ## Troubleshooting
 
@@ -262,13 +266,16 @@ A single receiving handler can share cleanup across success, failure and
 cancellation ([the cleanup example](continuations-are-data.md#the-finally-job)).
 For a small operation, the sending and receiving event can also be the same.
 This cell names it `:article/fetch`, so it does not replace the earlier cell's
-`:article/load`, and it uses the stubs that cell installed:
+`:article/load`, and it answers from the fake backend that cell defined:
 
 ```cljs-rf2
 ;; cf. examples/real-apps/realworld_http/comments.cljs
 ;; Alternative to the separate :article/load and reply handlers.
 (require '[re-frame.core :as rf]
-         '[re-frame.http.managed])
+         '[re-frame.http.managed]
+         '[re-frame.http.stub-transport :as stub-transport])
+
+(stub-transport/install-transport! :app/fetch-demo article-backend)
 
 (rf/reg-event :article/fetch
   (fn [{:keys [db]} [_ slug reply]]
@@ -291,7 +298,7 @@ This cell names it `:article/fetch`, so it does not replace the earlier cell's
    [:button {:on-click #(dispatch [:article/fetch "missing"])} "Fetch missing"]
    [:pre (pr-str @(subscribe [:article/fetched]))]])
 
-[rf/frame-root {:id :app/fetch-demo :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/fetch-demo}
  [fetch-view]]
 ```
 

@@ -22,18 +22,20 @@ address is `[:article/loaded]` or `[:article/load-error]`. The runtime appends a
 reply map and dispatches that event. You can put context in the vector too:
 `:on-success [:article/loaded slug]` delivers `[:article/loaded slug reply]`.
 
-In this cell, stubs stand in for the server, and each receiving handler keeps
+In this cell, a stub transport stands in for the server, and each receiving handler keeps
 the whole event vector it was dispatched with. Load each article to see the
 reply map appended after the slug:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/articles/intro"]   {:reply {:ok {:slug "intro" :title "Welcome"}}}
-   [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+;; A fake backend answers this frame's requests. A real app leaves it out.
+(stub-transport/install-transport! :app/articles
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"]   {:body {:slug "intro" :title "Welcome"}}
+     [:get "/api/articles/missing"] {:status 404}}))
 
 (rf/reg-event :article/load
   (fn [_ [_ slug]]
@@ -58,8 +60,7 @@ reply map appended after the slug:
    [:button {:on-click #(dispatch [:article/load "missing"])} "Load missing"]
    [:pre (pr-str @(subscribe [:article/last-event]))]])
 
-;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
-[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/articles}
  [continuation-view]]
 ```
 
@@ -139,7 +140,7 @@ Managed HTTP and [resources and mutations](../resources/concepts.md) use the
 
 An HTTP reply handler therefore handles `:ok`, `:error` and `:cancelled`. A
 superseded request never reaches it. The [HTTP reference](../api/re-frame.http.md#reply-shape)
-lists the identity and timing fields of a live reply; stubs omit those fields.
+lists the identity and timing fields of a reply; a stub transport's replies carry them too.
 
 This common runtime model does not make every public completion payload identical.
 A [managed HTTP child machine](http-machines.md) sends its parent

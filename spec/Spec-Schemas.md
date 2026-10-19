@@ -4182,6 +4182,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
     [:flows        {:optional true} [:vector :keyword]]                    ;; flow ids the frame runs (none by default), resolved through its own view; per [013 §Activation](013-Flows.md#activation)
     [:http-interceptors {:optional true} [:vector :keyword]]               ;; HTTP interceptor ids the frame runs, in order (none by default), resolved at request issue; per [014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)
+    [:rf.http/stub-only? {:optional true} :boolean]                        ;; true: a request with no stub transport in place fails as :rf.http/transport instead of being sent; set by the :test / :story presets; per [014 §Testing](014-HTTPRequests.md#testing)
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame
@@ -4285,11 +4286,12 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
   [:map
    [:default     [:= {}]]                                                   ;; empty expansion
    [:test        [:map
-                  [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:test` preset
-                  [:drain-depth  [:= 1000]]]]
+                  [:rf.http/stub-only?  [:= true]]                          ;; per 002 §`:test` preset — HTTP never reaches the network
+                  [:drain-depth         [:= 1000]]
+                  [:rf.cofx/mint-policy [:= :strict]]]]
    [:story       [:map
-                  [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:story` preset
-                  [:drain-depth  [:= 16]]]]])
+                  [:rf.http/stub-only?  [:= true]]                          ;; per 002 §`:story` preset
+                  [:drain-depth         [:= 16]]]]])
 ```
 
 The fully-expanded metadata returned from `frame-meta` conforms to `:rf/frame-meta`; the schema for the expansion *table itself* is `:rf/preset-expansion`. Implementations must produce the same expansion the table specifies, modulo user-supplied overrides.

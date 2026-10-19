@@ -58,13 +58,13 @@ registered schema-validation boundary. Test those behaviors through a frame.
 
 Keep most tests at the first level. It is fast, deterministic, and does not require a browser.
 
-The second level runs the real pipeline in a fresh frame, so it is the one that exercises spawned actors and replies. Stub the HTTP the table issues ([Test a pipeline run](../core/testing/pipeline-runs.md) has the recipe):
+The second level runs the real pipeline in a fresh frame, so it is the one that exercises spawned actors and replies. Answer the HTTP the table issues from a [stub transport](../api/re-frame.http.md#testing-without-a-network) ([Test a pipeline run](../core/testing/pipeline-runs.md) has the recipe):
 
 ```clojure
 (ns app.login-frame-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support :as http-test-support]
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]
             [app.login]))                  ;; registers :auth.login/flow
@@ -72,8 +72,8 @@ The second level runs the real pipeline in a fresh frame, so it is the one that 
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest failed-login-shows-the-error
-  (http-test-support/with-request-stubs
-    {[:post "/api/login"] {:reply {:failure {:kind :rf.http/http-4xx :status 401}}}}
+  (stub-transport/with-transport
+    (stub-transport/route-transport {[:post "/api/login"] {:status 401}})
     (fn []
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com"
                                                                :password "x"}]])
@@ -170,7 +170,7 @@ machine to `:locked-out`.
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
 ;; The tutorial's login table, without its deadline and session handler.
 (rf/reg-machine :auth.login/flow
@@ -246,9 +246,11 @@ machine to `:locked-out`.
      [:ol (for [r records]
             ^{:key (:id r)} [:li (pr-str (:operation r)) " " (pr-str (summary r))])]]))
 
-;; :fx-overrides fails every request this frame sends. A real app leaves it out.
-[rf/frame-root {:id :auth.login/inspect
-                :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+;; A stub server rejects every request this frame sends. A real app installs none.
+(stub-transport/install-transport! :auth.login/inspect
+  (stub-transport/route-transport (fn [_request] {:status 401})))
+
+[rf/frame-root {:id :auth.login/inspect}
  [inspect-view]]
 ```
 

@@ -36,7 +36,7 @@ Managed HTTP ships in the optional artefact `day8/re-frame2-http`. Require `re-f
 
 Retries, timeouts, abort, decode and accept checks are further optional keys in the same args map.
 
-There is no `re-frame.http` namespace and no per-verb helper. The fx are addressed by keyword, `reg-http-interceptor` is called on the facade as `rf/reg-http-interceptor`, and the test stubs are functions in `re-frame.http.test-support`. An app that issues many requests usually writes its own function that builds the args map, adding a base URL, default headers, a default `:decode` and body encoding; see [Your own request builder](../async/http.md#your-own-request-builder).
+There is no `re-frame.http` namespace and no per-verb helper. The fx are addressed by keyword, `reg-http-interceptor` is called on the facade as `rf/reg-http-interceptor`, and the stub transports are functions in `re-frame.http.stub-transport`. An app that issues many requests usually writes its own function that builds the args map, adding a base URL, default headers, a default `:decode` and body encoding; see [Your own request builder](../async/http.md#your-own-request-builder).
 
 [Managed HTTP](../async/http.md) teaches the model.
 
@@ -190,19 +190,19 @@ Every request must name where its reply goes. The runtime appends the reply map 
 - Supplying only `:on-success`, or only `:on-failure`, raises `:rf.error/http-bad-reply-target` with `:reason :unpaired-split`, and nothing is sent: the branch left out would drop its replies with no handler. Write `nil` for a side you mean to drop.
 - Omitting all three keys raises `:rf.error/http-no-reply-target`: the framework never picks a reply target for you, because an implicit target can swallow failures.
 
-The cell below answers two requests from [stubs](#testing-without-a-network) and shows the whole event each reply arrives as: the `:reply-to` vector, context map included, with the reply map appended. A stubbed reply carries only `:status` and `:value` or `:error`; a real one adds the keys listed under [Reply shape](#reply-shape).
+The cell below answers two requests from a [stub transport](#testing-without-a-network) and shows the whole event each reply arrives as: the `:reply-to` vector, context map included, with the reply map appended.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.http.test-support :as http-test-support])
+         '[re-frame.http.stub-transport :as stub-transport])
 
-;; Canned replies: the cart loads, and a missing cart fails with a 404.
-(http-test-support/install-managed-request-stubs!
-  {[:get "/api/cart"]         {:reply {:ok [{:id 1 :name "widget"}]}}
-   [:get "/api/cart/missing"] {:reply {:failure {:kind        :rf.http/http-4xx
-                                                 :status      404
-                                                 :status-text "Not Found"}}}})
+;; A fake backend for this frame: the cart loads, and a missing cart fails
+;; with a 404. A real app installs no transport.
+(stub-transport/install-transport! :app/cart
+  (stub-transport/route-transport
+    {[:get "/api/cart"]         {:body [{:id 1 :name "widget"}]}
+     [:get "/api/cart/missing"] {:status 404 :status-text "Not Found" :body "no such cart"}}))
 
 (rf/reg-event :cart/load
   (fn [_ [_ url]]
@@ -224,8 +224,7 @@ The cell below answers two requests from [stubs](#testing-without-a-network) and
    [:pre {:style {:white-space "pre-wrap"}}
     (pr-str @(subscribe [:cart/last-reply]))]])
 
-;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
-[rf/frame-root {:id :app/cart :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+[rf/frame-root {:id :app/cart}
  [reply-view]]
 ```
 
@@ -381,119 +380,94 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
 
 ## Testing without a network
 
-`re-frame.http.test-support` drives managed HTTP in tests without a network: two fx that synthesise a reply inline, and helpers that answer requests from a route map. It ships in the same artefact, `day8/re-frame2-http`. Require it from test code only; loading it also registers the canned-reply fx. None of it is on the `re-frame.core` facade. [Testing without a network](../async/http.md#testing-without-a-network) and [Answer the HTTP](../core/testing/pipeline-runs.md#answer-the-http-canned-replies-by-method-and-url) show the stubs in a test.
-
-Stubs supply an already-decoded reply. They run the interceptor chains and reply-addressing checks, but do not execute body encoding, `:decode`, `:accept`, transport retries, timeouts, abort or request-id supersession. A passing stub test verifies your handlers and routing; use a controlled HTTP endpoint to verify transport behavior.
-
-A stubbed reply carries only `:status`, `:value` or `:error`, and `:meta` when you supply one. It has no `:attempt`, `:correlation`, `:completed-at` or `:rf.reply/*` keys, and a stubbed `:cancelled` reply has no `:cancelled?` or `:rf.reply/cancel-reason`.
-
-An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.error/override-fallthrough` and sends the real request, so require `re-frame.http.test-support` before creating the frame.
+`re-frame.http.stub-transport` answers managed HTTP without a network, for tests and demos. A stub transport replaces only the host send — Fetch in the browser, `java.net.http.HttpClient` on the JVM — so every request still runs the real pipeline: the `:before` and `:after` interceptors, status classification, `:decode`, `:accept`, retry and backoff, timeouts, the privacy scrub, supersession and abort. Its replies carry every key listed under [Reply shape](#reply-shape). It ships in the same artefact, `day8/re-frame2-http`, and is not on the `re-frame.core` facade. [Testing without a network](../async/http.md#testing-without-a-network) and [Answer the HTTP](../core/testing/pipeline-runs.md#answer-the-http-a-stub-transport) show it in a test.
 
 ```clojure
-(:require [re-frame.http.test-support :as http-test-support])  ;; test-only; also registers the canned fxs
+(:require [re-frame.http.stub-transport :as stub-transport])
 ```
 
-### `[:rf.http/managed-canned-success {:value v}]`
+A **response**, wherever these functions take one, is a map:
 
-- **Kind**: effect (reserved fx-id)
-- **Payload**: an `:rf.http/managed` args map, plus `:value`, `:meta` and `:after-ms`.
-- **Description**: Delivers a success reply (`{:status :ok :value v}`) without making a request, for stubbing one request inline in `:fx`.
-    - `:value` defaults to `{:stubbed true}`.
-    - `:meta` (optional) is copied to the reply's `:meta` slot, so `:after` interceptors that read headers can be tested without a network. Without it the reply has no `:meta`.
-    - `:request-id` (optional) comes back as the reply's `:correlation {:request-id …}`, as on the real path, so a handler that guards against stale replies by reading it can be tested. Without it the reply has no `:correlation`.
-    - `:after-ms` (optional) — a positive value delays the reply by a `:dispatch-later` tick. Absent, `0` or negative delivers immediately.
-    - The frame's `:before` and `:after` interceptor chains run around the reply, as on the real path. Reply addressing (`:reply-to` / `:on-success`) works as for `:rf.http/managed`; a stub reply with no target is dropped silently.
-- **Example**:
-  ```clojure
-  ;; cf. examples/core/managed_http_counter/core.cljs
-  (rf/reg-event :counter/load
-    (fn [_ _]
-      {:fx [[:rf.http/managed-canned-success
-             {:request  {:method :get :url "api/flaky"}
-              :decode   :json
-              :value    {:delta 5}
-              :reply-to [:counter/loaded]}]]}))   ;; receives {:status :ok :value {:delta 5}}
-  ```
+- `:status` — defaults to 200. `:status-text` and `:headers` are optional.
+- `:body` — a string is sent verbatim. Any other value is JSON-encoded, with `Content-Type: application/json` unless `:headers` names a content type, and is decoded as a server's body would be: object keys arrive as keywords and keyword values as strings. A `:decode` schema coerces them back.
+- `:body-binary` — replaces `:body` for a binary read.
+- `:delay-ms` — `route-transport` only: this answer waits that long.
 
-### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
+An HTTP error is a response with its status: `{:status 503}` fails as `:rf.http/http-5xx`, with the body text on the failure's `:body`. `{:failure {:kind :rf.http/transport}}`, or `:rf.http/timeout`, is a network failure instead of a response.
 
-- **Kind**: effect (reserved fx-id)
-- **Payload**: an `:rf.http/managed` args map, plus `:kind`, `:tags` and `:after-ms`.
-- **Description**: Delivers a failure reply without making a request.
-    - `:kind` defaults to `:rf.http/transport`. `:tags` are merged into the `:error` map.
-    - A `:request-id` comes back as `:correlation {:request-id …}`, as for `:rf.http/managed-canned-success`.
-    - An `:rf.http/aborted` kind produces `:status :cancelled`; every other kind produces `:status :error`.
-    - `:after-ms`, the interceptor chains and reply addressing (`:reply-to`, or the `:on-success` / `:on-failure` pair) work as for `:rf.http/managed-canned-success`.
-- **Example**:
-  ```clojure
-  (rf/reg-event :flaky/load
-    (fn [_ _]
-      {:fx [[:rf.http/managed-canned-failure
-             {:on-success nil
-              :on-failure [:flaky/load-error]
-              :kind       :rf.http/http-5xx
-              :tags       {:status 503 :status-text "Service Unavailable"}}]]}))
-  ```
+A request is keyed by the method and the URL it goes out on: after the `:before` interceptors, with any `:params` merged in as a query string, so a request carrying `:params {:page 2}` to `/api/todos` is keyed `[:get "/api/todos?page=2"]`.
 
-### `re-frame.http.test-support/with-request-stubs`
+A frame made with the `:test` or `:story` preset sets `:rf.http/stub-only? true`, so its requests never reach the network: one that no stub transport answers fails as `:rf.http/transport`, with a message naming `with-transport` and `install-transport!`.
+
+### `re-frame.http.stub-transport/route-transport`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (with-request-stubs route-map body-fn) → the value body-fn returns
+  (route-transport routes)      → transport
+  (route-transport routes opts) → transport
   ```
-- **Description**: Calls `body-fn`, answering matching `:rf.http/managed` requests made while it runs from `route-map` instead of the network.
-    - `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` for a success, or `{[<method> <url>] {:reply {:failure <failure-map>}}}` for a failure. A success may add `:meta` beside `:ok`, which becomes the reply's `:meta`. A failure map's `:kind` defaults to `:rf.http/transport`; its other keys become the failure's tags.
-    - Plain `dispatch-sync` calls inside `body-fn` are routed by method and URL, with no `:fx-overrides` needed. A per-call `:fx-overrides` still wins.
-    - Routes match the `:method` and `:url` as the `:before` interceptors leave them, before `:params` is merged onto the URL, so key a request carrying `:params {:page 2}` by its bare `:url`. A request with no matching route receives a synthesised `:rf.http/transport` failure carrying `:message "no stub matched"`, `:method` and `:url`.
-    - Scopes nest: an inner scope's route map shadows the outer one, which is restored when the inner scope exits. The stub is registered once, when `re-frame.http.test-support` loads, and nothing is registered per scope, so a frame created before the scope was entered also routes through it.
-    - Drive the test with `dispatch-sync`. A request queued with `rf/dispatch` runs after `body-fn` returns: in CLJS it then fails in its effect (reported as `:rf.error/fx-handler-exception`); on the JVM the queued run carries the scope's bindings and is still answered.
-    - The override target is the internal `:rf.test/managed-http-scope-stub` fx. When you need an `:fx-overrides` target yourself, use `:rf.http/managed-test-stub` from `install-managed-request-stubs!`.
+- **Description**: A transport that answers each request from `routes`.
+    - `routes` is a route map, `{[<method> <url>] response-or-fn}`. A route's value is a response, or `(fn [wire-request] response)`. A request no route matches fails as `:rf.http/transport`, naming its method and URL.
+    - `routes` may instead be one `(fn [wire-request] response)` that answers every request: a fake backend that routes for itself.
+    - `wire-request` is the attempt as the host would send it, `{:method :url :headers :body :timeout-ms}`, with the body encoded.
+    - `opts` takes `:delay-ms`, how long each answer waits, so a demo's loading states show. A response's own `:delay-ms` wins. With no delay the answer is inline: the `dispatch-sync` that issued the request has its reply before it returns.
 - **Example**:
   ```clojure
   (deftest cart-loads
     (rf/with-new-frame [_ (rf/make-frame {})]
-      (http-test-support/with-request-stubs
-        {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}}
+      (stub-transport/with-transport
+        (stub-transport/route-transport
+          {[:get "/api/cart"] {:body [{:id 1 :name "widget"}]}})
         (fn []
-          ;; No manual :fx-overrides — auto-routes by method + URL.
           (rf/dispatch-sync [:cart/load])
           (is (= 1 (count (rf/subscribe-once [:cart/items]))))))))
   ```
 
-### `re-frame.http.test-support/install-managed-request-stubs!`
+### `re-frame.http.stub-transport/pending-transport`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (install-managed-request-stubs! route-map) → :rf.http/managed-test-stub
+  (pending-transport) → {:transport t :exchanges a}
   ```
-- **Description**: Installs `route-map` as stubs that stay in place until `uninstall-managed-request-stubs!`, for stubs that span several `deftest`s. It registers the `:rf.http/managed-test-stub` fx, the stable `:fx-overrides` target, and returns that fx-id.
-    - Unlike `with-request-stubs`, it does not reroute `:rf.http/managed`. Dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}`, or wrap dispatches in `with-fx-overrides`, to route through it.
-    - A nested install saves the previous stub handler, and the matching uninstall restores it (LIFO).
-    - A frame made with `:images` and without an id before the install cannot see `:rf.http/managed-test-stub`: its redirect falls through with `:rf.error/override-fallthrough` and the real request is sent. Install first, or use `with-request-stubs`. A frame made without `:images` reads the registrar live, so it sees the stub whenever it was made.
+- **Description**: A transport that holds every request until the caller settles it, for in-flight, abort and late-completion tests. `t` is the transport, and `a` an atom of the exchanges it has received, in issue order, each `{:request wire-request :respond! f :fail! f :cancelled? f}`.
+    - `(respond! response)` answers the request with a response map; `(fail! failure)` fails it with `{:kind :rf.http/transport}` or `{:kind :rf.http/timeout}`. Each returns whether it settled the request. Once the request has been answered, aborted or timed out, they deliver nothing and return `false`, so a test can answer an aborted request late and see the answer fenced.
+    - `(cancelled?)` is `true` once the request was aborted or timed out.
+    - An answer given from test code, outside any event, is dispatched like any reply, so wait for it (`poll-until`) before asserting on what it changed.
 - **Example**:
   ```clojure
-  ;; Stubs that span several deftests — install once, route via :fx-overrides.
-  (http-test-support/install-managed-request-stubs!
-    {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}})
-
-  (rf/with-new-frame [_ (rf/make-frame {})]   ;; created after the install, so it sees the stub fx
-    (rf/dispatch-sync [:cart/load]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}))
+  (let [{:keys [transport exchanges]} (stub-transport/pending-transport)]
+    (stub-transport/with-transport transport
+      #(rf/dispatch-sync [:cart/load]))
+    (is (= "/api/cart" (:url (:request (first @exchanges)))))  ;; held, not answered
+    ((:respond! (first @exchanges)) {:body [{:id 1 :name "widget"}]}))
   ```
 
-### `re-frame.http.test-support/uninstall-managed-request-stubs!`
+### `re-frame.http.stub-transport/with-transport`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (uninstall-managed-request-stubs!) → nil
+  (with-transport transport thunk) → the value thunk returns
   ```
-- **Description**: Removes the most recent install. If installs were nested it restores the previously installed stub handler (LIFO); otherwise it clears the stub fx, so requests go to the network again. Idempotent: an uninstall with no matching install does nothing.
+- **Description**: Sends every `:rf.http/managed` request issued while `thunk` runs through `transport`. The test scope.
+    - The transport is captured when the request issues, so its retries, and an answer that arrives after the scope has exited — a delayed route, a held exchange answered later — still go through it.
+    - A request is in the scope only if it issues while `thunk` runs, so issue requests with `dispatch-sync` inside it.
+    - An inner scope shadows an outer one, and a scope wins over a frame's installed transport.
+
+### `re-frame.http.stub-transport/install-transport!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (install-transport! frame transport) → nil
+  ```
+- **Description**: Sends every `:rf.http/managed` request `frame` issues through `transport` until the frame is destroyed: a demo's fake backend. `frame` is a frame id or a live frame value. `nil` uninstalls it. A `with-transport` scope still wins for the requests issued inside it.
 - **Example**:
   ```clojure
-  (http-test-support/uninstall-managed-request-stubs!)
+  ;; cf. examples/core/login/core.cljs
+  (stub-transport/install-transport! :rf/default model/demo-backend)
   ```
 
 ## Trace events
@@ -527,15 +501,11 @@ Not for application code. The framework's own tests reach these across a namespa
 - `re-frame.http.managed/abort-on-actor-destroy` — aborts the requests an actor issued; the actor-destroy cascade calls it.
 - `re-frame.http.managed/clear-all-http-interceptors!` — removes every interceptor definition.
 - `re-frame.http.managed/interceptors-snapshot` — with no argument, every interceptor definition keyed by id; with a frame id, the chain a request from that frame would capture, in order.
-- `re-frame.http.test-support/run-request-chain` — runs a request's `:before` interceptors, as the canned effects do, and returns the resulting context.
-- `re-frame.http.test-support/capture-and-run-request-chain` — the same, also returning the chain it captured, for a caller that goes on to run the `:after` half.
-- `re-frame.http.test-support/emit-canned-success!` — delivers a canned success reply for a request whose `:before` half already ran.
-- `re-frame.http.test-support/canned-success-handler` and `canned-failure-handler` — the handlers behind the two canned effects.
 
 ## See also
 
 - [re-frame.resources](re-frame.resources.md) — cached reads and mutations that issue their requests through `:rf.http/managed`.
 - [re-frame.core](re-frame.core.md) — `:rf.http/managed` in the standard fx table, the effect map's `:sensitive` key, and the instrumentation and egress functions (`project-egress`, the observability-sink registration).
 - [re-frame.schemas](re-frame.schemas.md) — the `:schema` registration key and per-slot `:sensitive?` / `:large?` schema props.
-- [Test a pipeline run](../core/testing/pipeline-runs.md#answer-the-http-canned-replies-by-method-and-url) — HTTP stubs with `dispatch-sync` and `poll-until`.
+- [Test a pipeline run](../core/testing/pipeline-runs.md#answer-the-http-a-stub-transport) — stub transports with `dispatch-sync` and `poll-until`.
 - [Interceptors and secrets](../async/http-going-further.md) — interceptors and trace redaction in the guide.

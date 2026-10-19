@@ -9,7 +9,7 @@ The pages test the todo app: `:todo/add` and `:todo/toggle` as handlers, `:todo/
 | an **event handler** | pull it from the registrar, call it with a literal [world](../glossary.md#world) map, check the returned map | [Event handlers](event-handlers.md) |
 | a **subscription** | `compute-sub` against a db value | [Subscriptions](subscriptions.md) |
 | a **view** | call it, walk the returned hiccup with `re-frame.test-helpers` | [Views](views.md) |
-| a **whole pipeline run** | `dispatch-sync` into a fresh frame with supplied facts and canned replies | [Pipeline runs](pipeline-runs.md) |
+| a **whole pipeline run** | `dispatch-sync` into a fresh frame with supplied facts and a stub transport answering its HTTP | [Pipeline runs](pipeline-runs.md) |
 | an **error path** | register a listener, make the failure happen, assert on the error record's `:operation` and `:tags` | [Errors](../errors.md#test-the-structure-not-the-string) |
 
 One habit runs through every page: setup goes into the frame's construction, and the test body dispatches only the action under test. `make-frame` takes `:initial-events`, the same ordered event list a production [frame](../frames.md#seeding-initial-state) boots with, so the state a test needs is declared where the frame is made. A `dispatch-sync` in a test body is the event being tested.

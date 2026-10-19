@@ -109,7 +109,7 @@ A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM. 
 [`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the queue before it returns, so the next line reads committed state. The two options replace the literal world map from section 2:
 
 - **`:rf.cofx`** supplies coeffects on the dispatch. Supplied values win, and the runtime fills in only what is missing. Without it the clock would be the real time the event was queued.
-- **`:fx-overrides`** redirects an effect for this one dispatch. Here it discards the storage write. [Test a pipeline run](pipeline-runs.md) shows how to capture the args instead, or answer an HTTP request with a canned reply.
+- **`:fx-overrides`** redirects an effect for this one dispatch. Here it discards the storage write. [Test a pipeline run](pipeline-runs.md) shows how to capture the args instead, or answer an HTTP request from a stub transport.
 
 Inside a `with-new-frame` body you don't pass `:frame`, because the macro makes `f` current. If you keep a frame in a `let` and destroy it yourself, pass `{:frame f}` in the dispatch opts.
 
@@ -203,4 +203,4 @@ Some coeffects are backed by a **generator**: an app-registered, recordable `reg
 
 Supply the fact in `:rf.cofx`, which is almost always what you want. When a fresh value per run is intended, pass `{:rf.cofx/mint-policy :live}` as a dispatch opt.
 
-`{:preset :test}` also redirects `:rf.http/managed` to a canned stub; [Test a pipeline run](pipeline-runs.md#the-test-preset) lists the whole expansion and how it combines with your own `:fx-overrides`.
+`{:preset :test}` also keeps `:rf.http/managed` off the network, so a request no stub transport answers fails; [Test a pipeline run](pipeline-runs.md#the-test-preset) lists the whole expansion.

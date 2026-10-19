@@ -117,7 +117,7 @@ The two new steps are about the cache. `rf/resolve-resource-scope` runs the view
 Scope already keeps readers apart — the next reader's entries are different cache keys — so clearing is cleanup, not the protection.
 
 The cell below runs the viewer resolver, the article list and the logout
-above against a canned reply. Buttons stand in for Part 3's login, and the
+above against a stub transport. Buttons stand in for Part 3's login, and the
 table reads the list's entry in each reader's scope. Sign in as alice, then
 as bob: each reader's first read sends a request. Sign in as alice again and
 nothing is sent, because her entry is still cached. Sign out, and alice's
@@ -130,13 +130,14 @@ reader's scope.
          '[re-frame.http.managed]
          '[re-frame.resources]
          '[re-frame.routing]
-         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.http.stub-transport :as stub-transport]
          '[reagent.core :as r])
 
 (def api-base "https://api.realworld.show/api")
-(http-test-support/install-managed-request-stubs!
-  {[:get (str api-base "/articles")]
-   {:reply {:ok {:articles [{:slug "welcome" :title "Welcome to Conduit"}] :articlesCount 1}}}})
+(stub-transport/install-transport! :conduit
+  (stub-transport/route-transport
+    {[:get (str api-base "/articles?limit=10")]
+     {:body {:articles [{:slug "welcome" :title "Welcome to Conduit"}] :articlesCount 1}}}))
 
 ;; Log each request that reaches the stubbed API. The frame below names it
 ;; in :http-interceptors.
@@ -203,8 +204,7 @@ reader's scope.
 
 [rf/frame-root {:id :conduit
                 :http-interceptors [:conduit/request-log]
-                :initial-events [[:rf.route/navigate {:to :conduit/home}]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                :initial-events [[:rf.route/navigate {:to :conduit/home}]]}
  [cache-demo]]
 ```
 

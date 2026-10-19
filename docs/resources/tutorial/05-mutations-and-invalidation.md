@@ -190,8 +190,8 @@ Favoriting behaves the same everywhere, because the consequences live on the wri
 
 ### Watch it happen
 
-The cell below runs both writes, `:ui/favorite` and the button against canned
-replies, signed in as alice, and lists each request. Click the first heart:
+The cell below runs both writes, `:ui/favorite` and the button against a stub
+server, signed in as alice, and lists each request. Click the first heart:
 the count changes when the reply arrives, and no GET follows the POST,
 because `:populates` stored the reply. Click it again to unfavorite. The
 server rejects the second article's favorite, so its button shows the error.
@@ -201,20 +201,21 @@ server rejects the second article's favorite, so its button shows the error.
          '[re-frame.core :as rf]
          '[re-frame.http.managed]
          '[re-frame.resources]
-         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.http.stub-transport :as stub-transport]
          '[reagent.core :as r])
 
 (def api-base "https://api.realworld.show/api")
 (defn article [slug title favorited n]
   {:article {:slug slug :title title :favorited favorited :favoritesCount n}})
 
-;; Canned replies. Favoriting "welcome" works; the server rejects "draft".
-(http-test-support/install-managed-request-stubs!
-  {[:get    (str api-base "/articles/welcome")]          {:reply {:ok (article "welcome" "Welcome to Conduit" false 3)}}
-   [:post   (str api-base "/articles/welcome/favorite")] {:reply {:ok (article "welcome" "Welcome to Conduit" true 4)}}
-   [:delete (str api-base "/articles/welcome/favorite")] {:reply {:ok (article "welcome" "Welcome to Conduit" false 3)}}
-   [:get    (str api-base "/articles/draft")]            {:reply {:ok (article "draft" "A draft" false 0)}}
-   [:post   (str api-base "/articles/draft/favorite")]   {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}})
+;; A stub Conduit server. Favoriting "welcome" works; the server rejects "draft".
+(stub-transport/install-transport! :conduit
+  (stub-transport/route-transport
+    {[:get    (str api-base "/articles/welcome")]          {:body (article "welcome" "Welcome to Conduit" false 3)}
+     [:post   (str api-base "/articles/welcome/favorite")] {:body (article "welcome" "Welcome to Conduit" true 4)}
+     [:delete (str api-base "/articles/welcome/favorite")] {:body (article "welcome" "Welcome to Conduit" false 3)}
+     [:get    (str api-base "/articles/draft")]            {:body (article "draft" "A draft" false 0)}
+     [:post   (str api-base "/articles/draft/favorite")]   {:status 500}}))
 
 ;; Log each request that reaches the stubbed API. The frame below names it
 ;; in :http-interceptors.
@@ -315,8 +316,7 @@ server rejects the second article's favorite, so its button shows the error.
                 :http-interceptors [:conduit/request-log]
                 :initial-events [[:rf/set-db {:auth {:user {:username "alice"} :token "alice-token"}}]
                                  [:rf.resource/ensure {:resource :conduit/article :params {:slug "welcome"} :owner [:demo/cards]}]
-                                 [:rf.resource/ensure {:resource :conduit/article :params {:slug "draft"} :owner [:demo/cards]}]]
-                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+                                 [:rf.resource/ensure {:resource :conduit/article :params {:slug "draft"} :owner [:demo/cards]}]]}
  [demo]]
 ```
 

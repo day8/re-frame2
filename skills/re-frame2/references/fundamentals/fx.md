@@ -89,7 +89,7 @@ Per the `re-frame.fx` ns docstring (Spec 002 §`:fx` ordering and atomicity guar
 - **Returning a value from an fx handler does nothing.** Side effects are the point. `:rf.fx/handled` is emitted on success so the epoch projection records the run.
 - **`:platforms #{:client}` makes the fx skip silently on server.** A `:rf.fx/skipped-on-platform` warning fires — fine for browser-only side effects, but check this if a fx mysteriously doesn't run under SSR.
 - **Fx errors are isolated.** A throw inside one fx emits `:rf.error/fx-handler-exception` but does not abort the `:fx` walk. Don't rely on later entries seeing earlier failures.
-- **Override the fx surface per frame**, not globally: `(rf/make-frame {:id :frame-id :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})`. Used heavily for test stubs and stories (`:fx-overrides` in the frame config, `frame.cljc`).
+- **Override the fx surface per frame**, not globally: `(rf/make-frame {:id :frame-id :fx-overrides {:app/persist :app/persist-in-memory}})`. Used heavily for test stubs and stories (`:fx-overrides` in the frame config, `frame.cljc`). For `:rf.http/managed`, give the frame a stub transport instead (`re-frame.http.stub-transport/install-transport!`) — it replaces only the network hop, so the request still runs through the real effect.
 
 ## Deeper material
 

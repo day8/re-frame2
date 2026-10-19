@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the seven-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` scoped helper (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the seven-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.stub-transport` namespace which carries the stub transports tests and demos answer requests from (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -152,7 +152,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
 | `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
 
-Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-request-stubs` helper) live in the sibling `re-frame.http.test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
+Stubbing is not an args-map slot: a stub transport replaces the host send beneath the request ([§Testing](#testing)), so the args map a test issues is the production one.
 
 ## Request envelope
 
@@ -581,7 +581,7 @@ A **successful live-transport completion** carries the response's wire facts on 
 Boundaries of the slot:
 
 - **Success only.** Failure and cancellation replies carry no `:meta` — their wire facts (`:status`, `:status-text`, `:headers`, raw `:body`) already ride the classified `:error` map, exactly as before.
-- **Live transports thread it; stubs may.** The [canned success / route-map stubs](#testing) accept the same shape as **optional** data; when a stub supplies none, `:meta` is **omitted**, never fabricated (Managed-Effects: omit optional fields when absent).
+- **Every transport threads it.** A [stub transport](#stub-transports--the-real-pipeline-over-a-fake-wire) answers with a response, so its replies carry `:meta` exactly as a host send's do. A synthetic caller that supplies none gets no `:meta` — it is **omitted**, never fabricated (Managed-Effects: omit optional fields when absent).
 - **Privacy.** The reply **delivered to the app** carries `:meta` raw — it is on-box app data, the caller's own response. On the trace surface (`:rf.http/replied`), header values whose names are in the merged denylist (the immutable built-in defaults ∪ the app-declared [`:carriers {:headers […]}`](#http-carriers-ep-0025) extension) are redacted to `:rf/redacted` before egress, matching the failure-map `:headers` posture ([§Privacy](#privacy)); ordinary headers stay useful on-box. `:meta` is a core **wire-bearing slot**, so a per-call `:sensitive?` request force-redacts it wholesale on the trace via the shared canonical-reply elider, exactly like `:value`.
 
 The HTTP `:request-id` is **correlation metadata** under `:correlation` — it is **not** a second stale-suppression key ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation); [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one `:work/id`). The single `:work/id` head is `[:rf.work/http issuance attempt]`. `issuance` comes from **one monotone counter per issuing frame**: every `:rf.http/managed` request the frame issues — named or anonymous — takes the next number, so no two requests a frame issues share a work id (not two loads of one `:request-id` in sequence, not a superseded request and the request that supersedes it, not two anonymous requests of one event). The counter is host state, outside frame-state, so neither completion nor an epoch restore resets it — a request issued after a restore never reuses a number the unwound timeline issued; it is dropped when its frame is destroyed, after the frame's in-flight requests have been aborted. `attempt` discriminates transport retries within one issuance — retries of the same request are distinct work ids. The caller's `:request-id` is not part of the work id; it rides `:correlation`. The frame-qualified transport request-id `[:rf.req frame-id work-id]` (defined in [Spec 016](016-Resources.md#ledger-row-retention-and-identity)) is the sanctioned second identity for process-global transport correlation; intra-frame stale suppression keys on `:work/id`.
@@ -1044,53 +1044,15 @@ Re-issuing under the same `:request-id` supersedes the in-flight search: the sup
 
 ## Testing
 
-`:fx-overrides` redirects `:rf.http/managed` to a stub for tests. The framework ships **two canonical stub fxs** so tests don't have to roll their own:
+Tests and demos answer `:rf.http/managed` without a network through a **stub transport** ([below](#stub-transports--the-real-pipeline-over-a-fake-wire)), which replaces only the host send, so every stubbed request runs the real pipeline. There is no stub effect that synthesises a reply in place of the request.
 
-```clojure
-;; Success stub — dispatches the configured success reply.
-(rf/dispatch-sync [:article/load {:slug "hello"}]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+**Stub-only frames.** A frame whose config carries `:rf.http/stub-only? true` never reaches the network. A request it issues outside every `with-transport` scope, with no transport installed on the frame, fails as `:rf.http/transport` with a message naming `with-transport` and `install-transport!`, instead of going to the host adapter. The `:test` and `:story` frame presets set the key ([002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)), so a test frame that forgets its stub fails loudly rather than sending a real request. Core only names the key; the HTTP artefact reads it.
 
-;; Failure stub — dispatches the configured failure reply.
-(rf/dispatch-sync [:article/load {:slug "missing"}]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-```
-
-| Stub fx-id | Behaviour |
-|---|---|
-| `:rf.http/managed-canned-success` | Synthesises a success reply. Args take `:value` (the payload under the canonical envelope's `:value`); defaults to a literal `{:stubbed true}`. Optional `:meta` rides the reply's `:meta` slot verbatim (the [§Successful-response metadata](#successful-response-metadata--meta) shape — `{:status <int> :status-text <string> :headers <normalized map>}`), so header-dependent `:after` / handler code is testable without a network; absent means absent. Honours the same reply-addressing keys as the live fx (`:reply-to` / `:on-success`). |
-| `:rf.http/managed-canned-failure` | Synthesises a failure reply. Args take `:kind` (one of `:rf.http/*`; default `:rf.http/transport`) and `:tags` (the kind-specific tags map, default `{}` — the stub fills in none of a category's tags, so supply the ones a handler reads; each category's tags are listed per row of [§Failure categories](#failure-categories-closed-set)). The failure rides under the reply's `:error` as the tags map with `:kind` added. |
-
-The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). When the args carry a `:request-id`, every stub reply also carries `:correlation {:request-id <that id>}`, exactly as the live reply does, so a handler that drops a stale reply by reading it behaves the same under a stub; with no `:request-id` there is no `:correlation`. A stub has no real request lifecycle, so it omits the transport's identity facts (`:rf.reply/work-id`, `:attempt`, `:rf.reply/work-status`, `:completed-at`); those are exercised against the real transport. A success stub **may** opt into response metadata by supplying `:meta` (per the table above; the route-map form is `{:reply {:ok v :meta {…}}}`) — when omitted, no metadata is fabricated. The pattern matches the http-stub idiom in `examples_test.clj` and `ssr_end_to_end_test.clj`.
-
-#### `:after-ms` — deferring a canned reply
-
-Both canned-stub fxs accept an optional `:after-ms` arg. It is a **parameter of the same effect**, not a separate `-later` fx:
-
-| `:after-ms` | Reply timing |
-|---|---|
-| absent / `0` / non-positive | immediate — the reply dispatches inside the same drain (the default) |
-| positive `N` | deferred — the reply lands after an `N`-ms `:dispatch-later` tick |
-
-```clojure
-;; Immediate (default): reply lands in the same dispatch-sync drain.
-{:fx [[:rf.http/managed-canned-success {:value    {:user {...}}
-                                         :reply-to [:user/loaded]}]]}
-
-;; Deferred: reply lands 50 ms later, so a `:loading` / `:submitting`
-;; UI state is observable before it resolves.
-{:fx [[:rf.http/managed-canned-success {:value    {:user {...}}
-                                         :reply-to [:user/loaded]
-                                         :after-ms 50}]]}
-```
-
-The delay rides the framework-native `:dispatch-later` timer — it is **observable in the tape** (the deferred dispatch self-tags `:source :fx-dispatch-later` with `:source-detail {:ms N}`) and time-travel-safe (Tool-Pair time-travel and the documented `:dispatch-later` nil-override seam both apply). It is **not** raw `js/setTimeout` / `interop/set-timeout!`. Reply addressing is identical to the immediate path — the `:reply-to` target (or the explicit `:on-success` / `:on-failure`) receives the canonical reply envelope after the delay. `:after-ms` is the single mechanism a demo stub uses to simulate latency: one arg on the canned effect, rather than a per-app three-hop chain (stub-fx → schedule-reply → `:dispatch-later` → deliver-reply → canned reply).
-
-**Interaction with `:fx-overrides`.** When `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` redirects the production fx to a canned stub, the override target receives the **same args-map** the handler built for `:rf.http/managed` — so an `:after-ms` placed there flows straight through to the canned stub. A handler can therefore stay backend-agnostic (it never mentions `:after-ms`) while a test or demo dials in latency purely through the override, OR a demo stub that wraps the canned fx (the worked examples' pattern) can stamp `:after-ms` on the args-map before delegating. The override only redirects `:rf.http/managed`; the deferred reply the canned fx synthesises internally re-fires the canned fx by its own id (not `:rf.http/managed`), so it does not depend on the override staying installed across the delay, and reply addressing is identical to the immediate path.
+**A reply no server could send.** A test of a reply handler that wants an arbitrary reply map dispatches the reply event directly — the reply is an ordinary event, `[:article/loaded {:status :ok :value v}]` — rather than producing it through a stub.
 
 ### Stub transports — the real pipeline over a fake wire
 
-The canned stubs above replace the whole `:rf.http/managed` effect, so a stubbed request skips everything the effect does past its `:before` chain: status classification, `:decode`, `:accept`, retry, the privacy scrub, and the envelope's `:rf.reply/work-id`, `:attempt` and `:completed-at`. A **stub transport** replaces only the host send — Fetch on CLJS, `java.net.http.HttpClient` on the JVM — and leaves the rest of the effect running. A request issued under one is normalised, has its body prepared, and is sent; the stub answers in place of the network; and the answer is classified, decoded, accepted, retried, scrubbed and delivered exactly as a server's would be. Issue-time capture, frame routing, cancellation, the envelope and the reply-tail fence are the production path. The same transport serves as a demo's fake backend and as a test's stub.
+A **stub transport** replaces only the host send — Fetch on CLJS, `java.net.http.HttpClient` on the JVM — and leaves the rest of the effect running. A request issued under one is normalised, has its body prepared, and is sent; the stub answers in place of the network; and the answer is classified, decoded, accepted, retried, scrubbed and delivered exactly as a server's would be. Issue-time capture, frame routing, cancellation, the envelope and the reply-tail fence are the production path. The same transport serves as a demo's fake backend and as a test's stub.
 
 **The seam.** A transport is a function `(fn [wire-request {:keys [respond fail]}])` returning a cancel function or `nil`:
 
@@ -1124,35 +1086,19 @@ A response is `{:status :headers :body}` (`:status` defaulting to 200), where a 
   (fn [] (rf/dispatch-sync [:article/load {:slug "hello"}])))
 ```
 
-Because the body goes over the fake wire as JSON, a reply's `:value` is what the request's `:decode` makes of it — keyword values arrive as strings unless the schema coerces them — exactly as against a server. The canned stubs remain for the uses that want a value delivered without passing through the pipeline.
+Because the body goes over the fake wire as JSON, a reply's `:value` is what the request's `:decode` makes of it — keyword values arrive as strings unless the schema coerces them — exactly as against a server.
 
 ### Test-support require — the HTTP test surface gate
 
-The canned-stub fxs above AND the `with-request-stubs` helper are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
+The stub transports are the HTTP test surface, and they ship in `re-frame.http.stub-transport`, beside the production namespaces of the `day8/re-frame2-http` artefact. A test or a demo requires it directly:
 
 ```clojure
 (ns my-app.tests
-  (:require [re-frame.http.managed]        ;; production fx surface
-            [re-frame.http.test-support])) ;; canned-stub fxs + stub helpers
+  (:require [re-frame.http.managed]                                    ;; production fx surface
+            [re-frame.http.stub-transport :as rf.http.stub-transport])) ;; stub transports
 ```
 
-Loading `re-frame.http.test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, and defines the stub-routing helpers (`with-request-stubs`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!`). None of the three is a `re-frame.core` re-export (test-support infrastructure, not app-facing core surface) and none publishes a late-bind hook; tests call all three directly through `re-frame.http.test-support`. Without the require:
-
-- on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` redirects to an unregistered fx: the runtime reports `:rf.error/override-fallthrough` and runs the original `:rf.http/managed`, which **sends the real request**. Every `re-frame.http.test-support/with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` call raises unresolved-symbol because the namespace was never required;
-- on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
-
-The gate is the require boundary: the canned-stub fxs and the stub helpers live together in `re-frame.http.test-support`, so their absence is enforced on every host — the JVM has no reachable production-default path to them. One namespace, one require.
-
-For test suites that exercise many requests, a higher-level helper ships:
-
-```clojure
-(http-test-support/with-request-stubs
-  {[:get "/articles/hello"] {:reply {:ok hello-article}}
-   [:get "/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
-  (fn [] ...))
-```
-
-The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply.
+None of its vars is a `re-frame.core` re-export (test and demo infrastructure, not app-facing core surface), and none publishes a late-bind hook. Requiring it registers nothing and changes no request: a request goes through a stub transport only inside a `with-transport` scope or from a frame with one installed. Production code paths never require it, so a CLJS `:advanced` production build carries none of it.
 
 ### In-flight registry test helpers
 

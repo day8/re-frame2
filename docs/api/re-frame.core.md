@@ -786,10 +786,12 @@ Any other top-level key rejects the event before anything commits, so a valid `:
     - See [Asserting on what would dispatch](../core/testing/pipeline-runs.md#asserting-on-what-would-dispatch).
 - **Example**:
   ```clojure
-  ;; Swap the real managed-HTTP fx for a canned-failure stub for the test body —
+  ;; Capture the login request instead of sending it, for the test body —
   ;; every dispatch inside inherits the override; it unwinds when the body exits.
-  (rf/with-fx-overrides {:rf.http/managed :auth.login/canned-failure}
-    (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
+  (let [sent (atom [])]
+    (rf/with-fx-overrides {:rf.http/managed (fn [_ctx args] (swap! sent conj (:request args)))}
+      (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
+    @sent)
   ```
 
 ## Standard effects and interceptor
@@ -903,8 +905,7 @@ Which function makes the frame depends on who owns its lifetime:
   (rf/make-frame
     {:id             :rf/default
      :doc            "App demo frame."
-     :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
-     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
+     :initial-events [[:app/init]]})    ;; classifies [:auth :token] at creation
   ```
 
 ### Frame config keys
@@ -934,10 +935,11 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 | `:url-strategy` | A URL strategy. | The history strategy. | How routes map to URLs; see [URL strategies](re-frame.routing.md#url-strategies). |
 | `:revalidate-on` | A subset of `#{:focus :reconnect}`. | None. | The host signals that revalidate the frame's stale resources; see [Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property). |
 | `:http-interceptors` | A vector of [`reg-http-interceptor`](#reg-http-interceptor) ids. | None, so no HTTP interceptor runs. | The frame's `:rf.http/managed` interceptor chain, in order: `:before` fns run in vector order, `:after` fns in reverse. The ids resolve when each request is issued, and one with no definition fails that request with `:rf.error/unregistered-interceptor`. |
+| `:rf.http/stub-only?` | `true` or `false`. | `false` | Whether the frame's `:rf.http/managed` requests are kept off the network. When `true`, a request no [stub transport](re-frame.http.md#testing-without-a-network) answers fails as `:rf.http/transport`. |
 
 - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
 - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
-- `:preset :test` sets `:drain-depth 1000` and `:rf.cofx/mint-policy :strict` and redirects `:rf.http/managed` to `:rf.http/managed-canned-success`; `:preset :story` sets `:drain-depth 16` and the same redirect. Keys you pass win over the preset's. The redirect needs `re-frame.http.test-support` loaded.
+- `:preset :test` sets `:rf.http/stub-only? true`, `:drain-depth 1000` and `:rf.cofx/mint-policy :strict`; `:preset :story` sets `:rf.http/stub-only? true` and `:drain-depth 16`. Under either, a `:rf.http/managed` request no [stub transport](re-frame.http.md#testing-without-a-network) answers fails as `:rf.http/transport`, with a message naming `with-transport` and `install-transport!`. Keys you pass win over the preset's.
 - A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the [`make-frame`](#make-frame) example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - Any other key is stored with the frame and returned by `frame-meta`; nothing reads it, and nothing warns.
 - The errors a malformed config raises are listed under [`make-frame`](#make-frame).
@@ -1377,7 +1379,7 @@ SSR registers no subscriptions: `:rf/head` and `:rf/public-error` are data shape
 
 ### HTTP → [re-frame.http.md](re-frame.http.md)
 
-Managed HTTP is one fx, `[:rf.http/managed …]`, with one args map and a closed failure taxonomy. The fx, `[:rf.http/managed-abort …]` and the failure taxonomy are on the HTTP page. Request stubbing (`with-request-stubs` and the raw install/uninstall pair) is on `re-frame.http.test-support`, not this facade.
+Managed HTTP is one fx, `[:rf.http/managed …]`, with one args map and a closed failure taxonomy. The fx, `[:rf.http/managed-abort …]` and the failure taxonomy are on the HTTP page. Stub transports (`with-transport`, `install-transport!`, `route-transport` and `pending-transport`) are on `re-frame.http.stub-transport`, not this facade; see [Testing without a network](re-frame.http.md#testing-without-a-network).
 
 #### `reg-http-interceptor`
 

@@ -225,7 +225,7 @@ A variant renders its story's `:component` unless it names its own. Its args, ar
 | `:argtypes` | Control choices, as on the story; the variant's win. |
 | `:db-seed` | App-db slices, keyed by top-level key or path vector, merged in and schema-checked before the script. Marks the variant `:db-seed` fidelity. |
 | `:sub-overrides` | Subscription query vector to pinned value, for rendering only. Marks the variant `:sub-overrides` fidelity. |
-| `:network` | Managed-HTTP stubs, `{[method url] {:reply {:ok data}}}` or `{:reply {:failure {:kind ...}}}`. `method` is one of `:get`, `:post`, `:put`, `:patch`, `:delete`, `:head` and `:options`. |
+| `:network` | Managed-HTTP responses, `{[method url] response}`, installed on the variant's frame as a [stub transport](../../api/re-frame.http.md#testing-without-a-network). A response is `{:status :headers :body}`, status 200 by default, or `{:failure {:kind :rf.http/transport}}`. `method` is one of `:get`, `:post`, `:put`, `:patch`, `:delete`, `:head` and `:options`. |
 | `:fx-overrides` | Effect id to a replacement effect handler, installed on the variant's frame. |
 | `:interceptor-overrides` | Interceptor reference to a replacement, or to `nil` to remove it, on the variant's frame. |
 | `:assertions` | Assertions run after the script settles. Not inherited. |
