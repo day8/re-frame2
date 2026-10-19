@@ -62,7 +62,17 @@ In production `debug-enabled?` is the constant `false`, so the registration is d
 
 ## 3. Shipping a JVM/SSR tier? One system property
 
-On the JVM there's no Closure compiler, so the gate is a runtime flag, and it defaults to on. A production [SSR](../../ssr/glossary.md#ssr) or webhook process that handles untrusted input should turn it off, so the trace rings and epoch history don't retain user input:
+On the JVM there's no Closure compiler, so the gate is a runtime flag, read once when `re-frame.interop` loads. Its default depends on what the process is.
+
+A JVM that hosts [SSR](../../ssr/glossary.md#ssr), meaning `day8/re-frame2-ssr-ring` is on its classpath, defaults to **off**: a production server that sets nothing keeps no trace rings or epoch history of user input. Opt your dev REPL and test runs back in:
+
+```
+clojure -J-Dre-frame.debug=true -M:dev
+```
+
+or put `:jvm-opts ["-Dre-frame.debug=true"]` on the `:dev` and `:test` aliases in your `deps.edn`.
+
+Any other JVM defaults to **on**. A production webhook or other long-running process that handles untrusted input should turn it off, so the trace rings and epoch history don't retain user input:
 
 ```
 java -Dre-frame.debug=false -jar app.jar
@@ -73,9 +83,9 @@ You can use either spelling:
 - the Java system property `re-frame.debug`, as above;
 - the environment variable `RE_FRAME_DEBUG`, often simpler in a container (`RE_FRAME_DEBUG=false` in the Dockerfile or orchestrator config).
 
-Each accepts `false`, `0`, `no`, `off`, or the empty string, case-insensitively. Anything else, including unset, leaves the flag on, so a typo like `RE_FRAME_DEBUG=disabled` keeps dev mode on. If both are set, the system property wins.
+Each reads `true`, `1`, `yes` or `on` as on, and `false`, `0`, `no`, `off` or the empty string as off, case-insensitively. Anything else counts as unset and takes the default, so a typo like `RE_FRAME_DEBUG=disabled` leaves an SSR server off and any other JVM on. If both are set, the system property wins.
 
-The flag is read once, when `re-frame.interop` loads, so set it at process level rather than with `System/setProperty` after boot. With it off, the JVM drops the same dev surfaces an `:advanced` browser build does: no trace rings and no epoch history. The handled-event and error streams, and the SSR error projector that turns a server-render failure into a safe public error page, keep working.
+Set the flag at process level rather than with `System/setProperty` after boot: by then it has been read. With it off, the JVM drops the same dev surfaces an `:advanced` browser build does: no trace rings and no epoch history. The handled-event and error streams, and the SSR error projector that turns a server-render failure into a safe public error page, keep working.
 
 ## 4. Where settings live
 
@@ -163,5 +173,5 @@ Each of these defends against a production threat (a recursive dispatch loop, ke
 2. Your own dev-only registrations sit behind `^boolean re-frame.interop/debug-enabled?`, outermost.
 3. Production observability is wired on an always-on surface — a frame `:observability` sink, or the same entry grammar declared once with `(rf/configure! {:observability …})`.
 4. Handlers receiving untrusted payloads carry a `:schema` and are registered `:boundary? true`.
-5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
+5. A JVM tier ships with the debug flag off: the default on an SSR server, and `-Dre-frame.debug=false` on any other JVM.
 6. No Xray preload or pair-server artefact on the release classpath.
