@@ -188,10 +188,32 @@
 ;; The machine
 ;; ---------------------------------------------------------------------------
 
+(defn- merged-order
+  "The render order: `live-keys` exactly as the input gave them, with
+  each exiting key placed straight after the key it followed in
+  `prev-order` — or at the head, when nothing live preceded it. A run of
+  exiting keys stays together in the order it had.
+
+  So with nothing exiting this IS the input order, and an exiting child
+  holds its neighbourhood rather than its index: it travels with the key
+  it followed when the input reorders. Every key in `prev-order` that is
+  not live is exiting, because `step` keeps every entry it was given."
+  [prev-order live-keys live-set]
+  (let [[_ after] (reduce (fn [[anchor after] k]
+                            (if (contains? live-set k)
+                              [k after]
+                              [anchor (update after anchor (fnil conj []) k)]))
+                          [nil {}]
+                          prev-order)]
+    (into (get after nil [])
+          (mapcat (fn [k] (cons k (get after k))))
+          live-keys)))
+
 (defn step
   "The whole transition: fold `children` (as they are now) into `state`,
   starting an exit for every key that has gone and cancelling one for
-  every key that has come back.
+  every key that has come back. The order follows the input — see
+  [[merged-order]] for where an exiting key sits.
 
   **Idempotent**, which is the property the React half rides: a second
   application with the same children changes nothing, whatever `now` is,
@@ -231,12 +253,8 @@
                                           (assoc p :phase    :unmounting
                                                    :deadline (+ now timeout-ms))))))
                              entries
-                             prev)
-        ;; First-appearance slots are frozen, so an exiting child does not
-        ;; jump mid-animation: surviving keys keep their order and genuinely
-        ;; new keys are appended in the order the source produced them.
-        kept      (filterv #(contains? entries %) (:order state))]
-    {:order   (into kept (remove (set kept)) live-keys)
+                             prev)]
+    {:order   (merged-order (:order state) live-keys live-set)
      :entries entries}))
 
 (defn settle
@@ -296,7 +314,7 @@
 
 (defn render
   "The children to hand the codec: every retained and live child, in
-  frozen order, each with its phase already applied as data."
+  [[step]]'s order, each with its phase already applied as data."
   [state]
   (mapv (fn [k]
           (let [e (get (:entries state) k)]
