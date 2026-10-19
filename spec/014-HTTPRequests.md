@@ -1065,7 +1065,7 @@ A **stub transport** replaces only the host send — Fetch on CLJS, `java.net.ht
 
 `respond` and `fail` may be called inline, before the transport returns, or later from any thread. The first call settles the attempt, and each returns whether it did; once the attempt is settled, aborted or timed out, a call delivers nothing. An inline answer is handled after the request's guard is released, so a `dispatch-sync` that issues a request answered inline has its reply before it returns, on both hosts. The request's `:timeout-ms` bounds a stub's attempt exactly as it bounds a host send.
 
-**Which transport a request uses** is decided once, at issue, for every attempt: the innermost `with-transport` scope's, else the transport installed on the issuing frame, else the host adapter. An answer that arrives after the scope has exited — a delayed route, a held exchange answered later, a retry — still goes through the transport its request was issued under.
+**Which transport a request uses** is decided once, at issue, for every attempt: the innermost `with-transport` scope's, else the transport installed on the issuing frame, else the host adapter — or, on a [stub-only frame](#testing), a transport that fails every attempt as `:rf.http/transport`. An answer that arrives after the scope has exited — a delayed route, a held exchange answered later, a retry — still goes through the transport its request was issued under.
 
 `re-frame.http.stub-transport` ships two transports and the two ways to put one in place:
 
