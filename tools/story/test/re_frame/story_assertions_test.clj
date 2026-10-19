@@ -215,9 +215,9 @@
 (deftest evaluate-no-warnings-fail-branch
   (testing "warnings present fail, with :count and the operations as :actual;
             none passes"
-    (let [out (evaluate-no-warnings [{:operation :rf.warning/slow-sub :category :perf
+    (let [out (evaluate-no-warnings [{:operation :rf.warning/slow-sub
                                       :epoch-id 1 :trace-id 10}
-                                     {:operation :rf.warning/deprecated :category :api
+                                     {:operation :rf.warning/deprecated
                                       :epoch-id 2 :trace-id 20}]
                                     [])]
       (is (= [false 2 [:rf.warning/slow-sub :rf.warning/deprecated]]

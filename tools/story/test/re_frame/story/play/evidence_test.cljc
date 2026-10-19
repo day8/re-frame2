@@ -14,8 +14,7 @@
   {:operation :rf.error/schema-validation-failure
    :op-type   :error
    :id        id
-   :tags      (merge {:category   :rf.error/schema-validation-failure
-                      :where      where
+   :tags      (merge {:where      where
                       :failing-id failing-id}
                      extra)})
 
@@ -23,11 +22,11 @@
   "A framework warning trace event — `:op-type :warning`, the severity
   every `(trace/emit! :warning …)` site produces (spec/009 §Op-type
   vocabulary)."
-  [id operation category]
+  [id operation]
   {:operation operation
    :op-type   :warning
    :id        id
-   :tags      {:category category}})
+   :tags      {}})
 
 (defn- run-start-trace
   "An `:event/run-start` trace marking a cascade trigger."
@@ -107,9 +106,9 @@
   (is (= [[:rf.warning/foo 1] [:rf.warning/bar 2]]
          (mapv (juxt :operation :epoch-id)
                (rf.story.play.evidence/warnings
-                 [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)
+                 [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo)
                                            {:operation :rf.event/run-start :op-type :trace :id 11 :tags {}}]})
-                  (epoch 2 {:trace-events [(warning-trace 20 :rf.warning/bar :rf.warning/bar)]})])))))
+                  (epoch 2 {:trace-events [(warning-trace 20 :rf.warning/bar)]})])))))
 
 (deftest effects-sub-runs-renders-concatenated-from-epochs
   (let [ev (rf.story.play.evidence/project-evidence
@@ -288,7 +287,7 @@
   (let [tape [(epoch 1 {:effects      [{:fx-id :db :outcome :ok}]
                         :sub-runs     [{:sub-id :total :recomputed? true}]
                         :renders      [{:render-key [:v 0]}]
-                        :trace-events [(warning-trace 10 :rf.warning/x :rf.warning/x)]})]
+                        :trace-events [(warning-trace 10 :rf.warning/x)]})]
         ks   [:epoch-tape :schema-violations :warnings :effects :sub-runs :renders
               :reactive-counts :narrative]]
     (is (= {:epoch-tape        tape

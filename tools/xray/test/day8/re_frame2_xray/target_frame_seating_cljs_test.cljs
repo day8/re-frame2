@@ -62,7 +62,7 @@
 
 (defn- frame-destroyed-records [seen]
   (rf.error-emit/unregister-error-listener! capture-id)
-  (filterv #(= :rf.error/frame-destroyed (:error %)) @seen))
+  (filterv #(= :rf.error/frame-destroyed (:rf.error/id %)) @seen))
 
 (defn- dispatch-target-frame! [frame-id]
   (rf/with-frame :rf/xray
@@ -147,10 +147,10 @@
       (let [records (frame-destroyed-records seen)]
         (is (= 1 (count records))
             "exactly one recover-but-emit per rejected dispatch")
-        (is (= {:error    :rf.error/frame-destroyed
+        (is (= {:rf.error/id :rf.error/frame-destroyed
                 :event-id :rf.xray/set-target-frame
                 :frame    :rf/xray}
-               (select-keys (first records) [:error :event-id :frame]))
+               (select-keys (first records) [:rf.error/id :event-id :frame]))
             "the `:frame` slot names the DISPATCH TARGET — Xray's own frame,
              which is the frame that is missing")))))
 

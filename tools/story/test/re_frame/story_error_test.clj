@@ -40,8 +40,7 @@
 (def ^:private no-such-handler-trace
   {:operation :rf.error/no-such-handler
    :op-type   :error
-   :tags      {:category            :rf.error/no-such-handler
-               :rf.trace/event-id   :your/setup-event
+   :tags      {:rf.trace/event-id   :your/setup-event
                :rf.event/v          [:your/setup-event {}]
                :frame               :story.x/v
                :kind                :event

@@ -202,16 +202,15 @@
 
 (defn warning-record
   "Project a warning trace event into a run-result warning record. Pure
-  data → data. Carries the warning `:operation`, the `:category` tag (the
-  warning's classification), the originating `:epoch-id`, and the trace
-  `:id` for back-reference."
+  data → data. Carries the warning `:operation`, its `:reason` tag when
+  present, the originating `:epoch-id`, and the trace `:id` for
+  back-reference."
   [trace-event epoch-id]
   (let [tags (:tags trace-event)]
     (cond-> {:operation (:operation trace-event)
              :epoch-id  epoch-id
              :trace-id  (:id trace-event)}
-      (contains? tags :category) (assoc :category (:category tags))
-      (contains? tags :reason)   (assoc :reason   (:reason tags)))))
+      (contains? tags :reason) (assoc :reason (:reason tags)))))
 
 (defn warnings
   "Project every warning across `epoch-tape` into a vector of warning
