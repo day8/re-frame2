@@ -643,8 +643,7 @@ The harness runs every fixture whose `:fixture/capabilities` is a subset of the 
 ```clojure
 {:operation :rf.error/machine-grammar-not-in-v1
  :op-type   :error
- :tags      {:category   :rf.error/machine-grammar-not-in-v1
-             :machine-id <machine-id>            ;; the registered TYPE — the machine family's attribution slot
+ :tags      {:machine-id <machine-id>            ;; the registered TYPE — the machine family's attribution slot
              :feature    <unsupported-key>             ;; e.g. :after, :type :history
              :reason     "Transition-table feature `<X>` is not in this implementation's claimed capability list. See the Implementor's Checklist §Machine capability matrix."}
  :recovery  :no-recovery}                              ;; registration is rejected — the handler is not installed

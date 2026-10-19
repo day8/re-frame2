@@ -458,7 +458,7 @@ The rewrite is mechanical:
 ;; namespace takes it through :require-macros)
 (with-emit-recorder! [errs]
   (rf/dispatch-sync [:cart/checkout])
-  (is (= [:rf.error/handler-exception] (mapv :error @errs)))
+  (is (= [:rf.error/handler-exception] (mapv :rf.error/id @errs)))
   (is (= [:cart/checkout] (:event (first @errs)))))
 ```
 
