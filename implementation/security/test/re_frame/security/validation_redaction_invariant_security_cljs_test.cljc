@@ -68,6 +68,10 @@
            (redaction trace :received :value :explain)))))
 
 (deftest app-db-validation-redacts-conforming-sensitive-sibling-whole-explain
+  ;; A live frame: the trace is also projected through its elision registry,
+  ;; and a frame the walker cannot resolve redacts the whole value.
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   (rf/reg-app-schema [:root] sibling-sensitive-map-schema)
   (let [trace (capture-failure
                 #(rf.schemas/validate-app-schema!

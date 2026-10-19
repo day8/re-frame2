@@ -7,13 +7,16 @@
             ;; Publish the validator and explainer hooks.
             [re-frame.schemas.malli]
             [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
             [re-frame.security.gen :as rf.security.gen]))
 
- ;; Direct app-db validation uses frame-local registrations.
+ ;; Direct app-db validation uses frame-local registrations, against a live
+ ;; frame: the failure trace is projected through that frame's elision
+ ;; registry, and a frame the walker cannot resolve redacts the whole value.
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture)
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [test-fn]
     (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))
