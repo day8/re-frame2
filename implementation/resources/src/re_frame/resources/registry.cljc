@@ -110,7 +110,7 @@
 ;; The `:infinite`-only slice of the `reg-resource` args-map
 ;; (`:rf/infinite-resource-args`, Spec-Schemas; EP-0021 R1–R8). `:infinite
 ;; true` selects the slice and makes `:next-page-param` REQUIRED — a fail-closed
-;; gate symmetric with the `:scope` / `:params-schema` / `:request` gates above.
+;; gate symmetric with the `:scope` / `:request` gates below.
 ;; The per-page cursor is NEVER a registration key (R8): it is the
 ;; runtime-threaded page-param the `:request` fn reads from its RESERVED ctx
 ;; (`{:rf.resource/page-param p :rf.resource/page-index i}`); a non-infinite
@@ -135,7 +135,7 @@
 
     - `:next-page-param` is REQUIRED and MUST be a fn — a missing / non-fn
       value raises `:rf.error/infinite-missing-next-page-param` (R8 gate,
-      symmetric with `:scope` / `:params-schema` / `:request`);
+      symmetric with `:scope` / `:request`);
     - the optional `:prev-page-param` (R7 mirror) MUST be a fn when present;
     - the optional `:page->items` (R3 accessor) MUST be a keyword or fn when
       present (a non-vector page with NO `:page->items` is the RUNTIME-detected
@@ -296,16 +296,10 @@
                   "default; a user-scoped read must say so. Per Spec 016 §Every "
                   "resource declares a scope policy.")
              {:resource-id resource-id :scope (:scope spec)})))
-  ;; `:params-schema` is REQUIRED — validates + canonicalizes params.
-  (when-not (contains? spec :params-schema)
-    (throw (registration-error
-             :rf.error/resource-bad-spec
-             'rf/reg-resource
-             (str "resource " resource-id " declares no :params-schema. "
-                  ":params-schema is REQUIRED — it validates and canonicalizes "
-                  "params (the resource's identity). Per Spec 016 §Resource "
-                  "registration spec.")
-             {:resource-id resource-id})))
+  ;; `:params-schema` is OPTIONAL. Without one, params are taken as given:
+  ;; they still canonicalize and still refuse host values at the cache-key
+  ;; boundary (`re-frame.resources.params`). Spec 016 §Resource registration
+  ;; spec.
   ;; `:request` is REQUIRED for the built-in transport.
   (when-not (contains? spec :request)
     (throw (registration-error
@@ -506,7 +500,7 @@
   doc-DCE clean (the middle slot is a pure metadata map).
 
   Validates the reconstructed spec (the REQUIRED, fail-closed `:scope` policy
-  first; then `:params-schema` and `:request`) and writes a `:resource`-kind
+  first; then `:request`) and writes a `:resource`-kind
   registrar entry carrying the spec plus any captured source coords. A
   `:request` accidentally left INSIDE the metadata map is rejected loudly as a
   mislocated key (the third slot is its one home). A bare key outside
@@ -750,8 +744,8 @@
 ;; ---- params validation + canonicalization (Spec 016 §Resource identity) ---
 
 (defn validate+canonicalize-params
-  "Validate `params` against the resource's REQUIRED `:params-schema`
-  (pluggable late-bound Malli validator, exactly as routing validates route
+  "Validate `params` against the resource's `:params-schema`, when it
+  declares one (pluggable late-bound Malli validator, exactly as routing validates route
   params — `:schemas/validate-with-registered-fn`; no static schemas dep),
   reject non-EDN / host values loudly (`rf.resources.state/reject-non-edn!`), then return
   the canonical params (`rf.resources.state/canonicalize`). Throws

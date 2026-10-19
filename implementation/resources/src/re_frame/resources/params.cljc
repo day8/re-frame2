@@ -1,6 +1,7 @@
 (ns re-frame.resources.params
   "The single owner of the resource/mutation params validate+canonicalize
-  pipeline. Both registries require a `:params-schema` and delegate here to
+  pipeline. A mutation requires a `:params-schema` and a resource may omit
+  one (its params are then taken as given); both registries delegate here to
   default an omitted slot, reject non-EDN host values at the identity boundary,
   invoke the late-bound validator/explainer, redact invalid params before they
   enter an error payload, and canonicalize the accepted value.
@@ -43,7 +44,8 @@
        (`rf.resources.state/reject-non-edn!`, throwing `:rf.error/resource-non-edn-params`);
     3. schema conformance against the family `:params-schema` via the pluggable
        late-bound Malli validator (`:schemas/validate-with-registered-fn`) — a
-       no-op when no validator is registered; NO static `schemas` dependency;
+       no-op when the spec declares no schema or no validator is registered;
+       NO static `schemas` dependency;
     4. on a conformance failure, REDACT the failing params + explainer output
        through the shared `rf.resources.classification/redact-invalid-params-error` privacy
        seam (a `:sensitive?` slot never rides raw on the error payload; a

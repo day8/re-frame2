@@ -33,7 +33,7 @@ and which cached reads it changes.
 ```
 
 This assumes the endpoint returns `{:article {...}}`, with the same response
-for every viewer. `:params-schema` describes the values identifying the read;
+for every viewer. `:params-schema`, which is optional, describes the values identifying the read;
 `:scope` describes who can share its cached answer. The request function is
 the third argument and returns [managed-HTTP args](../async/http.md).
 Registration itself sends nothing.
@@ -123,6 +123,14 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
         "Refresh"]])))
 ```
 
+This view rebuilds the route's params because its Retry and Refresh buttons
+dispatch the query. A view that only reads what its route planned names the
+read by resource id instead: `@(subscribe [:rf/route-resource :app/article])`
+reads the identity the route ensured, so a restated params map cannot drift
+from it. A route that plans no such read projects `:status :unplanned`; one
+that plans the resource under two identities raises
+`:rf.error/resource-route-read-ambiguous`.
+
 | Status | Meaning | Useful UI |
 |---|---|---|
 | `:idle` | No load has started, or a first load was cancelled | Placeholder |
@@ -131,6 +139,7 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
 | `:fetching` | Refresh in flight, keeping existing data | Content and a small progress indicator |
 | `:error` | First load failed | Error and retry action |
 | `:unresolved` | The scope resolver returned `nil`, so the read has no identity yet | A sign-in prompt or a restoring line |
+| `:unplanned` | A `[:rf/route-resource …]` read whose route does not plan the resource | Usually nothing: the page is not the route's |
 
 The cell below runs the registration, route and view from this page against
 a stub transport, and shows the raw status above the view. The `draft` link's

@@ -28,7 +28,13 @@
    across login / logout / account switch, so a viewer never reads another
    viewer's `favorited` / `following` flags out of cache. The lone truly-invariant
    read (popular tags) carries `:rf.scope/global`. The resolver is the one and
-   only place scope gets resolved."
+   only place scope gets resolved.
+
+   On params: a page whose reads its route planned reads them by resource id,
+   `[:rf/route-resource :realworld/article]`, from the plan the route ensured.
+   The route's `:resources` entry is then the only place those params are
+   written, so the read cannot drift from what the route loaded. Reads the route
+   does not plan — a list keyed by app state — still name their params."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]
@@ -590,14 +596,16 @@
                   the author fires
                   `:ui/follow-author` → `:reply-to [:ui/follow-author-replied slug]`
                   (re-stale `[:article slug]` so the embedded author flag
-                  refetches). No Form-3 wrapper, no off-render reaction."}
+                  refetches). No Form-3 wrapper, no off-render reaction.
+
+                  The article and its comments are the route's own reads, so
+                  the page names neither's params: `[:rf/route-resource …]`
+                  reads the identities the route ensured."}
           article-page []
-  (let [slug          (:slug @(subscribe [:rf.route/params]))
-        current-user  @(subscribe [:auth/user])
-        article-state @(subscribe [:rf/resource {:resource :realworld/article :params {:slug slug}}])
-        comments-state @(subscribe [:rf/resource {:resource :realworld/comments :params {:slug slug}}])
-        post-state    @(subscribe [:rf/mutation {:instance [:post-comment slug]}])
-        draft         @(subscribe [:comment-form/body])]
+  (let [current-user   @(subscribe [:auth/user])
+        article-state  @(subscribe [:rf/route-resource :realworld/article])
+        comments-state @(subscribe [:rf/route-resource :realworld/comments])
+        draft          @(subscribe [:comment-form/body])]
     [:div.article-page
      (cond
        (:loading? article-state)
@@ -610,8 +618,9 @@
        :else
        (let [article   (:article (:data article-state))
              {:keys [slug title description body tagList favoritesCount favorited]} article
-             fav-state @(subscribe [:rf/mutation {:instance [:favorite slug]}])
-             del-state @(subscribe [:rf/mutation {:instance [:delete-article slug]}])]
+             fav-state  @(subscribe [:rf/mutation {:instance [:favorite slug]}])
+             del-state  @(subscribe [:rf/mutation {:instance [:delete-article slug]}])
+             post-state @(subscribe [:rf/mutation {:instance [:post-comment slug]}])]
          [:<>
           [:div.banner
            [:div.container
@@ -710,14 +719,12 @@
         favorites?     @(subscribe [:profile/favorites-tab?])
         page           @(subscribe [:profile/page])
         current-user   @(subscribe [:auth/user])
-        profile-state  @(subscribe [:rf/resource {:resource :realworld/profile :params {:username username}}])
-        ;; The active tab decides which list resource (and params) to read — the
-        ;; same (resource, params) the matching route ensured under.
-        list-state     (if favorites?
-                         @(subscribe [:rf/resource {:resource :realworld/favorited-articles
-                                                          :params  {:username username :page page}}])
-                         @(subscribe [:rf/resource {:resource :realworld/author-articles
-                                                          :params  {:username username :page page}}]))]
+        profile-state  @(subscribe [:rf/route-resource :realworld/profile])
+        ;; The active tab decides which list resource to read; the matching
+        ;; route's plan holds its params.
+        list-state     @(subscribe [:rf/route-resource (if favorites?
+                                                         :realworld/favorited-articles
+                                                         :realworld/author-articles)])]
     [:div.profile-page
      (cond
        (:loading? profile-state)
