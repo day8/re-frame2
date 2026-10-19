@@ -1,7 +1,7 @@
 (ns re-frame.core-call-site-macros
-  "Helpers for the call-site-capturing macros — `dispatch`,
-  `dispatch-sync`, and `subscribe`. Each expansion calls a stable `^:no-doc`
-  alias in `re-frame.core`; those aliases point at the owning router or subs
+  "Helpers for the call-site-capturing macros — `dispatch` and
+  `dispatch-sync`. Each expansion calls a stable `^:no-doc`
+  alias in `re-frame.core`; those aliases point at the owning router
   function without introducing a second implementation. The alias prevents
   the CLJS compiler from baking the owner's fixed arities into call sites, so
   tools can safely replace the seam with a differently shaped test fn.
@@ -10,7 +10,7 @@
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of every
   call-site-capturing macro's debug-gated stamping branch. The user-
-  facing `defmacro dispatch` / `subscribe` / etc. shells live in
+  facing `defmacro dispatch` / `dispatch-sync` shells live in
   `re-frame.core` itself (they MUST, so `rf/dispatch` resolves alias-
   qualified per Clojure's standard `ns-alias/Var` lookup); each shell
   is a one-line call into a `build-…-form` plain fn here.
@@ -69,15 +69,13 @@
      `:rf.trace/call-site` keyword literal lives ONLY in THIS debug-gated macro
      expansion (DCE'd in production), never in the production-reachable owning-ns
      fn body. `disp-sym` is the fully-qualified `^:no-doc` seam var
-     (`re-frame.core/dispatch-impl` / `-dispatch-sync-impl` / `subscribe-impl`
-     — `def`-aliases of `re-frame.router/dispatch!` / `-dispatch-sync!` /
-     `re-frame.subs/subscribe`, NOT the
+     (`re-frame.core/dispatch-impl` / `-dispatch-sync-impl` — `def`-aliases of
+     `re-frame.router/dispatch!` / `-dispatch-sync!`, NOT the
      owning-ns fns directly: a `defn` there would let the CLJS compiler attach
      inline fixed-arity metadata to a call site referencing it directly, so a
      `with-redefs`'d fn whose arity set differs couldn't satisfy it). When the
-     user wrote two args, `(disp arg1 (stamp-opts opts {:rf.trace/call-site
-     cs}))` — `arg1` being the event-vec for the dispatch pair, the query-v for
-     `subscribe`; [[re-frame.core/stamp-opts]] merges tolerantly so a malformed
+     user wrote two args, `(disp event-vec (stamp-opts opts {:rf.trace/call-site
+     cs}))`; [[re-frame.core/stamp-opts]] merges tolerantly so a malformed
      non-map opts still reaches the callee for its own clean error. The 1-arg
      case is the ambient-frame form, stamped via the 2-arity opts map.
 
@@ -108,39 +106,4 @@
            plain   (if arg2
                      `(re-frame.core/dispatch-sync-impl ~arg1 ~arg2)
                      `(re-frame.core/dispatch-sync-impl ~arg1))]
-       (gate stamped plain))))
-
-#?(:clj
-   (defn build-subscribe-form
-     "Build the expansion for the `subscribe` macro. `arg1` is the user's
-     `query-v`; `arg2` is the optional `opts` map (may carry `{:frame
-     target}`), nil for the 1-arity. Targets the `^:no-doc`
-     `re-frame.core/subscribe-impl` seam (a `def`-alias of
-     `re-frame.subs/subscribe`) for the same with-redefs-safety reason
-     `build-dispatch-form` targets `dispatch-impl`. The OUTERMOST debug-gate
-     keeps the whole stamped branch DCE-able under `:advanced` +
-     `goog.DEBUG=false`.
-
-     The call-site coord rides the SHARED [[build-stamped-2]] opts-map seam —
-     the same `:rf.trace/call-site` key `dispatch` / `dispatch-sync` use — and
-     `re-frame.subs/subscribe` establishes the `trace/with-call-site` scope
-     from it INSIDE ITS OWN BODY (the mirror of `router/dispatch!`'s
-     `(with-call-site (:rf.trace/call-site opts) ...)`).
-
-     This placement is a CORRECTNESS requirement, not a
-     tidy-up. `with-call-site` expands to a `binding`, and a `binding`
-     spliced into the CALLER's context compiles to `await (async
-     function(){...})()` when the call site sits in a CLJS async context —
-     inserting a real microtask yield immediately before the read. A
-     caller-side wrapper would be an independent yield source of
-     exactly the class `coords-form` avoids. See
-     [[re-frame.source-coords/coords-form]] for the standing principle:
-     a call-site expansion splices ONLY yield-free expression forms into
-     the caller; dynamic scope is established in the callee's body."
-     [form-meta ns-sym file arg1 arg2]
-     (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (build-stamped-2 're-frame.core/subscribe-impl arg1 arg2 cs-form)
-           plain   (if arg2
-                     `(re-frame.core/subscribe-impl ~arg1 ~arg2)
-                     `(re-frame.core/subscribe-impl ~arg1))]
        (gate stamped plain))))

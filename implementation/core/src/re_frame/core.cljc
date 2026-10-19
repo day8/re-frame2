@@ -14,8 +14,8 @@
       the feature artefacts.
     - Macro-helper code is factored into three siblings —
       `core-reg-macros` (reg-event, reg-sub, reg-fx, reg-cofx
-      expansion), `core-call-site-macros` (dispatch / dispatch-sync /
-      subscribe call-site expansion), `core-reg-view-macro`
+      expansion), `core-call-site-macros` (dispatch / dispatch-sync
+      call-site expansion), `core-reg-view-macro`
       (reg-view + view-component expansion). The boundary is the
       *responsibility* — call-site vs registration vs view-registration
       — so each helper ns owns one cohesive expansion family. The
@@ -172,28 +172,29 @@
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
                                     image
-                                    dispatch dispatch-sync subscribe
+                                    dispatch dispatch-sync
                                     with-frame with-new-frame
                                     with-fx-overrides]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; `dispatch-impl` / `dispatch-sync-impl` / `subscribe-impl` are `^:no-doc`
-;; `def` ALIASES (not direct `defn`s) to the owning-ns fns — platform-neutral
-;; so both the JVM macro-expansion target and the CLJS Convention-A value-
-;; alias below resolve the SAME var. `^:no-doc` strips them from the API
-;; manifest / generated docs (the same mechanism `reg-event-db` etc. use) —
-;; they are NOT a public facade surface, just the shared internal seam the
-;; `dispatch` / `dispatch-sync` / `subscribe` macro's expansion AND a frame
-;; api's ops (`re-frame.capture-frame/make-capture-frame`, published to it
-;; below) both call through, so a SINGLE
-;; `with-redefs` on one of these intercepts every macro-driven or
-;; reg-view-injected call. The CLJS value-alias is not part of that seam: it
-;; COPIES the var's value at load time, so a redef of the value-alias reaches
-;; only its value-position callers, and a redef of one of these misses them.
-;; The JVM has no value-alias: there `dispatch` is the macro alone. There is
-;; no PUBLIC `dispatch*` / `dispatch-sync*` / `subscribe*` facade twin; these
-;; aliases are the non-public seam.
+;; `dispatch-impl` / `dispatch-sync-impl` are `^:no-doc` `def` ALIASES (not
+;; direct `defn`s) to the owning router fns — platform-neutral so both the JVM
+;; macro-expansion target and the CLJS Convention-A value-alias below resolve
+;; the SAME var. `^:no-doc` strips them from the API manifest / generated docs
+;; (the same mechanism `reg-event-db` etc. use) — they are NOT a public facade
+;; surface, just the shared internal seam the `dispatch` / `dispatch-sync`
+;; macro's expansion AND a frame api's ops
+;; (`re-frame.capture-frame/make-capture-frame`, published to it below) both
+;; call through, so a SINGLE `with-redefs` on one of these intercepts every
+;; macro-driven or reg-view-injected call. The CLJS value-alias is not part of
+;; that seam: it COPIES the var's value at load time, so a redef of the
+;; value-alias reaches only its value-position callers, and a redef of one of
+;; these misses them. The JVM has no value-alias: there `dispatch` is the
+;; macro alone. There is no PUBLIC `dispatch*` / `dispatch-sync*` facade twin;
+;; these aliases are the non-public seam. `subscribe` needs no such seam: it is
+;; a plain fn, so the public var is itself what a frame api's `:subscribe` op
+;; calls through.
 ;;
 ;; The alias-`def` is DELIBERATE: a
 ;; direct `defn` here would let the CLJS compiler attach inline fixed-arity
@@ -207,11 +208,12 @@
 ;; asserts the keyword is ABSENT from the prod bundle).
 (def ^:no-doc dispatch-impl      rf.router/dispatch!)
 (def ^:no-doc dispatch-sync-impl rf.router/dispatch-sync!)
-(def ^:no-doc subscribe-impl     rf.subs/subscribe)
 
-;; Publish the three seams to `re-frame.capture-frame`. It sits
+(declare subscribe)
+
+;; Publish the two seams and `subscribe` to `re-frame.capture-frame`. It sits
 ;; BELOW this facade and cannot `:require` it, so the frame api's ops reach
-;; the seams through the late-bind registry (the cycle-breaking flavour, per
+;; them through the late-bind registry (the cycle-breaking flavour, per
 ;; `re-frame.late-bind.directory`). Each published fn reads the var at CALL
 ;; time — `(dispatch-impl event opts)`, not the var's current value — so a
 ;; `with-redefs` on `rf/dispatch-impl` reaches an op captured before it,
@@ -219,15 +221,13 @@
 (rf.late-bind/set-fns!
   {:core/dispatch-impl      (fn [event opts]   (dispatch-impl event opts))
    :core/dispatch-sync-impl (fn [event opts]   (dispatch-sync-impl event opts))
-   :core/subscribe-impl     (fn [query-v opts] (subscribe-impl query-v opts))})
+   :core/subscribe          (fn [query-v opts] (subscribe query-v opts))})
 
 (defn ^:no-doc stamp-opts
   "Merge macro-stamped `extra` into a call's user-supplied `opts`, TOLERANTLY:
   a malformed (non-map, non-nil) `opts` passes through UNTOUCHED so the callee's
   own validation still produces its clean framework error rather than a raw
-  host `ClassCastException` (`subscribe`'s pinned malformed-opts contract —
-  non-map opts fall to the ambient path and fail loud with
-  `:rf.error/no-frame-context`, never a misroute).
+  host `ClassCastException`.
 
   Reached ONLY from the debug-gated stamped branch of the call-site macros, so
   it DCEs under `:advanced` + `goog.DEBUG=false`. It is deliberately GENERIC —
@@ -448,19 +448,7 @@
   point. For tests / REPL / bootstrap only. See
   `re-frame.router/dispatch-sync!` and spec/API.md §Dispatch and subscribe."
        :arglists '([event-vec] [event-vec opts])}
-       dispatch-sync   dispatch-sync-impl)
-     (def ^{:doc "Fn-alias of the `subscribe` macro for HoF / programmatic
-  subscription (no call-site source-coord capture). Returns a reaction
-  whose value is the registered sub's current output for `query-v`; deref
-  to read.
-
-    (subscribe query-v)         — ambient frame (carried scope).
-    (subscribe query-v opts)    — `opts` may carry `:frame` (a frame-id
-                                  keyword OR a live frame value).
-
-  See `re-frame.subs/subscribe` and spec/API.md §Dispatch and subscribe."
-       :arglists '([query-v] [query-v opts])}
-       subscribe       subscribe-impl)))
+       dispatch-sync   dispatch-sync-impl)))
 ;; `reg-machine*` (the plain-fn machine-registration surface) is not a
 ;; `re-frame.core` façade export; reach it
 ;; through `re-frame.machines/reg-machine*`. The `reg-machine` / `defmachine`
@@ -1188,12 +1176,14 @@
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
-;; Each surface has a JVM macro that captures call-site coordinates and a CLJS
-;; value alias for higher-order/programmatic calls. Macro expansions target
-;; the stable `^:no-doc` `dispatch-impl`, `dispatch-sync-impl`, or
-;; `subscribe-impl` alias. Those aliases point at the owning rf.router/subs fn but
-;; prevent CLJS fixed-arity metadata from making differently shaped
-;; `with-redefs` test seams unsafe. There is no public `*`-suffixed twin.
+;; `dispatch` and `dispatch-sync` each have a JVM macro that captures
+;; call-site coordinates and a CLJS value alias for higher-order/programmatic
+;; calls. Macro expansions target the stable `^:no-doc` `dispatch-impl` or
+;; `dispatch-sync-impl` alias. Those aliases point at the owning rf.router fn
+;; but prevent CLJS fixed-arity metadata from making differently shaped
+;; `with-redefs` test seams unsafe. `subscribe` is a plain fn on both hosts —
+;; a `def`-alias of `re-frame.subs/subscribe`, for the same reason — so it is
+;; a value everywhere. There is no public `*`-suffixed twin.
 
 ;; Frame targeting is exactly THREE intents —
 ;; ambient SCOPE (no `:frame` opt; reads the carried `with-frame` /
@@ -1205,6 +1195,25 @@
 ;; first arg. `re-frame.router/build-envelope` normalizes an object
 ;; `:frame` opt to its runnable-id via `rf.frame/frame-value->id`, so a value or
 ;; a keyword target both route correctly.
+
+(def ^{:doc "Return a reaction whose value is the registered sub's current
+  output for `query-v` (`[sub-id & args]`); deref to read. A plain fn on both
+  hosts, so it is also a value — `(map subscribe query-vs)`, `(partial
+  subscribe query-v)`. Use `subscribe-once` for a one-shot read; for a frame
+  carried across an async boundary use the `:subscribe` op from a
+  `capture-frame`. Per Spec 006 §Lookup algorithm.
+
+  Two public arities:
+
+      (subscribe query-v)            ;; ambient frame (carried scope)
+      (subscribe query-v opts)       ;; `opts` may carry `:frame` (a frame-id
+                                     ;; keyword OR a live frame value)
+
+  The `{:frame …}` opt is the public way to target an explicit frame. Inside
+  a `reg-view` body the injected `subscribe` reads the render-time frame and
+  attributes a read's errors to the view's definition site."
+       :arglists '([query-v] [query-v opts])}
+  subscribe rf.subs/subscribe)
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
   then unsubscribes. Does NOT retain a cache reference. The **advanced**
@@ -1339,29 +1348,6 @@
      ([arg1 arg2]
       (rf.core-call-site-macros/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                     arg1 arg2))))
-
-#?(:clj
-   (defmacro subscribe
-     "Return a reaction whose value is the registered sub's current
-     output for `query-v` (`[sub-id & args]`); deref to read. Captures
-     call-site coords. Use `subscribe-once` for a one-shot read;
-     for a frame carried across an async boundary use the `:subscribe` op
-     from a `capture-frame`. Per Spec 006 §Lookup algorithm.
-
-     Two public arities:
-
-       (subscribe query-v)            ;; ambient frame (carried scope)
-       (subscribe query-v opts)       ;; `opts` may carry `:frame` (a frame-id
-                                      ;; keyword OR a live frame value)
-
-     The `{:frame …}` opt is the public way to target an explicit frame."
-     {:arglists '([query-v] [query-v opts])}
-     ([arg1]
-      (rf.core-call-site-macros/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                arg1 nil))
-     ([arg1 arg2]
-      (rf.core-call-site-macros/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                arg1 arg2))))
 
 ;; ---- capture-frame (the keystone) + frame-aware closures ------------------
 ;;

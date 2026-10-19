@@ -1972,20 +1972,6 @@
            #?(:cljs (claim-render-owned-ref! frame-id k query-v reaction))
            reaction))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
-(declare subscribe)
-
-(defn- subscribe-with-opts
-  "INTERNAL body of `subscribe`'s 2-arity, factored out so the
-  `rf.trace/with-call-site` scope push can be applied CONDITIONALLY around
-  it. `with-call-site` sets `:call-site` unconditionally, so
-  pushing it with a nil coord would CLOBBER an inherited one — exactly what
-  `make-capture-frame`'s `:subscribe` op relies on, since it wraps its own
-  view coord around a call that carries no `:rf.trace/call-site` in `opts`."
-  [query-v opts]
-  (if-some [target (:frame opts)]
-    (subscribe-in-frame target query-v (:rf.frame/expected-incarnation opts))
-    (subscribe query-v)))
-
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity ambient form
@@ -2006,21 +1992,12 @@
   boundary and no `with-frame`, it raises `:rf.error/no-frame-context`;
   the opts form names the target explicitly there.
 
-  This is the runtime-callable fn form. The macro form
-  `re-frame.core/subscribe` captures `(meta &form)` and calls straight
-  through to THIS fn (there is no `re-frame.core/subscribe*` facade
-  indirection), stamping the coord onto `opts` as `:rf.trace/call-site`.
-  THIS BODY then establishes the `rf.trace/with-call-site` scope from it, so
-  any error emitted inside the synchronous miss path
-  (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries the
-  invocation coord.
-
-  The scope push lives HERE, in the callee, and not in the
-  macro expansion: `with-call-site` expands to a `binding`, and a `binding`
-  spliced into the CALLER's context compiles to `await (async
-  function(){...})()` inside a CLJS async context — a hidden microtask yield
-  before a call documented as same-stack synchronous. Mirrors
-  `router/dispatch!`, which reads the identical opts key in its own body."
+  `re-frame.core/subscribe` is a `def`-alias of this fn, so the public
+  surface is a plain fn on both hosts. A read carries no invocation coord of
+  its own: a `reg-view` body's injected `subscribe` (a `capture-frame`
+  `:subscribe` op) wraps the view's definition-site coord around the call,
+  so an error emitted inside the synchronous miss path
+  (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) names the view."
   ([query-v]
    ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
    ;; read. The 1-arity ambient form resolves the frame through the
@@ -2061,15 +2038,9 @@
    ;; `:subscribe` op's pinned token — INTERNAL, reserved `:rf.frame/` ns)
    ;; rides alongside `:frame` so the read is fenced to the exact captured
    ;; incarnation. nil for every ordinary explicit-frame read.
-   ;;
-   ;; `:rf.trace/call-site` is the macro-stamped invocation coord
-   ;; (dev-only — the whole stamped branch DCEs under `:advanced` +
-   ;; `goog.DEBUG=false`, so this reads nil in production). The scope push is
-   ;; INSIDE this body by contract; see the docstring. Conditional, because a
-   ;; nil push would clobber an inherited coord — see `subscribe-with-opts`.
-   (if-some [cs (when rf.interop/debug-enabled? (:rf.trace/call-site opts))]
-     (rf.trace/with-call-site cs (subscribe-with-opts query-v opts))
-     (subscribe-with-opts query-v opts))))
+   (if-some [target (:frame opts)]
+     (subscribe-in-frame target query-v (:rf.frame/expected-incarnation opts))
+     (subscribe query-v))))
 
 (defn- subscribe-once-in-frame
   "INTERNAL worker for `subscribe-once`. `target` may be a frame-id

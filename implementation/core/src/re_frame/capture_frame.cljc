@@ -9,14 +9,14 @@
   compiler-only Var living on `re-frame.core`.
 
   The ops route through the facade's `^:no-doc` `dispatch-impl` /
-  `dispatch-sync-impl` / `subscribe-impl` seams — the same `def`-aliases the
-  call-site macros target — so a `with-redefs` on a seam is honoured by a
-  frame api captured earlier (tool tests spy on exactly that). A leaf
-  namespace cannot `:require` the facade, so `re-frame.core` publishes the
-  three through `re-frame.late-bind` (`:core/dispatch-impl` /
-  `:core/dispatch-sync-impl` / `:core/subscribe-impl`, the cycle-breaking
-  flavour) and this ns reads them at capture time, falling back to the
-  owning fns when the facade has not loaded."
+  `dispatch-sync-impl` seams — the same `def`-aliases the call-site macros
+  target — and its public `subscribe`, so a `with-redefs` on any of the
+  three is honoured by a frame api captured earlier (tool tests spy on
+  exactly that). A leaf namespace cannot `:require` the facade, so
+  `re-frame.core` publishes the three through `re-frame.late-bind`
+  (`:core/dispatch-impl` / `:core/dispatch-sync-impl` / `:core/subscribe`,
+  the cycle-breaking flavour) and this ns reads them at capture time,
+  falling back to the owning fns when the facade has not loaded."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.router :as rf.router]
             [re-frame.subs :as rf.subs]
@@ -184,16 +184,17 @@
                           `rf.interop/debug-enabled?`) onto any error emitted
                           inside the synchronous subscribe miss path
                           (`:rf.error/no-such-sub`, `:rf.error/frame-
-                          destroyed`). Mirrors the `subscribe` macro's
-                          `rf.trace/with-call-site` wrapper; subscriptions
-                          carry no `:source` axis. DCEs in production."
+                          destroyed`). The `reg-view` injection passes the
+                          view's definition-site coord, so a view's reads
+                          name the view; subscriptions carry no `:source`
+                          axis. DCEs in production."
   [frame {:keys [dispatch-opts subscribe-call-site]}]
   ;; Pin the EXACT incarnation live at capture so a later op cannot
   ;; leak into a same-id successor. nil (id not live at capture) ⇒ address-directed.
   (let [captured-incarnation (capture-target-incarnation frame)
         dispatch-impl        (seam :core/dispatch-impl      rf.router/dispatch!)
         dispatch-sync-impl   (seam :core/dispatch-sync-impl rf.router/dispatch-sync!)
-        subscribe-impl       (seam :core/subscribe-impl     rf.subs/subscribe)]
+        subscribe            (seam :core/subscribe          rf.subs/subscribe)]
     {:frame frame
      :dispatch
      (fn dispatch-fn
@@ -227,6 +228,6 @@
            (fn []
              (if (and subscribe-call-site rf.interop/debug-enabled?)
                (rf.trace/with-call-site subscribe-call-site
-                 (subscribe-impl query-v sub-opts))
-               (subscribe-impl query-v sub-opts)))
+                 (subscribe query-v sub-opts))
+               (subscribe query-v sub-opts)))
            frame captured-incarnation query-v subscribe-call-site)))}))
