@@ -331,7 +331,7 @@ transport instead of a server. Click **Fetch todos**, then **Fetch archived todo
       "Fetch archived todos"]
      (cond
        @(subscribe [:todo/loading?]) [:p "Loading…"]
-       error [:p "Failed: " (str (:kind error)) ", status " (:status error)])
+       error [:p "Failed: " (str (:kind error)) ", status " (:http-status error)])
      [:ul
       (for [{:keys [id title]} @(subscribe [:todo/all])]
         ^{:key id} [:li title])]]))

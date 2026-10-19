@@ -171,9 +171,9 @@ Here's the rewritten home page, with the two small views it uses defined above i
 (reg-view feed-skeleton []
   [:div.article-preview "Loading articles…"])
 
-(reg-view feed-error [{:keys [kind status]}]
+(reg-view feed-error [{:keys [kind http-status]}]
   [:div.article-preview.error-messages
-   "Couldn't load articles (" (name kind) (when status (str " " status)) ")."])
+   "Couldn't load articles (" (name kind) (when http-status (str " " http-status)) ")."])
 
 (reg-view home-page []
   (let [state    @(subscribe [:rf/resource {:resource :conduit/articles :params {}}])
@@ -234,7 +234,7 @@ Both error fields carry the same closed failure shape from [managed HTTP](../../
 ```clojure
 {:status :error
  :data nil
- :error {:kind :rf.http/http-5xx :status 503}
+ :error {:kind :rf.http/http-5xx :http-status 503}
  :has-data? false}
 ```
 
@@ -244,7 +244,7 @@ and a background-refresh failure keeps the data and tucks the problem into `:ref
 {:status :loaded
  :data {:title "Welcome"}
  :error nil
- :refresh-error {:kind :rf.http/http-5xx :status 503}
+ :refresh-error {:kind :rf.http/http-5xx :http-status 503}
  :has-data? true}
 ```
 
@@ -259,9 +259,9 @@ On a `:blocking? true` route the failure reaches the route as well: `:rf.route/t
 The article page is simpler. `:blocking? true` doesn't hold the page back — the route commits at once and the page renders while the first load is in flight — so it needs two branches, the error and the article, with the skeleton as the fallback. It gets its own error view:
 
 ```clojure
-(reg-view article-error [{:keys [kind status]}]
+(reg-view article-error [{:keys [kind http-status]}]
   [:div.error-messages
-   "Couldn't load this article (" (name kind) (when status (str " " status)) ")."])
+   "Couldn't load this article (" (name kind) (when http-status (str " " http-status)) ")."])
 
 (reg-view article-page []
   (let [{:keys [slug]} @(subscribe [:rf.route/params])

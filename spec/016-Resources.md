@@ -439,7 +439,7 @@ First-load failure:
 ```clojure
 {:status :error
  :data nil
- :error {:kind :rf.http/http-5xx :status 503}
+ :error {:kind :rf.http/http-5xx :http-status 503}
  :refresh-error nil
  :has-data? false}
 ```
@@ -450,7 +450,7 @@ Background-refresh failure (prior data kept, refresh warning surfaced):
 {:status :loaded
  :data {:title "Welcome"}
  :error nil
- :refresh-error {:kind :rf.http/http-5xx :status 503}
+ :refresh-error {:kind :rf.http/http-5xx :http-status 503}
  :has-data? true
  :fetching? false}
 ```
