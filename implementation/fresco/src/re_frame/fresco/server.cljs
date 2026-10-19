@@ -226,7 +226,7 @@
   failure, reused rather than multiplied. Nothing about this failure is
   Fresco's: it is the framework's render-failure category, raised from
   the hosts that have to raise it by hand."
-  [where frame-id {:keys [error] :as record} recorded]
+  [where frame-id {error :rf.error/id :as record} recorded]
   (rf.error/throw-error!
     :rf.error/ssr-render-failed
     where

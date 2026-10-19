@@ -147,7 +147,7 @@
   (let [seen (atom [])
         k    (keyword "rf2-q9cf" (name (gensym "refusal")))]
     (rf.error-emit/register-error-listener!
-      k (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
+      k (fn [r] (when (= :rf.error/frame-destroyed (:rf.error/id r)) (swap! seen conj r))))
     (try {:result (thunk) :refusals @seen}
          (finally (rf.error-emit/unregister-error-listener! k)))))
 

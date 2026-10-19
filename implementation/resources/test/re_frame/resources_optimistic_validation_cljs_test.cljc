@@ -354,7 +354,7 @@
                     (fn [a] (update-in a [:article :favoritesCount] inc))})}
     favorite-plan-request)
   (let [recs (record-error-records! #(execute! :m/fav-vector :fv1))
-        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))
+        rec  (first (filterv #(= :rf.error/handler-exception (:rf.error/id %)) recs))
         data (ex-data (:exception rec))]
     (is (= [nil nil :idle] [@last-managed-args (instance :fv1) (:status (mutation-state :fv1))])
         "nothing sent, no instance minted, the passive read answers :idle")

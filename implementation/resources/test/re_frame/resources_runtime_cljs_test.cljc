@@ -215,7 +215,7 @@
   ;; The guard runs before any entry write or lowering, and the refusal is
   ;; legible on the always-on :errors stream rather than a silent no-op.
   (let [recs (record-error-records! #(ensure! :r/nope "w" [:app :test 1]))
-        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+        rec  (first (filterv #(= :rf.error/handler-exception (:rf.error/id %)) recs))]
     (is (nil? (entry (gkey :r/nope {:slug "w"}))))
     (is (nil? @last-managed-args))
     (is (= :rf.resource/ensure (:event-id rec)))

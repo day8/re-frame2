@@ -220,7 +220,7 @@
   (let [recs (record-error-records!
                #(rf/dispatch-sync [:rf.mutation/execute
                                    {:mutation :m/nope :params {} :instance :i1}]))
-        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+        rec  (first (filterv #(= :rf.error/handler-exception (:rf.error/id %)) recs))]
     (is (nil? @last-managed-args))
     (is (nil? (instance :i1)))
     (is (nil? (mutation-record :i1)))

@@ -113,7 +113,7 @@
           (await-op! captured :rf.error/http-reply-tail-failed)
           (let [rtf    (first (ops captured :rf.error/http-reply-tail-failed))
                 br     (first (ops captured :rf.error/http-interceptor-bad-return))
-                record (first (filter #(= :rf.error/http-reply-tail-failed (:error %)) @records))]
+                record (first (filter #(= :rf.error/http-reply-tail-failed (:rf.error/id %)) @records))]
             (is (= [true :rf.error/http-interceptor-bad-return :rf/redacted]
                    ((juxt :sensitive? (comp :reply-error-id :tags) (comp :cause :tags)) rtf)))
             (is (= [true :echo-auth] ((juxt :sensitive? (comp :id :tags)) br)))
@@ -151,7 +151,7 @@
                       :on-failure [:rtdeny/reply]}]]}))
           (rf/dispatch-sync [:rtdeny/load])
           (await-op! captured :rf.error/http-reply-tail-failed)
-          (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %)) @records))]
+          (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:rf.error/id %)) @records))]
             (is (= {:rf.error/id :rf.error/http-interceptor-failed
                     :url         (str "http://127.0.0.1:" port "/x?api_key=:rf/redacted&page=2")}
                    (select-keys (some-> record :exception ex-data) [:rf.error/id :url])))

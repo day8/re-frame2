@@ -388,7 +388,7 @@
     (rf.error-emit/register-error-listener!
       error-key
       (fn [record]
-        (when (= :rf.error/frame-destroyed (:error record))
+        (when (= :rf.error/frame-destroyed (:rf.error/id record))
           (swap! refused conj (:event-id record)))))
     (try (thunk)
          {:dispatched @dispatched :refused @refused}

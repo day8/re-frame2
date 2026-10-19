@@ -327,8 +327,7 @@
   and the error-trace tags — they MUST agree. The tags
   conform to `ResourceRouteBlockingTags` (Spec-Schemas): `:resource-id`,
   `:nav-token`, `:error` (the resource's first-load failure envelope),
-  `:reason`; `:category` is stamped from the operation by the trace
-  envelope. Per Spec 016 §Route integration + Spec 009 §Error catalogue."
+  `:reason`. Per Spec 016 §Route integration + Spec 009 §Error catalogue."
   [entry nav-token]
   {:rf.error/id :rf.error/resource-route-blocking
    :operation   :rf.error/resource-route-blocking
@@ -994,7 +993,7 @@
   `:operation` for the DISTINCT runtime op (`:dispatch` / `:subscribe`) —
   here the only op is the planning step itself, already named by
   `:rf.error/id :rf.error/resource-route-plan`. The error trace's
-  `:operation` / `:category` come from the EXPLICIT `:rf.error/resource-
+  `:operation` comes from the EXPLICIT `:rf.error/resource-
   route-plan` arg `emit-error!` is called with (route.cljc), not this map,
   so a duplicated `:operation` shadowing `:rf.error/id` would carry no
   information."

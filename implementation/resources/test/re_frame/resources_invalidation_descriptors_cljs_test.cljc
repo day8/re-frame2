@@ -204,10 +204,10 @@
     @seen))
 
 (defn- error-id-of
-  "The :rf.error/id on a record's :exception ex-data, else its :error."
+  "The :rf.error/id on a record's :exception ex-data, else the record's own."
   [rec]
   (or (some-> rec :exception ex-data :rf.error/id)
-      (:error rec)))
+      (:rf.error/id rec)))
 
 (deftest descriptor-typo-concrete-scope-fails-closed-at-settle
   ;; A typo'd reserved scope in a descriptor resolves through

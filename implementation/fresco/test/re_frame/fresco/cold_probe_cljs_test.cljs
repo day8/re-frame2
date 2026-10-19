@@ -261,7 +261,7 @@
                                         (read [:coldprobe/never-registered])
                                         (read [:coldprobe/never-registered])
                                         (read [:coldprobe/never-registered])))))))
-        misses  (filter (comp #{:rf.error/no-such-sub} :error) records)]
+        misses  (filter (comp #{:rf.error/no-such-sub} :rf.error/id) records)]
 
     (testing "the probe keeps the reactive path's contract for an id
               nobody registered: it emits, and it recovers to nil rather
@@ -276,7 +276,7 @@
   (let [records (errors-during
                   (fn [] (run-body! (fn [read] (read [:coldprobe/never-registered])))))]
     (testing "a second run emits its own"
-      (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :error) records)))))))
+      (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :rf.error/id) records)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Rung 1 — a live sub-cache reaction is reused by deref alone
@@ -349,7 +349,7 @@
               registered and the global registrar holds it; this frame's
               image selects another namespace, and the read resolved through
               the FRAME"
-      (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :error) records)))))
+      (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :rf.error/id) records)))))
 
     ;; THE CONTROL, and what makes the nil above a measurement rather than a
     ;; probe that cannot resolve anything. Same query, same body, same tick —

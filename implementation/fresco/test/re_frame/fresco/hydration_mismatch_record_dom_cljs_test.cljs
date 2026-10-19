@@ -60,7 +60,7 @@
         (rf.error-emit/register-error-listener!
           ::records
           (fn [r]
-            (when (= :rf.ssr/hydration-mismatch (:error r))
+            (when (= :rf.ssr/hydration-mismatch (:rf.error/id r))
               (swap! records conj r)
               true)))
         (rf.fresco.roots-frames-support/settle-row!
@@ -88,11 +88,11 @@
                         (str "the nested text mismatch fanned exactly one always-on record. Saw: "
                              (pr-str @records)))
                     (let [rec (first @records)]
-                      (is (= #{:error :where :recovery :time :frame} (set (keys rec)))
+                      (is (= #{:rf.error/id :where :recovery :time :frame} (set (keys rec)))
                           (str "the record is structural only. Keys: " (pr-str (sort (keys rec)))))
                       (is (= [:rf.ssr/hydration-mismatch 're-frame.fresco.impl.mount/hydrate-root!
                               :warned-and-replaced frame-id true]
-                             [(:error rec) (:where rec) (:recovery rec) (:frame rec)
+                             [(:rf.error/id rec) (:where rec) (:recovery rec) (:frame rec)
                               (number? (:time rec))]))
                       (is (not-any? string? (vals rec))
                           "no slot carries text, so React's message cannot be in it")))

@@ -194,7 +194,7 @@
     (is (= 're-frame.fresco.server/render-body (:where data)))
     (is (= :fail-the-render (:recovery data)))
     (is (pos? (:recorded data)) "the refusal counts what it saw")
-    (is (= :rf.error/sub-exception (:error (:record data)))
+    (is (= :rf.error/sub-exception (:rf.error/id (:record data)))
         "and names the category, so the sidecar log points at the real surface")))
 
 ;; ---------------------------------------------------------------------------
