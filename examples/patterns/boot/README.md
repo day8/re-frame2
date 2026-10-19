@@ -129,14 +129,14 @@ together.
   other way through the `:spawn`'s `:on-error` transition.
 
 - No backend, by design. The example runs on its own — there's no
-  server behind it. The 4 endpoints are served by a per-URL canned
-  stub. It overrides `:rf.http/managed` on the frame and delegates to
-  the framework-shipped `:rf.http/managed-canned-success` (per Spec 014
-  §Testing), so the [reply](../../../docs/resources/glossary.md#reply-map)
-  shape is exactly what a live server would produce. The stub also adds
-  a 60 ms `:dispatch-later` delay on purpose. Without it the boot
-  finishes in a single drain and you'd never see the progress screen
-  step through its phases.
+  server behind it. The 4 endpoints are answered by a fake backend: a
+  stub transport (Spec 014 §Testing) installed on the frame, which picks
+  a JSON payload by URL. It replaces only the network hop, so the real
+  `:rf.http/managed` decodes and classifies each answer and the
+  [reply](../../../docs/resources/glossary.md#reply-map) shape is exactly
+  what a live server would produce. The backend also waits 60 ms before
+  each answer on purpose. Without it the boot finishes in a single drain
+  and you'd never see the progress screen step through its phases.
 
 ## Running it
 
@@ -150,7 +150,7 @@ Then open the URL it prints.
 ## Files
 
 ```
-core.cljs               — mount + boot trigger + demo HTTP stubs
+core.cljs               — mount + boot trigger + the fake backend
 boot.cljs               — :app/boot machine + :boot/loader child machine
 views.cljs              — boot-progress + main-app + failure views
 schema.cljs             — Malli schemas (BootData, LoaderData, Config, Flags, ...)

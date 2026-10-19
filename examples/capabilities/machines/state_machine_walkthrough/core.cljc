@@ -16,8 +16,8 @@
   This is a .cljc, which is the trick that makes that possible: the very
   same source compiles under shadow-cljs for the browser demo AND loads on
   the JVM for the headless tests. The login request never actually touches
-  the network — :fx-overrides quietly swaps it for the canned stubs defined
-  below."
+  the network — it is answered by one of the stub transports defined below,
+  which stand in for the server beneath `:rf.http/managed`."
   (:require [re-frame.core :as rf]
             ;; Pulls in the machine machinery: `rf/reg-machine`, the
             ;; `:rf/machine` / `:rf.machine/has-tag?` subs, and the pure
@@ -25,14 +25,11 @@
             ;; See docs/machines/glossary.md#machine.
             [re-frame.machines]
             ;; Registers `:rf.http/managed`, the fx our `:issue-request`
-            ;; action fires to make the login call. Tests intercept it via
-            ;; :fx-overrides; see docs/core/glossary.md#effect.
+            ;; action fires to make the login call; see
+            ;; docs/core/glossary.md#effect.
             [re-frame.http.managed]
-            ;; Brings in the canned `:rf.http/managed-canned-*` fxs — the
-            ;; pre-baked replies our stubs below delegate to.
-            [re-frame.http.test-support]
-            ;; ...and those stubs find the canned fxs through the registrar.
-            [re-frame.registrar :as rf.registrar]))
+            ;; The two fake login servers below are stub transports.
+            [re-frame.http.stub-transport :as stub-transport]))
 
 ;; ============================================================================
 ;; THE TRANSITION TABLE — guide §A machine at a glance
@@ -171,37 +168,30 @@
 ;;
 ;; `:walkthrough.session/store` is a stub — it shows you the SHAPE of the effect without
 ;; the real localStorage write, which keeps the walkthrough honest and headless.
-;; The login request, meanwhile, runs through the canned stubs below, slotted in
-;; at frame creation via :fx-overrides so no real HTTP ever happens.
+;; The login request, meanwhile, is a real `:rf.http/managed` request answered by
+;; one of the stub transports below, so no real HTTP ever happens.
 
 (rf/reg-fx :walkthrough.session/store
   {:doc "Stub: the real thing would write the session token to localStorage."}
   (fn [_m _args] nil))
 
-;; The framework already ships `:rf.http/managed-canned-success` and
-;; `:rf.http/managed-canned-failure` — fxs that fabricate a reply in the
-;; canonical shape. The two thin wrappers below just pin THIS example's
-;; payloads on top. Both the browser demo and the headless tests point
-;; `:rf.http/managed` at them.
+;; A stub transport replaces only the network hop under `:rf.http/managed`:
+;; the request is real, and its answer is decoded and classified exactly as a
+;; server's would be. The two below are this example's two login servers. The
+;; browser demo installs the failing one on its frame; the headless tests pick
+;; either per scenario.
 
-(rf/reg-fx :walkthrough.login/canned-success
-  {:doc "Example stub: pretend every login succeeds, handing back a canned
-         user/token. Defers the heavy lifting to the framework-shipped
-         `:rf.http/managed-canned-success` — we just supply the payload."}
-  (fn [frame-ctx args-map]
-    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
-                                              :token "test-token"})))))
+(def accepting-server
+  "A stub transport standing in for a login server that accepts every
+  login, answering 200 with a user and token."
+  (stub-transport/route-transport
+    (constantly {:body {:user {:id "test-user"} :token "test-token"}})))
 
-(rf/reg-fx :walkthrough.login/canned-failure
-  {:doc "Example stub: pretend every login fails with a 401. Defers to the
-         framework-shipped `:rf.http/managed-canned-failure` — we just supply
-         the failure shape. This is the stub the lockout demo wires in."}
-  (fn [frame-ctx args-map]
-    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-      (stub frame-ctx (assoc args-map
-                             :kind :rf.http/http-4xx
-                             :tags {:message "bad creds" :status 401})))))
+(def rejecting-server
+  "A stub transport standing in for a login server that rejects every login
+  with a 401. This is the server the lockout demo runs against."
+  (stub-transport/route-transport
+    (constantly {:status 401 :body {:message "bad creds"}})))
 
 ;; ============================================================================
 ;; REGISTRATION — guide §Registering and running it

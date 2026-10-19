@@ -74,8 +74,8 @@ client picking it up:
   runtime it's on. No `typeof window` anywhere.
 - The article fetch goes through managed HTTP, stubbed for the
   render. `:app/server-init` returns an `:rf.http/managed` effect. The
-  JVM smoke redirects it to a canned-success stub through the
-  `:fx-overrides` seam, so the render exercises the full
+  JVM smoke answers it from a stub transport, which replaces only the
+  network hop, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
 - Waiting for the page load, deliberately. `make-frame` drains the

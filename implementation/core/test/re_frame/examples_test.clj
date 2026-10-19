@@ -24,6 +24,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; the resources artefact (Spec 016), a test-only dep on the core
             ;; test classpath: the resource kind, the `:rf.resource/*`
             ;; events/subs, and the SSR projection / hydration hooks
@@ -50,8 +51,7 @@
   ;; and requiring an already-loaded namespace does not re-run it, so reload
   ;; each one the examples reach:
   ;;   re-frame.cofx               `:rf/time-ms`, which `:rf.resource/ensure` declares
-  ;;   re-frame.http.managed       `:rf.http/managed`, which the examples override
-  ;;   re-frame.http.test-support  the canned-success / canned-failure stubs
+  ;;   re-frame.http.managed       `:rf.http/managed`, which the examples issue
   ;;   re-frame.machines           `:rf/machine`, which the walkthrough's subs chain off
   ;;   re-frame.ssr                `:rf/hydrate`, the `:rf.ssr/*` / `:rf.server/*` fxs
   ;;                               and cofx, and the late-bind hooks
@@ -59,7 +59,6 @@
   ;;   re-frame.resources          the resource kind, events, subs and SSR hooks
   (require 're-frame.cofx :reload)
   (require 're-frame.http.managed :reload)
-  (require 're-frame.http.test-support :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.resources :reload)
@@ -95,30 +94,36 @@
   (rf/destroy-adapter!)
   (rf/init! rf.ssr/adapter))
 
-(defn- reg-canned-fx!
-  "Register `fx-id` as a `:rf.http/managed` stand-in delegating to the
-  framework's canned `stub-id` (Spec 014 §Testing) with `extra` merged into the
-  request args — the reply shape a live request produces, with no network."
-  [fx-id stub-id extra]
-  (rf/reg-fx fx-id
-    {:platforms #{:server :client}}
-    (fn [frame-ctx args-map]
-      ((rf.registrar/handler :fx stub-id) frame-ctx (merge args-map extra)))))
+(defn- answering
+  "A stub transport answering every request 200 with `body`, after `delay-ms`
+  when one is given (Spec 014 §Testing): the reply a live request produces,
+  with no network."
+  ([body] (answering body nil))
+  ([body delay-ms]
+   (rf.http.stub-transport/route-transport
+     (constantly (cond-> {:body body} delay-ms (assoc :delay-ms delay-ms))))))
+
+(def ^:private failing
+  "A stub transport failing every request as a network failure."
+  (rf.http.stub-transport/route-transport (constantly {:failure {:kind :rf.http/transport}})))
+
+(defn- never-answering
+  "A stub transport that holds every request and never answers it."
+  []
+  (:transport (rf.http.stub-transport/pending-transport)))
 
 (def ^:private two-articles
   [{:id "a" :title "Article A" :body "Body A"}
    {:id "b" :title "Article B" :body "Body B"}])
 
-(defn- install-canned-articles-stub! []
-  (reg-canned-fx! :ssr.http/canned-articles :rf.http/managed-canned-success {:value two-articles}))
-
 (defn- handle!
-  "Call the example's `handle-request` with `:rf.http/managed` routed to `fx-id`.
-  The per-request frame's `:initial-events` drain synchronously inside
-  `make-frame`, inside this override scope."
-  [handler-sym fx-id uri]
-  (rf/with-fx-overrides {:rf.http/managed fx-id}
-    ((resolve handler-sym) {:uri uri})))
+  "Call the example's `handle-request` with its managed requests answered by
+  `transport`. The per-request frame's `:initial-events` drain synchronously
+  inside `make-frame`, inside this scope, and a request keeps the transport it
+  was issued under, so a delayed answer goes through it too."
+  [handler-sym transport uri]
+  (rf.http.stub-transport/with-transport transport
+    #((resolve handler-sym) {:uri uri})))
 
 (defn- frame-ids [] (set (keys @rf.frame/frames)))
 
@@ -146,7 +151,7 @@
 
 ;; ---- ssr: the server flow ------------------------------------------------------
 ;;
-;; per-request frame → :app/server-init → managed HTTP via the canned stub →
+;; per-request frame → :app/server-init → managed HTTP via a stub transport →
 ;; render to string → payload. JVM-only: the server render runs under
 ;; Clojure.
 
@@ -161,11 +166,10 @@
             propagates"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (install-canned-articles-stub!)
     (let [before (frame-ids)]
       (with-redefs [rf.ssr/render-to-string (fn [& _] (throw (ex-info "boom — render failure" {})))]
         (is (thrown? clojure.lang.ExceptionInfo
-                     (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")))
+                     (handle! 'ssr.core/handle-request (answering two-articles) "/articles")))
         (is (= [#{} {}] [(clojure.set/difference (frame-ids) before) @rf.ssr.request/request-slots]))))))
 
 ;; The example holds its app schema as a value (`ArticlesSchema`) and registers
@@ -181,14 +185,13 @@
             own, and validation runs on that frame"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (install-canned-articles-stub!)
     (let [schema @(resolve 'ssr.core/ArticlesSchema)
           fid    (keyword "rf.frame" (str (gensym "f")))
           _      (rf.ssr/set-request! fid {:uri "/articles"})
-          f      (rf/with-fx-overrides {:rf.http/managed :ssr.http/canned-articles}
-                   (rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
-                                   :platform :server
-                                   :initial-events [[:app/server-init]]}))
+          f      (rf.http.stub-transport/with-transport (answering two-articles)
+                   #(rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
+                                    :platform :server
+                                    :initial-events [[:app/server-init]]}))
           meta   (rf.schemas/app-schema-meta {:frame fid :path [:articles]})
           db     (rf/app-db-value f)
           bad-db (assoc db :articles "not-a-vector-of-articles")]
@@ -244,8 +247,7 @@
             articles, recording its version"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (install-canned-articles-stub!)
-    (let [resp         (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")
+    (let [resp         (handle! 'ssr.core/handle-request (answering two-articles) "/articles")
           payload      (extract-payload-edn (:body resp))
           client-frame @(resolve 'ssr.core/app-frame)]
       (is (= [200 #{:rf/version :rf/app-db}]
@@ -263,9 +265,9 @@
             `__rf_payload` envelope, and still round-trips through the EDN reader"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (reg-canned-fx! :ssr.http/canned-evil :rf.http/managed-canned-success
-                    {:value [{:id "x" :title "</script><script>alert('xss')</script>" :body "b"}]})
-    (let [resp (handle! 'ssr.core/handle-request :ssr.http/canned-evil "/x")
+    (let [resp (handle! 'ssr.core/handle-request
+                        (answering [{:id "x" :title "</script><script>alert('xss')</script>" :body "b"}])
+                        "/x")
           body (:body resp)]
       ;; the `<` inside the EDN string literal becomes the reader escape
       (is (= [200 false true "</script><script>alert('xss')</script>"]
@@ -287,14 +289,14 @@
 
 (deftest ssr-example-handle-request-waits-for-a-delayed-article-reply
   (testing "examples/capabilities/ssr/ssr — a reply landing after `make-frame`
-            returns (deferred through `:dispatch-later`, the shape a real
-            sendAsync reply has) still reaches the HTML and the payload"
+            returns (a route delayed 150ms, answered off the issuing thread as
+            a real sendAsync reply is) still reaches the HTML and the payload"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (reg-canned-fx! :ssr.http/delayed-canned-articles :rf.http/managed-canned-success
-                    {:after-ms 150 :value [{:id "a" :title "Article A" :body "Body A"}]})
     (let [before (frame-ids)
-          resp   (handle! 'ssr.core/handle-request :ssr.http/delayed-canned-articles "/articles")]
+          resp   (handle! 'ssr.core/handle-request
+                          (answering [{:id "a" :title "Article A" :body "Body A"}] 150)
+                          "/articles")]
       ;; the empty-state render would mean the handler returned before the reply
       (is (= [200 true false [{:id "a" :title "Article A" :body "Body A"}] #{}]
              [(:status resp)
@@ -308,28 +310,25 @@
             each answer 503 promptly and leave no frame behind"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (let [timed (fn [fx-id]
+    (let [timed (fn [transport]
                   (let [before  (frame-ids)
                         started (System/currentTimeMillis)
-                        resp    (handle! 'ssr.core/handle-request fx-id "/articles")]
+                        resp    (handle! 'ssr.core/handle-request transport "/articles")]
                     {:resp    resp
                      :elapsed (- (System/currentTimeMillis) started)
                      :leaked  (clojure.set/difference (frame-ids) before)}))]
       (testing "a failed reply settles on :failed at once — the :on-failure target
                 is what makes it terminal rather than costing the full deadline"
-        (reg-canned-fx! :ssr.http/canned-articles-failure :rf.http/managed-canned-failure
-                        {:kind :rf.http/transport})
-        (let [{:keys [resp elapsed leaked]} (timed :ssr.http/canned-articles-failure)]
+        (let [{:keys [resp elapsed leaked]} (timed failing)]
           (is (= [503 false true #{}]
                  [(:status resp) (clojure.string/includes? (:body resp) "No articles.")
                   (< elapsed 2000) leaked])
               (str "took " elapsed "ms"))))
       (testing "a reply that never arrives stops at the deadline, shortened from
                 the shipped five seconds, and says which outcome it was"
-        (rf/reg-fx :ssr.http/never-replies {:platforms #{:server :client}} (fn [_ _] nil))
         (let [{:keys [resp elapsed leaked]}
               (with-redefs-fn {(resolve 'ssr.core/page-load-deadline-ms) 50}
-                #(timed :ssr.http/never-replies))]
+                #(timed (never-answering)))]
           (is (= [503 true true #{}]
                  [(:status resp) (clojure.string/includes? (:body resp) "timed-out")
                   (< elapsed 2000) leaked])
@@ -384,8 +383,7 @@
             :rf.runtime/resources slice (Spec 016 §SSR client hydration)"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (reg-canned-fx! :resources-ssr.http/canned :rf.http/managed-canned-success {:value resources-ssr-articles})
-    (let [resp     (handle! 'resources-ssr.core/handle-request :resources-ssr.http/canned "/articles")
+    (let [resp     (handle! 'resources-ssr.core/handle-request (answering resources-ssr-articles) "/articles")
           body     (:body resp)
           payload  (extract-payload-edn body)
           app-open (clojure.string/index-of body "<div id='app'>")
@@ -463,32 +461,29 @@
 ;; and leaves an ownerless one merely stale, so "the client owner is live" is
 ;; proved by the requests the cache does or does not make, in both directions.
 
-(defn- reg-counting-transport!
-  "Register a managed-HTTP stand-in under `fx-id` that COUNTS every request the
-  resource runtime lowers and, when `reply?`, settles it with the canned
-  articles. Returns the counter atom: the refetch PLAN says what hydration
-  classified, only the counter says what the acquisition sent."
-  [fx-id {:keys [reply?]}]
-  (let [calls (atom 0)]
-    (rf/reg-fx fx-id
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (swap! calls inc)
-        (when reply?
-          ((rf.registrar/handler :fx :rf.http/managed-canned-success)
-           frame-ctx (assoc args-map :value resources-ssr-articles)))))
-    calls))
+(defn- counting-transport
+  "A stub transport that COUNTS every request the resource runtime lowers and,
+  when `reply?`, answers it with the articles; otherwise it holds it. Returns
+  `[transport calls]`, `calls` the counter atom: the refetch PLAN says what
+  hydration classified, only the counter says what the acquisition sent."
+  [{:keys [reply?]}]
+  (let [calls  (atom 0)
+        answer (if reply?
+                 (answering resources-ssr-articles)
+                 (never-answering))]
+    [(fn [wire callbacks] (swap! calls inc) (answer wire callbacks))
+     calls]))
 
 (defn- resources-ssr-client-frame!
-  "The example's own client app-frame, `:rf.http/managed` redirected at
-  `fx-id`. `:platform :client` makes this the browser seam rather than a second
-  server render."
-  [fx-id]
+  "The example's own client app-frame, its managed requests answered by
+  `transport`. `:platform :client` makes this the browser seam rather than a
+  second server render."
+  [transport]
   (let [fid @(resolve 'resources-ssr.core/app-frame)]
-    (rf/make-frame {:id           fid
-                    :doc          "resources-ssr client boot seam"
-                    :platform     :client
-                    :fx-overrides {:rf.http/managed fx-id}})
+    (rf/make-frame {:id       fid
+                    :doc      "resources-ssr client boot seam"
+                    :platform :client})
+    (rf.http.stub-transport/install-transport! fid transport)
     fid))
 
 (defn- invalidate-articles! [fid cause]
@@ -504,8 +499,8 @@
             reads as a successful answer of zero articles)"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (let [calls (reg-counting-transport! :resources-ssr-test/pending {:reply? false})
-          fid   (resources-ssr-client-frame! :resources-ssr-test/pending)
+    (let [[transport calls] (counting-transport {:reply? false})
+          fid   (resources-ssr-client-frame! transport)
           owner @(resolve 'resources-ssr.core/page-owner)]
       (is (= [nil 0 true]
              [(resources-ssr-entry fid) @calls (clojure.string/includes? (resources-ssr-html fid) "articles-list")])
@@ -526,8 +521,8 @@
             markup still paints"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
-          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+    (let [[transport calls] (counting-transport {:reply? true})
+          fid     (resources-ssr-client-frame! transport)
           owner   @(resolve 'resources-ssr.core/page-owner)
           payload (resources-ssr-static-payload)]
       (is (some? payload))
@@ -547,8 +542,8 @@
             while the last-known-good data stays on screen"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
-          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+    (let [[transport calls] (counting-transport {:reply? true})
+          fid     (resources-ssr-client-frame! transport)
           owner   @(resolve 'resources-ssr.core/page-owner)
           payload (resources-ssr-static-payload)]
       (rf.ssr/hydrate! {:frame fid :payload payload})
@@ -571,8 +566,8 @@
             issues nothing and leaves the entry GC-eligible"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
-          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+    (let [[transport calls] (counting-transport {:reply? true})
+          fid     (resources-ssr-client-frame! transport)
           owner   @(resolve 'resources-ssr.core/page-owner)
           payload (resources-ssr-static-payload)]
       (rf.ssr/hydrate! {:frame fid :payload payload})
@@ -598,8 +593,6 @@
             from the request's own entry"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (reg-canned-fx! :resources-ssr.http/canned :rf.http/managed-canned-success
-                    {:value [{:slug "welcome" :title "Welcome to re-frame2"}]})
     (let [original rf.resources/resource-state
           polls    (atom [])
           ;; record what each poll was asked and got, returning the real answer
@@ -609,7 +602,9 @@
                                      (swap! polls conj {:keyword-target? (keyword? (:frame opts))
                                                         :status          (:status entry)})
                                      entry))]
-                     (handle! 'resources-ssr.core/handle-request :resources-ssr.http/canned "/articles"))]
+                     (handle! 'resources-ssr.core/handle-request
+                              (answering [{:slug "welcome" :title "Welcome to re-frame2"}])
+                              "/articles"))]
       ;; a frame-value target would poll nil ~850 times across the five-second
       ;; budget; a synchronously loaded resource settles before the first read
       (is (= [200 true true true :loaded true]
@@ -624,15 +619,11 @@
 (deftest resources-ssr-example-only-serves-a-settled-resource
   (require 'resources-ssr.core :reload)
   (init-ssr!)
-  (reg-canned-fx! :resources-ssr.http/delayed-success :rf.http/managed-canned-success
-                  {:after-ms 50 :value [{:slug "settled" :title "Settled article"}]})
-  (reg-canned-fx! :resources-ssr.http/failure :rf.http/managed-canned-failure {:kind :rf.http/transport})
-  (rf/reg-fx :resources-ssr.http/never-replies {:platforms #{:server :client}} (fn [_ _] nil))
-  (doseq [[transport deadline status outcome]
-          [[:resources-ssr.http/delayed-success 5000 200 nil]
-           [:resources-ssr.http/failure 5000 503 "failed"]
-           [:resources-ssr.http/never-replies 50 503 "timed-out"]]]
-    (testing (str "preload through " transport)
+  (doseq [[label transport deadline status outcome]
+          [["a delayed success" (answering [{:slug "settled" :title "Settled article"}] 50) 5000 200 nil]
+           ["a network failure" failing 5000 503 "failed"]
+           ["no answer at all" (never-answering) 50 503 "timed-out"]]]
+    (testing (str "preload through " label)
       (let [before   (frame-ids)
             started  (System/currentTimeMillis)
             response (with-redefs-fn
@@ -697,9 +688,9 @@
 ;; ---- state-machine-walkthrough: chapter §Headless testing --------------------------
 ;;
 ;; Two flavours: pure `machine-transition` (no frame, no app-db) and drain-level
-;; (a frame plus a canned stub). The `:walkthrough.login/canned-success` /
-;; `-failure` stubs are registered in `state-machine-walkthrough.core`, so the
-;; browser demo and these tests share one registration point.
+;; (a frame plus a stub transport). The `accepting-server` / `rejecting-server`
+;; transports are defined in `state-machine-walkthrough.core`, so the browser
+;; demo and these tests share one definition.
 
 (deftest state-machine-walkthrough-runs-headless
   (require 'state-machine-walkthrough.core :reload)
@@ -736,20 +727,24 @@
                [[(:state d) (get-in d [:data :error]) (get-in d [:data :attempts])]
                 [(:state r) (get-in r [:data :error]) (get-in r [:data :attempts]) (mapv first rfx)]]))))
 
-    (testing "drain happy path — a full drain through the per-frame :fx-overrides
-              canned-success stub lands the app-db at :authed"
-      (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :walkthrough.login/canned-success}})]
+    (testing "drain happy path — a full drain against the accepting server,
+              installed on the frame, lands the app-db at :authed"
+      (let [f (rf.frame/make-anon-frame-record! {})]
+        (rf.http.stub-transport/install-transport!
+          f @(resolve 'state-machine-walkthrough.core/accepting-server))
         (rf/dispatch-sync [:walkthrough.login/flow submit] {:frame f})
         (is (= :authed (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))))))
 
-    (testing "drain retry-then-lockout — under the lexical `rf/with-fx-overrides`,
-              two failures cycle :submitting → :error-shown → :idle, and the third
-              :submit lands at :locked-out"
+    (testing "drain retry-then-lockout — inside a `with-transport` scope on the
+              rejecting server, two failures cycle :submitting → :error-shown →
+              :idle, and the third :submit lands at :locked-out"
       (let [f      (rf.frame/make-anon-frame-record! {})
             wrong  [:walkthrough.login/submit {:email "x@y.z" :password "wrong"}]]
-        (rf/with-fx-overrides {:rf.http/managed :walkthrough.login/canned-failure}
-          (dotimes [_ 2]
-            (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})
-            (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/dismiss]] {:frame f}))
-          (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f}))
+        (rf.http.stub-transport/with-transport
+          @(resolve 'state-machine-walkthrough.core/rejecting-server)
+          (fn []
+            (dotimes [_ 2]
+              (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})
+              (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/dismiss]] {:frame f}))
+            (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})))
         (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))))))))

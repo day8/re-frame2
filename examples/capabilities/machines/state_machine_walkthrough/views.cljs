@@ -3,17 +3,18 @@
 
   All the interesting, portable stuff (the pure machine, the fxs, the subs)
   lives in `core.cljc`. This namespace is purely the CLJS browser skin on top:
-  the views, the Reagent mount, and a `run` fn that points `:rf.http/managed` at
-  the canned-failure stub through per-frame :fx-overrides.
+  the views, the Reagent mount, and a `run` fn that answers `:rf.http/managed`
+  from the rejecting login server, a stub transport installed on the frame.
 
   The demo tells one story — the lockout. Two failed attempts walk the machine
   round the loop :submitting -> :error-shown -> :idle, and then a third submit
   trips the `:under-retry-limit` guard and the machine settles into :locked-out
   (three attempts total). For that to play out, every request has to fail, which
-  is exactly why we wire in the canned-FAILURE stub here."
+  is exactly why we install the rejecting login server here."
   (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [state-machine-walkthrough.core]))
+            [re-frame.http.stub-transport :as stub-transport]
+            [state-machine-walkthrough.core :as walkthrough]))
 
 ;; ============================================================================
 ;; VIEWS
@@ -129,9 +130,10 @@
   ;; save. The `dispatch`/`subscribe` that `reg-view` quietly injects into the
   ;; views all resolve to this frame.
   ;;
-  ;; `:fx-overrides` redirects `:rf.http/managed` to the canned-FAILURE stub, so
-  ;; every login attempt fails on purpose — the lockout demo reaches
-  ;; `:locked-out` when the third failing attempt trips the retry guard.
+  ;; `install-transport!` answers this frame's `:rf.http/managed` from the
+  ;; REJECTING login server, so every login attempt fails on purpose — the
+  ;; lockout demo reaches `:locked-out` when the third failing attempt trips
+  ;; the retry guard.
   ;;
   ;; One subtlety worth pausing on: the machine seeds itself on its first event,
   ;; but the DRAFT slice does not. So `:initial-events` seeds the draft before
@@ -141,10 +143,10 @@
   ;; which is a confusing afternoon you can skip by seeding up front.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
+    (stub-transport/install-transport! :rf/default walkthrough/rejecting-server)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              :rf/default
                       :doc             "State-machines walkthrough demo frame."
-                      :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
                       :initial-events  [[:walkthrough.login/initialise-form]]}
        [root-view]]
       el)))
