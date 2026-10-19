@@ -144,6 +144,47 @@ queues it. For a delayed dispatch, return
 A row may be `[fx-id]` when the effect takes no argument. A `nil` row is skipped, so
 `(when saving? [:todo.storage/save todos])` makes a row conditional.
 
+### Debounce: give the timer an `:id`
+
+An `:id` on `:dispatch-later` names its timer within the frame. Arming the same
+`:id` again cancels the timer still pending, so of a burst of keystrokes only the
+last one's event runs:
+
+```clojure
+(rf/reg-event :todo.search/input
+  (fn [{:keys [db]} [_ text]]
+    {:db (assoc-in db [:todo.search :text] text)
+     :fx [[:dispatch-later {:id    :todo.search/settle
+                            :ms    250
+                            :event [:todo.search/settle]}]]}))
+```
+
+`[:dispatch-later {:id :todo.search/settle :cancel? true}]` cancels the pending
+timer, for instance when the user leaves the page. The `:id` is any value and
+belongs to the frame, so two frames using the same `:id` never touch each other's
+timers, and destroying a frame still cancels everything it has pending. A replaced
+or cancelled timer shows in Xray as a `:rf.fx/dispatch-later-cancelled` trace.
+
+A state machine can debounce as well, because re-entering a state restarts its
+`:after` timer:
+
+```clojure
+(rf/reg-machine :todo.search/debounce
+  {:initial :idle
+   :actions {:settle (fn [_] {:fx [[:dispatch [:todo.search/settle]]]})}
+   :states  {:idle    {:on {:typed :waiting}}
+             :waiting {:on    {:typed {:target :waiting :reenter? true}}
+                       :after {250 {:target :idle :action :settle}}}}})
+
+;; and :todo.search/input sends it a message on every keystroke:
+;;   :fx [[:dispatch [:todo.search/debounce [:typed]]]]
+```
+
+That is a registered machine, a snapshot in the frame and a second event per
+keystroke, for what `:id` does with one key on the effect the handler already
+returns. Use `:after` when the wait belongs to a state's lifecycle — a timeout
+while `:submitting`, say — and `:id` when it is a plain debounce.
+
 ### Ordering and atomicity — what you can rely on
 
 When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`:

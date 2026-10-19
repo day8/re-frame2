@@ -3878,11 +3878,19 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 
 ;; :dispatch-later — schedules ONE delayed dispatch. A missing or non-numeric
 ;; :ms raises :rf.error/fx-handler-exception and queues nothing; one [:dispatch-later …]
-;; entry per delayed event.
+;; entry per delayed event. An :id names the timer within the frame: arming an :id
+;; that is still pending replaces that timer (debounce), and the cancel arm
+;; {:id k :cancel? true} cancels it. A cancel without an :id raises
+;; :rf.error/fx-handler-exception and cancels nothing.
 (def DispatchLaterFxArgs
-  [:map
-   [:ms    number?]                                                         ;; the delay in milliseconds
-   [:event [:vector :any]]])
+  [:or
+   [:map
+    [:ms    number?]                                                        ;; the delay in milliseconds
+    [:event [:vector :any]]
+    [:id    {:optional true} :any]]                                         ;; frame-scoped timer name
+   [:map
+    [:id      :any]                                                         ;; the pending timer to cancel
+    [:cancel? [:= true]]]])
 
 ;; :http — pattern-level HTTP fx (per Pattern-RemoteData). Args are user-supplied;
 ;; the framework treats them opaquely. Schema is recommendation, not contract.

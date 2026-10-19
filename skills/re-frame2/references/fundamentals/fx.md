@@ -42,7 +42,7 @@ The reserved fx-ids the core runtime handles directly (listed in the same docstr
 | fx-id | args | Effect |
 |---|---|---|
 | `:dispatch` | event-vector | Enqueue at back of frame's router |
-| `:dispatch-later` | `{:ms n :event ev}` | Enqueue after `n` ms |
+| `:dispatch-later` | `{:ms n :event ev}`, optionally `:id k`; or `{:id k :cancel? true}` | Enqueue after `n` ms. An `:id` names the timer in the frame: re-arming it replaces the pending timer (debounce); `:cancel? true` cancels it |
 | `:raise` | event-vector | Machine-internal: re-enter the machine locally as a pre-commit microstep in the same macrostep (state-machines leaves) |
 
 Machine fx-ids (`:rf.machine/spawn`, `:rf.machine/destroy`) ship in `day8/re-frame2-machines`; they register through the same `reg-fx` path when that artefact is loaded.
