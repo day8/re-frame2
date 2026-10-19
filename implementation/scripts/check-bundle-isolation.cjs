@@ -182,7 +182,7 @@ const ARTEFACTS = [
     //                          consult — the blessed consumer-side pattern,
     //                          no :require).
     consumerAllowList: /rf\.http\/stub-only\?|rf\.http\/managed/g,
-    expectedAllowListHits: 3,
+    expectedAllowListHits: 2,
   },
 
   // Epoch artefact (re-frame.epoch lives at implementation/epoch/;
