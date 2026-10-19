@@ -139,8 +139,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:story-play-scripts
 
+      # The sweep takes about three minutes here (its 11-bundle compile, then
+      # the scenarios), and the runner bounds each failing scenario's teardown,
+      # so ten minutes is room for a slow runner and a few failures. A run
+      # that still outlives it is a wedge, and the cap reports it as this
+      # step's red with the job's later gates still to run.
       - name: Gate — Xray feature matrix (test:xray-feature-gate)
         if: ${{ !cancelled() }}
+        timeout-minutes: 10
         run: npm run test:xray-feature-gate
 
       - name: Gate — Story static export (test:story-static)
