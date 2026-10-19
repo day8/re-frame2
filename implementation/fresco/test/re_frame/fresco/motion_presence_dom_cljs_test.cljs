@@ -137,9 +137,9 @@
     (testing "the claim: it returns to :present rather than finishing and remounting"
       (is (= {:a :present :b :present} (rf.fresco.impl.presence/phases back))))
 
-    (testing "and it returns to the SAME node — the key never left, and order is frozen"
+    (testing "and it returns to the SAME node — the key never left, and keeps its slot"
       (is (= [:a :b] (:order back))
-          "first-appearance order is frozen, so an exiting child cannot jump slot")
+          "an exiting child holds its place after the key it followed, so it cannot jump slot")
       (is (nil? (rf.fresco.impl.presence/next-deadline back))
           "nothing is outstanding, so the React half's effect arms no timer at all"))))
 
@@ -305,6 +305,31 @@
                     "every retention timer armed was cleared by the effect's own cleanup")))
             (finally (rf.fresco.impl.mount/release! handle))))
         (finally (restore!))))))
+
+(defn- toast-texts [container]
+  (mapv #(.-textContent %) (array-seq (toast-nodes container))))
+
+(deftest the-painted-order-follows-the-input-and-an-exiting-node-keeps-its-neighbour
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM, so nothing is painted to be in an order")
+    (do
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+      (let [m (rf.fresco.test.mounted/mount! [tray] {:clock true :initial-events [[::seed [:a :b :c]]]})]
+        (try
+          (let [before (vec (array-seq (toast-nodes (:container m))))]
+            (rf.fresco.test.mounted/dispatch-and-settle! m [::set [:c :a :b]])
+            (testing "nothing exiting: the page is in exactly the input's order"
+              (is (= ["c" "a" "b"] (toast-texts (:container m))))
+              (is (= (set before) (set (array-seq (toast-nodes (:container m)))))
+                  "on the nodes it already had — React moved them rather than remounting")))
+          (rf.fresco.test.mounted/dispatch-and-settle! m [::set [:a :c]])
+          (testing "a reorder and a delete together: live keys in input order, and
+                    the exiting node straight after the node it followed"
+            (is (= ["a" "b" "c"] (toast-texts (:container m))))
+            (is (= "b" (.-textContent (.querySelector (:container m) ".toast--exit")))))
+          (rf.fresco.test.mounted/advance-clock! m dom-retention-ms)
+          (is (= ["a" "c"] (toast-texts (:container m))) "and it leaves on time")
+          (finally (rf.fresco.test.mounted/unmount! m)))))))
 
 (deftest a-wall-clock-stepped-back-before-the-deadline-cannot-strand-the-node
   ;; The retention timer counts its delay on the platform's monotonic
