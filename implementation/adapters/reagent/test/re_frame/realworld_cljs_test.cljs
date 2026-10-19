@@ -63,7 +63,7 @@
   (rf/dispatch-sync (conj target {:status :ok :value value}) {:frame f}))
 
 (defn- settle-fail! [f target]
-  (rf/dispatch-sync (conj target {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+  (rf/dispatch-sync (conj target {:status :error :error {:kind :rf.http/http-5xx :http-status 500}})
                     {:frame f}))
 
 (defn- req-by-id

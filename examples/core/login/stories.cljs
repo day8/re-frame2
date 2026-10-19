@@ -153,9 +153,9 @@
    reply a variant wants. A bare `{:failure …}` map — a shape the machine never
    reads — leaves `:record-error` reading a nil `:error`, so the flow falls back
    to its generic \"Login failed.\" message instead of the server's."
-  [status message]
+  [http-status message]
   {:status :error
-   :error  {:kind :rf.http/http-4xx :status status :message message}})
+   :error  {:kind :rf.http/http-4xx :http-status http-status :message message}})
 
 (defn register-all!
   "Register all of the login example's Story artefacts. Safe to call twice —
