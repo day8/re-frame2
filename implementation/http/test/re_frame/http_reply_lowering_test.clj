@@ -80,13 +80,15 @@
         (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
         (is (= [:ok :completed :http {:title "hello"}]
                ((juxt :status :rf.reply/work-status :rf.reply/work-kind :value) reply)))
-        (is (= {:status 200 :headers {"x-request-cost" "3"
-                                      "set-cookie"     ["session=abc; Path=/" "csrf=xyz; Path=/"]}}
+        (is (= {:http-status 200 :headers {"x-request-cost" "3"
+                                           "set-cookie"     ["session=abc; Path=/" "csrf=xyz; Path=/"]}}
                (-> (:meta reply)
-                   (select-keys [:status :headers])
+                   (select-keys [:http-status :headers])
                    (update :headers select-keys ["x-request-cost" "set-cookie"])))
             "headers ride lower-cased; a repeated Set-Cookie is one vector of verbatim lines")
-        (is (string? (get-in reply [:meta :status-text]))))
+        (is (string? (get-in reply [:meta :status-text])))
+        (is (not (contains? (:meta reply) :status))
+            "the wire status is :http-status alone; the reply's own :status is the only :status"))
       (finally (stop-server! srv)))))
 
 (defn- fetch-failure-reply
@@ -108,7 +110,7 @@
   (rf/dispatch-sync [:sid/call])
   (:reply (await-reply! #(some? (:reply %)))))
 
-(def ^:private identity-keys [:kind :request :request-id :attempt :max-attempts :work/id :status])
+(def ^:private identity-keys [:kind :request :request-id :attempt :max-attempts :work/id :http-status])
 
 (deftest failure-reply-is-self-identifying-4xx
   (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 404 "text/plain" "nope")))]
@@ -121,7 +123,7 @@
         ;; Status classification precedes decode: a non-JSON 404 under :decode
         ;; :json is an :rf.http/http-4xx carrying the raw body.
         (is (= {:kind :rf.http/http-4xx :request {:method :get :url url} :request-id :sid/get
-                :attempt 1 :work/id [:rf.work/http 1 1] :status 404 :body "nope"}
+                :attempt 1 :work/id [:rf.work/http 1 1] :http-status 404 :body "nope"}
                (select-keys (:error reply) (conj identity-keys :body)))))
       (finally (stop-server! srv)))))
 
@@ -140,10 +142,13 @@
   (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]
     (try
       (let [url (str "http://127.0.0.1:" (:port srv) "/down")]
-        (is (= {:kind :rf.http/http-5xx :request {:method :get :url url} :request-id :sid/five-xx
-                :attempt 3 :max-attempts 3 :work/id [:rf.work/http 1 3] :status 503}
-               (select-keys (:error (fetch-failure-reply url {:request-id :sid/five-xx :max-attempts 3}))
-                            identity-keys))))
+        (let [reply (fetch-failure-reply url {:request-id :sid/five-xx :max-attempts 3})]
+          (is (= {:kind :rf.http/http-5xx :request {:method :get :url url} :request-id :sid/five-xx
+                  :attempt 3 :max-attempts 3 :work/id [:rf.work/http 1 3] :http-status 503}
+                 (select-keys (:error reply) identity-keys)))
+          (is (= :error (:status reply)))
+          (is (not (contains? (:error reply) :status))
+              "the failure map carries the wire status as :http-status alone")))
       (finally (stop-server! srv)))))
 
 (deftest failure-reply-is-self-identifying-aborted
