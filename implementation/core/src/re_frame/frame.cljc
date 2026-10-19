@@ -494,6 +494,43 @@
 
 (def ^:dynamic *current-frame* nil)
 
+;; Beside it rides the component that was rendering when that binding was
+;; taken. A reader that puts the component tree first while a Reagent
+;; component renders (`re-frame.views/current-frame`) needs it to tell the two
+;; bindings a render can see apart: one taken AROUND the render — a
+;; `with-frame` enclosing a synchronous flush — which the tree overrides, and
+;; one the render's OWN code took — in its body, an `:epoch` listener or trace
+;; callback it notifies, a handler it runs synchronously — which is the
+;; nearest, most explicit statement of the frame and decides. The binding
+;; records the render rather than the render recording the binding because a
+;; plain Reagent fn offers no render-start seam, while every framework binder
+;; of `*current-frame*` is one of four forms: `with-frame`, `with-new-frame`,
+;; `bind-fn` and the router's per-handler binding.
+
+(def ^:dynamic ^:no-doc *current-frame-bound-in*
+  "The component that was rendering when the in-effect `*current-frame*`
+  binding was taken, or nil when it was taken outside every render. Bound
+  beside `*current-frame*` by every framework binder; read through
+  [[bound-inside-render?]]."
+  nil)
+
+(defn ^:no-doc rendering-component
+  "The component a substrate is rendering on this stack, or nil. Read through
+  the `:adapter/current-component` hook, which only Reagent publishes."
+  []
+  #?(:cljs (when-let [hook (rf.late-bind/get-fn :adapter/current-component)]
+             (hook))
+     :clj  nil))
+
+(defn ^:no-doc bound-inside-render?
+  "True when the in-effect `*current-frame*` binding was taken while
+  component `cmp` was rendering, by code that render reached. Such a binding
+  decides over the tree. A binding taken around the render, or during a
+  different component's render (one a handler or a listener started), does
+  not: that component reads its own tree."
+  [cmp]
+  (identical? *current-frame-bound-in* cmp))
+
 ;; ---- The REFUSAL tier — "no ambient frame is legal here" -----------------
 ;;
 ;; The two scope tiers above answer WHICH frame is current. Neither can say
@@ -1279,7 +1316,8 @@
   cover). NOT an app-facing surface."
   [frame f]
   (fn [& args]
-    (binding [*current-frame* frame]
+    (binding [*current-frame*          frame
+              *current-frame-bound-in* (rendering-component)]
       (apply f args))))
 
 ;; ---- lookup ---------------------------------------------------------------
@@ -3756,18 +3794,8 @@
   forge ownership of a fresh same-id incarnation.
 
   Around the handler pipeline the router also records the dequeued dispatch
-  envelope under `:envelope`, read through `current-event-envelope`, and the
-  component rendering on this stack when the pipeline began under
-  `:render-host`, read through `event-run-inside-render?`."
+  envelope under `:envelope`, read through `current-event-envelope`."
   nil)
-
-(defn- rendering-component
-  "The component a substrate is rendering on this stack, or nil. Read through
-  the `:adapter/current-component` hook, which only Reagent publishes."
-  []
-  #?(:cljs (when-let [hook (rf.late-bind/get-fn :adapter/current-component)]
-             (hook))
-     :clj  nil))
 
 (defn ^:no-doc call-with-event-owner-token
   "Run `f` with the exact-incarnation authority captured by the router.
@@ -3784,24 +3812,10 @@
   ([frame-id token f]
    (call-with-event-owner-token frame-id token nil f))
   ([frame-id token envelope f]
-   (binding [*event-owner* {:frame       frame-id
-                            :token       token
-                            :envelope    envelope
-                            :render-host (rendering-component)}]
+   (binding [*event-owner* {:frame    frame-id
+                            :token    token
+                            :envelope envelope}]
      (f))))
-
-(defn ^:no-doc event-run-inside-render?
-  "True when the in-flight event's pipeline began while component `cmp` was
-  rendering — a handler that render ran synchronously, such as a
-  `make-frame` `:initial-events` step called from a view.
-
-  The handler is not part of that render's frame, so a view-side reader that
-  puts the tree first asks this and gives the handler its envelope's frame
-  instead. A component that starts rendering INSIDE the handler is a
-  different component, so its own tree still answers."
-  [cmp]
-  (let [host (:render-host *event-owner*)]
-    (and (some? host) (identical? host cmp))))
 
 (defn ^:no-doc current-event-envelope
   "Return the dispatch envelope of the event whose handler pipeline is running
