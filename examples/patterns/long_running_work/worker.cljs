@@ -205,9 +205,11 @@
     ;; not by sending a cancel event inward. We keep the state around for
     ;; two reasons: so the machine's tags advertise #{:work/cancelled}
     ;; to tools, and so an app that *does* prefer in-FSM cancellation
-    ;; has a place to land.
-    {:meta {:terminal? true}
-     :tags #{:work/cancelled}}}})
+    ;; has a place to land. It's :final?, so a child that lands here
+    ;; finishes: the runtime reaps it and the parent gets a nil result,
+    ;; since no :output-key names one.
+    {:final? true
+     :tags   #{:work/cancelled}}}})
 
 (rf/reg-machine :work/processor processor-machine)
 

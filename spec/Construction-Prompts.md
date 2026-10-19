@@ -449,8 +449,8 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
       :submit  {:target :submitting
                 :action :clear-error}}}
 
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 ```
 
 **What "named in `:guards` / `:actions` by default" buys:**
@@ -517,7 +517,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 {:idle {:on {:fetch {:target :loading :action :spawn-fetch}}}}
 ```
 
-A hand-emitted `:rf.machine/spawn` from an action carries no declarative invoke-id, so it gets no automatic `:rf/spawned` `:data` capture: to address the actor afterwards, choose a fresh explicit keyword address, pass it as `:fixed-actor-id`, and store it in ordinary `:data` (per [005 §Hand-emitting `[:rf.machine/spawn …]`](005-StateMachines.md#hand-emitting-rfmachinespawn---the-desugar-target)). On the *declarative* `:spawn` path the reducer binds the id into the parent's `:data` under `[:rf/spawned <invoke-id>]` for free. The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` in runtime-db (runtime-managed; the spawn-spec does not pick a location).
+A hand-emitted `:rf.machine/spawn` from an action carries no declarative invoke-id, so it gets no automatic `[:rf/runtime :spawned]` record: to address the actor afterwards, choose a fresh explicit keyword address, pass it as `:fixed-actor-id`, and store it in ordinary `:data` (per [005 §Hand-emitting `[:rf.machine/spawn …]`](005-StateMachines.md#hand-emitting-rfmachinespawn---the-desugar-target)). On the *declarative* `:spawn` path the reducer records the id at the parent's `[:rf/runtime :spawned <invoke-id>]` for free. The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` in runtime-db (runtime-managed; the spawn-spec does not pick a location).
 
 **Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, the parallel-regions decision between `:type :parallel` and N-machines-per-region, or first-class history states (`:type :history`), consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
 
@@ -597,7 +597,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 - Views read state via `@(rf/subscribe [:rf/machine <machine-id>])`; no manual `reg-sub` over `[:rf.runtime/machines :snapshots ...]`.
 - Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
-- If the machine has terminal states, they're marked `:meta {:terminal? true}`.
+- If the machine has terminal states, they're `:final? true`; a singleton rests in its final state.
 - Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
 - The `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` includes the new id; `(:rf/machine (rf/handler-meta {:source :store :kind :event :id <id>}))` returns its registered spec (which includes the `:guards` / `:actions` maps).
 

@@ -1926,13 +1926,13 @@ The `[:dashboard/opened …]` owner is app-minted, so the app owns its release: 
 ```clojure
 {:actions
  {:ensure-quote
-  (fn [{:keys [data]}]
+  (fn [{:keys [data self-id]}]
     ;; Mint the owner under the actor's RUNTIME id so the machine teardown
-    ;; auto-releases it. A spawned actor knows its own id via `:rf/self-id`
-    ;; (stamped on its `:data`); a singleton machine's actor-id IS its
-    ;; registered machine-id (`:checkout/flow` here), so either form yields the
-    ;; same `[:machine <actor-id>]` key the destroy releases.
-    (let [actor-id (:rf/self-id data :checkout/flow)]
+    ;; auto-releases it. A spawned actor reads its own id as the `:self-id`
+    ;; context key; a singleton machine's actor-id IS its registered
+    ;; machine-id (`:checkout/flow` here), so either form yields the same
+    ;; `[:machine <actor-id>]` key the destroy releases.
+    (let [actor-id (or self-id :checkout/flow)]
       {:fx [[:dispatch [:rf.resource/ensure
                         {:resource :checkout/quote
                          :params   {:cart-id (:cart-id data)}

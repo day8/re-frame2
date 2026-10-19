@@ -303,33 +303,29 @@ The pattern, distilled to a worked sketch:
 
 ```clojure
 ;; ---------- Transport retry — :rf.http/managed handles 5xx + network ----------
-;; This is the call site the machine's :spawn spawns. The :retry slot owns
-;; "after a 503, wait backoff(N) and try again." That decision is mechanical:
-;; failure category + attempt count. No state, no other request, no body
-;; matching — pure transport retry.
+;; These are the args the machine's :spawn hands the :rf.http/managed wrapper
+;; actor as its :data. The :retry slot owns "after a 503, wait backoff(N) and
+;; try again." That decision is mechanical: failure category + attempt count.
+;; No state, no other request, no body matching — pure transport retry.
 
-(rf/reg-event ::fetch-me
-  (fn [_ [_ {:keys [token]}]]
-    {:fx [[:rf.http/managed
-           {:request {:method  :get
-                      :url     "/api/me"
-                      :headers {"Authorization" (str "Bearer " token)}}
-            :decode  MeResponse
-            :retry   {:on           #{:rf.http/transport
-                                      :rf.http/http-5xx
-                                      :rf.http/timeout}
-                      :max-attempts 3
-                      :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
-            :on-success [:auth/me-loaded]
-            :on-failure [:auth/transport-failed]}]]}))
+(defn fetch-me-args [token]
+  {:request {:method  :get
+             :url     "/api/me"
+             :headers {"Authorization" (str "Bearer " token)}}
+   :decode  MeResponse
+   :retry   {:on           #{:rf.http/transport
+                             :rf.http/http-5xx
+                             :rf.http/timeout}
+             :max-attempts 3
+             :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}})
 
 ;; ---------- Semantic retry — state machine handles 401-vs-200-vs-fatal ------
 ;; The auth machine routes by outcome:
-;;   - :succeeded → done.
-;;   - :failed whose :error is {:kind :rf.http/http-4xx :status 401} → :refreshing.
+;;   - :on-done → done.
+;;   - :on-error whose failure is {:kind :rf.http/http-4xx :status 401} → :refreshing.
 ;;     The refresh path itself is a managed request; on success it loops back
 ;;     to :loading-me — a *semantic* retry of the original /api/me call.
-;;   - :failed otherwise (5xx after retries exhausted, network error,
+;;   - :on-error otherwise (5xx after retries exhausted, network error,
 ;;     decode-failure) → :login. Transport already retried; now the machine
 ;;     gives up.
 ;; The :refreshing → :loading-me transition is the semantic retry: it
@@ -341,36 +337,40 @@ The pattern, distilled to a worked sketch:
    :data    {:token nil :user nil :error nil}
 
    :guards
-   ;; the canonical reply carries the classified :rf.http/* map
-   ;; under :error; branch on (:kind error) / (:status error).
-   {:got-401? (fn [{[_ {:keys [error]}] :event}]
+   ;; the :on-error event carries the wrapper's classified :rf.http/* failure
+   ;; map at (nth event 2); branch on (:kind error) / (:status error).
+   {:got-401? (fn [{[_ _ error] :event}]
                 (and (= :rf.http/http-4xx (:kind error))
                      (= 401 (:status error))))
     :token-stale? (fn [{:keys [data]}]
                     (some? (:token data)))}                  ;; refresh viable
 
    :actions
-   {:record-token (fn [{:keys [data] [_ {:keys [token]}] :event}] {:data (assoc data :token token)})
-    :record-user  (fn [{:keys [data] [_ {:keys [value]}] :event}] {:data (assoc data :user value)})
-    :record-error (fn [{:keys [data] [_ {:keys [error]}] :event}] {:data (assoc data :error error)})}
+   ;; the :on-done event carries the completion map at (nth event 2); its
+   ;; :result is the decoded body.
+   {:record-token (fn [{:keys [data] [_ _ {:keys [result]}] :event}] {:data (assoc data :token (:token result))})
+    :record-user  (fn [{:keys [data] [_ _ {:keys [result]}] :event}] {:data (assoc data :user result)})
+    :record-error (fn [{:keys [data] [_ _ error] :event}] {:data (assoc data :error error)})}
 
    :states
    {:loading-me
-    {:spawn {:src ::fetch-me
-              :data (fn [{:keys [snapshot]}] {:token (-> snapshot :data :token)})}
-     :on    {:succeeded {:target :authenticated :action :record-user}
-             :failed    [{:guard  :got-401?
-                          :target :refreshing
-                          :action :record-error}
-                         {:target :login                         ;; non-401 → fatal
-                          :action :record-error}]}}
+    {:spawn {:machine-id :rf.http/managed
+             :data       (fn [{:keys [snapshot]}] (fetch-me-args (-> snapshot :data :token)))
+             :on-done    {:target :authenticated :action :record-user}
+             :on-error   [{:guard  :got-401?
+                           :target :refreshing
+                           :action :record-error}
+                          {:target :login                        ;; non-401 → fatal
+                           :action :record-error}]}}
 
     :refreshing
-    {:spawn {:src ::refresh-token}
-     :on    {:succeeded {:target :loading-me                    ;; semantic retry
-                         :action :record-token}
-             :failed    {:target :login                         ;; refresh failed → fatal
-                         :action :record-error}}}
+    {:spawn {:machine-id :rf.http/managed
+             :data       {:request {:method :post :url "/api/token/refresh"}
+                          :decode  TokenResponse}
+             :on-done    {:target :loading-me                    ;; semantic retry
+                          :action :record-token}
+             :on-error   {:target :login                         ;; refresh failed → fatal
+                          :action :record-error}}}
 
     :authenticated {:final? true}
     :login         {:final? true}}})
@@ -380,7 +380,7 @@ The boundary is teachable in three sentences:
 
 1. **`:rf.http/managed` `:retry` retries the same request when nothing else has to change.** Same URL, same headers, same body, same auth — only the wait time and the attempt counter differ. Transport-level.
 2. **The state machine retries when something has to change first** — refreshing a token, waiting for another request, conditioning on the response body, conditioning on app state. Semantic-level.
-3. **They compose.** The machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates (success or exhaustion), the machine sees a single `:succeeded` / `:failed` event and transitions accordingly. No call site has to choose one layer or the other — every non-trivial request configures both.
+3. **They compose.** The machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates (success or exhaustion), the wrapper finishes and the machine takes a single `:on-done` / `:on-error` transition accordingly. No call site has to choose one layer or the other — every non-trivial request configures both.
 
 #### Refresh-vs-init distinction
 

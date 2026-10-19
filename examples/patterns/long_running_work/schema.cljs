@@ -78,13 +78,7 @@
    [:shard     :keyword]   ;; which shard this child owns
    [:total     :int]       ;; items in that shard
    [:processed :int]       ;; how many it's finished so far
-   [:tick-ms   :int]       ;; ms it yields to the browser between chunks
-   ;; The runtime stamps a child's own address into its :data on spawn.
-   ;; We list these (optional) so the schema documents them — a Malli
-   ;; :map is open anyway, so they'd sail through undeclared.
-   [:rf/self-id   {:optional true} :any]
-   [:rf/parent-id {:optional true} :any]
-   [:rf/invoke-id {:optional true} :any]])
+   [:tick-ms   :int]])     ;; ms it yields to the browser between chunks
 
 ;; ============================================================================
 ;; SCHEMA ATTACHMENT
