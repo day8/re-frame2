@@ -37,7 +37,7 @@
    (let [tags (merge {:frame frame-id :recovery :for-test} extra-tags)]
      (rf.trace/emit-error! operation tags)
      (rf.error-emit/dispatch-error-record!
-       (merge {:error operation :time (rf.interop/now-ms)} tags)))))
+       (merge {:rf.error/id operation :time (rf.interop/now-ms)} tags)))))
 
 (deftest two-frames-return-own-public-error-no-bleed
   (let [f500 (make-server-frame :ssr/frr-a-500)

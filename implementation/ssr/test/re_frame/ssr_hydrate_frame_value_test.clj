@@ -61,7 +61,7 @@
             :payload  (server-payload id)
             :mount-fn (fn [] (throw (ex-info "mount failed" {})))}])
         (is (= [{:phase :mount :frame id}]
-               (for [r @records :when (= :rf.error/root-boot-failed (:error r))]
+               (for [r @records :when (= :rf.error/root-boot-failed (:rf.error/id r))]
                  (select-keys r [:phase :frame]))))
         (finally
           (rf.error-emit/unregister-error-listener! ::root-boot))))))

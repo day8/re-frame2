@@ -59,7 +59,7 @@
 (defn emit-always-on-error!
   "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
   error-emit registry (surface #4), via the `:error-emit/dispatch-error-
-  record` late-bind hook. `record` is the union shape `{:error <kw> :frame
+  record` late-bind hook. `record` is the union shape `{:rf.error/id <kw> :frame
   <id-or-nil> :time <ms> + flat category keys}`. A no-op when the
   `error-emit` producer hasn't loaded (the hook is nil) — the dev
   `trace/emit-error!` companion still fires. Returns nil.
@@ -354,7 +354,7 @@
             ;; PROJECTING + one-shot (the projection listener skips this
             ;; category, so no re-entry; see §always-on error-emit helper).
             (emit-always-on-error!
-              {:error :rf.error/sanitised-on-projection
+              {:rf.error/id :rf.error/sanitised-on-projection
                :frame frame-id
                :time  (rf.interop/now-ms)
                :projector-id      projector-id
@@ -412,7 +412,7 @@
                 ;; off-box shipper on a `-Dre-frame.debug=false` JVM SSR host
                 ;; sees the misconfiguration. One-shot + NON-PROJECTING.
                 (emit-always-on-error!
-                  (merge {:error :rf.error/sanitised-on-projection
+                  (merge {:rf.error/id :rf.error/sanitised-on-projection
                           :time  (rf.interop/now-ms)}
                          tags))))
             fallback-public-error)
@@ -430,7 +430,7 @@
             ;; catch arm above are mutually exclusive, so at most one emit
             ;; per call; the projection listener skips this category).
             (emit-always-on-error!
-              {:error :rf.error/sanitised-on-projection
+              {:rf.error/id :rf.error/sanitised-on-projection
                :frame frame-id
                :time  (rf.interop/now-ms)
                :projector-id      projector-id

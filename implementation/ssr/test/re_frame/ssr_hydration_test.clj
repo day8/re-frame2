@@ -196,7 +196,7 @@
           (rf/dispatch-sync [:rf/hydrate {:rf/frame-id    :secret/other-frame
                                           :rf/app-db      {:count 42}}]
                             {:frame frame})
-          (let [record    (first (filter #(= :rf.error/hydration-frame-id-mismatch (:error %))
+          (let [record    (first (filter #(= :rf.error/hydration-frame-id-mismatch (:rf.error/id %))
                                          @corpus))
                 dev-trace (first (filter #(= :rf.error/hydration-frame-id-mismatch (:operation %))
                                          @dev-traces))]

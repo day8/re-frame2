@@ -159,7 +159,7 @@
 (def redirect-record-slots
   "The CLOSED set of tag slots the ALWAYS-ON redirect-gate record
   (`:rf.error/redirect-invalid-url`, `-scheme-rejected`, `-host-disallowed`)
-  may carry off-box, over and above the `:error` / `:time` the
+  may carry off-box, over and above the `:rf.error/id` / `:time` the
   union-record helper assoc's.
 
   Every member is framework-owned — a value this runtime chose, not one the

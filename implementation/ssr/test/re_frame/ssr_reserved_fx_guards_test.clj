@@ -160,8 +160,8 @@
       (is (not-any? #{:rf.error/redirect-invalid-url
                       :rf.error/redirect-scheme-rejected
                       :rf.error/redirect-host-disallowed}
-                    (map :error records))
-          (pr-str (mapv :error records))))))
+                    (map :rf.error/id records))
+          (pr-str (mapv :rf.error/id records))))))
 
 (defn- landed?
   "Did `fx-id` WRITE to the accumulator? `:rf.server/set-status` landed when
