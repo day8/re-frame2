@@ -2860,6 +2860,8 @@ The two-tier split is not implementation discretion. It falls out of the require
 
 The snapshot's per-prefix counter map is allocated by the first spawn, and the runtime-db one at runtime-db construction; both maps persist across `pr-str` / `read-string` so the allocator survives a full snapshot round-trip. The id form (`<id-prefix>#<n>` keyword) is fixed per [§Spawn id format](#spawn-id-format---keyword-resolved). See also [Conventions §Reserved app-db keys — `[:rf/runtime :spawn-counter]`](Conventions.md#reserved-app-db-keys) and [Cross-Spec-Interactions §1 — Frame disposal](Cross-Spec-Interactions.md).
 
+<a id="runtime-stamps-on-the-spawned-actors-data"></a>
+
 ### Runtime stamps on the spawned actor
 
 The runtime records every spawned actor's lineage in its `:rf/runtime` map, never in its `:data`, so the actor can address its parent and itself at action-call time without the parent having to thread that information through manually:
