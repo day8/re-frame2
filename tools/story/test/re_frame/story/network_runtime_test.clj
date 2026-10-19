@@ -1,45 +1,42 @@
 (ns re-frame.story.network-runtime-test
   "A variant's authored `:network` fixture is realized on the live run paths
-  (spec/017 §The network surface): the runner installs the route map and
-  the frame takes the plan's `:fx-overrides` redirect to the stub fx.
+  (spec/017 §The network surface): the runner installs the route map on the
+  variant frame as a stub transport, beneath the real `:rf.http/managed`.
 
-  Every test registers `:rf.http/managed` as a capture-only sentinel that
-  records its payload and issues nothing, so an empty `live-requests` proves
-  the redirect fired and a non-empty one is the failure guarded against.
-
-  JVM-only: `rf.story/run` resolves synchronously and the canned reply is
-  dispatched inside the fx walk, so the round trip settles before `.get`
-  returns."
+  JVM-only: `rf.story/run` resolves synchronously and a route answers inline,
+  inside the fx walk, so the round trip settles before `.get` returns."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
             [re-frame.frame     :as rf.frame]
+            [re-frame.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story         :as rf.story]
-            [re-frame.story.frames  :as rf.story.frames]
-            [re-frame.story.network :as rf.story.network]))
+            [re-frame.story.frames  :as rf.story.frames]))
 
-(def ^:private live-requests (atom []))
+(defn- installed-transports
+  "Every frame id holding an installed stub transport."
+  []
+  (set (keys @@#'rf.http.registry/frame-transports)))
 
 (defn- reset-rf! [test-fn]
-  ;; Release first, so a previous test's undestroyed frame unwinds the shared
-  ;; install/uninstall pair before `clear-all!` drops the registrar.
-  (doseq [id (keys @rf.story.network/frame-routes)]
-    (rf.story.network/release-frame! id))
-  (reset! live-requests [])
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
+  (rf.http.registry/clear-all-in-flight!)
+  ;; `clear-all!` also drops the HTTP artefact's load-time registrations, so
+  ;; reload it: the variants' requests go through the real `:rf.http/managed`.
+  (require 're-frame.http.managed :reload)
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
-  (rf/reg-fx :rf.http/managed
-             (fn [_ctx payload] (swap! live-requests conj payload) nil))
   (rf/reg-event :net/load
                 (fn [_ _]
                   {:fx [[:rf.http/managed
                          {:request    {:method :get :url "/api/cart"}
+                          :decode     :json
                           :on-success [:net/loaded]
                           :on-failure [:net/failed]}]]}))
   (rf/reg-event :net/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :cart (:value reply))}))
@@ -52,35 +49,40 @@
   (.get ^java.util.concurrent.CompletableFuture (rf.story/run target)))
 
 (def ^:private cart-fixture
-  {[:get "/api/cart"] {:reply {:ok {:items [1]}}}})
+  {[:get "/api/cart"] {:body {:items [1]}}})
 
 (deftest extends-child-flipping-a-route-to-failure-fires-the-failure
-  ;; Were the route deep-merged to {:reply {:ok .. :failure ..}}, the stub
-  ;; would test :ok first and the child would answer the parent's :ok.
+  ;; Were the route deep-merged, the child's 409 would ride beside the
+  ;; parent's body instead of replacing the response.
   (rf.story/reg-variant :story.netext/ok
                         {:network cart-fixture
                          :setup   [[:dispatch [:net/load]]]})
   (rf.story/reg-variant :story.netext/fails
                         {:extends :story.netext/ok
-                         :network {[:get "/api/cart"]
-                                   {:reply {:failure {:kind :rf.http/http-4xx :status 409}}}}})
+                         :network {[:get "/api/cart"] {:status 409 :body {:error "sold out"}}}})
   (let [db (:app-db (run-target :story.netext/fails))]
     (is (= {:kind :rf.http/http-4xx :status 409}
-           (select-keys (get-in db [:error :error]) [:kind :status])))
-    (is (= [] @live-requests))))
+           (select-keys (get-in db [:error :error]) [:kind :status])))))
 
 (deftest inline-plan-realizes-and-releases-its-network-fixture
   (let [result (run-target {:network cart-fixture
                             :setup   [[:dispatch [:net/load]]]})]
     (is (= {:items [1]} (:cart (:app-db result))))
-    (is (= {} @rf.story.network/frame-routes)
-        "the inline run's teardown released the anonymous frame's routes")
-    (is (= [] @live-requests))))
+    (is (= #{} (installed-transports))
+        "the inline run's teardown dropped the anonymous frame's transport")))
+
+(deftest a-variant-without-network-stays-off-the-network
+  (testing "with no `:network`, the `:story` preset fails each managed request
+            as :rf.http/transport instead of sending it"
+    (rf.story/reg-variant :story.netnone/load {:setup [[:dispatch [:net/load]]]})
+    (let [db (:app-db (run-target :story.netnone/load))]
+      (is (= :rf.http/transport (get-in db [:error :error :kind])))
+      (is (nil? (:cart db))))))
 
 (deftest app-image-frame-keeps-application-isolation
-  (testing "a variant on an explicit app image still reaches its fixture, and
-            the fixture adds only the one stub fx the redirect names: a
-            registration outside the app image's namespace stays invisible"
+  (testing "a variant on an explicit app image still reaches its fixture
+            through the real :rf.http/managed, and a registration outside the
+            app image's namespace stays invisible"
     (require 'story.test-helpers.image-behaviour-v1 :reload)
     (rf.story/reg-variant :story.netimg3/cart
                           {:images  [(rf/image {:id        :net/app-image
@@ -90,28 +92,26 @@
     (let [result   (run-target :story.netimg3/cart)
           resolver (:rf.gen/resolver (rf/frame-generation :story.netimg3/cart))]
       (is (= {:items [1]} (:cart (:app-db result))))
-      (is (contains? resolver [:fx :rf.http/managed-test-stub]))
-      (is (not (contains? resolver [:event :img.counter/step])))
-      (is (= [] @live-requests)))))
+      (is (contains? resolver [:fx :rf.http/managed]))
+      (is (not (contains? resolver [:event :img.counter/step]))))))
 
 (deftest concurrently-mounted-variants-keep-their-own-replies
   (testing "two mounted variants stubbing the same url each answer their own
-            reply, and destroying one releases only its fixture"
+            response, and destroying one drops only its transport"
     (rf.story/reg-variant :story.net/a
-                          {:network {[:get "/api/cart"] {:reply {:ok {:items [:a]}}}}
+                          {:network {[:get "/api/cart"] {:body {:items ["a"]}}}
                            :setup   [[:dispatch [:net/load]]]})
     (rf.story/reg-variant :story.net/b
-                          {:network {[:get "/api/cart"] {:reply {:ok {:items [:b]}}}}
+                          {:network {[:get "/api/cart"] {:body {:items ["b"]}}}
                            :setup   [[:dispatch [:net/load]]]})
     (let [cart #(:cart (:app-db (run-target %)))]
-      (is (= [{:items [:a]} {:items [:b]} {:items [:a]}]
+      (is (= [{:items ["a"]} {:items ["b"]} {:items ["a"]}]
              [(cart :story.net/a) (cart :story.net/b) (cart :story.net/a)])
           "A still answers its own fixture with B mounted alongside")
       (rf.story.frames/destroy! :story.net/a)
-      (is (nil? (rf.story.network/routes-for :story.net/a)))
-      (is (= {:items [:b]} (cart :story.net/b))
+      (is (= #{:story.net/b} (installed-transports)))
+      (is (= {:items ["b"]} (cart :story.net/b))
           "B still answers after the sibling teardown")
       (rf.story.frames/destroy! :story.net/b)
-      (is (= {} @rf.story.network/frame-routes)
-          "the last release empties the registry")
-      (is (= [] @live-requests)))))
+      (is (= #{} (installed-transports))
+          "the last teardown empties the registry"))))

@@ -15,6 +15,7 @@
   isolation.cjs` covers the Story-sentinel absence."
   (:require [re-frame.core      :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.http.stub-transport :as stub-transport]
             [day8.re-frame2-xray.config :as xray-config]
             [login-form.events]
             [login-form.subs]
@@ -24,6 +25,25 @@
             ;; hash router + React-root handle.
             [re-frame.testbed.story-host :as rf.testbed.story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
+
+;; ---------------------------------------------------------------------------
+;; Demo backend — for the live page (Story variants never reach it)
+;; ---------------------------------------------------------------------------
+;;
+;; The live page at `#/` answers its login request from this stub transport so
+;; a visitor can click *Sign in* and watch the flow drive through. Password
+;; `correct-horse` succeeds; anything else is a 401. Each answer waits 250ms so
+;; :submitting is visible.
+
+(defn- demo-login
+  [{:keys [body]}]
+  (let [{:keys [email password]} (js->clj (js/JSON.parse body) :keywordize-keys true)]
+    (if (= "correct-horse" password)
+      {:body {:user {:email email} :token "demo-token"}}
+      {:status 401 :status-text "Unauthorized" :body {:message "Invalid credentials."}})))
+
+(def ^:private demo-backend
+  (stub-transport/route-transport {[:post "/api/login"] demo-login} {:delay-ms 250}))
 
 ;; ---------------------------------------------------------------------------
 ;; Live-app root view
@@ -82,12 +102,12 @@
   ;; No explicit `(story/install-canonical-vocabulary!)` — the first
   ;; `reg-*` in `login-form.stories` (loaded via the :require above)
   ;; auto-installs the canonical vocabulary.
-  ;; The live page wires `:rf.http/managed` to a demo override so
+  ;; The live page answers its requests from the demo backend so
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`
   ;; decorator overrides `:rf.http/managed` per-frame.
-  (rf/make-frame {:id :rf/default :doc          "Login-form testbed default frame."
-                  :fx-overrides {:rf.http/managed :login/demo-http}})
+  (rf/make-frame {:id :rf/default :doc "Login-form testbed default frame."})
+  (stub-transport/install-transport! :rf/default demo-backend)
   ;; Seed the FSM by routing a no-op event into :login/flow. The
   ;; machine self-initialises (per [005 §Restore semantics]) — its
   ;; :initial state and :data seed the snapshot on first dispatch.

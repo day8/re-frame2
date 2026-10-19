@@ -22,8 +22,9 @@
        :interceptor-overrides {<interceptor-id> <interceptor-ref>}}
 
   - `:preset :story` (spec/002 §Frame presets) sets `:drain-depth 16`
-    + redirects `:rf.http/managed` to its canned stub, which is the
-    sensible default for a sandboxed playground frame.
+    + `:rf.http/stub-only?`, so managed HTTP never reaches the network
+    unless the variant's `:network` routes answer it — the sensible
+    default for a sandboxed playground frame.
   - `:rf/story?` and `:rf/variant` are Story-stamped metadata so tools
     (10x, the snapshot service, the MCP query layer) can identify a
     variant frame from its `frame-meta`.
@@ -76,11 +77,6 @@
             [re-frame.story.error      :as rf.story.error]
             [re-frame.story.late-bind  :as rf.story.late-bind]
             [re-frame.story.loaders    :as rf.story.loaders]
-            ;; Frame teardown releases the frame's ownership of its
-            ;; authored `:network` canned replies (the runtime takes ownership
-            ;; before allocation). Pure registry bookkeeping; the HTTP
-            ;; artefact itself is reached lazily from inside that ns.
-            [re-frame.story.network    :as rf.story.network]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar  :as rf.story.registrar]
             [re-frame.story.runtime-image :as rf.story.runtime-image]))
@@ -550,7 +546,7 @@
   "Build the FULL `:images` vector a variant frame is created with (EP-0026
   §Layered Resolution — the later image WINS). The composition is:
 
-      [<story-images…> <variant-images…> fixture-image? runtime-image]
+      [<story-images…> <variant-images…> runtime-image]
 
   - `story-images`   — the parent story's `:images` (the app image declared once
                        on the story; inherited by every variant). See
@@ -558,20 +554,6 @@
   - `variant-images` — the variant body's own `:images`, layered on top of the
                        story image (a BEHAVIOUR variant overriding specific
                        `[kind id]`s with its own image).
-  - `fixture-image`  — PRESENT ONLY when this frame owns an authored
-                       `:network` fixture (`rf.story.network/install-for-frame!`
-                       ran for it upstream in phase 0). It carries exactly ONE
-                       inline `:reg-fx` — the frame-scoped managed-request stub
-                       the plan's `:fx-overrides` redirect names. Every
-                       explicit composition is layered
-                       over the framework base (`:rf/framework`), whose
-                       unstamped `:rf`-rooted registrations include the stub,
-                       so this image duplicates the base's entry and
-                       shadows it (`rf.story.network` ns docstring,
-                       017 §Reaching the fixture). Composed after
-                       every app image (nothing authored can shadow the
-                       fixture) and before `runtime-image` (they are disjoint;
-                       the runtime image keeps its LAST position).
   - `runtime-image`  — the canonical Story RUNTIME IMAGE, composed LAST so the
                        Story machinery (lifecycle machine, `:rf.assert/*`
                        handlers, fx-stub redirects, runtime helpers, toolbar
@@ -594,15 +576,7 @@
   (let [story-imgs (story-images variant-id)
         app-imgs   (into (vec story-imgs) variant-images)]
     (when (seq app-imgs)
-      ;; The fixture image is layered ONLY when this frame owns a
-      ;; `:network` fixture AND the stub is genuinely installed
-      ;; (`fixture-image` reads the source store, so it returns nil rather
-      ;; than inlining a stale handler).
-      (let [fixture-img (when (rf.story.network/routes-for variant-id)
-                          (rf.story.network/fixture-image))]
-        (cond-> app-imgs
-          fixture-img (conj fixture-img)
-          :always     (conj (rf.story.runtime-image/runtime-image)))))))
+      (conj app-imgs (rf.story.runtime-image/runtime-image)))))
 
 (defn- ->classification-effects
   "Convert a variant body's `:sensitive` / `:large` classification declaration
@@ -723,11 +697,10 @@
     inline plan run. Reading the raw body here would
     silently drop a classified parent's redaction from a child that only
     `:extends`es it.
-  - `[:frame :fx-overrides]` — the compiled frame overrides, e.g.
-    the `:network` lowering's `{:rf.http/managed :rf.http/managed-test-stub}`
-    redirect. They merge UNDER the decorator stack's materialised stubs (the
-    plan map wins), exactly as `allocate-inline!` merges its own; without
-    them an authored `:network` fixture would reach the REAL transport.
+  - `[:frame :fx-overrides]` — the compiled frame overrides (an
+    authored `:fx-overrides`). They merge OVER the decorator stack's
+    materialised stubs (the plan map wins), exactly as `allocate-inline!`
+    merges its own.
   - `[:frame :interceptor-overrides]` — the compiled interceptor overrides,
     installed as the frame's `:interceptor-overrides`; without them an
     authored override would be silently ignored.
@@ -748,14 +721,11 @@
      (install-canonical-frame-events!)
      (let [fx-stack       (rf.story.decorators/fx-overrides-map (:fx-override decorator-stack))
            decor-fx       (register-fx-overrides! fx-stack)
-           ;; The compiled plan's `[:world :frame :fx-overrides]`
-           ;; (e.g. the `:network` lowering's `{:rf.http/managed
-           ;; :rf.http/managed-test-stub}` redirect) rides onto the frame the
-           ;; SAME way `allocate-inline!` merges it: decorator stubs
-           ;; UNDER the plan map, so the plan wins. Passing only the decorator
-           ;; stack would silently drop an authored `:network`
-           ;; fixture's redirect, and the variant would reach
-           ;; the REAL `:rf.http/managed` transport.
+           ;; The compiled plan's `[:world :frame :fx-overrides]` rides
+           ;; onto the frame the SAME way `allocate-inline!` merges it:
+           ;; decorator stubs UNDER the plan map, so the plan wins. Passing
+           ;; only the decorator stack would silently drop an authored
+           ;; override.
            fx-overrides   (merge decor-fx (get-in world [:frame :fx-overrides]))
            ;; Inline the variant-body lookup (`variant-body` is defined
            ;; lower in this ns) — go through the registrar directly so
@@ -913,9 +883,7 @@
   - `decorator-stack` — `rf.story.decorators/resolve-decorator-refs` over the plan's
     `[:world :decorators]` refs (the runtime resolves it upstream);
   - `plan-frame` — the plan's `[:world :frame]` map, whose `:fx-overrides`
-    (the lowered map, e.g. the managed-HTTP stub the compiler folded
-    `:network` into) and `:interceptor-overrides` are both
-    installed on the frame;
+    and `:interceptor-overrides` are both installed on the frame;
   - `events-only?` — whether the plan drives no loaders / frame-setup, so
     the lifecycle takes the `:pre-mount → :ready` fast-path;
   - `classification` (optional, 5-arity) — the
@@ -938,9 +906,8 @@
   drives the lifecycle by the supplied shape, applies any `:frame-setup`
   decorators' `:init` events, and returns the frame-id. The frame's
   effective `:fx-overrides` is the decorator-stack's materialised stubs
-  UNDER the plan's lowered map (the plan map wins — it already merged the
-  author/network overrides). Does NOT register anything in the Story
-  side-table.
+  UNDER the plan's map (the plan map wins — it already merged the author
+  overrides). Does NOT register anything in the Story side-table.
 
   Classification is validated AFTER
   `rf/make-frame` (NOT before), even though that means a malformed
@@ -1009,9 +976,8 @@
         (catch #?(:clj Throwable :cljs :default) _ nil)))
     (try (apply-frame-teardown! frame-id (:frame-setup decorator-stack))
       (catch #?(:clj Throwable :cljs :default) _ nil))
-    ;; Same release as `destroy!`: an inline run's completion drops
-    ;; exactly the fixture that run owned.
-    (rf.story.network/release-frame! frame-id)
+    ;; Destroying the frame also drops the stub transport its `:network`
+    ;; fixture installed.
     (rf/destroy-frame! frame-id)
     nil))
 
@@ -1132,10 +1098,8 @@
   [variant-id]
   (when rf.story.config/enabled?
     (run-teardown-walks! variant-id)
-    ;; Release THIS frame's canned-network ownership (and, once no
-    ;; Story frame owns any, the shared stub fx). Only this frame's fixture
-    ;; goes: a concurrently mounted variant keeps answering its own replies.
-    (rf.story.network/release-frame! variant-id)
+    ;; Destroying the frame also drops the stub transport its `:network`
+    ;; fixture installed; a concurrently mounted variant keeps its own.
     (rf/destroy-frame! variant-id)
     nil))
 

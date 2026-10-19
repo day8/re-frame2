@@ -7,13 +7,12 @@
   bodies are supplied through an explicit `:lookup` map of RAW bodies.
 
   `:network` is the higher-level affordance for `:rf.http/managed`. The
-  compiler keeps the per-route reply data at `[:world :network]` (the
-  source of truth that feeds `:plan-hash` through `:world` + `explain`)
-  and lowers it to the managed-request stub fx — the variant
-  frame overrides `:rf.http/managed` with
-  `re-frame.http.test-support/install-managed-request-stubs!`'s stub fx
-  id. The fail-closed posture for unmatched routes is the stub helper's,
-  enforced at run time, and is not pinned here.
+  compiler keeps the route map at `[:world :network]` (the source of truth
+  that feeds `:plan-hash` through `:world` + `explain`); each route's value
+  is the response a stub transport gives. The runner installs the map on
+  the variant frame as a route transport, so the fail-closed posture for
+  unmatched routes is the transport's, enforced at run time, and is not
+  pinned here.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a `-test` name would run it on the JVM only."
@@ -32,28 +31,37 @@
 (def ^:private checkout-route [:post "/api/checkout"])
 
 ;; ===========================================================================
-;; Lowering — :network keeps the route map AND lowers to the managed-stub fx
+;; The route map rides the :world slot and nothing else
 ;; ===========================================================================
 
-(deftest no-network-no-lowering
-  (testing "a variant without :network carries no network slot and no managed override"
+(deftest no-network-no-world-slot
+  (testing "a variant without :network carries no network slot and no override"
     (let [m {:story.plain/v {:setup [[:dispatch [:a]]]}}
           p (plan-of :story.plain/v m)]
       (is (nil? (get-in p [:world :network])))
       (is (nil? (get-in p [:world :frame :fx-overrides])))
       (is (nil? (get-in p [:explain :network]))))))
 
+(deftest network-adds-no-fx-override
+  (testing ":network keeps its routes at [:world :network] and adds no
+            :fx-overrides entry: the routes are answered beneath the real
+            :rf.http/managed"
+    (let [routes {cart-route {:body {:items []}}}
+          p      (plan-of :story.net/v {:story.net/v {:network routes}})]
+      (is (= routes (get-in p [:world :network])))
+      (is (nil? (get-in p [:world :frame :fx-overrides]))))))
+
 ;; ===========================================================================
-;; arg substitution inside :network reply data
+;; arg substitution inside :network response data
 ;; ===========================================================================
 
-(deftest network-reply-data-substitutes-args
-  (testing "[:arg key] placeholders in :network reply data substitute"
+(deftest network-response-data-substitutes-args
+  (testing "[:arg key] placeholders in :network response data substitute"
     (let [m {:story.session/v
              {:args    {:uid 42}
-              :network {[:get "/api/session"] {:reply {:ok {:user/id [:arg :uid]}}}}}}
+              :network {[:get "/api/session"] {:body {:user/id [:arg :uid]}}}}}
           p (plan-of :story.session/v m)]
-      (is (= {:reply {:ok {:user/id 42}}}
+      (is (= {:body {:user/id 42}}
              (get-in p [:world :network [:get "/api/session"]]))))))
 
 ;; ===========================================================================
@@ -64,13 +72,13 @@
   (doseq [[label variant-id body fragments]
           [[":network + a direct :fx-overrides on :rf.http/managed is a hard error"
             :story.checkout/conflict
-            {:network      {cart-route {:reply {:ok {:items []}}}}
+            {:network      {cart-route {:body {:items []}}}
              :fx-overrides {:rf.http/managed :some/other-stub}}
             {}]
            ["a COMPOSED FRAGMENT's :fx-overrides on :rf.http/managed is the same
              hard conflict as a direct author override"
             :story.checkout/compose-conflict
-            {:network {cart-route {:reply {:ok {:items []}}}}
+            {:network {cart-route {:body {:items []}}}
              :compose [:fragment.http/managed-override]}
             {:fragment.http/managed-override
              {:fx-overrides {:rf.http/managed :some/fragment-stub}}}]]]
@@ -85,44 +93,41 @@
                (select-keys data [:rf.error/id :fx-id :variant/id])))))))
 
 (deftest network-and-non-managed-fx-override-coexist
-  (testing ":network and an :fx-overrides on a DIFFERENT fx merge cleanly"
+  (testing ":network and an :fx-overrides on a DIFFERENT fx coexist"
     (let [m {:story.checkout/mixed-fx
-             {:network      {cart-route {:reply {:ok {:items []}}}}
+             {:network      {cart-route {:body {:items []}}}
               :fx-overrides {:analytics/track :analytics/noop-stub}}}
           p (plan-of :story.checkout/mixed-fx m)]
-      (testing "both the managed-stub lowering and the author override survive"
-        (is (= {:rf.http/managed :rf.http/managed-test-stub
-                :analytics/track :analytics/noop-stub}
-               (get-in p [:world :frame :fx-overrides])))))))
+      (is (= {:analytics/track :analytics/noop-stub}
+             (get-in p [:world :frame :fx-overrides])))
+      (is (= {cart-route {:body {:items []}}}
+             (get-in p [:world :network]))))))
 
 ;; ===========================================================================
-;; explain — per-route stubs + lowering visible
+;; explain — per-route stubs visible
 ;; ===========================================================================
 
 (deftest explain-shows-per-route-network-stubs
-  (testing "explain surfaces the per-route stubs and the managed-stub lowering"
-    (let [routes {cart-route     {:reply {:ok {:items []}}}
-                  checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}
+  (testing "explain surfaces the per-route stubs"
+    (let [routes {cart-route     {:body {:items []}}
+                  checkout-route {:status 409 :body {:error "sold out"}}}
           m {:story.checkout/explained {:network routes}}
           ex (rf.story.plan/explain :story.checkout/explained {:lookup m})]
-      (is (= routes (get-in ex [:network :routes]))
-          "explain shows the per-route reply data")
-      (is (= {:rf.http/managed :rf.http/managed-test-stub}
-             (get-in ex [:network :lowered-to]))
-          "explain shows the managed-stub fx the routes lower to"))))
+      (is (= {:routes routes} (:network ex))
+          "explain shows each route's response"))))
 
 ;; ===========================================================================
 ;; :network participates in :plan-hash (via the :world slot)
 ;; ===========================================================================
 
 (deftest network-perturbs-plan-hash
-  (testing "different per-route replies perturb the plan-hash (§Network stubs)"
-    (let [base {:story.h/v {:network {cart-route {:reply {:ok {:items []}}}}}}
-          alt  {:story.h/v {:network {cart-route {:reply {:ok {:items [{:sku "A"}]}}}}}}
+  (testing "different per-route responses perturb the plan-hash (§Network stubs)"
+    (let [base {:story.h/v {:network {cart-route {:body {:items []}}}}}
+          alt  {:story.h/v {:network {cart-route {:body {:items [{:sku "A"}]}}}}}
           p1   (plan-of :story.h/v base)
           p2   (plan-of :story.h/v alt)]
       (is (not= (rf.story.fingerprint/plan-hash p1) (rf.story.fingerprint/plan-hash p2))
-          "a semantic change to a route reply changes the plan-hash"))))
+          "a semantic change to a route response changes the plan-hash"))))
 
 ;; ===========================================================================
 ;; :network inherits through :extends (world context flows down)
@@ -131,47 +136,48 @@
 (deftest network-inherits-through-extends
   (testing ":network is world context — it inherits root→child (per-route merge)"
     (let [m {:story.n/parent
-             {:network {cart-route {:reply {:ok {:items []}}}}}
+             {:network {cart-route {:body {:items []}}}}
              :story.n/child
              {:extends :story.n/parent
-              :network {checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}}}
+              :network {checkout-route {:status 409}}}}
           p (plan-of :story.n/child m)]
-      (testing "both parent + child routes present (disjoint routes union)"
-        (is (= {cart-route     {:reply {:ok {:items []}}}
-                checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}
-               (get-in p [:world :network]))))
-      (testing "one managed-stub override covers the inherited + own routes"
-        (is (= {:rf.http/managed :rf.http/managed-test-stub}
-               (get-in p [:world :frame :fx-overrides])))))))
+      (is (= {cart-route     {:body {:items []}}
+              checkout-route {:status 409}}
+             (get-in p [:world :network]))
+          "both parent + child routes present (disjoint routes union)"))))
 
-(deftest network-same-route-child-reply-replaces-parent-through-extends
-  (testing "a child flipping the SAME route :ok -> :failure REPLACES the parent's
-            reply. A route's value is one reply, so the child wins per
+(deftest network-same-route-child-response-replaces-parent-through-extends
+  (testing "a child flipping the SAME route to a failure REPLACES the parent's
+            response. A route's value is one response, so the child wins per
             route — exactly as :compose resolves the same slot. A deep merge
-            would compile {:reply {:ok .. :failure ..}}, which the :reply
-            schema rejects and the stub answers with :ok, losing the failure
-            case."
-    (let [failure {:kind :rf.http/http-4xx :status 409}
-          m {:story.n/ok    {:network {cart-route {:reply {:ok {:items [1]}}}}}
+            would compile a 409 carrying the parent's body."
+    (let [m {:story.n/ok    {:network {cart-route {:body {:items [1]}}}}
              :story.n/fails {:extends :story.n/ok
-                             :network {cart-route {:reply {:failure failure}}}}}
+                             :network {cart-route {:status 409}}}}
           p (plan-of :story.n/fails m)]
-      (is (= {:reply {:failure failure}}
+      (is (= {:status 409}
              (get-in p [:world :network cart-route]))
-          "the child's reply replaces the parent's wholesale"))))
+          "the child's response replaces the parent's wholesale"))))
 
 ;; ===========================================================================
 ;; Schema — the Variant schema accepts :network and rejects malformed shapes
 ;; ===========================================================================
 
+(deftest network-schema-accepts-stub-transport-responses
+  (are [routes] (nil? (rf.story.schemas/validate :variant {:network routes}))
+    {cart-route {}}
+    {cart-route {:status 200 :headers {"x-total" "3"} :body {:items []} :delay-ms 20}}
+    {cart-route {:failure {:kind :rf.http/transport :message "offline"}}}
+    {cart-route {:failure {:kind :rf.http/timeout}}}))
+
 (deftest network-schema-rejects-malformed-routes
   (are [routes] (some? (rf.story.schemas/validate :variant {:network routes}))
-    ;; a route value with no :reply
-    {cart-route {:status :ok}}
-    ;; a :reply carrying BOTH :ok and :failure (they are exclusive)
-    {cart-route {:reply {:ok 1 :failure {:kind :x}}}}
+    ;; a key no stub-transport response carries
+    {cart-route {:reply {:ok 1}}}
+    ;; a failure kind a transport cannot report — it is decided from a response
+    {cart-route {:failure {:kind :rf.http/http-4xx}}}
+    ;; a non-integer status
+    {cart-route {:status "200"}}
     ;; a route key that is not a [method url] pair: a bare string, a bad method
-    {"/api/cart" {:reply {:ok 1}}}
-    {[:teleport "/api/cart"] {:reply {:ok 1}}}
-    ;; a :reply carrying neither :ok nor :failure
-    {cart-route {:reply {}}}))
+    {"/api/cart" {:body 1}}
+    {[:teleport "/api/cart"] {:body 1}}))

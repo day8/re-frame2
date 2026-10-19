@@ -86,7 +86,7 @@
       (rf.story/reg-story :story.nlvgc {:component labelled-view :args {:label "Go"}})
       (rf.story/reg-variant :story.nlvgc/stubbed
                             {:tags    #{:dev}
-                             :network {[:get "/api/x"] {:reply {:ok (fn [_] {})}}}})
+                             :network {[:get "/api/x"] {:body (fn [_] {})}}})
       (rf.story/reg-variant :story.nlvgc/plain {:tags #{:dev} :setup []})
       (rf.story.ui.state/swap-state!
         (fn [s] (assoc s :selected-variant :story.nlvgc/stubbed)))

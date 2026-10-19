@@ -95,7 +95,7 @@
        {:setup         [[:dispatch [:seed]]]
         :sub-overrides {[:q] 1}
         :args          {:label "x"}
-        :network       {[:get "/x"] {:reply {:ok 1}}}
+        :network       {[:get "/x"] {:body 1}}
         :fx-overrides  {:fx :stub}
         :script        [[:click "#go"]]
         :frame-binding :attached}

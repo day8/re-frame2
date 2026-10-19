@@ -72,18 +72,16 @@
 
   ## Network world slot
 
-  When a variant authors `:network` (a `{[method url] {:reply …}}` route
-  map), the compiler keeps the per-route reply data at `[:world :network]`
-  (the source of truth that feeds `:plan-hash` through the `:world` slot
-  and `explain`) and **lowers** it to the managed-request stub
-  machinery — the variant frame overrides `:rf.http/managed` with the stub
-  fx `re-frame.http.test-support/install-managed-request-stubs!` registers
-  (folded into `[:world :frame :fx-overrides]`). It reuses that helper
-  rather than inventing a new HTTP mock; the actual `install-…!` call is a
-  RUNTIME concern (run when the variant frame is created). `:network` and
-  an explicit author `:fx-overrides` on `:rf.http/managed` are a hard
-  conflict (`:rf.error/story-network-fx-conflict`) — `:network` is the
-  dedicated affordance for that fx. See §Network world slot below.
+  When a variant authors `:network` (a `{[method url] response}` route
+  map, each response the shape a stub transport gives), the compiler keeps
+  it at `[:world :network]` (the source of truth that feeds `:plan-hash`
+  through the `:world` slot and `explain`). The runner installs it on the
+  variant frame as a `re-frame.http.stub-transport` route transport rather
+  than inventing a new HTTP mock; that install is a RUNTIME concern (run
+  when the variant frame is created). `:network` and an explicit author
+  `:fx-overrides` on `:rf.http/managed` are a hard conflict
+  (`:rf.error/story-network-fx-conflict`) — `:network` is the dedicated
+  affordance for that fx. See §Network world slot below.
 
   ## Strict `:compose` composition + capability inference
 
@@ -100,10 +98,10 @@
   ## What this layer DEFERS
 
   The runner itself + evidence projection are downstream of this compiler.
-  This layer keeps the per-route `:network` reply map at `[:world :network]`
-  and lowers it to the managed-stub fx-override the runner installs. The
+  This layer keeps the per-route `:network` route map at `[:world :network]`;
+  the runner installs it on the variant frame as a stub transport. The
   run-artifact wiring that threads `[:world :network]` onto the artifact's
-  `:network` slot so replay RE-INSTALLS the route stubs lives in
+  `:network` slot so replay answers from the same routes lives in
   `re-frame.story.determinism/->artifact` + `re-frame.story.artifact` —
   without reshaping the plan, exactly as this layer anticipates.
 
@@ -273,12 +271,11 @@
 
 (def ^:private per-entry-context-keys
   "The `context-keys` whose map ENTRIES are atomic. A `:network` route's
-  value is one reply and a `:sub-overrides` query's value is one pinned
+  value is one response and a `:sub-overrides` query's value is one pinned
   value, so through `:extends` the child wins per route / per query key —
   the same per-entry `merge` `:compose` applies to both slots.
-  Deep-merging them would fuse a parent's `{:reply {:ok …}}` with a child's
-  `{:reply {:failure …}}` into a reply the schema rejects and the stub
-  answers with `:ok`."
+  Deep-merging them would fuse a parent's `{:body …}` with a child's
+  `{:failure …}` into a response that carries both."
   #{:network :sub-overrides})
 
 (defn- merge-context
@@ -863,22 +860,20 @@
 ;; ============================================================================
 ;;
 ;; Per spec §The network surface + §Network stubs: managed HTTP stubbing is
-;; first-class world input. A variant authors
+;; first-class world input. A variant authors a route map whose values are
+;; the responses a stub transport gives (`re-frame.http.stub-transport`):
 ;;
-;;   {:network {[:get  "/api/cart"]      {:reply {:ok {:items []}}}
-;;              [:post "/api/checkout"]  {:reply {:failure {:kind :rf.http/http-4xx
-;;                                                          :status 409}}}}}
+;;   {:network {[:get  "/api/cart"]      {:body {:items []}}
+;;              [:post "/api/checkout"]  {:status 409 :body {:error "sold out"}}}}
 ;;
-;; The compiler keeps the per-route reply data at `[:world :network]` (the
-;; source of truth that feeds `:plan-hash` via `plan-hash-input-keys`'s
-;; `:world` slot, `explain`, and — threaded onto the artifact's `:network`
-;; slot by `re-frame.story.determinism/->artifact` — the run
-;; artifact) AND **lowers** it to the managed-request stub
-;; machinery: the variant frame overrides `:rf.http/managed` with the stub
-;; fx that `re-frame.http.test-support/install-managed-request-stubs!`
-;; registers. There is no separate HTTP mock — the lowering names the
-;; managed-request stub seam; the runner (and `replay-run-artifact`, via the `:network`
-;; slot) installs the route map and points `:fx-overrides` at the stub fx.
+;; The compiler keeps the route map at `[:world :network]` (the source of
+;; truth that feeds `:plan-hash` via `plan-hash-input-keys`'s `:world` slot,
+;; `explain`, and — threaded onto the artifact's `:network` slot by
+;; `re-frame.story.determinism/->artifact` — the run artifact). The runner
+;; installs it on the variant frame as a stub transport
+;; (`re-frame.story.network`), and `replay-run-artifact` answers a replay
+;; from it. There is no separate HTTP mock: a stub transport replaces only
+;; the network hop beneath the real `:rf.http/managed`.
 ;;
 ;; `:network` is NOT a replacement for generic `:fx-overrides`; it is the
 ;; higher-level affordance for `:rf.http/managed` specifically. Generic
@@ -886,33 +881,9 @@
 ;; (§Network stubs — "generic :fx-overrides still exists").
 
 (def managed-fx-id
-  "The production managed-HTTP fx id `:network` lowers an override of —
+  "The production managed-HTTP fx id `:network` answers the requests of —
   `re-frame.http.managed`'s `:rf.http/managed` (Spec 014)."
   :rf.http/managed)
-
-(def managed-stub-fx-id
-  "The fx id `re-frame.http.test-support/install-managed-request-stubs!`
-  registers and returns — the per-call stub target a `:network` variant's
-  frame redirects `:rf.http/managed` to. Mirrors that helper's private
-  `stub-fx-id` constant (Spec 014 §Testing); naming it here lets the plan
-  declare the lowering without depending on the http artefact at compile
-  time (the actual `install-…!` call is a RUNTIME concern, run when the
-  variant frame is created)."
-  :rf.http/managed-test-stub)
-
-(defn lower-network
-  "Lower a resolved `:network` route map into the managed-stub fx override.
-  Pure data → data. Returns the override map `{:rf.http/managed
-  :rf.http/managed-test-stub}` when `network` is non-empty, or `nil` when
-  there are no routes.
-
-  `network` is the per-route reply map already merged + arg-substituted
-  (`{[method url] {:reply …}}`). The compiler keeps that map itself at
-  `[:world :network]`; this override is the lowering the runner consumes to
-  point the frame's `:rf.http/managed` at the stub fx."
-  [network]
-  (when (seq network)
-    {managed-fx-id managed-stub-fx-id}))
 
 (defn- check-network-fx-conflict!
   "FAIL plan construction when `:network` and an explicit author
@@ -1531,8 +1502,8 @@
         ctx-fx       (merge composed-fx (:fx-overrides ctx))
         ctx-ic       (merge composed-ic (:interceptor-overrides ctx))
         ;; ---- network world slot ----
-        ;; Per-route replies may carry `[:arg key]` placeholders (e.g. a
-        ;; stubbed id driven by a control), so substitute before lowering.
+        ;; Per-route responses may carry `[:arg key]` placeholders (e.g. a
+        ;; stubbed id driven by a control), so substitute them.
         ;; `:network` composes through the parent chain (ctx) + composed
         ;; fragments' route maps (later wins per declared order, then the
         ;; variant chain).
@@ -1541,12 +1512,7 @@
         ;; `:network` and an explicit `:fx-overrides` on :rf.http/managed
         ;; both own the same fx — that is a hard conflict (§Network stubs).
         _            (check-network-fx-conflict! id ctx-fx network)
-        ;; Lower the route map to the managed-stub fx override; nil when
-        ;; there are no routes. The derived `:fx-overrides` merges UNDER any
-        ;; non-managed author overrides (the conflict check above rejects
-        ;; a managed-targeting author override).
-        network-low  (lower-network network)
-        fx-overrides (merge network-low ctx-fx)
+        fx-overrides ctx-fx
         interceptor-overrides ctx-ic
         ;; ---- composed-fragment loaders / decorators ----
         ;; `ctx` (above) is reduced over the `:extends` chain bodies ONLY —
@@ -1750,10 +1716,9 @@
                        ;; when non-empty; a bare render-as-mounted variant
                        ;; (no setup/seed/overrides) carries no slot.
                        (seq fidelity)        (assoc :fidelity fidelity)
-                       ;; `:network` keeps the per-route reply data (source
-                       ;; of truth, feeds :plan-hash via :world); the
-                       ;; lowering folds its managed-stub fx
-                       ;; override into the frame's `:fx-overrides` below.
+                       ;; `:network` keeps the route map (source of truth,
+                       ;; feeds :plan-hash via :world); the runner installs
+                       ;; it on the frame as a stub transport.
                        (seq network)          (assoc :network network)
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
@@ -1828,12 +1793,10 @@
                                               {:status    (:status validation)
                                                :missing   (:missing validation)
                                                :malformed (:malformed validation)})
-                      ;; Per-route network stubs + the
-                      ;; managed-stub fx the routes lower to (§Network
-                      ;; stubs — ":network participates in explain").
+                      ;; Per-route network stubs (§Network stubs —
+                      ;; ":network participates in explain").
                       :network      (when (seq network)
-                                      {:routes       network
-                                       :lowered-to   network-low})
+                                      {:routes network})
                       ;; View-state subscription overrides +
                       ;; the resolved fidelity ladder. `explain` surfaces
                       ;; the resolved override map (post `[:arg]`

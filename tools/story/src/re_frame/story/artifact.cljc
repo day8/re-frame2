@@ -19,7 +19,7 @@
        :seed          optional
        :event-program [step …]        ; the dispatch program (setup ⧺ script)
        :fx-decisions  {fx-id override} ; reapplied fx overrides / decisions
-       :network       {[m url] {:reply …}} ; per-route HTTP stubs (reinstalled)
+       :network       {[m url] response} ; per-route HTTP stubs (answer the replay)
        :epoch-tape    [epoch-record …] ; the captured tape (when retained)
        :trace         [trace-event …]  ; optional flat trace
        :result        run-result       ; the projected run-result
@@ -43,23 +43,17 @@
   live effect.
 
   `:network` is the serializable record of the variant's per-route HTTP
-  reply data (`{[method url] {:reply …}}`, spec/017 §The network surface),
+  responses (`{[method url] response}`, spec/017 §The network surface),
   captured from the plan's `[:world :network]` slot at materialize time.
-  The `:network` world slot LOWERS to a `:fx-decisions` redirect
-  (`{:rf.http/managed :rf.http/managed-test-stub}`), so the redirect alone
-  survives in `:fx-decisions` — but the redirect points at a stub fx that
-  is only registered (with the routes) by
-  `re-frame.http.test-support/install-managed-request-stubs!`. Carrying the
-  route map in `:network` lets replay RE-INSTALL those route stubs before
-  replaying, so a replayed `:network` request matches its route and
-  synthesises the recorded reply rather than fail-closing on
-  \"no stub matched\" (spec/017 §The network surface).
+  Carrying the route map lets replay answer each replayed managed request
+  from a route transport over the same routes, rather than fail-closing as
+  an unmatched request (spec/017 §The network surface).
 
   ## Replay
 
   `(replay-run-artifact artifact opts)` replays the artifact's dispatch
-  program into a FRESH frame, reapplying the fx decisions, RE-INSTALLING
-  the `:network` route stubs (when present), captures a NEW epoch tape, and
+  program into a FRESH frame, reapplying the fx decisions, answering from
+  the `:network` routes (when present), captures a NEW epoch tape, and
   projects it through the evidence boundary
   (`re-frame.story.play.evidence/project-evidence`). The returned
   run-result is the SHARED run-result shape (spec/017 §Run result) — the
@@ -89,15 +83,13 @@
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
             [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
             [re-frame.story.result                :as rf.story.result]
-            ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
-            ;; (reached through its home namespace, not the `re-frame.core`
-            ;; façade). CLJS requires it directly; on the JVM it is resolved
-            ;; LAZILY at call time (`with-network-stubs!`) so requiring this
-            ;; ns from the
+            ;; The stub transports live in `re-frame.http.stub-transport`.
+            ;; CLJS requires it directly; on the JVM it is resolved LAZILY at
+            ;; call time (`with-network-stubs!`) so requiring this ns from the
             ;; `re-frame.story` MACRO-ns does NOT drag the http artefact's
             ;; JVM-only transitive deps (e.g. cheshire) onto the macro
             ;; classpath. CLJS pulls only the CLJS-clean `.cljc` surface.
-            #?(:cljs [re-frame.http.test-support :as rf.http.test-support])))
+            #?(:cljs [re-frame.http.stub-transport :as rf.http.stub-transport])))
 
 ;; ===========================================================================
 ;; THE :rf.test/run-artifact SCHEMA
@@ -114,11 +106,9 @@
   §Artifacts — Run artifact). `:artifact/kind` + `:event-program` are the
   load-bearing slots; the rest are optional evidence / provenance.
 
-  `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`)
-  carried so replay can re-install the managed-request stubs the
-  `:fx-decisions` redirect points at (spec/017 §The network
-  surface — \"the runner installs the route map via
-  install-managed-request-stubs!\").
+  `:network` is the per-route HTTP response map (`{[method url] response}`)
+  carried so replay answers from the same routes (spec/017 §The network
+  surface).
 
   Enumerated so `select-keys` can normalize a hand-built / over-stuffed
   map down to the artifact surface without dropping a future-added slot
@@ -246,38 +236,25 @@
              ([frame-id event-vector opts] (fire frame-id event-vector opts))))))
 
 (defn with-network-stubs!
-  "Run `thunk` with the artifact's `:network` per-route HTTP stubs
-  installed, then uninstall them (spec/017 §The network surface). When the
-  artifact carries a non-empty `:network` route map, this installs the
-  managed-request stub fx (`:rf.http/managed-test-stub`) with those routes
-  via `re-frame.http.test-support/install-managed-request-stubs!` — the SAME
-  seam a live run uses — so the `:fx-decisions` redirect (`{:rf.http/managed
-  :rf.http/managed-test-stub}`) resolves to a stub that matches the routes
-  rather than fail-closing on \"no stub matched\". The stubs are
-  uninstalled in a `finally` so a replay never leaks the stub fx into a
-  later test.
+  "Run `thunk` with every managed request it issues answered from the
+  artifact's `:network` routes (spec/017 §The network surface): a
+  `with-transport` scope over a route transport, the same stub transport a
+  live run installs on its frame. The scope unwinds on exit, so a replay
+  never leaks its routes into a later test.
 
-  When the artifact carries no `:network` routes, `thunk` runs unchanged
-  (no install, no uninstall) — so an artifact without HTTP stays clear of
-  the test-support surface entirely. The install/uninstall pair lives in
-  `re-frame.http.test-support` (reached through its home namespace, not
-  the `re-frame.core` façade), which Story already
-  carries on its require closure via the `day8/re-frame2-http` dep."
+  When the artifact carries no `:network` routes, `thunk` runs unchanged,
+  so an artifact without HTTP never touches the http artefact."
   [artifact thunk]
   (let [network (:network artifact)]
     (if (seq network)
-      ;; JVM resolves the home-ns fns lazily so requiring this ns from the
-      ;; story MACRO-ns never hard-loads the http artefact's JVM deps; CLJS
-      ;; calls the directly-required surface.
-      (let [install   #?(:clj  (requiring-resolve 're-frame.http.test-support/install-managed-request-stubs!)
-                         :cljs rf.http.test-support/install-managed-request-stubs!)
-            uninstall #?(:clj  (requiring-resolve 're-frame.http.test-support/uninstall-managed-request-stubs!)
-                         :cljs rf.http.test-support/uninstall-managed-request-stubs!)]
-        (try
-          (install network)
-          (thunk)
-          (finally
-            (uninstall))))
+      ;; JVM resolves the fns lazily so requiring this ns from the story
+      ;; MACRO-ns never hard-loads the http artefact's JVM deps; CLJS calls
+      ;; the directly-required surface.
+      (let [with-transport  #?(:clj  (requiring-resolve 're-frame.http.stub-transport/with-transport)
+                               :cljs rf.http.stub-transport/with-transport)
+            route-transport #?(:clj  (requiring-resolve 're-frame.http.stub-transport/route-transport)
+                               :cljs rf.http.stub-transport/route-transport)]
+        (with-transport (route-transport network) thunk))
       (thunk))))
 
 (defn- step-dispatch-opts
@@ -568,10 +545,10 @@
                                  (update-in [:observability :errors] (fnil conj [])
                                             {:sink rf.story.config/error-sink-id}))))]
      (try
-       ;; Re-install the artifact's `:network` route stubs (when any) for the
-       ;; duration of the replay, so the `:fx-decisions` managed-stub redirect
-       ;; resolves to a stub that matches the recorded routes rather than
-       ;; fail-closing (spec/017 §The network surface).
+       ;; Answer the replay's managed requests from the artifact's
+       ;; `:network` routes (when any), so a replayed request matches its
+       ;; recorded route rather than fail-closing (spec/017 §The network
+       ;; surface).
        (with-network-stubs! artifact
          (fn []
            (let [outcomes (replay-into-frame! frame-id artifact hooks)

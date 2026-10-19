@@ -20,7 +20,7 @@
 (deftest classify-downgrades-by-the-reason-it-finds
   (doseq [[label inputs status code]
           [["a network stub replying via a fn downgrades to partial (route survives)"
-            {:plan {:world {:network {[:get "/api/x"] {:reply (fn [_] {})}}}}}
+            {:plan {:world {:network {[:get "/api/x"] {:body (fn [_] {})}}}}}
             :partial :network-reply-fn]
            ["a play-script step carrying a fn downgrades to partial"
             {:plan {:script [[:dispatch [:inc]] [:custom (fn [_] nil)]]}}

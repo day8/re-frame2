@@ -41,9 +41,9 @@
             [re-frame.story.frames    :as rf.story.frames]
             [re-frame.story.identity  :as rf.story.identity]
             [re-frame.story.loaders   :as rf.story.loaders]
-            ;; Realizes the compiled `:network` fixture (installs
-            ;; the frame-scoped route map the plan's lowered `:fx-overrides`
-            ;; redirect points at) before either run path allocates its frame.
+            ;; Realizes the compiled `:network` fixture (installs its routes
+            ;; on the frame as a stub transport) before either run path
+            ;; allocates its frame.
             [re-frame.story.network   :as rf.story.network]
             [re-frame.story.plan      :as rf.story.plan]
             [re-frame.story.play      :as rf.story.play]
@@ -946,10 +946,7 @@
   (ensure-fresh-frame! variant-id)
   ;; Realize the compiled `:network` fixture BEFORE allocation, so
   ;; the route map is live before any `:frame-setup` `:init`, loader, `:setup`
-  ;; or script effect can issue a managed request. `lower-network` is pure: it
-  ;; emits the `{:rf.http/managed :rf.http/managed-test-stub}` redirect but
-  ;; registers nothing, so without this the variant would reach the REAL
-  ;; transport.
+  ;; or script effect can issue a managed request.
   (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
   (when (seq (:errors decorator-stack))
     (rf.story.frames/allocate! variant-id
@@ -1958,10 +1955,8 @@
   ;; anonymous frame exists (nothing is ever rendered over it), so there is
   ;; nothing to tear down.
   (refuse-unresolved-decorators! variant-id decorator-stack)
-  ;; The inline path TRANSFERS the lowered redirect with the plan's frame
-  ;; overrides; with no route map installed `:rf.http/managed-test-stub`
-  ;; would be an unregistered fx id. Realize the fixture first, same
-  ;; ordering as `run-phase-0!`.
+  ;; Realize the `:network` fixture first, same ordering as
+  ;; `run-phase-0!`.
   (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
   (rf.story.frames/allocate-inline! variant-id
                            decorator-stack

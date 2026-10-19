@@ -41,7 +41,7 @@
     []
     ;; render order is args, route, network, fx-overrides
     {:args {:n 1} :route [:home]
-     :network {[:get "/x"] {:reply {:ok 1}}}
+     :network {[:get "/x"] {:body 1}}
      :fx-overrides {:fx :stub}}
     [:args :route :network :fx-overrides]))
 
@@ -75,7 +75,7 @@
     (rf.story.registrar/reg-variant* :story.fid/pinned
       {:sub-overrides {[:probe/n] 5}
        :args          {:label "x"}
-       :network       {[:get "/api/cart"] {:reply {:ok {:items []}}}}
+       :network       {[:get "/api/cart"] {:body {:items []}}}
        :fx-overrides  {:rf.http/fetch :stub}})
     (rf.story.registrar/reg-variant* :story.fid/child
       {:extends :story.fid/pinned

@@ -36,14 +36,12 @@
    :world  {:fidelity #{:real-setup}
             :setup    [[:dispatch [:cart/add {:sku "A"}]]
                        [:dispatch [:cart/add {:sku "B"}]]]
-            :frame    {:fx-overrides {:analytics/track (fn [_])
-                                      :rf.http/managed :stub}}
-            :network  {[:get "/api/cart"] {:reply {:ok {:items []}}}}}
+            :frame    {:fx-overrides {:analytics/track (fn [_])}}
+            :network  {[:get "/api/cart"] {:body {:items []}}}}
    :script [[:dispatch [:cart/checkout]]]})
 
 (def ^:private events-explain
-  {:network  {:routes     {[:get "/api/cart"] {:reply {:ok {:items []}}}}
-              :lowered-to {:rf.http/managed :rf.http/managed-test-stub}}
+  {:network  {:routes {[:get "/api/cart"] {:body {:items []}}}}
    :fidelity #{:real-setup}})
 
 (def ^:private bare-plan
@@ -257,15 +255,13 @@
 (deftest network-summary-shows-route-provenance
   (is (= {:present?    true
           :route-count 1
-          :routes      [[:get "/api/cart"]]
-          :lowered-to  {:rf.http/managed :rf.http/managed-test-stub}}
+          :routes      [[:get "/api/cart"]]}
          (rf.story.ui.view-state/network-summary events-explain)))
   (testing "no routes → absent"
     (is (false? (:present? (rf.story.ui.view-state/network-summary design-explain))))))
 
-(deftest fx-overrides-summary-excludes-managed-http
-  (testing "the fx-override summary lists non-HTTP fx overrides, EXCLUDING
-            :rf.http/managed (the Network summary owns that route channel)"
+(deftest fx-overrides-summary-lists-the-plan-fx-overrides
+  (testing "the fx-override summary lists the compiled plan's fx overrides"
     (is (= {:present? true :fx-count 1 :fx-ids [:analytics/track]}
            (rf.story.ui.view-state/fx-overrides-summary events-plan)))))
 

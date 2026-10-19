@@ -292,7 +292,7 @@
       :args                  {<arg-key> <value>}
       :setup                 [[:dispatch [:event-id ...]] ...]
       :script                {:script [[:dispatch [:event-id ...]] ...]}
-      :network               {[method url] {:reply {:ok|:failure ...}}}
+      :network               {[method url] <stub-transport response>}
       :fx-overrides          {<fx-id> <override>}
       :interceptor-overrides {<interceptor-id> <override>}
       :loaders               [[:loader-event-id ...]]
