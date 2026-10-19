@@ -117,4 +117,4 @@
                                                           [:li])
                                                       {})))]
     (is (= [nil [:coldread/nope]]
-           [@seen (mapv :event-id (filterv #(= :rf.error/no-such-sub (:error %)) records))]))))
+           [@seen (mapv :event-id (filterv #(= :rf.error/no-such-sub (:rf.error/id %)) records))]))))
