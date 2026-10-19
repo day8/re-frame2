@@ -1595,6 +1595,44 @@
       (str/replace (subs (str frame-kw) 1) (subs (str this-frame) 1))))
 
 ;; ---------------------------------------------------------------------------
+;; The routing-allocation normalisation
+;; ---------------------------------------------------------------------------
+;;
+;; Routing mints a navigation's token, and a blocked navigation's pending id,
+;; from ONE allocator for the whole process, so it never recycles a value. Two
+;; isolated mounts navigating in step therefore draw interleaved numbers — the
+;; reference's first navigation is "nav-1" and the candidate's "nav-2" — and a
+;; route-owned resource released on leaving carries that token in its intent.
+;; Like the frame keyword, the number is an address, not a fact about the
+;; application: each side's allocations are compared by the order they first
+;; appear on that side.
+
+(def ^:private allocation-pattern
+  "Routing's two allocator spellings, matched as a WHOLE string: a
+  nav-token `\"nav-N\"` and a pending-navigation id `\"pn-N\"`."
+  #"(nav|pn)-\d+")
+
+(defn- de-allocate
+  "Each routing allocation inside one mount's intent replaced by a stand-in
+  numbered by its first appearance on that side — `::nav-0`, `::nav-1`, …
+  and `::pn-0`, … — through `!seen`, the side's `{allocation stand-in}`
+  map, which outlives one checkpoint so a token reused later reads the
+  same stand-in."
+  [!seen x]
+  (walk/postwalk
+    (fn [v]
+      (if-let [[_ prefix] (and (string? v) (re-matches allocation-pattern v))]
+        (or (get @!seen v)
+            (let [n        (count (filter #(str/starts-with? % (str prefix "-"))
+                                          (keys @!seen)))
+                  stand-in (keyword "re-frame.fresco.test.mounted"
+                                    (str prefix "-" n))]
+              (swap! !seen assoc v stand-in)
+              stand-in))
+        v))
+    x))
+
+;; ---------------------------------------------------------------------------
 ;; The DOM difference — the FIRST node at which the two pages disagree
 ;; ---------------------------------------------------------------------------
 ;;
@@ -1930,14 +1968,15 @@
 
 (defn- checkpoint-difference
   "One checkpoint's verdict: the intent difference if there is one, else
-  the DOM difference, else nil."
-  [reference-mount candidate-mount entries]
-  (or (intent-difference
-        (mapv #(de-address (:frame reference-mount) %)
-              (for-frame entries (:frame reference-mount)))
-        (mapv #(de-address (:frame candidate-mount) %)
-              (for-frame entries (:frame candidate-mount))))
-      (dom-difference reference-mount candidate-mount)))
+  the DOM difference, else nil. `!reference-seen` and `!candidate-seen`
+  are each side's [[de-allocate]] map, held for the whole run."
+  [reference-mount candidate-mount !reference-seen !candidate-seen entries]
+  (let [intents (fn [mount !seen]
+                  (mapv #(de-allocate !seen (de-address (:frame mount) %))
+                        (for-frame entries (:frame mount))))]
+    (or (intent-difference (intents reference-mount !reference-seen)
+                           (intents candidate-mount !candidate-seen))
+        (dom-difference reference-mount candidate-mount))))
 
 (defn- red-verdict
   [checkpoint-index difference]
@@ -2039,7 +2078,7 @@
   contexts, and a helper that passed one down a view would defeat the
   isolation this door is built on.
 
-  ## Two frames, and one deliberate blind slot
+  ## Two frames, and the addresses compared modulo them
 
   Each side mounts under a frame [[mount!]] minted for it, so a write on
   one side cannot reach the other and a divergence propagates
@@ -2057,6 +2096,19 @@
   general result is stated, and it names this door while stating it. Only
   a mount's OWN keyword normalises, so a genuine cross-frame address still
   reddens.
+
+  Routing's allocations are the same kind of address. A navigation's
+  token and a blocked navigation's pending id come from ONE allocator for
+  the whole process, so the reference's first navigation is `\"nav-1\"`
+  and the candidate's `\"nav-2\"`, and a route-owned resource released on
+  leaving carries that token in its intent. So in the intent stream each
+  side's `\"nav-N\"` and `\"pn-N\"` strings normalise to stand-ins
+  numbered by their first appearance on that side — `::nav-0`, `::nav-1`,
+  … and `::pn-0`, … — across every checkpoint of the run. The ORDER is
+  compared and the minted number is not: a token reused reads the same
+  stand-in, and a navigation one side made and the other did not shifts
+  every later stand-in and still reddens. An application string of
+  exactly that spelling is compared the same way.
 
   ## What a red says
 
@@ -2125,6 +2177,8 @@
             ;; checkpoint 0 and it sees the intents the seeding and the
             ;; first render dispatched.
             !checkpoint-index (atom 0)
+            !reference-seen   (atom {})
+            !candidate-seen   (atom {})
             !up?              (atom true)]
         {:reference   reference-mount
          :candidate   candidate-mount
@@ -2136,6 +2190,8 @@
                               difference
                               (checkpoint-difference reference-mount
                                                      candidate-mount
+                                                     !reference-seen
+                                                     !candidate-seen
                                                      ((:drain log)))]
                           (if difference
                             (red-verdict checkpoint-index difference)
