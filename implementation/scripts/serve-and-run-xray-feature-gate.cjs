@@ -45,6 +45,12 @@ const PREFERRED_PORT = Number(process.env.XRAY_FEATURE_GATE_PORT || 8037);
 const EXTERNAL_BASE_URL = process.env.XRAY_FEATURE_GATE_BASE_URL || null;
 const TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 const READY_TIMEOUT_MS = 30000;
+// The bound on each browser call a failed scenario's teardown makes.
+// Playwright gives `page.evaluate`, `context.close` and `browser.close` no
+// deadline of their own, and a page whose main thread never yields answers
+// none of them, so unbounded they hold the gate open until the CI job cap
+// cancels it.
+const TEARDOWN_TIMEOUT_MS = 20000;
 const VERBOSE_TESTS = isVerboseTests();
 
 // Per-run ownership token. publishOwnershipToken
@@ -206,6 +212,23 @@ function stageSurfaces() {
   }
 }
 
+// Settle with `promise`, or reject once `ms` passes, whichever comes first.
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Log a teardown step that failed or timed out, and carry on: teardown's job
+// is to reach the exit, and the verdict is already decided.
+function reportTeardownError(err) {
+  console.error(`teardown: ${err && err.message ? err.message : err}`);
+}
+
 function safeFileStem(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scenario';
 }
@@ -293,14 +316,14 @@ async function readXrayState(page) {
 async function collectFailureDiagnostics(page, scenario, state, browserState) {
   const screenshotPath = path.join(ARTIFACT_ROOT, `${safeFileStem(scenario.name)}.png`);
   try {
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    await page.screenshot({ path: screenshotPath, fullPage: true, timeout: TEARDOWN_TIMEOUT_MS });
   } catch (err) {
     browserState.screenshotError = err.message;
   }
 
   let xrayState = null;
   try {
-    xrayState = await readXrayState(page);
+    xrayState = await withTimeout(readXrayState(page), TEARDOWN_TIMEOUT_MS, 'Reading the Xray state');
   } catch (err) {
     xrayState = { error: err.message };
   }
@@ -349,6 +372,7 @@ function formatDiagnostics(diag) {
   }
   lines.push('');
   lines.push('xray state:');
+  if (diag.xray && diag.xray.error) lines.push(`  read-error=${diag.xray.error}`);
   lines.push(`  mounted=${diag.xray && diag.xray.shellMounted} visible=${diag.xray && diag.xray.rootDisplay}`);
   lines.push(`  activePanel=${diag.xray && diag.xray.activePanel}`);
   lines.push(`  selectedDispatchRows=${diag.xray && diag.xray.selectedDispatchRows}`);
@@ -389,7 +413,7 @@ async function runScenarios(baseUrl) {
   const browser = await chromium.launch({ headless: true });
   cleanup.addCleanup(async () => {
     try {
-      await browser.close();
+      await withTimeout(browser.close(), TEARDOWN_TIMEOUT_MS, 'browser.close');
     } catch (_) {}
   });
   const results = [];
@@ -405,8 +429,8 @@ async function runScenarios(baseUrl) {
         requestFailures: [],
       };
       const state = {};
-      const context = await browser.newContext();
-      const page = await context.newPage();
+      const context = await withTimeout(browser.newContext(), TIMEOUT_MS, 'browser.newContext');
+      const page = await withTimeout(context.newPage(), TIMEOUT_MS, 'context.newPage');
 
       page.on('console', (msg) => {
         browserState.console.push(`[browser:${msg.type()}] ${msg.text()}`);
@@ -429,12 +453,7 @@ async function runScenarios(baseUrl) {
 
       try {
         await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
-        await Promise.race([
-          scenario.run(page, state, { browserState, scenario }),
-          new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`Scenario timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
-          }),
-        ]);
+        await withTimeout(scenario.run(page, state, { browserState, scenario }), TIMEOUT_MS, 'Scenario');
         // An uncaught browser/runtime exception is fatal even
         // when the scenario's visible assertions all passed. pageErrors
         // are captured by the `pageerror` listener above; left
@@ -455,7 +474,7 @@ async function runScenarios(baseUrl) {
         anyFailed = true;
         diagnostics = await collectFailureDiagnostics(page, scenario, state, browserState);
       } finally {
-        await context.close();
+        await withTimeout(context.close(), TEARDOWN_TIMEOUT_MS, 'context.close').catch(reportTeardownError);
       }
 
       if (!passed) {
@@ -477,7 +496,7 @@ async function runScenarios(baseUrl) {
       });
     }
   } finally {
-    await browser.close();
+    await withTimeout(browser.close(), TEARDOWN_TIMEOUT_MS, 'browser.close').catch(reportTeardownError);
   }
 
   const passedCount = results.filter((r) => r.passed).length;
@@ -625,13 +644,17 @@ async function main() {
   return await runScenarios(baseUrl);
 }
 
+// Exit with `code` once the harness has torn down, or once teardown has had
+// its bound: a verdict is never held hostage to a browser or server that will
+// not close.
+async function exitWith(code) {
+  await withTimeout(cleanup.cleanup(), TEARDOWN_TIMEOUT_MS, 'Harness cleanup').catch(reportTeardownError);
+  process.exit(code);
+}
+
 main()
-  .then(async (code) => {
-    await cleanup.cleanup();
-    process.exit(code);
-  })
+  .then(exitWith)
   .catch(async (err) => {
     console.error(err && err.stack ? err.stack : err);
-    await cleanup.cleanup();
-    process.exit(1);
+    await exitWith(1);
   });
