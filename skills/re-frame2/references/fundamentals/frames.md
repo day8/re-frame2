@@ -72,7 +72,7 @@ Verified in `re-frame.frame` / `re-frame.live-frame`; the public facade is `re-f
 Two scope tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`), **with no `:rf/default` fallback rung** (EP-0002):
 
 1. **React context** (CLJS only, while a component renders) — the closest enclosing `frame-provider` / `frame-root`, read via the `:adapter/current-frame` late-bind hook the installed adapter populates. It wins over a `with-frame` around the render.
-2. **`*current-frame*` dynamic var** — bound by `with-frame`. It answers where no boundary is above, and whenever no component is rendering: handlers, callbacks, tests, SSR.
+2. **`*current-frame*` dynamic var** — bound by `with-frame`. It answers where no boundary is above, and whenever no component is rendering: handlers, callbacks, tests, SSR. A `with-frame` the render's own code takes — in the view body, or in a listener or callback the render runs — answers ahead of the provider.
 
 (UIx's imperative reader keeps the dynamic var first; a UIx component reads through `use-sub` / `use-frame`, which consult React context alone.)
 
