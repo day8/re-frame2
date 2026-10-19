@@ -1,8 +1,8 @@
 (ns re-frame.resources-machine-owner-release-cljs-test
   "A destroyed state-machine actor releases its resource owner
   [:machine actor-id] (Spec 016 §Release authority is per owner kind), whether
-  destroyed explicitly or by reaching a :final? state, and releases only its
-  own owner. Machine teardown dispatches :rf.resource/release-owner by keyword,
+  destroyed explicitly or, for a spawned actor, by reaching a :final? state,
+  and releases only its own owner. Machine teardown dispatches :rf.resource/release-owner by keyword,
   since machines never requires resources; machines is a test-only dep here."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -99,12 +99,35 @@
   [(nil? (machine-snapshot :reader/proc)) (empty? (:active-owners (entry k))) (nil? (get (owner-index) owner))])
 
 (deftest final-state-auto-destroy-releases-machine-owned-resource-owner
-  ;; the other teardown path: finalize-machine appends the release to its :fx
-  (let [k (slug-key "owners-vs-causes")]
-    (start-reader! "owners-vs-causes" {:done {:final? true}} {:finish :done})
-    (is (contains? (:active-owners (entry k)) owner) "precondition: owned before finish")
-    (rf/dispatch-sync [:reader/proc [:finish]])
-    (is (= [true true true] (released? k)) "the auto-destroy released the owner too")))
+  ;; the other teardown path: a SPAWNED actor's finalize-machine appends the
+  ;; release to its :fx. (A singleton rests at finality and keeps its owner.)
+  (let [k     (slug-key "owners-vs-causes")
+        kid   :reader/kid#1
+        owned [:machine kid]]
+    (rf/reg-machine :reader/kid
+      {:initial :reading
+       :data    {:slug "owners-vs-causes"}
+       :states  {:reading {:entry (fn [{{s :slug} :data self :self-id}]
+                                    {:fx [[:dispatch
+                                           [:rf.resource/ensure
+                                            {:resource :art/by-slug
+                                             :scope    scope
+                                             :params   {:slug s}
+                                             :owner    [:machine self]
+                                             :cause    [:machine-action :reader/read]}]]]})
+                           :on    {:finish :done}}
+                 :done    {:final? true}}})
+    (rf/reg-machine :reader/host
+      {:initial :hosting
+       :states  {:hosting {:spawn {:machine-id :reader/kid}}}})
+    (rf/dispatch-sync [:reader/host [:rf.machine/start]])
+    (rf/dispatch-sync [kid [:rf.machine/start]])
+    (succeed! k {:title "owners-vs-causes"})
+    (is (contains? (:active-owners (entry k)) owned) "precondition: owned before finish")
+    (rf/dispatch-sync [kid [:finish]])
+    (is (= [true true true]
+           [(nil? (machine-snapshot kid)) (empty? (:active-owners (entry k))) (nil? (get (owner-index) owned))])
+        "the auto-destroy released the owner too")))
 
 (deftest actor-destroy-release-is-scoped-to-the-destroyed-actor
   (let [ka      (slug-key "a")
