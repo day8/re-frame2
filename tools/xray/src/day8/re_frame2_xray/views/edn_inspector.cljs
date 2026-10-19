@@ -5185,14 +5185,14 @@
     expansion state. The form-2 closure delivers that — the outer body
     runs once per mount.
 
-    ## `reg-view`-registered so dispatch / subscribe inherit
-    the surrounding frame
+    ## `reg-view`-registered for its frame-bound `dispatch`
 
-    Plain Reagent fns do not consult the `frame-provider` React context,
-    so as a plain `defn` mounted under `:rf/xray` (App-DB panel) the
-    widget's toggle dispatches and expansion-slot subscribes would route
-    to `:rf/default` instead — the click would land in the wrong frame's
-    app-db and the rendering sub would never see it.
+    `reg-view` injects a `dispatch` and a `subscribe` captured during the
+    render, bound to the frame of the boundary above. Every callback the
+    renderer creates threads that `dispatch`, so a toggle click fired
+    after the render lands on the surrounding frame; an ambient
+    `dispatch` there has no frame in scope and raises
+    `:rf.error/no-frame-context`.
 
     ## No closure atoms
 

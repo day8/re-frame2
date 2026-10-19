@@ -917,15 +917,16 @@
   audit trail. The chart and rail read the SAME sim-state, so clicking
   an edge and clicking a Step button are interchangeable.
 
-  ## Frame recovery
+  ## Reads nothing itself
 
   `body` is mounted by `definition_detail/body` as a plain-fn Reagent
-  component, and it subscribes nothing itself. All sim sub values — `sim` (`:sim-state`),
-  `transitions`, `suggestions`, `current`, `last-trans` — are read in
-  the `detail` boundary (where the frame IS in context) and threaded down
-  through `definition_detail/body` to here, then fanned out to `SimChart`
-  / `SimRail` (themselves plain-fn components). This mirrors the
-  browse-list frame-recovery pattern exactly."
+  component, and it subscribes nothing itself. All sim sub values — `sim`
+  (`:sim-state`), `transitions`, `suggestions`, `current`, `last-trans` —
+  are read in the `detail` boundary and threaded down through
+  `definition_detail/body` to here, then fanned out to `SimChart` /
+  `SimRail` (themselves plain-fn components). Every op in the subtree goes
+  through the `dispatch` it is handed, so the node lane can call these
+  fns directly, with plain values and no frame in scope."
   [dispatch {:keys [machine-id definition sim transitions suggestions
                     current last-trans]}]
   ;; Side-effecting auto-start, then the render. The `defn` body is an
@@ -934,9 +935,8 @@
   (when (and (some? machine-id)
              (some? definition)
              (nil? sim))
-    ;; Auto-start dispatches through the threaded
-    ;; frame-aware `dispatch` (sim/body is invoked as a Reagent
-    ;; component, so render-time frame recovery is unavailable).
+    ;; Auto-start dispatches through the threaded frame-bound
+    ;; `dispatch`, as every op in this subtree does.
     (dispatch [:rf.xray.static.machines/sim-start
                {:machine-id machine-id
                 :definition definition}]))
