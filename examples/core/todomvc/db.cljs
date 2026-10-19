@@ -77,8 +77,7 @@
       (sorted-map)))
 
 (rf/reg-cofx :todo.storage/todos
-  {:recordable? true
-   :doc "Recordable coeffect: the saved TodoMVC items, read from localStorage as
+  {:doc "Recordable coeffect: the saved TodoMVC items, read from localStorage as
          a sorted-map. The supplier runs at the boot dispatch; its value is
          recorded onto the event envelope and handed back verbatim under replay
          or epoch-restore. To use it, a handler declares

@@ -86,7 +86,7 @@
     (eval-in-ns f))
   (eval-in-ns (first (forms (fence "rf/reg-event :cart/add-item"))))
   ;; App-owned: re-frame2 ships no CSRF surface.
-  (rf/reg-cofx :app.csrf/active-token {:platforms #{:server}}
+  (rf/reg-cofx :app.csrf/active-token {:recordable? false :platforms #{:server}}
     (fn [] "tok-abc")))
 
 (defn- dispatch-action

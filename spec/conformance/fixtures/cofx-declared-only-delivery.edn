@@ -32,8 +32,8 @@
 
  :fixture/registry
  {:event {:probe/declared-only {:doc "Capture the delivered coeffect map for declared-only inspection."}}
-  :cofx  {:cofxdecl/yes {:doc "Ambient coeffect the handler DECLARES."}
-          :cofxdecl/no  {:doc "Ambient coeffect the handler does NOT declare — must be withheld."}}}
+  :cofx  {:cofxdecl/yes {:recordable? false :doc "Ambient coeffect the handler DECLARES."}
+          :cofxdecl/no  {:recordable? false :doc "Ambient coeffect the handler does NOT declare — must be withheld."}}}
 
  :fixture/handlers
  {:cofx  {:cofxdecl/yes [[:set [] "YES"]]
