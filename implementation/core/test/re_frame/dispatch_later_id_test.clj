@@ -137,7 +137,8 @@
            result))
     (is (empty? (timers-for-frame :search/doomed)))))
 
-(deftest replace-and-cancel-each-emit-one-trace
+(deftest ^:requires-debug replace-and-cancel-each-emit-one-trace
+  ;; A dev trace, so it is absent under `-Dre-frame.debug=false`.
   (reg-search-events!)
   (let [traces (atom [])]
     (rf/register-listener! :trace ::rec #(swap! traces conj %))
