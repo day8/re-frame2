@@ -238,6 +238,19 @@
         "on-box the raw body still rides")
     (is (nil? (:sensitive? ev)) "no :sensitive? stamp without a denylist hit or the flag")))
 
+(deftest http-4xx-json-body-is-omitted-off-box-from-both-slots
+  (testing "a JSON error body rides parsed at :body and raw at :body-text on-box,
+            and off-box neither slot carries it, on the category row or the reply row"
+    (let [secret "bearer-4xx-9f31"
+          [ev]   (managed-trace! (respond 422 "application/json" (str "{\"token\":\"" secret "\"}"))
+                                 (fn [base] {:request {:url (str base "/data")} :on-success nil :on-failure [:test/ok]})
+                                 :rf.http/http-4xx)]
+      (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
+      (is (= {:token secret} (get-in ev [:tags :body])) "on-box the parsed body rides")
+      (is (= (str "{\"token\":\"" secret "\"}") (get-in ev [:tags :body-text])))
+      (is (not (str/includes? (pr-str (off-box ev)) secret)) "no slot of the category row carries it off-box")
+      (is (= {:token secret} (get-in (delivered-reply) [:error :body])) "the app receives the parsed body"))))
+
 (deftest decode-failure-stamps-off-box-omit-on-raw-body-text
   (let [[ev] (managed-trace! (respond 200 "application/json" "not-json: leaked-token=xyz")
                              (fn [base] {:request {:url (str base "/data")} :decode :json :on-success nil :on-failure nil})
