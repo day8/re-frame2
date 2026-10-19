@@ -1,8 +1,8 @@
 (ns re-frame.machines.lifecycle-fx.finalize
   "Final-state orchestration — where a machine's COMPLETION is produced.
 
-  Per Spec 005 §Final states: when a machine enters a `:final?` state the
-  runtime auto-destroys the actor SYNCHRONOUSLY (D4) and routes its result to
+  Per Spec 005 §Final states: when a SPAWNED actor enters whole-machine
+  finality the runtime reaps it SYNCHRONOUSLY (D4) and routes its result to
   the parent that spawned it. Completion IS finality, for every spawn form — a
   child never dispatches to its parent and carries no parent vocabulary, so one
   child machine composes unchanged under `:spawn` and under `:spawn-all`. The
@@ -33,11 +33,11 @@
   The carrier is minted LAST, after teardown, so the parent never observes a
   completed child that is still alive.
 
-  For singleton machines (no `:rf/parent-id` on `:data`): skip step 5
-  and emit a `:rf.machine/done` with `:parent-id nil` (D7 — singleton
-  symmetry). The teardown still runs — the snapshot is dissoc'd — but the
-  singleton's own `reg-machine` DEFINITION SURVIVES, so the address stays
-  creatable and a later event re-births it from its initial snapshot (D5, D7).
+  A singleton (an actor no spawn installed, so its `:rf/runtime` carries no
+  `:machine-type`) is never reaped: `rest-machine` emits its
+  `:rf.machine/done` with `:parent-id nil` on the transition into finality and
+  leaves the snapshot resting at its address, readable and inert unless its
+  definition declares a way out (D7).
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
   hook into the http-managed artefact — the single home for
@@ -134,7 +134,7 @@
        :completed-at <the causal :rf/time-ms of the finishing macrostep>}
 
   plus, for a `:spawn-all` join child, the exact-attempt coordinates copied
-  off its `:rf/join-child` membership record (`:child-id` / `:spawned-id` /
+  off its `[:rf/runtime :join-child]` membership record (`:child-id` / `:spawned-id` /
   `:attempt` / `:work-generation`), which is what lets the parent's join fold
   reject a straggler from a superseded attempt.
 
@@ -153,7 +153,7 @@
   attributes it to the spawn lifecycle. No-op when the `:router/dispatch!` hook
   is absent (pure-fn / conformance callers).
 
-  `attempt` is a single-`:spawn` child's `:rf/invoke-attempt`.
+  `attempt` is a single-`:spawn` child's `[:rf/runtime :invoke-attempt]`.
   When present it rides as a FOURTH element, leaving `<completion>` unchanged,
   so the parent's boundary folds `:on-done` only for the CURRENT attempt."
   ([frame-id parent-id invoke-id completion]
@@ -243,6 +243,98 @@
   (some (fn [[_ node]] (when (true? (:error? node)) node))
         (region-final-leaf-nodes machine state)))
 
+;; ---- completion ---------------------------------------------------------
+
+(defn- completion-output
+  "Classify a finished machine's terminal and select its result, from the
+  finished `snapshot`. Returns `{:error-leaf? <bool> :result <value>}`.
+
+  The ERROR-classifying leaf of a PARALLEL machine is ANY region's final leaf
+  declaring `:error? true` (XState v5 parallel error-final semantics); a flat
+  machine's single leaf is its own. Its `:output-key` may likewise live on any
+  region's leaf: an error finish reads the error region's, so the error
+  payload is the one that routes to `:on-error`; a success finish scans every
+  region (`parallel-output-key`, which reports a conflict). No `:output-key`
+  means a nil result."
+  [machine machine-id frame-id snapshot]
+  (let [state       (:state snapshot)
+        parallel?   (rf.machines.parallel/parallel? machine)
+        error-node  (if parallel?
+                      (parallel-error-leaf-node machine state)
+                      (rf.machines.transition/node-at machine
+                                                      (rf.machines.transition/state-path state)))
+        error-leaf? (true? (:error? error-node))
+        output-key  (cond
+                      (and parallel? error-leaf?) (:output-key error-node)
+                      parallel?                   (parallel-output-key machine state frame-id machine-id)
+                      :else                       (:output-key error-node))]
+    {:error-leaf? error-leaf?
+     :result      (when output-key (get (:data snapshot) output-key))}))
+
+(defn- emit-done!
+  "Emit `:rf.machine/done`, the actor-finality signal, for every finish:
+  success, error and stale alike, since `:on-error` is additive. The public
+  slots in `done` (`:actor-id` the finishing INSTANCE address, `:output`,
+  `:parent-id`, `:error?`, `:frame`) ride beside the reply-envelope facts of
+  `summary` (Managed-Effects §9), every key spelled at this one emit site, so
+  the wire-vocabulary conformance suite finds each as data here. The
+  canonical `:rf.reply/work-id` joins the
+  completion into Xray's work/reply rows. Wire-bearing slots were already
+  routed through the elision walker when `summary` was built. The causal
+  `:rf.reply/completed-at` rides only when the trigger recorded a time, and a
+  STALE completion additionally carries `:rf.reply/stale-reason` and the
+  carried/current `:rf.reply/correlation`."
+  [{:keys [actor-id output parent-id error? frame]} summary stale?]
+  (rf.trace/emit! :rf.machine :rf.machine/done
+                  (cond-> {:actor-id             actor-id
+                           :output               output
+                           :parent-id            parent-id
+                           :error?               error?
+                           :frame                frame
+                           :rf.reply/work-kind   (:rf.reply/work-kind summary)
+                           :rf.reply/status      (:status summary)
+                           :rf.reply/work-id     (:rf.reply/work-id summary)
+                           :rf.reply/work-status (:rf.reply/work-status summary)}
+                    (some? (:completed-at summary))
+                    (assoc :rf.reply/completed-at (:completed-at summary))
+                    stale? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason summary)
+                                  :rf.reply/correlation  (:correlation summary)))))
+
+(defn rest-machine
+  "Per Spec 005 §Final states: a SINGLETON that enters whole-machine finality
+  RESTS there. Only a spawned actor is reaped at finality (`finalize-machine`);
+  a singleton's snapshot stays at its address, so `[:rf/machine id]` keeps
+  reading the final configuration, and an event its definition declares no
+  way out for is an ordinary unhandled no-op rather than a re-birth.
+
+  Completion is the `:rf.machine/done` trace with `:parent-id nil`, emitted
+  here, on the transition INTO finality — the caller routes a macrostep that
+  starts final elsewhere, so completion fires once per entry into finality.
+  Its result is validated against `[:schemas :output]` exactly as a spawned
+  child's is. Nothing is torn down and no carrier is minted: a singleton has
+  no parent. Returns the ordinary commit `{:rf.db/runtime runtime-db :fx fx}`."
+  [machine machine-id frame-id runtime-db next-snapshot fx]
+  (let [{:keys [error-leaf? result]} (completion-output machine machine-id frame-id next-snapshot)
+        _            (rf.machines.data-validation/validate-completion-output! machine-id machine result)
+        completed-at (get-in machine [:rf/cofx :rf/time-ms])
+        reply-ctx    (cond-> {:actor-id          machine-id
+                              :parent-id         nil
+                              :work-bearing-path nil
+                              :frame             frame-id}
+                       (some? completed-at) (assoc :completed-at completed-at))
+        reply        (if error-leaf?
+                       (rf.machines.reply/error-reply reply-ctx result)
+                       (rf.machines.reply/success-reply reply-ctx result))]
+    (emit-done! {:actor-id  machine-id
+                 :output    result
+                 :parent-id nil
+                 :error?    error-leaf?
+                 :frame     frame-id}
+                (rf.machines.reply/trace-reply reply {:frame frame-id})
+                false)
+    {:rf.db/runtime runtime-db
+     :fx            fx}))
+
 ;; ---- the orchestrator ------------------------------------------------------
 
 (defn finalize-machine
@@ -250,8 +342,8 @@
   auto-destroy cascade. Returns `{:rf.db/runtime new-runtime-db :fx fx}` —
   the snapshot teardown is a durable runtime-db write (EP-0001),
   returned under the framework-authority `:rf.db/runtime` partition, NOT
-  `:db` (see the return at `finalize-machine!`'s tail). It is the handler's
-  return value when the post-transition snapshot has finished (its active
+  `:db` (see the return at `finalize-machine!`'s tail). It is a SPAWNED
+  actor's handler return value when the post-transition snapshot has finished (its active
   leaf is a top-level `:final?` state, or — for a parallel machine — every
   region's active leaf is `:final?`). Finality is RECOMPUTED by the caller
   (`commit-or-finalize`) from the post-transition `:state` via
@@ -314,30 +406,8 @@
         ;; for the event boundary, so this whole tail runs against the
         ;; incarnation it started in.
         owner-token (rf.frame/current-event-owner-token)
-        child-data (:data next-snapshot)
-        parallel?  (rf.machines.parallel/parallel? machine)
-        ;; Resolve the ERROR-classifying leaf. For a PARALLEL
-        ;; machine, scan EVERY region's final leaf — a parallel finish is an
-        ;; ERROR when ANY region's reached final declares `:error? true`, not
-        ;; only the first region's (Spec 005 §3060-§3061; XState v5 parallel
-        ;; error-final semantics). For a flat machine the single leaf IS the
-        ;; error-classifying leaf.
-        error-node  (if parallel?
-                      (parallel-error-leaf-node machine (:state next-snapshot))
-                      (rf.machines.transition/node-at machine
-                                          (rf.machines.transition/state-path (:state next-snapshot))))
-        error-leaf? (true? (:error? error-node))
-        ;; A PARALLEL machine's `:output-key` may live on ANY region's
-        ;; terminal leaf, not just the first. Scan all regions (error on
-        ;; conflict); a flat machine reads its single leaf. When the finish is
-        ;; an ERROR, the error payload's `:output-key` is sourced from the
-        ;; ERROR region's leaf so the right error `:data` slot routes to
-        ;; `:on-error`.
-        output-key  (cond
-                      (and parallel? error-leaf?) (:output-key error-node)
-                      parallel?                   (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
-                      :else                       (:output-key error-node))
-        result      (when output-key (get child-data output-key))
+        child-rt   (:rf/runtime next-snapshot)
+        {:keys [error-leaf? result]} (completion-output machine machine-id frame-id next-snapshot)
         ;; Validate the completion-output payload against the
         ;; finishing machine's `[:schemas :output]` schema, if declared. The
         ;; `result` selected from the final state's `:data` via `:output-key`
@@ -368,26 +438,26 @@
         ;; computed above (cross-region scan for parallel).
         ;; A `:spawn-all` child's private membership is the canonical REPLY
         ;; source of its parent/invoke coordinates (per-child spawn args use the
-        ;; distinct `:rf/spawn-all-id`, so no public single-spawn `:rf/invoke-id`
+        ;; distinct `:rf/spawn-all-id`, so no public single-spawn `:invoke-id`
         ;; stamp is required) and the runtime-minted exact-attempt coordinate.
         ;; Keep the ordinary parent/invoke locals unchanged: they also govern
         ;; single-`:spawn` callbacks + teardown-slot pruning, and a join child
         ;; must not enter either path merely because reply identity needs the
         ;; membership coordinates.
-        join-child  (:rf/join-child child-data)
-        parent-id   (:rf/parent-id child-data)
-        invoke-id   (:rf/invoke-id child-data)
+        join-child  (:join-child child-rt)
+        parent-id   (:parent-id child-rt)
+        invoke-id   (:invoke-id child-rt)
         reply-parent-id (or parent-id (:parent-id join-child))
         reply-invoke-id (or invoke-id (:invoke-id join-child))
         ;; Thread that coordinate into the SAME
         ;; canonical machine work-id generation slot used by its join fold, so
         ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
         ;; A single-`:spawn` child has no membership record; its spawn
-        ;; stamped the attempt's exact generation as `:rf/work-generation`.
+        ;; stamped the attempt's exact generation as `:work-generation`.
         ;; A hand-emitted spawn carries neither and keeps the actor-id
         ;; convention.
         work-generation (or (:work-generation join-child)
-                            (:rf/work-generation child-data))
+                            (:work-generation child-rt))
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path
@@ -422,7 +492,7 @@
                       (assoc :work-generation work-generation)
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Choose the carrier. The ERROR leaf of a single-`:spawn` child
-        ;; (it carries `:rf/invoke-id`) rides the FAILURE carrier whatever the
+        ;; (it carries an `:invoke-id`) rides the FAILURE carrier whatever the
         ;; parent declared. The parent's engine resolves it
         ;; natively (`pick-spawn-error-transition`): its `:spawn :on-error`,
         ;; else an explicit `:on {:rf.machine.spawn/error …}` walked leaf to
@@ -433,7 +503,7 @@
         ;; The gate does not ask whether the parent's `:spawn` map declares
         ;; `:on-error`: a failure without one would then ride the DONE carrier
         ;; into the success fold and the success transitions. A `:spawn-all` join
-        ;; child carries no `:rf/invoke-id`, so its error leaf stays on the
+        ;; child carries no `:invoke-id`, so its error leaf stays on the
         ;; done carrier with `:error? true`, which the join counts itself.
         failure-carrier? (and error-leaf? parent-id invoke-id)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §Stale
@@ -448,8 +518,8 @@
         ;;
         ;; LIVENESS is the gate (not `:on-done` resolvability): keying off the
         ;; callback would miss the case entirely. The robust gate is: a
-        ;; declaratively-spawned child (it carries both `:rf/parent-id` and
-        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE. It gates BOTH
+        ;; declaratively-spawned child (it carries both a `:parent-id` and
+        ;; an `:invoke-id`) whose parent is NO LONGER LIVE. It gates BOTH
         ;; carriers — the `:on-done` completion event AND the `:on-error`
         ;; failure event. A stale error leaf has no void to dispatch into:
         ;; because the DEFINITION survives teardown (below), the dispatch
@@ -482,8 +552,8 @@
         ;; signals named above.
         ;;
         ;; The gate reads the REPLY coordinates, which fall
-        ;; back to the `:rf/join-child` membership record. A `:spawn-all` join
-        ;; child never carries a public `:rf/invoke-id`, so a gate keyed on
+        ;; back to the `:join-child` membership record. A `:spawn-all` join
+        ;; child never carries a public `:invoke-id`, so a gate keyed on
         ;; `invoke-id` would always be false for it: a join child finishing after
         ;; its parent's explicit destroy would dispatch its carrier at the dead
         ;; address, and the surviving definition would RESURRECT the parent.
@@ -534,39 +604,12 @@
         done-summary (if stale-spawn?
                        (rf.machines.reply/stale-spawn-trace reply {:frame frame-id})
                        (rf.machines.reply/trace-reply reply {:frame frame-id}))
-        _ (rf.trace/emit! :rf.machine :rf.machine/done
-                     ;; `:actor-id` is the finishing actor's
-                     ;; live INSTANCE address (singleton: its registration
-                     ;; id; spawned: the `<type>#<n>` / fixed instance id).
-                     ;; `:machine-id` is reserved for the registered TYPE.
-                     (cond-> {:actor-id   machine-id
-                              :output     result
-                              :parent-id  parent-id
-                              :error?     error-leaf?
-                              :frame      frame-id
-                              ;; reply-envelope vocabulary (Managed-Effects §9)
-                              ;; The CANONICAL `:rf.reply/work-id` joins
-                              ;; this spawned-actor completion into Xray's
-                              ;; uniform work/reply rows + stale-race
-                              ;; grouping. `:rf.reply/work-kind` rides alongside as the
-                              ;; work-family tag (no reply-envelope twin).
-                              :rf.reply/work-kind            (:rf.reply/work-kind done-summary)
-                              :rf.reply/status      (:status done-summary)
-                              :rf.reply/work-id     (:rf.reply/work-id done-summary)
-                              :rf.reply/work-status (:rf.reply/work-status done-summary)}
-                       ;; the causal completion timestamp — the
-                       ;; router's `:rf.cofx` `:rf/time-ms` threaded
-                       ;; into the reply (Managed-Effects §155/§231: a
-                       ;; completion affecting durable state carries causal
-                       ;; completion metadata). Additive + present-only so
-                       ;; the unscripted (no-world-input) path stays clean.
-                       (some? (:completed-at done-summary))
-                       (assoc :rf.reply/completed-at (:completed-at done-summary))
-                       ;; stale-suppression vocabulary — carried
-                       ;; ADDITIVELY only for a stale late completion, joined
-                       ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
-                       stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
-                                           :rf.reply/correlation  (:correlation done-summary))))
+        _ (emit-done! {:actor-id  machine-id
+                       :output    result
+                       :parent-id parent-id
+                       :error?    error-leaf?
+                       :frame     frame-id}
+                      done-summary stale-spawn?)
         ;; (3) The completion carrier. `:on-done` is NOT applied here.
         ;; Completion is delivered to the parent as ONE reserved runtime-minted
         ;; event (Spec 005 §Child completion protocol) — the same carrier for
@@ -653,11 +696,9 @@
     ;; `:rf.registry/handler-cleared` trace.
     ;;
     ;; EXCEPT when the address carries a machine DEFINITION.
-    ;; The D7 `:final?` singleton auto-destroy is reachable with NO
-    ;; teardown code written by the author (a root-level `:final?` leaf is
-    ;; enough), and the entry it would clear is the shared load-time TYPE
-    ;; every `[:rf.machine/spawn {:machine-id <id>}]` resolves through —
-    ;; not this instance's own. Finality ends the INSTANCE; the definition
+    ;; That entry is the shared load-time TYPE every
+    ;; `[:rf.machine/spawn {:machine-id <id>}]` resolves through — not this
+    ;; instance's own. Finality ends the INSTANCE; the definition
     ;; is the PROGRAM that made the address creatable and outlives it
     ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
     ;; remains the public spelling for permanent removal. The identical
@@ -688,7 +729,7 @@
     ;;     A `:spawn` child sends its `:invoke-id` and its SUCCESS result,
     ;;     and the parent folds `:on-done` then advances on its ordinary
     ;;     macrostep. A `:spawn-all` join child additionally sends the
-    ;;     exact-attempt coordinate off its `:rf/join-child` membership
+    ;;     exact-attempt coordinate off its `:join-child` membership
     ;;     record, and the parent folds it into the join. An ERROR leaf
     ;;     under a `:spawn-all` parent rides this same carrier with
     ;;     `:error? true` — failure control flow under a join is
@@ -708,13 +749,13 @@
     ;; calls such a finish `:stale` rather than `:error`.
     ;;
     ;; A single-`:spawn` child also hands back its
-    ;; `:rf/invoke-attempt` on EITHER carrier, so the parent delivers it
+    ;; `:invoke-attempt` on EITHER carrier, so the parent delivers it
     ;; only while that spawn attempt is still current.
     (when-not stale-spawn?
       (cond
         failure-carrier?
         (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
-          frame-id parent-id invoke-id result (:rf/invoke-attempt child-data))
+          frame-id parent-id invoke-id result (:invoke-attempt child-rt))
 
         parent-id
         (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
@@ -727,7 +768,7 @@
                                              [:parent-id :invoke-id :child-id
                                               :spawned-id :attempt
                                               :work-generation])))
-            (:rf/invoke-attempt child-data)))))
+            (:invoke-attempt child-rt)))))
     ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
     ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
     ;; framework-authority partition effect), NOT `:db`. Append the

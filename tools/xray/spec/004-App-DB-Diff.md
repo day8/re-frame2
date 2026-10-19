@@ -151,8 +151,8 @@ classifies a scalar:
 
 The rule is **kind-agnostic** — `(container? v)` + `(empty? v)` covers
 all four collection kinds, not just the vec + map first witnessed in a
-testbed epoch-2 `:rf/runtime` allocation (`:messages []` +
-`:rf/spawn-counter {}`).
+testbed epoch-2 runtime-db allocation (`:messages []` + an empty
+map).
 
 > **Why this is a contract, not an edge case.** Editscript's A* treats
 > empty-collection-vs-absence as a no-diff (it emits no edit-script

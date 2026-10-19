@@ -57,7 +57,7 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
           :auth.login/submit  :submitting}}
 
     :authed
-    {:meta {:terminal? true}}}})
+    {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```
@@ -134,7 +134,7 @@ A guard is a predicate that gates a transition. It receives one context map and 
                                :guard  :form-valid?}}}
 
     :authed
-    {:meta {:terminal? true}}}})
+    {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```
@@ -167,7 +167,7 @@ Registering an id again replaces its table and keeps its live snapshot, so the m
 A guard decides whether a transition may fire. An action describes what else should happen. It returns the same shape as a re-frame2 event handler, scoped to the machine:
 
 ```clojure
-{:data {...}        ;; merged into this machine's private :data
+{:data {...}        ;; this machine's private :data, replaced whole
  :fx   [[id args]]} ;; ordinary effects vector
 ```
 
@@ -196,7 +196,7 @@ On failure, the **candidate vector** takes the first guard that passes.
 
 :actions
 {:clear-error
- (fn [_] {:data {:error nil}})
+ (fn [{data :data}] {:data (assoc data :error nil)})
 
  :record-error
  ;; Live HTTP appends {:status :error :error …}; pull the failure map from :error.
@@ -231,15 +231,15 @@ On failure, the **candidate vector** takes the first guard that passes.
                            :guard  :form-valid?
                            :action :clear-error}}}
 
-:authed     {:meta {:terminal? true}}
-:locked-out {:meta {:terminal? true}}
+:authed     {:final? true}
+:locked-out {:final? true}
 ```
 
 `:under-retry-limit` reads the *pre-action* `:attempts`, so it passes for the first two failures. On the third it fails and the unguarded default records that error too, then locks out — three attempts total, and the terminal failure is counted.
 
-!!! note "`:data` merges"
+!!! note "`:data` is replaced whole"
 
-    `{:data {:error nil}}` changes only `:error`. It does not replace the whole map.
+    An action returns the machine's whole new `:data`, so `:clear-error` returns `(assoc data :error nil)` and `:attempts` survives. A literal `{:data {:error nil}}` would drop `:attempts`.
     Details: [The table → effect map](concepts.md#the-effect-map-data-fx).
 
 ```clojure
@@ -453,7 +453,7 @@ The table and the event handlers it needs. The view above supplies credentials;
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
 
     :record-error
     (fn [{data :data [_ {:keys [error]}] :event}]
@@ -509,9 +509,9 @@ The table and the event handlers it needs. The view above supplies credentials;
                                :guard  :form-valid?
                                :action :clear-error}}}
 
-    ;; Resting leaves — omit :final? so the machine persists for the session.
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    ;; Final leaves — the singleton completes and rests here for the session.
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 
@@ -563,7 +563,7 @@ because `:form-valid?` refuses the submit.
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
 
     :record-error
     (fn [{data :data [_ {:keys [error]}] :event}]
@@ -618,8 +618,8 @@ because `:form-valid?` refuses the submit.
                                :guard  :form-valid?
                                :action :clear-error}}}
 
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-event :login/submit
   (fn [_ [_ credentials]]

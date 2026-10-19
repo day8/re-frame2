@@ -41,7 +41,7 @@ Acceptable inline cases (single non-branching expression):
 
 ;; Trivial action — pure data update, single non-branching expression.
 ;; Event values are destructured from the :event vector inside the body.
-:action (fn [{[_ new-r] :event}] {:data {:preview-radius new-r}})
+:action (fn [{data :data [_ new-r] :event}] {:data (assoc data :preview-radius new-r)})
 
 ;; Trivial action — single :fx entry, no branching.
 :action (fn [{:keys [data]}]
@@ -56,14 +56,15 @@ Cases that should be named in `:guards` / `:actions` instead (branching, composi
 ;; Branching → name it.
 :action (fn [{:keys [data event]}]
           (if (over-quota? data)
-            {:data {:error :quota}}
-            {:data {:attempts (inc (:attempts data))}
+            {:data (assoc data :error :quota)}
+            {:data (update data :attempts inc)
              :fx   [[:dispatch [:audit/recorded event]]]}))
 
 ;; Composed → name the composition.
 :action (fn [{:keys [data event]}]
-          (let [a (record-attempt data event) b (clear-error data event)]
-            {:data (merge (:data a) (:data b))
+          (let [a (record-attempt data event)
+                b (clear-error (:data a data) event)]
+            {:data (:data b (:data a data))
              :fx   (into (:fx a []) (:fx b []))}))
 
 ;; Multi-fx + branching → name it.
@@ -211,7 +212,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | xstate | re-frame2 | Why |
 |---|---|---|
 | `ActorRef` runtime objects | Snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db | Data orientation; agent-friendliness; no leak footguns |
-| v5 `const ref = spawn(child)` captured into `context`, then `stopChild(ref)` (v6 `enq.spawn(logic, { id })` / `enq.stop(ref)`) | The declarative `:spawn` reducer binds the assigned id into the parent's `:data` under `:rf/spawned`; an action reads `(get-in data [:rf/spawned <invoke-id>])` and emits `[:rf.machine/destroy <id>]` | Same capability (an action holding the id of an actor it spawned) but the id rides the revertible, SSR-survivable snapshot rather than a live mutable ref — no leak footgun, and `restore-epoch!` reverts it for free |
+| v5 `const ref = spawn(child)` captured into `context`, then `stopChild(ref)` (v6 `enq.spawn(logic, { id })` / `enq.stop(ref)`) | The declarative `:spawn` reducer records the assigned id on the parent at `[:rf/runtime :spawned <invoke-id>]`; an action reads it off its context's `:spawned` — `(get spawned <invoke-id>)` — and emits `[:rf.machine/destroy <id>]` | Same capability (an action holding the id of an actor it spawned) but the id rides the revertible, SSR-survivable snapshot rather than a live mutable ref — no leak footgun, and `restore-epoch!` reverts it for free |
 | Per-actor mailboxes | One per-frame router queue | Simpler model; drain at the frame level is the granularity that matters |
 | `raise` (self-event) vs `sendTo` (other-actor) — v6 `enq.raise` / `enq.sendTo` | Single `dispatch`; `:raise` is sugar for self-dispatch with atomic semantics | One pipeline; no per-actor mailbox to put events at the front of |
 | Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-machine`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in the runtime-db snapshot shape and registration lifetime |
@@ -221,7 +222,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | v5 compound-guard combinators (`and([...])`, `or([...])`, `not(...)`) — removed in v6 | One fn or one named registered compound | **Convergence with v6**, where composition is plain code inside one function; named compounds carry semantic content |
 | v5 action vectors `[a1, a2, a3]` per slot — v6 is one function per `entry` / `exit` / transition slot | One fn or one named registered compound | **Convergence with v6**; same reason as guards |
 | `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the machine spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
-| v5 `assign({...})` — removed in v6, where the function returns `{ context }` | Action returns `{:data {...}}` | **Convergence on shape with v6**; the slot is named `:data`. Symmetric with `reg-event`'s `{:db :fx}`; one fewer DSL to parse |
+| v5 `assign({...})` — removed in v6, where the function returns `{ context }` | Action returns `{:data <the complete next data>}` | **Convergence on shape with v6**: the returned `:data` replaces the old, as v6's returned `context` does; the slot is named `:data`. Symmetric with `reg-event`'s `{:db :fx}`; one fewer DSL to parse |
 | `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence. Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke). |
 | v4 `internal: true` (opt OUT of external default) → **v5 `reenter: true`** (opt IN to external; internal is the default) | `:reenter?` boolean — internal self-transitions by default; `:reenter? true` makes them external | **Convergence with XState v5, not a divergence.** re-frame2 follows the v5 default: a self-`:target` is internal (no exit/entry, no `:after`/`:spawn` restart) unless `:reenter? true`, while a `:target` naming a proper ancestor of the declaring state exits and re-enters that ancestor either way, as XState runs it. This is a deliberate divergence *from SCXML / XState v4* (whose targeted transitions are external by default) and an alignment *to* the v5 gold standard. An author trained on XState v5 ports their `reenter` intuition directly. See [005 §Self-transitions](005-StateMachines.md#self-transitions--internal-default-vs-external-reenter). |
 | `enqueueActions(({enqueue, check, context, event}) => …)` — v5's imperative action-list builder: a callback that pushes actions onto a queue, optionally guarded by inline `check(guard)`. v6 removes it; its successor is the plain `(args, enq)` function queuing through `enq.*` | An action returns the `{:data :fx}` effect map. `:fx` **is** the enqueue — a data vector of `[fx-id args]` pairs processed in order; `[:raise <event>]` entries **are** the internal-event enqueue; conditional pushes are ordinary Clojure `(when …)` / `cond` inside the action fn building the `:fx` vector | **Substrate reason: re-frame2 is data-first.** An imperative action-list *builder* is anti-idiomatic — re-frame2 already expresses "do this list of effects, some conditionally" as a returned data vector (`:fx`), not as imperative pushes to a mutable queue. There is no separate enqueue primitive *by design*: the effect model (`:fx` for external effects, `:raise` for internal self-events) already covers the entire `enqueueActions` use-case, and `check` collapses into the host language's own conditionals. Clean divergence, no capability gap. See [005 §Action effect map](005-StateMachines.md#action-effect-map--data-fx) and [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx). |

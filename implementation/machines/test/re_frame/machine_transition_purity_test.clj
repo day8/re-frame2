@@ -2,7 +2,7 @@
   "`machine-transition`'s RETURNED VALUE is a deterministic function of its
   arguments: identical (machine, snapshot, event) triples produce identical
   Results, including the spawn ids inside emitted `:rf.machine/spawn` fx. The
-  spawn-id counter lives in the snapshot at `:rf/spawn-counter`, never in
+  spawn-id counter lives in the snapshot at `[:rf/runtime :spawn-counter]`, never in
   module-level state.
 
   \"Pure\" is scoped to the REDUCTION. The engine still emits Spec 009 trace
@@ -34,18 +34,20 @@
              (mapv (fn [[fx-id arg]]
                      [fx-id (select-keys arg [:rf/spawned-id :rf/parent-id :rf/invoke-id])])
                    (:fx r))))
-      (is (= {:state            :authenticating
-              :data             {:rf/spawned {[:authenticating] :http/post#1}}
-              :rf/spawn-counter {:http/post 1}}
-             (select-keys (:snapshot r) [:state :data :rf/spawn-counter])))))
+      (is (= {:state      :authenticating
+              :data       {}
+              :rf/runtime {:spawn-counter  {:http/post 1}
+                           :spawn-attempts {[:authenticating] 1}
+                           :spawned        {[:authenticating] :http/post#1}}}
+             (select-keys (:snapshot r) [:state :data :rf/runtime])))))
 
   (testing "a snapshot whose counter is pre-populated keeps allocating from where it left off"
     (let [{:keys [snapshot fx]} (rf.machines/machine-transition
                                   auth-flow-spec
-                                  {:state :idle :data {} :rf/spawn-counter {:http/post 3}}
+                                  {:state :idle :data {} :rf/runtime {:spawn-counter {:http/post 3}}}
                                   [:submit])]
       (is (= :http/post#4 (-> fx first second :rf/spawned-id)))
-      (is (= {:http/post 4} (:rf/spawn-counter snapshot))))))
+      (is (= {:http/post 4} (get-in snapshot [:rf/runtime :spawn-counter]))))))
 
 (deftest machine-always-microstep
   (testing ":always fires after an event nothing handled, under a true guard"

@@ -32,8 +32,8 @@
      :state  (:state snapshot)
      :log    (get-in snapshot [:data :log])
      :fx     (mapv (fn [[fx-id arg]] [fx-id (:rf/invoke-id arg)]) fx)
-     :epoch  (or (get-in snapshot [:data :rf/after-epoch])
-                 (get-in snapshot [:data :rf/after-epoch-by-region]))}))
+     :epoch  (or (get-in snapshot [:rf/runtime :after-epoch])
+                 (get-in snapshot [:rf/runtime :after-epoch-by-region]))}))
 
 ;; `:p` is a top-level compound (initial `:q`). `:q` carries an `:after` and a
 ;; `:spawn`; `:r` is a compound (initial `:s`, leaves `:s` and `:x`) carrying
@@ -68,7 +68,7 @@
                        :x {:entry :enter-x :exit :exit-x}}}}}}})
 
 (defn- at [state]
-  {:state state :data {:log [] :rf/after-epoch {[:p :q] 1 [:p :r] 1}}})
+  {:state state :data {:log []} :rf/runtime {:after-epoch {[:p :q] 1 [:p :r] 1}}})
 
 (def ^:private r-restart
   "Lifecycle fx for restarting `[:p :r]`."
@@ -132,7 +132,7 @@
               :fx     [[:rf.machine/after-cancel [:idle]]
                        [:rf.machine/after-schedule [:idle]]]
               :epoch  {[:idle] 2}}
-             (step flat {:state :idle :data {:log [] :rf/after-epoch {[:idle] 1}}} [event]))
+             (step flat {:state :idle :data {:log []} :rf/runtime {:after-epoch {[:idle] 1}}} [event]))
           (str event)))))
 
 (deftest root-target-inside-the-active-top-level-compound-restarts-it
@@ -189,5 +189,6 @@
             :epoch  {:a {[:idle] 2}}}
            (step par
                  {:state {:a :idle :b :x}
-                  :data  {:log [] :rf/after-epoch-by-region {:a {[:idle] 1}}}}
+                  :data  {:log []}
+                  :rf/runtime {:after-epoch-by-region {:a {[:idle] 1}}}}
                  [:reset-a])))))

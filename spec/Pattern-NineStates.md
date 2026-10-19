@@ -334,10 +334,11 @@ The `:data` region's `:loading` state usually has a `:spawn` of `:rf.http/manage
  :spawn {:machine-id :rf.http/managed
           :data       {:request    {:method :get :url "/api/counters"}
                        :decode     CounterListResponse
-                       :request-id :counter/load}}
- :on    {:succeeded {:target :resolving :action :set-items}
-         :failed    {:target :error     :action :set-error}
-         :reset     {:target :nothing :action :reset-domain}}}  ;; abandon: cancel wrapper + clear data
+                       :request-id :counter/load}
+          ;; the wrapper's completion: (nth event 2) carries :result
+          :on-done    {:target :resolving :action :set-items}
+          :on-error   {:target :error     :action :set-error}}
+ :on    {:reset     {:target :nothing :action :reset-domain}}}  ;; abandon: cancel wrapper + clear data
 ```
 
 `:reset` from a bucket — fired by a navigation handler or an explicit user gesture — exits `:loading`, the wrapper is destroyed, and the in-flight request is aborted. No `:rf.http/managed-abort` call needed; the lifetime binding handles it. The transition also carries a `:reset-domain` action — `(fn [_] {:data {:items [] :error nil}})` — because returning a region to `:nothing` does **not**, on its own, rewrite the shared `:data`: machine data is preserved across a transition unless an action changes it. Without that action the just-abandoned `:items` survive under the blank `:nothing` view and resurrect on the next submit. "Reset" therefore means state **and** owned data, matching [Pattern-RemoteData](Pattern-RemoteData.md)'s reset contract.

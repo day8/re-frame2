@@ -36,7 +36,7 @@
                    :ready   {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:fetch]
-   :expect-next-snapshot {:state :loading :data {:rf/after-epoch {[:loading] 1}}}
+   :expect-next-snapshot {:state :loading :data {} :rf/runtime {:after-epoch {[:loading] 1}}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:loading]
@@ -50,16 +50,16 @@
   ;; in-flight timer is now stale (it carries epoch 1).
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch {[:loading] 1}}
+                  :data    {}
                   :states
                   {:idle    {:on {:fetch :loading}}
                    :loading {:after {5000 :timeout}
                              :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :loading :data {:rf/after-epoch {[:loading] 1}}}
+   :snapshot     {:state :loading :data {} :rf/runtime {:after-epoch {[:loading] 1}}}
    :event        [:loaded]
-   :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
+   :expect-next-snapshot {:state :ready :data {} :rf/runtime {:after-epoch {[:loading] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:loading]}]]}
@@ -69,14 +69,14 @@
   ;; Snapshot is unchanged. :rf.machine.timer/stale-after emits.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch {[:loading] 2}}
+                  :data    {}
                   :states
                   {:idle    {:on {:fetch :loading}}
                    :loading {:after {5000 :timeout}
                              :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
+   :snapshot     {:state :ready :data {} :rf/runtime {:after-epoch {[:loading] 2}}}
    :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
-   :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
+   :expect-next-snapshot {:state :ready :data {} :rf/runtime {:after-epoch {[:loading] 2}}}
    :expect-effects       []}]}

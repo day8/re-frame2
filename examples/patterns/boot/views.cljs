@@ -19,7 +19,8 @@
       again from `:configuring`. (A real event, note — not the
       `:rf.machine/start` creation marker, which goes inert the moment
       the machine exists.) The main app dispatches the SAME event from
-      its 'Re-run boot' button — both terminals accept it — which is what
+      its 'Re-run boot' button — the root's way out of either final state —
+      which is what
       makes the failure screen reachable from a running app rather than
       only describable in prose.
 
@@ -117,8 +118,8 @@
       [:ul {:data-testid "routes-list"}
        (for [{:keys [id path]} routes]
          ^{:key id} [:li (str id " → " path)])]]
-     ;; The demo's way back into the boot. Both terminals accept
-     ;; `:boot/restart`, so a healthy app can re-boot exactly as a failed one
+     ;; The demo's way back into the boot. The root's `:boot/restart` leaves
+     ;; either final state, so a healthy app can re-boot exactly as a failed one
      ;; can retry — which is what lets you tick the box below and actually
      ;; watch the `:failed` branch the README describes.
      [:section.boot-demo-controls

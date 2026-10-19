@@ -131,7 +131,7 @@
   (rf/dispatch-sync [:flow [:start]] {:frame :right})
   (is (= [1 1]
          (mapv #(get-in (:rf.db/runtime (rf/frame-state-value %))
-                        [:rf.runtime/machines :snapshots :flow :rf/spawn-counter :worker])
+                        [:rf.runtime/machines :snapshots :flow :rf/runtime :spawn-counter :worker])
                [:left :right]))))
 
 ;; The registered machine's SPEC map, read through the generic registrar query

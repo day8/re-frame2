@@ -201,7 +201,7 @@
 
 (defn- spawn-machine-id-error
   "A spawn-spec names a registered machine TYPE by `:machine-id`, so the
-  spawned actor's `:rf/machine-type` is a keyword and every snapshot and join
+  spawned actor's `[:rf/runtime :machine-type]` is a keyword and every snapshot and join
   slot stays EDN (Spec 005 §Spawn-spec keys). Returns a `:reason` string for
   a spec carrying an inline `:definition`, or one with no `:machine-id`, else
   nil. Shared by single `:spawn` and each `:spawn-all` child."

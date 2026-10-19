@@ -1,6 +1,6 @@
 (ns re-frame.spawn-id-prefix-test
   "A declarative `:spawn` / `:spawn-all` mints its generated `<prefix>#<n>`
-  address — and keys its `:rf/spawn-counter` sequence — from the spawn-spec's
+  address — and keys its `[:rf/runtime :spawn-counter]` sequence — from the spawn-spec's
   `:id-prefix`, defaulting to `:machine-id` (Spec 005 §Spawn-spec keys). A
   distinct prefix is the author's escape from the generated-address collision
   reject."
@@ -28,7 +28,7 @@
                             :data    {}
                             :states  {:idle {:on {:go :working}} :working {:spawn spawn-spec}}})
     (rf/dispatch-sync [parent [:go]]))
-  (is (= {:idp/mine 1} (:rf/spawn-counter (snapshot :idp/prefixed)))
+  (is (= {:idp/mine 1} (get-in (snapshot :idp/prefixed) [:rf/runtime :spawn-counter]))
       "sequenced under the supplied prefix, not under :machine-id")
   ;; Two parents spawning one TYPE: had the prefix been ignored, both would
   ;; mint :idp/child#1 and the second would be refused as a collision.
@@ -55,5 +55,5 @@
          (get-in (rf.machines.test-support/runtime-db)
                  [:rf.runtime/machines :spawned :idp4/parent [:hydrating] :children])))
   (is (every? snapshot [:idp4/alpha#1 :idp4/child#1]) "both children are live")
-  (is (= {:idp4/alpha 1 :idp4/child 1} (:rf/spawn-counter (snapshot :idp4/parent)))
+  (is (= {:idp4/alpha 1 :idp4/child 1} (get-in (snapshot :idp4/parent) [:rf/runtime :spawn-counter]))
       "one independent sequence per distinct prefix"))

@@ -52,8 +52,8 @@ See [The snapshot](concepts.md#the-snapshot).
 ### **:data**
 
 A machine's private working memory. Guards and actions read it. Actions update
-it by returning `{:data …}`. Merged at the top level, not replaced —
-`{:data {:error nil}}` sets that key to nil.
+it by returning `{:data …}`, the whole new map: `{:data (assoc data :error nil)}`
+changes one key, and `{:data (dissoc data :error)}` removes it.
 
 See [The idea](concepts.md#the-idea).
 
@@ -114,11 +114,11 @@ See [Entry, exit, and transition actions](concepts.md#entry-exit-and-transition-
 The return value from an action.
 
 ```clojure
-{:data {:error nil}
+{:data (assoc data :error nil)
  :fx   [[:dispatch [:session/clear]]]}
 ```
 
-`:data` is merged into the machine data. `:fx` is the ordinary effects vector.
+`:data` replaces the machine data. `:fx` is the ordinary effects vector.
 
 See [The effect map](concepts.md#the-effect-map-data-fx).
 
@@ -147,9 +147,9 @@ See [Parallel regions](parallel-states.md).
 
 ### **final state**
 
-A leaf marked `:final? true`. At the root, it ends and destroys the machine.
-Inside a compound state, it marks that sub-flow as done. A resting end-screen
-(`:authed`) omits `:final?`.
+A leaf marked `:final? true`. At the root, it ends the machine: a spawned actor
+is destroyed, and a singleton rests there, so a resting end-screen (`:authed`)
+is `:final?`. Inside a compound state, it marks that sub-flow as done.
 
 See [Final states](concepts.md#final-states);
 [nested finals](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).

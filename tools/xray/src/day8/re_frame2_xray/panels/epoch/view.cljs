@@ -72,11 +72,8 @@
   Two consequences worth knowing before editing a helper here:
 
     * A PLAIN FN IN HEAD POSITION IS A LOUD ERROR under a boundary —
-      Fresco's codec grades it `:invalid` — and it is the wrong shape
-      anyway: a plain fn carries no `:contextType`, so an ambient read
-      inside one resolves its frame to nil and raises
-      `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun; there is
-      no `:rf/default` fallback). CALL the helper. Only a `defview` — the
+      Fresco's codec grades it `:invalid` and raises
+      `:rf.error/fresco-bad-head`. CALL the helper. Only a `defview` — the
       widget siblings `ei/edn-inspector-view` and `rt/resizable-table-view`
       — belongs in head position.
     * `^{:key …}` METADATA REACHES REACT NOWHERE under Fresco: the codec
@@ -3298,9 +3295,9 @@
 
   Scope = `{:state :tags}` ONLY (`projection/machine-logical-state`):
   `:data` is the per-action DATA Δ's job (folding it in double-shows
-  it); the framework `:rf/*` snapshot slots (`:rf/spawn-counter`,
-  after-epoch counters — Spec 005 §Reserved snapshot-internal keys) are
-  not user state. For a PARALLEL machine the box shows the structured
+  it); the framework `:rf/runtime` map (spawn counters, after-epoch
+  counters — Spec 005 §Reserved snapshot-internal keys) is not user
+  state. For a PARALLEL machine the box shows the structured
   region→state map + the tag-union shift in one object — exactly what
   the single-region headline verb (`<from> → <to>`) cannot convey.
 

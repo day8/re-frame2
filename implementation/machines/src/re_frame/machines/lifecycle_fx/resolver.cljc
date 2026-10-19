@@ -15,9 +15,8 @@
   past a destroy re-materialises a working handler from the restored
   snapshot.
 
-  The actor's TYPE rides the snapshot under the reserved root key
-  `:rf/machine-type` (per Spec 005 §Reserved snapshot-internal keys): the
-  registered TYPE keyword. The type is registered like a singleton
+  The actor's TYPE rides the snapshot at `[:rf/runtime :machine-type]` (per
+  Spec 005 §Reserved snapshot-internal keys): the registered TYPE keyword. The type is registered like a singleton
   (`reg-machine`) and outlives every instance, so the resolver reads the live
   spec back from the registrar, and the snapshot stays EDN.
 
@@ -68,22 +67,22 @@
 
 (defn registration-from-snapshot
   "The registrar entry of a spawned actor's TYPE, named by its `snapshot`'s
-  `:rf/machine-type` reserved slot — the registration whose handler every
+  `[:rf/runtime :machine-type]` slot — the registration whose handler every
   message to the actor runs (`lifecycle-fx.registration/resolve-actor-handler-meta`).
   Nil exactly when `spec-from-snapshot` is nil."
   [snapshot]
-  (let [t (:rf/machine-type snapshot)]
+  (let [t (get-in snapshot [:rf/runtime :machine-type])]
     (when (keyword? t)
       (registration-from-registry t))))
 
 (defn spec-from-snapshot
   "Resolve the machine SPEC for a spawned actor from its `snapshot`'s
-  `:rf/machine-type` reserved slot (per Spec 005 §Reserved
+  `[:rf/runtime :machine-type]` slot (per Spec 005 §Reserved
   snapshot-internal keys): the registered TYPE keyword, read back through the
   registrar's `:rf/machine` metadata (the type is registered like a singleton
   and outlives instances), or nil.
 
-  Returns nil when the snapshot carries no `:rf/machine-type` (a singleton
+  Returns nil when the snapshot carries no `[:rf/runtime :machine-type]` (a singleton
   snapshot) or when the type no longer names a registered machine (the type
   was cleared — a genuine missing reference)."
   [snapshot]
@@ -91,80 +90,61 @@
 
 ;; ---- the spawned-actor identity envelope ---------------------------------
 ;;
-;; The canonical catalogue of the framework-owned slots that constitute a
-;; spawned actor's IDENTITY, as distinct from its authored state/data. Spawn
-;; stamps them (the `:machine-id` keyword at `:rf/machine-type` +
-;; `stamp-framework-data`); snapshot compatibility recovery
-;; (`lifecycle-fx.registration/rebuild-incompatible-snapshot`) carries them
-;; across. Both sides read this ONE catalogue so they cannot disagree about
-;; which values are durable actor identity.
+;; The canonical catalogue of the `:rf/runtime` slots that constitute a
+;; spawned actor's IDENTITY, as distinct from its authored state/data and the
+;; runtime's counters. Spawn stamps them (`install-spawn!`); snapshot
+;; compatibility recovery (`lifecycle-fx.registration/rebuild-incompatible-snapshot`)
+;; carries them across. Both sides read this ONE catalogue so they cannot
+;; disagree about which values are durable actor identity.
 ;;
-;; Per Spec 005 §Reserved snapshot-internal keys §Persistence posture the only
-;; TRANSIENT snapshot-root slot is `:rf/bootstrap-pending?` — every other
-;; reserved slot rides the snapshot. `:rf/machine-type` in particular is what
-;; makes a spawned actor's liveness a pure function of runtime-db
-;; (§Liveness is derived from runtime-db): it is the ONLY key
-;; `registration-from-snapshot` can resolve an actor's handler from, since a
-;; spawned actor has no per-instance registrar entry. An actor stops being
-;; addressable by being DESTROYED — never by having its definition change
-;; underneath it.
+;; `:machine-type` in particular is what makes a spawned actor's liveness a
+;; pure function of runtime-db (Spec 005 §Liveness is derived from
+;; runtime-db): it is the ONLY key `registration-from-snapshot` can resolve an
+;; actor's handler from, since a spawned actor has no per-instance registrar
+;; entry. An actor stops being addressable by being DESTROYED — never by
+;; having its definition change underneath it.
 ;;
-;; Deliberately NOT here: the transient runtime counters (`:rf/spawn-counter`,
-;; `:rf/after-epoch`, `:rf/after-epoch-by-region`) and the SPAWNING side's
-;; `:rf/spawned` map. Those are bookkeeping tied to the definition that
-;; produced them, and a compatibility reset means restarting the machine —
-;; they reset with the snapshot.
+;; Deliberately NOT here: the counters (`:spawn-counter`, `:spawn-attempts`,
+;; `:after-epoch`, `:after-epoch-by-region`) and the SPAWNING side's
+;; `:spawned` map. Those are bookkeeping tied to the definition that produced
+;; them, and a compatibility reset means restarting the machine — they reset
+;; with the snapshot.
 
-(def actor-identity-root-keys
-  "Framework-owned snapshot-ROOT slots that carry a spawned actor's identity.
-  Absent on singleton snapshots (which resolve through the registrar)."
-  [:rf/machine-type])
-
-(def actor-identity-data-keys
-  "Framework-owned `:data` slots that carry a spawned actor's identity and
-  lineage — its own address, its owner's address, the invocation path it was
-  spawned from, (for a `:spawn-all` child) its private exact-attempt join
-  membership, and (for a single `:spawn` child) the spawn attempt it belongs
-  to and that attempt's work generation. Each is present only on the spawn
-  flavour that stamps it."
-  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child :rf/invoke-attempt
-   :rf/work-generation])
+(def actor-identity-keys
+  "The `:rf/runtime` slots that carry a spawned actor's identity and lineage —
+  its registered TYPE, its own address, its owner's address, the invocation
+  path it was spawned from, (for a `:spawn-all` child) its private
+  exact-attempt join membership, and (for a single `:spawn` child) the spawn
+  attempt it belongs to and that attempt's work generation. Each is present
+  only on the spawn flavour that stamps it; a singleton carries none."
+  [:machine-type :self-id :parent-id :invoke-id :join-child :invoke-attempt
+   :work-generation])
 
 (defn carry-actor-identity
-  "Copy the spawned-actor identity envelope from `prev` onto `next`,
-  key by key, skipping any key `prev` does not carry.
+  "Copy the spawned-actor identity envelope from `prev`'s `:rf/runtime` onto
+  `next`'s. `next` is a freshly-derived initial snapshot; `prev` is the
+  snapshot being replaced. A SINGLETON `prev` carries none of these keys, so
+  this is exactly a no-op there.
 
-  `next` is a freshly-derived initial snapshot; `prev` is the snapshot being
-  replaced. A SINGLETON `prev` carries none of these keys, so this is exactly
-  a no-op there.
-
-  This preserves identity ONLY — authored `:state` / `:data` and the transient
-  runtime counters come from `next`, so a compatibility reset still means
-  'restart this machine', not 'patch it'."
+  This preserves identity ONLY — authored `:state` / `:data` and the runtime
+  counters come from `next`, so a compatibility reset still means 'restart
+  this machine', not 'patch it'."
   [prev next]
-  (let [carry-root (fn [snap k]
-                     (if-some [v (get prev k)]
-                       (assoc snap k v)
-                       snap))
-        carry-data (fn [snap k]
-                     (if-some [v (get-in prev [:data k])]
-                       (assoc-in snap [:data k] v)
-                       snap))]
-    (as-> next snap
-      (reduce carry-root snap actor-identity-root-keys)
-      (reduce carry-data snap actor-identity-data-keys))))
+  (let [identity (select-keys (:rf/runtime prev) actor-identity-keys)]
+    (cond-> next
+      (seq identity) (update :rf/runtime merge identity))))
 
 (defn spec-from-id-or-snapshot
   "Resolve a machine SPEC for `id` (a singleton's registered handler key,
   a spawned actor's instance address, or a spawning parent's id) preferring
-  the registered TYPE, falling back to the `snapshot`'s `:rf/machine-type`:
+  the registered TYPE, falling back to the `snapshot`'s `[:rf/runtime :machine-type]`:
 
     (or (spec-from-registry id) (spec-from-snapshot snapshot)).
 
   The two legs are mutually exclusive for any one id — a registered
-  singleton has a registrar entry but no `:rf/machine-type` on
+  singleton has a registrar entry but no `[:rf/runtime :machine-type]` on
   its snapshot, while a spawned actor carries no per-instance registrar
-  entry but stamps `:rf/machine-type` on its snapshot — so the `or` order
+  entry but stamps `[:rf/runtime :machine-type]` on its snapshot — so the `or` order
   is behaviourally irrelevant and either leg resolves at most one spec.
   Returns nil when neither resolves (the actor was already torn down, or
   the id names a non-machine event)."
@@ -174,12 +154,12 @@
 
 (defn resolvable?
   "True iff the actor identified by `actor-id` in `db` resolves to a live
-  machine spec via its snapshot's `:rf/machine-type` — i.e. its liveness
+  machine spec via its snapshot's `[:rf/runtime :machine-type]` — i.e. its liveness
   can be re-materialised purely from `db`. Used by the epoch restore
   precondition check (`:rf.epoch/restore-missing-handler`): a spawned
   actor whose TYPE is still registered is a VALID restore target even though no
   per-instance handler is registered. Returns false when the actor has
-  no snapshot, or its snapshot carries no resolvable `:rf/machine-type`."
+  no snapshot, or its snapshot carries no resolvable `[:rf/runtime :machine-type]`."
   [db actor-id]
   (boolean
     (some-> (get-in db (rf.machines.paths/snapshot-path actor-id))
@@ -230,20 +210,23 @@
   (:spawn-all (invoke-node-at parent-spec invoke-id)))
 
 (defn apply-on-done
-  "Run ONE `:on-done` completion fold against a parent's `:data`, returning the
-  new `:data` map.
+  "Run ONE fn `:on-done` completion fold against a parent, returning the
+  parent's new `:data` map.
 
   This is the SINGLE application site for the `:on-done` contract, shared by
   both spawn forms — a `:spawn` parent's `:on-done` (applied at the parent's
   handler boundary when the reserved completion carrier arrives) and a
   `:spawn-all` child spec's per-child `:on-done` (applied by the join fold at
-  that child's successful finality only). Per Spec 005 §Final states the
-  callback receives one context-map arg and returns the new `:data` map:
+  that child's successful finality only). Per Spec 005 §Path conventions in
+  machine bodies the callback reads the SAME context map every machine
+  callback reads — `ctx`, the parent's `transition/callback-ctx` against the
+  completion carrier — plus `:result`, and returns the new `:data` map, which
+  replaces the parent's:
 
-      (fn [{:keys [data result]}] new-data)
+      (fn [{:keys [data result state event]}] new-data)
 
-  `on-done` may be nil (the common case — no fold declared), in which case
-  `data` rides through untouched.
+  A nil return leaves `:data` as it was. `on-done` may be nil (the common case
+  — no fold declared), in which case `:data` rides through untouched.
 
   A throwing fold is CONTAINED: the parent's `:data` is left exactly as it was
   and the completion still lands, because a presentation callback must not be
@@ -255,10 +238,11 @@
   under `:advanced` + `goog.DEBUG=false`. `err-ctx` supplies the reporting
   coordinates (`:actor-id` — the PARENT actor whose `:data` was being folded —
   plus optional `:state`, `:frame`, `:child-id`)."
-  [on-done data result {:keys [actor-id state frame child-id]}]
+  [on-done ctx result {:keys [actor-id state frame child-id]}]
   (if on-done
-    (let [new-data (try
-                     (on-done {:data data :result result})
+    (let [data     (:data ctx)
+          new-data (try
+                     (on-done (assoc ctx :result result))
                      (catch #?(:clj Throwable :cljs :default) e
                        ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose;
                        ;; see error-emit). `:state` is the state the parent
@@ -290,4 +274,4 @@
                              (some? child-id) (assoc :child-id child-id))))
                        nil))]
       (if (some? new-data) new-data data))
-    data))
+    (:data ctx)))

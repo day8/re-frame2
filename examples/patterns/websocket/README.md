@@ -38,10 +38,10 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   does: they RETURN the `:ws.socket/open`, `:ws.socket/send` and
   `:ws.socket/close` effects, and those effect handlers own the JS
   `WebSocket`-shaped reference, in a private store keyed by the actor's
-  `:rf/self-id`. Only the id ever appears in `:data` — never the socket itself.
+  `:self-id`. The socket itself never appears in `:data`.
 
 - Stale-message rejection via the connection epoch. The live socket-actor id
-  — read from the runtime-maintained `:rf/spawned` slot in `:data` — is the
+  — read from the `:spawned` map the runtime hands every callback — is the
   epoch; the `:current-socket?` [guard](../../../docs/machines/glossary.md#guard)
   rejects any socket-sourced event from a connection that has since been
   replaced — the lifecycle transitions (`:ws/opened`, `:ws/auth-ok`,
@@ -151,7 +151,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   scope instead would keep it alive as long as the stored socket handle —
   which is the whole connection. Leaving `:active` destroys the actor (the declarative
   `:spawn` desugars to a `:rf.machine/destroy` on exit), and the runtime
-  clears its id from the `:rf/spawned` slot — so the connection machine needs
+  clears its id from that `:spawned` record — so the connection machine needs
   no `:exit` action to forget the id. The actor itself does carry one: an
   `:exit :close-socket` on its `:open` state returns the `:ws.socket/close`
   effect that closes the host `WebSocket` on the way down, because a live
@@ -177,7 +177,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 | File | Notes |
 |---|---|
 | `core.cljs` | Entry point — installs the adapter, mounts the React root under a `frame-root` that creates the [frame](../../../docs/core/glossary.md#frame) and fires `:ws.app/initialise`. |
-| `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example: the same state chart, and the live socket id comes from the framework's runtime-maintained `:rf/spawned` slot on both sides (the spec says so in terms — "No `:socket-id` field"). |
+| `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example: the same state chart, and the live socket id comes from the runtime-maintained `:spawned` record on both sides (the spec says so in terms — "No `:socket-id` field"). |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + the `:ws.socket/*` effects that own its socket + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) — the connection machine's `:data` slice, the `[:messages]` app-db slice, and the closed inbound wire contract (`InboundMessage`, plus `RequestOutcome` keyed on the machine-stamped `:origin`). |

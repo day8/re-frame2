@@ -31,19 +31,19 @@
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- join-attempt
-  "The live `:rf/join-child` membership record on `actor` — the exact-attempt
+  "The live `:join-child` membership record on `actor` — the exact-attempt
   coordinate the runtime stamped at spawn. Read it while the child is ALIVE:
   completion is finality, so a completed child has already torn itself down."
   ([] (join-attempt fixed-child))
   ([actor]
    (get-in (rf.frame/frame-runtime-db-value :rf/default)
-           [:rf.runtime/machines :snapshots actor :data :rf/join-child])))
+           [:rf.runtime/machines :snapshots actor :rf/runtime :join-child])))
 
 (defn- forged-completion!
   "Hand-dispatch the reserved completion carrier
   `[<parent> [:rf.machine.spawn/done <invoke-id> <completion>]]` that the
   machines runtime mints at a child's finality, carrying `auth` (a
-  `:rf/join-child` record captured while the child was live) as its
+  `:join-child` record captured while the child was live) as its
   exact-attempt coordinate. This is how the fixture drives a straggler the
   runtime itself would never re-mint — the arrivals whose Xray classification
   these tests are about."

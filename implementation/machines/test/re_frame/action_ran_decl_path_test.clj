@@ -61,9 +61,8 @@
           [:i-out    :exit          [:o :i] nil]
           [:o-out    :exit          [:o]    nil]
           [:home     :transition    []      nil]
-          [:b-in     :entry         [:b]    nil]
-          ;; `:b` is final: the teardown
-          [:root-out :destroy-exit  []      nil]]
+          ;; `:b` is final, and a singleton rests there: nothing exits
+          [:b-in     :entry         [:b]    nil]]
          (ran))))
 
 (deftest parallel-machine-actions-name-their-declaring-node

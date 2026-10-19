@@ -67,6 +67,7 @@
                        {} states))))
 
 (deftest root-lifecycle-rows-resolve-the-root-coord
+  (rf/reg-event ::destroy-flat (fn [_ _] {:fx [[:rf.machine/destroy :rlc/flat]]}))
   (rf/reg-machine :rlc/flat
     {:initial :a
      :entry   (fn [_] {:data {:at :root-in}})
@@ -79,7 +80,8 @@
         born   (cascade-of [:rlc/flat [:rf.machine/start]])
         entry  (key-of-row-running born (:entry spec))
         a-in   (key-of-row-running born (get-in spec [:states :a :entry]))
-        exit   (key-of-row-running (cascade-of [:rlc/flat [:fin]]) (:exit spec))]
+        _      (rf/dispatch-sync [:rlc/flat [:fin]])
+        exit   (key-of-row-running (cascade-of [::destroy-flat]) (:exit spec))]
     (testing "the root's own :entry row"
       (is (= placed-coord (proj/state-node-source-coords placed entry)))
       #?(:cljs (do (is (map? (:source-coords spec))

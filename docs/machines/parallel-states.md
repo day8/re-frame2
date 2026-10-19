@@ -119,13 +119,14 @@ declaration order and write to the shared `:data` in that order.
 ## Shared data
 
 Because all regions share `:data`, two regions handling one event can both
-update it. `:data` merges, so an action that returns `{:data {:count n}}` writes
-only `:count`.
+update it. Each region's action reads the `:data` the previous one returned and
+returns the whole new map, so an action that changes one key returns
+`(update data …)`.
 
 ```clojure
 :actions
 {:bump (fn [{data :data}]
-         {:data {:count (inc (:count data))}})}
+         {:data (update data :count inc)})}
 ```
 
 If two regions run `:bump`, `:count` increments twice.
@@ -263,8 +264,8 @@ parallel root's `:on-done` runs its `:action` and emits its `:fx` only; a
 sibling state to land on. The machine stays in the all-final configuration.
 
 Without a root `:on-done`, all-regions-final ends the machine the way a
-root-level `:final?` leaf does: a singleton is destroyed, and a spawned
-child reports to its parent
+root-level `:final?` leaf does: a singleton rests in the all-final
+configuration, and a spawned child reports to its parent
 ([Actors](actors.md#when-a-child-finishes)). A child with a root `:on-done`
 stays in the all-final configuration, so it never reports.
 

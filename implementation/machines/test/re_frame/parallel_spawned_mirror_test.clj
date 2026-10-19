@@ -1,7 +1,7 @@
 (ns re-frame.parallel-spawned-mirror-test
-  "A region's spawn keeps ONE `[:data :rf/spawned …]` entry on its parallel
+  "A region's spawn keeps ONE `[:rf/runtime :spawned …]` entry on its parallel
   parent, keyed by the region-qualified invoke-id `[<region> & <in-region-path>]`
-  — the key the registry slot and the child's `:rf/invoke-id` carry. Regions are
+  — the key the registry slot and the child's `:invoke-id` carry. Regions are
   true scopes: two regions may spawn from same-named states, and each
   region's install, exit and rejection touch only its own entry."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -14,8 +14,12 @@
   (rf.machines.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private machine-data rf.machines.test-support/machine-data)
 (def ^:private snapshot rf.machines.test-support/snapshot)
+
+(defn- mirror
+  "The parent's spawned-id mirror, `[:rf/runtime :spawned]`."
+  [parent-id]
+  (get-in (snapshot parent-id) [:rf/runtime :spawned]))
 
 (defn- registry-slot [parent-id invoke-id]
   (get-in (rf.machines.test-support/runtime-db)
@@ -42,7 +46,7 @@
   (reg-region-parent! :psm1/p {:spawn {:machine-id :psm1/kid}})
   (rf/dispatch-sync [:psm1/p [:go-a]])
   (is (= [:psm1/kid#1 {[:a :loading] :psm1/kid#1}]
-         [(registry-slot :psm1/p [:a :loading]) (:rf/spawned (machine-data :psm1/p))])))
+         [(registry-slot :psm1/p [:a :loading]) (mirror :psm1/p)])))
 
 (deftest region-spawn-all-mirror-holds-one-region-qualified-entry
   (reg-child! :psm2/kid)
@@ -50,7 +54,7 @@
                                            :on-all-complete [:all-done]}})
   (rf/dispatch-sync [:psm2/p [:go-a]])
   (is (= [{:c1 :psm2/kid#1} {[:a :loading] {:c1 :psm2/kid#1}}]
-         [(:children (registry-slot :psm2/p [:a :loading])) (:rf/spawned (machine-data :psm2/p))])))
+         [(:children (registry-slot :psm2/p [:a :loading])) (mirror :psm2/p)])))
 
 (deftest region-exit-clears-its-mirror-entry
   (reg-child! :psm5/kid)
@@ -58,7 +62,7 @@
   (rf/dispatch-sync [:psm5/p [:go-a]])
   (is (some? (snapshot :psm5/kid#1)))
   (rf/dispatch-sync [:psm5/p [:back-a]])
-  (is (not (contains? (machine-data :psm5/p) :rf/spawned))
+  (is (nil? (mirror :psm5/p))
       "no mirror entry outlives the child"))
 
 (defn- two-region-parent
@@ -106,19 +110,19 @@
   (testing "each region's spawn writes its own entry, equal to its registry slot's child"
     (is (= {[:a :loading] :psm8/kid#1
             [:b :loading] {:c1 :psm8/kid#2}}
-           (:rf/spawned (machine-data :psm8/p))))
+           (mirror :psm8/p)))
     (is (= [:psm8/kid#1 {:c1 :psm8/kid#2}]
            [(registry-slot :psm8/p [:a :loading])
             (:children (registry-slot :psm8/p [:b :loading]))])))
   (testing "re-entering one region's spawning state rewrites only that region's entry"
     (rf/dispatch-sync [:psm8/p [:back-a]])
-    (is (= {[:b :loading] {:c1 :psm8/kid#2}} (:rf/spawned (machine-data :psm8/p)))
+    (is (= {[:b :loading] {:c1 :psm8/kid#2}} (mirror :psm8/p))
         "region :a's exit clears its own entry and leaves :b's")
     (is (some? (snapshot :psm8/kid#2)) "region :b's child is untouched")
     (rf/dispatch-sync [:psm8/p [:go-a]])
     (is (= {[:a :loading] :psm8/kid#3
             [:b :loading] {:c1 :psm8/kid#2}}
-           (:rf/spawned (machine-data :psm8/p))))))
+           (mirror :psm8/p)))))
 
 (deftest a-rejected-region-spawn-clears-only-its-own-entry
   (reg-child! :psm10/kid)
@@ -127,11 +131,11 @@
                                                 {:spawn {:machine-id :psm10/kid}}))
     (rf/dispatch-sync [:psm10/p [:go-a]])
     (rf/dispatch-sync [:psm10/p [:go-b]])
-    (is (= {[:b :loading] :psm10/kid#1} (:rf/spawned (machine-data :psm10/p)))))
+    (is (= {[:b :loading] :psm10/kid#1} (mirror :psm10/p))))
   (testing "a :spawn-all the fx rejects whole in region :b"
     (reg-child! :psm11/kid)
     (rf/reg-machine :psm11/q (two-region-parent {:spawn {:machine-id :psm11/kid}}
                                                 (spawn-all-of :psm11/kid :psm11/phantom)))
     (rf/dispatch-sync [:psm11/q [:go-a]])
     (rf/dispatch-sync [:psm11/q [:go-b]])
-    (is (= {[:a :loading] :psm11/kid#1} (:rf/spawned (machine-data :psm11/q))))))
+    (is (= {[:a :loading] :psm11/kid#1} (mirror :psm11/q)))))

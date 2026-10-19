@@ -120,7 +120,7 @@ This is re-frame2's answer to XState v5's `stateIn` (v6 `checkStateIn(snapshot, 
 - **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`re-frame.machines.lifecycle-fx.validation`).
 - **No nested parallel regions.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`re-frame.machines.lifecycle-fx.validation`).
 - **Broadcast is to every region.** One event-keyword goes to every region's `:on` table; regions whose tables don't list that event are no-ops for that dispatch. Don't broadcast a region-private event with a generic name — namespace it (`:form/submit-valid`, not `:submit-valid`) to make the per-region intent visible.
-- **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (per-region scoping in `re-frame.machines.transition`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
+- **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:rf/runtime :after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (per-region scoping in `re-frame.machines.transition`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
 
 ## When to reach for parallel regions vs N machines
 

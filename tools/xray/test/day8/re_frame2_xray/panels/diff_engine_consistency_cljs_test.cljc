@@ -15,7 +15,7 @@
 
 (deftest empty-collection-leaf-epoch2-witness
   (testing "the live step-deck epoch-2 :rf.db/runtime allocation:
-            `:messages []` and `:rf/spawn-counter {}` paint :added alongside
+            `:messages []` and an empty `:rf/runtime` map paint :added alongside
             every other leaf under the wholly-added subtree"
     (let [after {:rf.db/runtime
                  {:rf.runtime/machines
@@ -24,14 +24,14 @@
                     {:state :disconnected
                      :data  {:connections 0
                              :messages    []}
-                     :rf/spawn-counter {}}}}}}
+                     :rf/runtime {}}}}}}
           proj (engine/project {} after)]
       (is (= [:added :added :added]
              (mapv #(engine/op-at proj %)
                    [[:rf.db/runtime :rf.runtime/machines :snapshots
                      :ws/connection :data :messages]
                     [:rf.db/runtime :rf.runtime/machines :snapshots
-                     :ws/connection :rf/spawn-counter]
+                     :ws/connection :rf/runtime]
                     [:rf.db/runtime]]))))))
 
 (deftest empty-collection-leaf-same-container-does-not-inherit

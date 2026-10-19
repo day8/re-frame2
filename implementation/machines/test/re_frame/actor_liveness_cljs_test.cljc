@@ -48,7 +48,7 @@
   (let [reg-before (registered-event-ids)]
     (rf/dispatch-sync [:al/parent [:go]])
     (is (= [:al/child reg-before]
-           [(:rf/machine-type (snapshot :al/child#1)) (registered-event-ids)])
+           [(get-in (snapshot :al/child#1) [:rf/runtime :machine-type]) (registered-event-ids)])
         "the snapshot carries its TYPE; no per-instance handler was registered")
     (rf/dispatch-sync [:al/parent [:drop]])
     (is (= [nil reg-before] [(snapshot :al/child#1) (registered-event-ids)]))))
@@ -77,7 +77,8 @@
         "the reverted snapshot answers its next event: liveness reverted with it")))
 
 (deftest singletons-still-register-and-dispatch-unchanged
-  ;; frame-destroy tells a spawned actor from a singleton by `:rf/machine-type`.
+  ;; frame-destroy tells a spawned actor from a singleton by `[:rf/runtime :machine-type]`.
   (rf/reg-machine :al5/single (counter-child))
   (rf/dispatch-sync [:al5/single [:bump]])
-  (is (= [1 nil] ((juxt (comp :n :data) :rf/machine-type) (snapshot :al5/single)))))
+  (is (= [1 nil] ((juxt (comp :n :data) #(get-in % [:rf/runtime :machine-type]))
+                  (snapshot :al5/single)))))

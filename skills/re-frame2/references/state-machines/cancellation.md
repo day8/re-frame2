@@ -24,7 +24,7 @@ The trigger list (Spec 005 §Cancellation cascade §The contract):
 4. **`:spawn-all` parent state exit** — symmetric to (1) but iterates every child the `:children` map tracks.
 5. **Imperative `[:rf.machine/destroy <actor-id>]`** from a user-authored action.
 6. **Frame destroy** — `frame.cljc`'s frame-exit walk destroys each surviving machine, firing the same hook per actor.
-7. **`:final?`-state auto-destroy** — a root-level `:final?` leaf tears its own actor down ("final means final"), through the same path.
+7. **`:final?`-state auto-destroy** — a SPAWNED actor's root-level `:final?` leaf tears it down, through the same path. A singleton rests in its final state instead, so nothing is cancelled until it is destroyed.
 
 Both the HTTP leg and the resources leg are **late-bound and pay-nothing-when-absent**, and each is guarded independently:
 
@@ -50,10 +50,10 @@ A request issued **directly from an ordinary `reg-event` handler** — not via a
  {:spawn {:machine-id :rf.http/managed                ;; child issues the HTTP
            :data       {:request {:method :post
                                   :url    "/api/login"
-                                  :body   credentials}}}
+                                  :body   credentials}}
+           :on-done    :authenticated}
   :after  {30000 :auth-failed}                         ;; wall-clock — spans retries
-  :on     {:succeeded :authenticated
-           :user/cancelled :idle}}}
+  :on     {:user/cancelled :idle}}}
 ```
 
 Three independent triggers all cause the same cleanup:

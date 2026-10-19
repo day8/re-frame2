@@ -89,7 +89,7 @@
   (let [rt-waiting (server-runtime-db :hydrec/changed [[:go]])
         rt-settled (server-runtime-db :hydrec/changed [[:go] [:settle]])
         epoch      (get-in rt-waiting [:rf.runtime/machines :snapshots :hydrec/changed
-                                       :data :rf/after-epoch [:waiting]])
+                                       :rf/runtime :after-epoch [:waiting]])
         armed      (atom [])
         released   (atom [])
         cfid       (fresh-frame! :client)]

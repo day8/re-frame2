@@ -70,7 +70,7 @@
     ;; Named once here, then used from two different slots below: as a
     ;; transition :action leaving :idle, and as :error-shown's :exit. Keyword
     ;; refs resolve machine-locally against this map, so one action serves both.
-    (fn [_] {:data {:error nil}})
+    (fn [{:keys [data]}] {:data (assoc data :error nil)})
 
     :issue-request
     ;; An action describes effects; it never performs side-effects itself
@@ -141,26 +141,25 @@
     ;; Slot order is :exit -> transition :action -> target :entry, so on a
     ;; direct retry the stale message is gone BEFORE :submitting's
     ;; :issue-request fires — a fresh request never rides alongside the previous
-    ;; failure. And {:data {:error nil}} MERGES, so :attempts survives untouched
-    ;; and the retry guard goes on counting.
+    ;; failure. And the action returns the WHOLE data map, built with assoc, so
+    ;; :attempts survives untouched and the retry guard goes on counting.
     {:exit :clear-error
      :on   {:walkthrough.login/dismiss {:target :idle}
             :walkthrough.login/submit  {:target :submitting}}}
 
     :authed
     ;; Journey's end, happy path. The :auth/authenticated tag rides along once
-    ;; the flow lands here. `:meta {:terminal? true}` is a TOOLING HINT that
-    ;; this leaf has no way out — it is NOT `:final?`, which would destroy the
-    ;; singleton and re-birth it from :idle on the next event
-    ;; (docs/machines/concepts.md §Final states; Spec 005 D1/D7).
-    {:tags #{:auth/authenticated}
-     :meta {:terminal? true}}
+    ;; the flow lands here. `:final?` completes the flow: a singleton RESTS in
+    ;; its final state, so its snapshot stays readable and a later event is a
+    ;; no-op (docs/machines/concepts.md §Final states; Spec 005 D1/D7).
+    {:tags   #{:auth/authenticated}
+     :final? true}
 
     :locked-out
     ;; Journey's end, unhappy path. Seeing the :auth/locked tag is the cue for
     ;; root-view to swap the form out for the locked-out panel.
-    {:tags #{:auth/locked}
-     :meta {:terminal? true}}}})
+    {:tags   #{:auth/locked}
+     :final? true}}})
 
 ;; ============================================================================
 ;; FX — guide §An action returns effects

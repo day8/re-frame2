@@ -35,11 +35,11 @@
 
    - **Two staleness defences** — the backoff timer (runtime-cancelled on
      exit) and the connection-epoch (`:current-socket?` guard against the
-     live socket id read from `:rf/spawned`).
+     live socket id read from the callback context's `:spawned`).
 
-   - **`:rf/spawned` capture** — the parent reads the spawned socket
-     actor's id straight from its own `:data :rf/spawned [:active]` slot (no
-     spawn callback), and the runtime clears that slot on
+   - **`:spawned` capture** — the parent reads the spawned socket
+     actor's id straight from its callback context's `:spawned` map, under
+     `[:active]` (no spawn callback), and the runtime clears that entry on
      teardown, so the id is never stale.
 
    - **Request/reply correlation** — `:in-flight` map, request-id stamp,
@@ -47,7 +47,7 @@
      `:ws/received`.
 
    - **Reconnect cascade** — the runtime destroys the socket actor on
-     exit-from-`:active` (clearing its `:rf/spawned` id for us); the
+     exit-from-`:active` (clearing its `:spawned` id for us); the
      `:reconnecting` `:after` re-enters `:active`, which spawns a fresh one.
 
    For the grammar the machine leans on, see docs/machines/concepts.md;

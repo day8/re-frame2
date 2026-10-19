@@ -1128,17 +1128,17 @@ These are **test-only** surfaces — not part of the user-facing API for product
     :authenticating
     {:spawn {:machine-id :rf.http/managed
               :data       {:request {:method :get :url "/api/me"}
-                           :decode  :json}}
-     :after  {30000 :timed-out}                ;; wall-clock guard
-     :on     {:succeeded :authenticated
-              :failed    :login-failed}}
+                           :decode  :json}
+              :on-done    :authenticated           ;; the decoded value is the completion's :result
+              :on-error   :login-failed}
+     :after  {30000 :timed-out}}               ;; wall-clock guard
 
     :authenticated  {}
     :login-failed   {}
     :timed-out      {}}})
 ```
 
-While in `:authenticating`, a child wrapper actor of `:rf.http/managed` is alive at `[:rf.runtime/machines :snapshots :rf.http/managed#N]` (in runtime-db). It issues the request on entry; on the reply it transitions to its `:succeeded` / `:failed` terminal state and dispatches `[<parent-id> [:succeeded value]]` (or `[<parent-id> [:failed failure]]`) back to the parent — which the parent's `:on` map handles as ordinary FSM events.
+While in `:authenticating`, a child wrapper actor of `:rf.http/managed` is alive at `[:rf.runtime/machines :snapshots :rf.http/managed#N]` (in runtime-db). It issues the request on entry; on the reply it transitions to its `:succeeded` / `:failed` terminal state, and that finality is its completion: the parent's `:spawn :on-done` receives `value` as the completion's `:result`, or its `:on-error` receives `failure` ([Spec 005 §Child completion protocol](005-StateMachines.md#child-completion-protocol)). The wrapper dispatches nothing to its parent.
 
 ### Wrapper spec
 
@@ -1157,10 +1157,7 @@ Internally the wrapper machine has:
 
 `value` is the decoded-and-accepted payload (`(:value reply)` off the canonical reply the wrapper's `:on-success` target received) and `failure` is the classified `:rf.http/*` map (`(:error reply)` per [§Reply payload shape](#reply-payload-shape--the-one-canonical-envelope)).
 
-`:succeeded` and `:failed` are `:final?` leaves with `:output-key :rf/result`, and `:failed` also declares `:error? true` — so the wrapper completes the way every child machine does ([Spec 005 §Child completion protocol](005-StateMachines.md#child-completion-protocol)), and a parent receives the same `value` or `failure` whichever spawn form it used:
-
-- **Under `:spawn`**, the terminal state's `:entry` dispatches `[<parent-id> [:succeeded value]]` or `[<parent-id> [:failed failure]]`. The parent's id comes from `:rf/parent-id` in the wrapper actor's initial `:data` — stamped by `spawn-fx` per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors); the wrapper need not be told its parent at spec-write time.
-- **Under `:spawn-all`** ([§Multiple wrappers per parent](#multiple-wrappers-per-parent)), that dispatch is suppressed: a join child carries the runtime's `:rf/join-child` record, and its finality alone folds into the join, whose resolution event carries `value` — or `failure`, on `:on-any-failed`. A parent keeping the `:spawn` habit of `:on {:succeeded … :failed …}` is therefore never moved by a join child.
+`:succeeded` and `:failed` are `:final?` leaves with `:output-key :rf/result`, and `:failed` also declares `:error? true` — so the wrapper completes the way every child machine does ([Spec 005 §Child completion protocol](005-StateMachines.md#child-completion-protocol)), and a parent receives the same `value` or `failure` whichever spawn form it used: under `:spawn`, through the spawn's `:on-done` / `:on-error`; under `:spawn-all` ([§Multiple wrappers per parent](#multiple-wrappers-per-parent)), through the join, whose resolution event carries `value` — or `failure`, on `:on-any-failed`.
 
 ### Args carrier
 
@@ -1176,12 +1173,12 @@ Every key the [§The args map](#the-args-map) surface accepts, except the three 
                  :retry      {:on #{:rf.http/transport :rf.http/http-5xx}
                               :max-attempts 4
                               :backoff {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
-                 :timeout-ms 30000}}
- :on     {:succeeded :authenticated
-          :failed    :login-failed}}
+                 :timeout-ms 30000}
+          :on-done  :authenticated
+          :on-error :login-failed}}
 ```
 
-The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/join-child`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
+The spawn's `:data` reaches the underlying fx call as given: the runtime keeps the wrapper actor's lineage in its `:rf/runtime` map, never in `:data`, so nothing framework-owned can leak into the request envelope. The wrapper's one key of its own, `:rf/result`, is written only after the reply.
 
 The wrapper owns the reply addressing of the request it issues: it sets `:on-success` / `:on-failure` to route the reply back to itself. A `:data` carrying **any** of `:reply-to`, `:on-success` or `:on-failure` — tested on key presence, as [§Reply addressing](#reply-addressing) tests a mixture — is therefore refused at spawn: the wrapper's `:requesting` entry throws [`:rf.error/http-bad-reply-target`](009-Instrumentation.md#error-event-catalogue) tagged `:reason :machine-owns-reply` and `:keys` naming the keys supplied, before any request is issued. The throw is an action exception, so the runtime reports it as `:rf.error/machine-action-exception` (whose `:exception-data` carries the named error) and routes it to the parent's `:spawn :on-error` ([Spec 005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow)); the parent is never left waiting in silence on a child that cannot finish. Apps that want explicit reply addressing keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
 
@@ -1193,7 +1190,7 @@ Per [§Abort on actor destroy](#abort-on-actor-destroy), the wrapper actor's in-
 - On parent-frame destroy.
 - On imperative `:rf.machine/destroy` against the wrapper's actor id.
 
-In every case, the standard `:http/abort-on-actor-destroy` late-bind hook fires, the in-flight HTTP aborts with `:reason :actor-destroyed`, and the `:rf.http/aborted-on-actor-destroy` trace event lands. The wrapper actor's failure dispatch back to the parent is suppressed because the wrapper's handler is unregistered before the abort's failure reply lands — the parent has already moved on by then, so no notification is needed.
+In every case, the standard `:http/abort-on-actor-destroy` late-bind hook fires, the in-flight HTTP aborts with `:reason :actor-destroyed`, and the `:rf.http/aborted-on-actor-destroy` trace event lands. The abort's failure reply finds no wrapper to complete, because the destroyed actor's snapshot is already gone — the parent has already moved on by then, so no notification is needed.
 
 ### Multiple wrappers per parent
 

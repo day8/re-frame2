@@ -137,7 +137,7 @@
   (rf/reg-machine :upload/main upload-machine)
   (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {:on {:tick :running}}}})
   (seed-snapshot! :upload/main {:state :uploading :data {:progress 42}})
-  (seed-snapshot! :worker#1 {:state :running :data {} :rf/machine-type :worker/child})
+  (seed-snapshot! :worker#1 {:state :running :data {} :rf/runtime {:machine-type :worker/child}})
   (is (= {:upload/main (assoc upload-node :state :uploading :spawned? false)
           :worker#1    (merge fixed-classifications
                               {:id          :worker#1

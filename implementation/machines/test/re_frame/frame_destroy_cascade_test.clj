@@ -27,8 +27,8 @@
   [exit-log]
   {:initial :running
    :data    {}
-   :states  {:running {:exit (fn [{data :data}]
-                               (swap! exit-log conj (:rf/self-id data))
+   :states  {:running {:exit (fn [{:keys [self-id]}]
+                               (swap! exit-log conj self-id)
                                {})}}})
 
 (defn- durable-spawn-order [frame-id]

@@ -32,7 +32,7 @@
  [;; Step 1: Dispatch :fetch — machine transitions :idle → :loading; entry
   ;; action runs; the 5000ms :after timer schedules with epoch 1.
   ;;
-  ;; Per Spec 005 §Hierarchy interaction the `:rf/after-epoch` slot holds
+  ;; Per Spec 005 §Hierarchy interaction the `[:rf/runtime :after-epoch]` slot holds
   ;; a per-decl-path map `{<path> <int>}` — runtime-managed, so the
   ;; machine spec / input snapshot do NOT seed it.
   {:call         :machine-transition
@@ -49,7 +49,7 @@
                    :ready   {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:fetch]
-   :expect-next-snapshot {:state :loading :data {:rf/after-epoch {[:loading] 1} :entered? true}}
+   :expect-next-snapshot {:state :loading :data {:entered? true} :rf/runtime {:after-epoch {[:loading] 1}}}
    ;; Entry to an :after-bearing state emits a
    ;; :rf.machine/after-schedule fx so the runtime layer can install
    ;; the host-clock timer (interop/set-timeout!).
@@ -66,7 +66,7 @@
   ;; per-path epoch advances to 2 (it was exited).
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch {[:loading] 1} :entered? true}
+                  :data    {:entered? true}
                   :actions {:note-entry :loading/note-entry}
                   :states
                   {:idle {:on {:fetch :loading}}
@@ -76,11 +76,11 @@
                     :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :loading :data {:rf/after-epoch {[:loading] 1} :entered? true}}
+   :snapshot     {:state :loading :data {:entered? true} :rf/runtime {:after-epoch {[:loading] 1}}}
    ;; The synthetic timer-elapsed event carries (delay, epoch, decl-path);
    ;; the harness supplies it as the dispatched event.
    :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
-   :expect-next-snapshot {:state :timeout :data {:rf/after-epoch {[:loading] 2} :entered? true}}
+   :expect-next-snapshot {:state :timeout :data {:entered? true} :rf/runtime {:after-epoch {[:loading] 2}}}
    ;; Exiting an :after-bearing state emits a
    ;; :rf.machine/after-cancel fx so the runtime layer releases the
    ;; host-clock timer handle (and any subscription watcher).

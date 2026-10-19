@@ -1511,21 +1511,21 @@
 ;; `:rf.machine/transition` trace's `:before` / `:after` tags — the
 ;; substrate emits the literal snapshot on either side, per Spec 005
 ;; §Trace events). A snapshot is `{:state :data :tags? :meta?}` PLUS the
-;; closed set of framework-owned `:rf/*` slots (`:rf/spawn-counter`,
-;; after-epoch counters — Spec 005 §Reserved snapshot-internal keys).
+;; framework-owned `:rf/runtime` bookkeeping map (spawn counters, after-epoch
+;; counters — Spec 005 §Reserved snapshot-internal keys).
 ;;
 ;; The transition-row DELTA box shows the LOGICAL state
 ;; change — `{:state :tags}` ONLY. `:data` is EXCLUDED (the per-action
 ;; DATA Δ carries it — folding it in here would double-show it); the
-;; `:rf/*` bookkeeping slots are EXCLUDED (not user state — a raw
+;; `:rf/runtime` bookkeeping is EXCLUDED (not user state — a raw
 ;; snapshot-diff would dump them). Projecting to exactly `{:state :tags}`
 ;; with `select-keys` filters everything else by construction.
 
 (defn machine-logical-state
   "Project a machine snapshot map down to its LOGICAL state — `{:state
   :tags}` ONLY. Excludes `:data` (surfaced by the per-action
-  DATA Δ), `:meta`, and the framework-owned `:rf/*` snapshot slots
-  (`:rf/spawn-counter` etc. — Spec 005 §Reserved snapshot-internal keys).
+  DATA Δ), `:meta`, and the framework-owned `:rf/runtime` map
+  (Spec 005 §Reserved snapshot-internal keys).
 
   `:state` may be a keyword / path-vector (single + compound machines) OR
   a region→state map (parallel machines); `:tags` is the union tag-set.

@@ -14,7 +14,7 @@
       [<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]
 
   at the child's finality, reading the exact-attempt coordinate straight out
-  of the child's runtime-stamped `:rf/join-child` membership record. Because
+  of the child's runtime-stamped `[:rf/runtime :join-child]` membership record. Because
   the RUNTIME both mints and consumes that carrier, the coordinate never has
   to survive an application-authored event: there is no transport fx, no
   recordable cofx fact, and no completion vocabulary on the child. The
@@ -82,6 +82,7 @@
   (:require [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -99,8 +100,8 @@
 ;; respawned, and a straggler from the prior attempt is indistinguishable by
 ;; VALUE from a live one — most sharply for a `:fixed-actor-id` child, whose
 ;; address is identical across attempts. The runtime therefore stamps each
-;; child's `:data` at spawn with the framework-reserved `:rf/join-child`
-;; membership record (parent/invoke identity, logical child id, its own spawned
+;; child's snapshot at spawn with the framework-reserved
+;; `[:rf/runtime :join-child]` membership record (parent/invoke identity, logical child id, its own spawned
 ;; instance address, the opaque per-attempt token `spawn-all-init-fx` minted
 ;; into the join state, and the private work generation), and `finalize` copies
 ;; that coordinate onto the completion carrier it mints when the child reaches
@@ -134,7 +135,7 @@
 
 (defn- completion-attempt
   "The exact-attempt coordinate the fold fences on, projected off the
-  completion carrier `finalize` minted from the child's `:rf/join-child`
+  completion carrier `finalize` minted from the child's `:join-child`
   membership record: parent/invoke identity, logical child id, the child's own
   spawned instance address, and the opaque per-attempt token. Work generation
   is carried as evidence for a SUPERSEDED attempt, whose join state no
@@ -460,7 +461,7 @@
                             reply-facts))))))
 
 (defn- live-attempt-member?
-  "True iff `spawned-id` is still a LIVE actor whose `:rf/join-child`
+  "True iff `spawned-id` is still a LIVE actor whose `:join-child`
   membership authenticates against THIS join attempt — parent, invoke path,
   logical child id, its own address, and the attempt token (the same test
   `destroy/authenticated-join-child` applies before a teardown).
@@ -471,8 +472,8 @@
   torn itself down; it is no survivor, and cancelling it would give one attempt
   contradictory terminals."
   [runtime-db parent-id invoke-id join-state child-id spawned-id]
-  (let [member (get-in runtime-db (conj (rf.machines.paths/snapshot-path spawned-id :data)
-                                        :rf/join-child))]
+  (let [member (get-in runtime-db (rf.machines.paths/snapshot-path spawned-id :rf/runtime
+                                                                   :join-child))]
     (and (map? member)
          (= parent-id  (:parent-id member))
          (= invoke-id  (:invoke-id member))
@@ -586,8 +587,9 @@
   "Run a `:spawn-all` child's OPTIONAL per-child `:on-done` fold against the
   PARENT's `:data`, returning the updated runtime-db.
 
-  Same contract as `:spawn :on-done` — `(fn [{:keys [data result]}] new-data)`
-  — run at THIS child's successful finality, before the join fold, so a fan-out
+  Same contract as `:spawn :on-done` — the parent's callback context plus
+  `:result`, returning the parent's new `:data` — run at THIS child's
+  successful finality, before the join fold, so a fan-out
   can land each child's result under its own key without an app-db staging
   slot and without the child knowing the parent exists:
 
@@ -605,14 +607,18 @@
   The caller runs it for a `:done` completion ONLY. A failed
   child reaches the parent through `:on-any-failed` and the join's `:failed`
   set, never through this success fold (Spec 005 §Child completion protocol)."
-  [runtime-db parent-id child-spec result frame-id]
+  [machine runtime-db parent-id invoke-id child-spec completion frame-id]
   (if (:on-done child-spec)
     (let [parent-path (rf.machines.paths/snapshot-path parent-id)
           parent-snap (get-in runtime-db parent-path)]
       (if parent-snap
         (assoc-in runtime-db (conj parent-path :data)
                   (rf.machines.lifecycle-fx.resolver/apply-on-done
-                    (:on-done child-spec) (:data parent-snap) result
+                    (:on-done child-spec)
+                    (rf.machines.transition/callback-ctx
+                      machine parent-snap
+                      [rf.machines.transition/spawn-done-event-id invoke-id completion])
+                    (:result completion)
                     {:actor-id parent-id
                      :state    (:state parent-snap)
                      :frame    frame-id
@@ -718,7 +724,7 @@
 
         ;; Exact-attempt fence. The carrier's coordinate must
         ;; equal THIS join attempt: the coordinate `finalize` copied off the
-        ;; child's `:rf/join-child` membership record must equal the current
+        ;; child's `:join-child` membership record must equal the current
         ;; join's parent/invoke identity, logical child id, exact current actor
         ;; id, and exact attempt token. A carrier with NO coordinate (a
         ;; hand-authored `[:rf.machine.spawn/done …]` dispatch that never came
@@ -841,9 +847,9 @@
               ;; `:on-any-failed` and the `:failed` set below.
               runtime-db      (if (= kind :done)
                                 (apply-child-on-done
-                                  runtime-db parent-id
+                                  machine runtime-db parent-id invoke-id
                                   (child-spec-at spawn-all-spec child-id)
-                                  result frame-id)
+                                  completion frame-id)
                                 runtime-db)]
           (intercept-fold frame-id parent-id invoke-id spawn-all-spec join-state
                           child-id work-generation kind result

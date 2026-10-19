@@ -4,7 +4,7 @@
 ;; ordering-failure-and-restore-semantics) makes a SPAWN-ORDERING claim:
 ;; multiple spawns crossed by a single transition are deterministic. Spec 005
 ;; §Spawn lifecycle — ordering pins the mechanism: the spawn-id allocator picks
-;; the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent snapshot
+;; the next `<id-prefix>#<n>` against `[:rf/runtime :spawn-counter]` at the parent snapshot
 ;; root, and the entry cascade reduces over the entered state nodes
 ;; SHALLOWEST-FIRST (root → leaf).
 ;;
@@ -17,9 +17,9 @@
 ;;   - the OUTER (shallower) `:spawn` is allocated `:leaf#1` and its
 ;;     `:rf.machine/spawn` fx is emitted FIRST;
 ;;   - the INNER (deeper) `:spawn` is allocated `:leaf#2` and emitted SECOND;
-;;   - the shared `:rf/spawn-counter` for `:leaf` ends at 2 (both spawns drew
+;;   - the shared `:spawn-counter` for `:leaf` ends at 2 (both spawns drew
 ;;     from the same parent counter, in order);
-;;   - `:rf/spawned` records each id under its own invoke-id key (no clobber).
+;;   - `:spawned` records each id under its own invoke-id key (no clobber).
 ;;
 ;; Pure-call machine-transition carries no parent registration, so the
 ;; spawn-fx's `:rf/parent-id` is the sentinel `:rf/transition-pure`. No child
@@ -33,7 +33,7 @@
 {:fixture/id           :machine/spawn-ordering-deterministic-in-one-cascade
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/hierarchical :actor/spawn-destroy :actor/declarative-spawn}
- :fixture/doc          "Two :spawn-bearing nodes crossed by one entry cascade allocate shallowest-first: the outer compound :spawn is :leaf#1 (emitted first), the inner descendant :spawn is :leaf#2 (emitted second), the shared :rf/spawn-counter ends at 2. Pins the EP-0029 A7 deterministic-ordering claim at the pure machine-transition layer."
+ :fixture/doc          "Two :spawn-bearing nodes crossed by one entry cascade allocate shallowest-first: the outer compound :spawn is :leaf#1 (emitted first), the inner descendant :spawn is :leaf#2 (emitted second), the shared [:rf/runtime :spawn-counter] ends at 2. Pins the EP-0029 A7 deterministic-ordering claim at the pure machine-transition layer."
 
  :fixture/registry
  {:machine
@@ -57,13 +57,14 @@
    :snapshot     {:state :idle :data {}}
    :event        [:go]
    ;; Both spawns drew from the parent's :leaf counter in cascade order:
-   ;; outer = #1, inner = #2; the counter ends at 2; :rf/spawned records both.
-   :expect-next-snapshot {:state            [:outer :inner]
-                          :data             {:rf/spawned {[:outer]         :leaf#1
-                                                          [:outer :inner]  :leaf#2}}
-                          :rf/spawn-counter {:leaf 2}
-                          ;; Each invoke's own attempt token.
-                          :rf/spawn-attempts {[:outer] 1 [:outer :inner] 1}}
+   ;; outer = #1, inner = #2; the counter ends at 2; :spawned records both.
+   :expect-next-snapshot {:state      [:outer :inner]
+                          :data       {}
+                          :rf/runtime {:spawned        {[:outer]         :leaf#1
+                                                        [:outer :inner]  :leaf#2}
+                                       :spawn-counter  {:leaf 2}
+                                       ;; Each invoke's own attempt token.
+                                       :spawn-attempts {[:outer] 1 [:outer :inner] 1}}}
    ;; Effect ORDER is the assertion: the SHALLOWER node's spawn fx fires first.
    :expect-effects
    [[:rf.machine/spawn {:machine-id    :leaf

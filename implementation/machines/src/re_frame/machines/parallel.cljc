@@ -395,19 +395,16 @@
       region-name → that region's cascaded initial; for flat / compound
       machines, the root `:initial` cascade denormalised to a leaf path.
       Per Spec 005 §Initial-state cascading and §Parallel regions.
-   2. Seed `:data` — `(:data machine)` or `{}`.
-   3. Seed `:rf/spawn-counter {}` — the in-snapshot
-      allocator MUST be present on live snapshots so
-      `:entry`-declared `:spawn`s allocate ids through the contract path
-      (not `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop).
-   4. Propagate `:meta` when the spec declares it — per Spec 005 §Snapshot
+   2. Seed `:data` — `(:data machine)` or `{}`. No `:rf/runtime` map is
+      seeded: every runtime slot is allocated on first write.
+   3. Propagate `:meta` when the spec declares it — per Spec 005 §Snapshot
       shape, so the 3-arity ctx and downstream version checks see the
       same `:meta` the spec declares. Spawned actors that declare `:meta`
       MUST carry it through to the snapshot.
-   5. Stamp the initial tag union via `commit-tags-parallel` — per Spec
+   4. Stamp the initial tag union via `commit-tags-parallel` — per Spec
       005 §State tags / §Tags compose across regions;
       the slot is elided when the union is empty.
-   6. Optionally stamp `:rf/bootstrap-pending? true` when
+   5. Optionally stamp `[:rf/runtime :bootstrap-pending?] true` when
       `bootstrap-pending?` is truthy — the spawn path needs this so the
       actor's first dispatch fires the initial-entry cascade. The
       singleton-registration path stamps the marker lazily inside
@@ -429,13 +426,12 @@
                           (rf.machines.transition/initial-cascade
                             machine
                             (rf.machines.transition/state-path (:initial machine)))))
-        base          (cond-> {:state            initial-state
-                               :data             (or (:data machine) {})
-                               :rf/spawn-counter {}}
+        base          (cond-> {:state initial-state
+                               :data  (or (:data machine) {})}
                         (some? (:meta machine)) (assoc :meta (:meta machine)))
         tagged        (commit-tags-parallel machine base)]
     (cond-> tagged
-      bootstrap-pending? (assoc :rf/bootstrap-pending? true))))
+      bootstrap-pending? (assoc-in [:rf/runtime :bootstrap-pending?] true))))
 
 (defn- prefix-region-invoke-id
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
@@ -450,7 +446,7 @@
   `:rf/spawn-all-id` (its join-slot key — deliberately NOT `:rf/invoke-id`,
   which would make `spawn-fx` track the child in a per-child slot). It must
   be region-prefixed IDENTICALLY, or the child-side join reads
-  (`spawn-all-invoke-rejected?`, the `:rf/join-child` membership record)
+  (`spawn-all-invoke-rejected?`, the `:join-child` membership record)
   address a slot the region's `spawn-all-init-fx` never seeded."
   [region-name fx]
   (let [[fx-id args] fx
@@ -513,9 +509,8 @@
 ;;     iteration, which is hash order past the array-map threshold,
 ;;   - thread shared `:data` sequentially through regions so a later
 ;;     region's step sees earlier regions' writes,
-;;   - thread the in-snapshot `:rf/spawn-counter` so any
-;;     declarative `:spawn` fired in a region bumps the SAME shared
-;;     counter,
+;;   - thread the snapshot's `:rf/runtime` map so any declarative `:spawn`
+;;     or `:after` in a region bumps the SAME shared counters,
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
 ;;   - prefix per-region fx with the region name via
@@ -578,10 +573,10 @@
 
 (defn- reduce-regions
   "The APPLY fold: apply `step-fn` to each region of `parent-machine` in
-  declaration order, threading `:data` + `:rf/spawn-counter` + `:rf/history`
+  declaration order, threading `:data` + `:rf/runtime` + `:rf/history`
   between regions and prefixing per-region fx with the region name. `step-fn`
   receives the synthetic region-spec and the per-region snapshot
-  (`{:state ... :data ... :all-state ... :tags ... ?:rf/spawn-counter ...}`)
+  (`{:state ... :data ... :all-state ... :tags ... ?:rf/runtime ...}`)
   and returns a `re-frame.machines.result/Result`.
 
   Transition callers are APPLY-only: `broadcast-once` and
@@ -647,7 +642,11 @@
         frozen-tags      (compute-tags-parallel parent-machine state-map)]
     (loop [pending      ordered
            cur-data     (:data snapshot)
-           cur-counter  (:rf/spawn-counter snapshot)
+           ;; The shared `:rf/runtime` map: spawn counters, attempt tokens,
+           ;; per-region `:after` epochs and the spawned-id mirror. Every key
+           ;; a region writes is region-qualified, so threading it like `:data`
+           ;; never lets one region clobber a sibling's entry.
+           cur-runtime  (:rf/runtime snapshot)
            ;; Per Spec 005 §Composition with parallel regions — per-region
            ;; history: thread the shared `:rf/history` map
            ;; through regions like `:data`. The slot's keys are REGION-
@@ -657,9 +656,6 @@
            ;; snapshot (so a prior epoch's recordings survive) and merged
            ;; back below.
            cur-history  (:rf/history snapshot)
-           ;; The per-invoke `:spawn` attempt tokens, threaded
-           ;; like `:rf/history` (region-qualified keys, so no collision).
-           cur-attempts (:rf/spawn-attempts snapshot)
            new-states   state-map
            acc-fx       []
            any-handled? false
@@ -669,12 +665,10 @@
         (let [merged (cond-> (-> snapshot
                                  (assoc :state new-states)
                                  (assoc :data  cur-data))
-                       (some? cur-counter)
-                       (assoc :rf/spawn-counter cur-counter)
+                       (some? cur-runtime)
+                       (assoc :rf/runtime cur-runtime)
                        (some? cur-history)
-                       (assoc :rf/history cur-history)
-                       (some? cur-attempts)
-                       (assoc :rf/spawn-attempts cur-attempts))]
+                       (assoc :rf/history cur-history))]
           ;; Per Spec 005 §Parallel regions: carry the
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
@@ -695,7 +689,7 @@
               ;; synthetic region-spec so any declarative `:spawn` / `:after`
               ;; the region fires keys its
               ;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot
-              ;; (and the child's `:data :rf/parent-id`) under the actual
+              ;; (and the child's `[:rf/runtime :parent-id]`) under the actual
               ;; spawning parent — NOT the `:rf/transition-pure` fallback
               ;; `run-spawn-phase` / `build-after-fx` apply when
               ;; `(:rf/parent-id machine)` is unset.
@@ -765,16 +759,14 @@
                                    ;; unchanged.
                                    :all-state frozen-all-state
                                    :tags      frozen-tags}
-                            (some? cur-counter)
-                            (assoc :rf/spawn-counter cur-counter)
+                            (some? cur-runtime)
+                            (assoc :rf/runtime cur-runtime)
                             ;; Seed the region snapshot with the shared
                             ;; (region-qualified) `:rf/history` so a restore
                             ;; reads the prior recording and a record writes
                             ;; the region's own key.
                             (some? cur-history)
-                            (assoc :rf/history cur-history)
-                            (some? cur-attempts)
-                            (assoc :rf/spawn-attempts cur-attempts))
+                            (assoc :rf/history cur-history))
               step-result (step-fn region-spec region-snap)]
           (if (rf.machines.result/fail? step-result)
             step-result
@@ -791,12 +783,11 @@
                 ;; materialise the intermediate `prefixed-fx` vector.
                 (recur (rest pending)
                        (:data reg-snap)
-                       (:rf/spawn-counter reg-snap)
+                       (:rf/runtime reg-snap)
                        ;; Carry forward this region's `:rf/history` writes
                        ;; (region-qualified keys) so later regions + the
                        ;; merge see them.
                        (:rf/history reg-snap)
-                       (:rf/spawn-attempts reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
                              (map (partial prefix-region-invoke-id rn))
@@ -846,7 +837,7 @@
 
   For parallel-region machines (`:type :parallel`), delegates to
   `reduce-regions` so the per-region step sees the broadcast invariant
-  (declaration-order iteration, threaded `:data` + `:rf/spawn-counter`,
+  (declaration-order iteration, threaded `:data` + `:rf/runtime`,
   per-region fx-prefix, `commit-tags-parallel` on commit). For flat /
   compound machines, runs `bootstrap-step` directly — the broadcast
   invariant doesn't apply.
@@ -997,7 +988,7 @@
         frozen-data      (:data snapshot)
         frozen-all-state state-map
         frozen-tags      (compute-tags-parallel machine state-map)
-        sc               (:rf/spawn-counter snapshot)
+        rt               (:rf/runtime snapshot)
         hist             (:rf/history snapshot)
         ;; SELECT pass — per-region match against the frozen view.
         matches   (persistent!
@@ -1008,7 +999,7 @@
                                                    :data      frozen-data
                                                    :all-state frozen-all-state
                                                    :tags      frozen-tags}
-                                            (some? sc)   (assoc :rf/spawn-counter sc)
+                                            (some? rt)   (assoc :rf/runtime rt)
                                             (some? hist) (assoc :rf/history hist))]
                           (assoc! acc rn
                                   (rf.machines.transition/pick-transition
@@ -1037,7 +1028,7 @@
         frozen-data      (:data snapshot)
         frozen-all-state state-map
         frozen-tags      (compute-tags-parallel machine state-map)
-        sc               (:rf/spawn-counter snapshot)
+        rt               (:rf/runtime snapshot)
         hist             (:rf/history snapshot)]
     (persistent!
       (reduce
@@ -1047,7 +1038,7 @@
                                      :data      frozen-data
                                      :all-state frozen-all-state
                                      :tags      frozen-tags}
-                              (some? sc)   (assoc :rf/spawn-counter sc)
+                              (some? rt)   (assoc :rf/runtime rt)
                               (some? hist) (assoc :rf/history hist))
                 match       (rf.machines.transition/pick-always-transition
                               region-spec
@@ -1157,19 +1148,16 @@
 
 (defn- root-region-snapshot
   "Region `region-name`'s snapshot inside a root transition's accumulator
-  `acc` (`{:data :rf/spawn-counter :rf/history :rf/spawn-attempts :state-map
-  :fx :cascade}`): the region's own `:state` and the shared `:data` /
-  `:rf/spawn-counter` / `:rf/history` / `:rf/spawn-attempts`, the same flow
-  `reduce-regions` uses."
+  `acc` (`{:data :rf/runtime :rf/history :state-map :fx :cascade}`): the
+  region's own `:state` and the shared `:data` / `:rf/runtime` /
+  `:rf/history`, the same flow `reduce-regions` uses."
   [acc region-name]
   (cond-> {:state (get-in acc [:state-map region-name])
            :data  (:data acc)}
-    (some? (:rf/spawn-counter acc))
-    (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+    (some? (:rf/runtime acc))
+    (assoc :rf/runtime (:rf/runtime acc))
     (some? (:rf/history acc))
-    (assoc :rf/history (:rf/history acc))
-    (some? (:rf/spawn-attempts acc))
-    (assoc :rf/spawn-attempts (:rf/spawn-attempts acc))))
+    (assoc :rf/history (:rf/history acc))))
 
 (defn- root-region-plan
   "One targeted region's share of a root transition: its overlaid region spec,
@@ -1237,12 +1225,10 @@
         (rf.machines.result/with-ok [reg-snap reg-fx] r
           (-> acc
               (assoc :data (:data reg-snap))
-              (cond-> (some? (:rf/spawn-counter reg-snap))
-                (assoc :rf/spawn-counter (:rf/spawn-counter reg-snap)))
+              (cond-> (some? (:rf/runtime reg-snap))
+                (assoc :rf/runtime (:rf/runtime reg-snap)))
               (cond-> (some? (:rf/history reg-snap))
                 (assoc :rf/history (:rf/history reg-snap)))
-              (cond-> (some? (:rf/spawn-attempts reg-snap))
-                (assoc :rf/spawn-attempts (:rf/spawn-attempts reg-snap)))
               (assoc-in [:state-map region-name] (:state reg-snap))
               (update :fx into
                       (map (partial prefix-region-invoke-id region-name))
@@ -1274,13 +1260,12 @@
   (let [target-by-rn (into {}
                            (map (fn [t] [(first t) t]))
                            (normalise-root-targets (:target transition)))
-        seed         {:data              (:data snapshot)
-                      :rf/spawn-counter  (:rf/spawn-counter snapshot)
-                      :rf/history        (:rf/history snapshot)
-                      :rf/spawn-attempts (:rf/spawn-attempts snapshot)
-                      :state-map         (:state snapshot)
-                      :fx                []
-                      :cascade           []}
+        seed         {:data       (:data snapshot)
+                      :rf/runtime (:rf/runtime snapshot)
+                      :rf/history (:rf/history snapshot)
+                      :state-map  (:state snapshot)
+                      :fx         []
+                      :cascade    []}
         ;; Never `:regions` / state-map key iteration: declaration order.
         plans        (into []
                            (comp (keep target-by-rn)
@@ -1298,12 +1283,10 @@
       (let [merged (cond-> (-> snapshot
                                (assoc :state (:state-map acc))
                                (assoc :data  (:data acc)))
-                     (some? (:rf/spawn-counter acc))
-                     (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+                     (some? (:rf/runtime acc))
+                     (assoc :rf/runtime (:rf/runtime acc))
                      (some? (:rf/history acc))
-                     (assoc :rf/history (:rf/history acc))
-                     (some? (:rf/spawn-attempts acc))
-                     (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))]
+                     (assoc :rf/history (:rf/history acc)))]
         (-> (rf.machines.result/ok (commit-tags-parallel machine merged) (:fx acc))
             (rf.machines.result/with-handled true)
             (rf.machines.result/with-cascade (:cascade acc)))))))

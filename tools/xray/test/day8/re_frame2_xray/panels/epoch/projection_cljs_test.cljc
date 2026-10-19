@@ -506,18 +506,18 @@
                                         :tags             #{:locked}
                                         :data             {:tries 0}
                                         :meta             {:created 1}
-                                        :rf/spawn-counter {}})))
+                                        :rf/runtime       {:spawn-counter {}}})))
     (is (nil? (proj/machine-logical-state nil)))))
 
 (deftest machine-logical-state-changed?-test
   (testing "true iff `{:state :tags}` differs, so a self transition that moved
-            only :data / :rf/* elides the delta box"
+            only :data / :rf/runtime elides the delta box"
     (is (true? (proj/machine-logical-state-changed?
                  {:state :locked :tags #{:locked} :data {:n 0}}
                  {:state :open   :tags #{:open}   :data {:n 0}})))
     (is (false? (proj/machine-logical-state-changed?
-                  {:state :open :tags #{:open} :data {:n 1} :rf/spawn-counter {}}
-                  {:state :open :tags #{:open} :data {:n 2} :rf/spawn-counter {:a 1}})))))
+                  {:state :open :tags #{:open} :data {:n 1}}
+                  {:state :open :tags #{:open} :data {:n 2} :rf/runtime {:spawn-counter {:a 1}}})))))
 
 (deftest cascade-row-label-test
   (testing "`cascade-row-label` renders each kind's verb. The kind pill and

@@ -75,7 +75,7 @@
                         [:children :rf/prepared]))
         "a live join naming both children, its prepared scratch consumed")
     (is (= [:sa/a :sa/b]
-           (mapv #(:rf/machine-type (rf.machines.test-support/snapshot %)) [:sa/a#1 :sa/b#1]))
+           (mapv #(get-in (rf.machines.test-support/snapshot %) [:rf/runtime :machine-type]) [:sa/a#1 :sa/b#1]))
         "both children installed, each naming its TYPE keyword")
     (rf/reg-machine :sa/a hot-reloaded-child)
     (rf/dispatch-sync [:sa/a#1 [:go]])
@@ -97,7 +97,7 @@
     (rf/reg-machine :sa/swap (assoc booting-child :schemas {:data [:fn (fn [_] (reregister!) true)]}))
     (rf/reg-machine :sup/swap (parent-over [{:id :c :machine-id :sa/swap}]))
     (rf/dispatch-sync [:sup/swap [:start]])
-    (is (= :sa/swap (:rf/machine-type (rf.machines.test-support/snapshot :sa/swap#1)))
+    (is (= :sa/swap (get-in (rf.machines.test-support/snapshot :sa/swap#1) [:rf/runtime :machine-type]))
         "the child names its TYPE keyword")
     (is (= :v2-boot (rf.machines.test-support/machine-state :sa/swap#1))
         "the bootstrap ran under v2, the current definition")))

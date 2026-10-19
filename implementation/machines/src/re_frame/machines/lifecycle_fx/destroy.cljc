@@ -204,7 +204,7 @@
   ;; so the absolute snapshot-rooted `:sensitive` / `:large` decls the spawn
   ;; lowered are dissoc'd here (no leak — an emptied axis slot is pruned).
   ;; Resolve the spec BEFORE the teardown projection clears the snapshot, via
-  ;; the registered TYPE or the snapshot's `:rf/machine-type` (a `:spawn`
+  ;; the registered TYPE or the snapshot's `[:rf/runtime :machine-type]` (a `:spawn`
   ;; instance carries no registrar entry). A spec that declared no
   ;; classification is a clean no-op.
   (let [snapshot (get-in (rf.frame/frame-runtime-db-value frame-id)
@@ -304,7 +304,7 @@
   [runtime-db actor-id]
   (let [join-child (get-in runtime-db
                            (conj (rf.machines.paths/snapshot-path actor-id)
-                                 :data :rf/join-child))
+                                 :rf/runtime :join-child))
         parent-id  (:parent-id join-child)
         invoke-id  (:invoke-id join-child)
         child-id   (:child-id join-child)
@@ -503,7 +503,7 @@
   `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
   generation feeds the reply identity; a single-`:spawn` child's is the
-  `:rf/work-generation` its spawn stamped, read from its `old-db` snapshot,
+  `[:rf/runtime :work-generation]` its spawn stamped, read from its `old-db` snapshot,
   so the cancel row closes the same work id the attempt's done or error
   reply would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
@@ -514,24 +514,24 @@
                           frame-id actor-id requested-reason owner-token)]
       (let [reason     (:reason teardown)
             join-child (:join-child teardown)
-            child-data (get-in old-db (rf.machines.paths/snapshot-path actor-id :data))
+            child-rt   (get-in old-db (rf.machines.paths/snapshot-path actor-id :rf/runtime))
             ;; The keyword form names only the actor. A declarative
             ;; single-`:spawn` child names its spawn in its own
-            ;; `:rf/parent-id` / `:rf/invoke-id` stamps, so its trace and
+            ;; `:parent-id` / `:invoke-id` runtime stamps, so its trace and
             ;; cancel row carry the coordinates its done or error reply
             ;; carries. The teardown below still prunes only the slots the
             ;; caller named: a keyword destroy leaves the tracked slot to
             ;; the parent's exit (`destroy-tracked!`).
             [spawn-parent-id spawn-invoke-id]
-            (if (and (nil? invoke-id) (some? (:rf/invoke-id child-data)))
-              [(:rf/parent-id child-data) (:rf/invoke-id child-data)]
+            (if (and (nil? invoke-id) (some? (:invoke-id child-rt)))
+              [(:parent-id child-rt) (:invoke-id child-rt)]
               [parent-id invoke-id])
             ;; A single-`:spawn` child has no membership record; the
-            ;; `:rf/work-generation` its spawn stamped sets its generation,
+            ;; `:work-generation` its spawn stamped sets its generation,
             ;; exactly as `finalize-machine` reads it for the attempt's done
             ;; or error reply.
             work-generation (or (:work-generation join-child)
-                                (:rf/work-generation child-data))]
+                                (:work-generation child-rt))]
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
@@ -588,10 +588,10 @@
   "The exact-incarnation half of the tracked form's shared
   liveness/incarnation predicate. True iff the actor at
   `actor-id` is the incarnation THIS `[:spawned parent-id invoke-id]` slot
-  owns: its snapshot's `:data` carries the framework-reserved
-  `:rf/parent-id` + `:rf/invoke-id` ownership stamps (written by
-  `stamp-framework-data` at spawn — the same reserved keys the
-  spawn-`:on-error` routing reads) matching the slot coordinates exactly.
+  owns: its snapshot's `:rf/runtime` carries the `:parent-id` +
+  `:invoke-id` ownership stamps (written by `actor-runtime` at spawn — the
+  same stamps the spawn-`:on-error` routing reads) matching the slot
+  coordinates exactly.
 
   A same-id REPLACEMENT actor spawned through another path (a hand-emitted
   `:fixed-actor-id` re-spawn, a different parent) carries different — or
@@ -603,15 +603,15 @@
   [runtime-db actor-id parent-id invoke-id]
   (let [snap (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))]
     (if (map? snap)
-      (let [d (:data snap)]
-        (and (= parent-id (:rf/parent-id d))
-             (= invoke-id (:rf/invoke-id d))))
+      (let [rt (:rf/runtime snap)]
+        (and (= parent-id (:parent-id rt))
+             (= invoke-id (:invoke-id rt))))
       true)))
 
 (defn- prune-tracked-slot!
   "Stale ownership-slot cleanup, SEPARATED from actor lifecycle teardown:
   clear the `[:spawned parent-id invoke-id]` slot and the
-  parent snapshot's mirroring `[:data :rf/spawned <invoke-id>]` entry via
+  parent snapshot's mirroring `[:rf/runtime :spawned <invoke-id>]` entry via
   the unified projection (slot-only: nil actor-id), WITHOUT re-running exit
   handlers, child cascades, rf.machines.timer/resource cleanup, terminal replies, or a
   `:rf.machine/destroyed` trace — the actor the slot names is either

@@ -67,15 +67,15 @@
    :event        [:submit]
    ;; The parent's USER-domain :data is unchanged — there is no user
    ;; write. The RUNTIME binds the assigned actor id into
-   ;; the parent's :data under the reserved per-invoke map :rf/spawned
-   ;; (XState-context parity) — {[:authenticating] :http/post#1}. The spawn-id allocator
-   ;; advances the snapshot's `:rf/spawn-counter` slot — visible at top
-   ;; level alongside `:data`.
-   :expect-next-snapshot {:state            :authenticating
-                          :data             {:rf/spawned {[:authenticating] :http/post#1}}
-                          :rf/spawn-counter {:http/post 1}
-                          ;; The entry's spawn attempt token.
-                          :rf/spawn-attempts {[:authenticating] 1}}
+   ;; the parent's `:rf/runtime` map under the per-invoke `:spawned` map —
+   ;; {[:authenticating] :http/post#1}. The spawn-id allocator advances
+   ;; `[:rf/runtime :spawn-counter]` — beside `:data`, never in it.
+   :expect-next-snapshot {:state      :authenticating
+                          :data       {}
+                          :rf/runtime {:spawned        {[:authenticating] :http/post#1}
+                                       :spawn-counter  {:http/post 1}
+                                       ;; The entry's spawn attempt token.
+                                       :spawn-attempts {[:authenticating] 1}}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post
                                               :data          {:url "/api/login"}

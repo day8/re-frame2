@@ -51,7 +51,7 @@ Examples:
 - A WebSocket reconnect-backoff timer that must not fire after the user manually re-connected.
 - A long-running batch job whose mid-flight chunks must stop processing when the user navigates away.
 
-If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:spawn` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
+If yes → **machine**. Machine snapshots advance their `[:rf/runtime :after-epoch]` entry on every state entry; in-flight `:after` timers and `:spawn` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
 
 ### Tell 3 — terminal-state matters
 

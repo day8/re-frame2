@@ -1,8 +1,8 @@
 (ns re-frame.final-state-cljs-test
   "The `:final?` / `:on-done` / `:output-key` contract (Spec 005 §Final
-  states, D1-D10): entering a `:final?` state auto-destroys the instance,
-  emits `:rf.machine/done`, and routes the `:output-key` slot to the
-  spawning parent."
+  states, D1-D10): a spawned actor entering a `:final?` state is
+  auto-destroyed, emits `:rf.machine/done`, and routes the `:output-key` slot
+  to the spawning parent; a singleton emits `:rf.machine/done` and rests."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -89,17 +89,17 @@
            (map #(select-keys (:tags %) [:actor-id :output :parent-id])
                 (events-of :rf.machine/done))))))
 
-(deftest dispatch-to-done-singleton-recreates-from-its-surviving-definition
-  ;; D7: a singleton reaching :final? auto-destroys and emits one
-  ;; :rf.machine/done with a nil :parent-id. D5: its surviving DEFINITION
-  ;; births a fresh instance for the next ORDINARY event.
+(deftest a-done-singleton-rests-and-ignores-an-event-with-no-way-out
+  ;; D7: a singleton reaching :final? emits one :rf.machine/done with a nil
+  ;; :parent-id and RESTS there, so an event its definition declares no way
+  ;; out for leaves it final rather than re-birthing it.
   (rf/reg-machine :rf2-gn80/finalised
     {:initial :running
      :states  {:running {:on {:fin :done}}
                :done    {:final? true}}})
   (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
   (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
-  (is (= [[nil] :running]
+  (is (= [[nil] :done]
          [(map (comp :parent-id :tags) (events-of :rf.machine/done))
           (:state (snapshot :rf2-gn80/finalised))])))
 

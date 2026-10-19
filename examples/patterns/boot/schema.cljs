@@ -116,19 +116,13 @@
   [:map
    ;; The one thing the parent's `:data` fn plants — there from spawn (see
    ;; :app/boot in boot.cljs). Which asset this loader IS, it never needs to
-   ;; know: the spawn `:id` tells the parent apart, and `:rf/self-id` below is
-   ;; how the reply finds its way home.
+   ;; know: the spawn `:id` tells the parent apart, and the `:self-id` its
+   ;; callbacks receive is how the reply finds its way home.
    [:url         :string]
    ;; Written only once the fetch replies — the `:asset/replied` action sets
    ;; one of :payload / :error. Nothing at spawn, hence optional.
    [:payload     {:optional true} :any]
-   [:error       {:optional true} [:maybe :any]]
-   ;; Address keys the spawn fx stamps into the child's initial :data. A Malli
-   ;; :map is open, so they'd pass undeclared anyway — we list them just so
-   ;; the schema names them out loud.
-   [:rf/self-id   {:optional true} :any]
-   [:rf/parent-id {:optional true} :any]
-   [:rf/invoke-id {:optional true} :any]])
+   [:error       {:optional true} [:maybe :any]]])
 
 ;; ============================================================================
 ;; SCHEMA REGISTRATION

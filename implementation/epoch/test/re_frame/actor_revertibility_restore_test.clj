@@ -2,7 +2,7 @@
   "Restoring frame state reverts actor liveness. A spawned actor has no
   per-instance registration: it is alive while its snapshot sits in the
   runtime-db partition, and its TYPE rides that snapshot under
-  `:rf/machine-type`. So `restore-epoch!` must remove an actor when rewinding
+  `[:rf/runtime :machine-type]`. So `restore-epoch!` must remove an actor when rewinding
   past its spawn, revive it when rewinding past its destroy, and resolve its
   TYPE for the missing-handler and version-drift preconditions.
 

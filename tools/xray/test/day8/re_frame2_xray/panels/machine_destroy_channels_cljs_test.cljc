@@ -124,7 +124,12 @@
          :data    {}
          :states  {:running {:on {:fin :done}}
                    :done    {:final? true}}})
-      (rf/dispatch-sync [:rf2-3uixf4.sweep/finisher [:fin]])
+      ;; Only a spawned actor is torn down at finality; a singleton rests.
+      (rf/reg-machine :rf2-3uixf4.sweep/host
+        {:initial :hosting
+         :states  {:hosting {:spawn {:machine-id :rf2-3uixf4.sweep/finisher}}}})
+      (rf/dispatch-sync [:rf2-3uixf4.sweep/host [:rf.machine/start]])
+      (rf/dispatch-sync [:rf2-3uixf4.sweep/finisher#1 [:fin]])
       (let [finish (first (filter #(= :rf.machine/finished (get-in % [:tags :reason]))
                                   (filter cascade/destroy-event? @traces)))]
         (is (true? (cascade/emittable-destroy? finish)))

@@ -103,7 +103,7 @@
 (deftest hydrated-after-timer-is-armed-at-the-persisted-epoch-and-fires
   (rf/reg-machine :hyd/flat flat-machine)
   (let [rt    (server-runtime-db :hyd/flat [[:go]])
-        epoch (get-in rt [:rf.runtime/machines :snapshots :hyd/flat :data :rf/after-epoch [:waiting]])]
+        epoch (get-in rt [:rf.runtime/machines :snapshots :hyd/flat :rf/runtime :after-epoch [:waiting]])]
     (is (pos-int? epoch) "precondition: the per-decl-path epoch rode the snapshot")
     (rf.machines.test-support/reset-captured!)
     (let [[cfid arms] (hydrate-into! rt)]
@@ -129,7 +129,7 @@
   ;; configuration reconstructs the still-active ancestor's timer.
   (rf/reg-machine :hyd/compound compound-machine)
   (let [rt          (server-runtime-db :hyd/compound [[:go]])
-        epochs      (get-in rt [:rf.runtime/machines :snapshots :hyd/compound :data :rf/after-epoch])
+        epochs      (get-in rt [:rf.runtime/machines :snapshots :hyd/compound :rf/runtime :after-epoch])
         [cfid arms] (hydrate-into! rt)]
     (is (= {{:parent :hyd/compound :spawn [:outer] :delay 9000}        (get epochs [:outer])
             {:parent :hyd/compound :spawn [:outer :inner] :delay 4000} (get epochs [:outer :inner])}
@@ -142,12 +142,12 @@
 (deftest hydration-re-arms-region-and-root-parallel-afters
   (rf/reg-machine :hyd/par parallel-machine)
   (let [rt          (server-runtime-db :hyd/par [[:go]])
-        data        (get-in rt [:rf.runtime/machines :snapshots :hyd/par :data])
+        runtime     (get-in rt [:rf.runtime/machines :snapshots :hyd/par :rf/runtime])
         [cfid arms] (hydrate-into! rt)]
     (is (= {{:parent :hyd/par :spawn [:left :ticking] :delay 3000}
-            {:epoch (get-in data [:rf/after-epoch-by-region :left [:ticking]]) :region :left :state :ticking}
+            {:epoch (get-in runtime [:after-epoch-by-region :left [:ticking]]) :region :left :state :ticking}
             {:parent :hyd/par :spawn [] :delay 7000}
-            {:epoch (get-in data [:rf/after-epoch []]) :region nil :state :rf/parallel-root}}
+            {:epoch (get-in runtime [:after-epoch []]) :region nil :state :rf/parallel-root}}
            (update-vals (inner cfid) #(select-keys % [:epoch :region :state])))
         (str "the region timer under its region-prefixed id at the PER-REGION epoch, recording its "
              "region for the work-id; the root timer at decl-path [] on the FLAT slot with the root sentinel"))
@@ -163,7 +163,7 @@
   (rf/reg-machine :hyd/mixed flat-machine)
   (let [rt     (assoc-in (server-runtime-db :hyd/mixed [[:go]])
                          [:rf.runtime/machines :snapshots :hyd/ghost]
-                         {:state :waiting :data {} :rf/machine-type :hyd/never-registered})
+                         {:state :waiting :data {} :rf/runtime {:machine-type :hyd/never-registered}})
         [cfid] (hydrate-into! rt)]
     (is (= #{{:parent :hyd/mixed :spawn [:waiting] :delay 5000}}
            (set (keys (inner cfid)))))))

@@ -195,8 +195,8 @@ the table should handle before the snapshot becomes visible:
    :guards {:has-session? (fn [{:keys [data]}] (true? (:session-valid? data)))}
    :actions
    {:remember-session
-    (fn [{[_ valid?] :event}]
-      {:data {:session-valid? valid?}
+    (fn [{data :data [_ valid?] :event}]
+      {:data (assoc data :session-valid? valid?)
        :fx [[:raise [:auth.session/check-session]]]})}
    :states
    {:idle {:on {:auth/restore {:action :remember-session}
@@ -278,8 +278,8 @@ To sample a subscription, give the entering transition's target a named `:entry`
  :actions {:sample-settings
            {:rf.cofx/requires [{:rf/sub [:settings/idle-warning-ms]
                                 :as     :settings/idle-warning-ms}]
-            :fn (fn [{cofx :rf.cofx}]
-                  {:data {:idle-warning-ms (:settings/idle-warning-ms cofx)}})}}
+            :fn (fn [{data :data cofx :rf.cofx}]
+                  {:data (assoc data :idle-warning-ms (:settings/idle-warning-ms cofx))})}}
  :delays  {:idle-warning (fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))}
  :states  {:idle    {:on {:start :waiting}}
            :waiting {:entry :sample-settings
@@ -294,7 +294,7 @@ A timer does not follow a setting that changes while it is waiting. When a chang
 ```clojure
 {:initial :waiting
  :data    {:idle-warning-ms 30000}
- :actions {:store-ms (fn [{[_ ms] :event}] {:data {:idle-warning-ms ms}})}
+ :actions {:store-ms (fn [{data :data [_ ms] :event}] {:data (assoc data :idle-warning-ms ms)})}
  :states  {:waiting {:after {(fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))
                              :warning}
                      :on    {:configure {:target :waiting :reenter? true :action :store-ms}}}

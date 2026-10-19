@@ -107,7 +107,7 @@ Tools subscribe to `:.*/stale-.*` to surface "a thing should have happened but d
 
 ## Variations
 
-**Substrate-owned epoch — `:after` timers.** No application work required. The substrate advances the `:after`-timer epoch — a **per-scheduling-node** map at `[:rf.runtime/machines :snapshots <id> :data :rf/after-epoch <decl-path>]` (keyed by each `:after`-bearing state's declaring path, not a single per-machine scalar) — on every entry / re-entry of that state, and the substrate-emitted handler suppresses on mismatch. Application-level code sees only the trace event `:rf.machine.timer/stale-after`.
+**Substrate-owned epoch — `:after` timers.** No application work required. The substrate advances the `:after`-timer epoch — a **per-scheduling-node** map at `[:rf.runtime/machines :snapshots <id> :rf/runtime :after-epoch <decl-path>]` (keyed by each `:after`-bearing state's declaring path, not a single per-machine scalar) — on every entry / re-entry of that state, and the substrate-emitted handler suppresses on mismatch. Application-level code sees only the trace event `:rf.machine.timer/stale-after`.
 
 **Substrate-owned epoch — routing.** Same story for route-scoped async loads. The router threads a `nav-token` through the load event payload; the receiver compares against `[:rf.runtime/routing :current :nav-token]`. Application code follows the same shape as the search example above but uses the router-supplied token rather than a hand-rolled counter.
 

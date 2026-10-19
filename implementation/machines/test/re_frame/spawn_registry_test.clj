@@ -1,6 +1,6 @@
 (ns re-frame.spawn-registry-test
   "A declarative spawn is tracked at `[:rf.runtime/machines :spawned <parent-id>
-  <invoke-id>]` and mirrored in the parent's `[:data :rf/spawned <invoke-id>]`,
+  <invoke-id>]` and mirrored in the parent's `[:rf/runtime :spawned <invoke-id>]`,
   one entry per invoke; the destroy cascade finds the child through the slot,
   and both views clear when the child ends."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -29,20 +29,21 @@
                                        :on-all-complete [:all/done]}
                            :on        {:back :idle :all/done :idle}}}})
   (let [slots  #(get-in (frame-db) [:rf.runtime/machines :spawned :sup/many])
-        mirror #(:data (snapshot :sup/many))]
+        mirror #(:rf/runtime (snapshot :sup/many))]
     (rf/dispatch-sync [:sup/many [:fork-a]])
-    (is (= [{[:a-running] :child/a#1} {:rf/spawned {[:a-running] :child/a#1}}]
-           [(slots) (mirror)])
-        "the slot and the parent's own :data record the child under its invoke-id — nothing else")
+    (is (= [{[:a-running] :child/a#1} {[:a-running] :child/a#1}]
+           [(slots) (:spawned (mirror))])
+        "the slot and the parent's own :rf/runtime record the child under its invoke-id")
+    (is (= {} (:data (snapshot :sup/many))) "the parent's :data is untouched")
     (rf/dispatch-sync [:sup/many [:back]])
     (rf/dispatch-sync [:sup/many [:fork-b]])
     (is (nil? (snapshot :child/a#1)) "leaving :a-running destroyed A through its slot")
-    (is (= [{[:b-running] :child/b#1} {:rf/spawned {[:b-running] :child/b#1}}]
-           [(slots) (mirror)])
+    (is (= [{[:b-running] :child/b#1} {[:b-running] :child/b#1}]
+           [(slots) (:spawned (mirror))])
         "A's entries cleared with A; B's are keyed independently")
     (rf/dispatch-sync [:sup/many [:back]])
     (rf/dispatch-sync [:sup/many [:fork-all]])
-    (is (= {:rf/spawned {[:forking] {:x :gc/x#1 :y :gc/y#1}}} (mirror))
+    (is (= {[:forking] {:x :gc/x#1 :y :gc/y#1}} (:spawned (mirror)))
         ":spawn-all mirrors its whole children map under the one invoke-id")
     (rf/dispatch-sync [:sup/many [:back]])
     (is (not (contains? (:rf.runtime/machines (frame-db)) :spawned))

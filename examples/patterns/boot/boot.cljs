@@ -63,9 +63,9 @@
    Kick the boot once at startup with `[:app/boot [:rf.machine/start]]`.
    That creation marker runs the initial-entry cascade and seeds the
    snapshot in runtime-db (docs/core/glossary.md#runtime-db). Running it
-   AGAIN is a different event — `[:app/boot [:boot/restart]]`, which both
-   terminals accept; the marker is spent after the first kick and does
-   nothing on a machine that already exists."
+   AGAIN is a different event — `[:app/boot [:boot/restart]]`, the root's
+   way out of either final state; the marker is spent after the first kick
+   and does nothing on a machine that already exists."
   (:require [re-frame.core :as rf]
             ;; State machines and managed HTTP each ship as their own
             ;; artefact. These two requires register what the boot needs:
@@ -85,8 +85,8 @@
 ;; Note what is NOT there. No parent address, because this child never
 ;; dispatches anything home. No label naming which asset it is, because
 ;; nothing here reads one: the spawn `:id` is what the parent tells its
-;; children apart by, and `:rf/self-id` is how the reply finds its way
-;; back. A field a copier can see but never watch anything read is a field
+;; children apart by, and the `:self-id` every callback receives is how
+;; the reply finds its way back. A field a copier can see but never watch anything read is a field
 ;; they will faithfully carry into their own app. Each instance is born in
 ;; `:idle`; the runtime drops a
 ;; `:rf.machine.spawn/spawned` event into it, which moves it to `:loading` and
@@ -108,17 +108,16 @@
 
    :actions
    {:begin-fetch
-    ;; Fire the GET. The reply is addressed back to THIS child via
-    ;; :rf/self-id (the spawn fx stamps it into :data), landing as the
+    ;; Fire the GET. The reply is addressed back to THIS child via the
+    ;; `:self-id` on the action's context, landing as the
     ;; `:asset/replied` event — so the loader sorts success from failure
     ;; itself before it ever bothers the parent.
-    (fn [{data :data}]
-      (let [self-id (:rf/self-id data)]
-        {:fx [[:rf.http/managed
-               {:request    {:method :get :url (:url data)}
-                :decode     :json
-                :on-success [self-id [:asset/replied :success]]
-                :on-failure [self-id [:asset/replied :failure]]}]]}))}
+    (fn [{:keys [data self-id]}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :get :url (:url data)}
+              :decode     :json
+              :on-success [self-id [:asset/replied :success]]
+              :on-failure [self-id [:asset/replied :failure]]}]]})}
 
    :states
    {;; :idle is where every loader starts. The runtime drops a
@@ -228,6 +227,16 @@
       {:fx [[:dispatch [:boot/apply-hydration
                         (select-keys data [:config :flags :user :routes])]]]})}
 
+   ;; Re-boot is the ROOT's transition. `:ready` and `:failed` are `:final?`,
+   ;; and a final state declares no `:on` of its own, so the way out of
+   ;; either lives here. It is what a "switch account" or "reload config"
+   ;; button dispatches from a healthy app, and what the demo's "Re-run boot"
+   ;; button uses to reach the failure branch. Note it's a real event, *not*
+   ;; the `:rf.machine/start` creation marker — that marker only ever kicks a
+   ;; machine to life once, so on an existing machine it is inert.
+   :on
+   {:boot/restart {:target :configuring :action :reset-boot}}
+
    :states
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
     ;; Unlike the loader, the boot machine is born straight into real work.
@@ -314,21 +323,12 @@
     {:entry :enter-hydrating
      :on    {:boot/hydrated {:target :ready}}}
 
-    ;; ---- :ready / :failed — terminal -------------------------------------
-    ;; Both terminals take the same way out, and it is the same `:boot/restart`
-    ;; either way. Note it's a real event, *not* the `:rf.machine/start`
-    ;; creation marker — that marker only ever kicks a machine to life once,
-    ;; so on an existing machine it is inert; re-boot has to be an ordinary
-    ;; transition. `terminal? true` stays on both, so visualisers and
-    ;; conformance harnesses still read them as terminal: re-boot is the
-    ;; explicit way out, not the flow's natural end.
-    :ready  {:meta {:terminal? true}
-             ;; Re-boot from a healthy app — what a "switch account" or a
-             ;; "reload config" button dispatches, and what the demo's
-             ;; "Re-run boot" button uses to reach the failure branch.
-             :on   {:boot/restart {:target :configuring :action :reset-boot}}}
-    :failed {:meta {:terminal? true}
-             :on   {:boot/restart {:target :configuring :action :reset-boot}}}}})
+    ;; ---- :ready / :failed — final ----------------------------------------
+    ;; The boot completes in either and RESTS there: `[:rf/machine :app/boot]`
+    ;; keeps reading `:ready` (or `:failed`), and `:rf.machine/done` fires
+    ;; once on the way in. The root `:on` above is the way out.
+    :ready  {:final? true}
+    :failed {:final? true}}})
 
 ;; ============================================================================
 ;; HYDRATION PROMOTION

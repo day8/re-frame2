@@ -13,10 +13,10 @@ Reach for this leaf when a state hosts an asynchronous activity whose lifetime m
  {:spawn {:machine-id :rf.http/managed
            :data       {:request {:method :post
                                   :url    "/api/login"
-                                  :body   credentials}}}
-  :after  {30000 :auth-failed}                       ;; wall-clock guard — spans retries
-  :on     {:succeeded :authenticated
-           :failed    :auth-failed}}}
+                                  :body   credentials}}
+           :on-done    :authenticated
+           :on-error   :auth-failed}
+  :after  {30000 :auth-failed}}}                     ;; wall-clock guard — spans retries
 ```
 
 Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the parent machine sits in `:authenticating`, an actor of `:rf.http/managed` exists at `[:rf.runtime/machines :snapshots <id>]`. The runtime spawns it on entry and destroys it when the parent leaves `:authenticating` or is itself destroyed (Spec 005 §Desugaring rules). The transition reducer (`re-frame.machines.transition`) lowers the `:spawn` into spawn / destroy fx as transitions enter and exit the state, while the machine spec keeps the literal `:spawn` map; `re-frame.machines.lifecycle-fx.destroy` tears the child down, and a parent's own destroy ends the children its `:spawn` / `:spawn-all` slots track. An actor an action hand-emits with `[:rf.machine/spawn ...]` has no tracking slot and outlives its spawner.
@@ -34,7 +34,7 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
 | `:timeout` / `:on-timeout` | bound the child's lifetime: `:timeout` is integer-ms **or** an ISO-8601 duration (`"PT5S"` — the `"5s"` shorthand is rejected); `:on-timeout` is the transition taken when it fires (lowers onto `:after`) | optional (pair) |
 
-Per Spec 005 §Spawn-spec keys. The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/invoke-id` (the declarative invocation path — the absolute prefix-path of the `:spawn`-bearing state node) onto the child so the destroy fx can locate the actor on exit, and binds the newborn's id into the parent's own `:data` under `:rf/spawned` (see the id-recording gotcha below).
+Per Spec 005 §Spawn-spec keys. The runtime records the child's lineage — `:parent-id` (the parent's registration id) and `:invoke-id` (the declarative invocation path — the absolute prefix-path of the `:spawn`-bearing state node) — in the child snapshot's `:rf/runtime` map, never its `:data`, so the destroy fx can locate the actor on exit; and it records the newborn's id on the parent, where every parent callback reads it as `:spawned` (see the id-recording gotcha below). A child's callbacks receive `:self-id` and `:parent-id` the same way.
 
 ## Final states — `:final?` / `:on-done` / `:output-key`
 
@@ -88,16 +88,16 @@ The most direct spelling is a transition-shaped `:on-done` — `{:target :loadin
 
 An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works equally well, and fires only on a success: a failed child arrives as `:rf.machine.spawn/error` instead, whether or not `:on-error` is declared. **This is the replacement for a child hand-dispatching an event to advance its parent** — the child needs no knowledge of the parent at all.
 
-### Singleton symmetry — "final means final"
+### A singleton rests at finality
 
-A **singleton** machine (registered top-level, no parent `:spawn`) that reaches `:final?` **also auto-destroys**. If you want a persistent terminal state, simply **omit `:final?`** and use an ordinary leaf state. This is intentional (D7) — `:final?` means final, not "the machine is in a stable state."
+A **singleton** machine (registered top-level, no parent `:spawn`) that reaches a root-level `:final?` state **rests** there (D7). `:rf.machine/done` fires once, with `:parent-id nil`; the snapshot stays, so `[:rf/machine <id>]` keeps reading the final state; and an event its definition declares no way out for is a no-op. Only a SPAWNED actor is torn down at finality — its completion is a value its parent receives, while a singleton's completion is a state its readers keep seeing.
 
 ```clojure
-;; If you write this, the singleton self-destructs once `:end` fires:
-(rf/reg-machine :ephemeral
+(rf/reg-machine :session/flow
   {:initial :running
+   :on      {:restart :running}               ;; the way out, on the ROOT — a final state takes no :on
    :states  {:running {:on {:end :stopped}}
-             :stopped {:final? true}}})    ;; <- snapshot removed on :end; the registration survives
+             :stopped {:final? true}}})       ;; <- rests here after :end; :restart leaves it
 ```
 
 ### `:final?` constraints
@@ -105,8 +105,8 @@ A **singleton** machine (registered top-level, no parent `:spawn`) that reaches 
 - **Leaf-only.** A `:final?` state MUST NOT declare `:states` / `:initial` (registration rejects with `:rf.error/machine-final-state-compound`).
 - **No transitions out.** A `:final?` state MUST NOT declare `:on`, `:always`, `:after`, `:spawn`, or `:spawn-all` (`:rf.error/machine-final-state-has-transitions`). `:entry` and `:exit` actions ARE permitted.
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`).
-- **Parallel regions.** A leaf in one region may be `:final?`; the **leaf** then sources nothing (the constraint above binds it), but **the region does not halt** — it keeps taking part in every selection pass, so an `:on` / `:always` / `:after` declared on an **ancestor** of that leaf, or on the region's own root `:on`, still moves it off its final leaf, as does a `:raise` re-broadcast from a live sibling. Guard those ancestor transitions if a completed region should stay put. When **every** region's active leaf is `:final?` the parallel root fires its own `:on-done` if declared — **and the machine keeps running** — otherwise the whole-machine auto-destroy / spawning-parent cascade fires.
-- **Depth decides the meaning.** A `:final?` leaf that is a **direct child of the machine root** is whole-machine finality (auto-destroy, or the spawning parent's `:on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `[:rf.machine/done <compound>]` — the enclosing compound's `:on-done` advances the outer flow and **the machine keeps running**. That is the "sub-flow completes, outer flow continues" shape.
+- **Parallel regions.** A leaf in one region may be `:final?`; the **leaf** then sources nothing (the constraint above binds it), but **the region does not halt** — it keeps taking part in every selection pass, so an `:on` / `:always` / `:after` declared on an **ancestor** of that leaf, or on the region's own root `:on`, still moves it off its final leaf, as does a `:raise` re-broadcast from a live sibling. Guard those ancestor transitions if a completed region should stay put. When **every** region's active leaf is `:final?` the parallel root fires its own `:on-done` if declared — **and the machine keeps running** — otherwise whole-machine finality follows: a singleton rests, a spawned actor completes to its parent and is torn down.
+- **Depth decides the meaning.** A `:final?` leaf that is a **direct child of the machine root** is whole-machine finality (a singleton rests; a spawned actor completes to its parent's `:on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `[:rf.machine/done <compound>]` — the enclosing compound's `:on-done` advances the outer flow and **the machine keeps running**. That is the "sub-flow completes, outer flow continues" shape.
 
 Per Spec 005 §Final states and §Embedded vs top-level (`spec/005-StateMachines.md`) for the full sub-decision matrix (D1-D10) and trace-ordering contract.
 
@@ -208,7 +208,7 @@ Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`)
 
 - **A child is a registered machine, named by `:machine-id`.** Register it with `reg-machine`; an inline `:definition`, or a spawn with no `:machine-id`, is refused with `:rf.error/machine-spawn-bad-shape` (`:rf.error/machine-spawn-all-bad-shape` for a `:spawn-all` child) at registration, and at the fx for a hand-emitted spawn (Spec 005 §Spawn-spec keys; validated in `re-frame.machines.lifecycle-fx.validation`). The snapshot names the type by keyword, so whatever restores it — the client, a reloaded page, an imported epoch — registers the same child types.
 - **No `:timeout-ms` on `:spawn` or `:spawn-all`** — registration throws `:rf.error/spawn-timeout-ms-removed`. Bound the child's lifetime with the spawn-level **`:timeout` / `:on-timeout`** pair (integer-ms or an ISO-8601 duration; lowers onto `:after`), or put the wall-clock guard on the parent state's `:after` (`:after {30000 :timeout-target}`) — either way the standard exit cascade destroys the in-flight child when the timer fires.
-- **Read `:rf/spawned` for the child's id; there is no callback that hands it to you.** On every declarative `:spawn` the pure transition reducer binds the newborn's id into the **spawning** machine's own `:data` under the reserved per-invoke `:rf/spawned` map, so a later action reads it straight off its context-map: `(get-in data [:rf/spawned <invoke-id>])`, where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state (e.g. `[:active]`). This is the first-class idiom — re-frame2's spelling of XState v5's `spawn(...)`-into-`context` capture, with **no callback and no side-channel atom**; the WebSocket example's `socket-id` helper is exactly `(get-in data [:rf/spawned [:active]])` (`examples/patterns/websocket/connection.cljs`). Two further ways to address the child: read the runtime registry slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` directly (when you are *outside* the machine's own action context); or give the spawn an explicit `:fixed-actor-id` you chose and return that address in the same action's `:data`. (Hand-emitted `:rf.machine/spawn` fxs get no automatic `:rf/spawned` capture — only the declarative reducer owns an invoke-id to key it under.)
+- **Read `:spawned` for the child's id; there is no spawn callback that hands it to you.** On every declarative `:spawn` the pure transition reducer records the newborn's id on the **spawning** machine, keyed by invoke path, and every callback receives that map as `:spawned` on its context: `(get spawned <invoke-id>)`, where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state (e.g. `[:active]`). This is the first-class idiom — re-frame2's spelling of XState v5's `spawn(...)`-into-`context` capture, with **no callback, no side-channel atom, and nothing written into your `:data`**; the WebSocket example's `socket-id` helper is exactly `(get spawned [:active])` (`examples/patterns/websocket/connection.cljs`). Two further ways to address the child: read the parent snapshot's `[:rf/runtime :spawned <invoke-id>]`, or the runtime registry slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (when you are *outside* the machine's own action context); or give the spawn an explicit `:fixed-actor-id` you chose and return that address in the same action's `:data`. (Hand-emitted `:rf.machine/spawn` fxs get no automatic `:spawned` capture — only the declarative reducer owns an invoke-id to key it under.)
 - **`:data` is a literal map or `(fn [{:keys [snapshot event]}] data)` — a single context-map arg, not positional, and not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (materialised by the transition reducer in `re-frame.machines.transition` as it lowers the `:spawn`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
 - **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine.spawn/spawned]`.** Every spawned actor receives `[:rf.machine.spawn/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine.spawn/spawned :target ...` transition that fires the actor's first work on entry.
 - **One `:spawn` per state.** Multiple children per state → refactor into a compound state where each substate invokes one of the actors, or use `:spawn-all`. Validated at registration; `:spawn` + `:spawn-all` together throws `:rf.error/machine-spawn-all-with-spawn` (`re-frame.machines.lifecycle-fx.validation`).

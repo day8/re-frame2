@@ -17,7 +17,7 @@
    2. **Explicit actor-address INPUT vs declarative invocation PATH**.
       On one declarative `:spawn` the explicit-address input
       key `:fixed-actor-id` and the runtime-stamped invocation-path key
-      `:rf/invoke-id` are distinct facts carrying distinct shapes (a bare
+      `:invoke-id` are distinct facts carrying distinct shapes (a bare
       keyword address vs a state-path vector)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -76,12 +76,12 @@
 ;; ---------------------------------------------------------------------------
 ;; (2) Explicit actor-address INPUT vs declarative invocation PATH.
 ;;     On ONE declarative :spawn, `:fixed-actor-id` (explicit address, a bare
-;;     keyword) and the runtime-stamped `:rf/invoke-id` (invocation path, a
+;;     keyword) and the runtime-stamped `:invoke-id` (invocation path, a
 ;;     state-path vector) are distinct identity facts.
 ;; ---------------------------------------------------------------------------
 
 (deftest fixed-actor-id-and-invoke-id-are-distinct-facts
-  (testing "explicit :fixed-actor-id (address INPUT) ≠ runtime :rf/invoke-id (invocation PATH)"
+  (testing "explicit :fixed-actor-id (address INPUT) ≠ runtime :invoke-id (invocation PATH)"
     (let [child  {:initial :running :states {:running {}}}
           parent {:initial :idle
                   :states
@@ -94,14 +94,14 @@
       (rf/reg-machine :idn3/child child)
       (rf/reg-machine :idn3/parent parent)
       (rf/dispatch-sync [:idn3/parent [:go]])
-      (let [child-data (:data (snapshot :idn3/pinned))]
+      (let [child-rt (:rf/runtime (snapshot :idn3/pinned))]
         (is (= [:idn3/pinned :idn3/pinned [:working]]
                [(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :spawned :idn3/parent [:working]])
-                (:rf/self-id child-data)
-                (:rf/invoke-id child-data)])
+                (:self-id child-rt)
+                (:invoke-id child-rt)])
             "the explicit address is bound at the invocation-path slot and is the actor's
-             :rf/self-id, while :rf/invoke-id is the state-path vector")))))
+             :self-id, while :invoke-id is the state-path vector")))))
 
 (deftest singleton-transition-carries-actor-id-equal-to-registration-id
   (testing "a singleton's transition carries :actor-id (== its registration id), not :machine-id"

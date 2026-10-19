@@ -47,10 +47,10 @@
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- join-attempt
-  "A live child's `:rf/join-child` membership record — the coordinate its carrier carries."
+  "A live child's `:join-child` membership record — the coordinate its carrier carries."
   [actor-id]
   (get-in (rf.machines.test-support/runtime-db)
-          [:rf.runtime/machines :snapshots actor-id :data :rf/join-child]))
+          [:rf.runtime/machines :snapshots actor-id :rf/runtime :join-child]))
 
 (defn- events-of [op]
   (rf.machines.test-support/events-of op))
@@ -72,7 +72,7 @@
         (events-of :rf.machine/destroyed)))
 
 (defn- forged-completion!
-  "Hand-deliver a completion carrier bearing `auth` (a `:rf/join-child` record read
+  "Hand-deliver a completion carrier bearing `auth` (a `:join-child` record read
   off a live child) as its coordinate — a late re-delivery the runtime never mints."
   [parent-id auth]
   (rf/dispatch-sync

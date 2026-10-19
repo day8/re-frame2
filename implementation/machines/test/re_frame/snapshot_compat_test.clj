@@ -95,7 +95,7 @@
              [(select-keys (:tags ev) [:machine-id :version-recorded :version-current]) (:recovery ev)]))
       (is (= {:state :next :data {}} (select-keys (snapshot :compat/m2) [:state :data]))))))
 
-;; A spawned actor has no registrar entry: `:rf/machine-type` is the only key
+;; A spawned actor has no registrar entry: `[:rf/runtime :machine-type]` is the only key
 ;; its handler resolves from, and the lineage keys are how its parent's exit
 ;; cascade and a `:spawn-all` join address it — so a reset must keep them.
 
@@ -116,20 +116,20 @@
                                        :states  {:idle    {:on {:start :working}}
                                                  :working {:spawn {:machine-id :compat/sc-child}}}})
     (rf/dispatch-sync [:compat/sc-parent [:start]])
-    (let [actor (get-in (snapshot :compat/sc-parent) [:data :rf/spawned [:working]])]
+    (let [actor (get-in (snapshot :compat/sc-parent) [:rf/runtime :spawned [:working]])]
       ;; `:live` is still in the new definition, isolating the version check.
       (rf/reg-machine :compat/sc-child (bumping-child 2 :live 100))
       (let [evs   (traces! #(do (rf/dispatch-sync [actor [:bump]])
                                 (rf/dispatch-sync [actor [:bump]])))
             after (snapshot actor)]
         (is (= 1 (count (ops evs :rf.error/machine-snapshot-version-mismatch))))
-        (is (= {:rf/machine-type :compat/sc-child :meta {:rf/snapshot-version 2}}
-               (select-keys after [:rf/machine-type :meta])))
-        (is (= {:n 102 :rf/self-id actor :rf/parent-id :compat/sc-parent :rf/invoke-id [:working]}
-               (select-keys (:data after) [:n :rf/self-id :rf/parent-id :rf/invoke-id])))))))
+        (is (= [{:n 102} {:rf/snapshot-version 2}] [(:data after) (:meta after)]))
+        (is (= {:machine-type :compat/sc-child :self-id actor :parent-id :compat/sc-parent
+                :invoke-id [:working]}
+               (select-keys (:rf/runtime after) [:machine-type :self-id :parent-id :invoke-id])))))))
 
 (deftest spawn-all-child-keeps-join-membership-across-recovery
-  (testing "a :spawn-all child's :rf/join-child record survives a reset unchanged, so its
+  (testing "a :spawn-all child's :join-child record survives a reset unchanged, so its
             completion still folds into the join attempt it belongs to"
     (rf/reg-machine :compat/ja-child (bumping-child 1 :live 0))
     (rf/reg-machine :compat/ja-parent
@@ -145,10 +145,11 @@
                  :done      {}
                  :idle      {}}})
     (rf/dispatch-sync [:compat/ja-parent [:rf.machine.spawn/spawned]])
-    (let [actor (get-in (snapshot :compat/ja-parent) [:data :rf/spawned [:hydrating] :a])
-          join  (get-in (snapshot actor) [:data :rf/join-child])]
+    (let [actor (get-in (snapshot :compat/ja-parent) [:rf/runtime :spawned [:hydrating] :a])
+          join  (get-in (snapshot actor) [:rf/runtime :join-child])]
       (rf/reg-machine :compat/ja-child (bumping-child 2 :live 100))
       (rf/dispatch-sync [actor [:bump]])
       (rf/dispatch-sync [actor [:bump]])
-      (is (= {:n 102 :rf/join-child join}
-             (select-keys (:data (snapshot actor)) [:n :rf/join-child]))))))
+      (is (some? join))
+      (is (= [{:n 102} join]
+             [(:data (snapshot actor)) (get-in (snapshot actor) [:rf/runtime :join-child])])))))

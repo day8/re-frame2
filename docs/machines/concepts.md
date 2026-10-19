@@ -141,7 +141,7 @@ Return **descriptions**, the same idea as `reg-event`:
 
 ```clojure
 :actions
-{:clear-error  (fn [_] {:data {:error nil}})
+{:clear-error  (fn [{data :data}] {:data (assoc data :error nil)})
  :issue-request
  (fn [{[_ creds] :event}]
    {:fx [[:rf.http/managed
@@ -164,7 +164,7 @@ target shape.
 
 | Key | Meaning |
 | --- | --- |
-| `:data` | **Merged** into the snapshot's current `:data`, top-level keys only: a nested map you return replaces the one there. Explicit `nil` sets a key to nil; it does not remove keys. |
+| `:data` | The machine's new `:data`, which **replaces** the snapshot's current `:data` whole, as `:db` replaces app-db. Return `(assoc data …)` or `(update data …)` to change a key and `(dissoc data …)` to remove one. Omit `:data` to leave it as it was. |
 | `:fx` | Ordinary effects vector (`:dispatch`, `:rf.http/managed`, `:rf.machine/spawn`, …), plus the machine-only `:raise`. |
 
 Both keys are optional; `nil` / `{}` means no effects. A returned `:db` is
@@ -202,18 +202,18 @@ for cleanup.
 
 Each slot takes one fn or one action id. A vector is refused
 (`:rf.error/machine-bad-action-form`); to do two things, call both from one
-action and merge what they return:
+action, handing the first one's `:data` to the second:
 
 ```clojure
-(defn clear-error   [_] {:data {:error nil}})
-(defn count-attempt [{data :data}] {:data {:attempts (inc (:attempts data))}})
+(defn clear-error   [{data :data}] {:data (assoc data :error nil)})
+(defn count-attempt [{data :data}] {:data (update data :attempts inc)})
 
 :actions
 {:clear-and-count
  (fn [ctx]
    (let [a (clear-error ctx)
-         b (count-attempt ctx)]
-     {:data (merge (:data a) (:data b))
+         b (count-attempt (assoc ctx :data (:data a)))]
+     {:data (:data b)
       :fx   (into (:fx a []) (:fx b []))}))}
 ```
 
@@ -449,13 +449,16 @@ or form setup. Click into the cell and press **`Ctrl-Enter`**
 <a id="final-states"></a>
 <a id="final-states-when-a-machine-is-done"></a>
 
-- **Ordinary leaf** with no outgoing transitions — the machine **persists**
-  (login's `:authed`). Do **not** set `:final?`. Optional
-  `{:meta {:terminal? true}}` is documentation for you and for tools; it
-  does not destroy anything.
-- **Root-level `:final? true` leaf** — the machine finishes and is destroyed.
-  Use it for spawned protocols that finish. A final leaf inside a compound
-  finishes only that sub-flow; the surrounding machine keeps running.
+- **Root-level `:final? true` leaf** — the machine completes. A singleton
+  (login's `:authed`) **rests** there: `:rf.machine/done` fires once, the
+  snapshot stays readable, and an event with no declared way out is a
+  no-op. A spawned actor completes to its parent's `:on-done` and is torn
+  down.
+- **A way out of a final state** is a transition on the root's `:on`, since
+  the final leaf itself takes no `:on`. Leaving it is an ordinary
+  transition, and the next entry completes again.
+- **A final leaf inside a compound** finishes only that sub-flow; the
+  surrounding machine keeps running.
 
 A `:final?` state is a leaf with no way out: it may run `:entry` and `:exit`,
 but `:on`, `:always`, `:after`, `:spawn` and `:spawn-all` there are refused

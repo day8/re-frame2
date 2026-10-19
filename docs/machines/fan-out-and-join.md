@@ -25,16 +25,16 @@ HTTP reply and final-state pattern as the [login request actor](actors.md#state-
    :data {}
    :actions
    {:fetch
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :get :url (:url data)}
               :decode :json
-              :on-success [(:rf/self-id data) [:loaded]]
-              :on-failure [(:rf/self-id data) [:failed]]}]]})
-    :keep-value (fn [{[_ reply] :event}]
-                  {:data {:value (:value reply)}})
-    :keep-error (fn [{[_ reply] :event}]
-                  {:data {:reason (:error reply)}})}
+              :on-success [self-id [:loaded]]
+              :on-failure [self-id [:failed]]}]]})
+    :keep-value (fn [{data :data [_ reply] :event}]
+                  {:data (assoc data :value (:value reply))})
+    :keep-error (fn [{data :data [_ reply] :event}]
+                  {:data (assoc data :reason (:error reply))})}
    :states
    {:running {:entry :fetch
               :on {:loaded {:target :done :action :keep-value}
@@ -55,7 +55,7 @@ parent's working data:
    :data {:profile nil :preferences nil}
    :states
    {:loading-session
-    {:entry (fn [_] {:data {:profile nil :preferences nil}})
+    {:entry (fn [{data :data}] {:data (assoc data :profile nil :preferences nil)})
      :spawn-all
      {:children
       [{:id :profile :machine-id :auth/load-json
@@ -117,16 +117,16 @@ the parent enters `:failed` with no results. **Retry** re-enters
    :data {}
    :actions
    {:fetch
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :get :url (:url data)}
               :decode :json
-              :on-success [(:rf/self-id data) [:loaded]]
-              :on-failure [(:rf/self-id data) [:failed]]}]]})
-    :keep-value (fn [{[_ reply] :event}]
-                  {:data {:value (:value reply)}})
-    :keep-error (fn [{[_ reply] :event}]
-                  {:data {:reason (:error reply)}})}
+              :on-success [self-id [:loaded]]
+              :on-failure [self-id [:failed]]}]]})
+    :keep-value (fn [{data :data [_ reply] :event}]
+                  {:data (assoc data :value (:value reply))})
+    :keep-error (fn [{data :data [_ reply] :event}]
+                  {:data (assoc data :reason (:error reply))})}
    :states
    {:running {:entry :fetch
               :on {:loaded {:target :done :action :keep-value}
@@ -139,7 +139,7 @@ the parent enters `:failed` with no results. **Retry** re-enters
    :data {:profile nil :preferences nil}
    :states
    {:loading-session
-    {:entry (fn [_] {:data {:profile nil :preferences nil}})
+    {:entry (fn [{data :data}] {:data (assoc data :profile nil :preferences nil)})
      :spawn-all
      {:children
       [{:id :profile :machine-id :auth/load-json
@@ -229,8 +229,8 @@ is enough. This variant asks two profile endpoints using the same registered
  :after {5000 :failed}
  :on {:auth/profile-found
       {:target :ready
-       :action (fn [{[_ _ profile] :event}]
-                 {:data {:profile profile}})}}}
+       :action (fn [{data :data [_ _ profile] :event}]
+                 {:data (assoc data :profile profile)})}}}
 ```
 
 Here one failure leaves the other child running. The first success cancels
@@ -314,7 +314,7 @@ candidate vector that reads it:
 :guards {:quorum? (fn [{:keys [data]}] (>= (:done-count data 0) 2))}
 
 :working
-{:entry     (fn [_] {:data {:done-count 0}})
+{:entry     (fn [{data :data}] {:data (assoc data :done-count 0)})
  :spawn-all {:children        [{:id :a :machine-id :work/fetch :on-done count-done}
                                {:id :b :machine-id :work/fetch :on-done count-done}
                                {:id :c :machine-id :work/fetch :on-done count-done}]

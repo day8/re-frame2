@@ -8,7 +8,7 @@
   These drive the pure `machine-transition` with the synthetic
   `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]` event. A timer
   is live when its carried epoch equals its declaring node's
-  `:rf/after-epoch` entry."
+  `[:rf/runtime :after-epoch]` entry."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as rf.machines]))
 
@@ -20,7 +20,7 @@
     spec snapshot [:rf.machine.timer/after-elapsed delay-key epoch decl-path]))
 
 (defn- at-loading [epoch data]
-  {:state :loading :data (assoc data :rf/after-epoch {[:loading] epoch})})
+  {:state :loading :data data :rf/runtime {:after-epoch {[:loading] epoch}}})
 
 (deftest after-single-candidate-forms-transition
   (doseq [[label after-value] [["(a) a bare keyword target" :timeout]
@@ -52,8 +52,8 @@
               false [:failed :handshake]]]]
       (let [{snap :snapshot} (fire spec
                                    {:state :authenticating
-                                    :data  {:handshake-ok? handshake-ok?
-                                            :rf/after-epoch {[:authenticating] 1}}}
+                                    :data  {:handshake-ok? handshake-ok?}
+                                    :rf/runtime {:after-epoch {[:authenticating] 1}}}
                                    6000 1 [:authenticating])]
         (is (= expected [(:state snap) (get-in snap [:data :error])]) label)))))
 
@@ -94,7 +94,7 @@
                                        :a-hot  {}
                                        :a-warm {}}}
                          :timed-out {}}}
-              {:state [:p :a] :data {:rf/after-epoch {[:p] 1 [:p :a] 1}}}
+              {:state [:p :a] :data {} :rf/runtime {:after-epoch {[:p] 1 [:p :a] 1}}}
               [:p :a]
               [:p :a-hot]]
              ["a region's guarded vector, at the region-prefixed decl-path"
@@ -108,7 +108,8 @@
                          :audio {:initial :muted
                                  :states  {:muted {}}}}}
               {:state {:net :connecting :audio :muted}
-               :data  {:rf/after-epoch-by-region {:net {[:connecting] 1} :audio {}}}}
+               :data  {}
+               :rf/runtime {:after-epoch-by-region {:net {[:connecting] 1} :audio {}}}}
               [:net :connecting]
               {:net :online :audio :muted}]]]
       (is (= expected (-> (fire spec snap 5000 1 decl-path) :snapshot :state)) label))))

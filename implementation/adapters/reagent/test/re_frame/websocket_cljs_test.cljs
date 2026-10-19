@@ -101,7 +101,7 @@
   "The live socket actor's id, from the `:rf/spawned` slot the runtime keeps
    for the `[:active]` spawn and clears on teardown."
   [f]
-  (get-in (snap f) [:data :rf/spawned [:active]]))
+  (get-in (snap f) [:rf/runtime :spawned [:active]]))
 
 (defn- in-flight [f]
   (get-in (snap f) [:data :in-flight]))
@@ -182,7 +182,7 @@
   [f]
   (conn! f [:rf.machine.timer/after-elapsed
             (first (keys (get-in ws.connection/connection-machine [:states :reconnecting :after])))
-            (get-in (snap f) [:data :rf/after-epoch [:reconnecting]])
+            (get-in (snap f) [:rf/runtime :after-epoch [:reconnecting]])
             [:reconnecting]]))
 
 (defn- drive-to-failed!
@@ -223,11 +223,11 @@
   (let [m       ws.connection/connection-machine
         step    #(:snapshot (rf.machines/machine-transition m %1 %2))
         ;; The pure transition only describes the spawn; the runtime binds the id.
-        spawned #(assoc-in %1 [:data :rf/spawned [:active]] %2)
+        spawned #(assoc-in %1 [:rf/runtime :spawned [:active]] %2)
         lose    #(step %1 [:ws/closed {:source-socket-id %2 :code 1006}])
         backoff #(step % [:rf.machine.timer/after-elapsed
                           (first (keys (get-in m [:states :reconnecting :after])))
-                          (get-in % [:data :rf/after-epoch [:reconnecting]])
+                          (get-in % [:rf/runtime :after-epoch [:reconnecting]])
                           [:reconnecting]])
         connect [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]
         budget  (juxt :state #(get-in % [:data :retries]))

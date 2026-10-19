@@ -21,7 +21,7 @@
   per-region reduce). This file is the side-effect wrapper that:
     1. resolves the actor's snapshot from the frame's runtime-db,
     2. resolves the actor's machine spec — a spawned actor's TYPE rides
-       its snapshot under `:rf/machine-type` (spawned actors carry no
+       its snapshot under `[:rf/runtime :machine-type]` (spawned actors carry no
        per-instance registrar entry); a singleton's spec comes from its
        registered handler,
     3. runs the pure cascade,
@@ -50,7 +50,7 @@
 
 (defn- resolve-machine-spec
   "Resolve `actor-id`'s machine spec for the `:exit` cascade. Prefer the
-  `snapshot`'s `:rf/machine-type` TYPE reference (the home for spawned
+  `snapshot`'s `[:rf/runtime :machine-type]` TYPE reference (the home for spawned
   actors, which carry no per-instance registrar entry);
   fall back to a registered handler under `actor-id` itself (the
   singleton case — a `reg-machine`'d machine reaching `:final?`). Returns

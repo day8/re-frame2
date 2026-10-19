@@ -55,7 +55,7 @@
                         :states  {:idle {}}}}})
   (rf/dispatch-sync [:cttpk4-tw/timer [:rf.machine.spawn/spawned]])
   (let [epoch (get-in (rf.machines.test-support/snapshot :cttpk4-tw/timer)
-                      [:data :rf/after-epoch-by-region :loader [:working]])]
+                      [:rf/runtime :after-epoch-by-region :loader [:working]])]
     ;; Fire the region :after with the region-prefixed decl-path the host timer
     ;; carries; the :working→:timeout exit also cancels its pending handle.
     (rf/dispatch-sync

@@ -19,7 +19,7 @@
 (def ^:private events-of rf.machines.test-support/events-of)
 
 (defn- epoch-of [machine-id decl-path]
-  (get-in (snapshot machine-id) [:data :rf/after-epoch decl-path]))
+  (get-in (snapshot machine-id) [:rf/runtime :after-epoch decl-path]))
 
 ;; Spec 005 §Multi-stage interaction with :guard: a guard-suppressed firing is
 ;; fired and discarded, and its sibling timers stay live.
@@ -95,7 +95,7 @@
       (rf/reg-machine :sup/atimeout parent)
       (rf/dispatch-sync [:sup/atimeout [:go]])
       (let [child-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/atimeout [:authenticating]])
-            epoch    (get-in (snapshot :sup/atimeout) [:data :rf/after-epoch [:authenticating]])]
+            epoch    (get-in (snapshot :sup/atimeout) [:rf/runtime :after-epoch [:authenticating]])]
         (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots child-id]))
             "child snapshot exists")
         (rf/dispatch-sync [:sup/atimeout [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])

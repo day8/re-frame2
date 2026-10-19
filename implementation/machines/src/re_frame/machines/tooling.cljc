@@ -332,7 +332,7 @@
                      for a singleton, the `<type>#<n>` / explicit
                      `:fixed-actor-id` for a spawned actor).
   - `:source-form` — `{:kind :reg-machine :id <type-id>}` — the TYPE the
-                     instance resolves to (the `:rf/machine-type` keyword).
+                     instance resolves to (the `[:rf/runtime :machine-type]` keyword).
                      Singletons are their own type.
   - `:inputs` / `:evaluation` / `:spawns?` — derived from the RESOLVED type
                      spec (a spawned actor's reactions are its type's), exactly
@@ -342,13 +342,13 @@
   - `:state`       — the instance's current `:state` (the live lifecycle
                      evidence the `:machine-instance` owner is materialized).
   - `:spawned?`    — `true` iff the snapshot carries the reserved
-                     `:rf/machine-type` discriminator `install-spawn!` stamps on
+                     `[:rf/runtime :machine-type]` discriminator `install-spawn!` stamps on
                      every spawned actor (a singleton snapshot never carries it).
   - the fixed `:kind` / `:storage` / `:lifecycle` / `:materialized?` spine, the
                      `:owner`, and source coords / schema / doc — same as the
                      static node.
 
-  An instance whose snapshot carries an unresolvable `:rf/machine-type` (a
+  An instance whose snapshot carries an unresolvable `[:rf/runtime :machine-type]` (a
   cleared type) is skipped — it cannot be classified. The `:value` of the
   snapshot is NOT inlined (a graph tool reads it from the snapshot slot and
   redacts at egress per Derivations §Redaction metadata); only the `:state`
@@ -369,8 +369,8 @@
        (let [snapshots (get-in runtime-db (rf.machines.paths/snapshot-path))]
          (reduce-kv
            (fn [acc actor-id snapshot]
-             (let [machine-type (:rf/machine-type snapshot)
-                   ;; A singleton snapshot carries no `:rf/machine-type`; its
+             (let [machine-type (get-in snapshot [:rf/runtime :machine-type])
+                   ;; A singleton snapshot carries no `[:rf/runtime :machine-type]`; its
                    ;; spec is the registered machine under its own id. A
                    ;; spawned actor resolves its TYPE spec from the snapshot's
                    ;; registered-type keyword via the leaf resolver.

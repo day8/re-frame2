@@ -109,7 +109,7 @@
                         :data    {}
                         :after   {1000 {:target [[:a :two] [:b :two]]}}
                         :regions regions-ab}
-                       {:rf/after-epoch {[] 2}}
+                       {:rf/runtime {:after-epoch {[] 2}}}
                        [:rf.machine.timer/after-elapsed 1000 1 []])))))
 
 (deftest root-after-end-to-end-birth-schedule-and-fire

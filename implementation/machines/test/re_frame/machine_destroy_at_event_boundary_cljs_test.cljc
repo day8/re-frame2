@@ -1,7 +1,7 @@
 (ns re-frame.machine-destroy-at-event-boundary-cljs-test
   "A machine callback that destroys its own frame during the event — an `:exit`
-  effect inside an actor's teardown, an `:entry` action on the way into a root
-  `:final?` leaf — does not cut the machine's tail short. The destroy waits for
+  effect inside an actor's teardown, a spawned actor's `:entry` action on the
+  way into a root `:final?` leaf — does not cut the machine's tail short. The destroy waits for
   the event boundary (Spec 002 §Destroy), so the teardown or completion tail
   runs to its end against the incarnation it started in, and the frame is gone
   once the event returns.
@@ -76,15 +76,18 @@
        :states  {:running {:on {:finish :done}}
                  :done    {:final? true
                            :entry  (fn [_] (rf/destroy-frame! frame-id) {})}}})
+    (rf/reg-machine :mdb/host
+      {:initial :hosting
+       :states  {:hosting {:spawn {:machine-id :mdb/finisher}}}})
     (rf/make-frame {:id frame-id})
-    (rf/dispatch-sync [:mdb/finisher [:rf.machine/start]] {:frame frame-id})
-    (rf/dispatch-sync [:mdb/finisher [:finish]] {:frame frame-id})
-    (is (= {:done      [:mdb/finisher]
-            :destroyed [[:mdb/finisher :rf.machine/finished]]
+    (rf/dispatch-sync [:mdb/host [:rf.machine/start]] {:frame frame-id})
+    (rf/dispatch-sync [:mdb/finisher#1 [:finish]] {:frame frame-id})
+    (is (= {:done      [:mdb/finisher#1]
+            :destroyed [[:mdb/finisher#1 :rf.machine/finished]]
             :frame     nil}
            {:done      (mapv (comp :actor-id :tags)
                              (rf.machines.test-support/events-of :rf.machine/done))
-            :destroyed (destroyed-ops)
+            :destroyed (filterv #(= :mdb/finisher#1 (first %)) (destroyed-ops))
             :frame     (rf.frame/frame frame-id)})
         "the done trace and the finished teardown both fired, and the frame is gone after the event")))
 

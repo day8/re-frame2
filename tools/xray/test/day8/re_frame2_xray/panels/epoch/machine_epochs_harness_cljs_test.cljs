@@ -337,7 +337,7 @@
       (is (some #(= :rf.machine.timer/scheduled (:operation %)) (:trace-events record))
           "(a) entering :brewing scheduled the :after timer"))
     ;; #15 — let the timer elapse (synthetic, deterministic).
-    (let [epoch  (get-in (snapshot :brew/machine) [:data :rf/after-epoch [:brewing]])
+    (let [epoch  (get-in (snapshot :brew/machine) [:rf/runtime :after-epoch [:brewing]])
           record (drive! :brew/machine [:rf.machine.timer/after-elapsed 5000 epoch [:brewing]])
           tx     (first (rows-of-kind (cascade record) :transition))]
       (is (some? tx) "(c) the timer firing renders a transition row")

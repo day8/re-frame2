@@ -40,6 +40,7 @@
   (first (filter #(and (= :action (:kind %)) (identical? f (:action-id %))) rows)))
 
 (deftest root-lifecycle-rows-render-the-root-source
+  (rf/reg-event ::destroy-flat (fn [_ _] {:fx [[:rf.machine/destroy :rlsf/flat]]}))
   (rf/reg-machine :rlsf/flat
     {:initial :a
      :entry   (fn [_] {:data {:at :root-in}})
@@ -51,7 +52,8 @@
         placed       (assoc-in machine-meta [:rf/machine :source-coords]
                                {:file "placed/root.cljs" :line 7 :column 3})
         entry        (action-row (cascade-of [:rlsf/flat [:rf.machine/start]]) (:entry spec))
-        exit         (action-row (cascade-of [:rlsf/flat [:fin]]) (:exit spec))]
+        _            (rf/dispatch-sync [:rlsf/flat [:fin]])
+        exit         (action-row (cascade-of [::destroy-flat]) (:exit spec))]
     (testing "the root's own :entry row"
       (is (= "(fn [_] {:data {:at :root-in}})"
              (#'view/cascade-row-source-form machine-meta entry))

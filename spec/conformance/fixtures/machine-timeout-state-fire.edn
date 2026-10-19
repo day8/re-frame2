@@ -43,7 +43,7 @@
                    :timed-out {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:go]
-   :expect-next-snapshot {:state :waiting :data {:rf/after-epoch {[:waiting] 1}}}
+   :expect-next-snapshot {:state :waiting :data {} :rf/runtime {:after-epoch {[:waiting] 1}}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:waiting]
@@ -63,9 +63,9 @@
                    :waiting {:timeout    "PT5S"
                              :on-timeout {:target :timed-out}}
                    :timed-out {}}}
-   :snapshot     {:state :waiting :data {:rf/after-epoch {[:waiting] 1}}}
+   :snapshot     {:state :waiting :data {} :rf/runtime {:after-epoch {[:waiting] 1}}}
    :event        [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
-   :expect-next-snapshot {:state :timed-out :data {:rf/after-epoch {[:waiting] 2}}}
+   :expect-next-snapshot {:state :timed-out :data {} :rf/runtime {:after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:waiting]}]]}]}

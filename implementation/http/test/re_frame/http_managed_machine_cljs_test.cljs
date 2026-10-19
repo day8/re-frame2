@@ -94,14 +94,14 @@
      :states
      {:idle       {:on {:go :requesting}}
       :requesting {:spawn {:machine-id :rf.http/managed
-                           :data       {:request {:url url :method :get}}}
-                   :on    {:succeeded {:target :done   :action :record}
-                           :failed    {:target :failed :action :record}}}
+                           :data       {:request {:url url :method :get}}
+                           :on-done    {:target :done   :action :record}
+                           :on-error   {:target :failed :action :record}}}
       :done       {}
       :failed     {}}}))
 
 (deftest spawn-and-spawn-all-parents-receive-the-same-value
-  ;; So `:output-key` and the single-:spawn dispatch cannot drift apart.
+  ;; One `:output-key` value reaches both spawn forms.
   (async done
     (let [transport (rf.http.stub-transport/route-transport
                       {[:get "/api/ok"]  {:body {:id 42}}
@@ -119,13 +119,13 @@
         (-> (rf.test-support/poll-until #(every? (fn [[pid f]] ((settled? f pid))) frames)
                                         {:timeout-ms 2000 :label "four parents settle"})
             (.then (fn [_]
-                     (let [[s-ok v-ok]        (ev :cljs/spawn-ok)
-                           [s-bad v-bad]      (ev :cljs/spawn-bad)
+                     (let [[s-ok _ {v-ok :result}] (ev :cljs/spawn-ok)
+                           [s-bad _ v-bad]    (ev :cljs/spawn-bad)
                            [j-ok _ jv-ok]     (ev :cljs/join-ok)
                            [j-bad _ jv-bad]   (ev :cljs/join-bad)]
-                       (is (= [[:succeeded {:id 42}] [:some-done {:id 42}]] [[s-ok v-ok] [j-ok jv-ok]])
-                           "success: the join result is the value the :spawn parent receives")
-                       (is (= [:failed :any-failed :rf.http/http-5xx v-bad] [s-bad j-bad (:kind v-bad) jv-bad])
+                       (is (= [[:rf.machine.spawn/done {:id 42}] [:some-done {:id 42}]] [[s-ok v-ok] [j-ok jv-ok]])
+                           "success: the join result is the value the :spawn parent's :on-done receives")
+                       (is (= [:rf.machine.spawn/error :any-failed :rf.http/http-5xx v-bad] [s-bad j-bad (:kind v-bad) jv-bad])
                            "failure: the classified error reaches both, :on-any-failed for the join"))))
             (.catch (fn [e] (is false (str "unexpected — "
                                            (pr-str (into {} (map (fn [[pid f]] [pid (:state (snap-in f pid))])) frames))
@@ -133,11 +133,11 @@
                       nil))
             (.then (fn [_] (done))))))))
 
-(deftest join-child-sends-no-succeeded-event-to-its-parent
-  ;; The parent also carries the single-:spawn habit `:on {:succeeded … :failed …}`.
-  ;; A :final? state's :entry still runs, so without the :rf/join-child gate the
-  ;; first child to finish would send [:succeeded value], the parent would leave
-  ;; :hydrating on it, and its own join would be torn down.
+(deftest join-child-sends-no-event-to-its-parent
+  ;; The parent also carries an `:on {:succeeded … :failed …}` habit. The
+  ;; wrapper completes through finality alone and dispatches nothing to its
+  ;; parent, so no child can move the parent out of :hydrating and tear down
+  ;; its own join.
   (async done
       (reg-join-parent! :cljs/habit :all
                         [(wrapper-child :user "/api/me") (wrapper-child :prefs "/api/prefs")]

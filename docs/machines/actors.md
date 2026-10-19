@@ -30,21 +30,21 @@ state:
 
    :actions
    {:issue-request
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :post :url "/api/login"
                         :body (:credentials data)
                         :request-content-type :json
                         :sensitive? true}
               :decode :json
-              :on-success [(:rf/self-id data) [:server-ok]]
-              :on-failure [(:rf/self-id data) [:server-err]]}]]})
+              :on-success [self-id [:server-ok]]
+              :on-failure [self-id [:server-err]]}]]})
     :keep-token
-    (fn [{[_ reply] :event}]
-      {:data {:token (get-in reply [:value :token])}})
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :token (get-in reply [:value :token]))})
     :keep-error
-    (fn [{[_ reply] :event}]
-      {:data {:reason (:error reply)}})}
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :reason (:error reply))})}
 
    :states
    {:running {:entry :issue-request
@@ -56,8 +56,8 @@ state:
 (rf/reg-machine :auth/request login-request)
 ```
 
-The runtime puts `:rf/self-id` in the child's `:data`. Addressing HTTP replies
-to that id keeps them with this request instance. The
+Every callback of a spawned child receives its own address as `:self-id`.
+Addressing HTTP replies to that id keeps them with this request instance. The
 [`:sensitive` declarations](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem)
 redact credentials and the token in machine traces.
 
@@ -75,8 +75,9 @@ table again. The other guards, actions and states stay as defined there:
 :record-child-error
 (fn [{data :data event :event}]
   (let [reason (nth event 2)]
-    {:data {:attempts (inc (:attempts data))
-            :error (or (:message reason) "Login failed.")}}))
+    {:data (-> data
+               (update :attempts inc)
+               (assoc  :error (or (:message reason) "Login failed.")))}))
 
 ;; Replace under :states.
 :submitting
@@ -140,21 +141,21 @@ deadline destroys the actor and shows the error.
 
    :actions
    {:issue-request
-    (fn [{:keys [data]}]
+    (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request {:method :post :url "/api/login"
                         :body (:credentials data)
                         :request-content-type :json
                         :sensitive? true}
               :decode :json
-              :on-success [(:rf/self-id data) [:server-ok]]
-              :on-failure [(:rf/self-id data) [:server-err]]}]]})
+              :on-success [self-id [:server-ok]]
+              :on-failure [self-id [:server-err]]}]]})
     :keep-token
-    (fn [{[_ reply] :event}]
-      {:data {:token (get-in reply [:value :token])}})
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :token (get-in reply [:value :token]))})
     :keep-error
-    (fn [{[_ reply] :event}]
-      {:data {:reason (:error reply)}})}
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :reason (:error reply))})}
 
    :states
    {:running {:entry :issue-request
@@ -177,7 +178,7 @@ deadline destroys the actor and shows the error.
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
     :record-timeout
     (fn [{data :data}]
       {:data (-> data
@@ -190,8 +191,9 @@ deadline destroys the actor and shows the error.
     :record-child-error
     (fn [{data :data event :event}]
       (let [reason (nth event 2)]
-        {:data {:attempts (inc (:attempts data))
-                :error (or (:message reason) "Login failed.")}}))}
+        {:data (-> data
+                   (update :attempts inc)
+                   (assoc  :error (or (:message reason) "Login failed.")))}))}
 
    :states
    {:idle
@@ -219,12 +221,12 @@ deadline destroys the actor and shows the error.
     :error-shown
     {:on {:auth.login/dismiss :idle}}
 
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-view login-actors-view [server]
-  (let [{:keys [state data]} @(subscribe [:rf/machine :auth.login/flow])
-        child-id (get-in data [:rf/spawned [:submitting]])
+  (let [{:keys [state data] :as snapshot} @(subscribe [:rf/machine :auth.login/flow])
+        child-id (get-in snapshot [:rf/runtime :spawned [:submitting]])
         child    (when child-id @(subscribe [:rf/machine child-id]))]
     [:div
      [:p [:strong server]]
@@ -362,42 +364,47 @@ records every key and default.
 
 ### Child runtime stamps
 
-A **declaratively** spawned child gets three reserved keys in its `:data`:
+The runtime records a **declaratively** spawned child's lineage beside its
+`:data`, in the snapshot's `:rf/runtime` map, and hands two of those facts to
+every callback on its context map:
 
-| Key | Meaning |
+| Context key | Meaning |
 |---|---|
-| `:rf/self-id` | this actor's live id |
-| `:rf/parent-id` | the parent actor's id (the address you dispatch to) |
-| `:rf/invoke-id` | the path of the state that spawned it (e.g. `[:active]`) |
+| `:self-id` | this actor's live id |
+| `:parent-id` | the parent actor's id (the address you dispatch to) |
+
+The child's `:data` holds only what its definition and the spawn's `:data`
+put there.
 
 ```clojure
 :actions
 {:notify-open
- (fn [{data :data}]
-   {:fx [[:dispatch [(:rf/parent-id data)
-                     [:ws/opened {:source-socket-id (:rf/self-id data)}]]]]})}
+ (fn [{:keys [self-id parent-id]}]
+   {:fx [[:dispatch [parent-id
+                     [:ws/opened {:source-socket-id self-id}]]]]})}
 ```
 
-A hand-emitted `[:rf.machine/spawn …]` stamps only `:rf/self-id`. There is no
+A hand-emitted `[:rf.machine/spawn …]` gets only `:self-id`. There is no
 structural parent, so pass a correspondent address through `:data` yourself.
 
 ### Recording the spawned id
 
-A declarative `:spawn` writes the new id into the **parent's** `:data` under
-`:rf/spawned`, keyed by the spawning state's path. A `:spawn-all` stores a
-map of child `:id` to actor id at that path:
+A declarative `:spawn` records the new id on the **parent**, keyed by the
+spawning state's path, and every one of the parent's callbacks receives that
+record as `:spawned`. A `:spawn-all` stores a map of child `:id` to actor id
+at that path:
 
 ```clojure
 ;; cf. examples/patterns/websocket
 :authenticating
-{:entry (fn [{data :data}]
-          (let [socket (get-in data [:rf/spawned [:active]])]
+{:entry (fn [{:keys [spawned]}]
+          (let [socket (get spawned [:active])]
             {:fx [[:dispatch [socket [:send {:type :auth}]]]]}))}
 ```
 
-The slot clears itself when the actor is destroyed. A later read returns `nil`,
-not a dead id. Outside a machine, read the same slot off the parent's snapshot:
-`(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:data :rf/spawned [:active]])`.
+The entry clears itself when the actor is destroyed. A later read returns `nil`,
+not a dead id. Outside a machine, read the same entry off the parent's snapshot:
+`(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:rf/runtime :spawned [:active]])`.
 
 ### Starting the child
 
@@ -464,7 +471,7 @@ Destroy is silently idempotent. Destroying an already-gone actor is a no-op.
 ### Custom effect cleanup
 
 Anything else — a `js/WebSocket`, an interval, a Worker — is owned by an
-effect you register, keyed by the actor's `:rf/self-id`. The handle itself
+effect you register, keyed by the actor's `:self-id`. The handle itself
 never goes in `:data`, which [must print and read back](concepts.md#the-snapshot).
 The child's actions stay pure and return that effect: `:entry` opens, `:exit`
 closes, and `:exit` runs on every destroy path:
@@ -482,10 +489,10 @@ closes, and `:exit` runs on every destroy path:
     (swap! sockets dissoc id)))
 
 :actions
-{:open-socket  (fn [{data :data}]
-                 {:fx [[:ws/open {:id (:rf/self-id data) :url (:url data)}]]})
- :close-socket (fn [{data :data}]
-                 {:fx [[:ws/close (:rf/self-id data)]]})}
+{:open-socket  (fn [{:keys [data self-id]}]
+                 {:fx [[:ws/open {:id self-id :url (:url data)}]]})
+ :close-socket (fn [{:keys [self-id]}]
+                 {:fx [[:ws/close self-id]]})}
 
 :connected
 {:entry :open-socket
