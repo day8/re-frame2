@@ -363,10 +363,12 @@
                                :action :clear-error}}}
 
     :authed
-    ;; The happy ending. `:terminal?` says the flow stops here; the
-    ;; `:auth/authenticated` tag is what flips the banner to "Welcome!".
-    {:tags #{:auth/authenticated}
-     :meta {:terminal? true}}
+    ;; The happy ending. `:final?` completes the flow, and a singleton RESTS in
+    ;; its final state, so `[:rf/machine :auth.login/flow]` keeps reading
+    ;; `:authed`. The `:auth/authenticated` tag is what flips the banner to
+    ;; "Welcome!".
+    {:tags   #{:auth/authenticated}
+     :final? true}
 
     :locked-out
     ;; The unhappy ending. Once the retry guard gives out, the next failure lands
@@ -374,8 +376,8 @@
     ;; locked-account panel and stop taking submits. A lockout should be plainly
     ;; visible and inert — never a form that's alive but quietly refuses to do
     ;; anything.
-    {:tags #{:auth/locked}
-     :meta {:terminal? true}}}})
+    {:tags   #{:auth/locked}
+     :final? true}}})
 
 ;; And now the spec becomes a machine, registered under :auth.login/flow. That id
 ;; is also an event handler id — dispatching at it drives the machine. Because we

@@ -221,8 +221,8 @@ deadline destroys the actor and shows the error.
     :error-shown
     {:on {:auth.login/dismiss :idle}}
 
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-view login-actors-view [server]
   (let [{:keys [state data] :as snapshot} @(subscribe [:rf/machine :auth.login/flow])

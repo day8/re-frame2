@@ -264,8 +264,8 @@ parallel root's `:on-done` runs its `:action` and emits its `:fx` only; a
 sibling state to land on. The machine stays in the all-final configuration.
 
 Without a root `:on-done`, all-regions-final ends the machine the way a
-root-level `:final?` leaf does: a singleton is destroyed, and a spawned
-child reports to its parent
+root-level `:final?` leaf does: a singleton rests in the all-final
+configuration, and a spawned child reports to its parent
 ([Actors](actors.md#when-a-child-finishes)). A child with a root `:on-done`
 stays in the all-final configuration, so it never reports.
 

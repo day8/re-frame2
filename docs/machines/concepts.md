@@ -449,13 +449,16 @@ or form setup. Click into the cell and press **`Ctrl-Enter`**
 <a id="final-states"></a>
 <a id="final-states-when-a-machine-is-done"></a>
 
-- **Ordinary leaf** with no outgoing transitions — the machine **persists**
-  (login's `:authed`). Do **not** set `:final?`. Optional
-  `{:meta {:terminal? true}}` is documentation for you and for tools; it
-  does not destroy anything.
-- **Root-level `:final? true` leaf** — the machine finishes and is destroyed.
-  Use it for spawned protocols that finish. A final leaf inside a compound
-  finishes only that sub-flow; the surrounding machine keeps running.
+- **Root-level `:final? true` leaf** — the machine completes. A singleton
+  (login's `:authed`) **rests** there: `:rf.machine/done` fires once, the
+  snapshot stays readable, and an event with no declared way out is a
+  no-op. A spawned actor completes to its parent's `:on-done` and is torn
+  down.
+- **A way out of a final state** is a transition on the root's `:on`, since
+  the final leaf itself takes no `:on`. Leaving it is an ordinary
+  transition, and the next entry completes again.
+- **A final leaf inside a compound** finishes only that sub-flow; the
+  surrounding machine keeps running.
 
 A `:final?` state is a leaf with no way out: it may run `:entry` and `:exit`,
 but `:on`, `:always`, `:after`, `:spawn` and `:spawn-all` there are refused

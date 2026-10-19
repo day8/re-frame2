@@ -64,8 +64,8 @@
              [(contains? tag :received) (contains? tag :schema) (contains? tag :explain)
               (string? (:reason tag)) (:recovery ev)])
           "the Spec 009 schema-failure shape consumers render")
-      (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/bad))
-          "the machine STILL finished + auto-destroyed (completion flows)"))))
+      (is (= :done (:state (rf.machines.test-support/snapshot :rf.machine-output/bad)))
+          "the machine STILL finished, and rests in its final state (completion flows)"))))
 
 ;; ---- (2) spawned child: violating output → trace + parent :on-done STILL runs
 

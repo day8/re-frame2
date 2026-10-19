@@ -63,9 +63,9 @@
    Kick the boot once at startup with `[:app/boot [:rf.machine/start]]`.
    That creation marker runs the initial-entry cascade and seeds the
    snapshot in runtime-db (docs/core/glossary.md#runtime-db). Running it
-   AGAIN is a different event — `[:app/boot [:boot/restart]]`, which both
-   terminals accept; the marker is spent after the first kick and does
-   nothing on a machine that already exists."
+   AGAIN is a different event — `[:app/boot [:boot/restart]]`, the root's
+   way out of either final state; the marker is spent after the first kick
+   and does nothing on a machine that already exists."
   (:require [re-frame.core :as rf]
             ;; State machines and managed HTTP each ship as their own
             ;; artefact. These two requires register what the boot needs:
@@ -227,6 +227,16 @@
       {:fx [[:dispatch [:boot/apply-hydration
                         (select-keys data [:config :flags :user :routes])]]]})}
 
+   ;; Re-boot is the ROOT's transition. `:ready` and `:failed` are `:final?`,
+   ;; and a final state declares no `:on` of its own, so the way out of
+   ;; either lives here. It is what a "switch account" or "reload config"
+   ;; button dispatches from a healthy app, and what the demo's "Re-run boot"
+   ;; button uses to reach the failure branch. Note it's a real event, *not*
+   ;; the `:rf.machine/start` creation marker — that marker only ever kicks a
+   ;; machine to life once, so on an existing machine it is inert.
+   :on
+   {:boot/restart {:target :configuring :action :reset-boot}}
+
    :states
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
     ;; Unlike the loader, the boot machine is born straight into real work.
@@ -313,21 +323,12 @@
     {:entry :enter-hydrating
      :on    {:boot/hydrated {:target :ready}}}
 
-    ;; ---- :ready / :failed — terminal -------------------------------------
-    ;; Both terminals take the same way out, and it is the same `:boot/restart`
-    ;; either way. Note it's a real event, *not* the `:rf.machine/start`
-    ;; creation marker — that marker only ever kicks a machine to life once,
-    ;; so on an existing machine it is inert; re-boot has to be an ordinary
-    ;; transition. `terminal? true` stays on both, so visualisers and
-    ;; conformance harnesses still read them as terminal: re-boot is the
-    ;; explicit way out, not the flow's natural end.
-    :ready  {:meta {:terminal? true}
-             ;; Re-boot from a healthy app — what a "switch account" or a
-             ;; "reload config" button dispatches, and what the demo's
-             ;; "Re-run boot" button uses to reach the failure branch.
-             :on   {:boot/restart {:target :configuring :action :reset-boot}}}
-    :failed {:meta {:terminal? true}
-             :on   {:boot/restart {:target :configuring :action :reset-boot}}}}})
+    ;; ---- :ready / :failed — final ----------------------------------------
+    ;; The boot completes in either and RESTS there: `[:rf/machine :app/boot]`
+    ;; keeps reading `:ready` (or `:failed`), and `:rf.machine/done` fires
+    ;; once on the way in. The root `:on` above is the way out.
+    :ready  {:final? true}
+    :failed {:final? true}}})
 
 ;; ============================================================================
 ;; HYDRATION PROMOTION

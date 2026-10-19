@@ -34,12 +34,15 @@
   (rf/reg-machine :sil/finisher {:initial :running
                                  :states  {:running {:on {:fin :done}}
                                            :done    {:final? true}}})
-  (rf/reg-event ::destroy-finisher (fn [_ _] {:fx [[:rf.machine/destroy :sil/finisher]]}))
-  (rf/dispatch-sync [:sil/finisher [:fin]])
+  (rf/reg-machine :sil/host {:initial :hosting
+                             :states  {:hosting {:spawn {:machine-id :sil/finisher}}}})
+  (rf/reg-event ::destroy-finisher (fn [_ _] {:fx [[:rf.machine/destroy :sil/finisher#1]]}))
+  (rf/dispatch-sync [:sil/host [:rf.machine/start]])
+  (rf/dispatch-sync [:sil/finisher#1 [:fin]])
   (let [after-auto (destroy-reasons)]
     (rf/dispatch-sync [::destroy-finisher])
     (is (= [[:rf.machine/finished] [:rf.machine/finished] nil true]
-           [after-auto (destroy-reasons) (snapshot :sil/finisher) (definition? :sil/finisher)]))))
+           [after-auto (destroy-reasons) (snapshot :sil/finisher#1) (definition? :sil/finisher)]))))
 
 (deftest double-explicit-destroy-is-silent-no-op
   (rf/reg-machine :sil/target {:initial :running :states {:running {}}})

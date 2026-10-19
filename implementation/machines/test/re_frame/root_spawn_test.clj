@@ -186,15 +186,15 @@
 
 ;; ---- teardown --------------------------------------------------------------
 
-(deftest flat-root-child-ends-at-finality-after-root-exit
+(deftest a-final-singleton-keeps-its-root-child
   (let [log (start! flat-parent :rff/p :rff/kid {})]
     (rf/dispatch-sync [:rff/p [:go]])
-    (is (= [nil nil nil [[:parent :root-exit] [:rff/kid :exit]]]
-           [(snapshot :rff/p)
-            (snapshot :rff/kid#1)
-            (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned :rff/p])
+    (is (= [:d :w :rff/kid#1 []]
+           [(:state (snapshot :rff/p))
+            (:state (snapshot :rff/kid#1))
+            (slot :rff/p [])
             @log])
-        "the root :exit reads a live child; the child's :exit runs after it")))
+        "a singleton rests in its final state with its root still active, so its root child lives on")))
 
 (deftest flat-root-child-ends-on-destroy-after-root-exit
   (let [log (start! flat-parent :rfx/p :rfx/kid {})]

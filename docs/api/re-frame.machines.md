@@ -232,7 +232,7 @@ These are the bare keys a state takes:
 | `:spawn`, `:spawn-all` | Child actors that live while the state is active | [Actors](../machines/actors.md), [Fan-out and join](../machines/fan-out-and-join.md) |
 | `:tags` | A set of labels projected onto the snapshot | [Tags](../machines/tags.md) |
 | `:final?`, `:output-key`, `:error?` | A finishing leaf and what it reports | [Final states](../machines/concepts.md#final-states) |
-| `:meta` | Your own static metadata, such as `{:terminal? true}` | [Final states](../machines/concepts.md#final-states) |
+| `:meta` | Your own static metadata, such as `{:label "Signed in"}` | [Final states](../machines/concepts.md#final-states) |
 
 A history pseudo-state takes only `:type`, `:deep?` and `:default-target`. A choice state only routes, so it refuses the keys of a state that waits (`:on`, `:entry`, `:after` and the rest). [Registration errors](#registration-errors) lists both refusals.
 

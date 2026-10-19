@@ -53,9 +53,9 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `actor.send(event)` | `(rf/dispatch [machine-id [event …]])` |
 | `createActor(machine).start()` | the start kick in the frame's `:initial-events`, `[[machine-id [:rf.machine/start]]]`. XState computes the settled initial snapshot at `createActor`, so `getSnapshot()` is never `undefined`; re-frame2's creation site is the frame, and the kick there births the machine before `make-frame` returns. Without it, the first event births the machine lazily |
 | `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none, and destroys the children its `:spawn` / `:spawn-all` states track, as `stop()` stops children |
-| `snapshot.status` / `snapshot.output` after completion | the `:rf.machine/done` trace carries `:output`; the snapshot is gone, so `[:rf/machine id]` reads `nil` for a finished, destroyed or never-started machine alike |
+| `snapshot.status` / `snapshot.output` after completion | the `:rf.machine/done` trace carries `:output`. A finished singleton rests, so `[:rf/machine id]` reads its final state; a finished spawned actor is gone, so its address reads `nil`, as a destroyed or never-started one does |
 | `actor.subscribe({ complete })` | the `:rf.machine/done` trace, and `:rf.machine/destroyed` with its `:reason` |
-| sending to a done or stopped actor (a dead letter) | a singleton is re-born from `:initial` and handles the event; a destroyed spawned actor answers `:rf.error/no-such-handler` |
+| sending to a done or stopped actor (a dead letter) | a done singleton ignores an event its definition declares no way out for; a destroyed singleton is re-born from `:initial` and handles the event; a destroyed spawned actor answers `:rf.error/no-such-handler` |
 | an action throws (the actor's status becomes `'error'`) | the macrostep rolls back, `:rf.error/machine-action-exception` is emitted, and the machine keeps handling events |
 | `states` | `:states` |
 | `initial` | `:initial` |
@@ -321,9 +321,9 @@ The parent receives that value as `(:result (nth ev 2))` in an `:on-done`
 transition, or as `result` in an `:on-done` fold.
 
 There is no long-lived `snapshot.output` to read later. Completion happens,
-reports, and the child is destroyed. A singleton that reaches `:final?` is
-destroyed too — omit `:final?` on a resting leaf such as `:authed` or
-`:locked-out`.
+reports, and the child is destroyed. A singleton that reaches `:final?`
+rests there instead, so a resting leaf such as `:authed` or `:locked-out`
+is `:final?` and stays readable.
 
 ## Schemas
 

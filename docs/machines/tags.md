@@ -18,10 +18,10 @@ Start from the login table. Tag the states the view actually asks about:
 
 ```clojure
 :submitting  {:tags #{:auth/busy}   …}
-:authed      {:tags #{:auth/authed}
-              :meta {:terminal? true}}
-:locked-out  {:tags #{:auth/locked :auth/terminal}
-              :meta {:terminal? true}}
+:authed      {:tags   #{:auth/authed}
+              :final? true}
+:locked-out  {:tags   #{:auth/locked :auth/terminal}
+              :final? true}
 ```
 
 If login later grows a second in-flight state (refreshing a token, restoring
@@ -133,7 +133,7 @@ has the example.
 
 - **Not transition labels.** `:tags` is a state-node slot. Transitions carry
   none.
-- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
+- **Not `:meta`.** A state's `:meta` (for example `{:label "Signed in"}`) is static,
   tooling-visible metadata. `:tags` is the live projection of the active
   configuration. Both can sit on the same state.
 

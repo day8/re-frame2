@@ -99,10 +99,10 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
     :hydrating {:entry :phase-hydrate :on {:hydrate/done {:target :routing}}}
     :routing   {:entry :enter-routing :on {:boot/route-resolved {:target :ready}}}
 
-    :ready          {:meta {:terminal? true}}
-    :auth-failed    {:meta {:terminal? true}}
-    :profile-failed {:meta {:terminal? true}}
-    :fatal-error    {:meta {:terminal? true}}}})
+    :ready          {:final? true}
+    :auth-failed    {:final? true}
+    :profile-failed {:final? true}
+    :fatal-error    {:final? true}}})
 
 ;; The producer of :boot/route-resolved. :on-match is a vector of event vectors
 ;; the routing runtime fires-and-forgets once the URL resolves to a valid plan
@@ -151,7 +151,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 
-**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — the parent's `:on-done` applies on its next macrostep (via the completion carrier), with an optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it; keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes post-handoff. See `../references/state-machines/spawn.md` §Final states.
+**Final states rest; spawned boots hand off.** The standalone singleton above RESTS in whichever `:final?` state it reaches: `:rf.machine/done` fires once, and the snapshot stays, so the `[:app.boot/*]` subs keep reading `:ready` after the handoff. When boot is instead `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), the same `:final?` `:ready` completes to the parent's `:on-done` on its next macrostep (via the completion carrier), with an optional `:output-key` carrying e.g. the loaded `:user`, and the spawned boot is torn down. See `../references/state-machines/spawn.md` §Final states.
 
 **Parameters — the canonical seam.** The boot machine is the ONLY place that reads host globals (`/config` endpoint, build-time env vars, restored session). Once captured into `:data :config`, downstream phases thread values forward via Pattern-AsyncEffect (event payload or spawn-spec `:data` fn). Downstream machines never reach into a global.
 

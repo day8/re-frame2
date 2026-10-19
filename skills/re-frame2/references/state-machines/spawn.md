@@ -88,16 +88,16 @@ The most direct spelling is a transition-shaped `:on-done` — `{:target :loadin
 
 An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works equally well, and fires only on a success: a failed child arrives as `:rf.machine.spawn/error` instead, whether or not `:on-error` is declared. **This is the replacement for a child hand-dispatching an event to advance its parent** — the child needs no knowledge of the parent at all.
 
-### Singleton symmetry — "final means final"
+### A singleton rests at finality
 
-A **singleton** machine (registered top-level, no parent `:spawn`) that reaches `:final?` **also auto-destroys**. If you want a persistent terminal state, simply **omit `:final?`** and use an ordinary leaf state. This is intentional (D7) — `:final?` means final, not "the machine is in a stable state."
+A **singleton** machine (registered top-level, no parent `:spawn`) that reaches a root-level `:final?` state **rests** there (D7). `:rf.machine/done` fires once, with `:parent-id nil`; the snapshot stays, so `[:rf/machine <id>]` keeps reading the final state; and an event its definition declares no way out for is a no-op. Only a SPAWNED actor is torn down at finality — its completion is a value its parent receives, while a singleton's completion is a state its readers keep seeing.
 
 ```clojure
-;; If you write this, the singleton self-destructs once `:end` fires:
-(rf/reg-machine :ephemeral
+(rf/reg-machine :session/flow
   {:initial :running
+   :on      {:restart :running}               ;; the way out, on the ROOT — a final state takes no :on
    :states  {:running {:on {:end :stopped}}
-             :stopped {:final? true}}})    ;; <- snapshot removed on :end; the registration survives
+             :stopped {:final? true}}})       ;; <- rests here after :end; :restart leaves it
 ```
 
 ### `:final?` constraints
@@ -105,8 +105,8 @@ A **singleton** machine (registered top-level, no parent `:spawn`) that reaches 
 - **Leaf-only.** A `:final?` state MUST NOT declare `:states` / `:initial` (registration rejects with `:rf.error/machine-final-state-compound`).
 - **No transitions out.** A `:final?` state MUST NOT declare `:on`, `:always`, `:after`, `:spawn`, or `:spawn-all` (`:rf.error/machine-final-state-has-transitions`). `:entry` and `:exit` actions ARE permitted.
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`).
-- **Parallel regions.** A leaf in one region may be `:final?`; the **leaf** then sources nothing (the constraint above binds it), but **the region does not halt** — it keeps taking part in every selection pass, so an `:on` / `:always` / `:after` declared on an **ancestor** of that leaf, or on the region's own root `:on`, still moves it off its final leaf, as does a `:raise` re-broadcast from a live sibling. Guard those ancestor transitions if a completed region should stay put. When **every** region's active leaf is `:final?` the parallel root fires its own `:on-done` if declared — **and the machine keeps running** — otherwise the whole-machine auto-destroy / spawning-parent cascade fires.
-- **Depth decides the meaning.** A `:final?` leaf that is a **direct child of the machine root** is whole-machine finality (auto-destroy, or the spawning parent's `:on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `[:rf.machine/done <compound>]` — the enclosing compound's `:on-done` advances the outer flow and **the machine keeps running**. That is the "sub-flow completes, outer flow continues" shape.
+- **Parallel regions.** A leaf in one region may be `:final?`; the **leaf** then sources nothing (the constraint above binds it), but **the region does not halt** — it keeps taking part in every selection pass, so an `:on` / `:always` / `:after` declared on an **ancestor** of that leaf, or on the region's own root `:on`, still moves it off its final leaf, as does a `:raise` re-broadcast from a live sibling. Guard those ancestor transitions if a completed region should stay put. When **every** region's active leaf is `:final?` the parallel root fires its own `:on-done` if declared — **and the machine keeps running** — otherwise whole-machine finality follows: a singleton rests, a spawned actor completes to its parent and is torn down.
+- **Depth decides the meaning.** A `:final?` leaf that is a **direct child of the machine root** is whole-machine finality (a singleton rests; a spawned actor completes to its parent's `:on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `[:rf.machine/done <compound>]` — the enclosing compound's `:on-done` advances the outer flow and **the machine keeps running**. That is the "sub-flow completes, outer flow continues" shape.
 
 Per Spec 005 §Final states and §Embedded vs top-level (`spec/005-StateMachines.md`) for the full sub-decision matrix (D1-D10) and trace-ordering contract.
 

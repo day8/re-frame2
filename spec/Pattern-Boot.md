@@ -67,7 +67,7 @@ The boot machine composes the locked machine substrate: hierarchical states for 
 | `:loading-profile` | Fetching user profile, preferences, feature flags scoped to the user. |
 | `:hydrating` | Applying any client-side persistent state (`localStorage`, IndexedDB cache). |
 | `:routing` | Resolving the initial route — including auth-gated redirects. |
-| `:ready` | Boot complete. The running-app UI takes over. (Terminal.) |
+| `:ready` | Boot complete. The running-app UI takes over. (`:final?` — the boot rests there.) |
 | `:auth-failed` / `:profile-failed` / `:network-error` / `:fatal-error` | Per-phase or terminal error states. |
 | `:retrying-auth` / `:retrying-profile` | Recovery states with `:after` backoff before re-attempt. |
 
@@ -133,6 +133,15 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
     (fn [{:keys [data]}]
       {:data (assoc data :phase :routing :phase-attempt 0)
        :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})}
+
+   ;; The way out of every final state. A final state takes no `:on` of its
+   ;; own, so re-boot is the root's. It must be a real event:
+   ;; `:rf.machine/start` is a creation marker that goes inert once the
+   ;; machine exists (per
+   ;; [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)),
+   ;; so it cannot serve as a retry trigger.
+   :on
+   {:boot/restart {:target :configuring :action :reset-boot}}
 
    :states
    {;; :configuring runs an explicit Pattern-AsyncEffect instance: the boot
@@ -205,20 +214,15 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
      ;; this :on-match entry.
      :on    {:boot/route-resolved {:target :ready}}}
 
-    :ready          {:meta {:terminal? true}}
-    ;; Terminal, but not dead ends. Each error state accepts an ordinary
-    ;; re-entry event that runs the boot again from the top — see the Retry
+    ;; Final, but not dead ends. The boot rests in whichever it reaches, so
+    ;; `[:rf/machine :app/boot]` keeps reading it, and the root's
+    ;; `:boot/restart` runs the boot again from the top — see the Retry
     ;; button in the progress-UI sketch below, and §Re-boot semantics for the
-    ;; general shape. It must be a real event: `:rf.machine/start` is a
-    ;; creation marker that goes inert once the machine exists (per
-    ;; [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)),
-    ;; so it cannot serve as a retry trigger.
-    :auth-failed    {:meta {:terminal? true}
-                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}
-    :profile-failed {:meta {:terminal? true}
-                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}
-    :fatal-error    {:meta {:terminal? true}
-                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}}})
+    ;; general shape.
+    :ready          {:final? true}
+    :auth-failed    {:final? true}
+    :profile-failed {:final? true}
+    :fatal-error    {:final? true}}})
 ```
 
 The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs. `:rf.machine/start` is the **only** reserved creation marker the runtime recognises (xstate parity with `createActor(m).start()`, per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — there is no `:rf/start`.
@@ -368,8 +372,8 @@ The pattern, distilled to a worked sketch:
              :failed    {:target :login                         ;; refresh failed → fatal
                          :action :record-error}}}
 
-    :authenticated {:meta {:terminal? true}}
-    :login         {:meta {:terminal? true}}}})
+    :authenticated {:final? true}
+    :login         {:final? true}}})
 ```
 
 The boundary is teachable in three sentences:
@@ -470,8 +474,8 @@ Some flows want explicit re-boot — session expired, the user logged out and ba
 ;; Inside the machine spec, an :on slot at every state (or a wildcard root :on):
 :auth.session/expired {:target :authenticating}
 
-;; The same shape, from a terminal back to the top — what the error states in
-;; the worked example above carry. The named action is the load-bearing half:
+;; The same shape, from a final state back to the top — the root :on the
+;; worked example above carries. The named action is the load-bearing half:
 ;; a transition changes :state and leaves :data untouched, so without it the
 ;; previous run's folded payloads survive and a downstream guard reading them
 ;; short-circuits the very fetch the re-boot exists to redo.
@@ -480,7 +484,7 @@ Some flows want explicit re-boot — session expired, the user logged out and ba
 
 Re-boot is rare; it is not the default. Most apps boot once per page load and re-load the page on session expiry.
 
-**The trigger is an ordinary app event, never `:rf.machine/start`.** That marker creates a machine; on one that already exists it runs no cascade and emits nothing, so a Retry button wired to it is a silent no-op. [examples/patterns/boot](../examples/patterns/boot/boot.cljs) is the worked shape: `:ready` and `:failed` both accept `:boot/restart` through one shared `:reset-boot` action, and its README spells out why the marker cannot serve here.
+**The trigger is an ordinary app event, never `:rf.machine/start`.** That marker creates a machine; on one that already exists it runs no cascade and emits nothing, so a Retry button wired to it is a silent no-op. [examples/patterns/boot](../examples/patterns/boot/boot.cljs) is the worked shape: `:ready` and `:failed` are `:final?`, and the root's `:boot/restart` leaves either through one shared `:reset-boot` action, and its README spells out why the marker cannot serve here.
 
 ### Boot vs initial-route resolution
 

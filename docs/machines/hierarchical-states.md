@@ -183,7 +183,7 @@ If no level handles the event, it is an unhandled no-op
 | Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
 | `:auth/logout` does nothing in one child | That child declares `:auth/logout {}` or `:auth/logout nil` | Remove the key to inherit; keep it only to block |
 | View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
-| Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |
+| A spawned child vanished after its "last screen" | A spawned actor's root-level `:final?` completes and tears it down | Keep the result in the parent's `:on-done`, or omit `:final?` on a leaf the child should rest in |
 ## Advanced
 
 ### Wildcards and hierarchy
@@ -300,7 +300,7 @@ When the active child reaches `[:flow :paid]`, the runtime raises an internal
 done event for `:flow`, and `:on-done` moves to `:next` in the same macrostep.
 A keyword `:on-done` target is a sibling of the compound.
 
-A root-level `:final?` leaf is different: it means the whole machine is done
-and should be destroyed. For a resting end-screen, omit `:final?`. A spawned
-child's root-level `:final?` is how it reports back — see
+A root-level `:final?` leaf is different: it means the whole machine is done.
+A singleton rests there, which suits a resting end-screen. A spawned child's
+root-level `:final?` is how it reports back before it is torn down — see
 [Actors → When a child finishes](actors.md#when-a-child-finishes).

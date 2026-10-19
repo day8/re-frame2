@@ -57,7 +57,7 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
           :auth.login/submit  :submitting}}
 
     :authed
-    {:meta {:terminal? true}}}})
+    {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```
@@ -134,7 +134,7 @@ A guard is a predicate that gates a transition. It receives one context map and 
                                :guard  :form-valid?}}}
 
     :authed
-    {:meta {:terminal? true}}}})
+    {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```
@@ -231,8 +231,8 @@ On failure, the **candidate vector** takes the first guard that passes.
                            :guard  :form-valid?
                            :action :clear-error}}}
 
-:authed     {:meta {:terminal? true}}
-:locked-out {:meta {:terminal? true}}
+:authed     {:final? true}
+:locked-out {:final? true}
 ```
 
 `:under-retry-limit` reads the *pre-action* `:attempts`, so it passes for the first two failures. On the third it fails and the unguarded default records that error too, then locks out — three attempts total, and the terminal failure is counted.
@@ -509,9 +509,9 @@ The table and the event handlers it needs. The view above supplies credentials;
                                :guard  :form-valid?
                                :action :clear-error}}}
 
-    ;; Resting leaves — omit :final? so the machine persists for the session.
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    ;; Final leaves — the singleton completes and rests here for the session.
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 
@@ -618,8 +618,8 @@ because `:form-valid?` refuses the submit.
                                :guard  :form-valid?
                                :action :clear-error}}}
 
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (rf/reg-event :login/submit
   (fn [_ [_ credentials]]

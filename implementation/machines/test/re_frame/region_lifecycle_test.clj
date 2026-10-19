@@ -90,11 +90,23 @@
 (deftest region-exit-runs-at-finality
   (let [log (atom [])]
     (rf/reg-machine :rg/final (parallel-machine log))
-    (rf/dispatch-sync [:rg/final [:rf.machine/start]])
+    (rf/reg-machine :rg/host {:initial :hosting
+                              :states  {:hosting {:spawn {:machine-id :rg/final}}}})
+    (rf/dispatch-sync [:rg/host [:rf.machine/start]])
+    (rf/dispatch-sync [:rg/final#1 [:rf.machine/start]])
     (reset! log [])
-    (rf/dispatch-sync [:rg/final [:fin]])
+    (rf/dispatch-sync [:rg/final#1 [:fin]])
     (is (= [:x1-out :x2-in :y1-out :y2-in :x2-out :x-out :y2-out :y-out :root-out] @log)
-        "each region :exit runs once, at whole-machine finality, not on reaching its final leaf")))
+        "each region :exit runs once, at a spawned actor's finality teardown, not on reaching its final leaf")))
+
+(deftest a-final-singleton-runs-no-region-exit
+  (let [log (atom [])]
+    (rf/reg-machine :rg/rest (parallel-machine log))
+    (rf/dispatch-sync [:rg/rest [:rf.machine/start]])
+    (reset! log [])
+    (rf/dispatch-sync [:rg/rest [:fin]])
+    (is (= [:x1-out :x2-in :y1-out :y2-in] @log)
+        "a singleton rests with every region final, so no region or root :exit runs")))
 
 (deftest region-entry-and-exit-never-run-on-a-transition
   (let [log (atom [])]

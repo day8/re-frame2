@@ -732,11 +732,23 @@
                             (some? completed-at) (assoc :rf.reply/completed-at completed-at)))
           {})))))
 
+(defn- whole-machine-final?
+  "True when `snapshot` sits in whole-machine finality: for a flat / compound
+  machine a `:final?` leaf directly under the root, for a parallel machine
+  every region final with no root `:on-done` (a root `:on-done` is the
+  in-machine completion signal, and that machine rests regardless)."
+  [machine snapshot]
+  (or (and (not (rf.machines.parallel/parallel? machine))
+           (rf.machines.transition/top-level-final? machine (:state snapshot)))
+      (and (rf.machines.lifecycle-fx.finalize/all-regions-final? machine (:state snapshot))
+           (nil? (:on-done machine)))))
+
 (defn- commit-or-finalize
   "Step 4 of 4. Emit `:rf.machine/transition` (and optional
   `:rf.machine/snapshot-updated`) traces, build the new runtime-db, and
-  route to `finalize-machine` if the post-transition snapshot is on a
-  final leaf / all regions final.
+  route a finished post-transition snapshot (a top-level final leaf / all
+  regions final): a spawned actor to `finalize-machine`, a singleton that
+  has just entered finality to `rest-machine`.
 
   Per Spec 005 §Final states: the finality flag is recomputed
   at the lifecycle-handler boundary against the post-transition
@@ -784,9 +796,9 @@
                          (empty? cascade)
                          (zero? (rf.machines.result/microsteps step-result)))
           ;; Per Spec 005 §Final states §Embedded vs top-level — the D7
-          ;; reconciliation. Whole-machine finality (route
-          ;; to `finalize-machine`: singleton auto-destroy / spawning parent's
-          ;; `:spawn :on-done`) is gated on:
+          ;; reconciliation. Whole-machine finality (a spawned actor routes
+          ;; to `finalize-machine` and its parent's `:spawn :on-done`; a
+          ;; singleton to `rest-machine`) is gated on:
           ;;   - flat / compound: a `:final?` leaf that is a DIRECT CHILD of
           ;;     the root (`top-level-final?`). A `:final?` leaf EMBEDDED in a
           ;;     compound is NOT whole-machine finality — the engine already
@@ -804,10 +816,17 @@
           ;;     too — `:on-done` fires once on entry (the edge guard) yet
           ;;     the machine must not tear down on the later resting macrosteps
           ;;     where the flag is (correctly) absent.
-          finished? (or (and (not (rf.machines.parallel/parallel? machine))
-                             (rf.machines.transition/top-level-final? machine (:state next-snapshot)))
-                        (and (rf.machines.lifecycle-fx.finalize/all-regions-final? machine (:state next-snapshot))
-                             (nil? (:on-done machine))))
+          finished? (whole-machine-final? machine next-snapshot)
+          ;; Only a spawned actor is reaped at finality: a spawn stamps its
+          ;; type under `[:rf/runtime :machine-type]`, a singleton has none.
+          ;; A singleton RESTS in its final configuration, and completes only
+          ;; on the macrostep that ENTERS finality — one that starts final
+          ;; (an event with no way out, or one that moves between final
+          ;; configurations) commits like any other, so completion fires
+          ;; once per entry.
+          spawned?  (some? (get-in next-snapshot [:rf/runtime :machine-type]))
+          entered-finality? (and finished?
+                                 (not (and snapshot (whole-machine-final? machine snapshot))))
           ;; Machine snapshots are durable runtime-db state:
           ;; write the new snapshot into the runtime-db partition value;
           ;; the handler returns it under `:rf.db/runtime`, NOT `:db`.
@@ -872,9 +891,16 @@
       ;; rewritten on the way out: a child's `:fx` carries no parent
       ;; vocabulary to stamp, because completion is finality rather than an
       ;; event the child authored (Spec 005 §Child completion protocol).
-      (if finished?
+      (cond
+        (and finished? spawned?)
         (rf.machines.lifecycle-fx.finalize/finalize-machine machine machine-id frame-id
                                    new-runtime-db next-snapshot inner-event merged-fx)
+
+        entered-finality?
+        (rf.machines.lifecycle-fx.finalize/rest-machine machine machine-id frame-id
+                                   new-runtime-db next-snapshot merged-fx)
+
+        :else
         {:rf.db/runtime new-runtime-db
          :fx            merged-fx}))))
 

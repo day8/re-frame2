@@ -220,8 +220,8 @@ machine to `:locked-out`.
     {:on {:auth.login/submit {:target :submitting
                               :guard  :form-valid?
                               :action :clear-error}}}
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
+    :authed     {:final? true}
+    :locked-out {:final? true}}})
 
 (def machine-ops
   #{:rf.machine/guard-evaluated :rf.machine/action-ran :rf.machine/transition})

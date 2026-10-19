@@ -1,6 +1,6 @@
 (ns re-frame.actor-resource-owner-release-cljs-test
-  "Both teardown paths — explicit destroy and the `:final?` auto-destroy —
-  release the actor's `[:machine actor-id]` resource owner (Spec 016 §Release
+  "Both teardown paths — explicit destroy and a spawned actor's `:final?`
+  auto-destroy — release the actor's `[:machine actor-id]` resource owner (Spec 016 §Release
   authority is per owner kind). A stub `:rf.resource/release-owner` handler
   stands in for the resources artefact, which machines never requires."
   (:require
@@ -45,6 +45,20 @@
      :data    {}
      :states  {:running {:on {:fin :done}}
                :done    {:final? true}}})
-  (rf/dispatch-sync [:rel/finisher [:rf.machine/start]])
-  (rf/dispatch-sync [:rel/finisher [:fin]])
-  (is (= [[:machine :rel/finisher]] @released)))
+  (rf/reg-machine :rel/host
+    {:initial :hosting
+     :states  {:hosting {:spawn {:machine-id :rel/finisher}}}})
+  (rf/dispatch-sync [:rel/host [:rf.machine/start]])
+  (rf/dispatch-sync [:rel/finisher#1 [:fin]])
+  (is (= [[:machine :rel/finisher#1]] @released)))
+
+(deftest a-final-singleton-keeps-its-resource-owner
+  (install-release-stub!)
+  (rf/reg-machine :rel/rester
+    {:initial :running
+     :data    {}
+     :states  {:running {:on {:fin :done}}
+               :done    {:final? true}}})
+  (rf/dispatch-sync [:rel/rester [:rf.machine/start]])
+  (rf/dispatch-sync [:rel/rester [:fin]])
+  (is (= [] @released) "a singleton rests in its final state, so nothing is released"))

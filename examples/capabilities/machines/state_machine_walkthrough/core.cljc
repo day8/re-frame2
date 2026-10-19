@@ -149,18 +149,17 @@
 
     :authed
     ;; Journey's end, happy path. The :auth/authenticated tag rides along once
-    ;; the flow lands here. `:meta {:terminal? true}` is a TOOLING HINT that
-    ;; this leaf has no way out — it is NOT `:final?`, which would destroy the
-    ;; singleton and re-birth it from :idle on the next event
-    ;; (docs/machines/concepts.md §Final states; Spec 005 D1/D7).
-    {:tags #{:auth/authenticated}
-     :meta {:terminal? true}}
+    ;; the flow lands here. `:final?` completes the flow: a singleton RESTS in
+    ;; its final state, so its snapshot stays readable and a later event is a
+    ;; no-op (docs/machines/concepts.md §Final states; Spec 005 D1/D7).
+    {:tags   #{:auth/authenticated}
+     :final? true}
 
     :locked-out
     ;; Journey's end, unhappy path. Seeing the :auth/locked tag is the cue for
     ;; root-view to swap the form out for the locked-out panel.
-    {:tags #{:auth/locked}
-     :meta {:terminal? true}}}})
+    {:tags   #{:auth/locked}
+     :final? true}}})
 
 ;; ============================================================================
 ;; FX — guide §An action returns effects

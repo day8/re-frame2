@@ -141,7 +141,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
  :on-done (fn [{:keys [data result]}] (assoc-in data [:results :s1] result))}
 ```
 
-Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-destroy fires first) — use an ordinary leaf instead. See `../references/state-machines/spawn.md` §Final states.
+A singleton that supports `:reset` back to `:idle` from a `:final?` state declares the reset on its ROOT `:on`, because a final state takes no `:on` of its own; the singleton rests in the final state until then. See `../references/state-machines/spawn.md` §Final states.
 
 ## Anti-patterns
 

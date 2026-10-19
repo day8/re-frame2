@@ -65,13 +65,33 @@
   (is (= [:seed :root :a] (get-in (snapshot :rl/data) [:data :trail]))
       "root :entry runs once, against the seeded :data, before the initial leaf's"))
 
+(defn- spawn-one!
+  "Register `type-id` from `spec` and spawn one instance of it under a host
+  singleton. Returns the instance's address. Only a spawned actor is torn down
+  at finality, so the finality teardown is reached through one."
+  [type-id spec]
+  (let [host (keyword (namespace type-id) (str (name type-id) "-host"))]
+    (rf/reg-machine type-id spec)
+    (rf/reg-machine host {:initial :hosting
+                          :states  {:hosting {:spawn {:machine-id type-id}}}})
+    (rf/dispatch-sync [host [:rf.machine/start]])
+    (keyword (namespace type-id) (str (name type-id) "#1"))))
+
 (deftest flat-root-exit-runs-last-at-finality
-  (let [log (atom [])]
-    (rf/reg-machine :rl/final (flat-machine log))
-    (rf/dispatch-sync [:rl/final [:rf.machine/start]])
-    (rf/dispatch-sync [:rl/final [:go]])
+  (let [log   (atom [])
+        actor (spawn-one! :rl/final (flat-machine log))]
+    (rf/dispatch-sync [actor [:rf.machine/start]])
+    (rf/dispatch-sync [actor [:go]])
     (is (= [:root-in :a-in :a-out :d-in :d-out :root-out] @log))
-    (is (nil? (snapshot :rl/final)) "the finished machine is torn down")))
+    (is (nil? (snapshot actor)) "the finished spawned actor is torn down")))
+
+(deftest a-final-singleton-rests-without-exiting
+  (let [log (atom [])]
+    (rf/reg-machine :rl/rest (flat-machine log))
+    (rf/dispatch-sync [:rl/rest [:rf.machine/start]])
+    (rf/dispatch-sync [:rl/rest [:go]])
+    (is (= [[:root-in :a-in :a-out :d-in] :d] [@log (:state (snapshot :rl/rest))])
+        "a singleton rests in its final leaf: neither the leaf's nor the root's :exit runs")))
 
 (deftest root-exit-sees-the-leaf-exit-data
   (let [seen (atom nil)]
@@ -153,11 +173,11 @@
       (is (= expected @log) (str "the root-declared " event " transition")))))
 
 (deftest parallel-root-exit-follows-every-region-at-finality
-  (let [log (atom [])]
-    (rf/reg-machine :rl/par-final (parallel-machine log {}))
-    (rf/dispatch-sync [:rl/par-final [:rf.machine/start]])
-    (rf/dispatch-sync [:rl/par-final [:fin]])
-    (is (nil? (snapshot :rl/par-final)) "all regions final with no :on-done — the machine finishes")
+  (let [log   (atom [])
+        actor (spawn-one! :rl/par-final (parallel-machine log {}))]
+    (rf/dispatch-sync [actor [:rf.machine/start]])
+    (rf/dispatch-sync [actor [:fin]])
+    (is (nil? (snapshot actor)) "all regions final with no :on-done — the spawned actor finishes")
     (is (= [:root-in :x1-in :y1-in :x1-out :x2-in :y1-out :y2-in :x2-out :y2-out :root-out] @log))))
 
 (deftest parallel-root-with-on-done-rests-until-destroyed

@@ -48,18 +48,20 @@ Read it as a story:
   folded into the machine's own `:data`. This state copies them out into
   the real top-level [app-db](../../../docs/core/glossary.md#app-db) keys
   (`:config`, `:flags`, `:user`, `:routes`), then moves to `:ready`.
-- `:ready` — done. The main app
+- `:ready` — done, and `:final?`: the boot rests there, so its snapshot
+  stays readable. The main app
   [view](../../../docs/core/glossary.md#view) mounts only now. Its
   subscriptions never see a half-loaded app-db, because they don't
   render until the data is all there.
-- `:failed` — done, but you can retry. The view shows an error
+- `:failed` — done (also `:final?`), but you can retry. The view shows an error
   screen with a retry button. Clicking it dispatches
   `[:app/boot [:boot/restart]]` — a real
   [event](../../../docs/core/glossary.md#event) that re-runs the boot
   from `:configuring`. (It's `:boot/restart`, not the
   `:rf.machine/start` creation marker. That marker only kicks a machine
   to life once; it does nothing on an existing machine, so re-boot has
-  to be an ordinary transition.)
+  to be an ordinary transition. It is the root's, because a final state
+  takes no `:on` of its own.)
 
 The child loader is its own machine, `:boot/loader`: GET a URL, branch
 on the [reply](../../../docs/resources/glossary.md#reply-map), finish.
