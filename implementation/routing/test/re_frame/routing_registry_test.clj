@@ -495,7 +495,7 @@
           (pr-str v))))
   (testing "the refusal names false, the one spelling for don't scroll"
     (is (re-find #"or false, got :preserve"
-                 (:reason (thrown-data #(rf/reg-route :route/keep {:scroll :preserve} "/keep")))))))
+                 (:reason (thrown-data #(rf/reg-route :route/keep {:scroll :preserve} "/keep"))))))
   (testing "the vocabulary, false and nil register"
     (is (= [:route/s0 :route/s1 :route/s2 :route/s3]
            (map-indexed (fn [i v] (rf/reg-route (keyword "route" (str "s" i)) {:scroll v} (str "/s" i)))
