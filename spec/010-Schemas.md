@@ -45,7 +45,7 @@ Every registration accepts an optional `:schema` in its metadata map:
   http-xhrio-handler)
 
 (rf/reg-cofx :now-wall                           ;; DIAGNOSTIC only — not a durable source
-  {:schema inst?}
+  {:recordable? false :schema inst?}
   (fn [] (js/Date.)))                            ;; value-returning ambient supplier (EP-0017)
 ```
 
