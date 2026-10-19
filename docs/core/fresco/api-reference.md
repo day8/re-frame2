@@ -486,6 +486,26 @@ Green from `hm/shadow!` means the two implementations were indistinguishable
 **at the checkpoints you took, after the interactions you drove**, and proves
 nothing about a path you did not walk.
 
+## `re-frame.fresco.test.runtime` — boundaries without React
+
+```clojure
+(ns my.tool-test
+  (:require [cljs.test :refer [use-fixtures]]
+            [re-frame.fresco.test.runtime :as rt]))
+
+(use-fixtures :each rt/reset-bracket)
+
+(rt/render-and-commit! frame-kw body)
+(rt/render-and-commit! frame-kw body props)
+```
+
+| Name | What it does |
+| --- | --- |
+| `rt/render-and-commit!` | runs one body — a function or a `defview` — as a boundary in `frame-kw` and commits it through the same `subscribe` React would call. Returns `{:element :reads :release}`: the React element, the set of `[frame-kw query-v]` reads, and the cleanup |
+| `rt/reset-bracket` | a map `:each` fixture: resets the runtime before each test; after it, waits for quiescence, reports any surviving cell, reader edge, boundary or cached read set as a test failure, and only then resets |
+
+Taught in [Testing](15-testing.md#boundaries-without-react-re-framefrescotestruntime).
+
 ## `re-frame.fresco.test.forms` and `re-frame.fresco.test.server`
 
 Two small kit namespaces, each kept separate so that a test requires only what

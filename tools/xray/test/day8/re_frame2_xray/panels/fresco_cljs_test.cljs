@@ -3,10 +3,10 @@
 
   ## The tiny consumer app is real, and that is the point
 
-  Every row below mounts actual boundaries through the actual commit seam
-  (`rf.fresco.impl.collector/render-body` then `rf.fresco.impl.collector/commit-boundary!` — the same
+  Every row below mounts actual boundaries through the test kit's
+  `render-and-commit!` — the runtime's own render, then the same
   `subscribe` closure React calls, which is why this is answerable in
-  Node), then renders the panel's hiccup over the projection those
+  Node — then renders the panel's hiccup over the projection those
   boundaries produced. Nothing is stubbed between the runtime and the
   screen: the acceptance is that the four EVIDENCE views ANSWER on a
   running app, and a suite built on hand-written envelopes would
@@ -43,8 +43,7 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
-            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.tool :as rf.fresco.tool]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -56,8 +55,8 @@
 (rf/reg-event :htab/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
 
 ;; A DECLARED view, for the naming rows: `defview` stamps its `<ns>/<sym>`
-;; on the body and `rf.fresco.impl.codec/retained-body` hands that body back, so the
-;; harness renders it through the same seam as an anonymous fn.
+;; on the body it was minted from, and `render-and-commit!` renders that body
+;; when handed the view, through the same seam as an anonymous fn.
 (rf.fresco/defview named-probe [_] (rf.fresco/sub [:htab/left]) nil)
 
 (def ^:private named-probe-name "day8.re-frame2-xray.panels.fresco-cljs-test/named-probe")
@@ -79,24 +78,27 @@
 ;; Restoring the Xray default is what makes
 ;; taking a different substrate for one namespace a local decision.
 ;;
-;; `:post-reset` is load-bearing for a second reason: the Fresco runtime's
-;; tables are process-global `defonce`s and the core fixture knows nothing
-;; about them, so without it a boundary mounted by one test is still in the
-;; entry cache for the next and every roster assertion counts a neighbour's
-;; rows — a Why-view row, say, whose peak epoch belongs to a cell the
-;; previous test left behind.
-;; Fn-form, like the `:each` below it — `cljs.test` refuses a namespace whose
-;; `:once` and `:each` fixtures are different types, and every test here is
-;; synchronous, so the restore simply follows the body.
+;; THE RESET BRACKET is load-bearing for a second reason: the Fresco
+;; runtime's tables are process-global `defonce`s and the core fixture knows
+;; nothing about them, so without a reset a boundary mounted by one test is
+;; still in the entry cache for the next and every roster assertion counts a
+;; neighbour's rows — a Why-view row, say, whose peak epoch belongs to a cell
+;; the previous test left behind. The bracket resets AFTER it has read the
+;; tables, so a row that forgets to release a boundary fails rather than
+;; being tidied up; it is listed after the runtime fixture so its check runs
+;; before that fixture's teardown destroys the frames.
+;;
+;; Map form throughout: the bracket waits on the runtime's reapers, and
+;; `cljs.test` refuses a namespace whose fixtures are of mixed types. The
+;; `:once` restore runs the plain-atom fixture over an empty body.
 (use-fixtures :once
-  (fn [run-tests]
-    (run-tests)
-    ((xray-test-support/make-xray-runtime-fixture) (fn []))))
+  {:after (fn [] ((xray-test-support/make-xray-runtime-fixture) (fn [])))})
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
-    {:adapter    rf.adapter.uix/adapter
-     :post-reset (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
+    {:adapter rf.adapter.uix/adapter
+     :async?  true})
+  rf.fresco.test.runtime/reset-bracket)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -146,10 +148,9 @@
   The frame arity exists for the self-exclusion rows: a boundary seated in
   `:rf/xray` is what Xray's OWN panels are, and it is the thing the tab
   must not report as application evidence."
-  ([body-fn] (mount! app-frame body-fn))
-  ([frame body-fn]
-   (rf.fresco.impl.collector/render-body frame body-fn {})
-   (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn []))))
+  ([body] (mount! app-frame body))
+  ([frame body]
+   (:release (rf.fresco.test.runtime/render-and-commit! frame body))))
 
 (defn- refresh!
   "Drop Xray's sub cache so `:rf.xray.fresco/data` recomputes against the
@@ -314,7 +315,7 @@
 
 (deftest a-declared-view-is-named-on-the-page-with-its-source
   (setup!)
-  (let [release (mount! (rf.fresco.impl.codec/retained-body named-probe))
+  (let [release (mount! named-probe)
         tree    (show! :mounted)
         txt     (text-of tree)
         ids     (testids tree)]
@@ -471,30 +472,31 @@
   ;; Frame destruction is the forcing function: there the door PROMISES to
   ;; fail closed, so nothing derived from the query may render.
   (setup!)
-  (mount! (fn [_] (rf.fresco/sub [:htab/left the-secret]) nil))
-  (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left the-secret]) nil))]
+    (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
-  (testing "NON-VACUITY: with the frame alive the argument really is on the page"
-    (is (string/includes? (text-of (show! :mounted)) the-secret)
-        (str "the classification model is fail-open, so an undeclared argument "
-             "rides as itself while the frame lives. If this row fails, the "
-             "assertions below are passing against a panel that was never "
-             "shown the value at all")))
+    (testing "NON-VACUITY: with the frame alive the argument really is on the page"
+      (is (string/includes? (text-of (show! :mounted)) the-secret)
+          (str "the classification model is fail-open, so an undeclared argument "
+               "rides as itself while the frame lives. If this row fails, the "
+               "assertions below are passing against a panel that was never "
+               "shown the value at all")))
 
-  (rf/destroy-frame! app-frame)
-  (doseq [view [:mounted :attribution :explain]]
-    (let [tree (show! view)]
-      (is (not (string/includes? (text-of tree) the-secret))
-          (str "the " view " view rendered a redacted query's argument as text"))
-      (is (not-any? #(string/includes? % the-secret) (testids tree))
-          (str "the " view " view put a redacted query's argument in a DOM "
-               "testid — which is where it leaves the box"))))
+    (rf/destroy-frame! app-frame)
+    (doseq [view [:mounted :attribution :explain]]
+      (let [tree (show! view)]
+        (is (not (string/includes? (text-of tree) the-secret))
+            (str "the " view " view rendered a redacted query's argument as text"))
+        (is (not-any? #(string/includes? % the-secret) (testids tree))
+            (str "the " view " view put a redacted query's argument in a DOM "
+                 "testid — which is where it leaves the box"))))
 
-  (testing "and the rows are still THERE, so the redaction is not merely an empty page"
-    (let [ids (testids (show! :mounted))]
-      (is (not (contains? ids "rf-xray-fresco-empty-mounted"))
-          (str "a panel that rendered nothing would pass every assertion above "
-               "while proving none of them")))))
+    (testing "and the rows are still THERE, so the redaction is not merely an empty page"
+      (let [ids (testids (show! :mounted))]
+        (is (not (contains? ids "rf-xray-fresco-empty-mounted"))
+            (str "a panel that rendered nothing would pass every assertion above "
+                 "while proving none of them"))))
+    (release)))
 
 ;; ---------------------------------------------------------------------------
 ;; BYTE-FOR-BYTE
