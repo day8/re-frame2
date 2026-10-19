@@ -37,15 +37,16 @@
      goes red while row 1 stays green. Neither row alone says anything
      about the design.
 
-  ## `h/as-element` — the same conversion, per site
+  ## The render carrier, and `h/as-element` per site
 
-  A declaration cannot reach three places, and they are the three the
-  explicit conversion is for. A `:render` return crosses UNCONVERTED
-  (`render-callback` ends in a bare call), so a returned hiccup vector
-  reaches React and is refused there; the `[:>]` escape carries no
-  declaration at all; and past the native fence a hiccup vector is
-  refused outright. [[a-render-prop-returns-markup-through-as-element]]
-  and [[the-escape-has-no-slots-and-cannot-be-given-any]] are those.
+  A render prop takes the render carrier, `h/render-fn`, which converts
+  the Hiccup it returns and carries the supplying frame into the
+  library's render: [[a-render-carrier-returns-markup-into-the-supplying-frame]].
+  A declaration cannot reach two places, and they are the two the
+  explicit conversion `h/as-element` is for: the `[:>]` escape carries no
+  declaration at all, and past the native fence a hiccup vector is
+  refused outright. [[the-escape-has-no-slots-and-cannot-be-given-any]]
+  is the first.
 
   ## The compound library
 
@@ -57,16 +58,14 @@
   teaches for it — `{:slots #{:fallback}}` — either mints and renders or
   it does not.
 
-  ## The declaration's OTHER roster
+  ## Carriers beside the slot roster
 
-  A `defhost` carries TWO rosters, and
-  [[a-callbacks-override-mints-beside-a-slot-roster]] pins `:callbacks`
-  beside `:slots`: an override mints next to a slot roster, and its
-  contract is `:event` or `:render`. A position declared in BOTH rosters
-  is refused with the slot rows, because nothing decides which the author
-  meant.
+  `:slots` is the declaration's one roster. A render prop needs no
+  declaration: the render carrier converts its own Hiccup and carries the
+  supplying frame at any prop, so `row-list`'s `renderRow` is written
+  with it and declared nowhere.
 
-  `host-entry`'s reserved-name skip sits above both rosters, so a
+  `host-entry`'s reserved-name skip sits above the roster, so a
   declaration at `__proto__`, `prototype` or `constructor` mints and
   never reaches the props object, whichever roster names it.
 
@@ -153,7 +152,7 @@
   sabotage row needs."
   panel)
 
-(rf.fresco/defhost rows-host row-list {:callbacks {:render-row :render}})
+(rf.fresco/defhost rows-host row-list)
 
 (rf.fresco/defhost themed (.-Provider theme-context) {:server :render})
 (rf.fresco/defhost badge theme-badge {:server :render})
@@ -222,25 +221,7 @@
             position the author wrote twice and could not see"
     (is (= :rf.error/fresco-bad-host-declaration
            (error-id #(rf.fresco.impl.codec/mint-host! "slots/dup" panel
-                                        {:slots #{:on-empty :onEmpty}})))))
-  (testing "and a position declared BOTH a callback and a slot. `:render`
-            invokes the value where a slot lowers it, and nothing decides
-            which the author meant — so it is refused rather than ordered"
-    (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "slots/both-spelled" panel
-                                        {:callbacks {:on-empty :event}
-                                         :slots     #{:onEmpty}})))
-        "and across two spellings of it, because the collision is checked
-         on the canonical slot like every other rule here")))
-
-(deftest a-callbacks-override-mints-beside-a-slot-roster
-  (testing "an override and a slot roster mint together, and the override
-            is two-valued — `:render` where a vendor names a render prop
-            `on*`, `:event` where it names an event prop something else"
-    (is (some? (rf.fresco.impl.codec/mint-host! "cb/ordinary" panel
-                                 {:callbacks {:on-render-row :render
-                                              :pick          :event}
-                                  :slots     #{:title}})))))
+                                        {:slots #{:on-empty :onEmpty}}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the conversion, at the crossing (no DOM needed)
@@ -275,15 +256,17 @@
       (is (not (react/isValidElement (.-title props))))
       (is (array? (.-title props))))))
 
-(deftest an-h-fn-at-a-declared-slot-is-refused
-  (testing "the marked form asks the POSITION for a contract, and a
-            markup position has none to give — it lowers hiccup. Left to
-            cross it would be an ordinary function at a ReactNode prop:
-            the silently-dead class every loud error in this codec exists
-            to delete"
+(deftest a-carrier-at-a-declared-slot-is-refused
+  (testing "a carrier asks to be invoked, and a markup position invokes
+            nothing — it lowers hiccup. Left to cross it would be an
+            ordinary function at a ReactNode prop: the silently-dead class
+            every loud error in this codec exists to delete. Both kinds"
     (is (= :rf.error/fresco-host-unclaimed-callback
            (error-id #(crossing-props
-                        [panel-host {:title (rf.fresco/event [] [:h2 "no"])}])))))
+                        [panel-host {:title (rf.fresco/event [] [:h2 "no"])}]))))
+    (is (= :rf.error/fresco-host-unclaimed-callback
+           (error-id #(crossing-props
+                        [panel-host {:title (rf.fresco/render-fn [] [:h2 "no"])}])))))
   (testing "while a PLAIN function at the same prop of an undeclared
             crossing is untouched, because it never asked for anything"
     (is (fn? (.-title ^js (crossing-props [bare-panel {:title (fn [] nil)}]))))))
@@ -328,10 +311,9 @@
       [badge {}]
       [rows-host
        {:items      (into-array rows)
-        :render-row (rf.fresco/event [item _i]
-                      (rf.fresco/as-element
-                        [:span.cell {:on-click [:fresco.slots/pick item]}
-                         item]))}]]]))
+        :render-row (rf.fresco/render-fn [item _i]
+                      [:span.cell {:on-click [:fresco.slots/pick item]}
+                       item])}]]]))
 
 (deftest the-compound-family-renders-through-one-declared-door
   (if-not (rf.fresco.impl.mount/browser?)
@@ -353,7 +335,7 @@
                     really making: these are REAL React elements"
             (is (= "dark" (text handle ".badge"))))
           (testing "the render prop built one row per item, through the
-                    explicit conversion"
+                    render carrier"
             (is (= 2 (.-length (.querySelectorAll (:container handle) ".row"))))
             (is (= "alpha" (text handle ".rows .row .cell"))))
           (finally (rf.fresco.impl.mount/release! handle)))))))
@@ -376,7 +358,7 @@
             (is (= "footer" (:picked (db)))))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
-(deftest a-render-prop-returns-markup-through-as-element
+(deftest a-render-carrier-returns-markup-into-the-supplying-frame
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
@@ -386,7 +368,7 @@
         (try
           (testing "the row was built during the LIBRARY's render, and its
                     intent fires later, on the user's click, into the frame
-                    of the boundary that supplied the callback"
+                    of the boundary that supplied the carrier"
             (.click (query handle ".rows .row .cell"))
             (rf.fresco.impl.mount/settle!)
             (is (= "alpha" (:picked (db)))))

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""The Fresco lint export's smoke: a consumer's copied config analyses the three macro shapes.
+"""The Fresco lint export's smoke: a consumer's copied config analyses the four macro shapes.
 
 WHY THIS EXISTS.  The export's whole
-job is macro-shape analysis: `defview`, `event` and `defhost` are rewritten to
-their `defn` / `fn` / `def` shapes so kondo's ordinary analysis applies.  The
+job is macro-shape analysis: `defview`, `event`, `render-fn` and `defhost` are
+rewritten to their `defn` / `fn` / `fn` / `def` shapes so kondo's ordinary analysis applies.  The
 failure mode of a packaged config is SILENCE — an export off the classpath, or
 a hook that stops loading, reds nothing on its own; every view name just goes
 back to reading as `Unresolved symbol` in consumers' editors.  So this gate
-lints one fixture of correct declarations, every documented shape of all three
+lints one fixture of correct declarations, every documented shape of all four
 macros, through the SHIPPED export directory as `--config-dir` — exactly how a
 consumer's copied config is loaded — and requires the result to be exactly the
 fixture's one sentinel finding.
@@ -375,7 +375,7 @@ def main(argv=None):
         return 1
 
     print("OK: the shipped export gives a consumer ordinary analysis of all "
-          "three macro shapes, and the sentinel proves the analysis ran.")
+          "four macro shapes, and the sentinel proves the analysis ran.")
     return 0
 
 

@@ -181,10 +181,11 @@ Related: [Events as data](03-events-as-data.md).
 <a id="event"></a>
 ### `h/event`
 
-The one marked callback form. Expands to an ordinary function. The contract
-comes from the **position** where it is written: `on*` positions dispatch a
-returned vector; render positions must stay pure; a declared ReactNode slot
-refuses it with `:rf.error/fresco-host-unclaimed-callback`.
+The event carrier. Expands to an ordinary function whose returned vector is
+dispatched, at every prop of a native tag, a host or a `[:>]` crossing; any
+other return is ignored. A declared ReactNode slot refuses it with
+`:rf.error/fresco-host-unclaimed-callback`. Its sibling for markup is
+[`h/render-fn`](#render-fn).
 
 ```clojure
 [:input {:type "file"
@@ -198,7 +199,21 @@ callback. Use it when arguments determine the event — value-first foreign call
 body must call browser methods such as `.preventDefault`.
 
 Related: [Events as data](03-events-as-data.md),
-[Interop](09-interop.md).
+[Interop](09-interop.md#callbacks).
+
+<a id="render-fn"></a>
+### `h/render-fn`
+
+The render carrier. A function a foreign component calls for markup during its
+own render: the Hiccup it returns becomes a React element, and intents inside
+it dispatch into the frame of the view that wrote it. It means this at every
+prop, whatever the prop is called.
+
+```clojure
+[virtual-list {:item-content (h/render-fn [i] [:li (nth titles i)])}]
+```
+
+Related: [Interop](09-interop.md#render-callbacks).
 
 <a id="hvalue"></a>
 <a id="hchecked"></a>
@@ -306,11 +321,10 @@ Related: [Events as data](03-events-as-data.md).
 <a id="defhost"></a>
 ### `defhost`
 
-`h/defhost` declares a foreign React component once. Callback contracts are
-inferred from each prop's spelling, as on a native tag; the declaration can
+`h/defhost` declares a foreign React component once. Its props behave as on a
+native tag, and a carrier keeps its meaning at every prop; the declaration can
 also define:
 
-- a `:callbacks` override, `:event` or `:render`, for an on*-named render prop;
 - ReactNode [slots](#reactnode-slot);
 - a [server policy](#server-policy);
 - a fallback for when the component is client-only.
@@ -338,14 +352,13 @@ Related: [Interop](09-interop.md).
 <a id="as-element"></a>
 ### `as-element`
 
-`h/as-element` explicitly converts Hiccup to a React element for a render prop,
-foreign callback, or other ReactNode position.
+`h/as-element` explicitly converts Hiccup to a React element where no
+declaration or carrier does it for you: an undeclared `[:>]` prop, or a child of
+a native React subtree. A callback a library calls for markup takes
+[`h/render-fn`](#render-fn) instead.
 
 ```clojure
-{:render-item
- (fn [row]
-   (h/as-element
-    [row-view {:id (:id row)}]))}
+[:> Panel {:title (h/as-element [:h2 "Tasks"])}]
 ```
 
 Related: [Interop](09-interop.md),
@@ -389,8 +402,8 @@ Related: [SSR and hydration](18-ssr-and-hydration.md),
 
 `[:> Component props ...]` mounts a foreign React component without a lasting
 host declaration. It is useful for migration or a true one-off. Repeated
-crossings should use [`h/defhost`](#defhost) so callback contracts, slots, and
-server policy remain explicit.
+crossings should use [`h/defhost`](#defhost) so slots and server policy remain
+explicit.
 
 Related: [Interop](09-interop.md).
 

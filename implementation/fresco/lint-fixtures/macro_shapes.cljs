@@ -1,7 +1,7 @@
 (ns macro-shapes
   "The macro-shape smoke for Fresco's clj-kondo export.
 
-  Every documented declaration shape of `defview`, `event` and `defhost` —
+  Every documented declaration shape of `defview`, the carriers and `defhost` —
   optional docstrings and destructuring included — written CORRECTLY, so that
   linting this file with the shipped export must produce nothing but the one
   sentinel below. If a rewrite stops loading, every name it defines and every
@@ -39,14 +39,14 @@
 ;; `defhost`, bare: no docstring, no opts.
 (rf.fresco/defhost plain-widget foreign-widget)
 
-;; `event` is `fn`-shaped: its argument binds and its body's use resolves —
+;; The carriers are `fn`-shaped: their arguments bind and their bodies resolve —
 ;; and every view and host above is referenced here, so a rewrite that stops
 ;; defining one reds this body too.
 (rf.fresco/defview page [_]
   [:main
    [greeting {:salutation "Hello" :subject "world"}]
    [badge {:label "new"}]
-   [fancy-widget]
+   [fancy-widget {:row (rf.fresco/render-fn [label] [:b label])}]
    [plain-widget]
    [:button {:on-click (rf.fresco/event [payload] payload)} "echo"]])
 

@@ -426,7 +426,7 @@ React renders the server output; there is no parallel JVM string emitter.
 | `h/error-boundary` | The component renders, but a server throw uses React's server error channel rather than the client fallback |
 | Fresco roots | Render, with request isolation and prefix matching |
 | [`h/as-component`](09-interop.md#render-a-fresco-view-from-native-react) under a native React parent | Its bytes render, but mismatch attribution is scoped to roots the package itself adopts, so a root your own code opens reports no `:rf.ssr/hydration-mismatch` |
-| `h/defhost`, slots, render props, and `h/as-element` | Client-only until the declaration selects Render |
+| `h/defhost`, slots, render callbacks (`h/render-fn`), and `h/as-element` | Client-only until the declaration selects Render |
 | Portals, `[:>]` crossings, and opaque foreign components reached through them | Client-only |
 | A React element returned from a `defview` or placed as a child | Render, as React renders it; a component inside it has no Fresco gate, so it must be server-safe itself |
 | React islands, through `h/defhost` | Client-only until the declaration selects Render |

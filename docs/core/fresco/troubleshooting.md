@@ -347,12 +347,11 @@ resolved to nothing. Check the import name and whether it is a default export.
 
 You wrote a `defhost` declaration outside its shape, and the reason names
 which: options that are not a map (usually a docstring written after the
-component instead of before it); an option outside `#{:callbacks :slots :server
-:fallback}`; a `:callbacks` contract outside `:event` and `:render`; a `:slots`
-value that is not a set of ordinary prop names (a non-set, an entry that names
-no prop, `key`/`ref`, one slot spelled twice, or a position that is also a
-declared callback); or a form after the options map, which is discarded rather
-than merged. Write the declaration as
+component instead of before it); an option outside `#{:slots :server
+:fallback}` — `:callbacks` is not one, because a callback's meaning is its
+carrier; a `:slots` value that is not a set of ordinary prop names (a non-set,
+an entry that names no prop, `key`/`ref`, or one slot spelled twice); or a form
+after the options map, which is discarded rather than merged. Write the declaration as
 `(h/defhost name docstring? component opts?)` and correct the part the reason
 names.
 

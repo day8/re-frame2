@@ -182,18 +182,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- plain-ping
-  "An ordinary unmarked function. No position claims it — `lower-prop`
-  and `lower-declared-prop` both leave an unmarked fn alone — so it
-  reaches the vendor as itself and its identity is whatever the `def`
-  gave it."
+  "An ordinary unmarked function. No prop claims it — `lower-prop`
+  leaves an unmarked fn alone — so it reaches the vendor as itself and
+  its identity is whatever the `def` gave it."
   [& _]
   (swap! !plain-calls inc)
   nil)
 
 (def ^:private hoisted-event
-  "The one callback form, minted once at load rather than per render.
-  At an `:event` contract this is STILL re-wrapped every render — the
-  wrapper is what closes over the frame-locked dispatch — so hoisting the
+  "The event carrier, minted once at load rather than per render. It is
+  STILL re-wrapped every render — the wrapper is what closes over the
+  frame-locked dispatch — so hoisting the
   author's own function does not hoist what the vendor sees. That is the
   `:event-hoisted` row, and it is the row that shows the churn is the
   LOWERING's and not the author's."

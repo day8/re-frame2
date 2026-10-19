@@ -1335,7 +1335,7 @@ else
         # whole HMR contract on the seam-driven witness.
         fresco_hmr=true
         # migration_fresco_codemod, the reverse edge into the
-        # codemod's JVM lane. This arm carries TWO such edges.
+        # codemod's JVM lane.
         #
         # The classpath edge: the codemod's deps.edn puts
         # `../../../implementation/fresco/src` on `:paths` so the tool and the
@@ -1344,23 +1344,8 @@ else
         # file's own path, so a rule loaded from anywhere else reds rather than
         # passing on a byte-identical twin.
         #
-        # The source-text edge.
-        # `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
-        # reaches back up the tree with a relative `io/file` and
-        # slurps `implementation/fresco/src/re_frame/fresco/impl/codec.cljs`,
-        # because that roster is `.cljs` this JVM cannot load but CAN read —
-        # then asserts the door's own `callback-contracts` set equals the one
-        # the codemod PRINTS into the `defhost` sketch it invites a migrator to
-        # paste. Add a fourth contract at the door, or rename one, and the
-        # tool's advice goes wrong; that pin is the assertion that says so, and
-        # without this line it would live in a lane a fresco-only diff never
-        # runs.
-        # The pin also asserts the file EXISTS where it looks, so a MOVE of
-        # codec.cljs reds it rather than silently skipping — which is only
-        # worth having if the move's own PR schedules the lane.
-        #
-        # COARSER than either edge, deliberately: both files sit inside this
-        # tree, and an arm naming them alone would have to precede this one,
+        # COARSER than the edge, deliberately: the file sits inside this
+        # tree, and an arm naming it alone would have to precede this one,
         # where it would shadow the outputs above and silently narrow the
         # package's own coverage. Over-classifying a seconds-long pure JVM
         # suite is the cheaper error, and TESTING.md says to prefer it.

@@ -42,7 +42,7 @@ does not read the DOM event.
 On a `<select multiple>`, `::h/value` is a vector of the selected option
 values. A file input has no usable value, so `::h/value` there raises
 `:rf.error/fresco-file-input-value-marker`; read `.files` with `h/event`
-instead, as [shown below](#one-callback-form-hevent).
+instead, as [shown below](#the-event-carrier-hevent).
 
 The event and controlled-field markers are `::h/value`, `::h/checked`,
 [`::h/prevent`](glossary.md#hprevent), and
@@ -95,12 +95,12 @@ A callback at `:on-submit`, whether `h/event` or a plain function, is not
 auto-prevented: call `.preventDefault` yourself, or leave it out when a real
 browser submission is intended.
 
-## One callback form: `h/event`
+## The event carrier: `h/event`
 
 When a vector is not enough — a file list, drag payload, value-first foreign
 callback, or any calculation over the real arguments — use
-[`h/event`](glossary.md#event). It expands to an ordinary function, and the
-position where you write it decides what its return value means:
+[`h/event`](glossary.md#event). It expands to an ordinary function whose
+returned vector is dispatched, wherever you write it:
 
 ```clojure
 [:input {:type      "file"
@@ -109,10 +109,10 @@ position where you write it decides what its return value means:
                        (js/Array.from (.. e -target -files))])}]
 ```
 
-In an `on-*` prop, a returned vector is dispatched and any other return is
-ignored. At a foreign component's render prop the same form returns rendered
-output instead; [Interop](09-interop.md#callback-contracts) covers those
-positions.
+A returned vector is dispatched and any other return is ignored, at an `on-*`
+prop and at any other prop alike. A foreign component that calls a callback for
+markup takes the render carrier, `h/render-fn`, instead;
+[Interop](09-interop.md#callbacks) covers both.
 
 Rules that follow:
 
@@ -132,7 +132,7 @@ Rules that follow:
 
 A marker-carrying intent reads the DOM event from argument one, so a
 value-first foreign callback needs `h/event`
-([Interop](09-interop.md#event-positions)).
+([Interop](09-interop.md#event-callbacks)).
 
 ## Ordinary functions remain available
 

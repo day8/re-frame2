@@ -324,9 +324,9 @@
   (rf.fresco.impl.codec/host-head? v))
 
 (defn callback?
-  "Is `v` the one callback form — the value `h/event` expands to? False for
-  an identically-written plain `fn`, so a position that imposes a
-  contract can tell them apart and so can a test."
+  "Is `v` a carrier — the value `h/event` or `h/render-fn` expands to?
+  False for an identically-written plain `fn`, so the codec can tell them
+  apart and so can a test."
   [v]
   (rf.fresco.impl.intent/callback? v))
 

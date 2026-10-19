@@ -522,26 +522,25 @@ Hiccup head.
     [virtual-list
      {:count      (count todos)
       :row-height 32
-      :render-row (h/event [i _offset]
+      :render-row (h/render-fn [i _offset]
                     (let [todo (nth todos i)]
-                      (h/as-element [todo-row (assoc todo :key (:id todo))])))
+                      [todo-row (assoc todo :key (:id todo))]))
       :on-window  (h/event [from to]
                     [:todo.ui/window-shown from to])}]))
 ```
 
-- **The prop name decides what a callback does**, as on a native tag.
-  `:on-window` starts with `on`, so a vector it returns is dispatched. `:render-row`
-  does not, so it is a render callback: the library calls it while rendering and
-  uses the return value.
-- **A render callback's return is passed to React as-is**, so convert Hiccup
-  with `h/as-element`. Events inside the row still dispatch to this view's frame.
-- **Use `h/event` when the library passes values rather than a DOM event**,
-  as here with `renderRow(index, offset)`. A plain event vector needs a DOM event
-  to read markers from.
+- **The carrier decides what a callback does, never the prop's name.**
+  `:render-row` is the library asking for markup while it renders, so it takes
+  `h/render-fn`, which converts the Hiccup it returns. Events inside the row
+  still dispatch to this view's frame.
+- **`:on-window` reports something**, so it takes `h/event`, and a vector it
+  returns is dispatched.
+- **Both are carriers rather than event vectors because the library passes
+  values rather than a DOM event**, as here with `renderRow(index, offset)`. A
+  plain event vector needs a DOM event to read markers from.
 
-If a library names a render prop `on…`, override its inferred contract:
-`{:callbacks {:on-render-item :render}}`. Otherwise the event wrapper returns
-`nil` and the list renders nothing.
+A library that names a render prop `on…`, such as Fluent UI's `onRenderItem`,
+takes `h/render-fn` there just the same.
 
 **Markup passed as a prop needs `:slots`.** At an undeclared prop a Hiccup
 vector is passed as plain data, because only you know whether the library

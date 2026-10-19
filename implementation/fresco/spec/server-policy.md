@@ -43,7 +43,7 @@ amendment behind each cell is design history at
 | HS-15 | Attribute-merge helper | Render — no separate public spelling |
 | HS-16 | `h/defhost` declaration | Render on `:server :render`; Client-only by default, with an optional `:fallback` |
 | HS-17 | Declared ReactNode positions and named `:slots` | Client-only — named positions unwitnessed on the server |
-| HS-18 | Render-prop callback lowered through `h/as-element` | Client-only — unmeasured on the server |
+| HS-18 | Render callback, `h/render-fn` | Client-only — unmeasured on the server |
 | HS-19 | Raw React element head (`[:>]`) | Client-only — carries no declaration, so the enclosing boundary decides; renders nothing server-side |
 | HS-20 | Portal helper | Client-only — the portalled subtree is absent from the bytes; a `:fallback` stands at the position |
 | HS-21 | Outward bridge: a Fresco view under a native React parent | Client-only — mismatch attribution is scoped to roots the package itself adopts (Spec 011) |

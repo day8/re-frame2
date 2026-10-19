@@ -1,6 +1,6 @@
 # Fresco's clj-kondo export
 
-Macro-shape analysis for `defview`, `event` and `defhost`, shipped from the
+Macro-shape analysis for `defview`, `event`, `render-fn` and `defhost`, shipped from the
 artefact so a consumer's clj-kondo picks it up with no configuration of their
 own.
 
@@ -18,8 +18,8 @@ needed. Re-run it when you upgrade.
 
 ## What it does
 
-`defview`, `event` and `defhost` are rewritten to their `defn`, `fn` and `def`
-shapes, so kondo's ordinary analysis applies: a view's name resolves as a var,
+`defview` is rewritten to a `defn`, the carriers `event` and `render-fn` to an
+`fn`, and `defhost` to a `def`, so kondo's ordinary analysis applies: a view's name resolves as a var,
 a destructured prop is neither unresolved nor unused, arities are checked, and
 a host's `opts` map is scanned for references. Optional docstrings are
 accepted where the macros accept them. Without this every view name and every

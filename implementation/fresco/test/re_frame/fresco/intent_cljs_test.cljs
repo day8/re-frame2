@@ -267,9 +267,9 @@
                      {"Enter" (fn [_e] (reset! !called true))})]
       (h (ev {:key "Enter"}))
       (is (true? @!called))))
-  (testing "and the CALLBACK form in a branch keeps the contract its own
-            docstring promises at every event position: the vector it returns
-            is DISPATCHED. `callback?` is `fn?` plus a marker read, so a
+  (testing "and an EVENT CARRIER in a branch keeps the meaning it has at
+            every prop: the vector it returns is DISPATCHED. `callback?` is
+            `fn?` plus a marker read, so a
             classification that asks `fn?` first takes the plain-function arm
             and the intent is swallowed — no error, no dispatch, nothing on
             the console. The order of the two arms IS the contract here."
@@ -288,24 +288,52 @@
           "and the intent it returned reached the frame"))))
 
 ;; ---------------------------------------------------------------------------
-;; ONE callback form, and the POSITION selects the contract (HD-024)
+;; Two carriers, and the KIND selects the wrapper at every prop
 ;; ---------------------------------------------------------------------------
-;;
-;; One test per position, plus the diagnostic that must name the POSITION
-;; rather than the form.
 
-(deftest the-one-form-is-an-ordinary-function
-  (testing "the form is a function, stated as an assertion. A carrier that
-            was a marker OBJECT would not be callable at a position the
-            library does not walk, and the author would get the engine's own
-            TypeError naming nothing they wrote. There is nothing here that
-            can fail to be callable."
+(deftest a-carrier-is-an-ordinary-function
+  (testing "each carrier is a function, stated as an assertion. A carrier
+            that was a marker OBJECT would not be callable where the
+            library does not walk, and the author would get the engine's
+            own TypeError naming nothing they wrote"
     (let [f  (fn [_] :ran)
-          cb (rf.fresco.impl.intent/callback f)]
-      (is (identical? f cb) "`callback` marks and returns the SAME function")
-      (is (true? (rf.fresco.impl.intent/callback? cb)))
-      (is (false? (rf.fresco.impl.intent/callback? (fn [_]))) "an ordinary fn is not the form")
+          g  (fn [_] :ran)
+          ev (rf.fresco.impl.intent/callback f)
+          rd (rf.fresco.impl.intent/render-carrier g)]
+      (is (identical? f ev) "`callback` marks and returns the SAME function")
+      (is (identical? g rd) "`render-carrier` marks and returns the SAME function")
+      (is (true? (rf.fresco.impl.intent/callback? ev)))
+      (is (true? (rf.fresco.impl.intent/callback? rd)) "both kinds are carriers")
+      (is (false? (rf.fresco.impl.intent/render-carrier? ev)))
+      (is (true? (rf.fresco.impl.intent/render-carrier? rd)))
+      (is (false? (rf.fresco.impl.intent/callback? (fn [_]))) "an ordinary fn is not a carrier")
       (is (false? (rf.fresco.impl.intent/callback? [:an :intent]))))))
+
+(deftest a-carrier-moved-between-props-keeps-its-effect
+  (testing "the event carrier dispatches its returned vector at an on*
+            prop and at a prop of any other spelling alike"
+    (let [!seen (recorder)]
+      (doseq [k [:on-change :value-changed :row-renderer :onRenderItem]]
+        (let [h (lowered (dispatching !seen) k
+                         (rf.fresco.impl.intent/callback (fn [x] [:host/changed x])))]
+          (is (nil? (h k)) (str "the event wrapper returns nil at " k))))
+      (is (= [[:host/changed :on-change] [:host/changed :value-changed]
+              [:host/changed :row-renderer] [:host/changed :onRenderItem]]
+             @!seen))))
+  (testing "the render carrier returns its render output and dispatches
+            nothing, at a plain prop and at an on*-named one alike — so an
+            on*-named render prop needs no declaration to stay visible"
+    (let [!seen (recorder)]
+      (doseq [k [:row-renderer :on-render-item :onRenderCell]]
+        (let [h (lowered (dispatching !seen) k
+                         (rf.fresco.impl.intent/render-carrier (fn [x] [:li x])))]
+          (is (= [:li 7] (h 7)) (str "the render output came back at " k))))
+      (is (= [] @!seen))))
+  (testing "and a plain function is claimed by no prop: it comes back by
+            identity everywhere"
+    (let [f (fn [_] [:not/dispatched])]
+      (doseq [k [:on-change :row-renderer]]
+        (is (identical? f (lowered (dispatching (recorder)) k f)))))))
 
 (deftest at-an-event-position-a-returned-vector-is-dispatched
   (testing "the event contract"
@@ -364,7 +392,7 @@
           h (rf.fresco.impl.intent/with-frame ::supplier (dispatching !supplier)
               (fn [] (rf.fresco.impl.intent/lower-prop
                        :row-renderer
-                       (rf.fresco.impl.intent/callback
+                       (rf.fresco.impl.intent/render-carrier
                          (fn [title]
                            (reset! !frame rf.fresco.impl.intent/*frame*)
                            (reset! !row (rf.fresco.impl.intent/lower-prop :on-click [:row/pick title]))
@@ -389,7 +417,7 @@
         (@!row (ev {}))
         (@!cb (ev {}))
         (is (= [[:row/pick "milk"] [:row/changed "milk"]] @!supplier)
-            "the intent vector AND the event-position h/event both landed on the
+            "the intent vector AND the event carrier both landed on the
              supplying boundary's recorder")
         (is (= [] @!other)
             "two frames, two recorders — and the OTHER one was the ambient
@@ -404,7 +432,7 @@
     (is (nil? rf.fresco.impl.intent/*dispatch*))
     (let [h (rf.fresco.impl.intent/lower-prop
               :row-renderer
-              (rf.fresco.impl.intent/callback (fn [_]
+              (rf.fresco.impl.intent/render-carrier (fn [_]
                                  (rf.fresco.impl.intent/lower-prop :on-click [:oops])
                                  [:li])))]
       (try
@@ -415,85 +443,17 @@
             (is (= :rf.error/fresco-intent-outside-boundary (:rf.error/id d)))
             (is (= [:oops] (:intent d)))))))))
 
-(deftest a-declaration-can-override-the-contract-the-spelling-infers
-  (testing "the `:callbacks` override. A contract is inferred from the
-            spelling, and a `defhost` declaration may override it for one
-            prop with `:event` or `:render` — the same two wrappers — where
-            a vendor's spelling infers the wrong one."
-    (let [!seen (recorder)
-          cb    (rf.fresco.impl.intent/callback (fn [x] [:host/changed x]))]
-      (testing ":event dispatches the return even though :onValueChange is
-                not a position the attribute grammar would call an event"
-        (let [h (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                   (fn [] (rf.fresco.impl.intent/lower-declared-prop :onValueChange cb :event)))]
-          (h 7)
-          (is (= [[:host/changed 7]] @!seen))))
-      (testing "and it forwards EVERY argument the invoker passes. A native
-                DOM event position calls with one argument, but this is also
-                the wrapper a declaration gives a foreign component's own
-                live invoker — `(on-change value event)`, `(on-select item
-                index)` — and the form's parameter vector is arbitrary by
-                construction. A wrapper that accepted exactly `[e]` would
-                silently drop everything after the first, or raise an arity
-                error naming nothing the author wrote."
-        (reset! !seen [])
-        (let [pair (rf.fresco.impl.intent/callback (fn [value e] [:host/changed value (.-key e)]))
-              h    (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                      (fn [] (rf.fresco.impl.intent/lower-declared-prop :onValueChange pair :event)))]
-          (h "typed" (ev {:key "Enter"}))
-          (is (= [[:host/changed "typed" "Enter"]] @!seen))))
-      (testing ":render at an on*-spelled prop is the override's whole
-                reason — the render wrapper, whose return is the render
-                output, where the spelling would have selected the event
-                wrapper and returned nil"
-        (reset! !seen [])
-        (let [h (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                   (fn [] (rf.fresco.impl.intent/lower-declared-prop :onRenderItem cb :render)))]
-          (is (= [:host/changed 7] (h 7)) "the caller sees the return")
-          (is (= [] @!seen) "and nothing was dispatched"))))))
-
-(deftest the-override-claims-only-what-the-position-would
-  (testing "the override selects between the SAME two wrappers the spelling
-            selects between, and claims exactly what each position claims:
-            the marked form at both, and the vector and key-map
-            conveniences at :event only, because dispatching is exactly
-            what that contract MEANS"
-    (let [!seen (recorder)]
-      (let [h (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                 (fn [] (rf.fresco.impl.intent/lower-declared-prop
-                                          :onValueChange [:host/changed 1] :event)))]
-        (h (ev {}))
-        (is (= [[:host/changed 1]] @!seen)))
-      (reset! !seen [])
-      (let [h (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                 (fn [] (rf.fresco.impl.intent/lower-declared-prop
-                                          :onValueChange {"Enter" [:host/changed 2]} :event)))]
-        (h (ev {:key "Enter"}))
-        (is (= [[:host/changed 2]] @!seen)))
-      (testing "at :render a vector or key-map is not claimed: it comes back
-                untouched, to cross as DATA through the shallow conversion
-                exactly as it would at a native tag's render position"
-        (doseq [carrier [[:host/changed 3] {"Enter" [:host/changed 3]}]]
-          (is (identical? carrier (rf.fresco.impl.intent/lower-declared-prop :onRenderRow carrier :render)))))
-      (testing "an ordinary unmarked function crosses untouched at both — a
-                plain fn is claimed by no position, so there is no :handler
-                contract to declare"
-        (let [f (fn [_] :whatever)]
-          (doseq [contract [:event :render]]
-            (is (identical? f (rf.fresco.impl.intent/lower-declared-prop :onValueChange f contract))
-                (str "at " contract))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The argument law: the vector spelling is EVENT-FIRST (HD-024)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One law over every feature of the vector spelling that reads the event.
 ;; It cannot fail at a native position — React hands the event first, always
-;; — but the SAME lowering serves a `defhost` `:event` slot, where a foreign
+;; — but the SAME lowering serves a `defhost` `on*` prop, where a foreign
 ;; invoker calls with its own contract. Without the law the author gets
 ;; `value.preventDefault is not a function`: the engine's TypeError, naming
-;; nothing they wrote, which is exactly the failure class the one callback
-;; form exists to remove.
+;; nothing they wrote, which is exactly the failure class the event carrier
+;; exists to remove.
 
 (deftest the-vector-spelling-reads-the-event-from-argument-one
   (let [d (dispatching (recorder))]

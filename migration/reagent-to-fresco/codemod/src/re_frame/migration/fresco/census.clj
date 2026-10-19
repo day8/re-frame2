@@ -306,11 +306,12 @@
   [[scan]] does not decide a call by roster order. It reads two SEPARATE
   `ns` contexts, and each arm fires only when this file's `ns` form binds
   that arm's alias ([[re-frame.migration.fresco.rewrite/bound-call?]]), so
-  a name resolves by the require it came through. `(rdc/flush-views!)`
+  a name resolves by the require it came through. `(rdc/render! …)`
   under `[reagent.dom.client :as rdc]` fails the substrate context's
-  `bound-call?` and the Reagent roster has no such row, so it finds
-  nothing; `(ad/flush-views!)` under `[re-frame.adapter.uix :as ad]` is the
-  substrate seam. A name on both rosters would resolve the same way. The
+  `bound-call?` and the Reagent roster has no such row (its row is
+  `render`), so it finds nothing; `(ad/render! …)` under
+  `[re-frame.adapter.uix :as ad]` is the substrate root mount. A name on
+  both rosters would resolve the same way. The
   only construction that could reach the wrong arm — the same bare symbol
   `:refer`red from both families in one file — is a duplicate-refer
   conflict ClojureScript refuses to compile.
@@ -332,7 +333,6 @@
     use-sub             {:class :substrate-read-hook      :verdict :human-decision}
     use-frame           {:class :substrate-read-hook      :verdict :human-decision}
     set-hiccup-emitter! {:class :substrate-view-seam      :verdict :human-decision}
-    flush-views!        {:class :substrate-test-seam      :verdict :human-decision}
     mount!              {:class :substrate-test-harness   :verdict :human-decision}
     trigger-update!     {:class :substrate-test-harness   :verdict :human-decision}})
 
@@ -371,11 +371,11 @@
         "is: Reagent is its renderer, and swapping in `h/as-element` would send those heads into "
         "Fresco's lowerer. A Fresco view, or Hiccup Fresco is meant to lower, handed to "
         "`r/as-element` is the UNSAFE bridge, because Reagent then reads Fresco's heads and props "
-        "as its own. Cross that through Fresco's own doors: `h/as-element` for one element — in a "
-        "Reagent parent's child position, or at a foreign prop under a declared `:render` callback "
-        "contract, where the closure usually runs OUTSIDE the owner's render window, so it is not "
-        "a text substitution — or a stable top-level `h/as-component` for a view handed through "
-        "raw or foreign props.")
+        "as its own. Cross that through Fresco's own doors: `h/render-fn` for a callback a "
+        "library calls for markup — the closure runs OUTSIDE the owner's render window, and the "
+        "render carrier is what carries the owner's frame into it, so it is not a text "
+        "substitution — `h/as-element` for one element in a Reagent parent's child position, or "
+        "a stable top-level `h/as-component` for a view handed through raw or foreign props.")
 
    :outward-bridge
    (str "`r/reactify-component` hands a Reagent component to React. The counterpart is "
@@ -455,13 +455,6 @@
         "declared with `h/defview` and lowered by Fresco's own compiler, so an explicit seam "
         "call has no counterpart to be respelled into. Code-gen and library scaffolding that "
         "minted these needs a Fresco-side equivalent rather than an edit.")
-
-   :substrate-test-seam
-   (str "`flush-views!` wraps React's `act()` so a test can settle pending effects before "
-        "reading the DOM. It is a REAGENT/UIX-substrate seam, per Spec 008's per-adapter-require "
-        "rule, so it does not follow the views across: settle a Fresco tree the way the "
-        "Fresco testing chapter directs, and delete the substrate adapter require the call "
-        "came through.")
 
    :substrate-test-harness
    (str "`mount!` / `trigger-update!` — the headless test adapter's own harness, which mounts a "
