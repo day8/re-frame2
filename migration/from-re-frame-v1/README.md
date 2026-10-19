@@ -1518,54 +1518,60 @@ Every namespace that calls `rf/reg-flow` MUST `(:require [re-frame.flows])` so t
 
 **Type A** (mechanical, dep-only).
 
-As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the seven-category `:rf.http/*` failure taxonomy, and the `re-frame.http.managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
+As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed` and `:rf.http/managed-abort` fxs, the `re-frame.http.stub-transport` stub transports tests and demos answer requests from, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the seven-category `:rf.http/*` failure taxonomy, and the `re-frame.http.managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
-- Any `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` entry inside an `:fx` vector or effect map.
+- Any `:rf.http/managed` / `:rf.http/managed-abort` entry inside an `:fx` vector or effect map.
 - Any `:fx-overrides` map whose source is `:rf.http/managed`.
-- Any call to `re-frame.http.test-support/with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` — none of the three is a `re-frame.core` re-export.
+- Any call into `re-frame.http.stub-transport` — `route-transport`, `pending-transport`, `with-transport`, `install-transport!`; none of them is a `re-frame.core` re-export.
 - A direct `(:require [re-frame.http.managed])` clause.
 
 **What to do.** Add `day8/re-frame2-http` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
-Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs / `with-request-stubs` helper) MUST `(:require [re-frame.http.managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; a `re-frame.core` surface that late-binds into the artefact (`rf/reg-http-interceptor`) raises `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
+Every namespace that dispatches `:rf.http/managed` MUST `(:require [re-frame.http.managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the two `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; a `re-frame.core` surface that late-binds into the artefact (`rf/reg-http-interceptor`) raises `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
 
-**No stub surface is on `re-frame.core`.** `(http-test-support/with-request-stubs route-map body-fn)` is the scoped helper, and the raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair covers stubs that must span multiple `deftest`s (rf2-ntwwyt, rf2-kuky.13 — test-support infrastructure, not app-facing core surface). Reach all three directly through `re-frame.http.test-support`, required from your test ns.
+**No stub surface is on `re-frame.core`.** A test answers its requests from a stub transport in `re-frame.http.stub-transport`: `(stub-transport/with-transport transport thunk)` scopes one to a test body, and `(stub-transport/install-transport! frame-id transport)` gives one frame its own for as long as the frame lives. They are test and demo infrastructure, not app-facing core surface, so require the namespace from your test ns. [M-31a](#m-31a-managed-http-tests-answer-from-a-stub-transport) has the pattern.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
-#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http.test-support`
+#### M-31a. Managed-HTTP tests answer from a stub transport
 
-**Type B** (touch test-namespace requires).
+**Type B** (touch test-namespace requires and test bodies).
 
-Following a security audit, the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http.managed` namespace load. They register from a sibling test-support namespace, `re-frame.http.test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
-
-The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.managed` itself. On CLJS `:advanced + goog.DEBUG=false` that gate folded to `false` and the registrations elided as intended; on the JVM `debug-enabled?` is unconditionally true, so the canned-stub fx ids stayed registered as production-default API on JVM/SSR builds — discoverable via `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from any handler. The require-boundary gate makes the absence load-bearing on every host.
+A test or a demo answers `:rf.http/managed` without a network through a **stub transport** from `re-frame.http.stub-transport`, which ships in the same `day8/re-frame2-http` Maven artefact. A stub transport replaces only the host send, so a stubbed request still runs the real pipeline — the `:before` interceptors, status classification, `:decode`, `:accept`, retry, the privacy scrub, supersession and abort — and only the answer comes from the stub. No stub fx ships to synthesise a reply in place of the request, so an `:fx-overrides` entry has nothing to route `:rf.http/managed` to.
 
 **What to look for** in your codebase:
 
-- Any test namespace that uses `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (or `…canned-failure`) on `dispatch-sync`.
-- Any test namespace that resolves the stub via `(rf.registrar/handler :fx :rf.http/managed-canned-success)` for direct invocation.
-- Any test namespace that uses the `:test` or `:story` frame preset (per Spec 002 §Frame presets — both presets expand into `{:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}`).
-- Any conformance-fixture runner that drives Spec 014 fixtures (the corpus references the canned-stub fx ids by id).
-- Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (for example realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
+- Any test namespace that routes `:rf.http/managed` to a stub fx through `:fx-overrides` — on `dispatch-sync`, `rf/with-fx-overrides` or a frame's config — or invokes a stub fx it resolved through `rf.registrar/handler`.
+- Any test or story on a `:test` or `:story` preset frame that issues a request and expects an answer it never supplies.
+- Any test namespace that requires a `re-frame.http.*` namespace other than `re-frame.http.managed` and `re-frame.http.stub-transport` — no other ships, and the [M-1](#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename) inventory flags it.
+- Any dev-only example, testbed or story that wires its own per-URL stub fx.
 
-**What to do.** Add `re-frame.http.test-support` alongside `re-frame.http.managed` in the require closure of every test / dev-only namespace from the list above:
+**What to do.** Require `re-frame.http.stub-transport` beside `re-frame.http.managed` in each test / dev-only namespace from the list above, and answer its requests from a stub transport:
 
 ```clojure
 (ns my-app.tests
-  (:require [re-frame.http.managed]        ;; production fx surface
-            [re-frame.http.test-support])) ;; canned-stub fx registrations
+  (:require [re-frame.core :as rf]
+            [re-frame.http.managed]                              ;; production fx surface
+            [re-frame.http.stub-transport :as stub-transport])) ;; stub transports
+
+(stub-transport/with-transport
+  (stub-transport/route-transport
+    {[:get "/api/articles/intro"]   {:body {:title "Welcome"}}
+     [:get "/api/articles/missing"] {:status 404}})
+  (fn [] (rf/dispatch-sync [:article/load "intro"])))
 ```
 
-Test fixtures that `(rf.registrar/clear-all!)` between tests and `(require 're-frame.http.managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http.test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
+- `with-transport` sends every request issued while its thunk runs through the transport. It is a test's scope: a stub that spans several `deftest`s goes in a fixture that wraps each test in it.
+- `install-transport!` gives one frame its own transport — a demo's fake backend — until the frame is destroyed; `nil` uninstalls it. A `with-transport` scope wins over it.
+- `route-transport` answers from a route map `{[method url] response}`, keyed on the URL the request goes out on (after `:before`, with `:params` merged in), or from one `(fn [wire-request] response)` that answers every request. A response is `{:status :headers :body}`, status 200 by default; a failing status such as `{:status 404}` produces that HTTP failure, and `{:failure {:kind :rf.http/transport}}` (or `:rf.http/timeout`) a network failure. `pending-transport` holds each request until the test answers, fails or abandons it.
+- A frame made with the `:test` or `:story` preset carries `:rf.http/stub-only? true`: a request it issues with no stub transport in place fails as `:rf.http/transport`, naming `with-transport` and `install-transport!`, rather than reaching the network. A test that expected the preset to answer its requests supplies a stub transport.
+- The body travels as JSON and is decoded by the request's `:decode`, as a server's would be: object keys arrive as keywords, keyword values as strings. A test of a reply handler that wants a reply no server could send dispatches the reply event directly.
 
-The stub helpers (`with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`) also live in `re-frame.http.test-support` (per rf2-lwmgw, audit-of-audits #15 — see M-65 below) and register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids. Code that uses them needs the same `re-frame.http.test-support` require as above.
+**Production posture.** Production / SSR code paths never `:require` `re-frame.http.stub-transport`, so a production build carries none of it. Requiring it registers nothing and changes no request: a request goes through a stub transport only inside a `with-transport` scope or from a frame with one installed.
 
-**Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
-
-**Why:** a security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate).
+**Why:** a stub transport replaces only the network hop, so a stubbed test runs the interceptors, decode, retry and delivery production runs, and a stub-only preset frame fails loudly on a forgotten stub instead of sending a real request. Per [Spec 014 §Testing](../../spec/014-HTTPRequests.md#testing).
 
 #### M-31b. `:rf.http/managed` `:retry :on` is a closed-set
 
@@ -2747,46 +2753,37 @@ The path arity of v2's `assert-state` becomes the named `assert-path-equals`; th
 
 ---
 
-### M-65. HTTP stubbing macros consolidated into `re-frame.http.test-support`
+### M-65. The HTTP test surface is `re-frame.http.stub-transport`
 
-**Type A** (mechanical). Single-file rename per call site: change the `:require` of `re-frame.http.managed` to also pull in `re-frame.http.test-support` for any test that touches the stub family, and call the helpers through that namespace. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
+**Type A** (mechanical). Per call site: require `re-frame.http.stub-transport` in the test namespace and rewrite each route-map stub as a stub transport. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
 
-Per audit-of-audits #15: the previous arrangement split the HTTP test surface across two namespaces — the scoped stub helper and the raw install/uninstall pair lived in `re-frame.http.managed` (alongside the production fxs), and `re-frame.http.test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + `with-request-stubs` + the raw pair) now lives in `re-frame.http.test-support`. One namespace, one require, name matches content.
+Every HTTP test surface lives in `re-frame.http.stub-transport` — `route-transport`, `pending-transport`, `with-transport` and `install-transport!` — and [M-31a](#m-31a-managed-http-tests-answer-from-a-stub-transport) shows a test using them. None of its vars is a `re-frame.core` re-export and none publishes a late-bind hook, so every call site names the namespace.
 
 ```clojure
-;; before (v2-pre-rename) — stub helpers + canned-stub fxs each had a separate require
+;; after — one require for every HTTP test surface
 (ns my-app.tests
   (:require [re-frame.core :as rf]
-            [re-frame.http.managed]          ;; provided the stub helpers AND the production fxs
-            [re-frame.http.test-support]))   ;; provided ONLY the canned-stub fx registrations
-
-;; after — single test-support require for every HTTP test surface
-(ns my-app.tests
-  (:require [re-frame.core :as rf]
-            [re-frame.http.managed]                                ;; production fx surface (unchanged)
-            [re-frame.http.test-support :as http-test-support]))   ;; canned-stub fxs + with-request-stubs + the raw pair
+            [re-frame.http.managed]                              ;; production fx surface (unchanged)
+            [re-frame.http.stub-transport :as stub-transport])) ;; stub transports
 ```
-
-The require pair looks nearly identical to the pre-rename shape, but the role of `re-frame.http.test-support` widened — it is now the ONLY door to the stub family. None of the three helpers is a `re-frame.core` re-export and none publishes a late-bind hook (rf2-ntwwyt, rf2-kuky.13), so every call site names the namespace. A test that previously required only `re-frame.http.managed`, or reached a helper through the `rf/` facade, now surfaces unresolved-symbol until the test-support require and the qualified call site are both in place.
 
 **Detect.** Test files that:
 
-- reach any stub helper through the `rf/` facade (there is no facade route — every such call site is stale); OR
-- call `re-frame.http.test-support/with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`; OR
-- call any of the three on `re-frame.http.managed` directly,
-
-without `re-frame.http.test-support` in their require closure.
+- require a `re-frame.http.*` namespace other than `re-frame.http.managed` and `re-frame.http.stub-transport` (the M-1 inventory flags it); OR
+- reach an HTTP stub helper through the `rf/` facade or through `re-frame.http.managed` — neither publishes one; OR
+- pass a route map whose values are `{:reply {:ok v}}` / `{:reply {:failure m}}`.
 
 **Mechanical sweep.**
 
-1. Add `[re-frame.http.test-support :as http-test-support]` to the require list of any test ns that uses the stub family.
-2. Rewrite every stub call site — whether it named `re-frame.http.managed/<fn>` or the `rf/` facade — to `http-test-support/<fn>`. The scoped helper is now `with-request-stubs` and takes a THUNK: `(http-test-support/with-request-stubs route-map (fn [] body…))`.
+1. Replace the stale HTTP test require with `[re-frame.http.stub-transport :as stub-transport]`.
+2. Scope each stubbed body with `with-transport`, which takes the transport and a THUNK: `(stub-transport/with-transport (stub-transport/route-transport routes) (fn [] body…))`. A stub installed across several `deftest`s becomes a fixture that wraps each test in `with-transport`, or `install-transport!` on the test's frame.
+3. Rewrite each route's value as the response that produces the reply: `{:reply {:ok v}}` → `{:body v}`; an HTTP-status failure → a response with that status, such as `{:status 404}`; a network failure → `{:failure {:kind :rf.http/transport}}` or `{:failure {:kind :rf.http/timeout}}`. The body is decoded by the request's `:decode`, as a server's would be, so a keyword value in it arrives as a string unless the schema coerces it.
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the stub family publishes neither from `re-frame.http.managed` nor from `re-frame.core` — every stale `rf/` call site and every stale `re-frame.http.managed/<fn>` call site raises `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ). Reach all three helpers through `re-frame.http.test-support`.
+**No alias.** Per pre-alpha posture (no back-compat shims), no HTTP stub helper publishes from `re-frame.http.managed` or `re-frame.core` — every stale call site raises `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ).
 
-**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http.test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per M-31a) and the stub family (this rule). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence.
+**Production posture.** Production / SSR application code must NOT `:require` `re-frame.http.stub-transport`; a production build carries none of it.
 
-**Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace); [API.md row](../../spec/API.md#http-requests-spec-014).
+**Cross-references.** [014-HTTPRequests §Stub transports](../../spec/014-HTTPRequests.md#stub-transports--the-real-pipeline-over-a-fake-wire); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace); [API.md row](../../spec/API.md#http-requests-spec-014).
 
 ---
 
