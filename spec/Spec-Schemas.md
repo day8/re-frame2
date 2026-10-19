@@ -432,13 +432,13 @@ The metadata map accepted by `reg-cofx`. Carries the EP-0017 **grade** keys (`:r
   [:merge
    RegistrationMetadata
    [:map
-    [:recordable?  {:optional true} :boolean]                               ;; EP-0017 grade — true ⇒ recordable (ensured onto the token, recorded, replayed); absent/false ⇒ ambient (run at context assembly, never recorded)
-    [:provided?    {:optional true} :boolean]                               ;; EP-0017 — true (with :recordable? true) ⇒ no generator; the value is stamped onto the token by its owner (framework / subsystem / dispatch boundary). Meaningful only alongside :recordable? true.
+    [:recordable?  {:optional true} :boolean]                               ;; EP-0017 grade — absent/true ⇒ recordable (ensured onto the token, recorded, replayed); false ⇒ ambient (run at context assembly, never recorded)
+    [:provided?    {:optional true} :boolean]                               ;; EP-0017 — true ⇒ a recordable fact with no generator; the value is stamped onto the token by its owner (framework / subsystem / dispatch boundary). Contradicts an explicit :recordable? false.
     [:platforms    {:optional true} [:set [:enum :server :client]]]          ;; default if absent: #{:server :client}; mirrors :rf/fx-meta
     ]])
 ```
 
-`:provided? true` without `:recordable? true` is meaningless (an ambient coeffect always has a supplier); the framework's one built-in registration is `:rf/time-ms` (`{:recordable? true :provided? true}`).
+`:provided? true` beside an explicit `:recordable? false` is the contradictory grade `:rf.error/cofx-registration-invalid` (an ambient coeffect always has a supplier); the framework's one built-in registration is `:rf/time-ms` (`{:provided? true}`).
 
 #### `:rf/interceptor-meta`
 
