@@ -89,12 +89,10 @@
   ;; only the registration.
   ;;
   ;; The slot is read at the panel's reactive boundary (`panels/ManagedFxList`)
-  ;; and threaded down as plain data — `record-panel` and `records-list` are
-  ;; plain fns, and per Spec 006 §Plain-fn footgun an ambient `subscribe`
-  ;; inside one raises `:rf.error/no-frame-context` rather than resolving the
-  ;; surrounding frame. Same shape the edn-inspector widget uses: its
-  ;; `reg-view` reads `@(subscribe [expansion-slot])` once and hands the map
-  ;; to the pure renderers.
+  ;; and threaded down as plain data, so `record-panel` and `records-list`
+  ;; stay pure fns of their arguments. Same shape the edn-inspector widget
+  ;; uses: its `reg-view` reads `@(subscribe [expansion-slot])` once and
+  ;; hands the map to the pure renderers.
 
   (rf/reg-sub :rf.xray/managed-fx-expanded-sections
     (fn [db _query]

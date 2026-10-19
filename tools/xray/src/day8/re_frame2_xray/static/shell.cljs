@@ -369,14 +369,12 @@
   button."
   [dispatch {:keys [id label mnem active?]}]
   ;; `dispatch` is the frame-bound dispatcher [[tab-bar]]'s boundary body
-  ;; captures and threads in here. A plain fn invoked as a Reagent
-  ;; component would render in its OWN cycle with no `:contextType`, so
-  ;; `current-frame-id` would resolve nil and an ambient dispatch would
-  ;; RAISE `:rf.error/no-frame-context` — there is no `:rf/default` floor
-  ;; under EP-0002 (Spec 006 §Plain-fn footgun). Threading the captured
-  ;; `dispatch` is the reliable path, and under a Fresco boundary it is
-  ;; the only one — an AMBIENT dispatch inside a boundary body is a loud
-  ;; refusal too.
+  ;; captures and threads in here. The `:on-click` runs after the render,
+  ;; where an ambient dispatch has no frame in scope and RAISES
+  ;; `:rf.error/no-frame-context` — there is no `:rf/default` floor under
+  ;; EP-0002. Threading the captured `dispatch` is the reliable path, and
+  ;; under a Fresco boundary it is the only one — an AMBIENT dispatch
+  ;; inside a boundary body is a loud refusal too.
   ;;
   ;; The React `:key` rides in this button's own ATTRIBUTE MAP, not as
   ;; `^{:key id}` reader metadata on the call site's vector literal,

@@ -118,8 +118,10 @@
    again\" beats a stack trace every time."
   [failure]
   (let [body     (:body failure)
-        ;; The :body might be raw response text, or a JSON-shaped failure map
-        ;; arriving via the `:rf.http/accept-failure` path. Try either shape.
+        ;; A 4xx/5xx with a JSON Content-Type carries its error body parsed at
+        ;; :body (Conduit's `{:errors {...}}`), with the raw text at
+        ;; :body-text; any other error body arrives at :body as the raw
+        ;; string. Try either shape.
         body-msg (cond
                    (and (map? body) (-> body :errors :body first)) (-> body :errors :body first)
                    (and (map? body) (-> body :errors first))       (let [[k v] (first (:errors body))]

@@ -145,14 +145,6 @@
 ;; IN, taking the frame from React context rather than from a second root.
 ;; So there is no second root here, no adapter-kind branch and no props ABI.
 ;;
-;; THE PLAIN-FN FOOTGUN DOES NOT BITE THIS BRIDGE, and that is worth saying
-;; because the shell's own ns docstring warns about it: a plain Reagent fn
-;; skips the React-context tier, so an AMBIENT READ inside one would raise
-;; `:rf.error/no-frame-context`. [[Modal]] performs no read and no dispatch
-;; — it only mounts a React element. React context flows by the ELEMENT
-;; tree, not by Reagent's `:contextType`, so the enclosing
-;; `rf/frame-provider` reaches [[Popup]] regardless.
-;;
 ;; NOT SCAFFOLDING — THE PAIR STAYS. `shell-view` lowers to a Fresco
 ;; boundary, but a Reagent parent heads the pair on purpose — the
 ;; boundary witness suite. The chain is `[:>]` -> `as-component` ->
