@@ -12,9 +12,9 @@
   The last form renders through Fresco when it contains a Fresco head (an
   `h/defview`, an `h/defhost`, or `h/frame-root` / `h/frame-provider`), a
   handler written as data (`:on-click [:inc]`) or a carrier (`h/event`,
-  `h/render-fn`), and through Reagent otherwise. Plain hiccup renders the same either way. A Fresco view cannot
-  be a child in a Reagent tree, so one tree uses one renderer; different
-  cells may use different ones.
+  `h/render-fn`), and through Reagent otherwise. Plain hiccup renders the
+  same either way. A Fresco view cannot be a child in a Reagent tree, so one
+  tree uses one renderer; different cells may use different ones.
 
   How the API reaches a cell:
 
