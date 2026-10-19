@@ -304,7 +304,7 @@
    :op-type   :info
    :id        id
    :time      1040
-   :tags      {:rf.frame/id :rf/default :meta {:status 200 :status-text ""}
+   :tags      {:rf.frame/id :rf/default :meta {:http-status 200 :status-text ""}
                :rf.reply/work-kind :http :correlation {:request-id :app/load}
                :value {:v 1} :rf.reply/work-status :completed :status :ok
                :rf.reply/work-id [:rf.work/http 1 1] :attempt 1}})

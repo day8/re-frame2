@@ -402,10 +402,10 @@
     :watch "Epoch: a two-event drain — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from the backend's api/ok.json answer."}
    {:label "Error response (4xx)"
     :event [::error-4xx]
-    :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :error :kind :rf.http/http-4xx, :status 404."}
+    :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :error :kind :rf.http/http-4xx, :http-status 404."}
    {:label "Error response (5xx)"
     :event [::error-5xx]
-    :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :error :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
+    :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :error :kind :rf.http/http-5xx, :http-status 500. The Epoch shows the failure cascade attribution."}
    {:label "Abort the in-flight request"
     :event [::abort]
     :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply and the registry drops the slot. App-db: :status :error, reply :status :cancelled (:error :kind :rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
