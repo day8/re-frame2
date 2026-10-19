@@ -55,7 +55,6 @@
     :rf.error/machine-spawn-unregistered-type
     :rf.error/drain-depth-exceeded
     :rf.error/reprojection-failed
-    :rf.error/unsupported-scroll-strategy
     :rf.error/redirect-invalid-url
     :rf.error/redirect-scheme-rejected
     :rf.error/redirect-host-disallowed
