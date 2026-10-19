@@ -134,11 +134,6 @@
   (let [k (resolve-scoped-key payload app-db)]
     [k (when k (get-in runtime-db (rf.resources.state/entry-path k)))]))
 
-(defn- entry-for
-  "The durable cache entry for a sub payload, or nil when its scope is
-  unresolved or no entry exists for its key (`key+entry`)."
-  [runtime-db app-db payload]
-  (second (key+entry runtime-db app-db payload)))
 
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
 ;;
@@ -286,73 +281,42 @@
       (nil? e) (empty-view :idle)
       :else    (view-of rt e))))
 
-(defn data-sub-fn
-  "Project `:rf.resource/data` — the entry's last-known-good `:data` (or
-  nil). Per Spec 016 §Subscriptions."
-  [frame-state [_id payload]]
-  (:data (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
+(def ^:private projection-subs
+  "The focused resource subs, `[sub-id view-model-key doc]`. Each projects one
+  key of the `:rf/resource` view-model (`state-sub-fn`) over the same
+  frame-state signal, so the derived facts — the `:idle` / `:unresolved` empty
+  shape, `:loading?` / `:fetching?` / `:stale?` / `:has-data?`, and the
+  `:keep-previous?` projection — have one definition.
 
-(defn status-sub-fn
-  "Project `:rf.resource/status` — the entry's `:status` keyword, `:idle`
-  when its key has no entry, or `:unresolved` when its scope resolved nil.
-  Per Spec 016 §Subscriptions."
-  [frame-state [_id payload]]
-  (let [[k e] (key+entry (runtime-of frame-state) (app-of frame-state) payload)]
-    (if k (or (:status e) :idle) :unresolved)))
+  They are frame-state subs rather than subs layered over `[:rf/resource …]`
+  because off-box egress classifies a held value against the inputs it was
+  computed from (`re-frame.resources.trace-egress/project-read-sub-egress`),
+  and those inputs have to be the frame-state carrying the elision registry,
+  not a view-model."
+  [[:rf.resource/data :data
+    "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."]
+   [:rf.resource/status :status
+    "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error, or :unresolved when its {:from-db} scope resolved nil). Per Spec 016 §Subscriptions."]
+   [:rf.resource/loading? :loading?
+    "Passive read: true iff a resource instance is on its first load with no usable data. Per Spec 016 §Status semantics."]
+   [:rf.resource/fetching? :fetching?
+    "Passive read: true iff a resource instance is refreshing while prior data stays visible. Per Spec 016 §Status semantics."]
+   [:rf.resource/stale? :stale?
+    "Passive read: true iff a resource instance is stale (freshness is orthogonal to load status). Per Spec 016 §Status semantics."]
+   [:rf.resource/error :error
+    "Passive read of a resource instance's first-load error envelope (or nil). Per Spec 016 §Status semantics."]
+   [:rf.resource/refresh-error :refresh-error
+    "Passive read of a resource instance's background-refresh error envelope (or nil); the prior :data is kept. Per Spec 016 §Status semantics."]
+   [:rf.resource/has-data? :has-data?
+    "Passive read: true iff a resource instance currently has usable :data. Per Spec 016 §Status semantics."]
+   [:rf.resource/previous-data :previous-data
+    "Passive read of the prior key's data, projected while a new page/filter resource first-loads under :keep-previous? (not inserted into the new entry). Per Spec 016 §Paginated and previous data."]])
 
-(defn loading?-sub-fn
-  "Project `:rf.resource/loading?` — first load with no usable data. Per
-  Spec 016 §Status semantics."
-  [frame-state [_id payload]]
-  (= :loading (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
-
-(defn fetching?-sub-fn
-  "Project `:rf.resource/fetching?` — work in flight while prior data
-  stays visible. Per Spec 016 §Status semantics."
-  [frame-state [_id payload]]
-  (= :fetching (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
-
-(defn stale?-sub-fn
-  "Project `:rf.resource/stale?` — freshness orthogonal to load status
-  (a `:loaded` entry may be stale). Computed from the durable
-  `:invalidated-at` / `:stale-at` facts (Spec 016 §Status semantics)."
-  [frame-state [_id payload]]
-  (stale? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
-
-(defn error-sub-fn
-  "Project `:rf.resource/error` — the first-load error envelope (or nil).
-  Per Spec 016 §Status semantics."
-  [frame-state [_id payload]]
-  (:error (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
-
-(defn refresh-error-sub-fn
-  "Project `:rf.resource/refresh-error` — a failed background refresh
-  (prior data kept). Per Spec 016 §Status semantics."
-  [frame-state [_id payload]]
-  (:refresh-error (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
-
-(defn has-data?-sub-fn
-  "Project `:rf.resource/has-data?` — usable data present. Per Spec 016
-  §Status semantics. Routed through the shared `rf.resources.state/has-data?` derivation
-  (NOT the scalar `(some? :data)`): an infinite feed's `:data` is the page
-  VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as usable data
-  `rf.resources.state/has-data?` branches on the feed shape (`(seq data)`),
-  so this scalar sub and `:rf.resource/infinite-state` never disagree."
-  [frame-state [_id payload]]
-  (rf.resources.state/has-data? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
-
-(defn previous-data-sub-fn
-  "Project `:rf.resource/previous-data` — the prior key's data projected
-  while a new page/filter resource first-loads under `:keep-previous?`
-  (Spec 016 §Paginated and previous data). Read from the entry's
-  `:previous-key` projection pointer's OWN entry; NOT inserted into the new
-  entry and NOT a source of the new key's tags. nil when this key is not
-  keeping previous data (no pointer, or it already has its own data)."
-  [frame-state [_id payload]]
-  (let [rt (runtime-of frame-state)
-        e  (entry-for rt (app-of frame-state) payload)]
-    (when (and (:previous-key e) (nil? (:data e)))
-      (:data (get-in rt (rf.resources.state/entry-path (:previous-key e)))))))
+(defn- projection-sub-fn
+  "The sub fn projecting key `k` of the `:rf/resource` view-model."
+  [k]
+  (fn [frame-state query-v]
+    (get (state-sub-fn frame-state query-v) k)))
 
 ;; ---- the infinite-feed projection family (EP-0021 R3) ---------------------
 ;;
@@ -363,7 +327,7 @@
 ;; merge is the headline read of every feed, so the framework owns the
 ;; memoised projection once). The page-vector lives in the entry's `:data`
 ;; (R1); these subs read it from the SAME frame-state signal the scalar family
-;; reads, resolving the feed identity via `entry-for`.
+;; reads, resolving the feed identity via `key+entry`.
 ;;
 ;; `:fetching-next?` is the one projection that is NOT a pure function of the
 ;; entry alone (R2): a load-more and a whole-feed refresh BOTH leave the feed
@@ -564,33 +528,8 @@
   (rf.subs/reg-frame-state-sub :rf/route-resource
     {:doc "Passive read of the resource the ACTIVE route's plan ensured: `[:rf/route-resource <resource-id>]` projects the same view-model as `:rf/resource` for the one identity the plan holds under that id, so a view restates none of the route's params. A plan holding the id under several identities throws :rf.error/resource-route-read-ambiguous naming them; a plan holding none reads :status :unplanned with the empty shape. Per Spec 016 §Route-bound reads."}
     route-resource-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/data
-    {:doc "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."}
-    data-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/status
-    {:doc "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error, or :unresolved when its {:from-db} scope resolved nil). Per Spec 016 §Subscriptions."}
-    status-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/loading?
-    {:doc "Passive read: true iff a resource instance is on its first load with no usable data. Per Spec 016 §Status semantics."}
-    loading?-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/fetching?
-    {:doc "Passive read: true iff a resource instance is refreshing while prior data stays visible. Per Spec 016 §Status semantics."}
-    fetching?-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/stale?
-    {:doc "Passive read: true iff a resource instance is stale (freshness is orthogonal to load status). Per Spec 016 §Status semantics."}
-    stale?-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/error
-    {:doc "Passive read of a resource instance's first-load error envelope (or nil). Per Spec 016 §Status semantics."}
-    error-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/refresh-error
-    {:doc "Passive read of a resource instance's background-refresh error envelope (or nil); the prior :data is kept. Per Spec 016 §Status semantics."}
-    refresh-error-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/has-data?
-    {:doc "Passive read: true iff a resource instance currently has usable :data. Per Spec 016 §Status semantics."}
-    has-data?-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/previous-data
-    {:doc "Passive read of the prior key's data, projected while a new page/filter resource first-loads under :keep-previous? (not inserted into the new entry). Per Spec 016 §Paginated and previous data."}
-    previous-data-sub-fn)
+  (doseq [[sub-id k doc] projection-subs]
+    (rf.subs/reg-frame-state-sub sub-id {:doc doc} (projection-sub-fn k)))
   ;; ---- the infinite-feed projection family (EP-0021 R3) -----------------
   ;; `:rf.resource/items` / `:pages` / `:infinite-state` are the framework-
   ;; owned MEMOISED merge subs (R3 — NOT ordinary app subs over :pages); the
