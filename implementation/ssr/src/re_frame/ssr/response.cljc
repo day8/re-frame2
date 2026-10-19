@@ -884,10 +884,14 @@
 
 #?(:cljs
    (def ^:private uri-chars-re
-     "The characters RFC 3986 admits in a URI reference: unreserved, reserved
-     and `%`. A reference carrying any other character — a raw space, a
-     backslash, `<`, a quote — does not parse, as java.net.URI refuses it."
-     #"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*$"))
+     "The characters java.net.URI admits in a URI reference: RFC 3986's
+     unreserved and reserved characters and `%`, plus any non-ASCII character
+     that is neither a control character nor a space separator — the second
+     class below, everything above U+00A0 but Unicode's space separators. So
+     `/café` and `/search?q=東京` parse as on the JVM, while a reference
+     carrying a raw space, a no-break space, a backslash, `<` or a quote does
+     not, as java.net.URI refuses it."
+     #"^(?:[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]|[^\x00-\xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000])*$"))
 
 #?(:cljs
    (def ^:private uri-reference-re
@@ -923,8 +927,9 @@
   The JVM parses with java.net.URI. CLJS has no such parser, so it reads the
   same three components with RFC 3986's own reference grammar and refuses
   what java.net.URI refuses that matters to the gate: a character outside
-  the URI character set fails the parse, and a host survives only as a
-  hostname or an IP literal."
+  its character set fails the parse, as does a scheme outside RFC 3986's
+  scheme grammar (so a non-ASCII character cannot open one), and a host
+  survives only as a hostname or an IP literal."
   [location]
   (when (and (string? location) (not (clojure.string/blank? location)))
     #?(:clj
@@ -940,9 +945,10 @@
        (when (re-matches uri-chars-re location)
          (let [[_ _ scheme _ authority] (re-find uri-reference-re location)
                authority                (not-empty authority)]
-           {:scheme    scheme
-            :host      (some-> authority authority-host)
-            :authority authority})))))
+           (when (or (nil? scheme) (re-matches #"[A-Za-z][A-Za-z0-9+.-]*" scheme))
+             {:scheme    scheme
+              :host      (some-> authority authority-host)
+              :authority authority}))))))
 
 (defn- gate-refusal
   "Run the URL gate over `location` — a string the CR/LF/NUL gate has already

@@ -32,10 +32,7 @@
 
   Mounting at the shell-root means the modal resolves its frame through
   the same `frame-provider` the shell installed — `:rf/xray` reads land
-  on Xray's app-db, not the host's. A top-level `js/document.body`
-  portal would lose the frame context, and under EP-0002 that is a LOUD
-  failure rather than a quiet misroute: there is no `:rf/default` floor,
-  so the read raises rather than silently answering the host's db."
+  on Xray's app-db, not the host's."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.palette.events :as events]

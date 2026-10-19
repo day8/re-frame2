@@ -141,7 +141,7 @@ batch of files — where you'd reach for this.
   :yielding       :after   → :processing  (browser-tick yield)
   :done           :final? true  :output-key :shard
                   (reaching it IS completion — no dispatch)
-  :cancelled      :meta {:terminal? true}
+  :cancelled      :final? true
                   (never reached via transition — cancellation
                    cascades via :rf.machine/destroy fx)
 ```

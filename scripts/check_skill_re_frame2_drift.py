@@ -64,8 +64,9 @@ no-bead-id arms cover other skills' leaves):
      (5c) bare `:work/id` asserted as a TRANSIENT reply field (whose spelling is
      `:rf.reply/work-id` — bare `:work/id` is the durable ledger / machine-
      `:data` / correlation identity). The machine-form `:spawn {:machine-id
-     :rf.http/managed …}` (which dispatches back to its parent and needs no
-     `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
+     :rf.http/managed …}` (which owns its reply and completes to its parent's
+     `:on-done` / `:on-error`, so it needs no `:reply-to`), the
+     `[:rf.http/managed-abort …]` dispatch, and legitimate
      durable-ledger `:work/id` prose are deliberately allowed.
 
   6. **UIx hooks stateful-component guidance, causally exact.** The
@@ -330,7 +331,8 @@ def fenced_blocks(text: str):
 #      default that routes the reply back to the originating event). Scanned
 #      per-FENCED-BLOCK (the tokens span lines). Only the `[:rf.http/managed`
 #      fx invocation head is matched — never `:machine-id :rf.http/managed` (the
-#      machine-form spawn dispatches back to its parent and needs no reply key)
+#      machine-form spawn owns its reply and completes to its parent's
+#      :on-done / :on-error, so it needs no reply key)
 #      and never `[:rf.http/managed-abort …]` (a dispatch with no :request).
 FX_MANAGED_RE = re.compile(r"\[:rf\.http/managed(?!-)\b")
 HTTP_REQUEST_RE = re.compile(r":request\b")
@@ -343,8 +345,9 @@ MANAGED_HTTP_TARGETLESS_MSG = (
     "so the recipe cannot start a request — there is no co-located default that "
     "routes the reply back to the originating event. Add an explicit reply "
     "target. (The machine-form "
-    "`:spawn {:machine-id :rf.http/managed …}` dispatches back to its parent "
-    "and is the allowed exception — it is not matched here.)"
+    "`:spawn {:machine-id :rf.http/managed …}` owns its reply and completes to "
+    "its parent's `:on-done` / `:on-error`, so it is the allowed exception — it "
+    "is not matched here.)"
 )
 
 # 5b — reading a co-located reply key `(:rf/reply …)`. The

@@ -3,8 +3,8 @@
   and on Node. The JVM parses with java.net.URI and CLJS with RFC 3986's
   reference grammar, so this pins the two readings to each other over the
   shapes the gate decides on: relative references, hosts named by `:allow`,
-  `:allow :any`, network-path references, opaque URIs, and characters
-  java.net.URI refuses."
+  `:allow :any`, network-path references, opaque URIs, characters
+  java.net.URI refuses, and the non-ASCII characters it admits unescaped."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -48,6 +48,9 @@
   (doseq [[args expected]
           [[{:location "/account/settings"}                    :landed]
            [{:location "dashboard?tab=a#b"}                    :landed]
+           [{:location "/café"}                                :landed]
+           [{:location "/search?q=東京"}                         :landed]
+           [{:location "/caf%C3%A9"}                           :landed]
            [{:location "https://app.example.com/x"}
             [:rf.error/redirect-host-disallowed :relative-only-violation]]
            [{:location "https://app.example.com:8443/x" :allow ["app.example.com"]} :landed]
@@ -68,5 +71,9 @@
            [{:location "/a b" :allow :any}
             [:rf.error/redirect-invalid-url :parse-failed]]
            [{:location "/\\evil.example.com" :allow :any}
+            [:rf.error/redirect-invalid-url :parse-failed]]
+           [{:location "/a\u00a0b" :allow :any}
+            [:rf.error/redirect-invalid-url :parse-failed]]
+           [{:location "café:menu" :allow :any}
             [:rf.error/redirect-invalid-url :parse-failed]]]]
     (is (= expected (verdict args)) (pr-str args))))

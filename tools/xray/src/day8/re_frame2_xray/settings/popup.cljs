@@ -45,9 +45,7 @@
   Same rationale as the palette modal — mounting at the shell-root
   means the reads resolve through the same `frame-provider` the
   shell installed (`:rf/xray`), and the dispatches land on Xray's
-  app-db rather than the host's. A `js/document.body` portal would
-  lose the frame context, so its reads and dispatches would raise
-  `:rf.error/no-frame-context` (EP-0002).
+  app-db rather than the host's.
 
   ## The popup is a FRESCO BOUNDARY
 

@@ -119,12 +119,13 @@
     (is (= {:state :ready :data {:noted? true}}
            (select-keys (snapshot :birth/lazy) [:state :data])))))
 
-(deftest live-eager-start-settling-onto-final-auto-destroys
-  (testing "an eager start whose birth `:always` lands on a `:final?` leaf
-            auto-destroys at start (XState v5: the actor is done immediately)"
+(deftest live-eager-start-settling-onto-final-rests
+  (testing "an eager start whose birth `:always` lands on a `:final?` leaf is
+            done at start (XState v5: the actor is done immediately), and a
+            singleton rests there"
     (rf/reg-machine :birth/final
       {:initial :booting
        :states  {:booting {:always :done}
                  :done    {:final? true}}})
     (rf/dispatch-sync [:birth/final [:rf.machine/start]])
-    (is (nil? (snapshot :birth/final)))))
+    (is (= :done (:state (snapshot :birth/final))))))
