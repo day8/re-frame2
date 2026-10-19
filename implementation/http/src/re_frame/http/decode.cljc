@@ -219,6 +219,27 @@
                    :value  decoded}})))
     decoded))
 
+(defn decode-error-body
+  "The `:body` of an `:rf.http/http-4xx` / `:rf.http/http-5xx` failure (Spec 014
+  §Classification order): `body-text` parsed into keyword-keyed data when the
+  response declares a JSON media type (`json-media-type?`, the RFC 6839 rule),
+  under the `max-decoded-keys` cap; otherwise `body-text` itself.
+
+  Best-effort, and never throws, so the failure stays classified by its status:
+  a body that does not parse, or exceeds the key cap, comes back as the raw
+  text. An absent Content-Type is not read as JSON — unlike the schema path,
+  where the caller declared one. A blank body stays the raw string because the
+  hosts disagree on it (Cheshire reads nil, `JSON.parse` throws)."
+  [body-text headers max-decoded-keys]
+  (if (and (string? body-text)
+           (not (str/blank? body-text))
+           (json-media-type? (content-type-of headers)))
+    (try
+      (rf.http.json/json-parse body-text (when max-decoded-keys {:max-decoded-keys max-decoded-keys}))
+      (catch #?(:clj Exception :cljs :default) _
+        body-text))
+    body-text))
+
 (defn decode-response-body
   "Per Spec 014 §Decoding. Returns the decoded value or throws an
   ex-info that the caller maps to `:rf.http/decode-failure`.
