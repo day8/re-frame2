@@ -3248,7 +3248,7 @@ before anything it says about reads is believed. **Nothing in §§1–5 is deriv
 from it** — and unlike the superseded publication, that is now true of the fit
 as well as of the prose.
 
-| | published (`freehand-vs-reagent-memory.md` §2) | here, R=0 | |
+| | published (Freehand studio `freehand-vs-reagent-memory.md` §2, git history at commit `9cee47cf38`) | here, R=0 | |
 |---|---:|---:|---:|
 | Reagent sub-free boundary | 411 / 409 (A), 403 (C) | 428 [421–434] (A), 429 (C) | **+4.1% / +6.5%** |
 | UIx sub-free boundary | 251 / 252 (A), 251 (C) | 208 [201–213] (A), 211 (C) | **−17.1%** |

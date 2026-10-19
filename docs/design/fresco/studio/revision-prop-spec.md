@@ -44,7 +44,7 @@ It is found, and it is a ruling body rather than an addendum. From HD-019 in
 `docs/design/fresco/decisions.md`:
 
 > Resets are by **explicit caller revision, never value equality** (the
-> predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
+> predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`, in git history at commit `9cee47cf38`).
 
 The predecessor's constraint that sentence rests on, from
 `D016-buffered-and-revision-controls.md`:

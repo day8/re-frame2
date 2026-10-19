@@ -10,9 +10,10 @@ K1 price acceptance `rf2-hic-003`, budgets and shell line
 evidence those rulings are made against.
 
 Minted by the first P0 worker per [HD-017](../decisions.md). **The Freehand
-studio at `docs/design/freehand/studio/` is frozen and is never extended** — it
-is the predecessor programme's record and it stays exactly as its own programme
-left it.
+studio, `docs/design/freehand/studio/`, is never extended** — it is the
+predecessor programme's record, removed from the tree with the rest of that
+programme's design record and read from git history at commit `9cee47cf38`,
+exactly as its own programme left it.
 
 **This index is exempt from the repository's GDS README restyle** (PR #8529),
 for the same reason the restyle already kept evidence identifiers and ISO window

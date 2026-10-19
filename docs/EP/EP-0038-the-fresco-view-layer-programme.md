@@ -651,7 +651,8 @@ charter §Constraints are normative for every brief filed under this EP.
   [EP-0036](EP-0036-the-freehand-view-substrate-programme.md).
 - Measured record: `docs/design/freehand/studio/` (incl.
   `bulk-rerender-where-the-time-goes.md` and the fitness harness
-  `fitness-harness.md`).
+  `fitness-harness.md`), removed from the tree on 2026-10-19 and read from git
+  history at commit `9cee47cf38`.
 - Closed instrument-spec donor beads: rf2-mapni, rf2-m7xs7, rf2-ssn1o
   (do-not-refile); the retired Freehand standard rf2-lbs3y.
 - The operator-owned standard bead and the EP-0038 epic bead (ids recorded on

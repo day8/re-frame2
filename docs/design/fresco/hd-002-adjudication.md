@@ -155,8 +155,9 @@ shared index. Nothing else is permitted in the commit path.
 time. Values were read during the render; the commit consults only sub-keys.
 
 **[RULED]** This is the sharpest divergence from the predecessor, and it is
-measured. [The bulk-rerender profile](../freehand/studio/bulk-rerender-where-the-time-goes.md)
-§4: the predecessor's `cell/commit!` called `obs/read` on every handle — "a
+measured. The bulk-rerender profile
+(`docs/design/freehand/studio/bulk-rerender-where-the-time-goes.md` at commit `9cee47cf38`, read
+from git history), §4: the predecessor's `cell/commit!` called `obs/read` on every handle — "a
 **second deref of every subscription**, after render already read it" — as the
 invariant-5 tear check, costing 1.19 ms of a 4.0 ms write for 300 reads, against
 Reagent's entire layout-effect phase of 1.4 microseconds. Fresco replaces the
@@ -563,8 +564,9 @@ constraints, the tripwire's "overrides the clock" wording) ·
 [validation.md](validation.md) (the survival metric, the witness set, the
 evidence rule) · [charter.md](charter.md) §Constraints (the anti-regression fence)
 · [EP-0038](../../EP/EP-0038-the-fresco-view-layer-programme.md) ·
-[the bulk-rerender profile](../freehand/studio/bulk-rerender-where-the-time-goes.md)
-(the measured predecessor ledger this page's forbidden class is drawn from).
+the bulk-rerender profile,
+`docs/design/freehand/studio/bulk-rerender-where-the-time-goes.md` at commit `9cee47cf38`
+(the measured predecessor ledger this page's forbidden class is drawn from, read from git history).
 
 Arms gated by this page: `rf2-2rtt6.9` (lean-React) and `rf2-2rtt6.10` (PATCH).
 Recorded on `rf2-2rtt6.1`.

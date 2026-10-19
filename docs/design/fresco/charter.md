@@ -87,7 +87,8 @@ nuisance, never a resolver conflict.
   beads as specification donors. Building the bar is phase P0.
 - The W1 interpreted-mount discrepancy is **resolved** in the tracked record
   (`docs/design/freehand/studio/bulk-rerender-where-the-time-goes.md`,
-  appendix): 2.987 is the operative figure; 1.904 was a different witness and
+  appendix; removed from the tree, read from git history at commit
+  `9cee47cf38`): 2.987 is the operative figure; 1.904 was a different witness and
   mount door with no Reagent arm; a clean re-run reproduced 3.075. P0 carries
   ≈2.99–3.08× floor / ≈1.9–2.0× Reagent into the baseline table; only the
   dominance attribution remains open, as its own bead.
@@ -287,7 +288,8 @@ shape — still binds.*
 
 The requirements harness — tracked at
 `docs/design/freehand/studio/fitness-harness.md` (the sanitized, content-identical
-copy of the exploration original) — is a
+copy of the exploration original) until that tree was removed, and read from git
+history at commit `9cee47cf38` — is a
 **requirements mine, not a redesign brief**: v0 is judged on the five tier-1 shapes
 plus core input; the full R-A/R-B/R-C cell-by-cell gauntlet and the buffered-input
 pin list apply at product phase. The census names **the five tier-1 shapes** (the phrase every gate leans on): the

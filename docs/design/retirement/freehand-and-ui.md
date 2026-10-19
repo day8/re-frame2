@@ -17,13 +17,14 @@ kept as evidence and is no part of this plan — is [`donor-surfaces.md`](donor-
 The obvious home is the withdrawn programme's own design tree, and a plan filed inside its own
 subject stops being readable at exactly the moment someone needs to check whether the demolition
 was complete. **The stronger reason first given here — that the design tree was itself one of this
-plan's deletions — has been overtaken and must not be re-cited: `docs/design/freehand/` is KEPT,
-ruled `rf2-0moc4` on 2026-08-18. The record of that ruling is in
-[§What is in each phase](#what-is-in-each-phase) below, beside the R6 surface list that used to
-imply otherwise.** The separation stands on the readability reason alone, which is enough.
+plan's deletions — was overtaken: `docs/design/freehand/` was KEPT, ruled `rf2-0moc4` on
+2026-08-18, and Mike reversed that ruling on 2026-10-19 (`rf2-fze7h`), removing the tree outside
+this plan. The record of both rulings is in
+[§What is in each phase](#what-is-in-each-phase) below, beside the R6 surface list.** The
+separation stands on the readability reason alone, which is enough.
 
-`docs/design/retirement/` is a new sibling of `design/freehand/` and `design/fresco/`, added to
-`mkdocs.yml`'s `exclude_docs` the same way they are: a working design record, tracked and
+`docs/design/retirement/` is a sibling of `design/fresco/`, held in `mkdocs.yml`'s `exclude_docs`
+the same way it is: a working design record, tracked and
 greppable, not a page of the built site. `scripts/check_doc_slugs.py` still validates its links and
 anchors, and that checker runs unconditionally in `test.yml`'s `verify-readme-links` job.
 
@@ -373,17 +374,24 @@ were re-measured immediately before the cut rather than inherited: external `FH-
 (rf2-0yp7w.8) closes as absorbed rather than being dispatched as a second corpus deletion.
 
 **R6** is the remaining ~237 prose files: `docs/design/freehand/` — **in scope for bounded
-corrective editing and never for deletion; see the ruling immediately below** — the `docs/api`
+corrective editing and never for deletion under R6; see the rulings immediately below** — the `docs/api`
 pages, `docs/skills`, `skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root
 `README.md`/`CHANGELOG.md`/`AGENTS.md`/`CLAUDE.md` mentions, `spec/Conventions.md`'s Freehand
 section and `:rf.adapter/*` row, `spec/006-ReactiveSubstrate.md`'s adapter table, `spec/API.md`'s
 rows, `spec/Ownership.md`, and the ~80 comment and docstring lines left in `core/src`, `ssr/src`,
 `ssr-ring/src` and `tools/xray/src`.
 
-**`docs/design/freehand/` is KEPT — ruled `rf2-0moc4` on 2026-08-18, after two workers in
-succession refused an instruction to delete it.** All 37 tracked files stay where they are.
-Appearing in the R6 list above has never meant they are removed, and a sweep that read it as an
-instruction to delete has misread it twice.
+**`docs/design/freehand/` was REMOVED on 2026-10-19 — Mike's ruling, `rf2-fze7h`, reversing the
+`rf2-0moc4` KEEP below.** All 37 files went in one commit, and every inbound citation — the four
+studio links the fresco-coupling paragraph below measured among them — was repointed to plain
+text in the same change. The last trunk commit carrying the tree is `9cee47cf38`, where
+`git show 9cee47cf38:<path>` reads any file of it. The rest of this section records the KEEP as
+it stood from 2026-08-18 until then, and its present tense is that period's.
+
+**`docs/design/freehand/` was KEPT — ruled `rf2-0moc4` on 2026-08-18, after two workers in
+succession refused an instruction to delete it.** All 37 tracked files stayed where they were.
+Appearing in the R6 list above never meant they were removed, and a sweep that read it as an
+instruction to delete misread it twice.
 
 **KEEP settles deletion, not editing, and running those two together is what left this passage
 self-contradictory once already.** The ruling's summary — "contents untouched" — answers the
@@ -403,7 +411,7 @@ another programme's evidence. **So, in one line: outside `studio/`, correct stal
 links, factual errors and contradictions with rulings — all four of the EP-0036 classes quoted
 above, and no fifth — and add nothing; inside `studio/`, nothing; delete nothing anywhere.**
 
-**The deciding reason is the fresco coupling.** `docs/design/fresco/` is itself ruled kept, and it
+**The deciding reason was the fresco coupling.** `docs/design/fresco/` is itself ruled kept, and it
 anchors its measurement numbers to the frozen studio tree — `docs/design/fresco/studio/README.md`
 records that `docs/design/freehand/studio/` "is frozen and is never extended", which is a statement
 about the tree's role, not merely about its contents. Deleting the design tree would pull that
@@ -426,7 +434,7 @@ published site, so keeping the tree costs the docs build nothing.
 **One support the ruling originally leaned on has since lapsed, and citing it now would be wrong.**
 It rested partly on 11 markdown links from `spec/004-Views.md` that `check_doc_slugs.py` validated
 on every PR; that file has since been deleted and those links went with it. Nothing about the
-fresco coupling depends on it, so the ruling stands unchanged on the four links above.
+fresco coupling depends on it, so the ruling stood unchanged on the four links above until its reversal.
 
 **`docs/EP/EP-0030` through `EP-0036` are historical programme records and this plan does not
 delete them.** A withdrawn programme's EP is the reason the withdrawal is legible; deleting it

@@ -24,16 +24,16 @@ site_dir: site
 # build) before `mkdocs build`, so this exclude is load-bearing in CI as well
 # as locally, keeping the installed node_modules/ READMEs out of the
 # published site.
-# Exclude the durable Freehand design record (EP-0036) from the mkdocs scan.
-# Its evidence links were written for source-tree browsing (for example,
-# ../../../../spec/...), which escape docs_dir and would trip --strict. The
-# record is reviewable on GitHub and in a checkout; graduated contracts
-# live in their canonical spec owners rather than being published from here.
+# Exclude the source-tree design records under docs/design/ from the mkdocs
+# scan. Their evidence links were written for source-tree browsing (for
+# example, ../../../../spec/...), which escape docs_dir and would trip
+# --strict. The records are reviewable on GitHub and in a checkout;
+# graduated contracts live in their canonical spec owners rather than being
+# published from here.
 exclude_docs: |
   tools/playground/
   migration/from-re-frame-v1/codemod/
   migration/reagent-to-fresco/codemod/
-  design/freehand/
   design/fresco/
   design/retirement/
   spec/findings/
