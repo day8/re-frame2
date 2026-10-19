@@ -5,7 +5,10 @@
   never consults the validator. A truthiness test of the schema VALUE would
   silently skip the present falsey token. The schemas artefact's own
   `re-frame.schemas-presence-test` pins `run-validation` and the production
-  boundary interceptor."
+  boundary interceptor.
+
+  A failing sub-return or sub-override check reports and passes the value
+  through (`:recovery :no-recovery`, Spec 010 §Per-step recovery row 6)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.cofx :as rf.cofx]
@@ -54,6 +57,17 @@
 (def ^:private validate-recordable-value!
   @#'rf.cofx/validate-recordable-value!)
 
+(defn- failure-recoveries
+  "`[where recovery]` of each schema-validation failure `thunk` emits."
+  [thunk]
+  (let [seen (atom [])]
+    (rf.trace.tooling/register-listener! ::failure-recoveries
+      (fn [ev]
+        (when (= :rf.error/schema-validation-failure (:operation ev))
+          (swap! seen conj [(get-in ev [:tags :where]) (:recovery ev)]))))
+    (try (thunk) (finally (rf.trace.tooling/unregister-listener! ::failure-recoveries)))
+    @seen))
+
 (deftest recordable-cofx-schema-is-key-presence
   (doseq [token [nil false]]
     (testing (pr-str token)
@@ -72,10 +86,13 @@
 (deftest sub-override-schema-is-key-presence
   (doseq [token [nil false]]
     (testing (pr-str token)
-      (let [seen (spy-validator!)]
-        (is (nil? (rf.subs.override-schema/validate-sub-override!
-                    {:pinned :state} [:sub/x] {:schema token} nil))
-            "the false verdict recovers to nil")
+      (let [seen     (spy-validator!)
+            surfaced (atom ::unread)]
+        (is (= [[:sub-override :no-recovery]]
+               (failure-recoveries
+                 #(reset! surfaced (rf.subs.override-schema/validate-sub-override!
+                                     {:pinned :state} [:sub/x] {:schema token} nil)))))
+        (is (= {:pinned :state} @surfaced) "the false verdict passes the pinned value through")
         (is (= [token] @seen)))))
   (let [seen (spy-validator!)]
     (is (= {:pinned :state}
@@ -89,10 +106,13 @@
 (deftest ^:requires-debug memo-gate-schema-is-key-presence
   (doseq [token [nil false]]
     (testing (pr-str token)
-      (let [seen (spy-validator!)]
-        (is (nil? (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x
-                                                    {:schema token} nil))
-            "the false verdict recovers to nil")
+      (let [seen     (spy-validator!)
+            surfaced (atom ::unread)]
+        (is (= [[:sub-return :no-recovery]]
+               (failure-recoveries
+                 #(reset! surfaced (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x
+                                                                     {:schema token} nil)))))
+        (is (= 42 @surfaced) "the false verdict passes the value through")
         (is (= [token] @seen)))))
   (let [seen (spy-validator!)]
     (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x {:doc "x"} nil)))

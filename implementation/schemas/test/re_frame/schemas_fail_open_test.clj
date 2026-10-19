@@ -66,14 +66,14 @@
            (malformed #(rf/dispatch-sync [:emit/both]))))
     (is (= [:sibling] @calls))))
 
-(deftest sub-malformed-schema-fails-closed-replaced-with-default
+(deftest sub-malformed-schema-fails-closed-and-passes-the-value-through
   (rf/reg-event :sub/init (fn [_ _] {:db {:items [1 2 3]}}))
   (rf/reg-sub :sub/malformed {:schema [:vector]} (fn [db _] (:items db)))
   (rf/dispatch-sync [:sub/init])
   (let [value (atom ::unread)]
-    (is (= [{:where :sub-return :schema [:vector] :recovery :replaced-with-default}]
+    (is (= [{:where :sub-return :schema [:vector] :recovery :no-recovery}]
            (distinct (malformed #(reset! value (rf/subscribe-once [:sub/malformed]))))))
-    (is (nil? @value))))
+    (is (= [1 2 3] @value))))
 
 (deftest boundary-seam-malformed-schema-returns-false
   (is (= [false true false]

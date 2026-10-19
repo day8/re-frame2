@@ -12,9 +12,9 @@
   `:schemas/validate-with-registered-fn` late-bind hook (NOT a second
   validation mechanism, NO tools dependency), emit
   `:rf.error/schema-validation-failure` with the `:where :sub-override`
-  discriminator, and recover-to-nil (mirroring `:sub-return`'s
-  `:replaced-with-default`). An impossible override is rejected wherever it
-  is consulted, never only in the fast path.
+  discriminator, and render the pinned value anyway (`:recovery
+  :no-recovery`, as `:sub-return` does). An impossible override is reported
+  wherever it is consulted, never only in the fast path.
 
   This primitive is HOST-AGNOSTIC (`.cljc`) so a headless JVM render reaches
   it too (`interop/debug-enabled?` is true there), while the consult itself
@@ -29,7 +29,8 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn validate-sub-override!
-  "Validate a resolved Story override HIT and RECOVER to nil on a violation.
+  "Validate a resolved Story override HIT, report a violation, and return
+  the pinned value either way.
 
   When `sub-meta` declares an output `:schema` — declaration is KEY-presence,
   not value truthiness; a present nil / false token is delegated
@@ -38,10 +39,9 @@
   a mismatch, emit `:rf.error/schema-validation-failure` tagged `:where
   :sub-override` (value-bearing slots routed through the shared
   `:schemas/redact-validation-tags` seam so a `:sensitive?`-marked sub
-  scrubs identically to the `:sub-return` path) and return nil. On a pass /
-  no `:schema` / no registered validator, return `value` unchanged. A
-  throwing validator is treated as a pass (mirrors
-  `subs.memo/maybe-validate-sub!`) so a bad validator never crashes the
+  scrubs identically to the `:sub-return` path) with `:recovery
+  :no-recovery`. `value` is returned unchanged in every case. A throwing
+  validator is treated as a pass so a bad validator never crashes the
   render.
 
   `query-v` is the overridden query (its head is the sub-id); `frame-id` is
@@ -80,10 +80,10 @@
                                  :reason         (str "Subscription " sub-id
                                                       " :sub-override value failed schema "
                                                       (pr-str schema) ".")
-                                 :recovery       :replaced-with-default}
+                                 :recovery       :no-recovery}
                           frame-id (assoc :frame frame-id))]
             (rf.trace/emit-error! :rf.error/schema-validation-failure
                                (cond-> tags
                                  redact (->> (redact schema))))
-            nil))
+            value))
         value))))

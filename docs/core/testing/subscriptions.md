@@ -73,13 +73,13 @@ the input ids and require list as well as the sub's computation.
 
 ## When the sub carries a `:schema`
 
-Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its value in dev, `compute-sub` included. A shape bug emits a `:rf.error/schema-validation-failure` error record, and the call returns `nil`. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
+Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its value in dev, `compute-sub` included. A shape bug emits a `:rf.error/schema-validation-failure` error record, and the call still returns the computed value. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `compute-sub` returns `nil` unexpectedly | The sub body threw (`:rf.error/sub-exception`), its output failed its `:schema`, or an input names an unregistered sub (which computes to `nil` with no error record) | Check your error listener, then the input ids and the require list |
+| `compute-sub` returns `nil` unexpectedly | The sub body threw (`:rf.error/sub-exception`), or an input names an unregistered sub (which computes to `nil` with no error record) | Check your error listener, then the input ids and the require list |
 | Test passes but the app shows something else | The literal `db` no longer matches the shape your handlers build | Seed the db with `:initial-events` |
 
 If a hand-rolled fixture or a REPL session does use the live cache, `(rf/clear-sub-cache! frame-id)` disposes every cached subscription for that frame. The reset fixture already discards frames between tests.

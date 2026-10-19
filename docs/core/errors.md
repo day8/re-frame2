@@ -408,7 +408,7 @@ the `:where` tag:
 | `:event` | The handler is skipped. |
 | `:app-db`, `:machine-data` | The run is rolled back; nothing commits. |
 | `:fx-args` | Only the offending fx is skipped; the others run. |
-| `:sub-return`, `:sub-override` | The sub yields `nil` and the view renders on. |
+| `:sub-return`, `:sub-override` | Reported only; the sub yields its value and the view renders on. |
 | `:flow-output`, `:machine-output` | Observational only; the value still commits. |
 
 `:explain` holds the Malli explanation. A schema that is itself malformed (a

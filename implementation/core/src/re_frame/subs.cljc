@@ -1542,7 +1542,7 @@
 ;; real derivation could never produce' anti-pattern) lives in the ONE
 ;; shared `re-frame.subs.override-schema/validate-sub-override!` primitive
 ;; so the compiled-view path applies byte-identical
-;; validation + `:replaced-with-default` recovery.
+;; validation + `:no-recovery` reporting.
 
 #?(:cljs
    (defn- resolve-sub-override
@@ -1857,9 +1857,9 @@
    ;; `:sub-return` — through the registered validator
    ;; (`:schemas/validate-with-registered-fn`), dev-only. On a mismatch we
    ;; emit `:rf.error/schema-validation-failure` with a `:where
-   ;; :sub-override` discriminator and surface nil, mirroring
-   ;; `:sub-return`'s `:replaced-with-default` posture (observational —
-   ;; the failure is emitted, the violating value is not surfaced).
+   ;; :sub-override` discriminator and still surface the pinned value,
+   ;; as `:sub-return` does (`:recovery :no-recovery` — the failure is
+   ;; reported, the view renders what was pinned).
    ;;
    ;; This whole block is the same `rf.interop/debug-enabled?` +
    ;; `rf.late-bind/get-fn` envelope the `:views/*` subscribe hooks above use,

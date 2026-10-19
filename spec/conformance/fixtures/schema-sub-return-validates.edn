@@ -1,11 +1,10 @@
 ;; Conformance fixture: schemas/sub-return-validates
 ;; Per Spec 010 §Validation order step 6 — a sub's return value is
 ;; validated against its :schema AFTER each materialisation/recompute.
-;; Well-formed returns flow through to consumers; malformed returns
-;; emit :rf.error/schema-validation-failure with :where :sub-return.
-;; Default recovery is :replaced-with-default — the sub yields nil to
-;; its consumer (mirrors the per-step recovery for sub-exception in
-;; Spec 010 §Per-step recovery).
+;; Every return reaches its consumer; a malformed return also emits
+;; :rf.error/schema-validation-failure with :where :sub-return and
+;; :recovery :no-recovery — the check reports and passes the value
+;; through (Spec 010 §Per-step recovery row 6).
 ;;
 ;; This capability — :schemas/sub-return — is finer-grained than the
 ;; baseline :schemas/runtime. Ports that have wired sub-return validation
@@ -17,7 +16,7 @@
 {:fixture/id           :schemas/sub-return-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/sub :core/error :schemas/runtime :schemas/sub-return}
- :fixture/doc          "A reg-sub registered with a :schema validates the sub's return value after it computes. Well-formed returns reach the caller; malformed returns emit :rf.error/schema-validation-failure with :where :sub-return and the caller sees nil (default :replaced-with-default recovery)."
+ :fixture/doc          "A reg-sub registered with a :schema validates the sub's return value after it computes. Every return reaches the caller; a malformed return also emits :rf.error/schema-validation-failure with :where :sub-return and :recovery :no-recovery."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -39,11 +38,11 @@
 
  :fixture/expect
  ;; The :items slot in app-db holds whatever the handler wrote — the schema
- ;; is on the SUB's return shape, not the slot. The sub's return is what's
- ;; replaced with nil after validation fails.
+ ;; is on the SUB's return shape, not the slot. The failing return still
+ ;; reaches the caller.
  {:final-app-db {:items [1 2 3]}
 
-  :sub-values   {[:items] nil}                 ;; :replaced-with-default
+  :sub-values   {[:items] [1 2 3]}             ;; :no-recovery — passed through
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :items/init}}
@@ -53,4 +52,4 @@
     :tags      {:failing-id :items
                 :where      :sub-return
                 :rf.sub/id     :items}
-    :recovery  :replaced-with-default}]}}
+    :recovery  :no-recovery}]}}

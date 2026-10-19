@@ -7,7 +7,7 @@
   An override HIT short-circuits build-and-cache (a nil value is still a hit);
   `compute-sub`, the seam `:rf.assert/sub-equals` uses, never sees an override;
   an override violating the sub's `:schema` emits
-  `:rf.error/schema-validation-failure` and surfaces nil (Spec 010
+  `:rf.error/schema-validation-failure` and still surfaces as pinned (Spec 010
   §`:sub-return`); and a stale captured subscribe is fenced before the override
   is consulted."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
@@ -77,7 +77,7 @@
   (rf/reg-sub :count/value {:schema :int} (fn [db _] (get db :n 0)))
   (rf/reg-sub :free/value (fn [db _] (get db :v)))
   (doseq [[query-v override surfaced failed?]
-          [[[:count/value] "not-an-int"    nil            true]
+          [[[:count/value] "not-an-int"    "not-an-int"   true]
            [[:count/value] 42              42             false]
            [[:free/value]  {:any "shape"}  {:any "shape"} false]]]
     (let [result (atom ::unread)

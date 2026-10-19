@@ -1214,9 +1214,9 @@
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
   validate its return value against any :schema on the sub's metadata.
   Failures emit `:rf.error/schema-validation-failure :where
-  :sub-return`; the caller replaces the value with the default (nil)
-  per the `:replaced-with-default` recovery. Returns true/false per
-  the `run-validation` contract.
+  :sub-return` with `:recovery :no-recovery`; the caller still delivers
+  the computed value. Returns true/false per the `run-validation`
+  contract.
 
   The optional frame is stamped on the trace so runtime calls join the
   in-flight epoch. Direct callers may omit it."
@@ -1239,7 +1239,7 @@
                   :reason     (reason-string "Subscription " sub-id
                                              " return value failed schema "
                                              schema value)
-                  :recovery   :replaced-with-default}
+                  :recovery   :no-recovery}
             frame (assoc :frame frame))))
      true)))
 

@@ -25,16 +25,16 @@ Register `app-db` schemas through the `re-frame.core` facade, as `rf/reg-app-sch
 
 ## What is validated
 
-In a development build each schema is checked where its data is produced, and a value that fails goes no further:
+In a development build each schema is checked where its data is produced:
 
 | Schema on | Declared with | Checked | On failure (`:where`) |
 |---|---|---|---|
 | An `app-db` path | `reg-app-schema` or `reg-app-schemas` | After an event handler returns `:db`, before the new `app-db` installs. Every schema the frame resolves is checked, including those at paths the handler did not write. | `:app-db`. The event's whole transition is rejected: `app-db` keeps its pre-handler value and the event's `:fx` do not run. |
 | An event | `:schema` on `reg-event`, matched against the whole event vector, id included | Before the handler runs. | `:event`. The handler does not run; the queue moves on to the next event. |
 | An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
-| A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The subscription yields `nil`. |
+| A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The failure is reported and the subscription still yields the computed value. |
 
-Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`).
+Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override still renders as pinned).
 
 Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and resources (`:params-schema`; [`reg-resource`](re-frame.resources.md#reg-resource)) also validate through this validator but report their own errors; each of those entries says when its check runs and what a failure does. A `{:recordable? true}` coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
 
@@ -43,7 +43,7 @@ Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and r
 The four checks in the table, and the flow, machine and `:sub-override` checks, report a failure rather than throw it; see [Errors](README.md#errors) for how a reported id reaches you.
 
 - **The trace.** Each failure emits an `:rf.error/schema-validation-failure` trace, which Xray shows on the event that caused it. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
-- **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:flow-output`, `:machine-data` and `:machine-output`; `:skipped` for `:fx-args`; `:replaced-with-default` for `:sub-return` and `:sub-override`.
+- **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:flow-output`, `:machine-data`, `:machine-output`, `:sub-return` and `:sub-override`; `:skipped` for `:fx-args`.
 - **The always-on `:errors` record.** Two failures are also reported on the always-on `:errors` stream, so they reach the frame's `:observability :errors` sinks, or the browser console when no sink handles them. Neither record carries the failing value:
     - An `app-db` rejection's record carries `:rf.error/id`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the leaf path or the schema.
     - A [`:boundary? true`](#validation-in-production) event's failure sends a record with a fixed key set: `:rf.error/id`, `:where`, `:source :boundary`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery` and `:time`.
@@ -347,7 +347,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-sub! sub-id query-v value sub-meta frame) → boolean
   ```
 - **Description**: Validates a subscription's value against the `:schema` in its registration metadata, after the subscription recomputes.
-    - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return`, and the caller replaces the value with `nil` (recovery `:replaced-with-default`).
+    - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return` and recovery `:no-recovery`; the caller still delivers the value.
     - The optional `frame` argument stamps `:frame` on the trace for epoch capture.
     - Returns `true` or `false`.
 

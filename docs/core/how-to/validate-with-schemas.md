@@ -185,7 +185,7 @@ The `:schema` key works on other registration kinds too, with the same failure t
   (fn [] (js/Date.now)))
 ```
 
-- **Sub return** (`:where :sub-return`): the failure is reported and the [subscription](../glossary.md#subscription) yields `nil` to its consumer (`:replaced-with-default`), so [views](../glossary.md#view) see no value rather than a bad one. The [pipeline run](../glossary.md#run) continues.
+- **Sub return** (`:where :sub-return`): the failure is reported and the [subscription](../glossary.md#subscription) still yields the computed value to its consumer (`:no-recovery`), so a [view](../glossary.md#view) renders what the sub produced and the report points at the sub, rather than a `nil` failing somewhere downstream. The [pipeline run](../glossary.md#run) continues.
 - **Fx args** (`:where :fx-args`): the offending [effect](../glossary.md#effect) is skipped and the others in the same `:fx` vector still run. The trace names the failing effect.
 - **Recordable coeffect**: a [recordable coeffect](../glossary.md#coeffect)'s value is saved so the run [replays](../glossary.md#time-travel) identically, so a value that fails its schema would make a later replay rebuild corrupt state ([Coeffects](../coeffects.md) explains the two grades). A mismatch emits `:rf.error/cofx-value-invalid` and throws, halting the run, in every build: the framework refuses to record the value. An ambient coeffect's `:schema` is a dev-only check like the others above.
 
