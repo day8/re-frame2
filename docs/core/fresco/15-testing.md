@@ -406,6 +406,48 @@ Examples include:
 subscription, or a frame the app made and did not destroy, is a bug; fix it
 rather than loosening the check. It does not see stray DOM listeners or timers.
 
+### Boundaries without React: `re-frame.fresco.test.runtime`
+
+Tooling that inspects Fresco's runtime, such as a panel that lists mounted
+boundaries, needs live boundaries but not a React root.
+`re-frame.fresco.test.runtime`, usually aliased `rt`, provides that seam:
+
+| Call | Behaviour |
+| --- | --- |
+| `rt/render-and-commit!` | Run one body, or a `defview`, in a frame and commit it in React's place. Returns `{:element … :reads … :release …}`: the React element it rendered, the subscriptions it read, and the cleanup that takes the boundary down |
+| `rt/reset-bracket` | An `:each` fixture. After each test it waits for the runtime to settle, fails the test if any subscription, reader edge, boundary or cached read set survived, and only then resets the runtime |
+
+```clojure
+(ns my-tool.boundary-census-test
+  (:require [cljs.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.substrate :as substrate]
+            [re-frame.fresco.test.runtime :as rt]
+            [re-frame.test-support :as ts]
+            [todo.subs]))
+
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter substrate/adapter :async? true})
+  rt/reset-bracket)
+
+(deftest a-boundary-holds-what-it-read
+  (rf/make-frame {:id ::app})
+  (let [{:keys [reads release]}
+        (rt/render-and-commit! ::app (fn [_] (h/sub [:todo/count]) nil))]
+    (is (= #{[::app [:todo/count]]} reads))
+    (release)))
+```
+
+The bracket checks before it resets because a reset empties the tables it would
+read: a test that resets first and checks afterwards passes whether or not its
+boundaries were released. A test that forgets `(release)` fails here.
+
+`rt/reset-bracket` is a map fixture, and `cljs.test` will not mix map and
+function fixtures in one namespace, so the runtime fixture beside it is built
+in its map form with `:async? true`. List the bracket after it, as above: it
+then checks before that fixture's teardown runs.
+
 ## L4: real browser engines
 
 Use Chromium, Firefox, and WebKit for behaviour that depends on an actual
