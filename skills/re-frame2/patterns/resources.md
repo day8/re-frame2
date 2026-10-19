@@ -36,7 +36,7 @@ Three roles never blur:
 (rf/reg-resource
   :article/by-slug
   {:doc            "Article detail by slug."
-   :params-schema  [:map [:slug :string]]          ;; REQUIRED — validates + canonicalizes params
+   :params-schema  [:map [:slug :string]]          ;; optional — validates the params' shape
    :data-schema    :app/article                    ;; static shape fact for tooling — runtime validation rides :decode
    :scope          :rf.scope/global                 ;; REQUIRED — see §Scope is mandatory
    :stale-after-ms 60000                            ;; fresh window; after it, an ensure refetches
@@ -51,6 +51,8 @@ Three roles never blur:
 
 The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` / `:reply-to` — the runtime owns reply addressing and stale suppression (those are rejected at registration / dispatch), and a continuation goes in the call-site `:reply-to`.
 
+**`:params-schema` is optional on `reg-resource`** (a mutation still requires its own). Declared, it validates params on every event and subscription when `re-frame.schemas` is loaded, so a bad read stays loud (`:rf.error/resource-invalid-params`). Omitted, params are taken as given: they still canonicalize, an absent `:params` is `{}`, and a non-EDN value is still refused at the cache-key boundary. The canonical params are the identity either way; the schema adds a shape check.
+
 ### Read it (passive subscriptions)
 
 ```clojure
@@ -64,7 +66,7 @@ The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id`
   ...)
 ```
 
-Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`. The status semantics are Pattern-RemoteData's, refined: `:loading` = first load, no usable data; `:fetching` = refreshing while prior data stays visible; `:error` = first load failed (no data); `:refresh-error` = a background refresh failed but prior `:data` is kept; `:unresolved` = the `{:from-db}` scope resolved nil, so the read has no identity (projected, never stored). **A subscription never fetches** and never silently returns `:idle` for a scope mismatch — an unresolvable `{:from-db}` scope reads no entry and reports `:status :unresolved` (add a `case` arm; never `:idle`, never global).
+Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`. The status semantics are Pattern-RemoteData's, refined: `:loading` = first load, no usable data; `:fetching` = refreshing while prior data stays visible; `:error` = first load failed (no data); `:refresh-error` = a background refresh failed but prior `:data` is kept; `:unresolved` = the `{:from-db}` scope resolved nil, so the read has no identity (projected, never stored); `:unplanned` = a route-bound read whose resource the active route does not plan (projected, never stored — §Route-driven loading). **A subscription never fetches** and never silently returns `:idle` for a scope mismatch — an unresolvable `{:from-db}` scope reads no entry and reports `:status :unresolved` (add a `case` arm; never `:idle`, never global).
 
 ### Cause it to fetch (events)
 
@@ -90,7 +92,7 @@ Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `
 
 `:scope` is REQUIRED at `reg-resource`. It is the cache's tenant / user / permission / locale / impersonation / SSR leak boundary, so it **fails closed** — there is no silent shared default:
 
-> **The leak boundary other libraries do not have.** TanStack Query / RTK Query / SWR put the viewer id *inside the query key* (`['dashboard', userId, tenantId]`), but that segment is a **convention** — hand-assembled at every call site, so a forgotten `tenantId` in one of forty keys is a *silent* shared-cache leak (a missing line throws nothing), with logout left to `queryClient.clear()` (drops everyone). re-frame2 makes the **resolved scope part of the key's *type*, not a concatenated segment**: the runtime computes it into `[scope resource-id params]` structurally, it is **required** at registration, **fails closed** (unresolvable scope is a loud error, never a silent shared read), and logout is a **causal scoped clear** (`:rf.resource/clear-scope`) that touches one principal's entries and leaves global intact. The shift is *trust* → *structure*. Depth: `SKILL-REDIRECT.md` → *EP — Resources (016)* §Scope resolution.
+> **The leak boundary other libraries do not have.** TanStack Query / RTK Query / SWR put the viewer id *inside the query key* (`['dashboard', userId, tenantId]`), but that segment is a **convention** — hand-assembled at every call site, so a forgotten `tenantId` in one of forty keys is a *silent* shared-cache leak (a missing line throws nothing), with logout left to `queryClient.clear()` (drops everyone). re-frame2 makes the **resolved scope part of the key's *type*, not a concatenated segment**: the runtime computes it into `[scope resource-id params]` structurally, it is **required** at registration, **fails closed** (unresolvable scope is a loud error, never a silent shared read), and a change of user is **one causal event** (`:rf.resource/change-principal`) that clears the departing principal's scopes, leaves global intact, and replans the current route. The shift is *trust* → *structure*. Depth: `SKILL-REDIRECT.md` → *EP — Resources (016)* §Scope resolution.
 
 - `:rf.scope/global` — an explicit, auditable **claim**: "the same params produce the same data for every user, tenant, locale, impersonation state." Xray enumerates every global resource as the security-review list. **"Readable anonymously" is NOT this claim.** *Public access is not cache-identity proof.* An endpoint can allow logged-out reads and still return bytes that vary with the *optional* authenticated viewer (a `favorited` / `following` / "your rating" flag folded into an otherwise-public payload). That read is **viewer-scoped, not global** — declare `{:from-db <viewer-resolver>}`, and let the resolver distinguish signed-in (`[:rf.scope/viewer {:username …}]`) from confirmed-anonymous (`[:rf.scope/viewer :anonymous]`) from *unresolved* (nil / fail-closed, e.g. a saved token present but the user not restored yet — a read fired then is authenticated, so it must not be labelled shareable-anonymous).
 - a **named resolver reference** `{:from-db <resolver-id>}` — the db-derived viewer identity form (below). It derives a concrete scope that materializes as visible EDN in the key, e.g. `[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]`, and its `:inputs` are declared so tooling reads the derivation without running it.
@@ -110,7 +112,7 @@ When the same viewer identity (session / tenant / account / locale / impersonati
 
 ;; reference it anywhere derived scope is allowed:
 (rf/reg-resource :feed
-  {:params-schema [:map [:page :int]]                    ;; REQUIRED — see §Canonical declaration
+  {:params-schema [:map [:page :int]]                    ;; optional — see §Canonical declaration
    :scope         {:from-db :session}                    ;; ← reference
    :tags          (fn [_params _value] #{[:feed] [:article-list]})}
   (fn [{:keys [page]} _ctx]
@@ -124,18 +126,20 @@ The grammar is 3-slot — `(reg-resource-scope id metadata resolve-fn)`: the `{:
 >
 > **And there is no anonymous scope function anywhere — a route `:resources` entry included.** A route entry's `:scope` is a `{:from-db <id>}` reference or a concrete scope value; an `(fn [route ctx] …)` there is refused loud at route planning (`:rf.error/resource-route-plan`, `:recovery :fix-scope`), never a silent inherit of the registration's policy. Scope is the one input a tool must be able to read without running your code, so it is declared as data at every site. A route FACT that decides identity (a tenant in a path segment) waits on the reserved `[:runtime <path>]` resolver input — name db-derived identity with `reg-resource-scope` in the meantime.
 
-Login, logout, account switch, tenant switch, permission change, and impersonation enter/exit MUST clear or replace the affected scope causally. Clear the scope the user was **in** — and resolve that scope from the handler's **coeffect db** (pre-transition by definition) *before* removing the user, using the `resolve-resource-scope` helper:
+**A change of principal is one event.** Login, logout, a restored or rejected session, an account or tenant switch, and impersonation enter/exit each dispatch `:rf.resource/change-principal` from the handler that commits the new identity. `:from` names the departing principal's scopes, resolved from the handler's **coeffect db** (pre-transition by definition) with the `resolve-resource-scope` helper:
 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :session)]   ;; concrete scope from cofx db
-      {:db (dissoc db :auth)
-       :fx [[:dispatch [:rf.resource/clear-scope
-                        {:scope old-scope :cause :logout}]]]})))
+    {:db (dissoc db :auth)
+     :fx [[:dispatch [:rf.resource/change-principal
+                      {:from  [(rf/resolve-resource-scope db :session)]   ;; concrete scopes from cofx db
+                       :cause :logout}]]]}))
 ```
 
-`resolve-resource-scope` is a **pure** data helper over the resolver registry — resolves a named scope against a *given* db value, no timing ambiguity, no side effects, and emits **no** `:rf.resource/scope-resolved` trace (that fires only at causal resolution boundaries — resource events, route entry, mutation settlement, clear-scope diagnostics; `resolve-resource-scope` and subscription-key resolution are trace-free passive reads). **Never** put a whole-db snapshot on the event payload (there is no `:snapshot-db` key) — a db snapshot riding an event vector is an egress-bearing record on traces/epoch history, rejected under the egress policy. The `clear-scope` payload takes a **concrete** scope only — resolve it in your own handler, as above. The dispatched event runs against the post-transition db, where the resolver's inputs are already gone, so a `{:from-db …}` reference there is refused loud (`:rf.error/resource-invalid-scope`) before any cache state changes.
+The event clears each `:from` scope with `clear-scope`'s semantics — entries leave the cache, in-flight work is cancelled and aborted, owners' holds end, timers are cancelled — and then, when the frame has an active route, dispatches `[:rf.route/replan-resources {:cause …}]` so the current page's reads re-plan under the new identity without navigating. `:from` is a **vector**; a `nil` member (a resolver with nobody to name) is skipped, so login from anonymous and a session restore pass `[]` or a nil-resolving scope and get just the replan. `:cause` is required. The clear is the half that matters most: an old-scope entry still owned by a page or machine would otherwise be refetched on focus, reconnect, a poll tick or an invalidation with the new principal's credentials, storing the new principal's bytes under the old scope.
+
+`resolve-resource-scope` is a **pure** data helper over the resolver registry — resolves a named scope against a *given* db value, no timing ambiguity, no side effects, and emits **no** `:rf.resource/scope-resolved` trace (that fires only at causal resolution boundaries — resource events, route entry, mutation settlement, clear-scope diagnostics; `resolve-resource-scope` and subscription-key resolution are trace-free passive reads). **Never** put a whole-db snapshot on the event payload (there is no `:snapshot-db` key) — a db snapshot riding an event vector is an egress-bearing record on traces/epoch history, rejected under the egress policy. Every `:from` member is a **concrete** scope — resolve it in your own handler, as above. The dispatched event runs against the post-transition db, where the resolver's inputs are already gone, so a `{:from-db …}` reference there is refused loud (`:rf.error/resource-invalid-scope`) before any cache state changes; a `:from` that is not a vector is refused the same way. The lower-level `[:rf.resource/clear-scope {:scope … :cause …}]` clears one concrete scope without a replan.
 
 ### Invalidate after a write (scoped, tag-based)
 
@@ -205,6 +209,14 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
 
 `:blocking?` keeps the route transition pending and gives SSR a wait point; `:when` gates conditional resources (use it, not sentinel `nil` params); `:keep-previous?` keeps the prior page visible while a new page/filter first-loads. `:after #{local-id}` orders **ensure-dispatch only** — it is **not** a data waterfall (a later entry's params come from the *route*, not an earlier entry's loaded data).
 
+**Read what the route planned by resource id — never rebuild its params in the view.**
+
+```clojure
+@(subscribe [:rf/route-resource :article/by-slug])   ;; the identity the active route's plan ensured
+```
+
+It projects that entry exactly as `[:rf/resource …]` does, with the params and scope the planner resolved, so it follows every navigation and replan. A view that rebuilds `{:slug …}` from `[:rf.route/params]` restates the route entry's computation, and when the two drift it reads an un-ensured key at `:idle` with no error. When the plan holds the id under **several** identities (an author's profile beside the reader's own) the read throws `:rf.error/resource-route-read-ambiguous`, naming them — read those with `[:rf/resource {…}]` and explicit params. When the plan holds **none** (no active route, a failed plan, a `:when` gated it out, or the route does not plan that resource) it projects the empty shape at `:status :unplanned`, a value and not `:idle`. Explicit-identity `[:rf/resource {…}]` stays the read for everything a route does not plan.
+
 **Do not restate a parent's reads in every child.** Declaring `:parent` composes the ancestors' `:resources` into the child's plan: activation runs the effective parent-to-leaf branch, identical requirements dedupe to one fetch, and a child that restates a requirement its parent already contributes earns an advisory rather than a second fetch. So a shared shell read (the profile banner behind three profile tabs) is declared **once** on the parent, and the tabs cannot drift its `:blocking?`. Gate a leaf-only entry with `:when` on the route id rather than moving it down. `:parent` is itself the opt-in — nothing else about it is inherited.
 
 **`:resources` drives route readiness; `:on-match` does not.** `:rf.route/transition` / `:rf.route/error` are a projection over the *blocking* requirements in the effective plan, so they mean "this page's data isn't here yet" and nothing else. `:on-match` is fire-and-forget activation work beside them — arbitrary route-entry events the runtime dispatches and never awaits, correlates, or turns into route error state. There is no route `:on-error`.
@@ -249,7 +261,9 @@ A "load more" / infinite-scroll list is **one** resource entry holding a growing
 - **A manual refresh as an owner.** A button click that just wants fresh data is a **cause**, not an owner — it should not keep the entry alive.
 - **Re-implementing a `:select` hook.** Project with an ordinary `reg-sub` over `[:rf.resource/data …]`; the subscription graph is the projection layer.
 - **Keying a cache/lookup by host `=` over normalized EDN.** The scoped key's identity is the **`CEDN-1` byte comparison**, not host `=`. Host equality over a normalized EDN value is **not** sufficient unless it preserves EDN *kind*: in CLJS `(= [:a 1] '(:a 1))` is `true`, but a vector and a list are distinct `CEDN-1` identities (different type tags), so a hand-rolled `assoc`-into-a-host-map keyed on raw params can collide two distinct reads or miss a hit. Sorting map keys is necessary but not sufficient — kind-collapse still bites. Let the framework compute the key (`:scope` + `:params` flow through the canonical rule); never derive your own resource key from `(= params-a params-b)` or a host hash over raw params. See [`../references/cross-cutting/path-and-identity.md`](../references/cross-cutting/path-and-identity.md) §Canonical EDN identity (`CEDN-1`) — the "CEDN-1 byte trap" callout.
-- **`:snapshot-db` on a logout/clear-scope payload.** There is no such key. Resolve the concrete old scope from the handler's coeffect db via `resolve-resource-scope`, before removing the user. A whole-db snapshot on an event is an egress-bearing record.
+- **A hand-written logout teardown.** A logout that dispatches `clear-scope` and then a replan (or a navigate) by hand drops a step sooner or later, and the dropped clear is the dangerous one. Dispatch `:rf.resource/change-principal` with the departing scopes instead — for login and session restore too.
+- **`:snapshot-db` on a logout / change-principal payload.** There is no such key. Resolve the concrete old scopes from the handler's coeffect db via `resolve-resource-scope`, before removing the user. A whole-db snapshot on an event is an egress-bearing record.
+- **Rebuilding a route's params in the view.** Read a route-planned resource with `[:rf/route-resource <resource-id>]`; a view-side `{:slug (get-in route …)}` can drift from the route entry's and read `:idle` forever.
 
 Write-side anti-patterns (app-workflow-on-`reg-mutation`, `:cross-scope?` overuse, hand-rolled optimistic rollback, threading `db`/`ctx` into a cache callback) live in [`resources-mutations.md` §Anti-patterns](resources-mutations.md#anti-patterns).
 

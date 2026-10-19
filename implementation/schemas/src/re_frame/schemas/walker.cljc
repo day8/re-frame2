@@ -137,7 +137,7 @@
   `:source :schema` slot records schema provenance for the owner-local
   consumer that reads the extracted map — the validation-failure-trace
   redactor (the ONLY consumer of a machine `[:schemas :data]` or a resource's
-  REQUIRED `:params-schema` props), HTTP body-privacy (over the request's
+  `:params-schema` props), HTTP body-privacy (over the request's
   `:decode`), story-mcp — never the durable app-db classification registry,
   and never durable machine `:data` classification, which rides top-level
   `:sensitive` / `:large` on the `reg-machine` spec instead (Spec 015). A
@@ -353,7 +353,7 @@
   Returned declarations carry `:source :schema` per Spec 009 so the
   owner-local consumer that reads this map can report schema provenance for
   its wire-boundary elision — the validation-failure-trace redactor (the ONLY
-  consumer of a machine `[:schemas :data]` or a resource's REQUIRED
+  consumer of a machine `[:schemas :data]` or a resource's
   `:params-schema` props), HTTP body-privacy (over the request's `:decode`),
   story-mcp. A resource's OPTIONAL `:data-schema` has no runtime validation
   consumer and is not one of them (Spec 016). This map does not feed

@@ -85,7 +85,7 @@ So far the todos are local: the user typed them. Now the app also shows a team's
 A resource has two parts: a **read** and a **cause**. The read is an ordinary subscription a view reads; it never touches the network. The fetch is started separately by a cause: a route opening, an event, a machine entering a state. A view that fetched while rendering would fetch again on every re-render, and two views showing the same list would both fetch it. A cause fires once, for a reason you can see in the trace.
 
 ```clojure
-;; Register once: params schema, scope, then the request function.
+;; Register once: scope, an optional params schema, then the request function.
 (rf/reg-resource :todo/list
   {:params-schema [:map [:list-id :string]]
    :scope         :rf.scope/global}
@@ -104,7 +104,7 @@ A resource has two parts: a **read** and a **cause**. The read is an ordinary su
 ;; → {:status :loaded :data {:todos [...]} :has-data? true ...}
 ```
 
-A registration needs three things: **`:params-schema`** (the parameters that identify what you fetch), **`:scope`** (whose cache the entry belongs to), and the request function, returning a [managed-HTTP](../async/http.md) args map.
+A registration needs two things: **`:scope`** (whose cache the entry belongs to) and the request function, returning a [managed-HTTP](../async/http.md) args map. An optional **`:params-schema`** checks the shape of the parameters that identify what you fetch.
 
 The params are the identity: two screens asking for `{:list-id "team"}` share one cache entry and one request. The cache is part of runtime-db (`:rf.runtime/resources`), so it is reverted, serialised and hydrated with the rest of the frame's state.
 

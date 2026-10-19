@@ -333,8 +333,8 @@
   unless the metadata stamps `:ns`). Register a resource — a named,
   cached read of remote/external state: `(reg-resource resource-id metadata
   request-fn)` — `metadata` is the MIDDLE registration-metadata map carrying
-  the REQUIRED fail-closed `:scope` policy plus `:params-schema` (and `:doc`,
-  `:stale-after-ms`, …); the `:request` handler is the THIRD value slot.
+  the REQUIRED fail-closed `:scope` policy plus optional `:params-schema`,
+  `:doc`, `:stale-after-ms`, …; the `:request` handler is the THIRD value slot.
   The stored introspection spec (`resource-meta`)
   reconstructs `:request` onto the metadata map. Implementation ships in
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
@@ -606,7 +606,7 @@
        is `(reg-resource id metadata request-fn)`: the `:request` fetch fn is
        the third VALUE slot, and `metadata` carries the REQUIRED fail-closed
        `:scope` policy (`:rf.scope/global` | `{:from-db <resource-scope-id>}`),
-       `:params-schema`, and optional `:data-schema` / `:stale-after-ms` /
+       and optional `:params-schema` / `:data-schema` / `:stale-after-ms` /
        `:gc-after-ms` / `:tags`. Captures source-coords (Spec 001) at this call
        site. Implementation ships in `day8/re-frame2-resources`;
        apps must add the artefact and require `re-frame.resources` at

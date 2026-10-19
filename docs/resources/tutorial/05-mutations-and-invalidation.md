@@ -73,6 +73,16 @@ Sign-out now has a second scope to clear, so extend Part 4's `:auth/logout` to n
                          :cause [:logout]}]]]})))
 ```
 
+Sign-in names both too: a sign-in over an existing session leaves that user's feed behind. In Part 4's `:auth.login-form/submit-success`, change the `:from` vector to:
+
+```clojure
+{:from  [(rf/resolve-resource-scope db :conduit/viewer)
+         (rf/resolve-resource-scope db :conduit/session)]
+ :cause [:login]}
+```
+
+A signed-out reader has no session scope, so the session resolver answers `nil` there, and `change-principal` skips a `nil` in `:from`.
+
 As with the viewer resolver, returning `nil` when logged out fails closed: the feed read fails rather than serving the previous user's feed.
 
 ## Register the write

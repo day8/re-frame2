@@ -1390,7 +1390,7 @@ Managed HTTP is one fx, `[:rf.http/managed …]`, with one args map and a closed
 
 ### Resources → [re-frame.resources.md](re-frame.resources.md)
 
-Resources are cached server-state reads, and mutations are the writes that update them. Their keyword-addressed events and subscriptions (`[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.mutation/execute …]`, the passive `:rf.resource/*` and `:rf.mutation/*` subs, …) are on the resources page.
+Resources are cached server-state reads, and mutations are the writes that update them. Their keyword-addressed events and subscriptions (`[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.resource/change-principal …]`, `[:rf.mutation/execute …]`, the passive `[:rf/route-resource …]`, `:rf.resource/*` and `:rf.mutation/*` subs, …) are on the resources page.
 
 - Focus and reconnect revalidation is the frame's `:revalidate-on #{:focus :reconnect}` config key; the frame lifecycle installs and removes the host listeners. See [Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property).
 - `(rf/clear :resource id)`, `(rf/clear :mutation id)` and `(rf/clear :resource-scope id)` remove a registration and dispose its per-frame runtime state. That is not cache invalidation, nor the `[:rf.mutation/clear …]` reset of a mutation instance. See [Clearing a registration](re-frame.resources.md#clearing-a-registration).
@@ -1399,7 +1399,7 @@ Resources are cached server-state reads, and mutations are the writes that updat
 
 - **Kind**: macro
 - **Signature**: `(reg-resource resource-id metadata request-fn) → resource-id`
-- **Description**: Registers a resource, a cached read, as data. `metadata` carries the required, fail-closed `:scope` policy and `:params-schema`; `request-fn` returns a managed-HTTP args map. See [`reg-resource`](re-frame.resources.md#reg-resource).
+- **Description**: Registers a resource, a cached read, as data. `metadata` carries the required, fail-closed `:scope` policy and an optional `:params-schema`; `request-fn` returns a managed-HTTP args map. See [`reg-resource`](re-frame.resources.md#reg-resource).
 
 #### `reg-mutation`
 
