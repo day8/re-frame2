@@ -48,12 +48,11 @@ A flow is a top-level registration under the registrar's `:flow` kind, and a fra
     | `:inputs` | yes | A vector of paths into `app-db`, or into `runtime-db` when a path starts with `:rf.db/runtime`. Each path is a non-empty vector of concrete segments (keywords, strings, symbols, integers, booleans, UUIDs, instants or `nil`), so a flow cannot read the whole `app-db` through `[]`. The value at each path is passed to `derive-fn` in the same order. |
     | `:output-path` | yes | Where the output is written in `app-db`: a non-empty vector of concrete segments, not starting with `:rf.db/runtime`. It may not overlap this flow's own `:inputs`, or another flow's output path in a frame that runs both ([Activation](#activation)). |
     | `:doc` | no | One sentence on what the flow computes and why; shown in tooling. |
-    | `:schema` | no | Malli schema for the output, validated on every recompute in development builds and removed from production builds. A failure emits `:rf.error/schema-validation-failure` with `:where :flow-output`, and the output is still written; the trace points at the bug. Validation goes through the registered validator, so without `re-frame.schemas` loaded the schema is not checked. |
     | `:sensitive` | no | A vector of output subpaths (each a vector of scalar keys; `[]` is the whole output) whose values are sensitive. They are recorded rooted at `:output-path` in each frame that runs the flow, so trace and egress projections redact them. A flow classifies only its own output; its inputs' classification does not carry over. There is no `:sensitive?` boolean: write `:sensitive [[]]` for the whole output. |
     | `:large` | no | A vector of output subpaths (the same shape as `:sensitive`) marked large for wire-size elision. |
     | `:large?` | no | Boolean; `true` marks the whole output large. |
 - **Errors**:
-    - `:rf.error/invalid-flow-metadata`: `metadata` is not a map, or a `:derive` or `:frame` key sits inside it (the derive function is the third argument, and which frames run a flow is each frame's `:flows`). The ex-data's `:value` carries the offending value.
+    - `:rf.error/invalid-flow-metadata`: `metadata` is not a map, or a `:derive`, `:frame` or `:schema` key sits inside it (the derive function is the third argument, which frames run a flow is each frame's `:flows`, and the output's shape is declared with [`reg-app-schema`](re-frame.schemas.md#reg-app-schema) at `:output-path`). The ex-data's `:value` carries the offending value.
     - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id`: `flow-id` is `nil` / not a keyword.
     - `:rf.error/flow-bad-inputs`: `:inputs` is not a vector, or an entry is not a non-empty vector of concrete segments; the ex-data's `:bad-entries` lists them.
     - `:rf.error/flow-bad-output`: `derive-fn` is not a function.
@@ -166,7 +165,7 @@ A flow definition is an ordinary registration, so the registrar queries in [re-f
 (:flows (rf/frame-meta :rf/default))                            ;; the ids a frame runs
 ```
 
-The map is the one `reg-flow` stored: `:id`, `:inputs`, `:output-path`, `:derive` (the derive function), the other metadata keys (`:doc`, `:schema`, the classification keys), and, for an `rf/reg-flow` call in a development build, source coordinates (`:ns`, `:line`, `:column`, `:file`).
+The map is the one `reg-flow` stored: `:id`, `:inputs`, `:output-path`, `:derive` (the derive function), the other metadata keys (`:doc`, the classification keys), and, for an `rf/reg-flow` call in a development build, source coordinates (`:ns`, `:line`, `:column`, `:file`).
 
 A tool that draws subscriptions, flows, resources, route facts and machine selectors as one dependency graph takes each flow's graph node from `re-frame.flows.tooling`, which it requires directly. `re-frame.flows` has no function for it.
 

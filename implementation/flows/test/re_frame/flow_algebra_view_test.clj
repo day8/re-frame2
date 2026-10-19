@@ -16,8 +16,8 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest flow-exposes-its-full-algebra-view
-  ;; An empty registry projects `{}`, not nil, in both arities. Absent
-  ;; `:schema` and `:doc` stay absent from the node.
+  ;; An empty registry projects `{}`, not nil, in both arities. An absent
+  ;; `:doc` stays absent from the node.
   (is (= [{} {}] [(rf.flows.tooling/flow-algebra-view) (rf.flows.tooling/flow-algebra-view :rf/default)]))
   (rf/reg-flow :cart/total {:inputs [[:cart :items] [:pricing :discounts]] :output-path [:cart :total]}
     (fn [items discounts] [items discounts]))
@@ -42,19 +42,18 @@
 
 (deftest runtime-qualified-input-lowers-to-a-runtime-read
   ;; EP-0001 §535-551: a flow may read runtime-db through a partition-qualified
-  ;; input, which lowers with the partition key stripped. A supplied `:schema`
-  ;; and `:doc` pass through as node facts.
-  (rf/reg-flow :route/derived {:doc "a route slug" :schema :app/slug
+  ;; input, which lowers with the partition key stripped. A supplied `:doc`
+  ;; passes through as a node fact.
+  (rf/reg-flow :route/derived {:doc "a route slug"
                                :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
                                         [:local :seed]]
                                :output-path [:derived :slug]}
     (fn [route-id seed] [route-id seed]))
   (rf/make-frame {:id :rf/default :flows [:route/derived]})
   (is (= {:inputs [[:runtime [:rf.runtime/routing :current :route-id]] [:db [:local :seed]]]
-          :schema :app/slug
           :doc    "a route slug"}
          (select-keys (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :route/derived])
-                      [:inputs :schema :doc]))))
+                      [:inputs :doc]))))
 
 (deftest one-flow-run-by-two-frames-projects-per-frame
   (rf/reg-flow :shared {:inputs [[:a]] :output-path [:out]} identity)

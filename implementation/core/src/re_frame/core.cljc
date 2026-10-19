@@ -310,7 +310,7 @@
   image). Register the flow definition `flow-id` under the registrar's
   `:flow` kind: `(reg-flow flow-id metadata derive-fn)` — the pure `:derive`
   fn is the THIRD value slot, `metadata` carries `:inputs` /
-  `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
+  `:output-path` (both REQUIRED) plus optional `:doc` / the
   EP-0025 classification keys. A definition names no frame; each frame runs
   the flows its `:flows` config names. Implementation
   ships in `day8/re-frame2-flows`; require `re-frame.flows` at boot. See
@@ -580,7 +580,7 @@
        "Register a flow under `flow-id`. The canonical 3-slot
        grammar is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive`
        fn is the third VALUE slot, and `metadata` carries `:inputs` /
-       `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
+       `:output-path` (both REQUIRED) plus optional `:doc` / the
        EP-0025 classification keys. The definition names no frame: each frame
        runs the flows its `:flows` config names. Captures
        source-coords (Spec 001) at this call site. Implementation ships in

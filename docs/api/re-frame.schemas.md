@@ -34,16 +34,16 @@ In a development build each schema is checked where its data is produced:
 | An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
 | A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The failure is reported and the subscription still yields the computed value. |
 
-Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override still renders as pinned).
+Other checks that run through this validator report the same id with their own `:where`: `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override still renders as pinned).
 
 Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and resources (`:params-schema`; [`reg-resource`](re-frame.resources.md#reg-resource)) also validate through this validator but report their own errors; each of those entries says when its check runs and what a failure does. A `{:recordable? true}` coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
 
 ### Failure reports
 
-The four checks in the table, and the flow, machine and `:sub-override` checks, report a failure rather than throw it; see [Errors](README.md#errors) for how a reported id reaches you.
+The four checks in the table, and the machine and `:sub-override` checks, report a failure rather than throw it; see [Errors](README.md#errors) for how a reported id reaches you.
 
 - **The trace.** Each failure emits an `:rf.error/schema-validation-failure` trace, which Xray shows on the event that caused it. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
-- **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:flow-output`, `:machine-data`, `:machine-output`, `:sub-return` and `:sub-override`; `:skipped` for `:fx-args`.
+- **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:machine-data`, `:machine-output`, `:sub-return` and `:sub-override`; `:skipped` for `:fx-args`.
 - **The always-on `:errors` record.** Two failures are also reported on the always-on `:errors` stream, so they reach the frame's `:observability :errors` sinks, or the browser console when no sink handles them. Neither record carries the failing value:
     - An `app-db` rejection's record carries `:rf.error/id`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the leaf path or the schema.
     - A [`:boundary? true`](#validation-in-production) event's failure sends a record with a fixed key set: `:rf.error/id`, `:where`, `:source :boundary`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery` and `:time`.
@@ -387,7 +387,7 @@ Other parts of the framework call these three functions in every build. `validat
   (redact-validation-tags schema tags) → tags
   ```
 - **Description**: Redacts a validation-failure trace's `tags` map according to the `schema` the failing value was checked against.
-    - Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, flow output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit.
+    - Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit.
     - For a `:sensitive?` schema, the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are replaced with `:rf/redacted`, and `:sensitive? true` is added. An opaque compiled schema that the walker cannot inspect is treated as sensitive.
     - For a `:large?` schema that is not sensitive, the same slots except `:rf.sub/query-v` are replaced with the `:rf.size/large-elided` marker, and `:large? true` is added.
     - Otherwise the tags are returned unchanged.

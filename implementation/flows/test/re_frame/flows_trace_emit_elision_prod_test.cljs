@@ -18,9 +18,6 @@
             ;; compiler's reachability graph.
             [re-frame.flows]
             [re-frame.flows.registry]
-            ;; A wired validator, so the validation surface is shown to
-            ;; elide even when the seam is present.
-            [re-frame.schemas :as rf.schemas]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
@@ -64,18 +61,3 @@
                    (rf/make-frame {:id :rf/default :flows [:prod-elision/throwing]})
                    (rf/dispatch-sync [:prod-elision/set-w 5])))]
     (is (= [[] [true 12 nil]] [traces @seen]))))
-
-(deftest flow-output-schema-validation-elides-under-prod
-  ;; Witnessed at the validator: the failure trace is itself debug-gated, so
-  ;; a no-trace read alone could not fail here.
-  (let [consulted (atom 0)]
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
-    (rf/reg-event :prod-elision/seed-validate
-      (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
-    (rf/reg-flow :prod-elision/validated
-      {:inputs [[:w] [:h]] :output-path [:prod-elision/area] :schema (fn [_] false)}
-      (fn [w h] (* (or w 0) (or h 0))))
-    (rf/make-frame {:id :rf/default :flows [:prod-elision/validated]})
-    (let [traces (capture-traces #(rf/dispatch-sync [:prod-elision/seed-validate]))]
-      (is (= [[] 0 12]
-             [traces @consulted (get-in (rf/app-db-value :rf/default) [:prod-elision/area])])))))

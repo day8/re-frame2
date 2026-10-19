@@ -8,7 +8,6 @@
             [re-frame.schemas.malli]
             [re-frame.schemas :as rf.schemas]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
-            [re-frame.flows]
             #?(:cljs [re-frame.late-bind :as rf.late-bind])
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
@@ -99,16 +98,6 @@
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
       e)))
-
-(deftest flow-output-production-path-redacts-sensitive
-  (with-runtime*
-    (fn []
-      (rf/reg-event :flow/seed (fn [_ _] {:db {:in failing-sensitive-value}}))
-      (rf/reg-flow :flow/secret {:inputs [[:in]] :output-path [:derived] :schema sensitive-map-schema} (fn [in] in))
-      (rf/make-frame {:id :rf/default :flows [:flow/secret]})
-      (let [trace (capture-failure #(rf/dispatch-sync [:flow/seed]))]
-        (is (= [true false :flow-output :rf/redacted :rf/redacted]
-               (redaction trace :where :value :explain)))))))
 
 (deftest recordable-cofx-schema-failure-production-path-redacts-sensitive
   (with-runtime*

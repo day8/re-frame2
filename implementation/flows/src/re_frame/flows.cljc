@@ -19,7 +19,6 @@
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             ;; No require of `re-frame.flows.tooling` on EITHER runtime: the
             ;; facade carries no `flow-algebra-view` alias, so tooling is
@@ -84,112 +83,6 @@
                :path  (rf.flows.registry/partition-relative-input-path input-path)}))
         (:inputs flow)
         input-values))
-
-(defn- sensitive-output?
-  "True when the frame's elision registry classifies anything inside `output`,
-  written at the flow's `:output-path`, as sensitive.
-
-  The wire walker that redacts the failure trace's `:value` slot decides. It
-  runs here with `:large` left alone, and the output is sensitive exactly when
-  that walk changes it. So every declaration the walker honours counts here as
-  it does for `:value`: the flow's own `:sensitive` marks; another source's
-  declaration at an ancestor or a descendant of the output path; one that
-  reaches the output only through an index-free or `:map-of` coordinate, which
-  no path-prefix test can see; and the fail-closed whole-value redaction of a
-  frame the registry cannot resolve."
-  [frame-id flow output]
-  (not= output
-        (rf.elision/elide-wire-value
-          output {:frame                    frame-id
-                  :path                     (:output-path flow)
-                  :rf.egress/include-large? true})))
-
-(defn- explain-size-marker
-  "The `:rf.size/large-elided` marker that stands in for a failing output's
-  `:explain` when the frame's elision registry classifies anything in the
-  output large, else nil. `elided` is the output as the wire
-  walker elided it for the trace's `:value` slot, so the walker decides: the
-  output is size-classified exactly when that walk placed a marker in it.
-
-  A declaration covering the whole output (at `:output-path` or above it)
-  yields the walker's own marker, reused as is. A narrower one yields a marker
-  for the whole output, since the explanation re-ships all of it: its `:path`
-  and `:handle` name `:output-path`, which the observational write has just
-  filled, and its `:reason` is the declaring source the walker's markers
-  carry."
-  [flow output elided]
-  (when-let [markers (seq (filter rf.elision/marker? (tree-seq coll? seq elided)))]
-    (if (rf.elision/marker? elided)
-      elided
-      (rf.elision/->marker
-        output (:output-path flow)
-        {:reason (rf.elision/owners->provenance
-                   (map #(hash-map :source (get-in % [:rf.size/large-elided :reason]))
-                        markers))
-         :hint   nil}))))
-
-(defn- validate-output!
-  "Validate a computed output through the optional schemas artefact.
-
-  Validation is diagnostic: it emits a schema failure but does not unwind the
-  pending flow cascade. The caller invokes this only in debug builds."
-  [frame-id flow new-output]
-  ;; KEY-presence, not value truthiness: a present nil / false `:schema` on
-  ;; the flow is a declaration whose exact token is delegated to the
-  ;; registered validator below; only an ABSENT key means no declaration.
-  (when (contains? flow :schema)
-    (when-let [validate (rf.late-bind/get-fn
-                          :schemas/validate-with-registered-fn)]
-      (let [schema (:schema flow)]
-        (when-not (validate schema new-output)
-          (let [explain     (rf.late-bind/get-fn
-                              :schemas/explain-with-registered-fn)
-                explanation (when explain (explain schema new-output))
-                redact      (rf.late-bind/get-fn
-                              :schemas/redact-validation-tags)
-                elided      (rf.elision/elide-wire-value
-                              new-output
-                              {:frame frame-id
-                               :path  (:output-path flow)})
-                tags        {:where      :flow-output
-                             :rf.flow/id (:id flow)
-                             :failing-id (:id flow)
-                             :schema-id  (:id flow)
-                             :path       (:output-path flow)
-                             :value      elided
-                             :explain    explanation
-                             :reason     (str "Flow " (:id flow)
-                                              " output failed schema "
-                                              (pr-str schema) ".")
-                             :recovery   :no-recovery
-                             :frame      frame-id}
-                tags        (if redact (redact schema tags) tags)
-                ;; `:explain` re-ships the checked value whole (Malli's
-                ;; `:value` and every `:errors[*].:value`) and is not
-                ;; path-anchored, so it cannot be walked like `:value`. The
-                ;; seam above reads only `:sensitive?` props in the SCHEMA, so
-                ;; an output the frame's registry classifies is redacted whole
-                ;; here, and the trace is stamped so the egress gate drops it.
-                ;; This runs after the seam, so sensitive wins over any size
-                ;; marker it substituted. Otherwise an output the registry
-                ;; classifies large gets a size marker in place of `:explain`,
-                ;; as Spec 010's size arm does for a `:large?` schema — unless
-                ;; the seam already redacted it, since sensitive wins there too.
-                tags        (cond
-                              (sensitive-output? frame-id flow new-output)
-                              (assoc tags
-                                     :explain    rf.privacy/redacted-sentinel
-                                     :sensitive? true)
-
-                              (:sensitive? tags) tags
-
-                              :else
-                              (if-let [marker (explain-size-marker
-                                                flow new-output elided)]
-                                (assoc tags :explain marker :large? true)
-                                tags))]
-            (rf.trace/emit-error! :rf.error/schema-validation-failure tags))))))
-  nil)
 
 (defn- flow-eval-failure!
   "Report one flow-evaluation failure, attributed to the phase that actually
@@ -322,8 +215,7 @@
                                           :path  (:output-path flow)})
                          :path         (:output-path flow)
                          :elapsed-ms   (- (rf.interop/now-ms) started-at-ms)
-                         :frame        frame-id})
-        (validate-output! frame-id flow new-output))
+                         :frame        frame-id}))
       [new-db new-output])))
 
 ;; ---- the active set ------------------------------------------------------

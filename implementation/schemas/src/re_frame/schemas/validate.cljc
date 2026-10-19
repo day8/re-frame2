@@ -1364,8 +1364,7 @@
   off-namespace emit sites — the production boundary interceptor
   (`re-frame.spec`), machine `:data` validation
   (`re-frame.machines.data-validation`), the `:sub-override` validation
-  path (`re-frame.subs`), flow-output validation (`re-frame.flows`), and
-  the recordable-coeffect `:rf.error/cofx-value-invalid` emit
+  path (`re-frame.subs`), and the recordable-coeffect `:rf.error/cofx-value-invalid` emit
   (`re-frame.cofx`)
   — reach it through the `:schemas/redact-validation-tags` late-bind
   hook and fall through verbatim when the hook is unbound (schemas

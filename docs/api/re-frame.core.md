@@ -1332,7 +1332,7 @@ A flow is derived state: it reads declared frame-state inputs, computes a value 
   ```clojure
   (reg-flow flow-id metadata derive-fn) → flow-id
   ```
-- **Description**: Registers a flow, a derived value kept in `app-db` so handlers can read it. `metadata` carries `:inputs` and `:output-path` (both required) and optionally `:doc`, `:schema` and the classification keys; a `:frame` key is refused, because each frame names the flows it runs in its `:flows` config. `derive-fn` is pure. Returns `flow-id`. Throws `:rf.error/flows-artefact-missing` when `re-frame.flows` is not loaded. See [`reg-flow`](re-frame.flows.md#reg-flow).
+- **Description**: Registers a flow, a derived value kept in `app-db` so handlers can read it. `metadata` carries `:inputs` and `:output-path` (both required) and optionally `:doc` and the classification keys; a `:frame` key is refused, because each frame names the flows it runs in its `:flows` config, and so is a `:schema` key, because the output's shape is declared with `reg-app-schema` at `:output-path`. `derive-fn` is pure. Returns `flow-id`. Throws `:rf.error/flows-artefact-missing` when `re-frame.flows` is not loaded. See [`reg-flow`](re-frame.flows.md#reg-flow).
 
 ### Schemas → [re-frame.schemas.md](re-frame.schemas.md)
 

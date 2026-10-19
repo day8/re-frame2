@@ -96,6 +96,19 @@
     (is (re-find #":flows" (str (:reason data))) "the message names the frame's :flows config")
     (is (= {} (rf/registrations {:source :store :kind :flow})) "nothing registered")))
 
+(deftest reg-flow-rejects-a-schema-key
+  ;; A flow's output shape is declared once, with `reg-app-schema` at its
+  ;; `:output-path` (Spec 013 §Flow output validation). Presence is the key, so
+  ;; a nil schema is refused too.
+  (doseq [schema [[:int {:min 0}] nil]]
+    (let [data (ex-data (reg-flow-throwing {:id :typed :schema schema :inputs [[:n]]
+                                            :derive identity :output-path [:out]}))]
+      (is (= {:rf.error/id :rf.error/invalid-flow-metadata :value schema}
+             (select-keys data [:rf.error/id :value])))
+      (is (re-find #"reg-app-schema" (str (:reason data))) "the message names reg-app-schema")
+      (is (re-find #"\[:out\]" (str (:reason data))) "the message names the output path")
+      (is (= {} (rf/registrations {:source :store :kind :flow})) "nothing registered"))))
+
 (deftest reg-flow-rejects-malformed-inputs
   (are [inputs bad-entries]
        (= {:rf.error/id :rf.error/flow-bad-inputs :bad-entries bad-entries}

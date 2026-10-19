@@ -15,7 +15,6 @@ These `:where` values accompany `:rf.error/schema-validation-failure`.
 | `:fx-args` | Arguments to an effect | Skip that effect; other eligible effects can run |
 | `:sub-return` | A subscription's computed return | Report the failure; the value is still returned (`:no-recovery`) |
 | `:sub-override` | A test/frame subscription override against the registered schema | Report the failure; the override still renders (`:no-recovery`) |
-| `:flow-output` | Computed flow output | Report the failure; the output is still written (`:no-recovery`) |
 | `:machine-data` | Machine `:data` | Depends on `:phase`, below |
 | `:machine-output` | Final-state completion output | Report the failure after completion; the machine has already finished (`:no-recovery`) |
 

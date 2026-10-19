@@ -5499,9 +5499,8 @@
     :machine-data   :event  a machine IS an `:event` registration carrying
     :machine-output :event  `:rf/machine? true`; its `[:schemas …]` ride on it
 
-  `:app-db` and `:flow-output` are absent because their schemas are not
-  registrar rows; `violation-schema-coord` reads them through their own
-  doors. `:hot-reload` never reaches this block. A `:where` absent here, or a
+  `:app-db` is absent because its schemas are not registrar rows;
+  `violation-schema-coord` reads it through its own door. `:hot-reload` never reaches this block. A `:where` absent here, or a
   `:failing-id` naming nothing, leaves the link as plain text."
   {:event          :event
    :fx-args        :fx
@@ -5528,8 +5527,6 @@
       no registration. A row without `:registered-path` falls back to
       `:path`. The row's `:failing-id` names the HANDLER whose write
       failed, not the schema, so it is never consulted here.
-    - `:flow-output` — `handler-meta` for the `:flow` kind under the
-      violation's frame, the same read `render-flow-step` uses.
     - every other `:where` — `handler-meta` under the kind
       `violation-registration-kind` names.
 
@@ -5540,8 +5537,6 @@
     :app-db      (let [anchor (or registered-path path)]
                    (when (and (sequential? anchor) (keyword? frame))
                      (meta-coord #(rf.schemas/app-schema-meta {:frame frame :path anchor}))))
-    :flow-output (when (and (keyword? failing-id) (keyword? frame))
-                   (meta-coord #(rf/handler-meta {:frame frame :kind :flow :id failing-id})))
     (when-let [kind (get violation-registration-kind where)]
       (violation-kind-coord kind failing-id))))
 
