@@ -815,9 +815,10 @@ The framework reserves a few `:fx` ids and one standard interceptor reference; r
 ### `[:dispatch-later {…}]`
 
 - **Kind**: effect (reserved fx-id)
-- **Payload**: `[:dispatch-later {:ms ms :event event-vec}]`
+- **Payload**: `[:dispatch-later {:ms ms :event event-vec}]`, optionally with `:id id`; or `[:dispatch-later {:id id :cancel? true}]`
 - **Description**: Queues `event-vec` on the same frame after `ms` milliseconds. Use it instead of a `setTimeout` in a handler, which would have no frame when it fires.
     - `:ms` is the delay in milliseconds. A missing or non-numeric `:ms` is refused: nothing is queued, the always-on `:rf.error/fx-handler-exception` is emitted carrying the offending `:ms`, and the rest of the `:fx` vector still runs.
+    - `:id`, any value, names the timer within the frame. Arming an `:id` that is still pending cancels the pending timer first, so the later arm replaces it: that is debounce. `{:id id :cancel? true}` cancels the pending timer and arms nothing; a cancel with no `:id` is refused like a bad `:ms`. Each replace or cancel of a pending timer emits a `:rf.fx/dispatch-later-cancelled` trace.
     - A pending timer is cancelled when its frame is destroyed, so the event never runs.
     - The queued event inherits opts from the event that queued it; see [Dispatch options](#dispatch-options).
 - **Example**:

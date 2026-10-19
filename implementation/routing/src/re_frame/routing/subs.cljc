@@ -46,7 +46,8 @@
   hang the runtime).
 
   Public so the façade can wire it as the `:rf.route/chain` sub's
-  reduction fn."
+  reduction fn, and so stage 5 (`re-frame.routing.decisions`) walks the
+  same chain to compose `:can-enter`."
   [id]
   (when id
     (loop [cur  id

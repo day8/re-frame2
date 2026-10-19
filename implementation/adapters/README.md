@@ -18,12 +18,12 @@ You pick one (or more) by adding the matching artefact to your `deps.edn` alongs
 Each adapter implements the surface defined in [Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md):
 
 - required (6): `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`
-- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 3 of the 5 shipped adapter kinds install it — Reagent, UIx and Fresco (the last two through `spine/make-react-adapter`, which wires the React spine's slot unconditionally). The other 2 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush.
+- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from `re-frame.test-support/flush-views!`, the test helper that wraps it in React's `act()`). 3 of the 5 shipped adapter kinds install it — Reagent, UIx and Fresco (the last two through `spine/make-react-adapter`, which wires the React spine's slot unconditionally). The other 2 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush.
 - lifecycle (1): `dispose-adapter!`
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (for example `:rf.adapter/uix`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
 
-Plus per-adapter ergonomics — for example the `use-sub` hook (UIx), source-coord wrapping, and the `flush-views!` test helper.
+Plus per-adapter ergonomics — for example the `use-sub` hook (UIx) and source-coord wrapping.
 
 ## Layout
 

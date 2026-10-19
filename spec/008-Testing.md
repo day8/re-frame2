@@ -17,7 +17,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Namespace | Role | Surfaces |
 |---|---|---|
 | `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `subscribe-once`, `compute-sub` (the static sub-graph query `sub-topology` is subscription tooling, reached through `re-frame.subs.tooling` rather than `re-frame.core`) |
-| `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until`, `with-trace-recorder!`, `with-emit-recorder!` |
+| `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `make-reset-runtime-fixture`, `assert-path-equals`, `flush-views!`, `poll-until`, `with-trace-recorder!`, `with-emit-recorder!` |
 | `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) (view-tree axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` |
 
 `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both namespaces (`[re-frame.core :as rf]` for primitives, `[re-frame.test-support :as ts]` for fixture machinery and helpers). View-assertion test files additionally `:require [re-frame.test-helpers :as th]`. Pure machine simulation sits outside all three: `machine-transition` is owned by `re-frame.machines` (the optional machines artefact) and is not re-exported from `re-frame.core` — see [Pattern 4](#pattern-4--pure-machine-simulation-no-frame) and [005 §Level 1 — pure `machine-transition`](005-StateMachines.md#level-1--pure-machine-transition). The split is deliberate: `re-frame.core` carries surfaces that compose into production code paths as well as tests; `re-frame.test-support` is a require-gated test-only convenience surface; `re-frame.test-helpers` is the view-assertion surface used only by tests (per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)).
@@ -35,22 +35,20 @@ A test that exercises events / subs / machines reaches `re-frame.test-support`. 
 
 ### Adapter-aware test helpers — `flush-views!`
 
-Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
+`re-frame.test-support/flush-views!` is the one test flush for every React view adapter. It runs a thunk, then commits the views that thunk re-rendered, synchronously, so a test dispatching against a mounted tree reads the committed DOM on the next line:
 
 ```clojure
-(:require [re-frame.adapter.reagent :as rf.adapter.reagent])
+(:require [re-frame.test-support :as ts])
 ;; ...
-(rf.adapter.reagent/flush-views!)
-
-;; The same name on the UIx adapter, from its own require:
-(:require [re-frame.adapter.uix :as rf.adapter.uix])
-;; ...
-(rf.adapter.uix/flush-views!)
+(ts/flush-views! #(rf/dispatch-sync [:counter/inc]))   ;; dispatch, then commit the re-render
+(ts/flush-views!)                                       ;; commit renders already pending
 ```
 
-This is intentional per [Spec 006 §Revertibility constraints — What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do): the adapter-dependency direction is `adapter → core`, never the reverse. `re-frame.test-support` ships in core and cannot reach into adapter namespaces without inverting the direction. Test code knows its adapter at compile time (the same require that boots the adapter at app boot, repeated in the test ns) — the `(rf.adapter.reagent/flush-views!)` shape is structurally identical to how production code calls `(rf.adapter.reagent/render ...)`.
+The helper is adapter-aware without naming an adapter. The commit is the installed adapter's [`flush-render!`](006-ReactiveSubstrate.md#flush-render-f--nil) — `reagent.core/flush` under Reagent, `react-dom/flushSync` under UIx — and on CLJS it runs inside React's `act()`, so the effects that commit scheduled have also run when it returns. Core therefore provides it without requiring any adapter, and the dependency direction stays `adapter → core` ([Spec 006 §What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do)). A test names its adapter once, in the fixture that installs it, and never in order to flush. `flush-render!` remains the separate production operation; `flush-views!` is its test-only wrapper.
 
-The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — there is no React tree to settle. Tests targeting the plain-atom adapter use `dispatch-sync` (already drain-to-fixed-point) and read app-db / hiccup directly.
+It is **synchronous only**. It settles what the thunk, and the renders the thunk caused, put on the calling stack, and makes no claim about asynchronous work: a queued `dispatch`, an HTTP reply or a timer is waited for with `poll-until`, then flushed. Without `act()` (React's production build omits it) it is the plain synchronous commit. Where nothing renders live — the plain-atom and SSR adapters, and every JVM run — there is no view tree to commit, so it runs the thunk and returns nil, and such tests read app-db / hiccup directly after `dispatch-sync` (already drain-to-fixed-point). With no adapter installed it raises `:rf.error/no-adapter-installed`, as `flush-render!` does.
+
+A Fresco mounted test settles with `re-frame.fresco.test.mounted/settle!` instead, because `act()` diverts work away from the browser's scheduler.
 
 | Need | API |
 |---|---|
@@ -836,9 +834,10 @@ declared bound:
   re-dispatches have settled (the `dispatch-sync` semantics this Spec
   guarantees);
 - `:cljs-reactive` — the above AND reaction recomputation has flushed;
-- `:dom` / `:browser` — the above AND the adapter's `act()` / microtask
-  flush has completed, within a declared maximum (the per-adapter
-  `flush-views!` of [§Adapter-aware test helpers](#adapter-aware-test-helpers--flush-views)).
+- `:dom` / `:browser` — the above AND the installed adapter's synchronous
+  view commit has completed, within a declared maximum (the commit
+  `flush-views!` of [§Adapter-aware test helpers](#adapter-aware-test-helpers--flush-views)
+  wraps).
 
 A runner takes its flush-fn from the adapter-aware caller and MUST NOT
 hard-code `dispatch-sync`. A step that requires a React/DOM flush MUST

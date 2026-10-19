@@ -37,7 +37,7 @@ Pick it when your views are hiccup; the Core guide uses it. If your components a
   (mount!))
 ```
 
-Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `reg-view`, the `frame-root` and `frame-provider` components, `capture-frame`, `with-frame`, and the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. There are no hooks here: a view registered with `reg-view` gets `dispatch` and `subscribe` injected instead. A plain Reagent function rendered as a component cannot read the surrounding `frame-root` or `frame-provider`, so an ambient `rf/subscribe` or `rf/dispatch` in its body raises `:rf.error/no-frame-context`; register it with `reg-view` (or `reg-view*`), or name the frame with `{:frame …}`. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) walks through the entry namespace.
+Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `reg-view`, the `frame-root` and `frame-provider` components, `capture-frame`, `with-frame`, and the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. There are no hooks here: a view registered with `reg-view` gets `dispatch` and `subscribe` injected instead. A plain Reagent function rendered as a component reads the surrounding `frame-root` or `frame-provider` while it renders, as a registered view does. A callback that runs after the render, such as an `:on-click` or a timer, has no frame to read, so an ambient `rf/dispatch` there raises `:rf.error/no-frame-context`; capture the frame during the render with `rf/capture-frame` (a `reg-view` injects ops captured this way), or name the frame with `{:frame …}`. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) walks through the entry namespace.
 
 ## Adapter spec
 
@@ -132,29 +132,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 - **Example**:
   ```clojure
   (reagent-adapter/unmount! app-root)   ;; releases the root; a repeat call is a no-op
-  ```
-
-## Test helpers
-
-### `flush-views!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (flush-views!)
-  (flush-views! f)
-  ```
-- **Description**: Flushes pending Reagent renders synchronously inside React's `act()`, for tests. Returns nil. Use it when a test mounts into a real DOM and must let React commit before it reads the DOM; most Reagent view tests need no DOM, and call the view and walk its hiccup with [`re-frame.test-helpers`](re-frame.test-helpers.md) instead.
-    - 0-arity: drains the queued renders and effects.
-    - 1-arity: runs the thunk `f`, then drains the renders, inside `act()`.
-    - When `act()` is not available in the current React build, it flushes without it: `f` still runs and the render queue still drains.
-    - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A `dispatch` queues on the router instead, so wait for it with `re-frame.test-support/poll-until`. Do not call it from inside a `dispatch-sync` handler; it runs a render.
-    - React's `act()` expects the test to set `globalThis.IS_REACT_ACT_ENVIRONMENT` to `true` while it drives React through `flush-views!`, and to set it back while it waits on React's own schedule. [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real) shows the pattern.
-    - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return; without `act()`, that one does nothing and does not run `f`.
-- **Example**:
-  ```clojure
-  (reagent-adapter/flush-views!)                                    ;; drain queued renders + effects
-  (reagent-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))  ;; dispatch, then commit the re-render
   ```
 
 ## Server-side rendering

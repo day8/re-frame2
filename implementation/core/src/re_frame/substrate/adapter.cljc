@@ -885,24 +885,27 @@
   `flush-render!` is NOT rAF-scheduled, so headless tooling (the
   re-frame2-pair MCP — Spec Tool-Pair) can drive a
   `dispatch → flush-render! → observe-settled-DOM` loop even when the tab is
-  backgrounded. Distinct from a test-only `act()` flush: this is a
+  backgrounded. Distinct from the test-only `act()` flush,
+  `re-frame.test-support/flush-views!`, which wraps this: this is a
   production-grade contract surface, not a test helper.
 
-  Optional contract fn — returns nil and is a no-op when the installed
-  adapter ships no `:flush-render!`. Three of the five shipped adapter kinds
+  Optional contract fn — returns nil. Three of the five shipped adapter kinds
   install one — Reagent, UIx and Fresco; the last two get it
   from `spine/make-react-adapter`, which wires the React spine's slot
   unconditionally. The other two omit it for one shared reason: plain-atom
   and SSR render without a live React commit, so there is nothing to flush.
+  Under those this still runs `f` and commits nothing, so a state change
+  handed to it is never dropped.
   Calling it before `(rf/init! ...)` raises
   `:rf.error/no-adapter-installed` — the
   optional-fn nil return is reserved for `adapter installed, fn absent`,
   not for `no adapter installed at all`."
   ([] (flush-render! (fn [] nil)))
   ([f]
-   (let [a (require-adapter! 'rf/flush-render!)
-         g (:flush-render! a)]
-     (when g (g f))
+   (let [a (require-adapter! 'rf/flush-render!)]
+     (if-let [g (:flush-render! a)]
+       (g f)
+       (f))
      nil)))
 
 (defn subscribe-container

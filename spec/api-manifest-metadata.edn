@@ -111,7 +111,6 @@
    :justification "Front-porch: the ENSURE sibling of frame-provider -- the mount recipe an app's root uses. Same View ergonomics home, same tier."}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; The reusable client root: allocate inert, render (create or
   ;; hydrate once, then update the same Root), unmount idempotently. Backed by
@@ -129,7 +128,6 @@
   {:namespace "re-frame.adapter.uix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-root"          :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; The same reusable client root the ratom adapters publish, on every
   ;; React view adapter: allocate inert, render
@@ -1348,6 +1346,10 @@
   ;; =========================================================================
   ["re-frame.test-support" "assert-path-equals"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "poll-until"]                {:tier :testing :owner "008" :status "v1"}
+  ;; The one test flush for every React view adapter: `act` around the
+  ;; installed adapter's `flush-render!`. Defined on both hosts; on the JVM
+  ;; nothing renders live, so it runs `f` and commits nothing.
+  ["re-frame.test-support" "flush-views!"]              {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "make-reset-runtime-fixture"] {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}

@@ -1685,9 +1685,10 @@
 ;; stamped keyword + the per-operation body-slot path(s) are read.
 ;;
 ;; The same disposition-5 rule applies to a raw error-response
-;; body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry the raw response
-;; body at `:body`, `:rf.http/decode-failure` carries the raw text at
-;; `:body-text`, and `:rf.http/retry-attempt` nests the intermediate failure
+;; body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry the response body
+;; at `:body` and its raw text at `:body-text`, `:rf.http/decode-failure`
+;; carries the raw text at `:body-text`, and `:rf.http/retry-attempt` nests
+;; the intermediate failure
 ;; (which may carry a raw `:body`/`:body-text`) under `:failure`. A raw error
 ;; body is UNSCHEMATIZED by construction (status classification runs before
 ;; decode; a decode-failure is the decode itself failing), so the emit site
@@ -1709,8 +1710,9 @@
      through the SAME reply envelope, so this one operation row carries both
      shapes; the emit site stamps the disposition for whichever is present);
    - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
-   - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the raw response body at
-     `[:body]`;
+   - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the response body at
+     `[:body]` (parsed when it declared JSON) and its raw text at
+     `[:body-text]`;
    - `:rf.http/decode-failure` — the raw response text at `[:body-text]`;
    - `:rf.http/retry-attempt`  — the intermediate failure's raw body nested at
      `[:failure :body]` / `[:failure :body-text]`.
@@ -1750,8 +1752,8 @@
                                     [:error :body-text]
                                     [:error :decoded]]
            :rf.http/accept-failure [[:decoded]]
-           :rf.http/http-4xx       [[:body]]
-           :rf.http/http-5xx       [[:body]]
+           :rf.http/http-4xx       [[:body] [:body-text]]
+           :rf.http/http-5xx       [[:body] [:body-text]]
            :rf.http/decode-failure [[:body-text]]}
     rf.interop/debug-enabled?
     (assoc :rf.http/retry-attempt [[:failure :body] [:failure :body-text]])))

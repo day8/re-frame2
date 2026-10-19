@@ -696,14 +696,17 @@
   dynamic-or-adapter/React-context scope frame, or **nil** when no scope
   is established. A **reader**: it never repairs absence by synthesising
   `:rf/default` (per Spec 002 §Frame target resolution — the carried
-  invariant, EP-0002). The two scope tiers it observes:
+  invariant, EP-0002). The two scope tiers it observes, in the order the
+  installed adapter's `:current-frame` impl consults them (Reagent's puts
+  the tree first while a component renders; Spec 006 §One
+  frame-resolution rule for React hooks):
 
-    1. `*current-frame*` (dynamic var) — set by `with-frame` / `bind-fn`
-       (INTERNAL) / the router's per-handler binding.
-    2. The closest enclosing frame boundary — a `frame-provider` (SCOPE)
-       or `frame-root` (ENSURE) — via React context (CLJS). Both install
-       the shared boundary context; the no-provider sentinel appears only
-       beneath neither.
+    - `*current-frame*` (dynamic var) — set by `with-frame` / `bind-fn`
+      (INTERNAL) / the router's per-handler binding.
+    - The closest enclosing frame boundary — a `frame-provider` (SCOPE)
+      or `frame-root` (ENSURE) — via React context (CLJS). Both install
+      the shared boundary context; the no-provider sentinel appears only
+      beneath neither.
 
   On CLJS this consults the `:adapter/current-frame` late-bind slot so
   the React-context tier is LIVE — a React-shaped adapter carries its

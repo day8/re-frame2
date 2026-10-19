@@ -184,18 +184,16 @@ Snapshotting `:draft` into `:submitted` is what makes `:dirty?` mean "edited sin
 
 Structured server rejections go into `:errors`, where the same subs and markup as client-side validation render them. Transport failures go into `:submit-error` as one "couldn't reach the server" value.
 
-The failure envelope is `{:status :error :error {...} …}`, and the failure map under `:error` carries a `:kind` from a closed set: `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. A 4xx with a parseable validation body is the structured case; everything else is transport. Managed HTTP classifies by status before decoding, so a 4xx carries the raw response text under `:body` and the handler parses it:
+The failure envelope is `{:status :error :error {...} …}`, and the failure map under `:error` carries a `:kind` from a closed set: `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. A 4xx with a parseable validation body is the structured case; everything else is transport. Managed HTTP classifies by status before decoding, and a 4xx whose Content-Type is JSON carries its body already parsed under `:body` (the raw text stays at `:body-text`), so the handler reads it as data:
 
 ```clojure
 (defn server-field-errors
   "{<field> [msgs]} from a 4xx body like {\"errors\": {\"email\": [\"is invalid\"]}},
    or nil for anything that isn't a structured validation rejection."
   [{:keys [kind body]}]
-  (when (= kind :rf.http/http-4xx)
-    (try
-      (let [{:keys [errors]} (js->clj (js/JSON.parse body) :keywordize-keys true)]
-        (when (map? errors) errors))
-      (catch :default _ nil))))
+  (let [errors (when (map? body) (:errors body))]
+    (when (and (= kind :rf.http/http-4xx) (map? errors))
+      errors)))
 
 (rf/reg-event :form.login/submit-error
   (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
@@ -205,7 +203,7 @@ The failure envelope is `{:status :error :error {...} …}`, and the failure map
              (not errors) (assoc-in [:auth :login :submit-error] error))})))
 ```
 
-The view never learns which validator complained. A 422 saying `{:email ["already in use"]}` renders under the email input with the same `[:p.error ...]` that client validation uses. Because the body arrives unparsed, a JSON endpoint that returns an HTML 404 from a load balancer also arrives cleanly as `:rf.http/http-4xx` with the HTML at `:body`, rather than as a decode failure.
+The view never learns which validator complained. A 422 saying `{:email ["already in use"]}` renders under the email input with the same `[:p.error ...]` that client validation uses. Because only a JSON Content-Type is parsed, and a body that does not parse stays a string, a JSON endpoint that returns an HTML 404 from a load balancer also arrives cleanly as `:rf.http/http-4xx` with the HTML at `:body`, rather than as a decode failure.
 
 For a transient failure, such as a 503 from a restarting node or a dropped connection, managed HTTP can back off and retry for you; see [Advanced](#let-transport-retry-ride-out-the-flaky-network).
 

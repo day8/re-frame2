@@ -19,8 +19,6 @@
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
     * The source-coord wrapper (`format-source-coord`, `dom-element?`,
       `inject-source-coord-attr`, `wrap-view`).
-    * `flush-views!` resolving `act` from the React namespace (React 19
-      is the adapter floor).
     * A factory `make-react-spine` that produces the per-substrate
       hook-based surfaces (`use-current-frame`, `use-subscribe`,
       `frame-provider`, `register-context-provider`) given the
@@ -2005,38 +2003,12 @@
          frame-kw
          (rf.adapter.context/normalize-children children)))
 
-;; ---- render flush for tests ----------------------------------------------
-;;
-;; `flush-views!` wraps React's `act()` so test code can drive a
-;; subscribe → re-render cycle synchronously. React 19 — the adapter floor —
-;; hosts `act` on the React namespace proper, so that is the one supported
-;; source. The lookup stays a PROBE rather than a
-;; direct call because React's PRODUCTION bundle omits `act` by design:
-;; the nil branch is documented safe degradation, not a compatibility path.
-
-(defn- resolve-act-fn
-  "Return React's act() if available, else nil. React 19 — the adapter
-  floor — hosts act on the React namespace directly. Absent only from
-  React's production bundle, which omits act by design."
-  []
-  (when (exists? (.-act React)) (.-act React)))
-
-(defn flush-views!
-  "Flush pending substrate renders synchronously. Wraps React's act() —
-  intended for test code only. Calls (act f); with no arg, calls (act
-  (fn [] nil)) to flush pending effects. Returns nil. No-op when act() is
-  not reachable in the current React build."
-  ([] (flush-views! (fn [] nil)))
-  ([f]
-   (when-let [act (resolve-act-fn)]
-     (act f))
-   nil))
-
 ;; ---- synchronous render flush ---------------------------------------------
 ;;
 ;; `flush-render!` is the PRODUCTION-grade synchronous render-commit fn for
-;; the substrate-adapter contract (distinct from `flush-views!`, which is a
-;; test-only `act()` wrapper). It exists because the React-shaped substrates
+;; the substrate-adapter contract (distinct from
+;; `re-frame.test-support/flush-views!`, the test-only `act()` wrapper around
+;; it). It exists because the React-shaped substrates
 ;; schedule their re-renders through React's normal lane scheduler, whose
 ;; commit lands on a `requestAnimationFrame`-style tick that (a) fires AFTER
 ;; an eval'd `dispatch` returns and (b) is throttled to ~never in a
@@ -2064,7 +2036,8 @@
   `react-dom/flushSync` (Spec 006 §`flush-render!`). The 1-arity form runs
   `f` inside `flushSync` so any state change `f` schedules commits before
   the call returns; the 0-arity form flushes already-pending work. Unlike
-  `flush-views!` (a test-only `act()` wrapper) this is production-grade and
+  `re-frame.test-support/flush-views!` (the test-only `act()` wrapper around
+  it) this is production-grade and
   NOT rAF-scheduled, so headless tooling can drive a `dispatch → flush-render!
   → observe-settled-DOM` loop even in a backgrounded tab. Returns
   nil. No-op-safe when there is nothing pending — `flushSync` with an empty
@@ -2825,7 +2798,6 @@
        :set-hiccup-emitter!        …
        :use-current-frame          …
        :use-sub                    …
-       :flush-views!               …
        :flush-render!              …
        :wrap-view                  …
        :componentize-view          …}
@@ -3653,10 +3625,8 @@
      ;; across UIx and Fresco islands); the let-bound fn keeps its internal
      ;; name, `use-subscribe`.
      :use-sub                     use-subscribe
-     :flush-views!                flush-views!
-     ;; Production-grade synchronous render-commit (NOT the
-     ;; test-only act() wrapper above). Wired into the adapter map's
-     ;; :flush-render! contract slot by make-react-adapter.
+     ;; Production-grade synchronous render-commit. Wired into the adapter
+     ;; map's :flush-render! contract slot by make-react-adapter.
      :flush-render!               flush-render!
      :wrap-view                   wrap-view-fn
      ;; `:adapter/componentize-view` CORE. The adapter marks the
@@ -3898,7 +3868,6 @@
        :render-to-string           …
        :dispose-adapter!           …
        :flush-render!              …
-       :flush-views!               …
        :set-hiccup-emitter!        …}
 
   The internal `active-roots-cell` / `emitter-cell` are NOT
@@ -4057,33 +4026,6 @@
              ;; the contract by at least running `f`. Reagent injects one,
              ;; so this branch is dead in the reference.
              (f))
-           nil))
-        ;; CANONICAL test-flush hook, the same across substrates. Same
-        ;; name, location (adapter ns, re-exported from
-        ;; here), and SHAPE as the React-hook spine's `flush-views!`: wrap
-        ;; React's `act()` so a subscribe → re-render cycle drives
-        ;; synchronously in test code; with no arg, flushes pending effects;
-        ;; returns nil. Inside `act` we drive the ratom-family synchronous
-        ;; render drain (the injected `:flush-render!` op — stock
-        ;; `reagent.core/flush`) so dirty
-        ;; components forceUpdate and Reactions recompute before `act`
-        ;; returns. When act() is unreachable in the current React build it
-        ;; degrades to a plain synchronous flush — the ratom family has a
-        ;; real synchronous render drain even without act (unlike the
-        ;; React-hook spine `flush-views!`, which no-ops).
-        flush-views!
-        (fn flush-views!
-          ([] (flush-views! (fn [] nil)))
-          ([f]
-           (if-let [act (resolve-act-fn)]
-             (act (fn act-body []
-                    (if flush-render-op
-                      (flush-render-op f)
-                      (f))))
-             ;; No act() — degrade to a plain synchronous flush so a
-             ;; :node-test runner (no real React render path) still drains
-             ;; the render queue + dirty-set.
-             (if flush-render-op (flush-render-op f) (f)))
            nil))]
     {:make-state-container       make-state-container
      :read-container             read-container
@@ -4101,10 +4043,6 @@
      ;; Production synchronous render-commit, wired into the
      ;; adapter map's :flush-render! contract slot by make-ratom-adapter.
      :flush-render!              flush-render!
-     ;; Canonical nil-return test-flush hook, re-exported by both ratom
-     ;; adapter namespaces so every substrate surfaces the SAME
-     ;; `flush-views!` Var with the SAME nil-return shape.
-     :flush-views!               flush-views!
      :set-hiccup-emitter!        (fn set-it! [f]
                                    (set-hiccup-emitter! emitter-cell f))
      ;; Precedence-safe install-replay arm (see the twin in

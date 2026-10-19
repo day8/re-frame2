@@ -47,17 +47,20 @@ Helps an author rewrite **Reagent view code into Fresco** — `re-frame.fresco`,
 
 re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against; `day8/re-frame2-uix` is its peer. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter with `rf/init!`, and **stays on Reagent**. That is a *finished* migration, not a half-finished one, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
 
-Staying on Reagent does not mean every view is untouched. A plain-function view that calls `subscribe` or `dispatch` in its render needs a frame on re-frame2, and re-frame-migration's [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md) supplies one — `reg-view`, or a frame carried in explicitly. A pure view that renders only its arguments needs nothing:
+Staying on Reagent does not mean every view is untouched. A plain-function view reads its frame from the surrounding `frame-provider` while it renders, but a callback it sets up runs after the render, so a fresh `rf/dispatch` there needs a frame on re-frame2, and re-frame-migration's [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md) supplies one — ops captured at render, or a frame carried in explicitly. A pure view that renders only its arguments needs nothing:
 
 ```clojure
-;; Needs an M-11 repair: a subscribing plain fn raises
-;; :rf.error/no-frame-context at render on re-frame2 ...
+;; Needs an M-11 repair: the click's fresh rf/dispatch raises
+;; :rf.error/no-frame-context on re-frame2 ...
 (defn cart-badge []
-  [:span @(rf/subscribe [:cart/count])])
+  [:button {:on-click #(rf/dispatch [:cart/open])}
+   @(rf/subscribe [:cart/count])])
 
-;; ... until it has a frame, here as a reg-view (subscribe is injected).
+;; ... until it carries a frame, here as a reg-view (dispatch is injected,
+;; captured at render).
 (rf/reg-view cart-badge []
-  [:span @(subscribe [:cart/count])])
+  [:button {:on-click #(dispatch [:cart/open])}
+   @(subscribe [:cart/count])])
 
 ;; Needs nothing: a pure view reads no frame.
 (defn price-tag [amount]

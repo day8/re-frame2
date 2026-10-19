@@ -985,10 +985,8 @@
   address-directed subscribe to a missing/destroyed frame), so it stamps
   `:op :subscribe` UNCONDITIONALLY. Two consequences ride the
   stamp: `error-emit/error-source-coord` resolves the `:source-coord` under the
-  EXACT `[:sub id]` realm and NEVER the realm-ambiguous `[:sub]`-then-`[:event]`
-  fallback (which, for a sub-id registered only as a same-keyword EVENT, would
-  steal that event's coord instead of OMITTING the slot — the same mechanism
-  the pre-check seam uses, applied at every subscribe fence); and
+  `[:sub id]` realm, so a sub-id registered only as a same-keyword EVENT OMITS
+  the slot rather than take that event's coord; and
   `error-emit/raw-identity-query-vector-event?` routes the attempted query vector
   on the `:event` slot VERBATIM as raw IDENTITY (a query
   vector is identity, not payload) instead of failing closed to `:rf/redacted`
@@ -1086,7 +1084,7 @@
      ;; to the outer fence; one exact-incarnation operation).
      ;; `emit-frame-destroyed-recovery!` is subscribe-realm by
      ;; construction and stamps `:op :subscribe`, so the resolved `:source-coord`
-     ;; names the EXACT `[:sub id]` realm, never the realm-ambiguous fallback.
+     ;; names the `[:sub id]` realm.
      ;; This branch is reached ONLY for a CAPTURED subscribe (guarded
      ;; by `some? expected-incarnation`) whose pinned incarnation is dead, so the
      ;; bare `frame-id` may name a live same-id successor B — pass `route-frame?`
@@ -2004,13 +2002,11 @@
   target})` to read a named frame from outside any scope (async callbacks,
   tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
 
-  Per Spec 006 §Plain-fn footgun is `:rf.error/no-frame-context`: a
-  plain (non-`reg-view`) Reagent fn carries no `:contextType` wiring, so
-  it cannot read the surrounding frame boundary's frame from React
-  context and its ambient 1-arity `subscribe` raises
-  `:rf.error/no-frame-context`. Use the opts form from a plain Reagent
-  fn body to subscribe against a known frame: naming the target
-  explicitly is what carries the frame the ambient chain cannot find.
+  While a Reagent component renders — a `reg-view` or a plain fn — the
+  ambient form resolves the boundary above it in the tree (Spec 006 §One
+  frame-resolution rule for React hooks). Outside a render, or under no
+  boundary and no `with-frame`, it raises `:rf.error/no-frame-context`;
+  the opts form names the target explicitly there.
 
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and calls straight

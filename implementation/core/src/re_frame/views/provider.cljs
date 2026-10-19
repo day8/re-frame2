@@ -43,9 +43,10 @@
      and consumer reads share the same canonical Var.
 
   4. `current-frame` — the resolution chain subscribe / dispatch
-     consult at render time (Spec 002 §Reading the frame from React
-     context). Pairs with the `:contextType` static `reg-view*`
-     attaches to its wrapper output.
+     consult (Spec 006 §One frame-resolution rule for React hooks). While
+     a Reagent component renders, the frame boundary above it in the tree
+     answers first — through the `:contextType` static `reg-view*`
+     attaches, or the shared context-slot read for any other form.
 
   This ns does NOT statically `:require` `reagent.core`. The in-flight
   Reagent component is read through the late-bind hook
@@ -238,48 +239,50 @@
 
 ;; ---- frame resolution at render time -------------------------------------
 
+(defn- tree-frame
+  "The frame the boundary above rendering component `cmp` names, or nil.
+  A component whose `:contextType` is the frame context (a `reg-view*`
+  head) has React's public read in `(.-context cmp)`; every other form — a
+  plain fn, a component called rather than mounted — reads the shared
+  context slot. Both classify through the same rules, so a raw-hiccup
+  Provider's prop-stringified keyword resolves either way."
+  [cmp]
+  (if (identical? frame-context (.-contextType (.-constructor ^js cmp)))
+    (rf.adapter.context/context-value->current-frame (.-context ^js cmp))
+    (rf.adapter.context/context-slot-frame)))
+
 (defn current-frame
-  "Resolution chain (READER) per Spec 002 §Frame target resolution — the
-  carried invariant (EP-0002). Returns the scope frame, or **nil** when no
-  scope is established — it never synthesises `:rf/default` (the runtime
-  never repairs absence). The two tiers it observes:
+  "Resolution chain (READER) per Spec 006 §One frame-resolution rule for
+  React hooks — the carried invariant (EP-0002). Returns the scope frame,
+  or **nil** when no scope is established — it never synthesises
+  `:rf/default` (the runtime never repairs absence). In order:
 
-    1. Dynamic var (set by with-frame).
-    2. Closest enclosing frame boundary — a `frame-provider` (SCOPE) or
-       `frame-root` (ENSURE) — via React context.
+    1. While a Reagent component renders, the closest enclosing frame
+       boundary — a `frame-provider` (SCOPE) or `frame-root` (ENSURE) —
+       read from the tree: `(.-context cmp)` under the `:contextType`
+       `reg-view*` attaches, else the shared context-slot read, so a plain
+       fn resolves its provider too. The tree wins over a `with-frame`
+       around a synchronous render, as it does for a hook.
+    2. The dynamic var (`with-frame`), which answers where no boundary is
+       above and whenever no component is rendering.
+    3. nil — a public frame-scoped operation then fails loudly via
+       `rf.frame/require-current-frame!`.
 
-  Reagent-specific: the React-context tier reads `(.-context cmp)` on
-  the in-flight Reagent component. Reagent's class-component machinery
-  surfaces context to components whose `:contextType` matches the
-  context object — that is the wiring `reg-view*` attaches via
-  `{:contextType frame-context}`. Plain Reagent fns lack this wiring,
-  so `(.-context cmp)` is React's empty default — the no-provider
-  sentinel — and coercion returns nil (no scope). A public frame-scoped
-  operation reading nil then fails loudly via
-  `rf.frame/require-current-frame!`.
+  The first tier is gated on Reagent's in-flight component because the
+  context slot means something only during a render: outside one the
+  dynamic scope must stay in charge, and a slot left stale by a server
+  render that threw must never outrank it.
 
-  The keyword/string coercion via
-  `re-frame.adapter.context/coerce-context-value` is defensive cover
-  for users who mount a Provider via raw `[:> (.-Provider frame-context)
-  {:value :foo}]` hiccup directly. Under the classic Reagent adapter
-  that path passes through stock Reagent's `convert-prop-value`,
-  which stringifies named values (and drops keyword namespaces — see
-  `frame-provider-component`). The canonical user-facing surface
-  (`rf/frame-provider`) bypasses `convert-prop-value` via `:r>` so the
-  Provider's `:value` reaches React as the original keyword (namespace
-  preserved). The defensive cover applies whichever Reagent build is
-  loaded, because a raw-hiccup mount is possible under any of them.
-
-  `coerce-context-value` returns nil for the no-provider sentinel (a
-  namespaced keyword it does not special-case — it coerces only genuine
-  frame keywords / prop-stringified keywords), so a plain-fn read with no
-  enclosing Provider falls through to the trailing nil cleanly."
+  The coercion inside `context-value->current-frame` is defensive cover for
+  a Provider mounted via raw `[:> (.-Provider frame-context) {:value :foo}]`
+  hiccup: stock Reagent's `convert-prop-value` stringifies named values on
+  that path (and drops keyword namespaces — see `frame-provider-component`).
+  The canonical `rf/frame-provider` bypasses it via `:r>`, so its keyword
+  arrives intact."
   []
-  (or rf.frame/*current-frame*
-      (when-let [cmp (current-component)]
-        (let [v (.-context cmp)]
-          (when-not (= v rf.adapter.context/no-provider-sentinel)
-            (rf.adapter.context/coerce-context-value v))))))
+  (or (when-let [cmp (current-component)]
+        (tree-frame cmp))
+      rf.frame/*current-frame*))
 
 ;; ---- per-render identity --------------------------------------------------
 ;;
