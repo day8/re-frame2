@@ -3,9 +3,11 @@
   component renders, the frame boundary above it in the tree answers first —
   for a `reg-view` view, for a plain Reagent fn that never registered, and
   for a React hook beside them — and a `with-frame` scope around the render
-  answers only where no boundary is above. Outside every render the dynamic
-  scope alone answers, so a deferred callback still carries its frame
-  explicitly (Spec 006 §One frame-resolution rule).
+  answers only where no boundary is above. A `with-frame` taken inside the
+  render's own extent — in the view body, an `:epoch` listener the render
+  notifies, any code the render reaches — decides instead. Outside every
+  render the dynamic scope alone answers, so a deferred callback still
+  carries its frame explicitly (Spec 006 §One frame-resolution rule).
 
   Every probe here is a PLAIN fn unless its name says otherwise: no
   `reg-view`, so no `:contextType`. It records what its ambient reads
@@ -20,9 +22,11 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.use-frame :as rf.adapter.use-frame]
+            [re-frame.epoch]
             [re-frame.test-support :as rf.test-support]))
 
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
+(rf/reg-event ::mark (fn [{:keys [db]} _] {:db (assoc db :marked? true)}))
 (rf/reg-sub ::label (fn [db _] (:label db)))
 
 ;; `:ambient-frame nil`: no frame is in scope unless a test establishes one,
@@ -135,6 +139,76 @@
       (is (= [:ok :tenant/ssr "ssr"] (first @log))
           "the plain fn read the provider's frame under react-dom/server")
       (is (re-find #"tenant/ssr" html) "the markup carries the resolved frame"))))
+
+(deftest a-with-frame-around-a-server-render-loses-to-the-tree
+  (let [log (atom [])]
+    (frames! :tenant/outer :tenant/distractor)
+    (rf/with-frame :tenant/distractor
+      (rds/render-to-string [rf/frame-provider {:frame :tenant/outer} [(probe log)]]))
+    (is (= [:ok :tenant/outer "outer"] (first @log))
+        "the scope bound around the render did not override the provider")))
+
+(defn- act-inside-the-render!
+  "Code a render reaches: an ambient read with no scope of its own, then a
+  `with-frame :tenant/inner` that reads and dispatches. Logs both reads."
+  [log]
+  (swap! log conj [:bare (read-ambient)])
+  (rf/with-frame :tenant/inner
+    (swap! log conj [:inner (read-ambient)])
+    (rf/dispatch-sync [::mark])))
+
+(defn- assert-the-inner-with-frame-decided [log]
+  (is (= [[:bare [:ok :tenant/outer "outer"]]
+          [:inner [:ok :tenant/inner "inner"]]]
+         (take 2 @log))
+      (str "the bare read resolved the provider, and the with-frame its own frame; got "
+           (pr-str @log)))
+  (is (true? (:marked? (rf/app-db-value :tenant/inner)))
+      "the dispatch inside the with-frame reached its frame")
+  (is (nil? (:marked? (rf/app-db-value :tenant/outer)))
+      "and not the provider's"))
+
+(deftest a-with-frame-inside-a-plain-fn-render-decides
+  (let [log (atom [])]
+    (frames! :tenant/outer :tenant/inner)
+    (rds/render-to-string
+      [rf/frame-provider {:frame :tenant/outer}
+       [(fn acting-plain-fn []
+          (act-inside-the-render! log)
+          [:span "acted"])]])
+    (assert-the-inner-with-frame-decided log)))
+
+(deftest a-with-frame-inside-a-reg-view-render-decides
+  (let [log (atom [])]
+    (frames! :tenant/outer :tenant/inner)
+    (rf/reg-view* ::acting-view
+                  (fn acting-view []
+                    (act-inside-the-render! log)
+                    [:span "acted"]))
+    (rds/render-to-string
+      [rf/frame-provider {:frame :tenant/outer} [(rf/view ::acting-view)]])
+    (assert-the-inner-with-frame-decided log)))
+
+(deftest a-with-frame-in-an-epoch-listener-the-render-notifies-decides
+  (let [log    (atom [])
+        armed? (atom false)]
+    (frames! :tenant/outer :tenant/inner)
+    (rf/reg-view* ::quiet-view (fn quiet-view [] [:span "rendered"]))
+    ;; Armed only for the render: recording a view render re-notifies every
+    ;; `:epoch` listener while the component is still rendering, and the
+    ;; listener's own dispatch settles an epoch that must not re-enter it.
+    (rf/register-listener! :epoch ::render-time
+                           (fn [_record]
+                             (when (compare-and-set! armed? true false)
+                               (act-inside-the-render! log))))
+    (try
+      (reset! armed? true)
+      (rds/render-to-string
+        [rf/frame-provider {:frame :tenant/outer} [(rf/view ::quiet-view)]])
+      (finally
+        (rf/unregister-listener! :epoch ::render-time)))
+    (is (seq @log) "the render notified the listener")
+    (assert-the-inner-with-frame-decided log)))
 
 (deftest a-flush-inside-with-frame-resolves-the-tree-for-a-view-and-a-hook-alike
   (if-not (browser?)
