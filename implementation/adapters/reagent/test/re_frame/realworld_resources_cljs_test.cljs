@@ -13,7 +13,7 @@
             [re-frame.schemas.malli]
             [malli.core :as m]
             [re-frame.views]
-            [re-frame.http.managed]
+            [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.resources]
             [re-frame.resources.route :as rf.resources.route]
@@ -837,6 +837,9 @@
    :bio "Canned demo user." :image ""})
 
 (defn- production-seam-frame! []
+  ;; The fixture parks `:rf.http/managed` in a capturing stub; this frame runs
+  ;; the real one, beneath the app's own demo transport.
+  (rf.fx/reg-fx :rf.http/managed rf.http.managed/managed-handler)
   (let [f (rf.frame/make-anon-frame-record!
             {:fx-overrides {:rf.nav/push-url                     :rf/no-op
                             :realworld-resources.session/persist :rf/no-op}})]
