@@ -293,9 +293,11 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
 
 `dispatch` sends an event to a frame; `subscribe` reads a subscription.
 
-On CLJS, `dispatch`, `dispatch-sync` and `subscribe` are macros in call position and plain functions in value position, as most `reg-*` forms are (see [Registration](#registration)). A call such as `(rf/dispatch [:counter/inc])` records its source coordinates, so tools like Xray can go from a trace event back to that expression. Passed as a value, as in `(map rf/dispatch events)` or `(or dispatch-fn rf/dispatch)`, the name is a function that skips the recording. Both reach the same dispatcher, and there is no `*`-suffixed variant.
+On CLJS, `dispatch` and `dispatch-sync` are macros in call position and plain functions in value position, as most `reg-*` forms are (see [Registration](#registration)). A call such as `(rf/dispatch [:counter/inc])` records its source coordinates, so tools like Xray can go from a trace event back to that expression. Passed as a value, as in `(map rf/dispatch events)` or `(or dispatch-fn rf/dispatch)`, the name is a function that skips the recording. Both reach the same dispatcher, and there is no `*`-suffixed variant.
 
-On the JVM the three are macros only. JVM code that needs a function calls `re-frame.router/dispatch!`, `re-frame.router/dispatch-sync!` or `re-frame.subs/subscribe`.
+On the JVM the two are macros only. JVM code that needs a function calls `re-frame.router/dispatch!` or `re-frame.router/dispatch-sync!`.
+
+`subscribe` is a plain function on both hosts, so `(map rf/subscribe query-vs)` works everywhere. It records no source coordinates of its own; inside a `reg-view` body the injected `subscribe` attributes a read's errors to the view.
 
 A `:frame` that names no live frame (a typo, or a destroyed frame) does not throw: `dispatch` does nothing, `subscribe` returns `nil`, and the runtime emits `:rf.error/frame-destroyed`. With no `:frame` and no frame in scope, the call throws `:rf.error/no-frame-context`.
 
@@ -404,7 +406,7 @@ The value is a map `{interceptor-ref replacement}`:
 
 ### `subscribe`
 
-- **Kind**: macro
+- **Kind**: function
 - **Signature**:
   ```clojure
   (subscribe query-v) → reaction
