@@ -179,8 +179,8 @@
   SAME cross-host normalized shape the failure maps carry (lower-cased
   names; string value, a repeated header comma-folded into one string,
   a repeated Set-Cookie a vector of its lines) —
-  never a second representation. When nil/absent (a canned stub that
-  supplied none, or a synthetic caller), `:meta` is OMITTED rather than
+  never a second representation. When nil/absent (a synthetic caller that
+  supplied none), `:meta` is OMITTED rather than
   fabricated (Managed-Effects: omit optional fields when absent). `:meta`
   is a core wire-bearing slot, so trace egress elides/redacts it through
   the shared `re-frame.reply/trace-summary` walker like `:value`."

@@ -1191,14 +1191,11 @@
   ;; / `install-history-listener!` / `remove-history-listener!` façade exports
   ;; — a `:url-bound? true` frame installs its strategy listener on
   ;; create and removes it on destroy, automatically.
-  ;; HTTP test-support surface (canonical home: re-frame.http.test-support).
-  ;; No façade rows: the stub family, `with-request-stubs` plus the raw
-  ;; install/uninstall pair, has no app / tool consumers and is reached only
-  ;; through the home namespace, which the generator does not introspect.
-  ;; The stub transports (`route-transport`, `pending-transport`,
-  ;; `with-transport`, `install-transport!`) are catalogued the same way: their
-  ;; home namespace `re-frame.http.stub-transport` is required directly by a
-  ;; test or a demo, is not introspected, and carries no rows.
+  ;; HTTP test surface (canonical home: re-frame.http.stub-transport). No
+  ;; façade rows: the stub transports (`route-transport`, `pending-transport`,
+  ;; `with-transport`, `install-transport!`) are required directly by a test or
+  ;; a demo through their home namespace, which the generator does not
+  ;; introspect, so they carry no rows.
   ;; Observation listeners: ONE stream-parameterized verb, whose closed
   ;; vocabulary is the TWO RAW DEV STREAMS `:trace` / `:epoch`.
   ;; There are no per-channel `register-(event|error)-listener!` facade pairs
@@ -1330,10 +1327,9 @@
   ["re-frame.performance" "entry-id"]         {:tier :adapter :owner "009" :status "v1"}
   ["re-frame.performance" "build-name"]       {:tier :adapter :owner "009" :status "v1"}
   ["re-frame.performance" "mark-and-measure"] {:tier :adapter :owner "009" :status "v1"}
-  ;; Managed-HTTP reaches tests call through `re-frame.http.managed` and
-  ;; `re-frame.http.test-support`: registry and interceptor-chain snapshots,
-  ;; seeding and resets, and the request-chain and canned-reply helpers beneath
-  ;; the documented stub family. Public for a cross-namespace test reach only.
+  ;; Managed-HTTP reaches tests call through `re-frame.http.managed`: registry
+  ;; and interceptor-chain snapshots, seeding and resets. Public for a
+  ;; cross-namespace test reach only.
   ["re-frame.http.managed" "clear-all-in-flight!"]         {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http.managed" "in-flight-snapshot"]           {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http.managed" "actor-in-flight-snapshot"]     {:tier :implementation :owner "014" :status "v1 (optional capability)"}
@@ -1341,15 +1337,10 @@
   ["re-frame.http.managed" "abort-on-actor-destroy"]       {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http.managed" "clear-all-http-interceptors!"] {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http.managed" "interceptors-snapshot"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http.test-support" "capture-and-run-request-chain"] {:tier :implementation :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http.test-support" "run-request-chain"]             {:tier :implementation :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http.test-support" "emit-canned-success!"]          {:tier :implementation :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http.test-support" "canned-success-handler"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http.test-support" "canned-failure-handler"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ;; `re-frame.resources.test-support`'s one public var, the per-test resources
   ;; reset. A test requires the namespace for its load effect, which publishes
   ;; the `:resources/reset-resources!` hook `make-reset-runtime-fixture` fires;
-  ;; the var itself is a test reach, like the http helpers above.
+  ;; the var itself is a test reach, like the http reaches above.
   ["re-frame.resources.test-support" "reset-resources!"]         {:tier :implementation :owner "016" :status "v1 (optional capability)"}
 
   ;; =========================================================================

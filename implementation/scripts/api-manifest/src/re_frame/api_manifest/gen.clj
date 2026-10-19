@@ -174,13 +174,6 @@
     [re-frame.http.managed abort-on-actor-destroy]
     [re-frame.http.managed clear-all-http-interceptors!]
     [re-frame.http.managed interceptors-snapshot]
-    ;; The request-chain and canned-reply helpers beneath the documented stub
-    ;; family, which tests call directly. Implementation tier.
-    [re-frame.http.test-support capture-and-run-request-chain]
-    [re-frame.http.test-support run-request-chain]
-    [re-frame.http.test-support emit-canned-success!]
-    [re-frame.http.test-support canned-success-handler]
-    [re-frame.http.test-support canned-failure-handler]
     [re-frame.resources.test-support reset-resources!]])
 
 (defn- source-file->ns-sym
@@ -530,15 +523,15 @@
      ;; `resource-selectors` directly below them, not a surface.
      re-frame.resources.tooling
      ;; The test-only fixture namespace, the sibling of
-     ;; `re-frame.routing.test-support` above (its docstring names the family:
-     ;; routing, resources and http). Required directly by test suites, again
+     ;; `re-frame.routing.test-support` above. Required directly by test
+     ;; suites, again
      ;; for the LOAD EFFECT: the require publishes the
      ;; `:resources/reset-resources!` late-bind hook, and the consumer-facing
      ;; name is `re-frame.test-support/make-reset-runtime-fixture` — already
      ;; rowed at :testing with a docs/api page — which FIRES the one public var
      ;; here. No consumer calls `reset-resources!` itself, so the namespace
      ;; stays internal while that var is rowed at :implementation through
-     ;; `extra-vars`, as the http test-support helpers are. The require
+     ;; `extra-vars`. The require
      ;; itself is named in guidance: docs/core/testing/index.md says the
      ;; fixture resets resource caches when the test requires it.
      re-frame.resources.test-support})

@@ -145,18 +145,6 @@
   ;; string sentinels (e.g. "rf.http/retry-attempt") should NOT appear
   ;; in the production bundle.
   ;;
-  ;; The canned-stub fxs (`:rf.http/managed-canned-success`,
-  ;; `:rf.http/managed-canned-failure`) register from a sibling
-  ;; test-support namespace, `re-frame.http.test-support`, not from
-  ;; `re-frame.http.managed`'s load-time side effects. Their gate is the
-  ;; require boundary rather than `(when interop/debug-enabled? ...)`:
-  ;; production code paths must not require `re-frame.http.test-support`,
-  ;; and the elision-probe namespace MUST NOT require it either — under
-  ;; :advanced + goog.DEBUG=false the canned-stub fx-id string fragments
-  ;; must not appear in the production bundle, and what pins that absence
-  ;; is classpath / require-closure absence rather than DCE of a `(when
-  ;; ...)` block. The same `scripts/check-elision.cjs` sentinels apply.
-  ;;
   ;; The probe roots the dependency graph by:
   ;;   1. requiring re-frame.http.managed (forces its ns body to be
   ;;      compiled into the bundle, which is where the gated trace-emit
@@ -167,11 +155,6 @@
   ;;      destroy path so the gated trace emits sit in a reachable
   ;;      module graph (DCE only eliminates branches it can prove dead;
   ;;      reachability comes from the require + the dispatch path).
-  ;;
-  ;; The canned-stub fx-id keywords are NEVER referenced from probe code;
-  ;; the test-support namespace that registers them is NEVER required by
-  ;; the probe. That is exactly what we want to assert lives only in the
-  ;; control bundle.
   (rf/reg-event :probe/http-abort-touch
     (fn [_ _]
       {:fx [[:rf.http/managed-abort :probe/never-issued-request]]}))

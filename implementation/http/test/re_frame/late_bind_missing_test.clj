@@ -4,10 +4,8 @@
 
   The http artefact IS on the classpath here (requiring `re-frame.http.managed`
   publishes its late-bind hooks), so the absent state is simulated by setting
-  the hook to nil for the assertion and restoring it after. The stub family
-  (`with-request-stubs` and the install/uninstall pair) is not a
-  `re-frame.core` export and has no hook, so `reg-http-interceptor` is the
-  re-export that carries the contract."
+  the hook to nil for the assertion and restoring it after.
+  `reg-http-interceptor` is the re-export that carries the contract."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]

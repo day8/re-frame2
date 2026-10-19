@@ -315,8 +315,7 @@
            reply-payload frame middleware-ctx interceptor-chain
            completed-at]
     :as   ctx}]
-  ;; Live and canned replies share this `:after` + late-bind path. The
-  ;; `:after` chain is skipped when no middleware-ctx is present
+  ;; The `:after` chain is skipped when no middleware-ctx is present
   ;; (synthetic / test-path callers).
   (try
     (rf.http.middleware/run-after-then-dispatch!

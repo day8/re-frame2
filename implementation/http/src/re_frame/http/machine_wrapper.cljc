@@ -35,17 +35,7 @@
   the same id `:rf.http/managed` — re-frame.registrar segregates by
   kind, so `:fx [[:rf.http/managed args]]` fires the fx
   AND `{:spawn {:machine-id :rf.http/managed ...}}` resolves to the
-  machine.
-
-  ## Test support
-
-  The canned-stub handler bodies (`canned-success-handler` /
-  `canned-failure-handler` and their `emit-canned-*!` / `run-request-
-  chain` / `dispatch-canned-reply!` helpers) are TEST scaffolding — they
-  live in `re-frame.http.test-support` alongside the canned-stub fx
-  registrations and the `with-request-stubs` helper that
-  composes against them. This production-loaded namespace carries only the
-  machine wrapper."
+  machine."
   (:require [re-frame.error :as rf.error]
             [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.late-bind :as rf.late-bind]))

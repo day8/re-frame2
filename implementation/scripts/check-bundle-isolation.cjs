@@ -163,34 +163,25 @@ const ARTEFACTS = [
       // ns is loaded; the keyword string survives :advanced).
       { source: 're-frame.http.managed reg-fx (rf.http/managed-abort)',
         sentinel: 'rf.http/managed-abort' },
-      // http/test_support.cljc — canned-failure stub fx. The canned-stub
-      // fx registrations live in this test-support namespace of the http
-      // artefact, beside http/managed.cljc. examples/counter requires
-      // neither ns, so the sentinel asserts the http artefact's bodies
-      // aren't pulled in.
-      { source: 're-frame.http.test-support reg-fx (rf.http/managed-canned-failure)',
-        sentinel: 'rf.http/managed-canned-failure' },
+      // http/handlers.cljc + transport.cljc — failure taxonomy: the 5xx
+      // category, in the retryable set and the status classifier.
+      { source: 're-frame.http.handlers retryable set (http-5xx)',
+        sentinel: 'rf.http/http-5xx' },
       // http/managed.cljc — failure taxonomy: decode failure.
       { source: 're-frame.http.managed classify-failure (decode-failure)',
         sentinel: 'rf.http/decode-failure' },
     ],
-    // Three consumer-side strings (Spec 014):
-    //   `rf.http/managed`                — fx-name core's preset map
-    //                                      maps to in :test/:story
-    //                                      modes (frame.cljc).
-    //   `rf.http/managed-canned-success` — canned-stub fx-name the
-    //                                      preset map redirects to.
-    //   `rf.http/managed`                — the fx-args
-    //                                      classification walk's case key in
-    //                                      re-frame.classification/project-fx-args
-    //                                      (a keyword literal gating the
-    //                                      :http/project-managed-fx-args
-    //                                      late-bind consult — the blessed
-    //                                      consumer-side pattern, no :require).
-    // The pattern uses a negative lookahead so `rf.http/managed-canned-
-    // success` and `rf.http/managed` (without the suffix) each match
-    // exactly once, not by substring overlap.
-    consumerAllowList: /rf\.http\/managed-canned-success|rf\.http\/managed(?!-canned)/g,
+    // Consumer-side strings (Spec 014):
+    //   `rf.http/stub-only?` — the frame-config key core's :test/:story
+    //                          presets set (frame.cljc); the HTTP artefact
+    //                          reads it.
+    //   `rf.http/managed`    — the fx-args classification walk's case key in
+    //                          re-frame.classification/project-fx-args (a
+    //                          keyword literal gating the
+    //                          :http/project-managed-fx-args late-bind
+    //                          consult — the blessed consumer-side pattern,
+    //                          no :require).
+    consumerAllowList: /rf\.http\/stub-only\?|rf\.http\/managed/g,
     expectedAllowListHits: 3,
   },
 

@@ -623,10 +623,9 @@
 ;; or more, the reply is genuinely ambiguous and NOTHING may be concluded from
 ;; it. That is suppressing a superseded request rather than correlating a
 ;; reply, done with app state, which is the only place it CAN be done here: the framework's own
-;; request-id supersession lives in the live `:rf.http/managed` handler, and
-;; this app's default run mode replaces that handler with the canned demo stub
-;; (http.cljs), so a transport-level contract would be inert in the shipped
-;; demo. An app-level ledger behaves identically in every run mode.
+;; request-id supersession retires a request by the id its caller gave it, never
+;; by the account a reply names. An app-level ledger behaves identically in every
+;; run mode, whichever transport the frame sends through.
 ;;
 ;; KNOWN LIMIT, stated because the reader should not assume more than this buys.
 ;; Ambiguity is resolved by REFUSING, so two outstanding saves claiming one name

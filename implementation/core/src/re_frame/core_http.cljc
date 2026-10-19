@@ -10,12 +10,10 @@
 
 (def ^:private http-artefact (artefact-info :http))
 
-;; The whole stub family (`with-request-stubs` and the raw
-;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair)
-;; is NOT re-exported from `re-frame.core`: it is test-support infrastructure,
-;; not app-facing core surface. Tests reach all three directly through the home
-;; namespace `re-frame.http.test-support`, so there is no core wrapper and no
-;; late-bind hook for any of them.
+;; The stub transports are NOT re-exported from `re-frame.core`: they are test
+;; and demo infrastructure, not app-facing core surface. Callers reach them
+;; directly through the home namespace `re-frame.http.stub-transport`, so there
+;; is no core wrapper and no late-bind hook for any of them.
 
 ;; ---- Spec 014 §Middleware — HTTP interceptor definitions ---------------
 

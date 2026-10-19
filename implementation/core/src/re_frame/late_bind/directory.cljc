@@ -527,9 +527,8 @@
     :description "Cross-feature LATE-BOUND epoch-restore trace COMMIT hook (Spec 016 §Restore and replay / §Xray and AI tooling) — the post-install half of :resources/reconcile-on-restore. The reconcile runs BEFORE the atomic replace-frame-state! install and defers its success rows (:rf.resource/restored + :rf.resource/owner-released), riding the trace intents back as metadata; epoch perform-restore! consults this hook with the reconciled runtime-db ONLY on the install-success branch so those success rows fire exactly once the restore truly installed — never for a destroyed-frame install (the post-liveness teardown race) that returns nil and writes nothing. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/commit-resources-restore-traces! inside perform-restore!. Called as (commit reconciled-runtime-db) and emits every deferred intent: it runs inside the restore's serialized section, which delivers each emit to trace listeners only once the section ends, so no listener runs between two intents. No-op when no resources artefact is loaded, when the frame-state carries no runtime-db partition, or when the runtime-db carries no deferred intents (a resource-free restore)."}
 
    ;; ---- re-frame.http.managed -----------------------------------------------
-   ;; The stub family (`with-request-stubs` and the raw install/uninstall pair)
-   ;; has no façade wrapper, so it carries no late-bind hook — tests call it
-   ;; directly via its home namespace `re-frame.http.test-support`.
+   ;; The stub transports have no façade wrapper, so they carry no late-bind
+   ;; hook — callers reach them directly via `re-frame.http.stub-transport`.
    {:key         :http/clear-all-in-flight!
     :producer-ns 're-frame.http.managed
     :description "Abort every in-flight managed request (test isolation)."}

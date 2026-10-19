@@ -187,30 +187,6 @@ const DEV_ONLY_SENTINELS = [
   // fragment must elide in production.
   { source: 're-frame.http.managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
     sentinel: 'rf.http/aborted-on-actor-destroy' },
-  //
-  // NOTE — there are no canned-stub fx-id sentinels
-  // (`rf.http/managed-canned-success`, `rf.http/managed-canned-failure`)
-  // here, because their gate is the require boundary, not
-  // `interop/debug-enabled?`: the canned-stub fxs register
-  // from the sibling `re-frame.http.test-support` namespace. The
-  // elision probe MUST NOT require that namespace (doing so would
-  // smuggle the canned-stub fx-id keyword literals into BOTH
-  // bundles unconditionally). With the require absent, the
-  // test-support module is unreferenced from any production module —
-  // the `:advanced + goog.DEBUG=false` counter build trims it
-  // wholesale, but the control build trims it too because nothing
-  // references it, so the elision check's positive-presence methodology
-  // assertion cannot apply.
-  //
-  // Their contract is pinned elsewhere:
-  //   - JVM/SSR absence: pinned by re-frame.http-test-support-absent-test
-  //     (negative assertion: requiring re-frame.http.managed alone does
-  //     NOT register the canned-stub fxs).
-  //   - JVM/SSR presence: pinned by re-frame.http-test-support-test
-  //     (smoke: requiring re-frame.http.test-support DOES register them).
-  //   - CLJS counter-bundle absence: pinned by check-bundle-isolation.cjs
-  //     (the `rf.http/managed-canned-failure` sentinel must not appear
-  //     in the no-feature counter bundle).
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
   // travel, Spec 009 §register-epoch-listener). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside

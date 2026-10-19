@@ -3,14 +3,11 @@
   `:retry :on` at fx-call time, before the middleware chain and before any
   attempt: a member outside the closed retryable set, or an `:on` that is not
   a set, throws `:rf.error/http-bad-retry-on`, and so does a `:retry` map
-  without `:max-attempts` (Spec 014 §Retry and backoff). The test-support
-  stand-ins refuse the same args the same way."
+  without `:max-attempts` (Spec 014 §Retry and backoff)."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed]
-            [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -67,17 +64,3 @@
     {:on #{:rf.http/transport :rf.http/http-5xx}}
     {:on closed-set :max-attempts nil}
     {}))
-
-(deftest the-stubs-refuse-a-bad-retry-on-as-the-live-fx-does
-  ;; The stand-ins replace :rf.http/managed as :fx-overrides targets, so a test
-  ;; must not go green on a call site production rejects.
-  (let [url        "http://localhost/x"
-        args       {:request {:method :get :url url} :on-success nil :on-failure nil :retry {:on #{:rf.http/aborted}}}
-        call-stub  (fn [stub] (try (stub {:frame :rf/default :event [:no-op]} args) nil
-                                   (catch clojure.lang.ExceptionInfo e (ex-data e))))
-        scope-stub (rf.registrar/handler :fx :rf.test/managed-http-scope-stub)]
-    (are [data] (= (expected-bad-members #{:rf.http/aborted}) (bad-members data))
-      (rf.http.test-support/with-request-stubs {[:get url] {:reply {:ok :stubbed}}}
-        #(call-stub scope-stub))
-      (call-stub rf.http.test-support/canned-success-handler)
-      (call-stub rf.http.test-support/canned-failure-handler))))

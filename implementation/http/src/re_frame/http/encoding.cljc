@@ -233,10 +233,7 @@
       ambient event, e.g. spawn-time entry actions).
    3. `[:rf.http/managed]` — synthetic fallback so the reply addressing
       machinery (`build-reply-event`) always has a non-nil event-id.
-
-  The one resolver the live fx (`handlers/managed-handler`) and the canned
-  stubs (`re-frame.http.test-support`) share, so the order cannot drift."
-  [frame-ctx args-map]
+"  [frame-ctx args-map]
   (or (:event frame-ctx)
       (:rf.http/origin-event args-map)
       [:rf.http/managed]))
@@ -269,9 +266,7 @@
   deliberate silence, so `{:on-success [:a] :on-failure nil}` is a complete
   pair, while `{:reply-to [:a] :on-failure nil}` is still a mixture.
 
-  Called from `handlers/validate-reply-target!`, which the live fx and the
-  `re-frame.http.test-support` stubs both run, so the refusal is the same
-  wherever a managed args map is interpreted."
+  Called from `handlers/validate-reply-target!`."
   [args-map]
   (when (map? args-map)
     (let [split (filterv #(contains? args-map %) [:on-success :on-failure])]
@@ -298,11 +293,7 @@
   Per Spec 014 §Reply addressing, `:reply-to` addresses BOTH branches, and
   otherwise the branch's own split key does. Only an args map
   `validate-reply-addressing!` accepted reaches here, so every branch is
-  addressed — by `:reply-to` or by its own key.
-
-  One fn rather than a precedence rule restated at each interpreting site
-  (the live fx and the canned stubs) — a copy is where a precedence rule
-  drifts."
+  addressed — by `:reply-to` or by its own key."
   [args-map branch-key]
   (if (contains? args-map :reply-to)
     (:reply-to args-map)
@@ -313,8 +304,7 @@
 (defn dispatch-reply-via-late-bind!
   "Compose `build-reply-event` with a late-bind `:router/dispatch!` lookup
   and fire the dispatch. The single truth point for 'how does http
-  dispatch its reply' — shared by `http-transport/dispatch-reply!` and
-  the canned-stub handlers in `http-test-support`.
+  dispatch its reply', called from `http-transport/dispatch-reply!`.
 
   `args` is the same map `build-reply-event` consumes; `frame` (optional)
   is threaded as `{:frame <id>}` onto the dispatch options when present.
@@ -332,9 +322,9 @@
   already carries `:rf/time-ms` (it only fills a missing one), so a reply
   reducer deriving a durable timestamp reads it off the reply event's
   recordable coeffects — the causal completion fact, never a fresh ambient
-  clock read in the handler. When `completed-at` is absent (a synthetic /
-  canned reply with no host clock read), the router stamps the dispatch time
-  as usual."
+  clock read in the handler. When `completed-at` is absent (a synthetic
+  reply with no host clock read), the router stamps the dispatch time as
+  usual."
   [args frame]
   (when-let [ev (build-reply-event args)]
     (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]

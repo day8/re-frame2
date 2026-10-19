@@ -35,8 +35,8 @@
      ssr.cljc              — hydration payload helper for the RealWorld app
 
    Every Conduit endpoint goes out via `:rf.http/managed`. The demo entry
-   below swaps in a canned-stub override so the app runs with no network at
-   all. See the HTTP guide: ../../../docs/async/http.md"
+   below installs a stub transport (the demo backend) on the frame, so the app
+   runs with no network at all. See the HTTP guide: ../../../docs/async/http.md"
   (:require [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact. Requiring it registers
             ;; the `:rf.http/managed` fx (and its family), so dispatching it

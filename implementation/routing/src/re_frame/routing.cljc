@@ -324,8 +324,7 @@
 ;; suppression. The test-only `:rf.test/simulate-http-resolution` fixture
 ;; analogue is NOT wired here — it lives behind an explicit
 ;; `re-frame.routing.test-support` require so the `:rf.test/*` fixture
-;; event never reaches a production registry (mirroring the managed-HTTP
-;; canned-stub gate).
+;; event never reaches a production registry.
 (rf.fx/reg-fx :rf.route/with-nav-token
            rf.routing.nav-token/with-nav-token-meta
            rf.routing.nav-token/with-nav-token-handler)

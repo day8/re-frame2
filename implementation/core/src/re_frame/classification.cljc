@@ -619,8 +619,8 @@
   redirect TARGET's own declaration first (an app stub may declare its own
   static paths), then the ORIGINAL registration's static paths + per-fx-id
   dynamic classification. Without it a
-  `:sensitive? true` `:rf.http/managed` request redirected to a canned /
-  test stub would ride RAW on the stub's own `:rf.fx/handled` — the stub
+  `:sensitive? true` `:rf.http/managed` request redirected to a test stub
+  would ride RAW on the stub's own `:rf.fx/handled` — the stub
   registration declares nothing and the resolved id matches no dynamic
   case, but the ORIGINAL id carries both."
   [tags]
