@@ -98,7 +98,7 @@
           [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]))
 
 (defn- socket-id
-  "The live socket actor's id, from the `:rf/spawned` slot the runtime keeps
+  "The live socket actor's id, from the `[:rf/runtime :spawned]` slot the runtime keeps
    for the `[:active]` spawn and clears on teardown."
   [f]
   (get-in (snap f) [:rf/runtime :spawned [:active]]))
