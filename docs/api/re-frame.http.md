@@ -156,11 +156,11 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 Every reply is one map keyed on `:status`, which is `:ok`, `:error` or `:cancelled`:
 
 ```clojure
-;; Success — :meta carries the response's :status, :status-text and :headers
+;; Success — :meta carries the response's :http-status, :status-text and :headers
 ;; (header names lower-cased)
-{:status :ok :value decoded-body :meta {:status 200 :status-text "OK" :headers {…}} …}
+{:status :ok :value decoded-body :meta {:http-status 200 :status-text "OK" :headers {…}} …}
 
-;; Failure — per-kind tags (:status / :status-text / :message / ...) sit
+;; Failure — per-kind tags (:http-status / :status-text / :message / ...) sit
 ;; flat on the failure map beside :kind
 {:status :error
  :error  {:kind :rf.http/<kind> ...}}
@@ -238,8 +238,8 @@ A failure's `:kind` is one of seven values, all reserved under `:rf.http/*`. The
 |---|---|---|
 | `:rf.http/transport` | Network, DNS or connection error before any HTTP response, or a `:body` that could not be prepared. In the browser a Fetch rejection against a cross-origin URL carries `:cross-origin? true`: the browser reports a CORS refusal and a dropped connection the same way, so it may be either. | `:message`, `:cause`; `:stage :request-prep` for a body failure; `:cross-origin? true` (CLJS only) |
 | `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; on the JVM also `:message` |
-| `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
-| `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
+| `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:http-status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
+| `:rf.http/http-5xx` | A 5xx response. | `:http-status`, `:status-text`, `:body` (parsed when the Content-Type is JSON, else raw text), `:body-text` (raw text), `:headers` |
 | `:rf.http/decode-failure` | A 2xx response whose body the decoder rejected. | `:body-text`, `:cause` (the message), `:schema-validation-failure?`; `:reason :too-many-keys` and `:limit` when the key cap was exceeded |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`, threw, or returned anything but a map with exactly one of `:ok` / `:failure`. | `:decoded` (the body before `:accept`); `:detail` is `user-map`, `{:rf.http/bad-accept :threw :message …}` or `{:rf.http/bad-accept :malformed-return :returned …}` |
 | `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id`; `:message` on some paths |
