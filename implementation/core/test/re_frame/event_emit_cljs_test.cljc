@@ -132,7 +132,7 @@
       (rf/dispatch-sync [:evt/fx-throws])
       (finally (rf.error-emit/unregister-error-listener! :test/recorder)))
     (is (= [:ok] (mapv :outcome @seen)))
-    (is (= [:rf.error/fx-handler-exception] (mapv :error @errors)))
+    (is (= [:rf.error/fx-handler-exception] (mapv :rf.error/id @errors)))
     (is (= 1 (:n (rf/app-db-value :rf/default))) "the state committed")
     (is (= 1 @after) "the sibling after the throw still ran")))
 

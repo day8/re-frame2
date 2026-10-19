@@ -41,7 +41,7 @@
     (is (zero? @target-ran) "the event is not queued at once in place of a delay")
     (is (= ["100"]
            (->> @errors
-                (filter #(and (= :rf.error/fx-handler-exception (:error %))
+                (filter #(and (= :rf.error/fx-handler-exception (:rf.error/id %))
                               (= :dispatch-later (:failing-id %))))
                 (mapv #(:ms (ex-data (:exception %))))))
         "one always-on refusal names the :dispatch-later fx and carries the offending :ms")))

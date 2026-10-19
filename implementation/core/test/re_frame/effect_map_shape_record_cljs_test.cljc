@@ -31,9 +31,9 @@
 
 (def ^:private record-keys
   "Every slot on the always-on record: the `dispatch-on-error!` spine (with
-  `:exception` nil — an in-band refusal is not a throw) plus `:error` and the
+  `:exception` nil — an in-band refusal is not a throw) plus `:rf.error/id` and the
   one lifted attribution slot, `:offending-key`."
-  #{:error :event :event-id :frame :time :exception :elapsed-ms :source-coord
+  #{:rf.error/id :event :event-id :frame :time :exception :elapsed-ms :source-coord
     :offending-key})
 
 (defn- record-always-on-errors
@@ -47,7 +47,7 @@
     @seen))
 
 (defn- shape-records [records]
-  (filterv #(= :rf.error/effect-map-shape (:error %)) records))
+  (filterv #(= :rf.error/effect-map-shape (:rf.error/id %)) records))
 
 (defn- refuse!
   "Seed `:n` 1, dispatch an event returning `extra` beside a `:db` write, and

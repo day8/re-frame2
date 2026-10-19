@@ -53,7 +53,7 @@
         (rf.error-emit/unregister-error-listener! ::observe)
         (rf/unregister-listener! :trace ::observe)))))
 
-(defn- of-category [category records] (filterv #(= category (:error %)) records))
+(defn- of-category [category records] (filterv #(= category (:rf.error/id %)) records))
 
 (defn- of-op [op traces] (filterv #(= op (:operation %)) traces))
 
@@ -155,7 +155,7 @@
                (map #(select-keys % [:event-id :event :frame :failing-id]) records)))
         ;; The record egresses off-box, so its key set is pinned CLOSED. No
         ;; `:rf.fx/args`: an unregistered fx has no `:sensitive` declaration.
-        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
+        (is (= #{:rf.error/id :event :event-id :frame :time :exception :elapsed-ms
                  :failing-id :source-coord}
                (set (keys (first records)))))))))
 

@@ -384,7 +384,7 @@
             (fn [ev] (when (= :rf.error/reprojection-failed (:operation ev))
                        (swap! diagnosed conj ev))))
           (rf.error-emit/register-error-listener! ::rpf-rec
-            (fn [record] (when (= :rf.error/reprojection-failed (:error record))
+            (fn [record] (when (= :rf.error/reprojection-failed (:rf.error/id record))
                            (swap! reported conj record))))
           (try
             ;; the JVM captures no tick, so it drives the deferred body directly

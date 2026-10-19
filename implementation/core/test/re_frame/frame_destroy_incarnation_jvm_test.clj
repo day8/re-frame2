@@ -163,7 +163,7 @@
           (swap! warnings conj ev))))
     (rf.error-emit/register-error-listener! ::ring-snap-warn
       (fn [r]
-        (when (and (= :rf.error/frame-teardown-failed (:error r))
+        (when (and (= :rf.error/frame-teardown-failed (:rf.error/id r))
                    (= id (:frame r)))
           (swap! reports conj r))))
     (try
@@ -206,7 +206,7 @@
     ;; A settles one event, so it owns real epoch state when it is destroyed.
     (rf/dispatch-sync [:snap-fail/seed] {:frame id})
     (rf.error-emit/register-error-listener! report-key
-      (fn [r] (when (= :rf.error/frame-teardown-failed (:error r))
+      (fn [r] (when (= :rf.error/frame-teardown-failed (:rf.error/id r))
                 (swap! reports conj r))))
     (try
       ;; Fail the PRE-dissoc snapshot for this id (delegate every other id).
@@ -421,7 +421,7 @@
           (swap! warnings conj ev))))
     (rf.error-emit/register-error-listener! ::ring-publish-warn
       (fn [r]
-        (when (and (= :rf.error/frame-teardown-failed (:error r))
+        (when (and (= :rf.error/frame-teardown-failed (:rf.error/id r))
                    (= a-id (:frame r)))
           (swap! reports conj r))))
     (try
@@ -498,7 +498,7 @@
       {:interceptors [:destroy/throwing]}
       (fn [_ _] (swap! handler-runs inc) {}))
     (rf.error-emit/register-error-listener! ::throw-before
-      (fn [record] (when (= id (:frame record)) (swap! errors conj (:error record)))))
+      (fn [record] (when (= id (:frame record)) (swap! errors conj (:rf.error/id record)))))
     (try
       (rf.late-bind/set-fn!
         :epoch/settle!
@@ -604,7 +604,7 @@
       {:rf.cofx/requires [:destroy/cofx-killer]}
       (fn [_ _] (swap! handler-runs inc) {:db {:forbidden true}}))
     (rf.error-emit/register-error-listener! ::cofx-loss
-      (fn [record] (when (= id (:frame record)) (swap! errors conj (:error record)))))
+      (fn [record] (when (= id (:frame record)) (swap! errors conj (:rf.error/id record)))))
     (try
       (is (= [nil 0 [:rf.error/coeffect-exception] nil]
              [(rf/dispatch-sync [:destroy/cofx-event] {:frame id})
@@ -747,22 +747,22 @@
     (rf/make-frame {:id id})
     (rf.error-emit/register-error-listener! ::union-destroyer
       (fn [record]
-        (when (= :rf.error/test-union (:error record))
+        (when (= :rf.error/test-union (:rf.error/id record))
           (rf.frame/destroy-frame! id)
           (throw (ex-info "union listener failed" {})))))
     (rf.error-emit/register-error-listener! ::union-sibling
       (fn [record]
-        (when (= :rf.error/test-union (:error record))
+        (when (= :rf.error/test-union (:rf.error/id record))
           (swap! sibling-runs inc))))
     (rf/reg-event :destroy/union-error-event
       (fn [_ _]
         (rf.error-emit/dispatch-error-record!
-          {:error :rf.error/test-union :frame id :time 0})
+          {:rf.error/id :rf.error/test-union :frame id :time 0})
         {}))
     (try
       (rf.late-bind/set-fn! :observability/route-error-record
         (fn [record & _]
-          (when (= :rf.error/test-union (:error record))
+          (when (= :rf.error/test-union (:rf.error/id record))
             (swap! route-runs inc))))
       (rf/dispatch-sync [:destroy/union-error-event] {:frame id})
       (finally
@@ -789,18 +789,18 @@
     (try
       (rf.late-bind/set-fn! :observability/route-error-record
         (fn [record & more]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
+          (when (= :rf.error/drain-depth-exceeded (:rf.error/id record))
             (swap! frame-routes inc))
           (when original-route (apply original-route record more))))
       ;; registered first, so the array-map corpus registry fans it first
       (rf.error-emit/register-error-listener! ::depth-destroyer
         (fn [record]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
+          (when (= :rf.error/drain-depth-exceeded (:rf.error/id record))
             (swap! depth-records conj record)
             (rf.frame/destroy-frame! id))))
       (rf.error-emit/register-error-listener! ::depth-sibling
         (fn [record]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
+          (when (= :rf.error/drain-depth-exceeded (:rf.error/id record))
             (swap! sibling-runs inc))))
       (rf/dispatch-sync [:drain.incarnation/loop] {:frame id})
       (executor-barrier!)
@@ -830,11 +830,11 @@
     (try
       (rf.error-emit/register-error-listener! ::live-a
         (fn [record]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
+          (when (= :rf.error/drain-depth-exceeded (:rf.error/id record))
             (swap! depth-records conj record))))
       (rf.error-emit/register-error-listener! ::live-b
         (fn [record]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
+          (when (= :rf.error/drain-depth-exceeded (:rf.error/id record))
             (swap! sibling-runs inc))))
       (rf/dispatch-sync [:drain.incarnation/live-loop] {:frame id})
       (executor-barrier!)

@@ -66,7 +66,7 @@
   "ALWAYS-ON: category `kw` fanned a record to the `:errors` registry, and the
   record carries no `:rf.trace/call-site`. Returns the record."
   [recs kw]
-  (let [rec (first (filterv #(= kw (:error %)) recs))]
+  (let [rec (first (filterv #(= kw (:rf.error/id %)) recs))]
     (is (some? rec) (str "the always-on error record for " kw " fired"))
     (is (not (contains? rec :rf.trace/call-site)))
     rec))

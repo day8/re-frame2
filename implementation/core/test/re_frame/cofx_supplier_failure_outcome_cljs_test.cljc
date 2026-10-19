@@ -62,7 +62,7 @@
   [axes event-id cofx-id handler-runs]
   (is (= [[event-id :error]] (outcomes axes)))
   (is (= [[:rf.error/coeffect-exception cofx-id event-id]]
-         (mapv (juxt :error :failing-id :event-id) (:errors axes))))
+         (mapv (juxt :rf.error/id :failing-id :event-id) (:errors axes))))
   (is (zero? @handler-runs)))
 
 (deftest throwing-generator-fails-the-event

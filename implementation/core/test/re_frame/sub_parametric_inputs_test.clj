@@ -60,7 +60,7 @@
   (let [recs (atom [])
         k    (keyword "rf2-d2841" (str (name error-kw) "-rec-" (gensym)))]
     (rf.error-emit/register-error-listener! k
-                           (fn [r] (when (= error-kw (:error r))
+                           (fn [r] (when (= error-kw (:rf.error/id r))
                                      (swap! recs conj r))))
     [recs #(rf.error-emit/unregister-error-listener! k)]))
 

@@ -45,11 +45,11 @@
       (with-emit-recorder! [raw]
         (rf/dispatch-sync [:paired/boom] {:frame :bracket/paired})
         (is (= [[:rf.error/handler-exception :bracket/paired true false]]
-               (mapv (fn [r] [(:error r) (:frame r) (some? (:exception r)) (contains? r :kind)])
+               (mapv (fn [r] [(:rf.error/id r) (:frame r) (some? (:exception r)) (contains? r :kind)])
                      @raw))
             "raw: error-keyed, carries the throwable, is not a projected record")
         (is (= [[:rf.observe/error :rf.error/handler-exception :bracket/paired]]
-               (mapv (juxt :kind :error :frame) @sunk))
+               (mapv (juxt :kind :rf.error/id :frame) @sunk))
             "sink: the projected record of the same failure")))))
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams

@@ -183,6 +183,13 @@
           (str "non-conformant envelopes — first 3: "
                (vec (take 3 (remove valid-envelope? events)))))
 
+      (testing "an error envelope names its category once, on :operation"
+        (let [errors (filter #(= :error (:op-type %)) events)]
+          (is (seq errors))
+          (is (not-any? #(contains? (:tags %) :category) errors)
+              (str "error envelopes carrying [:tags :category]: "
+                   (vec (keep #(when (contains? (:tags %) :category) (:operation %)) errors))))))
+
       (is (= #{} (set/difference documented-ops (set (map (juxt :op-type :operation) events))))
           "every documented Spec 009 operation is emitted")
 

@@ -93,7 +93,7 @@
   (let [records (atom [])]
     (rf.error-emit/register-error-listener! k
       (fn [rec]
-        (when (= :rf.error/drain-depth-exceeded (:error rec))
+        (when (= :rf.error/drain-depth-exceeded (:rf.error/id rec))
           (swap! records conj rec))))
     records))
 

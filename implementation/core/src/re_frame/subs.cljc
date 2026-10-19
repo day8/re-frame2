@@ -881,8 +881,7 @@
     (unsubscribe-if-reaction frame-id input-q input-reaction)
     (catch #?(:clj Throwable :cljs :default) ex
       (rf.trace/emit-error! :rf.warning/sub-input-dispose-exception
-                         {:category         :rf.warning/sub-input-dispose-exception
-                          :frame            frame-id
+                         {:frame            frame-id
                           :rf.sub/query-v   input-q
                           :exception        ex
                           :where            where
@@ -953,8 +952,7 @@
   is nil on the `compute-sub` path (no reactive frame)."
   [frame-id query-v cycle-path where]
   (rf.trace/emit-error! :rf.error/sub-cycle
-                     {:category       :rf.error/sub-cycle
-                      :frame          frame-id
+                     {:frame          frame-id
                       :rf.sub/id      (first query-v)
                       :rf.sub/query-v query-v
                       :cycle          cycle-path

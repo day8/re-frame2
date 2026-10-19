@@ -57,7 +57,7 @@
     (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
     (try (body-fn)
          (finally (rf.error-emit/unregister-error-listener! ::rec)))
-    (first (filter #(= error-kw (:error %)) @seen))))
+    (first (filter #(= error-kw (:rf.error/id %)) @seen))))
 
 (def ^:private chain-secret     "rf2-sentinel-chain-0f3a91")
 (def ^:private chainless-secret "rf2-sentinel-chainless-4e88fa")

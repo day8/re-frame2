@@ -121,11 +121,11 @@
          :machines/on-frame-destroyed!      (throwing-hook :machines)
          :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
         (fn [] (rf/destroy-frame! :prod.teardown/n-failures)))
-      (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
+      (let [reports (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)]
         (is (= 1 (count reports))
             "exactly ONE always-on report under prod elision — not three")
         (let [r (first reports)]
-          (is (= :rf.error/frame-teardown-failed (:error r)))
+          (is (= :rf.error/frame-teardown-failed (:rf.error/id r)))
           (is (= :prod.teardown/n-failures (:frame r))
               ":frame names the destroyed frame")
           (is (= 3 (count (:hook-failures r)))
@@ -149,7 +149,7 @@
                                    (fn [record] (swap! seen conj record)))
       (rf.frame/upsert-frame! :prod.teardown/clean {:doc "no hooks throw"})
       (rf/destroy-frame! :prod.teardown/clean)
-      (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
+      (is (empty? (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen))
           "no report when teardown completes cleanly under prod"))))
 
 ;; ===========================================================================
@@ -172,11 +172,11 @@
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
       (rf.substrate.adapter/replace-container! nil {:dropped :write})
-      (let [reports (filter #(= :rf.error/write-after-destroy (:error %)) @seen)]
+      (let [reports (filter #(= :rf.error/write-after-destroy (:rf.error/id %)) @seen)]
         (is (= 1 (count reports))
             "exactly ONE always-on record for the dropped write under prod")
         (let [r (first reports)]
-          (is (= :rf.error/write-after-destroy (:error r))
+          (is (= :rf.error/write-after-destroy (:rf.error/id r))
               "the error category — not a warning")
           (is (nil? (:event r))
               "no event vector — a dropped write, not a throw on a dispatch")
@@ -220,12 +220,12 @@
                       :on-destroy [:prod.ondestroy/blow-up]})
       (is (nil? (rf/destroy-frame! :prod.ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw under prod")
-      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
+      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:rf.error/id %)) @seen)]
         (is (= 1 (count reports))
             "the DEDICATED discriminable teardown category SURVIVES prod for
              the common path — EXACTLY ONE record")
         (let [r (first reports)]
-          (is (= :rf.error/on-destroy-handler-exception (:error r)))
+          (is (= :rf.error/on-destroy-handler-exception (:rf.error/id r)))
           (is (= :prod.ondestroy/worker (:frame r))
               ":frame names the frame being torn down")
           (is (= [:prod.ondestroy/blow-up] (:event r))
@@ -235,7 +235,7 @@
           (is (some? (:exception r))
               ":exception carries the thrown object")
           (is (number? (:time r)) ":time is a wall-clock millis number")))
-      (let [hx (filter #(= :rf.error/handler-exception (:error %)) @seen)]
+      (let [hx (filter #(= :rf.error/handler-exception (:rf.error/id %)) @seen)]
         (is (= 1 (count hx))
             "the router's :rf.error/handler-exception ALSO survives — the
              production source of record for the handler throw itself")
@@ -273,7 +273,7 @@
             "teardown does not propagate the infra fault under prod")
         (finally
           (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
-      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
+      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:rf.error/id %)) @seen)]
         (is (= 1 (count reports))
             "the defence-in-depth branch fanned out on the always-on axis under prod")
         (is (some? (:exception (first reports)))

@@ -71,7 +71,7 @@
   (let [recs   (atom [])
         traces (atom [])]
     (rf.error-emit/register-error-listener!
-      ::records (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! recs conj r))))
+      ::records (fn [r] (when (= :rf.error/frame-destroyed (:rf.error/id r)) (swap! recs conj r))))
     (rf.trace.tooling/register-listener!
       ::traces (fn [ev] (when (= :rf.error/frame-destroyed (:operation ev)) (swap! traces conj ev))))
     (try

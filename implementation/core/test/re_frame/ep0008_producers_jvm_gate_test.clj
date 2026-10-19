@@ -49,7 +49,7 @@
         (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces))
             "the dev per-hook warning is elided")
-        (is (= 1 (count (filter #(= :rf.error/frame-teardown-failed (:error %))
+        (is (= 1 (count (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %))
                                 @reports)))
             "the always-on report still fired")))))
 

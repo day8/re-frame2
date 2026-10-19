@@ -414,7 +414,7 @@
   "Route ONE `:rf.observe/error` record for an `:rf.error/*` site to the
   owning frame's declared `:observability :errors` sinks (EP-0015 §9).
 
-  Builds the canonical error record — `:error` (the `:rf.error/*` category),
+  Builds the canonical error record — `:rf.error/id` (the `:rf.error/*` category),
   `:event-id`, `:event` (the dispatched vector, a tree slot the projector
   redacts under frame policy), `:exception` (the host exception — dropped
   under `:rf.egress/public-error`, walked otherwise), `:elapsed-ms`,
@@ -487,7 +487,7 @@
              record (cond-> (merge summary
                                    {:kind       :rf.observe/error
                                     :frame      frame-id
-                                    :error      error-kw
+                                    :rf.error/id error-kw
                                     :event-id   event-id
                                     :event      event
                                     :exception  exception
@@ -518,11 +518,11 @@
 (def ^:private error-record-summary-keys
   "Slots of a non-event union error record that map onto the canonical
   `:rf.observe/error` SUMMARY slots (structural metadata — passed through the
-  projector unchanged). Every OTHER non-`:error` slot is lifted onto the
+  projector unchanged). Every OTHER non-`:rf.error/id` slot is lifted onto the
   `:tags` tree-key so the projector walks it under frame classification
   (sensitive redaction / large elision) — symmetric with the SSR
   `error-emit-projection-listener`'s generic tags-lift."
-  #{:frame :error :event-id :elapsed-ms :time :correlation})
+  #{:frame :rf.error/id :event-id :elapsed-ms :time :correlation})
 
 (defn route-error-record!
   "Route ONE pre-built NON-EVENT union error `record` to the owning frame's
@@ -530,13 +530,13 @@
   observability sink policy). The non-event counterpart of [[route-error!]] —
   for the EP-0008 `:rf.error/*` categories that are NOT a dispatched-event /
   subscribe failure (the frame-teardown report, the promoted SSR categories),
-  whose union record `{:error <kw> :frame <id-or-nil> :time <ms> + flat
+  whose union record `{:rf.error/id <kw> :frame <id-or-nil> :time <ms> + flat
   category keys}` does not fit the event-centric positional signature.
 
   Projects the record into a canonical `:rf.observe/error` shape and routes it
   through `project-egress` exactly like [[route-error!]], so the sink receives
   an ALREADY-PROJECTED record (EP-0015 §9 — sinks never re-implement
-  redaction). The canonical SUMMARY slots (`:frame` / `:error` / `:event-id` /
+  redaction). The canonical SUMMARY slots (`:frame` / `:rf.error/id` / `:event-id` /
   `:elapsed-ms` / `:time` / `:correlation`) pass through; the host
   `:exception`, if present, rides the top-level `:exception` slot the projector
   DROPS under `:rf.egress/public-error` and walks otherwise; EVERY remaining
@@ -576,10 +576,10 @@
          [entries governing-frame] (resolve-route frame-id :errors frame-authority?)]
      (if (seq entries)
        (let [summary  (select-keys record error-record-summary-keys)
-             ;; Everything that is NOT a summary slot, the literal :error
+             ;; Everything that is NOT a summary slot, the literal :rf.error/id
              ;; category, or the (separately-handled) :exception rides :tags so
              ;; the projector walks + redacts it under frame classification.
-             tags     (dissoc record :error :exception
+             tags     (dissoc record :rf.error/id :exception
                               :frame :event-id :elapsed-ms :time :correlation)
              ;; `:frame` keeps the record's OWN id — stale or nil — as the
              ;; summary diagnostic. `governing-frame` is what the projector
@@ -587,7 +587,7 @@
              ;; stale-owner records this arm exists to carry.
              observe  (cond-> (assoc summary
                                      :kind  :rf.observe/error
-                                     :error (:error record)
+                                     :rf.error/id (:rf.error/id record)
                                      :frame frame-id)
                         (seq tags)              (assoc :tags tags)
                         (contains? record :exception)

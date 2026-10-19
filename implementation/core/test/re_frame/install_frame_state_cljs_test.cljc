@@ -91,7 +91,7 @@
         before (seed! fid {:app :kept} {:rf.runtime/ssr live-ssr})]
     (with-emit-recorder! [errs]
       (rf/dispatch-sync [:rf/install-frame-state payload] {:frame fid})
-      [(mapv :error @errs) before (rf/frame-state-value fid)])))
+      [(mapv :rf.error/id @errs) before (rf/frame-state-value fid)])))
 
 (deftest a-malformed-payload-is-refused-and-the-frame-state-is-untouched
   (doseq [[label payload] [["non-map payload"          [:rf.db/app {}]]

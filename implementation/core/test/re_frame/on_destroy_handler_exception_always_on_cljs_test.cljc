@@ -28,7 +28,7 @@
     seen))
 
 (defn- on-destroy-records [seen]
-  (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
+  (filter #(= :rf.error/on-destroy-handler-exception (:rf.error/id %)) @seen))
 
 (deftest throwing-on-destroy-fans-out-on-always-on-axis
   (let [seen (recording-listener!)]

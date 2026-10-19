@@ -804,8 +804,7 @@
           0                                ;; elapsed-ms
           (rf.interop/now-ms)))               ;; time
       (rf.trace/emit-error! :rf.error/write-after-destroy
-                         {:category :rf.error/write-after-destroy
-                          :reason   reason
+                         {:reason   reason
                           :recovery :ignored}))
     ;; Resolve the adapter FIRST so a write before `(rf/init! ...)` or after
     ;; dispose surfaces the uniform `:rf.error/no-adapter-installed` /
@@ -816,8 +815,7 @@
       (if (derived-container? container)
         (let [reason "replace-container! is not supported on a derived container; derived containers are read-only (per Spec 006 §make-derived-value). Write to the source container(s) the derived value is computed from instead."]
           (rf.trace/emit-error! :rf.error/derived-container-replaced
-                             {:category  :rf.error/derived-container-replaced
-                              :recovery  :no-recovery
+                             {:recovery  :no-recovery
                               :reason    reason})
           (rf.error/throw-error!
             :rf.error/derived-container-replaced

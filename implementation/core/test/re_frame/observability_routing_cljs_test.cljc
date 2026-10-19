@@ -34,7 +34,7 @@
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [path]}))))
 
 (defn- error-of-kind [kind records]
-  (some #(when (= kind (:error %)) %) records))
+  (some #(when (= kind (:rf.error/id %)) %) records))
 
 ;; ---- handled events ---------------------------------------------------------
 
@@ -126,8 +126,8 @@
       (rf/dispatch-sync [:auth/login {:auth {:token "super-secret-token"}}]
                         {:frame :obs/err})
       (is (= [{:kind :rf.observe/error :frame :obs/err
-               :error :rf.error/handler-exception :event-id :auth/login}]
-             (mapv #(select-keys % [:kind :frame :error :event-id]) @seen)))
+               :rf.error/id :rf.error/handler-exception :event-id :auth/login}]
+             (mapv #(select-keys % [:kind :frame :rf.error/id :event-id]) @seen)))
       (is (= :rf/redacted (get-in (first @seen) [:event 1 :auth :token]))))))
 
 ;; ---- fail-closed, and sink isolation ----------------------------------------
@@ -285,5 +285,5 @@
       (is (= [[:pd4t/before-throws :pd4t/boom :before]
               [:pd4t/after-throws  :pd4t/boom :after]]
              (->> @seen
-                  (filter #(= :rf.error/interceptor-exception (:error %)))
+                  (filter #(= :rf.error/interceptor-exception (:rf.error/id %)))
                   (mapv (juxt :event-id :failing-id #(get-in % [:tags :phase])))))))))

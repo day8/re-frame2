@@ -130,12 +130,12 @@
           ":sub/b released and the parent evicted despite the :sub/a throw")
       (when rf.interop/debug-enabled?
         ;; `emit-error!` builds an `:error` envelope; the warning category
-        ;; rides `:operation` and `[:tags :category]`, `:recovery` the top level.
-        (is (= [{:category :rf.warning/sub-input-dispose-exception :frame :rf/default
+        ;; rides `:operation`, `:recovery` the top level.
+        (is (= [{:frame :rf/default
                  :rf.sub/query-v [:sub/a] :where :on-dispose :recovery :ignored :exception? true}]
                (for [ev @acc
                      :when (= :rf.warning/sub-input-dispose-exception (:operation ev))]
-                 (assoc (select-keys (:tags ev) [:category :frame :rf.sub/query-v :where])
+                 (assoc (select-keys (:tags ev) [:frame :rf.sub/query-v :where])
                         :recovery (:recovery ev)
                         :exception? (some? (:exception (:tags ev))))))))
       (finally

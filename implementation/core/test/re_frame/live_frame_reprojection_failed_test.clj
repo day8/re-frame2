@@ -36,7 +36,7 @@
     (eval form)))
 
 (defn- reprojection-failures [records]
-  (filterv #(= :rf.error/reprojection-failed (:error %)) records))
+  (filterv #(= :rf.error/reprojection-failed (:rf.error/id %)) records))
 
 (defn- sweep!
   "One resilient refresh of every live frame, as the deferred flush and the

@@ -902,7 +902,7 @@
   THE RECORD CARRIES THE PAYLOAD'S OWN `:reason`. This category
   passes no `:exception` — the operation is invalid, nothing threw — so
   without it the always-on record would be seven slots of pure metadata
-  (`{:error :event :event-id :frame :time :exception :elapsed-ms}`) and the
+  (`{:rf.error/id :event :event-id :frame :time :exception :elapsed-ms}`) and the
   composed recovery ladder `no-frame-context-payload` just built would reach
   the always-on axis NOWHERE: a console line would show the record's
   interior fields with no ladder inside, and no console formatter could
@@ -2803,7 +2803,7 @@
                   listener   (fn [record]
                                (when (and (= id (:frame record))
                                           (contains? setup-step-failure-categories
-                                                     (:error record))
+                                                     (:rf.error/id record))
                                           (nil? @captured))
                                  (reset! captured record)
                                  true))]
@@ -2831,7 +2831,7 @@
               (when-let [record @captured]
                 (raise-setup-step-failed!
                   id idx event nil
-                  (str "the interceptor chain captured " (:error record)
+                  (str "the interceptor chain captured " (:rf.error/id record)
                        (when-let [r (:reason record)] (str " (" r ")")))
                   where-sym owner-token)))
             (recur (inc idx) (rest remaining)))))
@@ -3868,8 +3868,7 @@
                      :exception ex
                      :where     where}))
   (rf.trace/emit-error! :rf.warning/teardown-hook-exception
-                     {:category  :rf.warning/teardown-hook-exception
-                      :hook      step-key
+                     {:hook      step-key
                       :frame     *destroying-frame-id*
                       :exception ex
                       :where     where})
@@ -4057,7 +4056,7 @@
             ;; any other record the `:on-destroy` dispatch produces stays
             ;; unclaimed and reaches the dev console fallback.
             listener     (fn [record]
-                           (when (and (= :rf.error/handler-exception (:error record))
+                           (when (and (= :rf.error/handler-exception (:rf.error/id record))
                                       (= id (:frame record))
                                       (nil? @captured))
                              (reset! captured record)

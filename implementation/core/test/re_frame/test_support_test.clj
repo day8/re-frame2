@@ -153,8 +153,8 @@
       (fixture
         (fn []
           (rf.error-emit/register-error-listener! ::a-listener
-                                                  #(swap! a-seen conj [:listener (:error %)]))
-          (rf/register-observability-sink! ::a-sink #(swap! a-seen conj [:sink (:error %)]))
+                                                  #(swap! a-seen conj [:listener (:rf.error/id %)]))
+          (rf/register-observability-sink! ::a-sink #(swap! a-seen conj [:sink (:rf.error/id %)]))
           (rf/configure! {:observability {:errors [{:sink ::a-sink}]}})
           (rf.trace/set-frame-no-emit! ::tool true)))
       (fixture
@@ -163,8 +163,8 @@
             (is (nil? (rf.observability/current-observability-config)))
             (is (not (rf.trace/frame-trace-disabled? ::tool))))
           (rf.error-emit/register-error-listener! ::b-listener
-                                                  #(swap! b-seen conj [:listener (:error %)]))
-          (rf/register-observability-sink! ::b-sink #(swap! b-seen conj [:sink (:error %)]))
+                                                  #(swap! b-seen conj [:listener (:rf.error/id %)]))
+          (rf/register-observability-sink! ::b-sink #(swap! b-seen conj [:sink (:rf.error/id %)]))
           (rf/make-frame {:id            ::app
                           :observability {:errors [{:sink ::a-sink} {:sink ::b-sink}]}})
           (rf/reg-event ::boom (fn [_ _] (throw (ex-info "boom" {}))))

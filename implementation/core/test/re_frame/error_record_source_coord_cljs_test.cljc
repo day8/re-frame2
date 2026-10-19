@@ -48,7 +48,7 @@
       (try (rf/dispatch-sync [event-id] {:frame frame-id})
            (catch #?(:clj Throwable :cljs :default) _ nil))
       (finally (rf.error-emit/unregister-error-listener! ::recorder)))
-    (let [recs (filterv #(= :rf.error/handler-exception (:error %)) @seen)]
+    (let [recs (filterv #(= :rf.error/handler-exception (:rf.error/id %)) @seen)]
       (is (= 1 (count recs)) (str frame-id " fanned one handler-exception record"))
       [(ex-message (:exception (first recs)))
        (get (first recs) :source-coord ::absent)])))
@@ -118,7 +118,7 @@
            (catch #?(:clj Throwable :cljs :default) _ nil))
       (finally (rf.error-emit/unregister-error-listener! ::recorder)))
     (->> @seen
-         (filter #(= :rf.error/sub-exception (:error %)))
+         (filter #(= :rf.error/sub-exception (:rf.error/id %)))
          (mapv (juxt :frame (comp ex-message :exception) :source-coord)))))
 
 (def ^:private b-threw

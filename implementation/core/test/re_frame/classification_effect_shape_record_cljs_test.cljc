@@ -28,7 +28,7 @@
 (def ^:private record-keys
   "Every slot the always-on record carries. Pinned closed, because widening
   it is an egress decision."
-  #{:error :event :event-id :frame :time :exception :elapsed-ms :source-coord
+  #{:rf.error/id :event :event-id :frame :time :exception :elapsed-ms :source-coord
     :offending-key})
 
 (defn- reject!
@@ -47,7 +47,7 @@
          (finally (rf.error-emit/unregister-error-listener! ::rec)))
     (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
         "precondition: the event aborted pre-commit (no :db write landed)")
-    (filterv #(= :rf.error/classification-effect-shape (:error %)) @seen)))
+    (filterv #(= :rf.error/classification-effect-shape (:rf.error/id %)) @seen)))
 
 (deftest the-always-on-record-names-the-offending-key
   (testing "a malformed payload on each of the four axes fans exactly ONE

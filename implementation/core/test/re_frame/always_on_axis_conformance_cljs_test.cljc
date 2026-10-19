@@ -109,7 +109,7 @@
 
     (contains? record-categories cat)
     (rf.error-emit/dispatch-error-record!
-      {:error     cat
+      {:rf.error/id cat
        :frame     :conformance/frame
        :time      0
        :exception (ex-info "conformance" {})
@@ -134,5 +134,5 @@
         :conformance/recorder
         (fn [record] (swap! seen conj record)))
       (drive-category! cat)
-      (is (= [cat] (mapv :error @seen))
+      (is (= [cat] (mapv :rf.error/id @seen))
           (str cat ": exactly one always-on record, carrying its category")))))

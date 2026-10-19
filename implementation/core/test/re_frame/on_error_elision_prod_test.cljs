@@ -30,7 +30,7 @@
     seen))
 
 (defn- first-of [category seen]
-  (some #(when (= category (:error %)) %) @seen))
+  (some #(when (= category (:rf.error/id %)) %) @seen))
 
 (deftest error-emit-listener-fires-under-prod
   (testing "a handler throw reaches the always-on listener as one tight record,
@@ -41,9 +41,9 @@
       (rf/dispatch-sync [:prod/err-throw])
       (is (= 1 (count @seen)))
       (let [{sc :source-coord :as r} (first @seen)]
-        (is (= {:error :rf.error/handler-exception :event [:prod/err-throw]
+        (is (= {:rf.error/id :rf.error/handler-exception :event [:prod/err-throw]
                 :event-id :prod/err-throw :frame :rf/default}
-               (select-keys r [:error :event :event-id :frame])))
+               (select-keys r [:rf.error/id :event :event-id :frame])))
         (is (number? (:time r)))
         (is (integer? (:elapsed-ms r)))
         (is (and (symbol? (:ns sc)) (integer? (:line sc)) (string? (:file sc))))
@@ -57,13 +57,13 @@
     (doseq [[label op expected]
             [["dispatch"
               #(rf/dispatch [:whatever] {:frame :gone/frame})
-              {:error :rf.error/frame-destroyed :frame :gone/frame :event :rf/redacted :event-id :whatever}]
+              {:rf.error/id :rf.error/frame-destroyed :frame :gone/frame :event :rf/redacted :event-id :whatever}]
              ["dispatch-sync"
               #(rf/dispatch-sync [:whatever] {:frame :gone/frame})
-              {:error :rf.error/frame-destroyed :frame :gone/frame}]
+              {:rf.error/id :rf.error/frame-destroyed :frame :gone/frame}]
              ["subscribe"
               #(rf/subscribe-once [:any-sub] {:frame :gone/frame})
-              {:error :rf.error/frame-destroyed :frame :gone/frame :event [:any-sub] :op :subscribe}]]]
+              {:rf.error/id :rf.error/frame-destroyed :frame :gone/frame :event [:any-sub] :op :subscribe}]]]
       (testing label
         (let [seen (recording-listener!)]
           (is (nil? (op)))

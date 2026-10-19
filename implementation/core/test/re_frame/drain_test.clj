@@ -92,7 +92,7 @@
             :recovery       :no-recovery
             :last-event-id  :pong
             :tail-event-ids [:ping :pong :ping :pong :ping :pong]}
-           (select-keys (some #(when (= :rf.error/drain-depth-exceeded (:error %)) %) @records)
+           (select-keys (some #(when (= :rf.error/drain-depth-exceeded (:rf.error/id %)) %) @records)
                         [:frame :depth :queue-size :rollback? :recovery
                          :last-event-id :tail-event-ids :reason :last-event])))))
 

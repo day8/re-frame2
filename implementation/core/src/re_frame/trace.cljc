@@ -664,10 +664,9 @@
         ;; sites use it as an emission-site discriminator (e.g.
         ;; `:source :boundary` per Spec 010 §Production builds), and
         ;; consumers already fall back top-level → `:tags :source`.
-        ;; Error path additionally merges `{:category operation}`.
+        ;; The category rides `:operation` alone; `:tags` never repeats it.
         base-tags   (cond-> (dissoc tags :recovery :sensitive?)
-                      (not error?) (dissoc :source)
-                      error?       (->> (merge {:category operation})))
+                      (not error?) (dissoc :source))
         ;; Structural (frame-lifecycle) emits stay UNCORRELATED — they never
         ;; inherit the in-scope cascade's dispatch-id, so the epoch capture
         ;; seam's orphan-drop arm keeps a cross-frame `:rf.frame/created` /
@@ -884,8 +883,8 @@
 (defn emit-error!
   "Emit a structured error trace event. `:operation` is the error
   category (e.g. `:rf.error/handler-exception`), `:op-type` is
-  `:error`, and `:tags` includes `:category`, `:exception`,
-  `:where`, etc.
+  `:error`, and `:tags` carries the category's own payload — `:exception`,
+  `:where`, etc. The category is named once, on `:operation`.
 
   Reads `*handler-scope*` to hoist `:trigger-handler`, `:call-site`,
   and `:dispatch-id` onto the envelope, and to honour the `:no-emit?`

@@ -86,11 +86,11 @@
       (rf/with-frame :rf2-cry25/sub-frame
         ((rf/view :re-frame.reg-view-injection-test/sub-view) 0))
       (is (= [:rf2-cry25/sub-frame]
-             (mapv :frame (filterv #(= :rf.error/no-such-sub (:error %)) @records)))
+             (mapv :frame (filterv #(= :rf.error/no-such-sub (:rf.error/id %)) @records)))
           "one always-on record, attributed to the render-time frame")
       (when rf.interop/debug-enabled?
         (let [err (->> @seen
-                       (filter #(= :rf.error/no-such-sub (get-in % [:tags :category])))
+                       (filter #(= :rf.error/no-such-sub (:operation %)))
                        first)]
           (is (= 're-frame.reg-view-injection-test (:ns (:rf.trace/call-site err))))))
       (finally

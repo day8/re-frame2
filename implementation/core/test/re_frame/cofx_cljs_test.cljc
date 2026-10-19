@@ -38,7 +38,7 @@
     acc))
 
 (defn- errors-of [recs category]
-  (filterv #(= category (:error %)) recs))
+  (filterv #(= category (:rf.error/id %)) recs))
 
 (defn- traces-of [traces operation]
   (filterv #(= operation (:operation %)) traces))

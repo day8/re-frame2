@@ -142,7 +142,7 @@
                     :observability {:errors [{:sink ::errors
                                               :rf.egress/profile :rf.egress/off-box-observability}]}})
     (let [traces (captured #(rf/dispatch-sync [:rf/install-frame-state refused] {:frame :trc/refusing}))]
-      (is (some #(= :rf.error/handler-exception (:error %)) @records)
+      (is (some #(= :rf.error/handler-exception (:rf.error/id %)) @records)
           "precondition: the refusal reached the frame's :errors sink")
       (is (some #(contains? % :event) @records)
           "precondition: the sink's record carries the event slot")

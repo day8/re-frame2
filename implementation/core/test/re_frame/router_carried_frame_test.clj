@@ -45,7 +45,7 @@
 
 (defn- errors-of
   [recorded error-id]
-  (filter #(= error-id (:error %)) @recorded))
+  (filter #(= error-id (:rf.error/id %)) @recorded))
 
 (deftest bare-dispatch-outside-context-raises-no-frame-context
   (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
