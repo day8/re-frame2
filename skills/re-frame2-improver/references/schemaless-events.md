@@ -43,7 +43,8 @@ Greppable signals — flag when **any** match AND no production gate is wired:
     {:db (assoc-in db [:article :status] :loading)
      :fx [[:rf.http/managed
            {:request    {:url (str "/articles/" slug)}
-            :on-success [:article/loaded]}]]}))                  ;; addresses the reply — but no :decode gate
+            :on-success [:article/loaded]                        ;; addresses the reply — but no :decode gate
+            :on-failure nil}]]}))
 
 (rf/reg-event :article/loaded
   (fn [{:keys [db]} [_ reply]]                                  ;; reply envelope appended as the last arg

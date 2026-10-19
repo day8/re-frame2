@@ -668,7 +668,8 @@
                                             :mutation-id :m/save
                                             :work/id     [:rf.work/resource [:rf.mutation :m/save-1] 3]
                                             :scope       session-scope
-                                            :generation  3}]})
+                                            :generation  3}]
+                              :on-failure nil})
                     [:rf.fx/args :on-success 1 :scope]))))))
 
 (deftest fx-carrier-reply-payload-needs-the-canonical-reply-marker
