@@ -121,11 +121,8 @@
   request envelope; per Spec 009 §Error catalogue a missing/blank `:url`
   surfaces as `:rf.error/http-bad-request`.
 
-  Public so the canned-stub override target
-  (`http-test-support`'s route-map stub) validates
-  the FINAL post-`:before` url with the same canonical error the real
-  `:rf.http/managed` handler emits — a `:before` that blanks the url must
-  raise `:rf.error/http-bad-request`, not receive a synthetic stubbed reply.
+  It validates the FINAL post-`:before` url, so a `:before` that blanks the
+  url raises `:rf.error/http-bad-request` rather than reaching the transport.
 
   Validated AFTER `run-interceptor-chain!` produces the final `:request`,
   because a `:before` interceptor may legitimately SET the url (e.g. a
@@ -174,8 +171,7 @@
      `:rf.error/http-bad-reply-target` (`:reason :mixed-addressing`), and so
      is one split key without its partner (`:reason :unpaired-split`), which
      would leave the other outcome with no handler. The check is
-     `encoding/validate-reply-addressing!`, shared with the canned stubs so
-     one map is judged identically on every path that interprets it.
+     `encoding/validate-reply-addressing!`.
 
   3. SHAPE — each SUPPLIED `:reply-to` / `:on-success` /
      `:on-failure` must be an event VECTOR or `nil`. Per Spec 014 §Request
@@ -316,8 +312,7 @@
         ;; `:reply-to`. `:on-success` / `:on-failure` are the split routing
         ;; sugar, supplied as a pair and EXCLUSIVE with `:reply-to` (a mixed or
         ;; unpaired map is refused at `validate-reply-target!` above), so every
-        ;; branch has a target. The lowering itself is `encoding/reply-target`,
-        ;; shared with the canned stubs.
+        ;; branch has a target. The lowering itself is `encoding/reply-target`.
         reply-target #(rf.http.encoding/reply-target args-map %)]
     {:request           request
      :decode            decode

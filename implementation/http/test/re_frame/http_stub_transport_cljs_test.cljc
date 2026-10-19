@@ -6,10 +6,9 @@
   The pipeline cases are the proof. A body the request's `:decode` schema
   refuses is classified by the real `:decode`, an `:accept` reshapes or rejects
   the real decoded body, and a `:sensitive?` request is scrubbed from the trace
-  while the app still receives its own raw reply. The canned stubs reach none
-  of that: they hand back a value or a failure tag that never passed through
-  decode, accept or the scrub. The retry, timeout and delay cases need a clock
-  and live in the JVM-only `re-frame.http-stub-transport-test`.
+  while the app still receives its own raw reply. The retry, timeout and delay
+  cases need a clock and live in the JVM-only
+  `re-frame.http-stub-transport-test`.
 
   Every answer here is INLINE — the stub calls `respond` before it returns —
   so each request's reply has landed by the time the `dispatch-sync` that

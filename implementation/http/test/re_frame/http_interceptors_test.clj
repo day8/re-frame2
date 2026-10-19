@@ -18,7 +18,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]
-            [re-frame.http.test-support]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
@@ -609,13 +608,6 @@
      (rf.test-support/poll-until #(let [rs (routed)] (when (< before (count rs)) (subvec rs before)))
                                  {:timeout-ms 10000 :label "http-interceptors routed reply"}))))
 
-(defn- reg-reclassify! []
-  (reg-and-name! [:reclassify
-                  {:after (fn [_ctx resp]
-                            (if (= :ok (:status resp))
-                              {:status :error :error {:kind :app/domain-error}}
-                              resp))}]))
-
 (defn- handler-and-status [[handler reply]] [handler (:status reply)])
 
 (deftest after-reclassifying-error-to-ok-routes-to-on-success
@@ -639,15 +631,6 @@
       (fn [base]
         (reg-and-name! [:restatus {:after #(dissoc %2 :status)}])
         (is (= [:on-failure] (mapv first (routed! (str base "/restatus") split))))))))
-
-(deftest canned-success-routes-on-the-final-status
-  (testing "the canned success stub shares the reply tail, so a reclassifying
-            :after routes its reply to :on-failure too"
-    (reg-reclassify!)
-    (is (= [[:on-failure :error]]
-           (mapv handler-and-status
-                 (routed! "/canned" split {}
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))))))
 
 (deftest after-reclassification-is-terminal
   (testing "an :after that mints a retryable failure kind routes it to

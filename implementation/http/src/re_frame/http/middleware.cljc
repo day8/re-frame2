@@ -498,18 +498,12 @@
   one unaddressed (`encoding/validate-reply-addressing!`). A branch whose
   target is `nil` was silenced on purpose, so its reply is dropped quietly.
 
-  Single source of truth for the two reply paths, which differ only in
-  the `:after`-guard:
-   - `http-transport/dispatch-reply!` — the real-transport completion
-     path. Synthetic / test-path callers may carry NO `:middleware-ctx`
-     (they built a ctx directly without going through `managed-handler`);
-     the `(if middleware-ctx …)` guard skips the `:after` chain and
-     passes the payload through unchanged — the chain's contract is to
-     see the `:before`'s ctx, not a synthesised one.
-   - `http-test-support/dispatch-canned-reply!` — the canned-stub test
-     path, which always produces a `:middleware-ctx` via
-     `capture-and-run-request-chain` and therefore always runs the `:after`
-     chain.
+  Called from `http-transport/dispatch-reply!`, the transport completion
+  path. A synthetic caller that built its ctx directly, without going through
+  `managed-handler`, carries NO `:middleware-ctx`; the `(if middleware-ctx …)`
+  guard then skips the `:after` chain and passes the payload through
+  unchanged, because the chain's contract is to see the `:before`'s ctx, not a
+  synthesised one.
 
   `opts` carries `:frame`, `:middleware-ctx`, `:chain` (the
   request's issue-time chain capture, which travels with the ctx),

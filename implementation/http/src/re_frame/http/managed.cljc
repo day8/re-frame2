@@ -16,12 +16,10 @@
 
   ## Test support
 
-  The stubbing helpers and the canned-stub fxs live in
-  `re-frame.http.test-support`. A test reaching for `with-request-stubs`
-  / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-  — or the canned effect ids via
-  `:fx-overrides` — requires `re-frame.http.test-support`. Production and SSR
-  code must not require that namespace.
+  Tests and demos replace only the wire, with a stub transport from
+  `re-frame.http.stub-transport` (`route-transport`, `pending-transport`,
+  `with-transport`, `install-transport!`); the request still runs the real
+  pipeline.
 
   ## Hosts
 
@@ -67,9 +65,8 @@
   artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
   re-exports look entry points up through `re-frame.late-bind`. Loading this
   namespace publishes the middleware and registry hooks and registers the
-  production effects. The scoped-stub helper `with-request-stubs` and the
-  raw install/uninstall pair are available only from
-  `re-frame.http.test-support`, which a test must require directly.
+  production effects. The stub transports are available only from
+  `re-frame.http.stub-transport`, which a test or demo requires directly.
 
   Apps that don't issue any managed-HTTP requests don't drag the
   in-flight request registry, the Fetch / HttpClient transport
@@ -102,10 +99,8 @@
                                       `:rf.http/managed-abort` fx
                                       handler bodies.
    - `re-frame.http.machine-wrapper`— machine-shape wrapper.
-   - `re-frame.http.test-support`   — test-only surface: stub macros
-                                      + canned-stub handler bodies
-                                      + canned-stub fx registrations +
-                                      late-bind hook publication.
+   - `re-frame.http.stub-transport` — stub transports that replace the
+                                      host send for tests and demos.
    - `re-frame.http.json`           — JSON reader (Cheshire on the JVM, native
                                       `JSON.parse` on CLJS); shared by
                                       the decode pipeline.
@@ -180,8 +175,7 @@
 ;; performs the `(fx/reg-fx ...)` registrations for the production-eligible
 ;; managed-HTTP fxs. Apps that don't load `re-frame.http.managed` don't
 ;; carry the handlers either — the registration site is the load-time
-;; anchor. The two canned-stub fxs register from
-;; `re-frame.http.test-support`.
+;; anchor.
 ;;
 ;; `:rf.http/managed` is a REPLACEABLE FRAMEWORK DEFAULT
 ;; (`:rf/framework-default? true`): an app declares its carriers by
@@ -219,20 +213,12 @@
 ;; interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never a map
 ;; form.
 
-;; The canned effects and stub helpers are registered only when
-;; `re-frame.http.test-support` is explicitly required. The namespace boundary,
-;; not the debug flag, keeps test effects out of JVM/SSR production loads.
-
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Core cannot require this namespace because the HTTP artefact is optional.
 ;; Publish entry
 ;; points through the late-bind hook registry; consumers look the fns
 ;; up at call time.
-;;
-;; The stub family publishes no late-bind hook at all — `with-request-stubs`
-;; and the raw install/uninstall helpers are called directly from
-;; `re-frame.http.test-support`, which is also the canned effects' require gate.
 
 (rf.frame/add-config-keys! #{:http-interceptors})
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)

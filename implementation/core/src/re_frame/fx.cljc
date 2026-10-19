@@ -1059,7 +1059,7 @@
         ;; `:sensitive` / `:large` AND its per-fx-id dynamic classification
         ;; over args the redirect TARGET's registration knows nothing about
         ;; — a `:sensitive? true` `:rf.http/managed` request redirected to a
-        ;; canned/test stub must not ride raw at the stub's `:rf.fx/handled`
+        ;; test stub must not ride raw at the stub's `:rf.fx/handled`
         ;; / fx-error trace slots. nil when no redirect fired (the fn-value
         ;; and fallthrough branches resolve to the original id, so only a
         ;; SUCCESSFUL keyword redirect stamps it).

@@ -46,7 +46,7 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
                        ;; `login.model` turns on managed HTTP and its
-                       ;; canned-reply stubs (the example's demo backend).
+                       ;; stub transport (the example's demo backend).
                        day8/re-frame2-http       {:local/root "../http"}
                        ;; Resource payload tests require the optional hooks
                        ;; without adding them to the published adapter.

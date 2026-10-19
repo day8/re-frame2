@@ -200,11 +200,6 @@
   {:namespace "re-frame.http.managed", :var "in-flight-snapshot", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http.managed", :var "interceptors-snapshot", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http.managed", :var "seed-in-flight-for-test!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.http.test-support", :var "canned-failure-handler", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.http.test-support", :var "canned-success-handler", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.http.test-support", :var "capture-and-run-request-chain", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.http.test-support", :var "emit-canned-success!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.http.test-support", :var "run-request-chain", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.interop", :var "debug-enabled?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-cancel-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-schedule-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}

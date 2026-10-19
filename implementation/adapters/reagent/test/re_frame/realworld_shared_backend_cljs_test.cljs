@@ -211,8 +211,8 @@
     (is (every? #(contains? % :ok) (first a)) "precondition: the whole sequence succeeds")
     (is (= a (run)) "the same sequence against a fresh world produces the same replies and state")))
 
-;; The canned-success fx never runs `:decode`, so validate the replies against
-;; the shared schemas both apps decode with.
+;; Both apps decode these replies with the shared wire schemas, so validate the
+;; backend's replies against them at the source.
 (deftest replies-validate-against-the-shared-wire-schemas
   (let [w    (world)
         auth {:headers {"Authorization" (str "Token " (login! w))}}]

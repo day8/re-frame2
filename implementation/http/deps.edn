@@ -4,9 +4,8 @@
 ;; and failure vocabulary ship separately from core. Apps that do not require
 ;; this artefact do not carry that code or its `:rf.http/*` trace keywords.
 ;;
-;; Canned effects and request-stub helpers live in
-;; `re-frame.http.test-support`. Tests opt into that namespace explicitly;
-;; production and SSR namespaces must not require it.
+;; The stub transports tests and demos answer requests from live in
+;; `re-frame.http.stub-transport`, which they require explicitly.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
@@ -14,9 +13,7 @@
 ;;           day8/re-frame2-http {:mvn/version "..."}}}
 ;;
 ;; Requiring `re-frame.http.managed` registers the production effects and
-;; publishes their late-bind hooks. Requiring `re-frame.http.test-support`
-;; additionally registers canned effects and publishes the scoped-stub hook;
-;; its raw install/uninstall helpers are called through that namespace.
+;; publishes their late-bind hooks.
 ;;
 ;; The dependency arrow is HTTP -> core. Core reaches the optional surface
 ;; only through `re-frame.late-bind`; it never depends on this artefact.

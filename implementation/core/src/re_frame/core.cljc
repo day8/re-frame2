@@ -2514,12 +2514,9 @@
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
-;; The scoped-stub helper `with-request-stubs` and the raw
-;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair
-;; are NOT `re-frame.core` façade exports (test-support
-;; infrastructure, not app-facing core surface). Reach all three
-;; through their home namespace `re-frame.http.test-support` (require it from
-;; your test ns).
+;; The stub transports are NOT `re-frame.core` façade exports (test and demo
+;; infrastructure, not app-facing core surface). Reach them through their home
+;; namespace `re-frame.http.stub-transport`.
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.
