@@ -1572,7 +1572,7 @@ Every handler-execution boundary the runtime crosses (the router's `process-even
 | Slot | Carries |
 |---|---|
 | `:trigger-handler` | Registration coord of the in-scope handler — `{:kind :id :source-coord {...}}` or nil when no source-coord is stamped. Hoisted as the top-level `:rf.trace/trigger-handler` field on every emit (success and error paths). |
-| `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`) — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on every emit (success and error). |
+| `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`), or the view coord a `reg-view`-injected op carries — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on every emit (success and error). |
 | `:dispatch-id` (HandlerScope slot) | Per-event correlation id — allocated once per dequeued event at `router.cljc`'s `process-event!` (the epoch unit; one per `dispatch`, incl. each `:fx`-dispatched child) and merged into `:tags :rf.trace/dispatch-id` of every event emitted inside that one event's run. `:raise`/`:always` microsteps ride the triggering event's id. (The internal scope-record slot keeps the short name; the emitted trace tag is the namespaced `:rf.trace/dispatch-id`.) |
 | `:no-emit?` | Boolean. True when the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. `emit!` / `emit-error!` short-circuit (no envelope allocation, no listener fan-out) when bound true. |
 
@@ -1588,12 +1588,12 @@ The whole trace surface compiles out via the outer `(when interop/debug-enabled?
 
 ### Canonical slot set — the stable contract
 
-The `HandlerScope` record's slot set is a **stable contract** consumed at every emit site (`build-event` in `re-frame.trace`) and at every binding site (the router's `process-event!`, fx / cofx dispatchers, sub recompute wrappers, view render wrappers, plus surface macros `dispatch` / `dispatch-sync` / `subscribe`). Downstream tools (Story, Xray, re-frame2-pair, 10x) read the hoisted slots off emitted events; the table below is the authoritative slot vocabulary they may rely on.
+The `HandlerScope` record's slot set is a **stable contract** consumed at every emit site (`build-event` in `re-frame.trace`) and at every binding site (the router's `process-event!`, fx / cofx dispatchers, sub recompute wrappers, view render wrappers, plus surface macros `dispatch` / `dispatch-sync` and the `reg-view`-injected `subscribe` op). Downstream tools (Story, Xray, re-frame2-pair, 10x) read the hoisted slots off emitted events; the table below is the authoritative slot vocabulary they may rely on.
 
 | Slot | Value shape | Origin | Inheritance |
 |---|---|---|---|
 | `:trigger-handler` | `{:kind :id :source-coord {:ns :file :line :column}}` or nil. `:kind` is one of `#{:event :sub :fx :cofx :view :machine :flow :route :error-projector}`; `:source-coord` is whatever the registrar slot's meta carried (omitted for programmatic registrations). | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
-| `:call-site` | `{:ns :file :line :column}` or nil. Macro-expansion coord stamped by the surface form (`dispatch`, `dispatch-sync`, `subscribe`). Nil for fn-form callers. | Stamped by the surface macro via `with-call-site` or `with-dispatch-id+call-site`. | Inherited from parent scope unless the new scope explicitly overrides. |
+| `:call-site` | `{:ns :file :line :column}` or nil. Macro-expansion coord stamped by the surface form (`dispatch`, `dispatch-sync`). Nil for fn-form callers. | Stamped by the surface macro via `with-call-site` or `with-dispatch-id+call-site`. | Inherited from parent scope unless the new scope explicitly overrides. |
 | `:dispatch-id` | Opaque scalar (process-monotonic counter, UUID, or any value with the [§Dispatch correlation](#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id) uniqueness contract). Nil outside any in-flight cascade. | Allocated once at queue time by `router.cljc`'s `enqueue!`; published into the scope by `with-dispatch-id+call-site` on entry to `process-event!`. | Inherited from parent scope unless the new scope explicitly overrides. |
 | `:no-emit?` | Boolean. True iff the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
 
@@ -1797,22 +1797,21 @@ Shape (flat map, mirrors `:source-coord` under `:rf.trace/trigger-handler`):
  :column <int>}    ;; optional refinement
 ```
 
-The macro forms of three user-facing surfaces stamp the call-site at compile time; the same name's plain-fn value form (Convention A on CLJS, per [Conventions §Convention A](Conventions.md#convention-a--same-name-cljs-value-alias-no--twin) — there are no `dispatch*` / `dispatch-sync*` / `subscribe*` facade twins) or the owning ns fn directly (`re-frame.router/dispatch!` / `-dispatch-sync!`, `re-frame.subs/subscribe`) does not stamp:
+The macro forms of two user-facing surfaces stamp the call-site at compile time; the same name's plain-fn value form (Convention A on CLJS, per [Conventions §Convention A](Conventions.md#convention-a--same-name-cljs-value-alias-no--twin) — there are no `dispatch*` / `dispatch-sync*` facade twins) or the owning ns fn directly (`re-frame.router/dispatch!` / `-dispatch-sync!`) does not stamp:
 
 | Surface | Macro (stamps) | Fn-form (no stamp) |
 |---|---|---|
 | Dispatch (queued) | `dispatch` (call position) | `dispatch` (value position) / `re-frame.router/dispatch!` |
 | Dispatch (sync)   | `dispatch-sync` (call position) | `dispatch-sync` (value position) / `re-frame.router/dispatch-sync!` |
-| Subscribe         | `subscribe` (call position) | `subscribe` (value position) / `re-frame.subs/subscribe` |
 
-For `dispatch` / `dispatch-sync`, the call-site rides through the dispatch envelope and is bound around `process-event!` so errors emitted **inside the handler chain** (handler exception, the declared-coeffect errors `:rf.error/unregistered-cofx` / `:rf.error/coeffect-exception`, no-such-fx, schema validation failures) attach the call-site of the dispatch that triggered the cascade — the user lands on the line they wrote, not somewhere deep in framework code. For `subscribe`, the macro binds the Var around the synchronous miss path so `:rf.error/no-such-sub` and `:rf.error/frame-destroyed` carry the invocation coord. (Coeffect delivery is not a surface macro: a handler declares `:rf.cofx/requires` and the runtime's cofx dispatcher runs the value-returning supplier inside the dispatch's call-site binding, so a supplier-throw trace carries the originating `dispatch` line — there is no `inject-cofx`; see the `:rf.error/inject-cofx-removed` row in [§Error contract](#error-contract).)
+For `dispatch` / `dispatch-sync`, the call-site rides through the dispatch envelope and is bound around `process-event!` so errors emitted **inside the handler chain** (handler exception, the declared-coeffect errors `:rf.error/unregistered-cofx` / `:rf.error/coeffect-exception`, no-such-fx, schema validation failures) attach the call-site of the dispatch that triggered the cascade — the user lands on the line they wrote, not somewhere deep in framework code. `subscribe` is a plain fn on both hosts and stamps no call-site; a `reg-view`-injected `subscribe` (a `capture-frame` `:subscribe` op) binds the view coord around the synchronous miss path, so `:rf.error/no-such-sub` and `:rf.error/frame-destroyed` carry it. (Coeffect delivery is not a surface macro: a handler declares `:rf.cofx/requires` and the runtime's cofx dispatcher runs the value-returning supplier inside the dispatch's call-site binding, so a supplier-throw trace carries the originating `dispatch` line — there is no `inject-cofx`; see the `:rf.error/inject-cofx-removed` row in [§Error contract](#error-contract).)
 
 Coverage:
 
 | Reached through                  | `:rf.trace/call-site` present? |
 |---|---|
-| Macro form (`dispatch`, `subscribe`, `dispatch-sync`, call position) | Yes |
-| Fn form (the same name in VALUE position, or the owning ns fn directly — `re-frame.router/dispatch!` / `-dispatch-sync!`, `re-frame.subs/subscribe`) | No |
+| Macro form (`dispatch`, `dispatch-sync`, call position) | Yes |
+| Fn form (`subscribe` anywhere; `dispatch` / `dispatch-sync` in VALUE position; or the owning ns fn directly — `re-frame.router/dispatch!` / `-dispatch-sync!`, `re-frame.subs/subscribe`) | No |
 | Higher-order use (`(map dispatch xs)` — `dispatch` read as a value, not called) | No |
 | View-render injected `dispatch` / `subscribe` locals (per `reg-view`) | Yes (**view-level**) — the macro injects the reg-view definition-site coord into the `capture-frame` (below) |
 | `capture-frame` ops built with `:dispatch-opts` / `:subscribe-call-site` (the `reg-view` injection path) | Yes (**view-level**) — the op merges the supplied coord into its owning-ns dispatch / `subscribe` call |
