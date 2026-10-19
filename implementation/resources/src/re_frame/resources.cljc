@@ -436,6 +436,18 @@
                      time-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/clear-scope-handler))
+;; The identity switch: clear every departing scope, then replan the active
+;; route. It cancels in-flight work exactly as clear-scope does, so it declares
+;; the same time cofx. The `:schema` is the payload shape; the handler
+;; validates each scope itself.
+(rf.events/reg-event :rf.resource/change-principal
+                     (assoc time-meta
+                            :schema [:cat [:= :rf.resource/change-principal]
+                                     [:map {:closed true}
+                                      [:from {:optional true} [:maybe [:vector :any]]]
+                                      [:cause :some]]])
+                     (rf.resources.events/with-classification-lowering
+                       rf.resources.events/change-principal-handler))
 (rf.events/reg-event :rf.resource/remove
                      time-meta
                      (rf.resources.events/with-classification-lowering

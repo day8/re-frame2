@@ -8,7 +8,7 @@ A declared, cached server-state **read** (the read-side partner to a [mutation](
 
 ```clojure
 (rf/reg-resource :article
-  {:params-schema [:map [:slug :string]]   ;; required — the read's identity
+  {:params-schema [:map [:slug :string]]   ;; optional — the shape of the read's identity
    :scope         :rf.scope/global}        ;; required — whose cache?
   request-fn)
 ```
@@ -58,7 +58,7 @@ A structured label like `[:article slug]` a [resource](#resource) attaches to it
 
 ### **resource status**
 
-The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately (`:refresh-error`), so the page keeps showing its data.
+The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately (`:refresh-error`), so the page keeps showing its data. Two statuses are projected by a read that has no entry to name: `:unresolved` when a scope resolver returns `nil`, and `:unplanned` when a `[:rf/route-resource …]` read's route does not plan the resource.
 
 ### **owner & cause**
 

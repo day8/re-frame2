@@ -49,8 +49,10 @@
   route/event that ensures under the new scope attaches the new owner, and
   route leave / `clear-scope` releases the old — the sub is a passive
   reader throughout (Spec 016 §Views stay passive)."
-  (:require [re-frame.interop :as rf.interop]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]
             [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]
             [re-frame.subs :as rf.subs]))
@@ -181,6 +183,41 @@
          :previous-data (:data prev-entry)})
       {:previous? false})))
 
+(defn- empty-view
+  "The resource view-model of a read with no entry, under `status`: `:idle`
+  for an identified key nobody has ensured, `:unresolved` when the scope
+  resolved nil, `:unplanned` when the active route plan holds no identity."
+  [status]
+  {:status status :data nil :error nil :refresh-error nil
+   :loading? false :fetching? false :stale? false :has-data? false
+   :previous? false})
+
+(defn- view-of
+  "The public resource view-model of entry `e` (read from `rt`)."
+  [rt e]
+  (merge
+    {:status        (:status e)
+     :data          (:data e)
+     :error         (:error e)
+     :refresh-error (:refresh-error e)
+     ;; Derived (Spec 016 §Status semantics): :loading? = first load
+     ;; with no usable data; :fetching? = refresh in flight; :has-data? =
+     ;; usable data present; :stale? = freshness vs :stale-at against the
+     ;; live wall clock (`stale?`).
+     :loading?      (= :loading (:status e))
+     :fetching?     (= :fetching (:status e))
+     :stale?        (stale? e)
+     ;; `:has-data?` via the shared `rf.resources.state/has-data?` derivation, NOT the
+     ;; scalar `(some? :data)`: an infinite feed's `:data` is the page
+     ;; VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as
+     ;; usable data. `rf.resources.state/has-data?` branches on the
+     ;; feed shape (`(seq data)`), so the scalar `:state` sub and
+     ;; `:infinite-state` never disagree.
+     :has-data?     (rf.resources.state/has-data? e)}
+    ;; `:keep-previous?` projection — previous-key data shown while this
+    ;; key first-loads, WITHOUT polluting this entry's cache / tags.
+    (previous-projection rt e)))
+
 (defn state-sub-fn
   "Project the public `:rf/resource` view-model from a durable
   entry: the stored facts plus the DERIVED booleans (`:loading?` /
@@ -194,32 +231,60 @@
         app   (app-of frame-state)
         [k e] (key+entry rt app payload)]
     (if (nil? e)
-      ;; No entry — the documented empty-state projection.
-      {:status (if k :idle :unresolved) :data nil :error nil :refresh-error nil
-       :loading? false :fetching? false :stale? false :has-data? false
-       :previous? false}
-      (merge
-        {:status        (:status e)
-         :data          (:data e)
-         :error         (:error e)
-         :refresh-error (:refresh-error e)
-         ;; Derived (Spec 016 §Status semantics): :loading? = first load
-         ;; with no usable data; :fetching? = refresh in flight; :has-data? =
-         ;; usable data present; :stale? = freshness vs :stale-at against the
-         ;; live wall clock (`stale?`).
-         :loading?      (= :loading (:status e))
-         :fetching?     (= :fetching (:status e))
-         :stale?        (stale? e)
-         ;; `:has-data?` via the shared `rf.resources.state/has-data?` derivation, NOT the
-         ;; scalar `(some? :data)`: an infinite feed's `:data` is the page
-         ;; VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as
-         ;; usable data. `rf.resources.state/has-data?` branches on the
-         ;; feed shape (`(seq data)`), so the scalar `:state` sub and
-         ;; `:infinite-state` never disagree.
-         :has-data?     (rf.resources.state/has-data? e)}
-        ;; `:keep-previous?` projection — previous-key data shown while this
-        ;; key first-loads, WITHOUT polluting this entry's cache / tags.
-        (previous-projection rt e)))))
+      (empty-view (if k :idle :unresolved))
+      (view-of rt e))))
+
+;; ---- the route-bound read (Spec 016 §Route-bound reads) -------------------
+
+(defn route-resource-key
+  "The scoped key the ACTIVE route's effective plan holds for `resource-id`,
+  read from the plan the route committed
+  (`[:rf.runtime/routing :resource-plan <nav-token>]`), so the key is exactly
+  the identity the route ensured. nil when the plan holds none — no active
+  route, a failed plan, a `:when` that gated the read out, or a route that
+  does not plan the resource.
+
+  When the plan holds the resource under MORE than one identity (an author's
+  profile beside the reader's own), throws
+  `:rf.error/resource-route-read-ambiguous` naming every identity: the read
+  never picks one. An unregistered `resource-id` is
+  `:rf.error/resource-not-registered`, as on every resource read."
+  [runtime-db resource-id]
+  (rf.resources.registry/require-resource-spec! resource-id 're-frame.resources.subs/route-resource-key)
+  (let [nav-token  (get-in runtime-db (conj (rf.resources.route/current-path) :nav-token))
+        identities (when (some? nav-token)
+                     (vals (get-in runtime-db (rf.resources.route/plan-path nav-token))))
+        matches    (sort-by rf.resources.state/key-id
+                            (filter #(= resource-id (second %)) identities))]
+    (case (count matches)
+      0 nil
+      1 (first matches)
+      (rf.error/throw-error!
+        :rf.error/resource-route-read-ambiguous
+        're-frame.resources.subs/route-resource-key
+        (str "[:rf/route-resource " (pr-str resource-id) "] is ambiguous: the "
+             "active route's plan holds " (pr-str resource-id) " under "
+             (count matches) " identities — " (pr-str (vec matches)) ". A "
+             "route-bound read never picks one; read each with [:rf/resource "
+             "{:resource … :params …}]. Per Spec 016 §Route-bound reads.")
+        {:recovery :fix-params
+         :extra    {:resource-id resource-id
+                    :identities  (vec matches)}}))))
+
+(defn route-resource-sub-fn
+  "Project `[:rf/route-resource <resource-id>]` — the resource view-model of
+  the identity the active route's plan ensured for `resource-id`
+  (`route-resource-key`), exactly as `:rf/resource` projects it, or the
+  empty shape at `:status :unplanned` when the plan holds none. Per Spec 016
+  §Route-bound reads."
+  [frame-state [_id resource-id]]
+  (let [rt (runtime-of frame-state)
+        k  (route-resource-key rt resource-id)
+        e  (when k (get-in rt (rf.resources.state/entry-path k)))]
+    (cond
+      (nil? k) (empty-view :unplanned)
+      (nil? e) (empty-view :idle)
+      :else    (view-of rt e))))
 
 (defn data-sub-fn
   "Project `:rf.resource/data` — the entry's last-known-good `:data` (or
@@ -496,6 +561,9 @@
   (rf.subs/reg-frame-state-sub :rf/resource
     {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); a reference that resolves nil reads no entry and projects :status :unresolved with the empty shape, never global and never :idle. Per Spec 016 §Subscriptions."}
     state-sub-fn)
+  (rf.subs/reg-frame-state-sub :rf/route-resource
+    {:doc "Passive read of the resource the ACTIVE route's plan ensured: `[:rf/route-resource <resource-id>]` projects the same view-model as `:rf/resource` for the one identity the plan holds under that id, so a view restates none of the route's params. A plan holding the id under several identities throws :rf.error/resource-route-read-ambiguous naming them; a plan holding none reads :status :unplanned with the empty shape. Per Spec 016 §Route-bound reads."}
+    route-resource-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/data
     {:doc "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."}
     data-sub-fn)

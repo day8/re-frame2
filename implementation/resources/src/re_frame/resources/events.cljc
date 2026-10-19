@@ -10,6 +10,7 @@
     [:rf.resource/invalidate-tags {:scope … :tags … :cause …}]
     [:rf.resource/release-owner   {:owner …}]
     [:rf.resource/clear-scope     {:scope … :cause …}]
+    [:rf.resource/change-principal {:from [<scope> …] :cause …}]
     [:rf.resource/remove          {:resource … :scope … :params …}]
 
   Plus the framework-INTERNAL replies (`:rf.resource.internal/*`) that
@@ -347,6 +348,8 @@
 
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
+(declare revalidation-cause?)
+
 (defn- ensure-load
   "Shared ensure/refetch core. Resolves the scope + canonical params into a
   scoped resource key, reads the next monotone generation from the recorded
@@ -416,7 +419,8 @@
         ;; facts) on a first load, NOT the scalar `empty-entry`. A registered
         ;; non-infinite resource seeds the scalar entry.
         infinite?  (rf.resources.registry/infinite-resource? spec)
-        entry      (or (get-in runtime-db (rf.resources.state/entry-path scoped-key))
+        existing   (get-in runtime-db (rf.resources.state/entry-path scoped-key))
+        entry      (or existing
                        (if infinite?
                          (rf.resources.state/empty-infinite-entry resource scoped-key)
                          (rf.resources.state/empty-entry resource scoped-key)))
@@ -492,6 +496,20 @@
                      (rf.resources.state/prior-loaded-sibling-key
                        (get-in runtime-db (rf.resources.state/entries-path)) scoped-key))]
     (cond
+      ;; ----- a revalidation refetch whose entry is gone -------------------
+      ;; Focus, reconnect, a poll tick and an invalidation each select an
+      ;; EXISTING entry and dispatch an ownerless refetch for it. When the
+      ;; entry has left the cache before that refetch runs — a clear-scope or
+      ;; change-principal, a remove or a GC landed in between — there is
+      ;; nothing to refresh, and loading it would re-create a key nobody holds,
+      ;; fetched with whatever credentials are current: after an identity
+      ;; switch, the new principal's bytes under the old principal's scope.
+      ;; Spec 016 §Changing principal.
+      (and force-new? (nil? existing) (nil? owner) (revalidation-cause? cause))
+      (do (rf.trace/emit! :rf.event :rf.resource/refetch-decision
+                          {:rf.frame/id frame-id :resource/key scoped-key
+                           :scope scope :active? false :decision :no-entry :cause cause})
+          {})
       ;; ----- fresh-skip: serve the cached value (ensure only) -------------
       ;; A fresh `:loaded` entry needs no work — attach the owner,
       ;; emit `:rf.resource/cache-hit`, re-project route readiness (the fresh
@@ -1359,6 +1377,15 @@
   MUST NOT dispatch the poll-fired event directly; the host `:poll` timer
   does."
   :poll)
+
+(defn- revalidation-cause?
+  "True iff `cause` is one the framework's automatic refetches carry: focus,
+  reconnect, a poll tick, or an invalidation (`[:invalidate …]`). Such a
+  refetch refreshes an entry that existed when its trigger fired, and never
+  re-creates one that has since left the cache (`ensure-load`)."
+  [cause]
+  (or (contains? #{focus-cause reconnect-cause poll-cause} cause)
+      (and (vector? cause) (= :invalidate (first cause)))))
 
 (defn- entry-revalidation-in-flight?
   "True iff `entry` already has a LIVE refetch in flight — work that will
@@ -2384,6 +2411,71 @@
         cscope     (rf.resources.state/canonicalize-scope
                      scope 'rf.resource/clear-scope nil)]
     (clear-scope-handler* runtime-db frame-id cscope cause time-ms)))
+
+;; ---- change-principal — the identity switch --------------------------------
+
+(defn change-principal-handler
+  "`:rf.resource/change-principal` — the identity switch (Spec 016 §Changing
+  principal). Payload `{:from [<scope> …] :cause <edn>}`. `:from` is a VECTOR
+  of the CONCRETE scopes the departing principal held, resolved by the caller
+  against its own coeffect db exactly as for `clear-scope`; a nil member (a
+  resolver with nothing to name) is skipped, and an absent `:from` clears
+  nothing. `:cause` is required: it rides the replan verbatim.
+
+  The app dispatches it from the handler that commits the new identity, so it
+  runs against the post-transition db, and in that one event it:
+
+    1. validates every `:from` scope through the shared concrete-scope path
+       BEFORE anything changes, so one bad member clears nothing;
+    2. clears each scope (`clear-scope-handler*`): its entries leave the cache,
+       their in-flight work is cancelled and aborted, every owner's hold on
+       them ends, and their timers are cancelled;
+    3. when the frame has an active route, dispatches
+       `[:rf.route/replan-resources {:cause cause}]`, which reruns the route's
+       plan under the identity the app has just committed.
+
+  Clearing first is what makes the switch safe against the automatic
+  refetches: focus, reconnect, a poll tick or an invalidation can only refresh
+  an entry that exists (`ensure-load`), so after this event none of them can
+  load an old-scope key with the new principal's credentials, even one whose
+  trigger was queued ahead of it.
+
+  Explicit rather than automatic: a frame may hold several principals on
+  purpose, and a resolver may read arbitrary app-db, so a change in what a
+  resolver answers is not by itself a principal change. The app says when
+  identity changes."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {:keys [from cause]}]]
+  (when-not (or (nil? from) (vector? from))
+    (rf.error/throw-error!
+      :rf.error/resource-invalid-scope
+      're-frame.resources.events/change-principal-handler
+      (str ":rf.resource/change-principal was given :from " (pr-str from)
+           " — :from is a VECTOR of the departing principal's concrete scopes, "
+           "e.g. {:from [old-session old-viewer]}, so a single scope is wrapped: "
+           "{:from [old-scope]}. Per Spec 016 §Changing principal.")
+      {:recovery :fix-scope
+       :extra    {:from from}}))
+  (let [runtime-db (or rt {})
+        ;; Eager, so every member is validated before the first clear.
+        cscopes    (into []
+                         (comp (remove nil?)
+                               (map #(rf.resources.state/canonicalize-scope
+                                       % 're-frame.resources.events/change-principal-handler nil))
+                               (distinct))
+                         from)
+        {rdb :rdb fx :fx}
+        (reduce (fn [{:keys [rdb fx]} cscope]
+                  (let [{rdb' :rf.db/runtime fx' :fx}
+                        (clear-scope-handler* rdb frame-id cscope cause time-ms)]
+                    {:rdb rdb' :fx (into fx fx')}))
+                {:rdb runtime-db :fx []}
+                cscopes)
+        route?     (some? (get-in rdb (conj (rf.resources.route/current-path) :route-id)))]
+    (cond-> {:rf.db/runtime rdb}
+      (or (seq fx) route?)
+      (assoc :fx (cond-> fx
+                   route? (conj [:dispatch [:rf.route/replan-resources {:cause cause}]]))))))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 

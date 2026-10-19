@@ -14,35 +14,22 @@
    write that IS a mutation is the settings update — it invalidates the profile
    read — and it lives over in realworld-resources.mutations.)
 
-   On logout the machine does two things: clears the session, and clears the
-   principal-scoped resource caches. The departing user's personalised feed is
-   cached under `[:rf.scope/session {:username …}]` and their optional-auth reads
-   (articles / profiles / comments, carrying that user's `favorited` / `following`
-   flags) under `[:rf.scope/viewer {:username …}]`; the next user (or no user)
-   must never lay eyes on either. `:rf.resource/clear-scope` is the causal
-   operation for both. The two concrete old scopes are resolved with the
-   `rf/resolve-resource-scope` helper against the handler's COEFFECT db — the
-   pre-transition value, which still remembers who's logging out — using the same
-   named `:realworld/viewer` / `:realworld/session` resolvers every other site
-   references. One way to resolve a scope, teardown included. The lone truly-
-   invariant read (popular tags, `:rf.scope/global`) is untouched — the same for
-   everyone, so logout has no reason to disturb it.
-
-   Cold-boot session restore needs one extra nudge, and it's a genuinely subtle
-   one. Restore is the lone principal switch with no accompanying route change —
-   the route was entered while the viewer was still UNRESOLVED (a saved token was
-   present but the user had not restored yet), so its `{:from-db …}` reads failed
-   closed and the whole route plan failed with them. A `{:from-db …}`
-   subscription re-keys reactively once the principal resolves, but re-keying is
-   PASSIVE — it doesn't fetch. So on BOTH restore outcomes — success (now signed
-   in, via the classified `:auth/session-restored` event) and failure (now
-   confirmed anonymous, via the machine's `:abandon-restore` action) — the app
-   dispatches the framework's `[:rf.route/replan-resources {:cause …}]`: it reruns
-   the CURRENT route's effective resource plan under the freshly resolved viewer,
-   WITHOUT navigating, so a deep link stays put and simply loads its reads under
-   the right identity. The interactive login / logout paths re-enter a route, so
-   they re-plan for free and don't need this — see PRINCIPAL-SWITCH REPLAN below
-   for the full story."
+   Every change of who is reading — login, logout, a restored session, a rejected
+   one — is one framework event, `[:rf.resource/change-principal {:from […]
+   :cause …}]`. The departing reader's personalised feed is cached under
+   `[:rf.scope/session {:username …}]` and their optional-auth reads (articles /
+   profiles / comments, carrying that reader's `favorited` / `following` flags)
+   under `[:rf.scope/viewer {:username …}]`, or `[:rf.scope/viewer :anonymous]`
+   for a signed-out reader. The next reader must never lay eyes on either, and
+   nothing may refetch them with the next reader's token. The event clears those
+   scopes and replans the current route under the new identity. The concrete old
+   scopes are resolved with the `rf/resolve-resource-scope` helper against the
+   handler's COEFFECT db — the pre-transition value, which still remembers who was
+   reading — using the same named `:realworld/viewer` / `:realworld/session`
+   resolvers every other site references. One way to resolve a scope, teardown
+   included. The lone truly-invariant read (popular tags, `:rf.scope/global`) is
+   untouched: it is the same for everyone. See PRINCIPAL CHANGE below for the full
+   story."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; The state-machine ns. Loading it registers the hooks, so
@@ -57,7 +44,7 @@
             [realworld-resources.schema :as app-schema]
             ;; Pulled in for its side effect: loading it registers the
             ;; `:realworld/session` resource-scope resolver that
-            ;; `:auth/clear-session` reaches for via `rf/resolve-resource-scope`
+            ;; `change-principal` reaches for via `rf/resolve-resource-scope`
             ;; below.
             [realworld-resources.scope])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -249,81 +236,77 @@
     {:db (store-session-db db user)}))
 
 ;; ----------------------------------------------------------------------------
-;; PRINCIPAL-SWITCH REPLAN  (a subtle footgun, and the framework command for it)
+;; PRINCIPAL CHANGE  (one framework event, dispatched where identity changes)
 ;; ----------------------------------------------------------------------------
 ;;
-;; Here's a trap worth understanding, because it's the kind of thing that looks
-;; like a bug at 2am. A `{:from-db …}` resource subscription re-keys reactively
-;; when its resolver input (the viewer) changes. But re-keying does NOT fetch —
-;; subscriptions are passive. The new scope's data only loads when a CAUSE ensures
-;; it: a route entry, an event-side `:rf.resource/ensure`, a clear-scope. So if
-;; you switch principal by an app-db write alone, with no route change, every
-;; viewer-scoped read dutifully re-keys to the new principal and then just...
-;; waits, at :idle, forever. Safe and fail-closed, but mystifying if you didn't
-;; expect it.
+;; Two traps meet at every change of reader, and they look like bugs at 2am.
 ;;
-;; There's exactly one place this app switches principal without a route change:
-;; cold-boot session restore. The route is entered while the viewer is UNRESOLVED
-;; (a saved token is present but the user hasn't restored — the `:realworld/viewer`
-;; resolver returns nil, and the `:realworld/session` feed too), so route entry is
-;; a committed failed activation: no read is planned, the route slice carries the
-;; planning error, and the deep link sits there. Then the async `GET /user` lands
-;; and `:auth/session-restored` writes the principal — on purpose WITHOUT
-;; navigating, because a deep link has to survive a refresh — or `:abandon-
-;; restore` clears the token, confirming an anonymous viewer. Either way the
-;; viewer is now resolved but nothing has fetched. The interactive login / logout
-;; paths DO navigate, so the route plan re-ensures for them; restore is the one
-;; gap.
+;; The first is passive re-keying. A `{:from-db …}` resource subscription re-keys
+;; when its resolver input (the viewer) changes, but re-keying does NOT fetch —
+;; subscriptions are passive. The new scope's data loads only when a CAUSE ensures
+;; it. Cold-boot session restore is the sharp case: the route is entered while the
+;; viewer is UNRESOLVED (a saved token is present but the user hasn't restored —
+;; the `:realworld/viewer` resolver returns nil, and the `:realworld/session` feed
+;; too), so route entry is a committed failed activation and the deep link sits
+;; there. Then `GET /user` lands and `:auth/session-restored` writes the principal
+;; — on purpose WITHOUT navigating, because a deep link has to survive a refresh —
+;; or `:abandon-restore` clears the token, confirming an anonymous viewer. Either
+;; way the viewer is resolved and nothing has fetched.
 ;;
-;; The framework's answer is one event: `[:rf.route/replan-resources {:cause …}]`.
-;; It reruns the CURRENT route's effective parent-to-leaf resource plan — the SAME
-;; planner route entry uses, over the same registered `:resources` declarations,
-;; inherited parent reads included — against the current app-db, under the route's
-;; UNCHANGED nav-token. Reads the plan still needs are kept, added ones are ensured
-;; under the route owner with your cause, dropped ones lose the owner, the durable
-;; plan / blocking facts are replaced, and the route's readiness (that planning
-;; error) is repaired. No navigation, no guards, no `:on-match`, no URL or scroll.
+;; The second is the cross-credential refetch. The old reader's entries are
+;; still in the cache, still owned by the page that was showing them, and focus,
+;; reconnect, a poll tick or an invalidation refetches owned entries. Once the
+;; new token is in place, such a refetch would write the new reader's bytes —
+;; their `favorited` flags — under the old reader's scope, where the old reader
+;; (or the next anonymous one) reads them.
 ;;
-;; The recipe for any identity switch that keeps the route — restore, account
-;; switch, impersonation — is the same three steps, in this order: resolve and
-;; clear the OLD scope causally (`:rf.resource/clear-scope`, as `:auth/clear-
-;; session` does), commit the NEW identity, then replan. A replan dispatched while
-;; identity is transiently unresolved fails closed — deliberately — and relinquishes
-;; the prior plan rather than keep settling bytes fetched under the new credentials
-;; into the old scope's entry. (Use the command rather than an app-side copy of the
-;; planner: a copy that reads only the leaf route's `:resources` would silently skip
-;; an inherited read on a composed route — the profile tabs' banner — and would
-;; never repair the slice's readiness. The command is the planner.)
+;; The framework's answer to both is one event, dispatched from the handler that
+;; commits the new identity: `[:rf.resource/change-principal {:from […] :cause
+;; …}]`. `:from` names the scopes the departing reader held, resolved against the
+;; handler's coeffect db (`change-principal`, just below). The event clears those
+;; scopes, so no automatic refetch can touch them, then reruns the CURRENT
+;; route's effective resource plan under the new identity — the SAME planner
+;; route entry uses, inherited parent reads included, under the route's unchanged
+;; nav-token. No navigation, so a deep link stays put; kept reads stay, new ones
+;; are ensured under the route owner with the event's cause, and the route's
+;; readiness is repaired. A replan while identity is transiently unresolved fails
+;; closed — deliberately — and relinquishes the prior plan.
+;;
+;; It is explicit, not automatic, because only the app knows identity changed: a
+;; resolver's answer can move for other reasons, and a frame can hold several
+;; principals on purpose.
+
+(defn change-principal
+  "The `:rf.resource/change-principal` event for leaving the reader `db` describes
+   — `db` being the PRE-transition coeffect db, which still knows who was reading.
+   Names both principal-scoped caches; a resolver with nothing to name (nobody
+   signed in, or a viewer still restoring) answers nil, and the event skips it.
+   PURE: builds an event vector, reads nothing ambient."
+  [db cause]
+  [:rf.resource/change-principal
+   {:from  [(rf/resolve-resource-scope db :realworld/session)
+            (rf/resolve-resource-scope db :realworld/viewer)]
+    :cause cause}])
 
 (rf/reg-event :auth/clear-session
-  {:doc "Clear the auth slice AND drop the departing principal's scoped resource
-         caches. Both the personalised feed (session scope) and the optional-auth
-         reads (viewer scope — articles / profiles / comments carrying this user's
-         `favorited` / `following` flags) are keyed to the logging-out user, so
-         logout clears BOTH (`:rf.resource/clear-scope`) — the next user can never
-         read a stale entry of theirs even before GC reclaims it. The two concrete
-         old scopes are resolved with the pure `rf/resolve-resource-scope` helper
-         against the COEFFECT db — the pre-transition value, which by definition
-         still carries the user who's logging out — using the named
-         `:realworld/session` / `:realworld/viewer` resolvers every site shares.
-         Each resolves nil when there is nothing to clear (no user, or an
-         already-unresolved viewer), and the clear is skipped. The truly-invariant
-         `:rf.scope/global` popular-tags read is left alone. The unsent comment
-         draft goes too: it is the departing user's words, and the next account
-         must not find them pre-filled in its own comment box."}
-  (fn [{:keys [db]} _]
-    (let [old-session (rf/resolve-resource-scope db :realworld/session)
-          old-viewer  (rf/resolve-resource-scope db :realworld/viewer)]
-      {:db (-> db
-               (assoc-in [:auth :user] nil)
-               (assoc-in [:auth :token] nil)
-               (dissoc :comment-form)
-               advance-generation)
-       :fx (cond-> []
-             old-session (conj [:dispatch [:rf.resource/clear-scope
-                                           {:scope old-session :cause :logout}]])
-             old-viewer  (conj [:dispatch [:rf.resource/clear-scope
-                                           {:scope old-viewer :cause :logout}]]))})))
+  {:doc "Clear the auth slice and change principal away from the departing
+         reader (`change-principal`, with `cause` — `:logout` unless the caller
+         names another). Both the personalised feed (session scope) and the
+         optional-auth reads (viewer scope — articles / profiles / comments
+         carrying this user's `favorited` / `following` flags) are keyed to the
+         logging-out user, so both are cleared: the next user can never read a
+         stale entry of theirs, and nothing refetches one with the next user's
+         token. The truly-invariant `:rf.scope/global` popular-tags read is left
+         alone. The unsent comment draft goes too: it is the departing user's
+         words, and the next account must not find them pre-filled in its own
+         comment box."}
+  (fn [{:keys [db]} [_ cause]]
+    {:db (-> db
+             (assoc-in [:auth :user] nil)
+             (assoc-in [:auth :token] nil)
+             (dissoc :comment-form)
+             advance-generation)
+     :fx [[:dispatch (change-principal db (or cause :logout))]]}))
 
 (rf/reg-event :auth/post-login-redirect
   {:doc "Bounce a user who just interactively logged in or registered to wherever
@@ -349,7 +332,7 @@
 ;; THE COLD-BOOT DEEP-LINK WINDOW
 ;; ----------------------------------------------------------------------------
 ;;
-;; The sibling of the principal-switch replan above, and the same root cause
+;; The sibling of the principal change above, and the same root cause
 ;; seen from the ROUTING side rather than the resources side.
 ;;
 ;; The frame runs `:initial-events` before its first URL→slice sync, so the saved
@@ -458,20 +441,19 @@
       ;; cold-boot deep link to a PUBLIC page (`/article/x`) should remain readable
       ;; as an anonymous viewer, not get yanked home — that's `:clear-session`'s
       ;; job on an interactive logout, not on a failed restore. Clearing the token
-      ;; RESOLVES the viewer to `[:rf.scope/viewer :anonymous]`, so the framework's
-      ;; `:rf.route/replan-resources` re-plans the current route's reads under the
-      ;; anonymous viewer — the mirror of `:auth/session-restored`, minus the
-      ;; sign-in. Dispatch order is the recipe: `:auth/clear-session` commits
-      ;; first (old scope cleared, new identity committed), THEN the replan.
-      ;; `:auth/settle-deferred-entry` runs last, after `:auth/clear-session` has
+      ;; RESOLVES the viewer to `[:rf.scope/viewer :anonymous]`, and
+      ;; `:auth/clear-session` changes principal with the cause named here, which
+      ;; re-plans the current route's reads under the anonymous viewer — the
+      ;; mirror of `:auth/session-restored`, minus the sign-in. (There is no old
+      ;; scope to clear: the viewer was still unresolved.)
+      ;; `:auth/settle-deferred-entry` runs after `:auth/clear-session` has
       ;; committed, so it sees a confirmed-anonymous slice. It is the one case
       ;; where "stay put" would strand the reader: a PROTECTED deep link the guard
       ;; deferred, for which nothing was ever committed, so there is no page to
       ;; stay on. A public deep link stashes nothing and it no-ops.
       {:data {:error nil}
-       :fx [[:dispatch [:auth/clear-session]]
+       :fx [[:dispatch [:auth/clear-session [:session-restore-failed]]]
             [:realworld-resources.session/persist {:token nil}]
-            [:dispatch [:rf.route/replan-resources {:cause [:session-restore-failed]}]]
             [:dispatch [:auth/settle-deferred-entry]]]})
 
     :record-error
@@ -487,7 +469,7 @@
     ;; viewer. (A FAILED restore uses `:abandon-restore` instead: it stays put.)
     (fn [_]
       {:data {:error nil}
-       :fx [[:dispatch [:auth/clear-session]]
+       :fx [[:dispatch [:auth/clear-session :logout]]
             [:realworld-resources.session/persist {:token nil}]
             [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})}
    :states
@@ -532,11 +514,11 @@
 ;; Two variants because interactive login/register and cold-boot restore
 ;; disagree about what happens after: an interactive submit bounces to
 ;; `:return-to` (or home); restore must never yank a deep-linked visitor away
-;; from the page they cold-booted on, and instead re-plans the current
-;; route's reads under the freshly-resolved viewer
-;; (`[:rf.route/replan-resources {:cause [:session-restore]}]` — see
-;; PRINCIPAL-SWITCH REPLAN above for why that's needed). Both persist the
-;; session via the classified
+;; from the page they cold-booted on, and instead relies on the principal
+;; change's replan to load the current route's reads under the freshly-resolved
+;; viewer (see PRINCIPAL CHANGE above). Both change principal away from the
+;; reader the coeffect db describes, and both persist the session via the
+;; classified
 ;; `:realworld-resources.session/persist` fx (`:sensitive [[:token]]`, see
 ;; above) and then nudge the machine with a bare, credential-free `:success`
 ;; signal — the machine flips state and never sees the token. See
@@ -547,25 +529,29 @@
 ;; own `:db` commit — see the comment above that helper.
 
 (rf/reg-event :auth/session-established
-  {:doc       "Interactive login/register succeeded: store the session,
-               persist the JWT, and bounce to `:return-to` (or home). The
-               reply rides a map payload classified :sensitive so the token
-               is redacted at event egress."
+  {:doc       "Interactive login/register succeeded: store the session, change
+               principal away from the previous reader (the anonymous viewer,
+               or the account signed in before), persist the JWT, and bounce
+               to `:return-to` (or home). The reply rides a map payload
+               classified :sensitive so the token is redacted at event egress."
    :sensitive [[:value :user :token]]}
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]
+      ;; The principal change is queued ahead of the redirect, so the previous
+      ;; reader's caches are gone before the next page plans its reads.
       {:db (store-session-db db user)
-       :fx [[:realworld-resources.session/persist {:token (:token user)}]
+       :fx [[:dispatch (change-principal db :login)]
+            [:realworld-resources.session/persist {:token (:token user)}]
             [:dispatch [:auth/post-login-redirect]]
             [:dispatch [:auth/flow [:auth/success]]]]})))
 
 (rf/reg-event :auth/session-restored
   {:doc       "Cold-boot session restore succeeded (a saved JWT was present
                and accepted): store the session, re-persist the JWT
-               defensively (in case the server rotated it), re-plan the
-               current route's reads under the freshly-resolved viewer, and
-               settle any protected deep link the guard DEFERRED while identity
-               was unknown. It never navigates on its own account — a public
+               defensively (in case the server rotated it), change principal so
+               the current route's reads re-plan under the freshly-resolved
+               viewer, and settle any protected deep link the guard DEFERRED
+               while identity was unknown. It never navigates on its own account — a public
                deep link must stay put — and a reply that lands after the
                session changed does nothing. The reply rides a map payload
                classified :sensitive so the token is redacted at event egress."
@@ -585,14 +571,15 @@
       {}
       (let [user (:user value)]
         ;; `:db` commits before `:fx` runs, so both dispatches below see the
-        ;; restored viewer. `:rf.route/replan-resources` re-plans whatever route
-        ;; DID commit (a public deep link) under its unchanged nav-token;
+        ;; restored viewer. The principal change has no old scope to clear —
+        ;; the viewer was unresolved — so its work is the replan of whatever
+        ;; route DID commit (a public deep link), under its unchanged nav-token;
         ;; `:auth/settle-deferred-entry` handles the case where none did because
         ;; the guard deferred a protected one. Exactly one of the two has work to
         ;; do, so there is no double-fetch.
         {:db (store-session-db db user)
          :fx [[:realworld-resources.session/persist {:token (:token user)}]
-              [:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]
+              [:dispatch (change-principal db [:session-restore])]
               [:dispatch [:auth/settle-deferred-entry]]
               [:dispatch [:auth/flow [:auth/success]]]]}))))
 

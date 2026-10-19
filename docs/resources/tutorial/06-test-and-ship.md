@@ -150,15 +150,16 @@ The unhappy path routes the login to a 422:
       (stub-transport/route-transport
         {[:post (str api/api-base "/users/login")]
          {:status 422
-          :body   "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}})
+          :body   {:errors {"email or password" ["is invalid"]}}}})
       #(rf/dispatch-sync [:auth.login-form/submit]))
     (is (= :error (get-in (rf/app-db-value f) [:auth :login-form :status])))
     (is (= ["email or password is invalid"]
            (rf/compute-sub [:auth.login-form/form-errors] (rf/app-db-value f))))))
 ```
 
-`compute-sub` evaluates the real subscription headlessly. The 422's body reaches
-the failure raw, so it also exercises `failure->form-errors`' JVM JSON decoder.
+`compute-sub` evaluates the real subscription headlessly. The stub sends a map
+body as JSON with `Content-Type: application/json`, as Conduit does, so the 422
+arrives parsed at `:body` and `failure->form-errors` reads its `:errors`.
 [Test a pipeline run](../../core/testing/pipeline-runs.md) explains effect overrides
 and their scope. Client-only persistence skips on the JVM; assert the app-db
 session here, and test the storage adapter separately when needed.

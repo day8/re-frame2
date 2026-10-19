@@ -56,22 +56,21 @@ Then register `:conduit/feed` like Part 2's list, but with `:scope {:from-db :co
      :decode  :json}))
 ```
 
-Sign-out now has a second scope to clear, so extend Part 4's `:auth/logout` to resolve and clear both:
+Sign-out now has a second scope to clear, so extend Part 4's `:auth/logout` to name both in `:from`:
 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} [_ {:keys [generation]}]]
     (if (and generation (not= generation (:auth-generation db)))
       {}
-      (let [old-viewer  (rf/resolve-resource-scope db :conduit/viewer)
-            old-session (rf/resolve-resource-scope db :conduit/session)]
-        {:db (-> db (update :auth-generation (fnil inc 0))
-                  (assoc :auth {:user nil :token nil}))
-         :fx (cond-> [[:auth.session/persist {:token nil}]]
-             old-viewer  (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
-             old-session (conj [:dispatch [:rf.resource/clear-scope {:scope old-session :cause :logout}]])
-             true        (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
-                               [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))}))))
+      {:db (-> db (update :auth-generation (fnil inc 0))
+                (assoc :auth {:user nil :token nil}))
+       :fx [[:auth.session/persist {:token nil}]
+            [:dispatch [:rf.route/navigate {:to :conduit/home}]]
+            [:dispatch [:rf.resource/change-principal
+                        {:from  [(rf/resolve-resource-scope db :conduit/viewer)
+                                 (rf/resolve-resource-scope db :conduit/session)]
+                         :cause [:logout]}]]]})))
 ```
 
 As with the viewer resolver, returning `nil` when logged out fails closed: the feed read fails rather than serving the previous user's feed.
