@@ -554,7 +554,7 @@ The route's resource entries travel in the payload with the route, so the hydrat
 
 A few things change between your REPL and a production server:
 
-- **Run the JVM as a release build.** Start it with `-Dre-frame.debug=false`. That elides development-only work — the trace stream, most schema checks — and keeps what the framework relies on, such as `:boundary? true` schema checks and error projection. [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) has the switches.
+- **Run the JVM as a release build.** It is one by default: with `day8/re-frame2-ssr-ring` on the classpath the debug flag starts off. That elides development-only work — the trace stream, most schema checks — and keeps what the framework relies on, such as `:boundary? true` schema checks and error projection. Your REPL and test runs opt back in with `-Dre-frame.debug=true`; [Configure dev and prod](../core/how-to/configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property) has the switches.
 - **Declare an error sink.** With traces elided, the always-on error records are what reach your monitoring: server-side handler and render failures, and in the browser the hydration-mismatch record. Name a sink with `(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})` — [Report errors in production](../core/how-to/report-errors-in-production.md).
 - **Size the server for one thread per request.** Each request gets its own frame, so requests can't see each other's state. `ssr-handler` runs on the calling server thread, so your server's worker and accept-queue limits bound the requests in flight.
 - **Ship the client and server bundles together.** The payload is only right for the client built from the same code. The version and [schema-digest](#deploy-drift-checks-come-along-for-free) checks tell you when they drift; they warn rather than stop the page.
@@ -609,7 +609,19 @@ The handler wraps your rendered body in a small HTML document, `default-html-she
 - Attributes on `<html>` and `<body>` come from the route's head (`:html-attrs`, `:body-attrs` — see [Head metadata](head.md)), not from handler options.
 - `:content-type` replaces the response Content-Type. Omit it and you get `text/html; charset=utf-8`, or whatever the app set with `:rf.server/set-header`.
 - `:head` is a raw HTML string that *replaces* the resolved head, default viewport meta included — for a static app with no routes. `:body-end` is raw HTML appended before `</body>`.
-- `:html-shell` replaces the whole document with your `(fn [body-html payload-edn opts] → string)`. Use it only when the options above can't produce the page. A custom shell must still emit the payload script under the id `__rf_payload`, with the same escaping — the [`default-html-shell`](../api/re-frame.ssr.ring.md#default-html-shell) entry has the details.
+- `:html-shell` replaces the whole document with your `(fn [body-html payload-edn opts] → string)`. Use it only when the options above can't produce the page.
+
+A custom shell gets the parts the handler has already built in its `opts`: `:head`, the resolved head HTML, and `:payload-tag`, the finished payload `<script id="__rf_payload">`, escaped so a `</script>` inside your data cannot close it. Splice `:payload-tag` where the payload goes rather than writing the script yourself:
+
+```clojure
+(defn page-shell [body-html _payload-edn {:keys [head payload-tag]}]
+  (str "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">" head "</head>"
+       "<body><div id=\"app\">" body-html "</div>"
+       payload-tag
+       "<script src=\"/js/main.js\"></script></body></html>"))
+```
+
+The [`default-html-shell`](../api/re-frame.ssr.ring.md#default-html-shell) entry lists everything `opts` carries.
 
 !!! warning "`:head` and `:body-end` are injected unescaped"
 

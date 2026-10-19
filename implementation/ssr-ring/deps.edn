@@ -17,8 +17,8 @@
 ;;
 ;; `resources/` carries `re_frame/ssr_host.edn`, the marker that makes a JVM
 ;; with this artefact on its classpath an SSR host, so the debug gate
-;; defaults OFF there (Spec 011 §Production elision). It is on `:paths` for a
-;; `:local/root` consumer and on `:src-dirs` for the jar. The two test
+;; defaults OFF there (Spec 011 §The debug gate on an SSR JVM). It is on
+;; `:paths` for a `:local/root` consumer and on `:src-dirs` for the jar. The two test
 ;; aliases below opt back in with `-Dre-frame.debug=true`.
 {:paths ["src" "resources"]
  :deps  {day8/re-frame2     {:local/root "../core"}
