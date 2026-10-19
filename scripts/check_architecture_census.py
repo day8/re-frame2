@@ -22,7 +22,7 @@ amount of rewording can hide:
   * a SECOND EMITTER must either call a renderer that is not React's, or reach
     one through a `:require`.  Both are enumerable.
   * a COMPILED-HICCUP MODE must have a build-time pass, which in ClojureScript
-    means a `defmacro`.  The macro roster is frozen at three names, so a fourth
+    means a `defmacro`.  The macro roster is frozen at four names, so a fifth
     is the tripwire and nobody has to agree on what "compiler" means.
   * a VIEWCELL-CLASS GRAPH and a PER-BOUNDARY CALLBACK-CELL TABLE both need a
     RETAINED STRUCTURE that today does not exist.  A new module-level mutable
@@ -69,15 +69,15 @@ PACKAGE_JSON = REPO / "implementation" / "package.json"
 # Arm 1 — the rejected mechanisms
 # ---------------------------------------------------------------------------
 
-# The three macros the package publishes — `h/defview`, `h/event` and
-# `h/defhost`, all on the ordinary facade (`re-frame.fresco.native` is two
+# The four macros the package publishes — `h/defview`, `h/event`,
+# `h/render-fn` and `h/defhost`, all on the ordinary facade (`re-frame.fresco.native` is two
 # plain hook functions and publishes no macro).
 # Every one is `defn`-class sugar with a function fallback, which is what the
 # charter's *No analyzer* constraint permits; none classifies, lowers or
-# refuses a body form.  A FOURTH NAME IS THE TRIPWIRE — not because a fourth
+# refuses a body form.  A FIFTH NAME IS THE TRIPWIRE — not because a fifth
 # macro is necessarily a compiler, but because a compiled-hiccup mode cannot
 # arrive without one, so the roster is where the question gets asked.
-MACRO_ROSTER = {"defview", "event", "defhost"}
+MACRO_ROSTER = {"defview", "event", "render-fn", "defhost"}
 
 # A renderer this package is allowed to call.  React's own, in its two halves.
 # `re-frame.fresco.server` runs THIS runtime under `react-dom/server`; the
@@ -487,7 +487,7 @@ def self_test() -> int:
     PLANTED = "fresco/impl/planted.cljs"
 
     seeded = list(real) + [(PLANTED, "", '(defmacro deftemplate [& body])\n')]
-    check("a fourth macro is a compiled-hiccup tripwire",
+    check("a fifth macro is a compiled-hiccup tripwire",
           any("macro roster" in f for f in arm_mechanism(seeded)))
 
     seeded = list(real) + [
