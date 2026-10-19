@@ -122,7 +122,9 @@ A boolean subscription on a [route](#route): **`:can-leave`** (`true` = leave is
 or **`:can-enter`** (`true` = enter is fine). A `:can-leave` refusal parks the
 attempt as a [pending navigation](#pending-navigation) for your
 [view](../core/glossary.md#view) to ask the reader about. A `:can-enter` refusal is
-[terminal](#terminal-entry): nothing commits and nothing is parked. See
+[terminal](#terminal-entry): nothing commits and nothing is parked. Entering a route
+also checks the `:can-enter` of each route on its [chain](#route-chain), root-most
+first, so a guard on a parent protects every child. See
 [Guard against unsaved changes](how-to/guard-unsaved-changes.md) and
 [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
 

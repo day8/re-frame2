@@ -389,8 +389,9 @@ Register the resource with its cache policies:
 ```
 
 Keep each controlled keystroke synchronous and debounce only the committed
-query the resource uses. A generation number stops an old timer from
-committing:
+query the resource uses. Each keystroke arms `:dispatch-later` under the same
+`:id`, which replaces the timer still pending, so only the last keystroke of a
+burst commits:
 
 ```clojure
 (rf/reg-sub :todo.search/text
@@ -403,29 +404,22 @@ committing:
 
 (rf/reg-event :todo.search/input
   (fn [{:keys [db]} [_ text]]
-    (let [gen (inc (get-in db [:todo.search :gen] 0))]
-      {:db (-> db
-               (assoc-in [:todo.search :text] text)
-               (assoc-in [:todo.search :gen] gen))
-       :fx [[:dispatch-later
-             {:ms 250
-              :event [:todo.search/settle gen]}]]})))
+    {:db (assoc-in db [:todo.search :text] text)
+     :fx [[:dispatch-later {:id    :todo.search/settle
+                            :ms    250
+                            :event [:todo.search/settle]}]]}))
 
 (rf/reg-event :todo.search/settle
-  (fn [{:keys [db]} [_ gen]]
-    (if (= gen (get-in db [:todo.search :gen]))
-      (let [q (get-in db [:todo.search :text])]
-        {:db (assoc-in db [:todo.search :committed-q] q)
-         :fx [[:dispatch [:todo.search/wanted q]]]})
-      {})))
+  (fn [{:keys [db]} _]
+    (let [q (get-in db [:todo.search :text])]
+      {:db (assoc-in db [:todo.search :committed-q] q)
+       :fx [[:dispatch [:todo.search/wanted q]]]})))
 
 (rf/reg-event :todo.search/clear
   (fn [{:keys [db]} _]
-    {:db (update db :todo.search assoc
-                 :text ""
-                 :committed-q ""
-                 :gen (inc (get-in db [:todo.search :gen] 0)))
-     :fx [[:dispatch [:todo.search/dismissed]]]}))
+    {:db (update db :todo.search assoc :text "" :committed-q "")
+     :fx [[:dispatch-later {:id :todo.search/settle :cancel? true}]
+          [:dispatch [:todo.search/dismissed]]]}))
 ```
 
 The result view reads the cache. The previous results it shows while a new
@@ -474,9 +468,9 @@ fills:
 
 What happens as the user types:
 
-1. Each keystroke updates `:todo.search/text` immediately and increments the
-   generation. No fetch starts yet.
-2. After 250 ms of quiet, only the current generation commits `q` and
+1. Each keystroke updates `:todo.search/text` immediately and re-arms the
+   settle timer, replacing the one still pending. No fetch starts yet.
+2. After 250 ms of quiet, the one surviving timer commits `q` and
    dispatches `:todo.search/wanted`, whose ensure (not the list mounting)
    starts the fetch. An empty query only releases the previous owner.
 3. A new committed query releases the old identity and ensures the new one.
@@ -484,9 +478,9 @@ What happens as the user types:
    reply is suppressed. `:keep-previous? true` projects the previous query's
    results at `:previous-data`, with `:previous? true`, while `:loading?`
    reports the new query's first load.
-4. Escape dispatches `:todo.search/clear`, which dispatches
-   `:todo.search/dismissed` to release the owner. Nothing infers that from the
-   view disappearing.
+4. Escape dispatches `:todo.search/clear`, which cancels any pending settle
+   and dispatches `:todo.search/dismissed` to release the owner. Nothing
+   infers that from the view disappearing.
 5. Repeating a query before its `:gc-after-ms` expiry rejoins the cached entry,
    and if it is still fresh under `:stale-after-ms` no request is made.
 

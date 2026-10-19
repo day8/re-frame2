@@ -366,7 +366,9 @@ the leaf's page and wraps it in each ancestor's shell; the tutorial writes that 
 in [Step 7](tutorial.md#step-7--a-shared-layout).
 
 `:parent` also adds the ancestors' `:resources` to the child's plan
-([below](#parent-resources-compose-to-the-child)). Nothing else is inherited.
+([below](#parent-resources-compose-to-the-child)), and puts the child behind the
+ancestors' `:can-enter` guards ([Guards](#guarding-a-whole-branch)). Nothing else
+is inherited.
 
 ## Activation work and page data
 
@@ -429,9 +431,10 @@ article page receives that read along with its own detail read. Identical
 requirements are fetched once. The [parent-data example](how-to/load-page-data.md#share-a-parents-data)
 shows the registrations.
 
-Only `:resources` are inherited. `:on-match`, `:scroll`, `:head`, `:tags` and
-guards remain specific to each route. The root view still
-[composes the layout](#nested-layouts).
+Only `:resources` are merged into the child's plan. An ancestor's `:can-enter`
+also applies to the child, as a [guard of its own](#guarding-a-whole-branch).
+`:on-match`, `:scroll`, `:head`, `:tags` and `:can-leave` remain specific to each
+route. The root view still [composes the layout](#nested-layouts).
 
 ## Guards
 
@@ -468,7 +471,23 @@ so the decision can depend on the destination.
 
 An identical navigation checks neither guard. Changing app-db alone does not
 recheck guards or remove the current page: signing out should also navigate to
-a public route. For one policy shared across many routes, the sign-in recipe
+a public route.
+
+### Guarding a whole branch
+
+Entering a route also checks the `:can-enter` of every route on its `:parent`
+chain, root-most first. The first `false` refuses, and a child's own guard runs
+only when all of its ancestors allow. So one guard on a parent protects the
+whole branch:
+
+```clojure
+(rf/reg-route :app/admin       {:can-enter [:auth/admin?]} "/admin")
+(rf/reg-route :app/admin.users {:parent :app/admin}        "/admin/users")
+```
+
+A refused `/admin/users` dispatches `:rf.route/entry-denied` once, and its
+`:guard` is `:auth/admin?`, the guard that refused. `:can-leave` is not
+inherited. For a rule over routes that share no parent, the sign-in recipe
 also shows a [frame interceptor](how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ## Not found is a route you register
