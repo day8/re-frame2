@@ -21,16 +21,21 @@ end-to-end.
 ## Why a stub transport for seven of eight
 
 The seven failure outcomes go out through `failure-backend`, a stub
-transport ([spec/014 §Testing](../../spec/014-HTTPRequests.md)) the Go
-button issues them under. It replaces only the network hop: each route
-answers the way a server or the network would for its category, and the
-real `:rf.http/managed` classifies it and delivers the canonical reply to
-the request's `:reply-to` target. For a testbed whose job is to drive
-each category deterministically — across CI environments that may not
-allow outbound CORS or 503-flaky-endpoint requests — that is the
-canonical move, and the reply shape consumers read (`:status :error`,
+transport ([spec/014 §Testing](../../spec/014-HTTPRequests.md)). It
+replaces only the network hop: each route answers the way a server or the
+network would for its category, and the real `:rf.http/managed`
+classifies it and delivers the canonical reply to the request's
+`:reply-to` target. For a testbed whose job is to drive each category
+deterministically — across CI environments that may not allow outbound
+CORS or 503-flaky-endpoint requests — that is the canonical move, and the
+reply shape consumers read (`:status :error`,
 `:error :kind :rf.http/<category>`, the category-specific tags) is the
 live one.
+
+Selecting a failure outcome installs `failure-backend` as the frame's
+transport, and selecting `:success` uninstalls it. Go is a plain dispatch
+queued behind the selection, so it issues the selected outcome through
+that outcome's backend however soon after the selection it is clicked.
 
 The live success path is exercised because it's the simplest possible
 real round-trip: an HTTP GET against a static asset under the same
