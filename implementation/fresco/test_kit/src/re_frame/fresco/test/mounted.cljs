@@ -41,14 +41,15 @@
 
   ## And one door that mounts TWO of them
 
-      (hm/shadow! opts)  → {:status :green :checkpoints 4}
+      (hm/shadow! opts)  → {:reference handle :candidate handle
+                            :checkpoint! f :stop! f}
 
   [[shadow!]] is the migration comparator: the Reagent original and the
-  Fresco port, mounted against isolated copies of the same seeded frame
-  and driven by one script, with canonical DOM and the intent stream
-  compared at every checkpoint. It takes no handle either — it makes two,
-  and a caller who held one could reach across the isolation the door
-  exists to keep.
+  Fresco port, mounted against isolated copies of the same seeded frame,
+  driven by the caller, with canonical DOM and the intent stream compared
+  at every checkpoint the caller takes. It takes no handle either — it
+  makes two, and a caller who held one could reach across the isolation
+  the door exists to keep.
 
   Neither takes a handle, because neither reads a mount: both are
   page-wide readings of the runtime. They are opposite numbers and a
@@ -186,8 +187,7 @@
   so a composition core cannot build, or a seed step that fails, arrives
   with core's own id.
   Everything shadow! learns about the CODE, in contrast, is returned as a
-  verdict rather than thrown — see that door on why a script step that
-  cannot run is a red and not a raise.
+  checkpoint's verdict rather than thrown.
 
   Two more refusals this namespace raises of its own reuse existing ids
   the same way. [[advance-clock!]] on a handle whose mount was not given
@@ -1531,15 +1531,7 @@
   option quietly ignored is a setting its author believes is in force,
   and a stray `:seed` — a natural guess at `:initial-events` — would
   otherwise mount two UNSEEDED views and compare them happily."
-  #{:reference :candidate :images :initial-events :script})
-
-(def ^:private step-verbs
-  "The script's closed verb roster. A step is one of these keys and
-  nothing else. A misspelled verb would drive neither side, both would
-  stay exactly where they were, and the checkpoint would go green for a
-  step that never happened — the vacuous green this whole door exists to
-  be able to fail."
-  #{:click :type})
+  #{:reference :candidate :images :initial-events})
 
 ;; ---------------------------------------------------------------------------
 ;; The intent stream
@@ -1909,85 +1901,6 @@
             (recur (inc index)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The script
-;; ---------------------------------------------------------------------------
-
-(defn- check-step!
-  "Refuse a step outside the closed grammar, BEFORE anything is mounted —
-  so a typo costs a refusal rather than a green."
-  [step]
-  (when-not (and (map? step) (= 1 (count step)) (contains? step-verbs (ffirst step)))
-    (bad-option! (str "a script step is a one-key map — " (pr-str (vec (sort-by str step-verbs)))
-                      " and nothing else. It was " (pr-str step)
-                      ". A step nothing recognises would drive neither side, and the "
-                      "checkpoint after it would go green for a step that never happened.")
-                 {:step step :unknown (vec (sort-by str (remove step-verbs (keys (if (map? step) step {})))))}))
-  (let [[verb arg] (first step)]
-    (case verb
-      :click (when-not (string? arg)
-               (bad-option! (str ":click takes ONE selector string; it was given "
-                                 (pr-str arg) ".")
-                            {:step step}))
-      :type  (when-not (and (vector? arg) (= 2 (count arg))
-                            (string? (nth arg 0)) (string? (nth arg 1)))
-               (bad-option! (str ":type takes [selector text]; it was given "
-                                 (pr-str arg) ".")
-                            {:step step}))))
-  step)
-
-(defn- value-setter
-  "The PROTOTYPE's `value` setter for a text field. React patches the
-  instance setter to keep its own change tracker, so a plain `set!`
-  updates the tracker too and the `input` event that follows reaches no
-  handler — the field would change on screen and mean nothing."
-  [el]
-  (let [proto (if (= "TEXTAREA" (.-tagName el))
-                js/HTMLTextAreaElement.prototype
-                js/HTMLInputElement.prototype)]
-    (.-set (js/Object.getOwnPropertyDescriptor proto "value"))))
-
-(defn- run-step!
-  "Apply one step to one mount and settle it. Answers true when the
-  step's selector matched, false when it matched nothing — which is the
-  fact a checkpoint turns into a red rather than into silence."
-  [handle step]
-  (let [[verb arg] (first step)
-        selector   (if (= :click verb) arg (nth arg 0))
-        target     (.querySelector (:container handle) selector)]
-    (if (nil? target)
-      false
-      (do (case verb
-            :click (.click target)
-            :type  (do (.call (value-setter target) target (nth arg 1))
-                       (.dispatchEvent target (js/InputEvent. "input" #js {:bubbles true}))))
-          (settle! handle)
-          true))))
-
-(defn- script-difference
-  "A step that could not run as written, as data — or nil. A selector
-  that matches on one side and not the other IS the difference and says
-  so; one that matches on neither is the SCRIPT being wrong, and it is
-  still a red because a checkpoint reached by a step that did not happen
-  proves nothing, and green here means proved."
-  [step ran-reference? ran-candidate?]
-  (let [selector (let [[verb arg] (first step)]
-                   (if (= :click verb) arg (nth arg 0)))]
-    (cond
-      (and ran-reference? ran-candidate?) nil
-
-      (or ran-reference? ran-candidate?)
-      {:kind     :script
-       :reason   :selector-matched-one-side
-       :selector selector
-       :matched  (if ran-reference? :reference :candidate)}
-
-      :else
-      {:kind     :script
-       :reason   :selector-matched-nothing
-       :selector selector
-       :matched  :neither})))
-
-;; ---------------------------------------------------------------------------
 ;; The run
 ;; ---------------------------------------------------------------------------
 
@@ -2027,36 +1940,56 @@
       (dom-difference reference-mount candidate-mount)))
 
 (defn- red-verdict
-  [checkpoint-index step difference]
-  (cond-> {:status      :red
-           :checkpoints (inc checkpoint-index)
-           :checkpoint  checkpoint-index
-           :difference  difference}
-    (some? step) (assoc :step step)))
+  [checkpoint-index difference]
+  {:status      :red
+   :checkpoints (inc checkpoint-index)
+   :checkpoint  checkpoint-index
+   :difference  difference})
 
 (defn shadow!
   "**Shadow comparison — the dual-render DOM / intent diff.** Mounts a
   reference implementation and a candidate against isolated copies of the
-  same seeded frame, drives both with one script, and compares canonical
-  DOM and the intent stream at every checkpoint.
+  same seeded frame, and answers both mounts with a comparator: drive
+  them however a test drives a page, and each `checkpoint!` compares
+  canonical DOM, live control state and the intent stream.
 
       ;; Once, at top level, for the same reason `h/as-component` is: a
       ;; component allocated per render is a new element type and
       ;; remounts the subtree.
       (def old-article-row (r/reactify-component old/article-row))
 
-      (hm/shadow!
-       {:reference      [:> old-article-row {:id 7}]
-        :candidate      [new/article-row {:id 7}]
-        :initial-events [[:demo/install-fixture]]
-        :script         [{:click \"button.edit\"}
-                         {:type  [\"input.title\" \"Better title\"]}
-                         {:click \"button.save\"}]})
-      ;; => {:status :green :checkpoints 4}
+      (let [s (hm/shadow! {:reference      [:> old-article-row {:id 7}]
+                           :candidate      [new/article-row {:id 7}]
+                           :initial-events [[:demo/install-fixture]]})]
+        (try
+          ((:checkpoint! s))                ;; => {:status :green :checkpoints 1}
+          (doseq [m [(:reference s) (:candidate s)]]
+            (.click (.querySelector (:container m) \"button.edit\")))
+          ((:checkpoint! s))                ;; => {:status :green :checkpoints 2}
+          (finally ((:stop! s)))))
 
-  Green means the two implementations were indistinguishable **for the
-  flows in the script**. It does not prove untested paths, so script the
-  screen's real behaviour rather than one happy click.
+  Answers `{:reference handle :candidate handle :checkpoint! f :stop! f}`.
+  The two handles are [[mount!]]'s, so every door in this facade takes
+  them, and Testing Library and user-event work on their `:container`s
+  unchanged. Driving them is the caller's: this door has no interaction
+  language of its own, because the page already has one — real DOM
+  events — and a second, narrower one could reach neither a router drain
+  nor a promise. Work that lands on a later task (a route-link
+  navigation, an async reply) is waited for on each mount with
+  [[settle-until!]], and THEN checkpointed.
+
+  Each `checkpoint!` call settles both mounts, takes a reading, and
+  numbers it; the first is checkpoint 0, and it sees the intents the
+  seeding and the first render dispatched. `stop!` takes both mounts
+  down, and is idempotent. The mounts come down on every path out of
+  THIS call, including a throw; after it returns they are the caller's,
+  so `stop!` belongs where it runs on every path out of the test.
+
+  Green means the two implementations were indistinguishable **at the
+  checkpoints taken, after the interactions driven**. It does not prove
+  untested paths, so drive the screen's real behaviour rather than one
+  happy click, and keep a few assertions of the page's own beside the
+  checkpoints: two sides agreeing does not make either of them right.
 
   ## Ten-minute setup
 
@@ -2071,11 +2004,11 @@
      `:images`, optional, is the composition BOTH frames are built from,
      exactly as for [[mount!]] — the application's own, when it builds
      its frames from one.
-  5. `:script` is the flow, as `{:click selector}` and
-     `{:type [selector text]}` steps in order.
-  6. Assert the verdict — `(is (= :green (:status (hm/shadow! …))))` — and
-     then SABOTAGE it: change one prop in the candidate and confirm the
-     run goes red at the checkpoint you expect. A comparator that has
+  5. Drive both mounts through the flow, the same interaction on each,
+     and call `checkpoint!` after each step you want compared.
+  6. Assert each verdict — `(is (= :green (:status ((:checkpoint! s)))))`
+     — and then SABOTAGE it: change one prop in the candidate and confirm
+     the run goes red at the checkpoint you expect. A comparator that has
      never been seen to fail is not yet evidence of anything.
 
   ## What is mounted, and how an original that is not Fresco gets here
@@ -2095,8 +2028,8 @@
   reference as `:articleId` while the Hiccup candidate still sees
   `:article-id`. Nothing decodes it back on that route. A prop both
   sides spell the same way — and a seeded frame both sides read — keeps
-  the difference out of the SCRIPT, where it would be a divergence the
-  code under comparison did not cause.
+  that difference out of the comparison, where it would be a divergence
+  the code under comparison did not cause.
 
   A crossing is also how a foreign original reaches the frame at all. A
   declared callback contract lowers an intent vector into a real function
@@ -2128,17 +2061,13 @@
   ## What a red says
 
       {:status :red :checkpoints 3 :checkpoint 2
-       :step   {:click \"button.save\"}
        :difference {:kind :dom :reason :attribute :attribute \"class\"
                     :at \"div[0] > ul[1] > li[0]\"
                     :reference \"row done\" :candidate \"row\"}}
 
-  `:checkpoint` is which one — 0 is the mount, and each script step adds
-  one. `:checkpoints` is how many were taken, which is always
-  `(inc :checkpoint)` on a red and `(inc (count :script))` on a green: a
-  three-step script that stays green takes four, and one that reddens at
-  its FIRST step reports `:checkpoint 1` and `:checkpoints 2`.
-  `:difference` names the exact node or intent:
+  `:checkpoint` is which one — 0 is the first call — and `:checkpoints`
+  is how many have been taken, `(inc :checkpoint)`. `:difference` names
+  the exact node or intent:
 
   - `:kind :intent` — `:index` into the checkpoint's stream, with the
     `:reference` and `:candidate` vectors. Reported BEFORE any DOM
@@ -2153,21 +2082,6 @@
     is the one `:reason` a serialiser could never have reached; see
     [[live-properties]] for the closed roster and for what is
     deliberately not in it.
-  - `:kind :script` — the step could not run as written. A selector that
-    matched one side only IS a difference; one that matched neither is a
-    broken script, and it is still red, because a checkpoint reached by a
-    step that did not happen has proved nothing.
-
-  ## Scriptless: omit `:script` and both mounts stay live
-
-      (let [s (hm/shadow! {:reference … :candidate …})]
-        …                       ;; drive the page by hand
-        ((:checkpoint! s))      ;; → {:status :green :checkpoints 1}
-        ((:stop! s)))
-
-  Answers `{:status :live :reference handle :candidate handle
-  :checkpoint! f :stop! f}`. Each `checkpoint!` call takes a reading and
-  numbers it; `stop!` takes both mounts down.
 
   **A checkpoint per committed render is NOT built, and neither is
   mirroring your clicks from one mount to the other.** Both need a seam
@@ -2190,27 +2104,13 @@
   selectedness, a dirty `value` or `checked`, an `indeterminate`
   checkbox. Comparing attributes alone would call this door green for a
   candidate visibly showing the wrong option, which is the one thing it
-  exists not to do.
-
-  Synchronous. A step's effects are settled through `flushSync` before
-  the checkpoint after it, so anything landing in a later turn — a
-  `:dispatch-later`, a resolved promise, a router drain — is outside the
-  checkpoint that would have seen it.
-
-  The mounts come down on every path out, including a throw."
+  exists not to do."
   [opts]
   (closed-options! "shadow!" shadow-options opts
                    (str "a stray `:seed`, a natural guess at `:initial-events`, "
                         "accepted in silence would compare two UNSEEDED views."))
-  (let [{:keys [reference candidate initial-events script]} opts
-        scripted? (contains? opts :script)
-        _         (when scripted?
-                    (when-not (sequential? script)
-                      (bad-option! (str ":script is a sequence of steps; it was "
-                                        (pr-str script) ".")
-                                   {:value script}))
-                    (run! check-step! script))
-        log       (open-log!)
+  (let [{:keys [reference candidate initial-events]} opts
+        log        (open-log!)
         mount-opts (cond-> {}
                      (contains? opts :images) (assoc :images (:images opts))
                      (seq initial-events)     (assoc :initial-events (vec initial-events)))
@@ -2219,59 +2119,33 @@
     (try
       (vreset! !reference-mount (mount! reference mount-opts))
       (vreset! !candidate-mount (mount! candidate mount-opts))
-      (let [reference-mount @!reference-mount
-            candidate-mount @!candidate-mount]
-        (if scripted?
-          (let [verdict
-                (if-some [difference
-                          (checkpoint-difference reference-mount
-                                                 candidate-mount
-                                                 ((:drain log)))]
-                  (red-verdict 0 nil difference)
-                  (loop [step-index 0]
-                    (if (>= step-index (count script))
-                      {:status :green :checkpoints (inc (count script))}
-                      (let [step           (nth script step-index)
-                            ran-reference? (run-step! reference-mount step)
-                            ran-candidate? (run-step! candidate-mount step)]
-                        (if-some [difference
-                                  (or (script-difference step
-                                                         ran-reference?
-                                                         ran-candidate?)
-                                      (checkpoint-difference reference-mount
-                                                             candidate-mount
-                                                             ((:drain log))))]
-                          (red-verdict (inc step-index) step difference)
-                          (recur (inc step-index)))))))]
-            (take-down! reference-mount candidate-mount log)
-            verdict)
-          ;; Scriptless: both mounts stay live and the caller decides when a
-          ;; reading is a checkpoint. Nothing is drained here, so the first
-          ;; `checkpoint!` is checkpoint 0 — the mount — and it sees the
-          ;; intents the seeding and the first render dispatched.
-          (let [!checkpoint-index (atom 0)
-                !up?              (atom true)]
-            {:status      :live
-             :reference   reference-mount
-             :candidate   candidate-mount
-             :checkpoint! (fn []
-                            (settle! reference-mount)
-                            (settle! candidate-mount)
-                            (let [checkpoint-index
-                                  (first (swap-vals! !checkpoint-index inc))
-                                  difference
-                                  (checkpoint-difference reference-mount
-                                                         candidate-mount
-                                                         ((:drain log)))]
-                              (if difference
-                                (red-verdict checkpoint-index nil difference)
-                                {:status :green
-                                 :checkpoints (inc checkpoint-index)})))
-             :stop!       (fn []
-                            (when @!up?
-                              (reset! !up? false)
-                              (take-down! reference-mount candidate-mount log))
-                            nil)})))
+      (let [reference-mount   @!reference-mount
+            candidate-mount   @!candidate-mount
+            ;; Nothing is drained here, so the first `checkpoint!` is
+            ;; checkpoint 0 and it sees the intents the seeding and the
+            ;; first render dispatched.
+            !checkpoint-index (atom 0)
+            !up?              (atom true)]
+        {:reference   reference-mount
+         :candidate   candidate-mount
+         :checkpoint! (fn []
+                        (settle! reference-mount)
+                        (settle! candidate-mount)
+                        (let [checkpoint-index
+                              (first (swap-vals! !checkpoint-index inc))
+                              difference
+                              (checkpoint-difference reference-mount
+                                                     candidate-mount
+                                                     ((:drain log)))]
+                          (if difference
+                            (red-verdict checkpoint-index difference)
+                            {:status      :green
+                             :checkpoints (inc checkpoint-index)})))
+         :stop!       (fn []
+                        (when @!up?
+                          (reset! !up? false)
+                          (take-down! reference-mount candidate-mount log))
+                        nil)})
       (catch :default e
         (take-down! @!reference-mount @!candidate-mount log)
         (throw e)))))

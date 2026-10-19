@@ -35,7 +35,7 @@ render, a deferral crossing a
 boundary — these the runtime refuses loudly at execution, with a named
 `:rf.error/fresco-*` id and a documented recovery route. An unkeyed mapped
 child is React's own missing-key warning. A nameless interactive element is
-the test kit's job, whose `ht/unnamed-controls` inspects the whole tree
+the test kit's job, whose `ht/markup-unnamed-controls` inspects the whole tree
 rather than one form. And a read parked in a mutable reference is a
 documented judgment call — forcing it inside another body is undefined
 conduct, which nothing polices. A clj-kondo hook sees one form at a time and

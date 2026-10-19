@@ -378,8 +378,8 @@ ht/ladder
 ht/tree-version
 (ht/find-all tree pred)   (ht/find tree pred)
 (ht/attrs node)           (ht/text node)      (ht/intents tree)
-(ht/role node)            (ht/accessible-name tree node)
-(ht/unnamed-controls tree)
+(ht/markup-role node)     (ht/markup-name tree node)
+(ht/markup-unnamed-controls tree)
 ```
 
 | Name | What it answers |
@@ -403,9 +403,9 @@ ht/tree-version
 | `ht/attrs` | the merged attribute projection of a node — `:attrs` with `:events` for an element, the passed props for a boundary call, `{}` for a fragment |
 | `ht/text` | the concatenation of a node's text descendants. Over a boundary node this is what the **call site** wrote, never the child's own rendering |
 | `ht/intents` | every event vector the tree carries, in document order — what a rendering **offers** to dispatch, where `ht/capture-intents` says what it did |
-| `ht/role` | the ARIA role of a node — written, else implicit — as a keyword, or `nil` |
-| `ht/accessible-name` | the accessible name a node carries **within** a tree. A node not in the tree throws rather than returning nil |
-| `ht/unnamed-controls` | every operable node with no accessible name, in document order. It does not exempt a control inside an `aria-hidden` subtree |
+| `ht/markup-role` | the role the markup gives a node — the `:role` written, else the tag's implicit role — as a keyword, or `nil`. A reading of the markup, not of an accessibility tree |
+| `ht/markup-name` | the name the markup gives a node **within** a tree, from `:aria-labelledby`, `:aria-label`, `<label>`s, text and `:title`. It models no hidden-content exclusion and no recursive labelled name. A node not in the tree throws rather than returning nil |
+| `ht/markup-unnamed-controls` | every operable node to which the markup gives no name, in document order. It does not exempt a control inside an `aria-hidden` subtree. An empty result is a fact about the markup, not an accessibility verdict; a browser decides what is announced |
 
 `ht/fire!` takes a native Hiccup form, a handler prop such as `:on-input`, and
 an event map with `:value`, `:checked`, `:key`, `:composing?` and `:key-code`.
@@ -457,6 +457,8 @@ The mounted tier: a real React root, a real frame and a real DOM.
 hm/counted
 hm/this-frame
 (hm/shadow! opts)
+((:checkpoint! session))
+((:stop! session))
 ```
 
 | Name | What it does |
@@ -475,14 +477,14 @@ hm/this-frame
 | `hm/bodies-run` | how many boundary bodies ran while `f` did — what a change **cost**, where the census says what the page **retains** |
 | `hm/counted` | `[:cells :cell-refs :boundaries :edges :entries]`, the five residue counters in report order |
 | `hm/this-frame` | the stand-in each mount's own frame keyword normalises to in a shadow report, so a difference is never merely the two mounts being two mounts |
-| `hm/shadow!` | mounts a reference and a candidate against isolated copies of one seeded frame, drives both with one script, and compares canonical DOM and the intent stream at every checkpoint. `opts` carries `:reference`, `:candidate`, `:initial-events`, `:script` and, optionally, `:images`, the composition both frames are built from (any other key throws), and a script step is `{:click selector}` or `{:type [selector text]}`, in order. Returns `{:status :green :checkpoints n}`, or a red naming the checkpoint |
+| `hm/shadow!` | mounts a reference and a candidate against isolated copies of one seeded frame and returns `{:reference handle :candidate handle :checkpoint! f :stop! f}`. You drive both handles; each `:checkpoint!` call settles both, compares canonical DOM, live control state and the intent stream, and returns `{:status :green :checkpoints n}` or a red naming the checkpoint and the first difference. `opts` carries `:reference`, `:candidate`, `:initial-events` and, optionally, `:images`, the composition both frames are built from; any other key throws. `:stop!` takes both mounts down |
 
 The residue counters cover Fresco's runtime. They do not count arbitrary DOM
 listeners, browser timers or handles retained by foreign libraries.
 
 Green from `hm/shadow!` means the two implementations were indistinguishable
-**for the flows in the script**, and proves nothing about a path the script did
-not walk.
+**at the checkpoints you took, after the interactions you drove**, and proves
+nothing about a path you did not walk.
 
 ## `re-frame.fresco.test.forms` and `re-frame.fresco.test.server`
 

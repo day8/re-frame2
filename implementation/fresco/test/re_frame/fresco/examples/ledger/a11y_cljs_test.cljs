@@ -61,7 +61,7 @@
                     [::rf.fresco.examples.ledger.subs/flagged? i] flagged?}})))
 
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
-(defn- named [tree node] (rf.fresco.test/accessible-name tree node))
+(defn- named [tree node] (rf.fresco.test/markup-name tree node))
 
 (defn- note-node [tree] (classed tree "ledger-note"))
 (defn- flag-node [tree] (classed tree "ledger-flag"))
@@ -86,21 +86,21 @@
     (is (= "1" (:aria-rowindex (rf.fresco.test/attrs (row-tree 0))))))
 
   (testing "the columns are announced too — three cells, in order"
-    (let [cells (rf.fresco.test/find-all (row-tree 4136) #(= :gridcell (rf.fresco.test/role %)))]
+    (let [cells (rf.fresco.test/find-all (row-tree 4136) #(= :gridcell (rf.fresco.test/markup-role %)))]
       (is (= 3 (count cells)))
       (is (= ["1" "2" "3"] (mapv #(:aria-colindex (rf.fresco.test/attrs %)) cells))))))
 
 (deftest a-row-is-a-row-and-its-cells-are-cells
   (let [tree (row-tree 4136)]
-    (is (= :row (rf.fresco.test/role tree))
+    (is (= :row (rf.fresco.test/markup-role tree))
         "the row's own role, written by hand: the virtualizer contributes
          two `role=\"presentation\"` wrappers between the grid and this
          node and knows nothing about tables, so the grid's semantics are
          the application's to write")
-    (is (= :textbox (rf.fresco.test/role (note-node tree)))
+    (is (= :textbox (rf.fresco.test/markup-role (note-node tree)))
         "an `<input type=\"text\">`, resolved through the implicit table
          rather than asserted as a tag")
-    (is (= :button (rf.fresco.test/role (flag-node tree))))))
+    (is (= :button (rf.fresco.test/markup-role (flag-node tree))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Names — resolved, and following the record rather than the row
@@ -129,7 +129,7 @@
   (doseq [[what tree] [["an untouched row" (row-tree 4136)]
                        ["a flagged row being typed into"
                         (row-tree 4136 {:note "chase" :flagged? true})]]]
-    (is (= [] (rf.fresco.test/unnamed-controls tree))
+    (is (= [] (rf.fresco.test/markup-unnamed-controls tree))
         (str what " — every field and button a user can operate must carry
              an accessible name, and this is the whole row asked at once"))))
 

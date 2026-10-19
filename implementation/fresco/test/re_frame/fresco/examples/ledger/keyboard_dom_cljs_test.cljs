@@ -221,7 +221,7 @@
   deliver it, in document order.
 
   The sweep [[every-operable-control-is-one-the-platform-activates]]
-  makes, and the counterpart of `ht/unnamed-controls`: one
+  makes, and the counterpart of `ht/markup-unnamed-controls`: one
   asks whether a control can be NAMED, this asks whether it can be
   OPERATED, and a screen needs both answers to be empty."
   [m]

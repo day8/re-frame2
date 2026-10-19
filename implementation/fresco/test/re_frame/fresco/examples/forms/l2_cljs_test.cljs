@@ -136,7 +136,7 @@
   (let [tree (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-failure {}]
                       {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]
                               (assoc idle :error? true :settled? true)}})]
-    (is (= :alert (rf.fresco.test/role tree)))
+    (is (= :alert (rf.fresco.test/markup-role tree)))
     (is (= "Saving failed. Nothing was lost — try again." (rf.fresco.test/text tree)))))
 
 ;; ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@
 
 (deftest every-control-has-an-accessible-name
   (doseq [tree (every-tree)]
-    (is (= [] (rf.fresco.test/unnamed-controls tree))
+    (is (= [] (rf.fresco.test/markup-unnamed-controls tree))
         "the a11y projection ranges over what a user can OPERATE — the
          three fields and the button — and each is named by its own
          `<label for=…>` or by its text")))
@@ -211,7 +211,7 @@
                   [(:tag node) k])))
         "the opaque-marker walk finds the hand-rolled callback, and finds
          the ordinary `[::events/submit]` beside it acceptable")
-    (is (= [:button] (mapv :tag (rf.fresco.test/unnamed-controls tree)))
+    (is (= [:button] (mapv :tag (rf.fresco.test/markup-unnamed-controls tree)))
         "and the a11y projection reports the unnamed button and NOT the
          labelled field — the direction an over-eager guard gets wrong,
          and the one nothing else here would catch")))
