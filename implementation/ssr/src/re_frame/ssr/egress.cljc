@@ -1,7 +1,7 @@
 (ns re-frame.ssr.egress
   "SSR-owned egress projection (Spec 015) for the ONE always-on record whose
-  payload is caller-untrusted by construction: the rejected
-  `:rf.server/safe-redirect`.
+  payload is caller-untrusted by construction: the refused
+  `:rf.server/redirect`.
 
   Error records are egress surfaces and EP-0015 requires their off-box
   defaults to FAIL CLOSED. The framework's marks chokepoint
@@ -11,10 +11,9 @@
   classification registry. Neither reaches a bare `:location` string on a
   custom tag slot.
 
-  And `:location` is the slot that most needs reaching. It is BY
-  CONSTRUCTION caller-untrusted — that is the entire reason
-  `:rf.server/safe-redirect` exists as the sibling of the caller-trusted
-  `:rf.server/redirect` — so a rejected target routinely looks like
+  And `:location` is the slot that most needs reaching. A refused one is
+  caller-untrusted — an untrusted `?next=` parameter is the case the
+  redirect gate exists for — so a rejected target routinely looks like
   `?next=https://evil.example.com/cb?token=…#access_token=…`. Those
   rejections ride the always-on error axis so a security team
   can SEE open-redirect probing in production; that is only
@@ -34,7 +33,7 @@
 
   The ALWAYS-ON record does not use that scrub at all. It is built from the
   closed allow-list below, for the reasons argued at
-  [[safe-redirect-record-slots]].
+  [[redirect-record-slots]].
 
   Internal namespace; the public facade is `re-frame.ssr`."
   (:require [clojure.string :as str]))
@@ -48,7 +47,7 @@
 ;; Spec 015 blanket CARRIER policy: it redacts query / fragment values and
 ;; keeps everything else, which is exactly right over the app's OWN URL space
 ;; (routing's route-miss `:url`, where the path is a route the app authored
-;; and the host is the app's own).  A rejected safe-redirect target is not
+;; and the host is the app's own).  A refused redirect target is not
 ;; that.  It is an ARBITRARY FOREIGN URL chosen by whoever is probing, so
 ;; every component is attacker-authored and "keep everything except the
 ;; carriers" inverts the burden of proof.  Concretely, the carrier policy does
@@ -68,7 +67,7 @@
 ;; from a leak.  So the record is built the other way round, as an ALLOW-list
 ;; over parsed structural components.  That is fail-closed by construction: a
 ;; slot added to any emit arm's tag map does not reach a shipper unless
-;; someone edits [[safe-redirect-record-slots]] and reddens the test that pins
+;; someone edits [[redirect-record-slots]] and reddens the test that pins
 ;; it.
 ;;
 ;; This is the EP-0015 diagnostics/egress relationship in its ordinary form —
@@ -97,10 +96,10 @@
 ;; dashboard get DoS'd by the very records meant to reveal the DoS.
 ;;
 ;; So the always-on record carries CLASSES, not components.  `:scheme`
-;; is carried as [[safe-redirect-scheme-class]] — a lookup into the framework's own
+;; is carried as [[redirect-scheme-class]] — a lookup into the framework's own
 ;; closed scheme vocabulary, so the prober selects a bucket and never names
 ;; one — and `:host` is dropped entirely, for the reasons at
-;; [[safe-redirect-record-slots]].  Every value the record can carry is a
+;; [[redirect-record-slots]].  Every value the record can carry is a
 ;; framework-owned keyword or the frame's own id: bounded in size, bounded in
 ;; cardinality, and incapable of transporting a byte the caller chose.
 
@@ -125,12 +124,12 @@
 
 (def ^:private longest-known-scheme-length
   "Length of the longest scheme in [[scheme-classes]]. A scheme longer than
-  this cannot be one of them, so [[safe-redirect-scheme-class]] can answer
+  this cannot be one of them, so [[redirect-scheme-class]] can answer
   `:other` without lower-casing — an oversized scheme is then never copied,
   only measured."
   (apply max (map count (keys scheme-classes))))
 
-(defn safe-redirect-scheme-class
+(defn redirect-scheme-class
   "Classify a parsed URL scheme into [[scheme-classes]], or `:other`. Returns
   nil when there is no scheme to classify (a relative reference, or an arm
   whose input never parsed), so the slot is omitted rather than carried as
@@ -157,9 +156,10 @@
       (get scheme-classes (str/lower-case scheme) :other)
       :other)))
 
-(def safe-redirect-record-slots
-  "The CLOSED set of tag slots the ALWAYS-ON `:rf.error/safe-redirect-*`
-  record may carry off-box, over and above the `:error` / `:time` the
+(def redirect-record-slots
+  "The CLOSED set of tag slots the ALWAYS-ON redirect-gate record
+  (`:rf.error/redirect-invalid-url`, `-scheme-rejected`, `-host-disallowed`)
+  may carry off-box, over and above the `:error` / `:time` the
   union-record helper assoc's.
 
   Every member is framework-owned — a value this runtime chose, not one the
@@ -169,7 +169,7 @@
                      which app was probed.
     `:recovery`      fixed `:no-recovery`.
     `:reason`        a closed framework keyword naming which gate arm fired.
-    `:scheme-class`  [[safe-redirect-scheme-class]] — the probe class, one of
+    `:scheme-class`  [[redirect-scheme-class]] — the probe class, one of
                      `:javascript` / `:data` / `:vbscript` / `:http` /
                      `:https` / `:other`.
 
@@ -199,7 +199,7 @@
   #{:frame :recovery :reason :scheme-class})
 
 (def ^:private record-slot-derivations
-  "For each slot in [[safe-redirect-record-slots]], the DIAGNOSTIC tag it
+  "For each slot in [[redirect-record-slots]], the DIAGNOSTIC tag it
   derives from and the fn that derives it. Two maps rather than one because
   the record's vocabulary is deliberately NOT the diagnostics' — `:scheme-class`
   is a classification of the diagnostics' `:scheme`, not a copy of it, and a
@@ -210,17 +210,17 @@
   {:frame        [:frame    identity]
    :recovery     [:recovery identity]
    :reason       [:reason   identity]
-   :scheme-class [:scheme   safe-redirect-scheme-class]})
+   :scheme-class [:scheme   redirect-scheme-class]})
 
-(defn safe-redirect-record-tags
-  "Project the safe-redirect DIAGNOSTIC tag map down to the closed structural
-  map the always-on error axis may ship off-box: [[safe-redirect-record-slots]]
+(defn redirect-record-tags
+  "Project the redirect gate's DIAGNOSTIC tag map down to the closed structural
+  map the always-on error axis may ship off-box: [[redirect-record-slots]]
   only, each slot derived through [[record-slot-derivations]].
 
-  Applied by `re-frame.ssr.response`'s `dispatch-safe-redirect-record!` — the
+  Applied by `re-frame.ssr.response`'s `dispatch-redirect-gate-record!` — the
   one function that reaches the `:error-emit/dispatch-error-record` hook — so
   the projection is inseparable from the egress rather than being a discipline
-  each of the eight rejection arms has to remember.
+  each rejection arm has to remember.
 
   Note the direction: the result is BUILT FROM the closed slot set rather than
   filtered down to it, so an unrecognised tag has no path into the record even
@@ -244,4 +244,4 @@
                   (when-some [slot-value (some-> (get tags source-slot)
                                                  derive-value)]
                     [record-slot slot-value]))))
-        safe-redirect-record-slots))
+        redirect-record-slots))

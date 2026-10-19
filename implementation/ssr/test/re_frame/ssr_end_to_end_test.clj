@@ -340,14 +340,12 @@
 
 (deftest ssr-redirect-relative-only-key-is-refused
   (testing "relative-only is the default, so :relative-only? is refused rather
-            than read, and no :redirect lands"
+            than read, whatever its value, and no :redirect lands. The dev
+            schema and the always-on guard each refuse it; which one speaks
+            in which posture is `ssr-server-fx-args-schema-boundary`'s to pin"
     (doseq [v [true false]]
-      (let [[f traces] (drive-fx! :rf.server/redirect {:location "/x" :relative-only? v})]
-        (is (= {:rf.error/id :rf.error/server-fx-args-invalid :key :relative-only?}
-               (select-keys (fx-error-extra traces :rf.error/server-fx-args-invalid)
-                            [:rf.error/id :key]))
-            (pr-str v))
-        (is (nil? (:redirect (settled-response f))))))))
+      (let [[f _] (drive-fx! :rf.server/redirect {:location "/x" :relative-only? v})]
+        (is (nil? (:redirect (settled-response f))) (pr-str v))))))
 
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
   (testing ":url / :to are rejected, not normalised: the diagnostic names the

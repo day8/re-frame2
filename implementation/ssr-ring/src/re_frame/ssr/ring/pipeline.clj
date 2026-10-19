@@ -208,7 +208,7 @@
        ;; A redirect with no target is a malformed wire response — a
        ;; 3xx with no `Location` leaves the browser nowhere to go. The
        ;; runtime accepts a target-less `:rf.server/redirect` (the
-       ;; location is caller-trusted and optional at the fx boundary),
+       ;; location is optional at the fx boundary),
        ;; so the adapter is the last line: emit a warning trace so the
        ;; defect is observable rather than silently shipping a broken
        ;; redirect. We still emit the status (we have no target to
@@ -226,9 +226,10 @@
         :headers (-> (rf.ssr.ring.headers/headers->ring-map+content-type-override
                        headers default-content-type)
                      (rf.ssr.ring.headers/append-set-cookies cookies)
-                     ;; The Location value must be a string — a non-string
-                     ;; target (the `:location` is caller-trusted at the fx
-                     ;; boundary) is coerced so the Ring header map is valid.
+                     ;; The Location value must be a string — the fx refuses
+                     ;; a non-string target, but a host that writes the
+                     ;; accumulator directly can still hand one over, so it
+                     ;; is coerced here to keep the Ring header map valid.
                      ;;
                      ;; It also REPLACES any Location the app already
                      ;; wrote, whatever its casing. Header field names are

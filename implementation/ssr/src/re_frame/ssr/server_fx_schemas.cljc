@@ -208,57 +208,37 @@
 
 (def redirect-args
   "Args of `:rf.server/redirect` — `:rf.fx.server/redirect-args`.
-  `{:status? <int> :location <string>}` — set status (default 302) and
-  the redirect target. The CRLF / open-redirect gates live in
-  `re-frame.ssr.response`; this is the structural shape check.
+  `{:location? <string> :allow? (:any | [<string> …]) :status? <int>}` — the
+  redirect target, the hosts it may name beyond the request's own origin, and
+  the status (default 302). The CR/LF/NUL and URL gates live in
+  `re-frame.ssr.response/redirect-fx`; this is the structural shape check.
 
   [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
   011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all use
   `:location`, matching HTTP `Location` response-header vocabulary. The
   unsupported synonyms `:url` / `:to` are
   NOT accepted: `redirect-fx` throws `:rf.error/redirect-retired-target-
-  key` naming `:location` (no back-compat alias). The schema accepts the
-  optional `:string` `:location` plus the optional `:int` `:status`.
+  key` naming `:location` (no back-compat alias).
+
+  `:allow` is `:any` or a SEQUENCE of host strings; a scalar host string is
+  refused rather than read as an allowlist of characters. Absent, the
+  redirect is relative-only. `:relative-only?` names that default, so the
+  key is refused rather than read: a present non-nil value fails here as it
+  does at the fx's own guard.
 
   `:location` is optional, and a redirect with no `:location` passes this
   shape gate because it is not a structural error. A
   target-less redirect is the
   `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
-  redirect-fx accepts it (location is caller-trusted/optional at the fx
-  boundary) and the adapter emits the warning trace + a 3xx with no
-  Location header so the defect is observable rather than silently
+  redirect-fx accepts it and the adapter emits the warning trace + a 3xx
+  with no Location header so the defect is observable rather than silently
   shipping a broken redirect. A `[:fn]` clause requiring a target key
   here would 400 the no-target redirect at the Spec 010 §step-5 boundary
   before that warn→302 path runs, contradicting the graceful-degradation
-  contract. The schema therefore
-  stays a pure shape check (key types only) and lets the no-target case
-  fall through to the runtime's warning path."
+  contract. Closed map is avoided — extra keys pass — so the shape gate
+  never over-constrains a legitimate call."
   [:map
-   [:status   {:optional true} [:maybe http-status]]  ;; default 302
-   [:location {:optional true} [:maybe :string]]])    ;; canonical and only target key
-
-(def safe-redirect-args
-  "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
-  `{:location <string> :status? <int> :relative-only? <boolean>
-    :allow? [<string> …]}` — the caller-untrusted redirect. `:location` is
-  the validation target, so unlike
-  the caller-trusted `:rf.server/redirect` (which has a documented no-
-  target graceful path) safe-redirect requires a `:location`
-  to validate — a target-less safe-redirect is a programmer error with no
-  defensible interpretation. The five-step URL-parse / scheme / relative-
-  only? / allowlist gate lives in `re-frame.ssr.response/safe-redirect-fx`
-  and emits the specific `:rf.error/safe-redirect-*` categories; this is
-  the structural SHAPE check, matching the `:schema` boundary the other
-  six `:rf.server/*` fxs carry. A malformed argument therefore
-  fails before the response accumulator is mutated.
-
-  Only
-  `:location` is required; `:status` / `:relative-only?` / `:allow` are
-  optional. `:allow` is a SEQUENCE of host strings (the fx reads `:allow`,
-  not a scalar `:allowlist`). Closed map is avoided — extra keys pass —
-  so the shape gate never over-constrains a legitimate call."
-  [:map
-   [:location       :string]
-   [:status         {:optional true} [:maybe http-status]]     ;; default 302
-   [:relative-only? {:optional true} [:maybe :boolean]]
-   [:allow          {:optional true} [:maybe [:sequential :string]]]])
+   [:status         {:optional true} [:maybe http-status]]  ;; default 302
+   [:location       {:optional true} [:maybe :string]]      ;; canonical and only target key
+   [:allow          {:optional true} [:maybe [:or [:= :any] [:sequential :string]]]]
+   [:relative-only? {:optional true} :nil]])

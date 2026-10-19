@@ -192,7 +192,7 @@
             (str label " — [landed? sibling-ran?] for " (pr-str args)))))))
 
 (deftest a-user-fx-schema-stays-dev-posture-and-genuinely-elides
-  (testing "the guard is for the seven reserved fx only: a `:schema` an app
+  (testing "the guard is for the six reserved fx only: a `:schema` an app
             declares on its own fx is skipped with a diagnostic in dev and
             not checked at all in a release build"
     (let [ran    (atom [])

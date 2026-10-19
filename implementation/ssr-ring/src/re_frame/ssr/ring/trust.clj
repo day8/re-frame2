@@ -15,9 +15,8 @@
     :script-src      — written into `<script src=\"...\">`, escape-attr'd
     :app-element-id  — written into `<div id=\"...\">`, escape-attr'd
 
-  All four are TRUSTED-STRING opts in the same sense `:rf.server/redirect`
-  is caller-trusted (Spec 011 §HTTP response contract / Security.md
-  §Open-redirect mitigation): the framework's contract is that the
+  All four are TRUSTED-STRING opts (Spec 011 §Trusted shell hook
+  contract): the framework's contract is that the
   caller composes them from caller-controlled data at handler-
   construction time (app boot decides what analytics tag / asset URL /
   doctype-extension to inject). Apps that wire any of the four from
