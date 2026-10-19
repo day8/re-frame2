@@ -27,6 +27,7 @@
             ;; machine, event, and sub, and hands us `model/frame-config` for the
             ;; mount below. It names no substrate — the UIx code lives only here.
             [login.model :as model]
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; ============================================================================
@@ -123,9 +124,9 @@
                      (js/document.getElementById "app"))]
     ;; Frame setup, all in one spot. The `frame-root` at the render root
     ;; owns the frame: on the first mount it creates the `:rf/default` frame,
-    ;; applies the config (`model/frame-config` points `:rf.http/managed` at our
-    ;; demo stub and seeds the slice via `:initial-events`), and runs those
-    ;; events once. On a hot reload it finds the frame already there, reuses it,
+    ;; applies the config (`model/frame-config` seeds the slice via
+    ;; `:initial-events`), and runs those events once. On a hot reload it finds
+    ;; the frame already there, reuses it,
     ;; and skips the events. The `:id :rf/default` names the frame that
     ;; `use-sub` and the `use-frame` hook inside `login-form` resolve
     ;; against — which is why those calls need a provider somewhere above them in
@@ -136,13 +137,18 @@
     ;; asks for nothing here: its `:initial` and `:data` seed the snapshot in
     ;; runtime-db the first time the flow runs
     ;; (see docs/machines/glossary.md#snapshot).
+    ;;
+    ;; The fake backend goes on first: `model/demo-backend`, installed as the
+    ;; frame's stub transport, answers the login request so the example needs
+    ;; no server.
+    (stub-transport/install-transport! :rf/default model/demo-backend)
     (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id  :rf/default
                                     :doc "Login (UIx) demo frame."
                                     ;; `:&` spreads the substrate-free
-                                    ;; `model/frame-config` (demo-stub
-                                    ;; `:fx-overrides` + slice-seed
-                                    ;; `:initial-events`) into these props.
+                                    ;; `model/frame-config` (the
+                                    ;; slice-seed `:initial-events`) into
+                                    ;; these props.
                                     :&   model/frame-config}
          ($ root-view))
       el)))

@@ -53,19 +53,19 @@
             ;; one copy of the frame config all three login mounts share.
             [login.model :as model]
             [login.stories]
+            [re-frame.http.stub-transport :as stub-transport]
             ;; The shared Story-host helper, which owns the fiddly bits: the
             ;; live-app↔Story-shell hash router and the React-root handle.
             [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
-;; The live `#/` surface needs the same two pieces of frame config the
-;; standalone example's `login.core/run` sets up, so this hand-rolled frame
-;; behaves identically:
+;; The live `#/` surface needs the same two pieces of setup the standalone
+;; example's `login.core/run` does, so this hand-rolled frame behaves
+;; identically:
 ;;
-;; - `:fx-overrides` swaps in the in-process demo backend, so
-;;   `:rf.http/managed` lands on `:auth.login.demo/managed-stub` and not on
-;;   a backend that isn't there.
+;; - `model/demo-backend`, installed as the frame's stub transport, answers
+;;   `:rf.http/managed` in place of a backend that isn't there.
 ;; - `:initial-events` seeds the login-form slice at [:auth :login-form]
 ;;   *before* the first render. Drop it and the inputs read `nil` for their
 ;;   `:value` on that first paint — and React quietly demotes a `nil`-valued
@@ -78,14 +78,15 @@
 ;; frame up itself here rather than calling `login.core/run` (which would
 ;; insist on running its own mount lifecycle).
 
-;; Both keys come from `login.model/frame-config` — the one owner the three
-;; login mounts share — merged in exactly as `login.core/mount!` merges it into
-;; its `frame-root` props. `make-frame` takes them as ordinary record-config, so
+;; Both come from `login.model` — the one owner the three login mounts share —
+;; with `frame-config` merged in exactly as `login.core/mount!` merges it into
+;; its `frame-root` props. `make-frame` takes it as ordinary record-config, so
 ;; the only thing this surface adds is its own `:id` / `:doc`.
 (defn- install-live-frame! []
   (rf/make-frame (merge {:id  :rf/default
                          :doc "Login showcase live-app frame."}
-                        model/frame-config)))
+                        model/frame-config))
+  (stub-transport/install-transport! :rf/default model/demo-backend))
 
 (rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}

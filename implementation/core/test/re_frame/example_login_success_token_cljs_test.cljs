@@ -6,9 +6,8 @@
    machine with a credential-free `:success` signal.
 
    Also the canonical `:story.login/success` variant, which runs the real form
-   path: without its own `:network` route the framework's generic canned stub
-   answers `{:stubbed true}`, which `:auth.login/succeeded`'s schema refuses,
-   and the canvas never leaves `:submitting`."
+   path: without its own `:network` route the `:story` preset fails the login
+   request as `:rf.http/transport`, and the canvas never reaches `:authed`."
   (:require [cljs.test :refer-macros [deftest use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.privacy :as rf.privacy]
@@ -108,7 +107,7 @@
               "neither the origin :event nor :rf.fx/args carries the raw token"))))))
 
 ;; The live drive. `run-variant` allocates the variant's own frame, installs
-;; its `:network` route map on the managed-HTTP seam and runs the four-phase
+;; its `:network` route map as the frame's stub transport and runs the four-phase
 ;; lifecycle, so the real cascade runs:
 ;;
 ;;     [:login.story/submit good-creds]
@@ -182,7 +181,7 @@
             (str "no event-schema refusal on the way; got "
                  (pr-str (mapv :tags (event-schema-refusals traces)))))
         (is (= :authed (machine-state :story.login/success))
-            ":auth.login/flow reached :authed, not the :submitting a missing fixture leaves")
+            ":auth.login/flow reached :authed, not the :error-shown a missing fixture leaves")
         (is (true? (authenticated? :story.login/success))
             "the :auth/authenticated tag the Welcome banner branches on reads true")
         (is (= {stored-token-key story-fixture-token} stored)

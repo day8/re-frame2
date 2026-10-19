@@ -23,7 +23,7 @@
    open OFF (`:rf.xray/auto-open? false`) on purpose, so the page greets
    you with the live app or the Story shell rather than Xray. Press
    Ctrl+Shift+C over either surface, drive a state, and watch the
-   `:nine-states.story/load` → `:rf.http/managed` → reply cascade light up
+   `:nine-states.demo/load` → `:rf.http/managed` → reply cascade light up
    the Epoch / Trace / Side Effects panels.
 
    ## One adapter
@@ -47,6 +47,7 @@
    `:examples/nine-states` build."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.http.stub-transport :as stub-transport]
             [day8.re-frame2-xray.config :as xray-config]
             ;; Pull in the example's registrations (machine / schemas / demo
             ;; events / subs / the `:ui/render` selector / views) and the
@@ -63,13 +64,13 @@
 ;;
 ;; This host runs its own boot rather than calling `core/run` (which brings
 ;; its own stock-Reagent mount lifecycle along). So it stands up the live-app
-;; frame right here, handing the `#/` surface the example's demo HTTP
-;; override — `:rf.http/managed` routed to the in-process
-;; `:nine-states.http/managed-demo` stub, no backend in the loop.
+;; frame right here, answering the `#/` surface's requests from the example's
+;; fake server — `core/demo-transport`, installed as the frame's stub
+;; transport, no backend in the loop.
 
 (defn- install-live-frame! []
-  (rf/make-frame {:id :rf/default :doc          "Nine-states showcase live-app frame."
-                  :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
+  (rf/make-frame {:id :rf/default :doc "Nine-states showcase live-app frame."})
+  (stub-transport/install-transport! :rf/default core/demo-transport)
   ;; Now seed it. The `with-frame :rf/default` wrapper is what aims the
   ;; `dispatch-sync` at that frame — dispatch with no frame in scope and
   ;; you'd get `:rf.error/no-frame-context`.

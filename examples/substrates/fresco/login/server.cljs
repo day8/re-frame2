@@ -112,9 +112,8 @@
       {:hiccup            [views/root-view]
        :render-state      partitions
        :identifier-prefix views/identifier-prefix
-       ;; The app's own frame config — `:fx-overrides` points
-       ;; `:rf.http/managed` at the demo stub, exactly as it does in the
-       ;; browser. Its `:initial-events` are NOT run: `render-body` forces
+       ;; The app's own frame config. Its `:initial-events` are NOT run:
+       ;; `render-body` forces
        ;; the setup vector empty, because the JVM already drained them and
        ;; the projection is the settled result.
        :frame-opts        model/frame-config})))

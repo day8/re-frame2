@@ -37,11 +37,12 @@
    - Nothing      — `[:nine-states.app/initialise]` (machine `:reset`).
    - Loading       — `[:ui/nine-states [:fetch-started]]` parks the
                      `:data` region at `:loading` (no reply ever comes).
-   - Empty/One/Some/Too Many — the `:nine-states.story/load` cascade
-                     below: a real `:rf.http/managed` fx whose reply folds
-                     back through `:fetch-succeeded`, so the `:data`
-                     region's `:always`-cascade counts the items and picks
-                     the bucket.
+   - Empty/One/Some/Too Many — the live example's own
+                     `:nine-states.demo/load` cascade: a real
+                     `:rf.http/managed` fx whose reply folds back through
+                     `:fetch-succeeded`, so the `:data` region's
+                     `:always`-cascade counts the items and picks the
+                     bucket.
    - Incorrect     — type a too-short title and submit → `:submit-invalid`.
    - Correct       — type a valid title and submit → `:submit-valid`.
    - Done          — load, then archive → the `:mode` region reaches `:done`.
@@ -51,20 +52,19 @@
 
    ## Xray-richness — the managed-HTTP cascade
 
-   Story gives each variant its own frame under `:preset :story`. That
-   preset quietly redirects `:rf.http/managed` to the framework's
-   `:rf.http/managed-canned-success` stub — handy, but it means there's no
-   failure path by default. A variant that wants one stamps its own
-   `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}`,
-   which wins over the preset (see the lifecycle `…/error` variant below).
-   `:nine-states.story/load` fires a real `:rf.http/managed` request with
-   the synthetic todos sitting on the request's `:value` slot — the slot
-   the canned-success stub echoes back — so the full lifecycle plays out:
+   Story gives each variant its own frame under `:preset :story`, and that
+   preset never lets a request reach the network: one nothing answers fails
+   as `:rf.http/transport`. So every variant that loads carries
+   `demo-network` (below) as its `:network` — a route map Story installs on
+   the variant's frame as a stub transport. It answers `/api/todos?n=4`
+   with four todos and `/api/todos/fail` with an unreachable network, so
+   the variants fire the live example's own load events and the full
+   lifecycle plays out through the real `:rf.http/managed`:
 
-       :nine-states.story/load
+       :nine-states.demo/load
          → [:ui/nine-states [:fetch-started]]        (→ :loading)
          → [:rf.http/managed {...}]                  (a real fx)
-             → canned-success reply                  (Side Effects panel)
+             → the :network route's answer           (Side Effects panel)
              → [:nine-states.demo/loaded {:value …}]
                  → [:ui/nine-states [:fetch-succeeded …]]
                      → :resolving → :always cardinality bucket
@@ -81,8 +81,7 @@
    `nine-states.core/root-view`, referenced by id. And the canonical Story
    vocabulary installs itself on the first `reg-*` call, so there's no boot
    step to remember."
-  (:require [re-frame.core :as rf]
-            [re-frame.story :as rf.story]
+  (:require [re-frame.story :as rf.story]
             ;; Pull in the example's own registrations — the machine, the
             ;; demo events / subs / views, the `:ui/render` selector. The
             ;; variant bodies below name its event-ids and `root-view` as
@@ -91,85 +90,26 @@
             [nine-states.core]))
 
 ;; ---------------------------------------------------------------------------
-;; Story-side load event — the Xray-rich managed-HTTP pipeline run
+;; demo-network — the variants' fake server
 ;;
-;; Same fetch, slightly different plumbing. The live example's
-;; `:nine-states.demo/load` sends `:query {:n N}` and lets the app's
-;; `:nine-states.http/managed-demo` override read `:n` and synthesise the
-;; todos. But inside the Story shell each variant runs under `:preset
-;; :story`, which swaps in the framework's `:rf.http/managed-canned-success`
-;; stub — and that stub doesn't read `:n`; it just echoes back whatever sits
-;; on the request's `:value` slot. So the Story load event puts the
-;; synthetic todos straight on `:value`. Same real `:rf.http/managed`
-;; pipeline run (still visible in Xray's Side Effects panel), now deterministic
-;; under the canned stub.
+;; The live example answers its requests from `nine-states.core/demo-transport`,
+;; which conjures N random todos for `/api/todos?n=N`. A variant's fixture is
+;; data instead, and deterministic — fixed ids, so the variant's plan-hash
+;; holds still — with one route per N a variant asks for.
 ;; ---------------------------------------------------------------------------
 
-(defn- generate-todos
-  "Conjure up N demo todos. Same shape as the live example's private
-   generator, copied here on purpose so the story file doesn't have to
-   reach into `nine-states.core`'s guts for it."
-  [todo-count]
-  (vec (for [index (range todo-count)]
-         {:id (random-uuid) :title (str "Todo #" (inc index)) :done? false})))
-
-(rf/reg-event :nine-states.story/load
-  {:doc "The Story-shell twin of `:nine-states.demo/load`. It runs the
-         exact same real fetch cascade — `:fetch-started` →
-         `:rf.http/managed` → reply → `:fetch-succeeded` — but tucks the
-         synthetic todos onto the request's `:value` slot so the `:preset
-         :story` frame's canned-success stub hands them back. Ask for `n`
-         items and the `:always`-cascade drops the `:data` region into the
-         matching cardinality bucket."}
-  (fn handler-story-load [_ [_ {:keys [n]}]]
-    {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
-          [:rf.http/managed
-           {:request    {:method :get :url "/api/todos" :query {:n (or n 0)}}
-            :value      (generate-todos (or n 0))
-            :decode     :json
-            ;; The twin carries the live example's ownership field too, so
-            ;; the envelope a reader inspects in Xray is the real one. It
-            ;; reaches for `nine-states.core`'s constant rather than
-            ;; copying the keyword — a story that drifted onto its own id
-            ;; would be teaching the exact mistake the id exists to
-            ;; prevent. (`generate-todos` above is copied because it is
-            ;; private; this is public, and shared on purpose.) Story runs
-            ;; each variant in its own frame and supersession is
-            ;; frame-scoped, so one shared id costs the variants nothing.
-            :request-id nine-states.core/data-load-request-id
-            :on-success [:nine-states.demo/loaded]
-            :on-failure [:nine-states.demo/load-failed]}]]}))
-
-(rf/reg-event :nine-states.story/load-failing
-  {:doc "The Story-shell twin of `:nine-states.demo/load-with-failure`.
-         Same cascade shape — `:fetch-started` → `:rf.http/managed` →
-         reply → `:fetch-failed` — but down the `:error` branch.
-
-         There's a wrinkle: the `:story` preset routes `:rf.http/managed`
-         to the canned-SUCCESS stub, which would happily take the
-         `:on-success` path and never fail. So the error variant stamps its
-         own `:fx-overrides {:rf.http/managed
-         :rf.http/managed-canned-failure}` — a variant-owned override beats
-         the preset — and this same event then runs against the
-         canned-failure stub. That stub reads the top-level `:kind` /
-         `:tags` slots below, builds a failure reply, and dispatches
-         `:on-failure`, landing the `:data` region at `:error`."}
-  (fn handler-story-load-failing [_ _]
-    {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
-          [:rf.http/managed
-           ;; The canned-failure stub looks for `:kind` / `:tags` at the
-           ;; top level — not inside a nested `:failure` map — so putting
-           ;; the failure category here is what carries it through to
-           ;; `:nine-states.demo/load-failed`.
-           {:request    {:method :get :url "/api/todos/fail"}
-            :kind       :rf.http/transport
-            :tags       {:message "Network unreachable."}
-            :decode     :json
-            ;; Same slot, same id as the succeeding twin — see the live
-            ;; example's `data-load-request-id`.
-            :request-id nine-states.core/data-load-request-id
-            :on-success [:nine-states.demo/loaded]
-            :on-failure [:nine-states.demo/load-failed]}]]}))
+(def demo-network
+  "The `:network` route map every loading variant carries: `/api/todos?n=N`
+   answers N demo todos for each N below, and `/api/todos/fail` fails as an
+   unreachable network."
+  (into {[:get "/api/todos/fail"]
+         {:failure {:kind :rf.http/transport :message "Network unreachable."}}}
+        (for [n [0 1 4 25]]
+          [[:get (str "/api/todos?n=" n)]
+           {:body (vec (for [index (range n)]
+                         {:id    (str "todo-" (inc index))
+                          :title (str "Todo #" (inc index))
+                          :done? false}))}])))
 
 ;; ---------------------------------------------------------------------------
 ;; register-all!
@@ -253,8 +193,9 @@
     {:doc        "State 3 — Empty. Fetched, but the result came back empty.
                  The `:always`-cascade reads a count of zero and picks
                  `:empty`."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 0}]]
+                  [:nine-states.demo/load {:n 0}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -262,8 +203,9 @@
   (rf.story/reg-variant :story.nine-states/one
     {:doc        "State 4 — One. Exactly one todo; the focused
                  single-item layout (the `:one` cardinality bucket)."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 1}]]
+                  [:nine-states.demo/load {:n 1}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -272,8 +214,9 @@
     {:doc        "State 5 — Some. A small, manageable list, rendered
                  plainly (the `:some` cardinality bucket). This is the
                  example's canonical screenshot."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 4}]]
+                  [:nine-states.demo/load {:n 4}]]
      :tags       #{:dev :docs :nine-states/canonical}
      :substrates #{:reagent}})
 
@@ -282,8 +225,9 @@
     {:doc        "State 6 — Too Many. More items than the too-many
                  threshold (7), so the view switches to search +
                  truncation (the `:too-many` cardinality bucket)."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 25}]]
+                  [:nine-states.demo/load {:n 25}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -316,8 +260,9 @@
     {:doc        "State 9 — Done. Load a few todos, then archive: the
                  `:mode` region reaches its terminal, read-only `:done`
                  state and the form and controls all grey themselves out."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 4}]
+                  [:nine-states.demo/load {:n 4}]
                   [:ui/nine-states [:archive {}]]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
@@ -342,29 +287,24 @@
                  `:rf.http/managed` cascade runs in `:setup`, so pick this
                  variant and watch the fetch play out across Xray's Epoch /
                  Trace / Side Effects panels."
+     :network    demo-network
      :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load {:n 4}]]
+                  [:nine-states.demo/load {:n 4}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.nine-states-lifecycle/error
-    {:doc           "Lifecycle — the `:error` branch. This is the one
-                    variant that wants its fetch to fail, so it stamps
-                    `:fx-overrides {:rf.http/managed
-                    :rf.http/managed-canned-failure}` to send its
-                    `:rf.http/managed` request through the canned-FAILURE
-                    stub instead of the `:story` preset's success default.
-                    `:fetch-failed` then lands the `:data` region at
-                    `:error`, and the failure cascade lights up Xray's Side
-                    Effects + Trace panels right next to the success path."
-     ;; A variant-owned `:fx-overrides` outranks the `:story` preset's
-     ;; canned-success default — so only this variant gets the failure
-     ;; stub; its siblings keep on succeeding.
-     :fx-overrides  {:rf.http/managed :rf.http/managed-canned-failure}
-     :setup         [[:nine-states.app/initialise]
-                     [:nine-states.story/load-failing]]
-     :tags          #{:dev :docs}
-     :substrates    #{:reagent}})
+    {:doc        "Lifecycle — the `:error` branch. This variant fires the
+                 live example's rigged-to-fail load, whose `/api/todos/fail`
+                 route answers with an unreachable network. `:fetch-failed`
+                 then lands the `:data` region at `:error`, and the failure
+                 cascade lights up Xray's Side Effects + Trace panels right
+                 next to the success path."
+     :network    demo-network
+     :setup      [[:nine-states.app/initialise]
+                  [:nine-states.demo/load-with-failure]]
+     :tags       #{:dev :docs}
+     :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — a few different ways to arrange the same variants.

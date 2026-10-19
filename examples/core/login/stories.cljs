@@ -37,12 +37,12 @@
 
    Here's the part that's genuinely fun. A submit isn't a mock — it's the
    real cascade, running end to end. Each variant runs in its own frame under
-   `:preset :story`, which redirects `:rf.http/managed` to the framework's
-   GENERIC canned-success stub; that stub answers `{:stubbed true}`, which
-   `:auth.login/succeeded`'s schema refuses (it wants a `:token`). So each
-   variant says what the server said: `:success` carries a `:network` route
-   with a token-bearing reply, and the failure variants drive their replies
-   by hand. The success cascade:
+   `:preset :story`, and that preset keeps every request off the network: one
+   nothing answers fails as `:rf.http/transport`. So each variant says what
+   the server said: `:success` carries a `:network` route answering the login
+   POST with a token-bearing reply — Story installs it on the variant's frame
+   as a stub transport — and the failure variants drive their replies by
+   hand. The success cascade:
 
        [:auth.login/submit-form]                       (validates the draft)
          → [:rf.http/managed {… :sensitive? true}]     (a real fx)
@@ -78,7 +78,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.story :as rf.story]
             ;; Source the example's registrations (the machine, schemas,
-            ;; demo fx, subs, views). The variant bodies below reference
+            ;; events, subs, views). The variant bodies below reference
             ;; its event-ids + the `root-view` view-id as plain keywords;
             ;; requiring the ns fires every `reg-*` so those ids resolve.
             [login.core]))
@@ -91,10 +91,7 @@
 ;; nudges the machine with a credential-free `:submit` signal. The success reply
 ;; pipes back through `:auth.login/succeeded`, which owns the token and then
 ;; signals the machine; the failure reply rides the machine event
-;; `[:auth.login/flow [:auth.login/failure]]` directly. And recall the
-;; `:preset :story` frame redirects `:rf.http/managed` to the framework's
-;; canned-success stub (which just echoes the request's `:value` slot back as
-;; the payload).
+;; `[:auth.login/flow [:auth.login/failure]]` directly.
 ;;
 ;; The slice itself is seeded once, up front, by the composed
 ;; `:fragment.login/form-base` fragment (every variant pulls it in via
@@ -102,17 +99,16 @@
 ;; real form path: type the draft (email via `:auth.login/edit-field`,
 ;; password via the classified `:auth.login/edit-password`), then dispatch
 ;; `:auth.login/submit-form`. Same real fx (right there in Xray's Side
-;; Effects panel), and a stub answers it.
+;; Effects panel), and the variant's fixture answers it.
 ;;
-;; WHICH stub is the variant's business, not this driver's — and it matters.
-;; The reply comes home to `:auth.login/succeeded`, whose schema
-;; requires `[:value :token]`, so the framework's GENERIC canned success
-;; (`{:stubbed true}`) is refused at the schema boundary and the flow never
-;; leaves `:submitting`. The `:success` variant therefore carries its own
-;; `:network` route fixture with a token-bearing reply; the failure variants
-;; drive their own replies by hand and stub the fx out entirely. This driver
-;; just walks the real form path and lets each variant say what the server
-;; said.
+;; WHAT answers is the variant's business, not this driver's. The `:preset
+;; :story` frame answers nothing on its own — an unanswered request fails as
+;; `:rf.http/transport` — and the reply comes home to `:auth.login/succeeded`,
+;; whose schema requires `[:value :token]`. So the `:success` variant carries
+;; its own `:network` route fixture with a token-bearing reply; the failure
+;; variants drive their own replies by hand and stub the fx out entirely.
+;; This driver just walks the real form path and lets each variant say what
+;; the server said.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
@@ -121,9 +117,8 @@
          validates the draft, fires the (sensitive) `:rf.http/managed` request,
          and nudges the machine with a credential-free `:submit` signal. It
          does not decide the reply — the variant does. The `:preset :story`
-         frame's generic canned-success stub answers `{:stubbed true}`, which
-         `:auth.login/succeeded`'s schema refuses (it requires `[:value
-         :token]`), so with no fixture the flow never leaves `:submitting`. A
+         frame answers nothing on its own, so with no fixture the request
+         fails as `:rf.http/transport`. A
          variant that wants `:authed` supplies a `:network` route with a
          token-bearing reply: it lands on `:auth.login/succeeded`, which owns
          the token and then signals the machine's `:success`. The whole chain
@@ -146,7 +141,7 @@
   "Credentials the demo would accept (they mirror `login.model/good-password`).
    The story driver types them into the draft and submits through the real form
    path, where they pass `submit-form`'s pre-submit `Credentials` check. No
-   Story stub reads them: the reply is whatever the variant supplies — the
+   fixture reads them: the reply is whatever the variant supplies — the
    `:success` variant's `:network` route answers with a token whatever was
    typed."
   {:email "ada@example.com" :password "correct-horse"})
@@ -154,9 +149,8 @@
 (defn- failure-reply
   "The canonical managed-HTTP failure envelope the machine's `:record-error`
    action reads: `{:status :error :error <classified-failure-map>}`, the message
-   riding under `:error`. This is exactly what `:rf.http/managed-canned-failure`
-   delivers on a real 4xx, so driving `:auth.login/failure` with it is faithful
-   to the live cascade. A bare `{:failure …}` map — a shape the machine never
+   riding under `:error`. Driving `:auth.login/failure` with it pins the exact
+   reply a variant wants. A bare `{:failure …}` map — a shape the machine never
    reads — leaves `:record-error` reading a nil `:error`, so the flow falls back
    to its generic \"Login failed.\" message instead of the server's."
   [status message]
@@ -344,7 +338,7 @@
 
   ;; Success — the hero shot, and the most satisfying one to inspect. The
   ;; whole real pipeline run flows through `:login.story/submit`: submit-form →
-  ;; real `:rf.http/managed` fx → canned reply → `:auth.login/succeeded` →
+  ;; real `:rf.http/managed` fx → the `:network` reply → `:auth.login/succeeded` →
   ;; `[:auth.login/flow [:auth.login/success]]` →
   ;; `:authed`. Open this one, hit Ctrl+Shift+C, and watch the full chain march
   ;; across Xray's Epoch / Trace / Side Effects panels.
@@ -353,36 +347,29 @@
      :doc        "Server accepted the credentials. The form is replaced
                  by the 'Welcome!' banner (`:authed`). The full
                  auth-submit cascade — submit → `:rf.http/managed` →
-                 canned reply → `:success` — runs through real events;
+                 the `:network` reply → `:success` — runs through real events;
                  inspect it in Xray. The canonical screenshot."
-     ;; THE FIXTURE, AND WHY THE GENERIC PRESET STUB IS NOT ENOUGH.
-     ;; Every variant here runs in its OWN `:preset :story` frame, which
-     ;; redirects `:rf.http/managed` to the framework's generic canned-success
-     ;; stub. That stub answers `{:status :ok :value {:stubbed true}}` when the
-     ;; request carries no `:value` of its own — and this request carries none,
-     ;; because it is the REAL one the live app sends. But the live app's reply
-     ;; handler is `:auth.login/succeeded`, whose registration declares
-     ;; `:schema [… [:map [:value [:map [:token :string]]]]]`: the token is the
-     ;; whole point of a login reply. So the generic stub's payload is REFUSED
-     ;; at the schema boundary, the handler never runs, the machine is never
-     ;; nudged with `:success`, and the canonical screenshot is a form stuck in
-     ;; `:submitting` rather than the Welcome banner it advertises.
+     ;; THE FIXTURE. Every variant here runs in its OWN `:preset :story`
+     ;; frame, and that preset keeps every request off the network: with
+     ;; nothing to answer it, the login POST fails as `:rf.http/transport`,
+     ;; the machine takes `:failure`, and the canonical screenshot is an error
+     ;; rather than the Welcome banner it advertises.
      ;;
-     ;; A live-app frame does not have this problem: `login.model/frame-config`
-     ;; points `:rf.http/managed` at `:auth.login.demo/managed-stub`, which
-     ;; conjures a token-bearing reply. Story allocates its variant frames
-     ;; itself, so that config does not reach them — the variant supplies its
-     ;; own fixture, and `:network` is the dedicated Story affordance for
-     ;; exactly this fx (an explicit `:fx-overrides` on `:rf.http/managed`
-     ;; would be a hard conflict with it — `:rf.error/story-network-fx-conflict`).
+     ;; A live-app frame does not have this problem: each login mount installs
+     ;; `login.model/demo-backend` on its frame, and it answers with a token.
+     ;; Story allocates its variant frames itself, so that install does not
+     ;; reach them — the variant supplies its own fixture, and `:network` is
+     ;; the dedicated Story affordance for exactly this fx (an explicit
+     ;; `:fx-overrides` on `:rf.http/managed` would be a hard conflict with
+     ;; it — `:rf.error/story-network-fx-conflict`).
      ;;
-     ;; The route is the one `submit-form` really posts, and the reply is the
-     ;; shape the demo backend really returns, so the cascade below stays the
-     ;; REAL one end to end — nothing here fakes a state, it only supplies the
-     ;; server's half of the conversation.
+     ;; The route is the one `submit-form` really posts, and the reply carries
+     ;; the token `:auth.login/succeeded`'s schema requires, so the cascade
+     ;; below stays the REAL one end to end — nothing here fakes a state, it
+     ;; only supplies the server's half of the conversation.
      :network    {[:post "/api/login"]
-                  {:reply {:ok {:user  {:name "Ada Lovelace"}
-                                :token "demo-token-123"}}}}
+                  {:body {:user  {:name "Ada Lovelace"}
+                          :token "demo-token-123"}}}
      :setup      [[:login.story/submit good-creds]]
      :tags       #{:dev :docs :login/canonical}
      :substrates #{:reagent}})

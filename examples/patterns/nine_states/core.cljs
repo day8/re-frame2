@@ -75,7 +75,6 @@
    machines files."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             ;; Schemas ship as their own artefact, day8/re-frame2-schemas.
             ;; Requiring this ns wires up the hooks the `rf/reg-app-schema`
             ;; call below leans on.
@@ -88,10 +87,9 @@
             ;; registers the `:rf.http/managed` fx (and its family) that
             ;; the load events dispatch.
             [re-frame.http.managed]
-            ;; The framework's canned-reply stubs
-            ;; (`:rf.http/managed-canned-success` / `-failure`). Our little
-            ;; per-app demo stub below just delegates to these.
-            [re-frame.http.test-support]
+            ;; Our little fake server below is a stub transport, installed
+            ;; on the frame in `mount!`.
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -228,52 +226,39 @@
   (fn [] (random-uuid)))
 
 ;; ============================================================================
-;; FX  (test-friendly stubs)
+;; THE FAKE SERVER  (a stub transport)
 ;; ============================================================================
 ;;
-;; A real app fires one `:rf.http/managed` request and swaps in a stub at
-;; test time via the frame's `:fx-overrides`. This example has no server to
-;; talk to, so it ships its own little stub that delegates to the
-;; framework's canned-success / canned-failure fxs. That's what lets the
-;; control panel conjure Empty / One / Some / Too Many on demand, no
-;; backend required. See [managed HTTP](../../../docs/async/http.md).
+;; A real app fires one `:rf.http/managed` request at a real server. This
+;; example has no server to talk to, so it ships a little fake one: a stub
+;; transport, installed on the frame in `mount!`, which answers each request
+;; the way the server would. That's what lets the control panel conjure
+;; Empty / One / Some / Too Many on demand, no backend required. See
+;; [managed HTTP](../../../docs/async/http.md).
 ;;
-;; Worth knowing while you read the load events below: an `:fx-overrides`
-;; entry REPLACES `:rf.http/managed` outright, so under this stub the
-;; framework's in-flight registry — and with it the `:request-id`
-;; supersession the load events rely on — never runs, and the canned
-;; replies land synchronously anyway, one at a time. The requests are
-;; still written the way a real one must be, because swapping this
-;; override out for the real transport is the moment the id starts
-;; earning its keep and is exactly the copy-and-adapt step this example
-;; exists to guide.
+;; A stub transport replaces only the network hop, so everything above it is
+;; the real thing: the framework's in-flight registry, and with it the
+;; `:request-id` supersession the load events rely on, decode, and the reply
+;; envelope. Its answers land synchronously, inside the dispatch that issued
+;; the request. Swapping it out for a real server changes nothing in the
+;; load events below.
 
 (defn- generate-todos [todo-count]
   (vec (for [index (range todo-count)]
          {:id (random-uuid) :title (str "Todo #" (inc index)) :done? false})))
 
-(rf/reg-fx :nine-states.http/managed-demo
-  {:doc       "Demo override for `:rf.http/managed`. A tiny fake server,
-               routing by URL: `/api/todos` succeeds with N synthetic
-               todos (N read from `:request :query :n`); `/api/todos/fail`
-               fails with a transport error. Either way it hands off to the
-               framework's `:rf.http/managed-canned-success` /
-               `:rf.http/managed-canned-failure`, so the reply has exactly
-               the shape a real managed request would produce."
-   :platforms #{:client :server}}
-  (fn fx-managed-demo [frame-ctx args-map]
-    (let [url (-> args-map :request :url str)]
-      (cond
-        (= url "/api/todos/fail")
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-          (stub frame-ctx (assoc args-map
-                                 :kind :rf.http/transport
-                                 :tags {:message "Network unreachable."})))
+(defn- demo-answer
+  "The fake server: the HTTP response for one request, routing by URL.
+  `/api/todos?n=N` answers N synthetic todos; `/api/todos/fail` fails as an
+  unreachable network."
+  [{:keys [url]}]
+  (if (= url "/api/todos/fail")
+    {:failure {:kind :rf.http/transport :message "Network unreachable."}}
+    {:body (generate-todos (js/parseInt (or (second (re-find #"[?&]n=(\d+)" url)) "0") 10))}))
 
-        :else
-        (let [todo-count (or (-> args-map :request :query :n) 0)
-              stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map :value (generate-todos todo-count))))))))
+(def demo-transport
+  "The stub transport `mount!` installs on the frame: the fake server above."
+  (stub-transport/route-transport demo-answer))
 
 ;; ============================================================================
 ;; THE MACHINE — :ui/nine-states  (one machine, three regions)
@@ -554,7 +539,7 @@
     {:db (assoc db :nine-states.search/query query)}))
 
 (rf/reg-event :nine-states.demo/load
-  {:doc "Kick off a (synthetic) fetch through the demo HTTP stub. The reply
+  {:doc "Kick off a (synthetic) fetch from the fake server. The reply
          folds back through :nine-states.demo/loaded into the machine's
          :fetch-succeeded event, and from there the :data region's
          :always-cascade reads the count and picks the cardinality bucket.
@@ -568,7 +553,7 @@
           [:rf.http/managed
            {:request    {:method :get
                          :url    "/api/todos"
-                         :query  {:n (or n 0)}}
+                         :params {:n (or n 0)}}
             :decode     :json
             :request-id data-load-request-id
             :on-success [:nine-states.demo/loaded]
@@ -959,11 +944,10 @@
   ;; The `frame-root {:id …}` below is what actually owns the frame. On
   ;; the first mount it creates `:rf/default`, applies the config, and fires
   ;; `:initial-events` once; on a hot reload it finds the frame already
-  ;; standing and skips the re-seed. Two config keys do the work:
-  ;;
-  ;; - `:fx-overrides` points `:rf.http/managed` at our in-process stub, so
-  ;;   the example runs all on its own with no backend in sight.
-  ;; - `:initial-events` boots the app via `[:nine-states.app/initialise]`.
+  ;; standing and skips the re-seed. `:initial-events` boots the app via
+  ;; `[:nine-states.app/initialise]`, and before that `install-transport!`
+  ;; points the frame's managed HTTP at our fake server, so the example runs
+  ;; all on its own with no backend in sight.
   ;;
   ;; The provider also scopes the frame into React — that's what lets the
   ;; `dispatch`/`subscribe` injected into each `reg-view` (and `root-view`'s
@@ -971,10 +955,10 @@
   ;; attached to.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
+    (stub-transport/install-transport! :rf/default demo-transport)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             :rf/default
                       :doc            "Nine-states demo frame."
-                      :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
                       :initial-events [[:nine-states.app/initialise]]}
        [root-view]]
       el)))

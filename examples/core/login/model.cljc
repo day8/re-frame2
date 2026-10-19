@@ -29,16 +29,16 @@
      [:auth :login-form]. The slice owns the draft (controlled inputs, no
      view-local atom); the machine owns submit/auth status. That division of
      labour is the form recipe in docs/core/how-to/build-a-form.md.
-   - Managed HTTP — `:rf.http/managed`, plus a small per-app demo stub that
-     answers the request locally so the example runs with no backend to point it
-     at (docs/async/http.md).
+   - Managed HTTP — `:rf.http/managed`, plus a small demo backend (a stub
+     transport) that answers the request locally so the example runs with no
+     server to point it at (docs/async/http.md).
    - Schemas, events, subscriptions — the everyday building blocks
      (docs/core/glossary.md).
 
    THE ONE OWNER. This namespace is the single source of truth for every shared
-   `auth.login` registration — the schemas, the demo fx, the `:auth.login/flow`
+   `auth.login` registration — the schemas, the session fx, the `:auth.login/flow`
    machine, the form-slice events, and the named subs — plus the initial form
-   slice and the shared frame config. It names NO substrate: no view library, no
+   slice, the shared frame config and the demo backend. It names NO substrate: no view library, no
    adapter. The three login examples — Reagent (`login.core`), UIx
    (`uix.login.core`) and Fresco (`fresco.login.core`) — each `:require` this
    namespace for its side-effecting
@@ -73,7 +73,6 @@
   ;; switching itself on — and note the absence: no adapter, no view library.
   ;; This namespace is substrate-free by construction.
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             ;; Malli directly — for the pre-submit form validator below
             ;; (`m/explain` + `me/humanize`), the same pure validator the form
             ;; recipe builds (docs/core/how-to/build-a-form.md, "Validation is a
@@ -91,9 +90,10 @@
             ;; `:rf.http/managed` dispatch fails loud rather than silently doing
             ;; nothing — which is exactly what you want.
             [re-frame.http.managed]
-            ;; Turns on the canned-success / canned-failure stub fxs our demo
-            ;; stub leans on (docs/core/testing/pipeline-runs.md).
-            [re-frame.http.test-support]))
+            ;; The demo backend below: a stub transport, and the JSON reader it
+            ;; reads the login request body with.
+            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.json :as rf.http.json]))
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -186,21 +186,19 @@
 ;; is no other.
 
 ;; ============================================================================
-;; FX  (managed HTTP + a per-app demo stub)
+;; FX  (managed HTTP + a demo backend)
 ;; ============================================================================
 ;;
 ;; HTTP goes through `:rf.http/managed` (docs/async/http.md). In a real app this
 ;; flow would POST `/api/login` and wait for a server. This example has no
 ;; server — so we fake one, carefully.
 ;;
-;; The plan: register a demo stub at `:auth.login.demo/managed-stub`, then each
-;; substrate mount overrides `:rf.http/managed` to point at it for its frame
-;; (via the shared `frame-config` below). The stub peeks at the request body's
-;; `:password` and conjures a success or failure reply using the framework's own
-;; canned-success / canned-failure fxs. The point of going through those fxs
-;; rather than hand-rolling a map is fidelity: the reply has the exact same shape
-;; it would coming off a real wire, so the rest of the flow can't tell the
-;; difference.
+;; The plan: `demo-backend` (below the session fx) is a stub transport, and each
+;; substrate mount installs it on its frame. It reads the request body's
+;; `:password` and answers the way the server would. A stub transport replaces
+;; only the network hop, so the request runs through the real
+;; `:rf.http/managed` — its `:sensitive?` scrub, its decode, its reply envelope —
+;; and the rest of the flow can't tell the difference.
 
 (def good-password "correct-horse")
 
@@ -236,62 +234,28 @@
        :clj  (throw (ex-info "auth.session/store is client-only"
                              {:token-present? (some? token)})))))
 
-(rf/reg-fx :auth.login.demo/managed-stub
-  {:doc       "Our stand-in backend. It reads the URL and request body and
-               decides, by hand, what the server would have said:
+(defn- demo-answer
+  "Our stand-in backend: the response the server would have given.
 
-               POST /api/login with `:password good-password` → success,
-                 carrying `{:user {...} :token \"demo-token-123\"}`.
-               POST /api/login with anything else            → 401 failure.
-               Anything else (e.g. /api/auth/lock)           → empty success.
+   POST /api/login with `:password good-password` → 200, carrying
+     `{:user {...} :token \"demo-token-123\"}`.
+   POST /api/login with anything else            → 401.
+   Anything else (e.g. /api/auth/lock)           → 200, empty."
+  [{:keys [method url body]}]
+  (if (and (= :post method) (= "/api/login" url))
+    (let [{:keys [email password]} (rf.http.json/json-parse body)]
+      (if (= good-password password)
+        {:body {:user  {:id (str (random-uuid)) :email email}
+                :token "demo-token-123"}}
+        {:status 401 :status-text "Unauthorized" :body {:message "Invalid credentials."}}))
+    {}))
 
-               It doesn't build the reply itself; it delegates to the
-               framework's canned-success / canned-failure fxs so the reply
-               is shaped like the real thing. `:after-ms 50` holds the
-               reply back by 50 ms — and crucially does so via
-               `:dispatch-later`, not a raw `js/setTimeout`, so the delay
-               stays on the tape and survives time-travel. Those 50 ms are
-               a courtesy to the reader: just long enough to actually see
-               the `:submitting` state before it resolves. The reply then
-               travels home via `:on-success` / `:on-failure` — success to the
-               classified `:auth.login/succeeded` event (which owns the session
-               token), failure to the machine's `:auth.login/failure`
-               sub-event."
-   ;; This stub is the CLASSIFIED OWNER of the request body it receives. The
-   ;; login request carries the plaintext password at [:request :body :password],
-   ;; and `submit-form` marks the request `:sensitive? true` — but that scrub
-   ;; lives inside the REAL `:rf.http/managed` handler, which the `:fx-overrides`
-   ;; remap to this stub BYPASSES. When the override fires, `handle-one-fx`
-   ;; stamps the always-emitted `:rf.fx/handled` trace with THIS fx's id and its
-   ;; RAW args, and the classification projector redacts `:rf.fx/args` off the
-   ;; RESOLVED fx's own `:sensitive`. So the stub must declare its own — without
-   ;; it the password would ride raw on the one wire every tool reads
-   ;; (docs/core/how-to/keep-secrets-out-of-traces.md).
-   :sensitive [[:request :body :password]]
-   :platforms #{:server :client}}
-  (fn fx-managed-login-demo [frame-ctx args-map]
-    (let [{:keys [url body]} (:request args-map)
-          login? (= "/api/login" url)]
-      (cond
-        (and login? (= good-password (:password body)))
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map
-                                 :after-ms 50
-                                 :value {:user  {:id    (random-uuid)
-                                                 :email (:email body)}
-                                         :token "demo-token-123"})))
-
-        login?
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-          (stub frame-ctx (assoc args-map
-                                 :after-ms 50
-                                 :kind :rf.http/http-4xx
-                                 :tags {:status  401
-                                        :message "Invalid credentials."})))
-
-        :else
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map :after-ms 50 :value {})))))))
+(def demo-backend
+  "The stub transport every login mount installs on its frame:
+   `(stub-transport/install-transport! frame-id model/demo-backend)`. Each
+   answer waits 50 ms, a courtesy to the reader: just long enough to actually
+   see the `:submitting` state before it resolves."
+  (stub-transport/route-transport demo-answer {:delay-ms 50}))
 
 ;; ============================================================================
 ;; STATE MACHINE
@@ -771,20 +735,18 @@
 ;; ride it on their `frame-root`, alongside a substrate-specific `:id` /
 ;; `:doc`. The Fresco entry's SSR branch alone still makes the frame by hand,
 ;; for a different reason: `rf.ssr/hydrate!` dispatches the server's payload
-;; INTO a frame rather than making one, so the frame has to exist with its
-;; `:fx-overrides` already installed before the tree scopes it. Same map
-;; either way:
+;; INTO a frame rather than making one, so the frame has to exist before the
+;; tree scopes it. Same map either way.
 ;;
-;;   - `:fx-overrides` swaps in our fake backend: it points `:rf.http/managed` at
-;;     the in-process demo stub above, so the example stands on its own with
-;;     nothing to connect to.
-;;   - `:initial-events` seeds the login-form slice *before* the first render.
-;;     Skip it and the inputs would read `nil` for their `:value` on that first
-;;     paint — and React quietly demotes a `nil`-valued input to an uncontrolled
-;;     one, which is a mess to debug later. The machine seeds itself; the slice
-;;     is app-db, so we seed it here.
+;; Its `:initial-events` seed the login-form slice *before* the first render.
+;; Skip them and the inputs would read `nil` for their `:value` on that first
+;; paint — and React quietly demotes a `nil`-valued input to an uncontrolled
+;; one, which is a mess to debug later. The machine seeds itself; the slice is
+;; app-db, so we seed it here.
 ;;
-;; Both values name only `auth.login` ids — no substrate. See docs/core/frames.md.
+;; It names only `auth.login` ids — no substrate. See docs/core/frames.md.
+;;
+;; The fake backend is not frame config: each mount installs `demo-backend` on
+;; its frame, so the example stands on its own with nothing to connect to.
 (def frame-config
-  {:fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
-   :initial-events [[:auth.login/initialise-form]]})
+  {:initial-events [[:auth.login/initialise-form]]})

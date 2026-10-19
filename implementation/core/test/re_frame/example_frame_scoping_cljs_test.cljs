@@ -60,9 +60,7 @@
 ;; re-feeds the recorded value verbatim, so the durable id is the token's.
 
 (defn- run-new-todo-submit! [recorded]
-  (let [f (rf.frame/make-anon-frame-record! {:doc          "nine-states replay frame"
-                                             :fx-overrides {:rf.http/managed
-                                                            :nine-states.http/managed-demo}})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "nine-states replay frame"})]
     (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
     ;; A title of 3+ chars takes the valid branch that adds an item.
     (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
