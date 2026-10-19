@@ -1,5 +1,7 @@
 # The modal's Tab wrap, measured — what the engine's trap leaves open and what a candidate set costs
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Beads** `rf2-hic-052`, `rf2-5lzq` · **epic** `rf2-6c12m` (this page, `rf2-6c12m.25`)
 **Runtime** Chromium as driven by the browser lane (`playwright` 1.59.1 in
 `implementation/package.json`), headless and headed alike where the row says

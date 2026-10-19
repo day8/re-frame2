@@ -1,5 +1,7 @@
 # The floor is two populations — the non-cancellation floor, re-derived over the whole committed null-arm corpus
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-0eu1s`.
 
 > **THE CORPUS HAS GROWN SINCE THIS PAGE WAS WRITTEN, AND THREE FIGURES ON IT

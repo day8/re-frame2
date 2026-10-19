@@ -22,6 +22,13 @@ Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated author
 > Where this EP and its normative homes differ, the homes govern: Specs 004B,
 > 004C and 006, and the [Fresco guide](../core/fresco/index.md).
 
+> **Erratum — 2026-10-19.** Fresco's package contract,
+> [`implementation/fresco/spec/authoring-contract.md`](../../implementation/fresco/spec/authoring-contract.md),
+> now states what the package promises and governs over the guide, the
+> docstrings and the design record under `docs/design/fresco/`; it is the
+> binding of this ClojureScript reference, beside the portable Specs 004B, 004C
+> and 006. The sentence above is kept per rule 3.
+
 ## Implementation errata
 
 The decisions are final; the v0 build is not yet certified against its
@@ -79,6 +86,16 @@ The programme runs as three waves of beads under one epic. Authority and detail
 live in the design record: `charter.md`, `architecture.md`, `validation.md`,
 `authoring.md`, and `decisions.md` under `docs/design/fresco/`. Where this EP
 and those pages ever differ, decisions.md governs, then validation.md.
+
+> **Erratum — 2026-10-19.** The design record no longer holds authority over
+> what Fresco promises. The package contract,
+> [`implementation/fresco/spec/authoring-contract.md`](../../implementation/fresco/spec/authoring-contract.md),
+> governs it, and the record keeps the reasoning and the measurements behind it:
+> where a design page differs from the contract, the contract is right. Within
+> the record, decisions.md stays the canonical statement of each ruling. The
+> studio and product pages nothing live cited were removed from the tree and
+> read from git history at commit `0b8fe8c3ba`. The paragraph above is kept per
+> rule 3.
 
 Glossary for this EP: **"donor arm"** = the composed spike built from parts the
 existing *adapters* donate (reagent-slim `:f>` + UIx `use-sub`) — distinct

@@ -1,5 +1,7 @@
 # HD-002 — the collector adjudication
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **Delegated advisory, operator-overturnable.** The operator-owned standard bead
 > `rf2-2rtt6.1` required HD-002's four clauses pinned before P1 code; it was
 > superseded and closed on 2026-08-10, and HD-002 adjudication now runs through

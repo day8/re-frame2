@@ -1,5 +1,7 @@
 # The cold-mount double build, priced against the mount red-zone
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Bead** `rf2-2rtt6.15` · **epic** `rf2-2rtt6` (EP-0038) · decision input for the
 **rf2-2rtt6.14** ruling
 **Measured** 2026-07-31 AUSEST · **Runtime for every figure on this page:

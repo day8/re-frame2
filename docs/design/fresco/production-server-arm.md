@@ -1,5 +1,7 @@
 # Pricing the production server arm — JVM structural walk vs Node sidecar
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Ruling prep for the P2/HD-013 sitting (`rf2-2rtt6.88`). No verdict, and no
 recommendation.** The decider is the operator, at the sitting, and this page
 exists so that the two arms arrive there priced rather than argued. Where one

@@ -1,5 +1,7 @@
 # Bulk broad, re-taken — and the clock that was subtracting the operation
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **The 37% win is withdrawn. The direction survives.** On a clock that sees the
 whole operation — the arm's own JavaScript *and* the frame it causes —
 `UIx-on-subs ÷ Reagent-on-subs` on a broad commit reads **0.8602×**
@@ -325,7 +327,7 @@ ones this instrument pre-registered rather than reasons found afterwards:
 
 - **`0.6291×` is not reproduced by any instrument that has looked at the row past
   the `flushSync` boundary** — this page's `0.8602×`, and
-  [the outside instrument](cross-checked-against-an-outside-instrument.md)'s
+  the outside instrument (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`)'s
   `0.9740×` on replace-all and `1.1419×` on swap-rows, read by a driver nobody
   here wrote. Its own instrument is now understood: it measured the script and
   not the frame, and the frame is half the operation.

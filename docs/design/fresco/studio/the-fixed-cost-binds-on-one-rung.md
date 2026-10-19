@@ -1,5 +1,7 @@
 # The fixed cost binds on one rung — `:p0/write-all`'s F, re-measured
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 Seat: RE-ANALYSIS, EP-0038. Bead `rf2-2rtt6.140`, whose subject — *does
 `:p0/write-all`'s fixed per-write cost make the allocation ladder uncertifiable
 at any page size?* — has been open since 2026-08-08 and untouched by the two

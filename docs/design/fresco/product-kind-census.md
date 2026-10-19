@@ -1,11 +1,13 @@
 # The product-record kind census — how much of `product/` is view specification
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 `rf2-g0vdg`, 2026-08-19; re-derived 2026-08-20. A **measurement**. It moves nothing,
-edits nothing and rules nothing. Every file under [`product/`](product/README.md) is
+edits nothing and rules nothing. Every file under `product/` (`docs/design/fresco/product/README.md`) is
 assigned one of four kinds, with a proportion where a file carries more than one, and the
 counts are the deliverable.
 
-**Why it exists.** [`rf2-ps7ia`](product/README.md#custody-and-amendment) must decide where the
+**Why it exists.** `rf2-ps7ia` (`docs/design/fresco/product/README.md`) must decide where the
 Fresco normative set lives, and that decision reads very differently depending on how
 much of the set is actually normative. The estimate in play was *roughly forty files*.
 The measured population is **64 files and 17,054 lines**, so the estimate was low by
@@ -55,8 +57,8 @@ comes closest at about 95%.
 ### How the population was measured
 
 64 tracked files, 17,054 lines, of which 13 files and 947 lines are under
-[`lanes/`](product/lanes/README.md) and 5 files and 707 lines under
-[`pilots/`](product/pilots/README.md), leaving 46 files and 15,400 lines at top level.
+`lanes/` (`docs/design/fresco/product/lanes/README.md`) and 5 files and 707 lines under
+`pilots/` (`docs/design/fresco/product/pilots/README.md`), leaving 46 files and 15,400 lines at top level.
 
 **Pinned to a commit, because the line total moves.** These figures were re-derived at
 commit `5858e9317a83e3ed0c34e95389457d83afd1e654`. The file count and the classification
@@ -159,11 +161,11 @@ Proportions are rounded; a blank second column means the file is single-kind.
 
 | File | Lines | Primary | Mix |
 |---|---|---|---|
-| [`lanes/README.md`](product/lanes/README.md) | 57 | WR | — |
+| `lanes/README.md` | 57 | WR | — |
 | [`lanes/adversarial-risks.md`](product/lanes/adversarial-risks.md) | 43 | WR 65% | VS 35% (the *required contract* column) |
 | [`lanes/completeness-audit.md`](product/lanes/completeness-audit.md) | 65 | WR | — |
-| [`lanes/corpus-insights.md`](product/lanes/corpus-insights.md) | 83 | WR | — |
-| [`lanes/delivery-programme.md`](product/lanes/delivery-programme.md) | 23 | WR | — |
+| `lanes/corpus-insights.md` | 83 | WR | — |
+| `lanes/delivery-programme.md` | 23 | WR | — |
 | [`lanes/design-laws.md`](product/lanes/design-laws.md) | 63 | **VS 70%** | WR 30% (*Economics and scope*, *Evidence and tools*) |
 | [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | 119 | **VS 95%** | WR 5% |
 | [`lanes/evidence-baseline.md`](product/lanes/evidence-baseline.md) | 88 | WR | — |
@@ -171,7 +173,7 @@ Proportions are rounded; a blank second column means the file is single-kind.
 | [`lanes/left-field-ideas.md`](product/lanes/left-field-ideas.md) | 84 | WR | — |
 | [`lanes/react-compatibility-notes.md`](product/lanes/react-compatibility-notes.md) | 114 | **VS 75%** | WR 25% (witness columns) |
 | [`lanes/testing-xray.md`](product/lanes/testing-xray.md) | 79 | **VS 60%** | WR 40% |
-| [`lanes/use-cases.md`](product/lanes/use-cases.md) | 26 | WR 75% | VS 25% |
+| `lanes/use-cases.md` | 26 | WR 75% | VS 25% |
 
 ### `pilots/` — 5 files, 707 lines
 
@@ -180,58 +182,58 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 
 | File | Lines | Primary | Mix |
 |---|---|---|---|
-| [`pilots/README.md`](product/pilots/README.md) | 48 | WR | — |
-| [`pilots/workspace.md`](product/pilots/workspace.md) | 174 | WR | — |
-| [`pilots/brief-linearlite.md`](product/pilots/brief-linearlite.md) | 177 | WR | — |
-| [`pilots/brief-realworld.md`](product/pilots/brief-realworld.md) | 148 | WR | — |
-| [`pilots/friction-log.md`](product/pilots/friction-log.md) | 160 | WR | — |
+| `pilots/README.md` | 48 | WR | — |
+| `pilots/workspace.md` | 174 | WR | — |
+| `pilots/brief-linearlite.md` | 177 | WR | — |
+| `pilots/brief-realworld.md` | 148 | WR | — |
+| `pilots/friction-log.md` | 160 | WR | — |
 
 ### Top level — 46 files, 15,400 lines
 
 | File | Lines | Primary | Mix |
 |---|---|---|---|
-| [`README.md`](product/README.md) | 82 | WR | — |
+| `README.md` | 82 | WR | — |
 | [`specification.md`](product/specification.md) | 506 | **VS 55%** | WR 45% (§6 budgets, §11 portfolio, §12 programme, §13 done); SC ~3 lines → `004C` |
 | [`decision-brief.md`](product/decision-brief.md) | 164 | WR | — |
 | [`invariants.md`](product/invariants.md) | 179 | **VS 53%** | WR 40%; SC 7% (§7 two-hook subsection → `006`) |
-| [`facade-freeze.md`](product/facade-freeze.md) | 247 | **VS 55%** | WR 45% (§1 membership, §4 the amendment, §6 what it is not) |
+| `facade-freeze.md` | 247 | **VS 55%** | WR 45% (§1 membership, §4 the amendment, §6 what it is not) |
 | [`dispositions.md`](product/dispositions.md) | 512 | WR 60% | VS 40% (§2's two policies, §2.4 default rule, target-policy column) |
 | [`complaints.md`](../../../implementation/fresco/spec/complaints.md) | 308 | WR 70% | VS 30% (stability rule, what a complaint carries) — normative half already in `spec/009` |
 | [`globals.md`](product/globals.md) | 240 | WR | — |
 | [`requirements-mine.md`](product/requirements-mine.md) | 130 | WR | — |
 | [`naming-ledger.md`](product/naming-ledger.md) | 75 | WR | — |
 | [`naming-packet.md`](product/naming-packet.md) | 364 | WR | — |
-| [`naming-findings-cp2.md`](product/naming-findings-cp2.md) | 43 | WR | — |
-| [`naming-findings-cp3.md`](product/naming-findings-cp3.md) | 57 | WR | — |
+| `naming-findings-cp2.md` | 43 | WR | — |
+| `naming-findings-cp3.md` | 57 | WR | — |
 | [`budgets.md`](product/budgets.md) | 2204 | WR | — |
 | [`release-policy.md`](product/release-policy.md) | 339 | **RF 70%** | WR 30% |
-| [`release-scans.md`](product/release-scans.md) | 336 | WR | — |
+| `release-scans.md` | 336 | WR | — |
 | [`per-keystroke.md`](product/per-keystroke.md) | 659 | WR 80% | RF 20% (§6 asks for it as explanatory documentation *as well as* a witness) |
 | [`topology-tournament.md`](product/topology-tournament.md) | 1001 | WR | — |
-| [`prototype-suite-triage.md`](product/prototype-suite-triage.md) | 962 | WR | — |
+| `prototype-suite-triage.md` | 962 | WR | — |
 | [`tool-consumer-census.md`](product/tool-consumer-census.md) | 630 | WR | — |
 | [`architecture-census.md`](product/architecture-census.md) | 246 | WR | — |
 | [`substrate-decision.md`](product/substrate-decision.md) | 546 | WR 85% | **SC 15% → `006`** |
-| [`k3-disposition.md`](product/k3-disposition.md) | 488 | WR | — |
+| `k3-disposition.md` | 488 | WR | — |
 | [`k1-price-acceptance.md`](product/k1-price-acceptance.md) | 186 | WR | — |
-| [`checkpoint-1-kernel.md`](product/checkpoint-1-kernel.md) | 360 | WR | — |
-| [`checkpoint-2-slice.md`](product/checkpoint-2-slice.md) | 413 | WR | — |
-| [`checkpoint-3-native.md`](product/checkpoint-3-native.md) | 420 | WR | — |
-| [`checkpoint-4-coverage.md`](product/checkpoint-4-coverage.md) | 461 | WR | — |
+| `checkpoint-1-kernel.md` | 360 | WR | — |
+| `checkpoint-2-slice.md` | 413 | WR | — |
+| `checkpoint-3-native.md` | 420 | WR | — |
+| `checkpoint-4-coverage.md` | 461 | WR | — |
 | [`correction-ledger.md`](product/correction-ledger.md) | 133 | WR | — |
-| [`post-rename-recertification.md`](product/post-rename-recertification.md) | 280 | WR | — |
-| [`post-rename-recertification-2026-08-18.md`](product/post-rename-recertification-2026-08-18.md) | 291 | WR | — |
+| `post-rename-recertification.md` | 280 | WR | — |
+| `post-rename-recertification-2026-08-18.md` | 291 | WR | — |
 | [`authoring-report-slice.md`](product/authoring-report-slice.md) | 176 | WR | — |
-| [`authoring-report-todo.md`](product/authoring-report-todo.md) | 188 | WR | — |
-| [`mcp-runtime-query-spike.md`](product/mcp-runtime-query-spike.md) | 174 | WR | — |
-| [`readset-group-census.md`](product/readset-group-census.md) | 172 | WR | — |
+| `authoring-report-todo.md` | 188 | WR | — |
+| `mcp-runtime-query-spike.md` | 174 | WR | — |
+| `readset-group-census.md` | 172 | WR | — |
 | [`resource-demand-criteria.md`](product/resource-demand-criteria.md) | 168 | WR | — |
 | [`resource-demand-witness.md`](product/resource-demand-witness.md) | 191 | WR | — |
 | [`resource-demand-verdict.md`](product/resource-demand-verdict.md) | 332 | WR | — |
-| [`capsule-replay-criteria.md`](product/capsule-replay-criteria.md) | 90 | WR | — |
+| `capsule-replay-criteria.md` | 90 | WR | — |
 | [`capsule-replay-verdict.md`](product/capsule-replay-verdict.md) | 113 | WR | — |
 | [`callback-identity-verdict.md`](product/callback-identity-verdict.md) | 80 | WR | — |
-| [`pull-shaped-reads-verdict.md`](product/pull-shaped-reads-verdict.md) | 151 | WR | — |
+| `pull-shaped-reads-verdict.md` | 151 | WR | — |
 | [`counterfactual-topology-prediction.md`](product/counterfactual-topology-prediction.md) | 347 | WR | — |
 | [`forms-recipes.md`](product/forms-recipes.md) | 93 | **RF 55%** | WR 45% |
 | [`virtualizer-recipe.md`](product/virtualizer-recipe.md) | 119 | **RF 60%** | WR 40% |
@@ -251,7 +253,7 @@ excluded.
 |---|---|---|---|
 | [`specification.md`](product/specification.md) §§1–5, 7–10 | **VS** | ~278 | Product shape, the architecture laws, the target programming model (`h/defview`, `h/sub`, `h/event`, `h/defhost`, `h/as-element`, root lifecycle, error region), events, controlled fields, host interop, the native hot path, the coverage table, React compatibility, the testing ladder, Xray's questions |
 | [`dispositions.md`](product/dispositions.md) §2 | WR | ~205 | Per-surface server/hydration policy — the *target policy* half; the inventory-id rule; §2.4's default rule and the only route out of it. Also the tree's only RFC-2119 keyword |
-| [`facade-freeze.md`](product/facade-freeze.md) §§2–3, 5 | **VS** | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
+| `facade-freeze.md` §§2–3, 5 | **VS** | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
 | [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | **VS** | ~113 | The public language: core surface, the optional `n` surface and the provisional `n/$` grammar, nine authoring laws, the exclusions, the interop contract |
 | [`invariants.md`](product/invariants.md) §§1–4 | **VS** | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
 | [`complaints.md`](../../../implementation/fresco/spec/complaints.md) §§*What every complaint carries*, *The stability rule*, *Rulings this catalogue owns* | WR | ~92 | The four guaranteed `ex-data` slots and the rule that `:view`/`:source` are context and never branchable; the id-stability rule. **Its normative half already lives in `spec/009` under a bidirectional gate**, which is why this carrier is the least homeless of the twelve |
@@ -260,7 +262,7 @@ excluded.
 | [`lanes/design-laws.md`](product/lanes/design-laws.md) §§1–4 | **VS** | ~44 | React and ownership, state and reactivity, language and interop, the native boundary — the canonical owner of the native-tier laws |
 | [`lanes/hot-path-architecture.md`](product/lanes/hot-path-architecture.md) §*Owned native surface and semantic fence*, §*Explicit refusals* | WR | ~21 | The semantic fence: no macro rewrites interpreted Hiccup and only an explicit `n/$` form expands to direct React construction; the standing refusals. The rest of the file is workflow, ladder and acceptance evidence |
 | [`lanes/adversarial-risks.md`](product/lanes/adversarial-risks.md) — *Required contract* column | WR | ~15 | Per-risk required contracts stated normatively: ambient-read extent, controlled-input portability, callback retirement, hydration isolation, speculative-render residue. The other three columns are witnesses and remedies, which are working record |
-| [`lanes/use-cases.md`](product/lanes/use-cases.md) — *Fresco consequence* column | WR | ~6 | A handful of standing authoring rules stated as consequences — preserve one interpreted mode, keep read-anywhere during direct synchronous boundary execution, add no generic local-state DSL. The *Job* and *Design pressure* columns are requirements-mine material |
+| `lanes/use-cases.md` — *Fresco consequence* column | WR | ~6 | A handful of standing authoring rules stated as consequences — preserve one interpreted mode, keep read-anywhere during direct synchronous boundary execution, add no generic local-state DSL. The *Job* and *Design pressure* columns are requirements-mine material |
 | **Total** | — | **~1,138** | Seven primary carriers hold ~799; the five minority carriers hold ~339 |
 
 **Why the split matters more than either number.** A graduation that took only the seven

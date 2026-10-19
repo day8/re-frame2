@@ -1,9 +1,11 @@
 # The substrate arm: a pre-registered thirty-run window
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 `rf2-csca8` asks which of three properties carries the ~1,050 – 1,224 B cluster:
 the **uix substrate**, the **position** in the round, or the segment-order
-**mode**. [The reversed fixed arm: a pre-registered fifteen-run
-window](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md) closed the
+**mode**. The reversed fixed arm: a pre-registered fifteen-run
+window (`docs/design/fresco/studio/the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md`) closed the
 POSITION arm — with `reagent-subs` moved into the second-driven slot the cluster
 did not go with it — and left the SUBSTRATE arm open. It left it open for a
 reason it stated plainly, and the reason was not a shortage of runs:

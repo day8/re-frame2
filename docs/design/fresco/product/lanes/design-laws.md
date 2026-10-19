@@ -1,5 +1,7 @@
 # Fresco design laws
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 These laws define the product and constrain every implementation choice.
 
 ## React and ownership

@@ -1,5 +1,7 @@
 # The band, re-calibrated on the clock it judges
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **The band is widest on an idle box.** That is the finding, it is the opposite
 of what everyone including this page's author expected, and it settles a
 question that has been open since a ceiling calibrated never to fire fired

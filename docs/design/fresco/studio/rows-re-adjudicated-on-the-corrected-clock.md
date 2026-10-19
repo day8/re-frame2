@@ -1,5 +1,7 @@
 # The candidate's rows, re-adjudicated on the corrected clock
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **The mount deficit ~~is worse than published~~ reads larger on the corrected
 clock than on the clock it replaced, and the other three rows are still
 refused.** On raw `TaskDuration` — the arm's own JavaScript *and* the frame it
@@ -68,7 +70,7 @@ that `DevToolsCommandDuration` carries the page script a protocol command
 invokes. It does — but only for script that runs **inside** the command, and the
 harnesses in this programme do not all use the same door. The four
 `page.evaluate`-driven rows were corrupted; the `keystroke` row and the whole of
-the [outside cross-check](cross-checked-against-an-outside-instrument.md), which
+the outside cross-check (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`), which
 drive through the Input domain, never were ([§2](#2-the-door)).
 
 That boundary is what reconciles the three mount numbers, and it is a **third
@@ -168,7 +170,7 @@ percent on every arm. **The two clocks are complements**, which is exactly what
   reports user interactions — so `DevToolsCommandDuration` never held its
   script. Its two clocks agree to **0.3%** (1.0078× against 1.0049×), and no
   keystroke figure is restated.
-- **The [outside cross-check](cross-checked-against-an-outside-instrument.md)
+- **The outside cross-check (`docs/design/fresco/studio/cross-checked-against-an-outside-instrument.md`)
   was never corrupted either.** It clicks. Measured on that harness rather than
   inferred from this one: `run1k` reads 1.4030× on `taskNet` and 1.3913× on raw
   `TaskDuration` (−0.8%), `replace1k` 1.6265 against 1.5985 (−1.7%). Its

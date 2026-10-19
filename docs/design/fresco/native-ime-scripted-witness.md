@@ -1,5 +1,7 @@
 # Native IME on Firefox and WebKit — the scripted witness
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 > **AND THE MANUAL SESSION THIS DOCUMENT HANDS ACCEPTANCE BACK TO WAS ITSELF RETIRED** (operator ruling, 2026-08-13).
 > The session was attempted and abandoned — switching the machine's OS to Japanese proved impractical — and the
 > operator ruled the Firefox and WebKit native-IME cells of

@@ -1,7 +1,9 @@
 # The Reagent codemod, re-derived against the landed escape (rf2-2rtt6.106)
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 **This page is a successor, not a replacement.** The adjudicated record is
-[the codemod spec](reagent-codemod-spec.md); the operator's 2026-08-06 ruling on that page
+the codemod spec (`docs/design/fresco/studio/reagent-codemod-spec.md`); the operator's 2026-08-06 ruling on that page
 is the charter — *fixer first, hoist chartered as the follow-on, dispatched after
 `rf2-2rtt6.103`'s implementation merges*. Nothing here reopens either.
 
@@ -685,7 +687,7 @@ or move it decisively toward reporting.
 - The bead `rf2-2rtt6.106`, read bottom-up: its six design questions, the 2026-08-04 synthesis
   comment, the 2026-08-05 adjudication note, and the **2026-08-06 ruling** — *fixer first,
   after `.103` merges* — which is this page's charter.
-- [The adjudicated codemod spec](reagent-codemod-spec.md) — the record this page succeeds:
+- The adjudicated codemod spec (`docs/design/fresco/studio/reagent-codemod-spec.md`) — the record this page succeeds:
   the five priced candidates, the coverage measurement and its stated bias, the residence and
   corpus discipline, and the report roster this page narrows.
 - [The `[:>]` synthesized spec](raw-escape-spec.md#1-the-model-in-one-sentence) — the ruled

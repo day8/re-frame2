@@ -1,5 +1,7 @@
 # Left-field ideas
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 [`../specification.md`](../specification.md#11-innovation-portfolio) owns portfolio status and delivery order. This file defines the deciding protocols and kill conditions.
 
 ## Product workflow

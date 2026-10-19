@@ -1,5 +1,7 @@
 # The `[:>]` raw escape — the synthesized spec
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 > **BUILT, 2026-08-07 (`rf2-2rtt6.103`).** This page was the implementation brief and is
 > now also the record of what shipped. The mechanism landed as ruled: one shared
 > module-level gate, the door's `host-entry` walk against an empty declared roster, the
@@ -37,9 +39,9 @@ instruction and neither knew about the other until both had landed.
 
 | Input | Where | Lens |
 |---|---|---|
-| [Design A](raw-escape-design-a-minimal.md) | tracked | minimal surface |
-| [Design B](raw-escape-design-b-correctness.md) | tracked | derived backwards from the obligations |
-| [Design C](raw-escape-design-c-ergonomics.md) | tracked | the programmer's experience |
+| Design A (`docs/design/fresco/studio/raw-escape-design-a-minimal.md`) | tracked | minimal surface |
+| Design B (`docs/design/fresco/studio/raw-escape-design-b-correctness.md`) | tracked | derived backwards from the obligations |
+| Design C (`docs/design/fresco/studio/raw-escape-design-c-ergonomics.md`) | tracked | the programmer's experience |
 | `2026-08-04.rawescape-design-parity.md` | `ai/` — local only | maximal parity with the door |
 | `2026-08-04.rawescape-design-minimal.md` | `ai/` — local only | the deliberately dumber hatch |
 | `2026-08-04.rawescape-design-migration.md` | `ai/` — local only | the Reagent refugee's bridge |
@@ -804,8 +806,8 @@ from *any frame*.
 - The bead `rf2-2rtt6.103`, read bottom-up — its six description clauses, the 11:04
   design-phase comment naming the five edges, the booby-trap and six-designs notes, and the
   **12:06 synthesis comment**, which is the newest item on it.
-- The three tracked designs: [A](raw-escape-design-a-minimal.md),
-  [B](raw-escape-design-b-correctness.md), [C](raw-escape-design-c-ergonomics.md).
+- The three tracked designs: A (`docs/design/fresco/studio/raw-escape-design-a-minimal.md`),
+  B (`docs/design/fresco/studio/raw-escape-design-b-correctness.md`), C (`docs/design/fresco/studio/raw-escape-design-c-ergonomics.md`).
 - The six local-only documents listed in §0, quoted rather than cited wherever load-bearing.
 - [decisions.md](../decisions.md) — HD-011 and its `:ssr` addendum, HD-016, HD-020(b),
   HD-023(d), HD-024 and its Rationale.

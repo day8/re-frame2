@@ -1,5 +1,7 @@
 # The boundary crossing walk, priced — what `realize-deep` costs at the hand-off, and what its key half costs on top
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Beads** `rf2-2rtt6.45` (the crossing walk), `rf2-2rtt6.32` (the key half) · **epic** `rf2-6c12m` (this page, `rf2-76hbj`)
 **Runtime** a `:none` build under Node 22; every figure here is a **dev-build
 diagnostic** quoted for its ratios, never against the bar, per the discipline

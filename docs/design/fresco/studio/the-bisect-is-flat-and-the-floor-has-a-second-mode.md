@@ -1,5 +1,7 @@
 # The bisect is flat, and the floor has a second mode the certificate does not see
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-9jrhi`, whose operative brief is
 its 2026-08-17 13:42 comment: run the floor arm at B = 24 under `:p0/write-all`
 at revisions spanning 2026-08-08 → 2026-08-13, **on one instrument throughout**,
@@ -493,13 +495,13 @@ It launches nothing and writes nothing.
 
 ## Related
 
-- [The control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md)
+- The control's target is not the quantity it is read against (`docs/design/fresco/studio/the-controls-target-is-not-the-quantity-it-is-read-against.md`)
   — `rf2-nkeba`, which this bead follows on from and whose residual term it
   leaves unresolved for a different reason than it found.
-- [The floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md)
+- The floor certifies and the control does not (`docs/design/fresco/studio/the-floor-certifies-and-the-control-does-not.md`)
   — where the across-time clause failed, and the source of the 2026-08-08 targets.
-- [The arms' spread does not collapse (τ refused)](the-arms-spread-does-not-collapse.md)
+- The arms' spread does not collapse (τ refused) (`docs/design/fresco/studio/the-arms-spread-does-not-collapse.md`)
   — the round-indexed dispersion this page's round-4 step sits beside.
-- [The leg dispersion is in the dispatch site](the-dispersion-is-in-the-dispatch-site.md)
+- The leg dispersion is in the dispatch site (`docs/design/fresco/studio/the-dispersion-is-in-the-dispatch-site.md`)
   — the by-site instrument, and the loaded-versus-quiet finding that made this
   window dispatchable beside a working fleet.

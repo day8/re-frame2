@@ -5,7 +5,11 @@ dogfood and the eventual guide; the declaration spellings stay unfrozen until th
 donor arm and the surviving lean-React arm have measured (HD-008) — nothing here
 licenses freezing an API early. (Written when the tournament had two arms; Arm 2
 was withdrawn 2026-07-31 and the unfrozen rule is otherwise unchanged.) Decisions
-cited as HD-nnn are normative in [decisions.md](decisions.md).
+cited as HD-nnn are recorded in [decisions.md](decisions.md). The surface this
+page designed is now stated by the
+[authoring contract](../../../implementation/fresco/spec/authoring-contract.md),
+which governs: where this page differs from it, the contract is right and this
+page is history.
 
 ## Views and reads
 

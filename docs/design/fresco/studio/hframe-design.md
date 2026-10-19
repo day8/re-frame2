@@ -1,5 +1,7 @@
 # `h/frame` — the author-facing frame read, and what `rf2-2rtt6.122` did to its premise
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Bead**: `rf2-2rtt6.118`. **Status**: designed, adversarially reviewed,
 synthesized, and **ruled BUILD** by the operator. This page is the tracked
 record of that ruling; the design pass and the attack that corrected it were

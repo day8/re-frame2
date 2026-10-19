@@ -1,5 +1,7 @@
 # Our walk, decomposed against Reagent's own
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history. A page it names that has left the tree reads from git history at commit `0b8fe8c3ba`.
+
 `rf2-2rtt6.63` is the outcome bead for the mount deficit, and it opens on a
 premise: the whole clock deficit follows the interpreter, stock Reagent's own
 interpreter proves a runtime walk can be nearly free, so the question is **why
@@ -187,7 +189,7 @@ so the nesting is visible.
 the cached prop-name lookup and the value conversion for every prop it emits.
 The two are priced separately so the pipeline has named parts — the same
 relation `:cedn` and `:lookup` have to `route-url` on the
-[route-link page](the-route-link-render-term-priced.md) — and, like those, they
+route-link page (`docs/design/fresco/studio/the-route-link-render-term-priced.md`) — and, like those, they
 are **shares of the row above rather than stages beside it**. The tag lookup is
 not nested: the instrument precomputes the parsed tag outside the pipeline's
 window precisely so that row prices one thing.

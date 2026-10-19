@@ -1,5 +1,7 @@
 # The vertical slice — authoring report
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 What it was like to write a small complete application on the Fresco public door, and nothing else. Produced by **rf2-hic-025**; raw material for the ordinary-facade freeze at **rf2-hic-026**, which governs what is done about any of it.
 
 The application is `re-frame.fresco.examples.slice.*` under `implementation/fresco/test/`. Seven namespaces, five suites. Two routes, a keyed list, an article editor with controlled fields, an async mutation with a real server-side refusal, an error region, a reset, and a runtime locale and theme switch.

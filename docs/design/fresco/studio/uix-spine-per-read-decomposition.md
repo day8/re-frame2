@@ -1,5 +1,7 @@
 # The UIx spine's per-read allocation, decomposed
 
+> **Design history.** This page records how Fresco was designed and does not govern it. What the package promises is the [authoring contract](../../../../implementation/fresco/spec/authoring-contract.md); where this page differs from it, the contract is right and this page is history.
+
 **Bead** `rf2-2rtt6.12` · **epic** `rf2-2rtt6` (EP-0038) · **Wave 0**
 **Landed instrument commit `24e8822d7f`** · **measured** 2026-07-31 AUSEST
 **Runtime for every figure on this page: headless Chromium, `:advanced`, `goog.DEBUG false`.**
