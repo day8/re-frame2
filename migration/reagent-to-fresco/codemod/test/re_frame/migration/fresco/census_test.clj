@@ -264,9 +264,9 @@
 (deftest a-roster-name-resolves-by-require
   (testing "a name resolves through the context its require binds"
     (doseq [[require-spec flags classes] [["[reagent.dom.client :as x]"   [true false] []]
-                                          ["[re-frame.adapter.uix :as x]" [false true] [:substrate-test-seam]]]]
+                                          ["[re-frame.adapter.uix :as x]" [false true] [:root-mount]]]]
       (let [{:keys [entries reagent? substrate?]}
-            (scan (str "(ns app.t\n  (:require " require-spec "))\n\n(defn settle [] (x/flush-views!))\n")
+            (scan (str "(ns app.t\n  (:require " require-spec "))\n\n(defn boot [] (x/render! nil nil nil))\n")
                   "app/t.cljs")]
         (is (= [flags classes] [[reagent? substrate?] (mapv :class entries)])
             require-spec)))))
