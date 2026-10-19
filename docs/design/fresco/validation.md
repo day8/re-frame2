@@ -222,7 +222,8 @@ absolute, which moves 1.6–1.9× over that range, but not exactly.
   Fast applications are the goal — never SSR or test-lane speed.
 - **W1 baseline carry-over**: the discrepancy is already resolved in the
   tracked record (`docs/design/freehand/studio/bulk-rerender-where-the-time-goes.md`
-  appendix — 2.987 operative; 1.904 was a different witness/door; re-run 3.075).
+  appendix, in git history at commit `9cee47cf38` — 2.987 operative; 1.904 was a
+  different witness/door; re-run 3.075).
   P0 carries ≈2.99–3.08× floor / ≈1.9–2.0× Reagent into the baseline table and
   links the residual attribution bead; no re-litigation.
 - Output: the standard bead's numbers.

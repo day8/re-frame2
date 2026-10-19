@@ -462,7 +462,8 @@ theme as a pure, equality-testable tree transform merged
 Foreign providers a hosted library demands are declared through `defhost`.
 Two laws bound the mechanism (law (a) and the structure-through-slots half of
 (b) inherited from the predecessor's ruled theming decision,
-`docs/design/freehand/decisions/D018-theming-and-parts.md`; the boot-static
+`docs/design/freehand/decisions/D018-theming-and-parts.md`, in git history at
+commit `9cee47cf38`; the boot-static
 part→class rule is a Fresco strengthening): **(a) the owned-literal merge law** —
 `:key`, `:ref`, controlled `:value`/`:checked`, and owned event handlers are
 unoverridable by theme or parts; a theme can style a field, never rewrite its
@@ -1285,7 +1286,7 @@ rejected/unchanged-model path leans on React's own controlled restore for the
 **caret**, which the arm takes itself in the element path — `rf2-n3dxw`
 measured the gap, `rf2-fki5d` closed it. Resets are by **explicit caller
 revision, never value equality** (the
-predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`). The browser witnesses that prove the door
+predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`, in git history at commit `9cee47cf38`). The browser witnesses that prove the door
 are the 100-cell grid rows: same-turn echo, mid-string caret, selection,
 unchanged-model rejection, async normalisation. **The IME witness is narrower
 than the other five, and is recorded as such.** What is proven is the *commit*

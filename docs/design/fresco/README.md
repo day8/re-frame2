@@ -25,10 +25,11 @@ standard bead carries the live bar/kill numbers.
 exploration corpus that lived in the untracked local `ai/findings/new-view/`
 tree (three per-model charters, two independent multi-lens review cycles, a
 paper budget, and the `spike-01` index model); nothing load-bearing remains only
-there. The requirements harness is tracked at
-`docs/design/freehand/studio/fitness-harness.md`; measured claims cite the
+there. The requirements harness was tracked at
+`docs/design/freehand/studio/fitness-harness.md`, removed from the tree with the rest of
+the Freehand record and read from git history at commit `9cee47cf38`; measured claims cite the
 repo's studio/bench record and beads. The bench lane those measurements were taken on lives at `bench/fresco/` since 2026-08-29 (rf2-6c12m.1; its README maps the older `implementation/fresco/test/re_frame/bench/fresco/` paths cited across this record). Programme measurements land in
 `docs/design/fresco/studio/` (minted by the first P0 worker).
 
-Like `design/freehand/`, this tree is excluded from the published mkdocs site and
-is read in the source tree.
+This tree is excluded from the published mkdocs site and is read in the source
+tree.

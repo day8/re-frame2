@@ -1970,9 +1970,8 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # `docs/design/fresco/` is a working design record whose fences are Clojure,
 # bash and captured output; it measures clean, so the check is green.
 #
-# `docs/design/freehand/` measures clean too and is the same class of artefact —
-# a defensible extension, deliberately not taken here: widening a gate past its
-# evidence is how gates acquire a reputation for arbitrary friction.
+# Measuring clean is not by itself a reason to cover a tree: widening a gate
+# past its evidence is how gates acquire a reputation for arbitrary friction.
 #
 # `docs/the-mayor-method/` is covered on exactly that evidence standard: a
 # file like `bootstrap.md` IS a pasteable prompt, so the fence is the

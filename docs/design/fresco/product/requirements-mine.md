@@ -12,7 +12,7 @@ This is a seed, not a survey. The ledger's rows are exactly the [§7 coverage ro
 |---|---|
 | Job | The application job, named exactly as [§7](specification.md#7-complete-use-case-coverage) names it. |
 | Observed frequency | Counts from the revision-pinned census, or an explicit zero. A zero is a measurement, not a shrug. |
-| Failure modes | How the job goes wrong, cited to [fitness-harness](../../freehand/studio/fitness-harness.md) requirement ids where the harness reaches the job. |
+| Failure modes | How the job goes wrong, cited to fitness-harness (`docs/design/freehand/studio/fitness-harness.md`, in git history at commit `9cee47cf38`) requirement ids where the harness reaches the job. |
 | Home | The layer that answers it: core surface, optional module, recipe, named React escape, or didactic refusal. |
 | Owner | The bead accountable for carrying the answer to done. **A provenance citation, not a resolvable pointer** — it names the bead under which the answer was carried, and it need not still resolve in the tracker ([maintenance rule 7](#maintenance-rule)). |
 | Executable witness | What proves it. A cited path exists today; otherwise the artefact is named and owed by a bead. |
@@ -149,7 +149,7 @@ What the census weakly represents is recorded on the row, not hidden: refs, port
 
 ## Seed source: the fitness-harness requirement ids
 
-The failure-mode column is seeded from the [fitness harness](../../freehand/studio/fitness-harness.md), the standing acceptance corpus. Its ids are stable and are cited directly on the rows above.
+The failure-mode column is seeded from the fitness harness (`docs/design/freehand/studio/fitness-harness.md`, read from git history at commit `9cee47cf38` since the Freehand record left the tree), the standing acceptance corpus. Its ids are stable and are cited directly on the rows above.
 
 | Family | Ids | The case it binds | Ledger rows it seeds |
 |---|---|---|---|

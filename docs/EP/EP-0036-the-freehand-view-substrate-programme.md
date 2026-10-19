@@ -15,10 +15,13 @@ Resolution: accepted 2026-07-22 (D001–D021 ratified and folded); withdrawn 202
 > record of the programme and no work is in flight under it: the withdrawal
 > banner's "**The code is not removed**" paragraph states the disposition as it
 > stood on 2026-07-30, and `rf2-0yp7w` is the separate, later decision it
-> anticipated. The design record is not affected — `docs/design/freehand/`
-> remains a durable frozen record per
+> anticipated. The design record outlived the code: `docs/design/freehand/`
+> stayed a durable frozen record per
 > [§Design-record posture](#design-record-posture) below, re-affirmed by the
-> `rf2-0moc4` ruling of 2026-08-18.
+> `rf2-0moc4` ruling of 2026-08-18, until the operator ruling of 2026-10-19
+> (`rf2-fze7h`) removed it from the tree. Every `docs/design/freehand/` path
+> this EP cites now reads from git history at commit `9cee47cf38`, the last
+> trunk commit carrying the record (`git show 9cee47cf38:<path>`).
 >
 > **Successor record — 2026-08-31.**
 > [EP-0038](EP-0038-the-fresco-view-layer-programme.md) was filed later on

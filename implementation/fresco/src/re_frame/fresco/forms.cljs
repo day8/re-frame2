@@ -30,11 +30,10 @@
   (`implementation/fresco/scripts/check_optional_module_reachability.py`,
   `implementation/fresco/scripts/check_bundle_isolation.cjs`).
 
-  The chapter `docs/core/fresco/05-forms.md` governs the surface. The
-  buffered/draft/revision protocol is D016's
-  (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`),
-  except that a rejection needs no revision here: the commit ends the
-  session before the caller's handler runs.
+  The chapter `docs/core/fresco/05-forms.md` governs the surface, the
+  buffered/draft/revision protocol included. Resets go by explicit caller
+  revision, never value equality, yet a rejection needs no revision here:
+  the commit ends the session before the caller's handler runs.
   The scope is naming-ledger row 16
   (`docs/design/fresco/product/naming-ledger.md`); the recipes the module
   is written on, and the validation and submit orchestration it
