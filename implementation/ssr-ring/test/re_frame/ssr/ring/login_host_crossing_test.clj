@@ -83,7 +83,6 @@
     (fn []
       (require 're-frame.cofx :reload)
       (require 're-frame.http.managed :reload)
-      (require 're-frame.http.test-support :reload)
       (require 're-frame.machines :reload)
       (require 'login.model :reload)
       (f))))

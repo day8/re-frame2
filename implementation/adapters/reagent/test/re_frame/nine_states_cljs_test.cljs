@@ -9,13 +9,9 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
-            ;; Registers `:rf.http/managed-canned-failure`, the fx the failing
-            ;; Story variant routes `:rf.http/managed` to.
-            [re-frame.http.test-support]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [nine-states.core]
-            ;; Registers `:nine-states.story/load-failing`, the failing
-            ;; variant's setup event.
-            [nine-states.stories])
+            [nine-states.stories :as nine-states.stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
@@ -33,16 +29,17 @@
   (rf/compute-sub [:ui/render] (rf/frame-state-value frame)))
 
 (defn- new-frame
-  ([] (new-frame {:rf.http/managed :nine-states.http/managed-demo}))
-  ([fx-overrides]
-   (rf.frame/make-anon-frame-record!
-     {:initial-events [[:nine-states.app/initialise]]
-      :fx-overrides   fx-overrides})))
+  "A fresh frame booted by `:nine-states.app/initialise`, its managed HTTP
+   answered by the example's own fake server."
+  []
+  (let [f (rf.frame/make-anon-frame-record! {:initial-events [[:nine-states.app/initialise]]})]
+    (rf.http.stub-transport/install-transport! f nine-states.core/demo-transport)
+    f))
 
 (deftest nine-states-runs-end-to-end
   (doseq [[state events tags render]
           [["1 nothing" [] #{:data/nothing} :nothing]
-           ;; The demo stub replies synchronously, so :loading is observed by
+           ;; The fake server replies synchronously, so :loading is observed by
            ;; dispatching :fetch-started with no reply.
            ["2 loading" [[:ui/nine-states [:fetch-started]]] #{:data/loading :data/transient} :loading]
            ["2 loading, then a load" [[:ui/nine-states [:fetch-started]] [:nine-states.demo/load {:n 4}]]
@@ -135,17 +132,25 @@
     (is (= ["Buy milk" "Buy eggs"] (mapv :title (rf/compute-sub [:todos/items] (rf/frame-state-value f))))
         "the invalid submit added nothing")))
 
-;; The `:story.nine-states-lifecycle/*` variants in
-;; examples/patterns/nine_states/stories.cljs differ only in the managed-HTTP
-;; stub they stamp; each must take its own branch.
-(deftest story-lifecycle-variants-take-their-own-path
-  (testing "the :error variant's canned-failure override lands :data at :error"
-    (with-new-frame [f (new-frame {:rf.http/managed :rf.http/managed-canned-failure})]
-      (rf/dispatch-sync [:nine-states.story/load-failing] {:frame f})
+;; The loading variants in examples/patterns/nine_states/stories.cljs answer
+;; the live example's load events from `demo-network`, their `:network`
+;; fixture. Each request a variant issues must find its route.
+(defn- story-frame []
+  (let [f (rf.frame/make-anon-frame-record! {:initial-events [[:nine-states.app/initialise]]})]
+    (rf.http.stub-transport/install-transport!
+      f (rf.http.stub-transport/route-transport nine-states.stories/demo-network))
+    f))
+
+(deftest story-network-fixture-answers-every-variant-load
+  (testing "each count a variant loads lands in its cardinality bucket"
+    (doseq [[n render] [[0 :empty] [1 :one] [4 :some] [25 :too-many]]]
+      (with-new-frame [f (story-frame)]
+        (rf/dispatch-sync [:nine-states.demo/load {:n n}] {:frame f})
+        (is (= render (render-model f)) (str n " todos")))))
+  (testing "the :error variant's failing load lands :data at :error"
+    (with-new-frame [f (story-frame)]
+      (rf/dispatch-sync [:nine-states.demo/load-with-failure] {:frame f})
       (is (= :error (render-model f)))
-      (is (some? (rf/compute-sub [:todos/error] (rf/frame-state-value f)))
-          "the failure value is recorded in the machine's :data :error slot")))
-  (testing "the :loaded variant's canned-success default still loads"
-    (with-new-frame [f (new-frame {:rf.http/managed :rf.http/managed-canned-success})]
-      (rf/dispatch-sync [:nine-states.story/load {:n 4}] {:frame f})
-      (is (= :some (render-model f))))))
+      (is (= "Network unreachable."
+             (:message (rf/compute-sub [:todos/error] (rf/frame-state-value f))))
+          "the transport failure is recorded in the machine's :data :error slot"))))

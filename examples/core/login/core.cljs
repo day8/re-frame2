@@ -2,7 +2,7 @@
   "A login feature, end to end — the Reagent entry point.
 
    The whole login model — the state machine, the schemas, the form-slice
-   events and subs, the demo HTTP stub, and the shared frame config — lives in
+   events and subs, the demo HTTP backend, and the shared frame config — lives in
    the substrate-free [`login.model`](model.cljc) namespace, required below for
    its side-effecting registrations. That namespace is the ONE owner of the
    `auth.login` dataflow; read it for the ideas (the five-state login machine,
@@ -30,6 +30,7 @@
             ;; hands us `model/frame-config` for the mount below. It names no
             ;; substrate — see model.cljc.
             [login.model :as model]
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -141,14 +142,17 @@
     ;; once, and scopes the frame into React. On hot reload it finds the frame
     ;; already there and leaves it alone — no double-seed. See docs/core/frames.md.
     ;;
-    ;; `model/frame-config` supplies the substrate-free half — the demo-stub
-    ;; `:fx-overrides` and the slice-seeding `:initial-events` shared by all
-    ;; three login mounts — and we add the `:id` / `:doc` for this frame.
+    ;; `model/frame-config` supplies the substrate-free half — the
+    ;; slice-seeding `:initial-events` shared by all three login mounts — and
+    ;; we add the `:id` / `:doc` for this frame. The fake backend goes on
+    ;; first: `model/demo-backend`, installed as the frame's stub transport,
+    ;; answers the login request so the example needs no server.
     ;;
     ;; And the root isn't optional scenery: its scope is the reason the
     ;; views' injected `dispatch`/`subscribe` (and the machine reads) know to
     ;; talk to `:rf/default`. Render a `reg-view` outside any frame scope and it
     ;; fails loud rather than guessing.
+    (stub-transport/install-transport! :rf/default model/demo-backend)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root (merge {:id  :rf/default
                              :doc "Login demo frame."}

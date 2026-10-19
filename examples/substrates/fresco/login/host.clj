@@ -140,17 +140,13 @@
 
   `:payload` is the browser's allowlist; `:render-state` — an opt on the
   RENDERER, since the renderer is what projects — is
-  `policy/render-state-policy`. `:initial-events` and `:fx-overrides` come
-  from the shared `model/frame-config`, so the server seeds and stubs the
-  frame exactly as the browser boot does and the two halves render the
-  same page from the same events."
+  `policy/render-state-policy`. `:initial-events` comes from the shared
+  `model/frame-config`, so the server seeds the frame exactly as the
+  browser boot does and the two halves render the same page from the same
+  events."
   [{:keys [endpoint build-id]}]
   (rf.ssr.ring/ssr-handler
     {:initial-events (:initial-events model/frame-config)
-     ;; The demo HTTP stub, remapped for this frame exactly as the browser
-     ;; mount remaps it. No request is issued during a server render, but
-     ;; the frame is configured the same either way.
-     :fx-overrides   (:fx-overrides model/frame-config)
      ;; What the BROWSER may see: the form slice, and nothing else.
      :payload        [:auth]
      ;; No `:root-view` — only the default JVM-local renderer reads one.

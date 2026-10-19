@@ -1,13 +1,11 @@
-(ns re-frame.example-login-stub-fx-args-redaction-cljs-test
-  "The login examples remap `:rf.http/managed` to the demo stub
-   `:auth.login.demo/managed-stub`, so the stub's `:rf.fx/handled` trace
-   carries the raw login request. A `:sensitive? true` request redacts there
-   because the redirect stamps `:rf.fx/from` and the projector composes the
-   original fx's per-call classification; an unflagged request relies on the
-   stub's own `:sensitive [[:request :body :password]]`."
+(ns re-frame.example-login-request-redaction-cljs-test
+  "The login examples answer `:rf.http/managed` from `login.model/demo-backend`,
+   a stub transport, so the login request runs through the real
+   `:rf.http/managed`. Its `:sensitive? true` keeps the password off every
+   trace — the fx's `:rf.fx/handled` trace and every `:rf.http/*` trace the
+   request emits — while the password still goes out on the wire."
   (:require [cljs.test :refer-macros [deftest use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.classification :as rf.classification]
             [re-frame.privacy :as rf.privacy]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -15,8 +13,8 @@
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http.managed]
-            [re-frame.http.test-support]
-            [login.model])
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
+            [login.model :as model])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
@@ -24,7 +22,7 @@
     {:adapter rf.adapter.reagent/adapter}))
 
 ;; A valid Credentials password that appears nowhere else.
-(def sentinel "PW-STUB-ARGS-SENTINEL-4c1f9e")
+(def sentinel "PW-REQUEST-SENTINEL-4c1f9e")
 
 (defn- contains-sentinel?
   [x]
@@ -40,33 +38,32 @@
     a))
 
 (defn- seed+submit!
-  "Type a valid draft carrying the sentinel, then submit through the same
-   `:fx-overrides` remap the shared `frame-config` installs."
+  "Type a valid draft carrying the sentinel, then submit it."
   [f]
   (rf/dispatch-sync [:auth.login/initialise-form] {:frame f})
   (rf/dispatch-sync [:auth.login/edit-field :email "alice@example.com"] {:frame f})
   (rf/dispatch-sync [:auth.login/edit-password {:value sentinel}] {:frame f})
-  (rf/dispatch-sync [:auth.login/submit-form]
-                    {:frame        f
-                     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}}))
+  (rf/dispatch-sync [:auth.login/submit-form] {:frame f}))
 
-(deftest stub-declares-its-own-sensitive-request-body-password
-  (is (= {:sensitive [[:request :body :password]]}
-         (rf.classification/registration-classification :fx :auth.login.demo/managed-stub))))
-
-(deftest stub-fx-handled-trace-redacts-request-body-password
+(deftest login-request-traces-never-carry-the-password
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (let [traces (record-traces! ::probe)]
+    (let [sent   (atom [])
+          traces (record-traces! ::probe)]
+      (rf.http.stub-transport/install-transport!
+        f (fn [wire callbacks]
+            (swap! sent conj (:body wire))
+            (model/demo-backend wire callbacks)))
       (seed+submit! f)
       (rf/unregister-listener! :trace ::probe)
+      (is (contains-sentinel? @sent)
+          "control: the password went out on the wire to the demo backend")
       (let [handled (->> @traces
-                         (filter #(= :auth.login.demo/managed-stub
-                                     (get-in % [:tags :rf.fx/id]))))]
+                         (filter #(= :rf.http/managed (get-in % [:tags :rf.fx/id]))))]
         (is (seq handled)
-            "the demo stub ran and emitted a :rf.fx/handled trace")
+            "the real :rf.http/managed ran and emitted a :rf.fx/handled trace")
         (doseq [ev handled]
           (is (= rf.privacy/redacted-sentinel
                  (get-in ev [:tags :rf.fx/args :request :body]))
-              "the :sensitive? true request's whole body reads :rf/redacted")
-          (is (not (contains-sentinel? (:tags ev)))
-              "the password appears nowhere raw in the stub's trace tags"))))))
+              "the :sensitive? true request's whole body reads :rf/redacted")))
+      (is (= [] (mapv :operation (filter #(contains-sentinel? (:tags %)) @traces)))
+          "the password appears raw in no trace tag"))))

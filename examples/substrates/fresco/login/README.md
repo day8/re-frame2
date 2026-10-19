@@ -14,7 +14,7 @@ layer, instead of Reagent.
 
 Everything below the view layer stays the same, because it is literally the same
 source. The schemas, the five-state machine, the form-slice events, the named
-subscriptions and the canned HTTP stub all live in one substrate-free namespace,
+subscriptions and the demo HTTP backend all live in one substrate-free namespace,
 `login.model` ([`examples/core/login/model.cljc`](../../../core/login/model.cljc)),
 which this example `:require`s and both twins import unchanged. Only the views
 and the boot are written differently.
@@ -74,6 +74,8 @@ what each one holds constant.
 (defonce app-root (rf.fresco/client-root))        ;; inert; no DOM at load
 
 (rf/init! rf.fresco.substrate/adapter)            ;; 1. seat an adapter
+(stub-transport/install-transport!                ;;    the fake backend
+  frame-id model/demo-backend)
 (rf.fresco/render! app-root                       ;; 2. one React root
   [rf.fresco/frame-root (merge {:id  frame-id     ;; 3. one frame, whole config
                                 :doc "Login (Fresco) demo frame."}
@@ -104,10 +106,11 @@ coordinate — and it is not optional, since creating a frame asks the adapter f
 a state container.
 
 `model/frame-config` is the substrate-free half of the boot, shared verbatim
-with the Reagent and UIx twins: `:fx-overrides` points `:rf.http/managed` at the
-in-process demo stub, and `:initial-events` seed the form slice before the first
-paint. **It rides `rf.fresco/frame-root` whole**, because `frame-root` takes the
-`rf/make-frame` option map rather than a curated subset.
+with the Reagent and UIx twins: its `:initial-events` seed the form slice before
+the first paint. **It rides `rf.fresco/frame-root` whole**, because `frame-root`
+takes the `rf/make-frame` option map rather than a curated subset. The fake
+backend is not config: `model/demo-backend` is a stub transport, installed on
+the frame before it renders, so the example needs no server.
 
 This example used to be the odd one out. The root door's config was closed at
 three keys, `:fx-overrides` was not among them, and keys outside the three were
@@ -157,7 +160,7 @@ One command. It starts `shadow-cljs watch` (edits recompile live), serves the
 example on a free local port, and prints the URL to open. Add `--no-watch` for a
 one-shot compile-and-serve.
 
-No backend ships. The login runs against the canned HTTP stub in
+No backend ships. The login runs against the demo HTTP backend in
 [`login.model`](../../../core/login/model.cljc), so the password
 `correct-horse` succeeds and anything else fails the way the machine expects.
 
@@ -372,7 +375,7 @@ alias:
 ```
 
 Fresco supplies core and SSR transitively, schemas supplies Malli, and HTTP
-supplies the demo stub. Copy [`core.cljs`](core.cljs) to
+supplies the stub transport the demo backend runs on. Copy [`core.cljs`](core.cljs) to
 `src/fresco/login/core.cljs` and the shared
 [`login/model.cljc`](../../../core/login/model.cljc) to `src/login/model.cljc`;
 set the browser build's `:init-fn` to `fresco.login.core/run`. The repository's

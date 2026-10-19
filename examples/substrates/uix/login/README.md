@@ -13,7 +13,7 @@ the pixels. Here that's UIx instead of Reagent.
 
 Everything below the [view](../../../../docs/core/glossary.md#view) layer stays
 the same — the same schemas, the same machine, the same named subscriptions,
-the same canned HTTP stub — because it is literally the same source. All of it
+the same demo HTTP backend — because it is literally the same source. All of it
 lives in one substrate-free namespace, `login.model`
 ([`examples/core/login/model.cljc`](../../../core/login/model.cljc)), which this
 example `:require`s and both twins — Reagent and
@@ -137,7 +137,7 @@ One command. It starts `shadow-cljs watch` (edits recompile live), serves the
 example on a free local port, and prints the URL to open. Add `--no-watch` for a
 one-shot compile-and-serve.
 
-No backend ships. The login runs against the canned HTTP stub in
+No backend ships. The login runs against the demo HTTP backend in
 [`login.model`](../../../core/login/model.cljc), so the password
 `correct-horse` succeeds and anything else fails the way the machine expects.
 
@@ -163,7 +163,7 @@ Use the same version for every `day8/re-frame2*` artifact. Copy both this
 [`core.cljs`](core.cljs) and [`login/model.cljc`](../../../core/login/model.cljc)
 onto your source path, preserving their namespace paths (`uix/login/core.cljs`
 and `login/model.cljc`). The schemas artifact supplies Malli; the HTTP artifact
-supplies the demo stub as well as managed HTTP. The repository's aggregate build
+supplies the demo backend's stub transport as well as managed HTTP. The repository's aggregate build
 already includes these modules, so compiling here alone does not check an app's
 dependency list.
 

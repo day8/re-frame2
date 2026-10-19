@@ -39,6 +39,7 @@
             ;; boot below. It names no substrate — the Fresco code lives only
             ;; here.
             [login.model :as model]
+            [re-frame.http.stub-transport :as stub-transport]
             [re-frame.fresco :as rf.fresco]
             ;; The client half of an SSR route: `rf.ssr/hydrate!` installs the
             ;; server's app-db from `__rf_payload` BEFORE the first client
@@ -237,13 +238,14 @@
 ;;   2. `[rf.fresco/frame-root {…}]` creates the frame — ONCE, in the tree, with
 ;;      `model/frame-config` merged in. That config is the substrate-free half
 ;;      of the boot, shared verbatim with the Reagent and UIx twins: its
-;;      `:fx-overrides` points `:rf.http/managed` at the in-process demo stub
-;;      (so the example needs no backend), and its `:initial-events` seed the
-;;      form slice before the first paint — skip that and the inputs read `nil`
-;;      for their `:value` and React quietly demotes them to uncontrolled.
+;;      `:initial-events` seed the form slice before the first paint — skip
+;;      that and the inputs read `nil` for their `:value` and React quietly
+;;      demotes them to uncontrolled. Just before it, `run` installs
+;;      `model/demo-backend` as the frame's stub transport, so the example
+;;      needs no backend.
 ;;
-;;      `frame-root` takes the `rf/make-frame` option map WHOLE, so
-;;      `:fx-overrides` rides it like any other option and there is no separate
+;;      `frame-root` takes the `rf/make-frame` option map WHOLE, so the config
+;;      rides it like any other option and there is no separate
 ;;      `rf/make-frame` call to keep in step with the mount.
 ;;
 ;;   3. `rf.fresco/render!` associates the DOM node with one root view,
@@ -332,14 +334,15 @@
   (rf/init! rf.fresco.substrate/adapter)
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
+    (stub-transport/install-transport! frame-id model/demo-backend)
     (let [payload (rf.ssr/read-server-payload)
           opts    {:identifier-prefix identifier-prefix}]
       (if (some? payload)
         ;; SSR: STATE COMES FIRST, and that is why this branch — and only
         ;; this branch — still calls `rf/make-frame` by hand. `rf.ssr/hydrate!`
         ;; dispatches `[:rf/hydrate payload]` INTO a frame; it does not make
-        ;; one, and the frame it dispatches into needs `:fx-overrides` already
-        ;; installed. So the frame is made, the payload replaces its app-db,
+        ;; one, and the frame it dispatches into must already exist. So the
+        ;; frame is made, the payload replaces its app-db,
         ;; and the tree SCOPEs the result. An ENSURE in the tree here would
         ;; be the wrong SHAPE: its first render emits no descendant subtree,
         ;; where an adopting root has to render the server's element shape on

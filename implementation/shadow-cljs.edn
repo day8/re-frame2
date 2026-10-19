@@ -1832,7 +1832,7 @@
   ;; (loading / loaded / error). Hash-routed via
   ;; `nine-states.stories-host/run`: `#/` renders the live app; `#/stories`
   ;; mounts the Story shell. The Xray preload is wired so a reader can
-  ;; press Ctrl+Shift+C and watch the `:nine-states.story/load` →
+  ;; press Ctrl+Shift+C and watch the `:nine-states.demo/load` →
   ;; `:rf.http/managed` → reply cascade light up Xray's Epoch / Trace /
   ;; Side Effects panels.
   ;;
