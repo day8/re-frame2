@@ -36,7 +36,7 @@ In a development build each schema is checked where its data is produced, and a 
 
 Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`).
 
-Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and resources (`:params-schema`; [`reg-resource`](re-frame.resources.md#reg-resource)) also validate through this validator but report their own errors; each of those entries says when its check runs and what a failure does. A `{:recordable? true}` coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
+Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and resources (`:params-schema`; [`reg-resource`](re-frame.resources.md#reg-resource)) also validate through this validator but report their own errors; each of those entries says when its check runs and what a failure does. A recordable coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
 
 ### Failure reports
 
