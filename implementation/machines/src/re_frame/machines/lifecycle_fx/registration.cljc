@@ -678,7 +678,9 @@
         (assoc ctx :snapshot
                (assoc snapshot :data
                       (rf.machines.lifecycle-fx.resolver/apply-on-done
-                        on-done (:data snapshot) (:result completion)
+                        on-done
+                        (rf.machines.transition/callback-ctx (:machine ctx) snapshot (:inner-event ctx))
+                        (:result completion)
                         {:actor-id (:machine-id ctx)
                          :state    (:state snapshot)
                          :frame    (:frame-id ctx)}))))

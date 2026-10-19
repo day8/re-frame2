@@ -210,20 +210,23 @@
   (:spawn-all (invoke-node-at parent-spec invoke-id)))
 
 (defn apply-on-done
-  "Run ONE `:on-done` completion fold against a parent's `:data`, returning the
-  new `:data` map.
+  "Run ONE fn `:on-done` completion fold against a parent, returning the
+  parent's new `:data` map.
 
   This is the SINGLE application site for the `:on-done` contract, shared by
   both spawn forms — a `:spawn` parent's `:on-done` (applied at the parent's
   handler boundary when the reserved completion carrier arrives) and a
   `:spawn-all` child spec's per-child `:on-done` (applied by the join fold at
-  that child's successful finality only). Per Spec 005 §Final states the
-  callback receives one context-map arg and returns the new `:data` map:
+  that child's successful finality only). Per Spec 005 §Path conventions in
+  machine bodies the callback reads the SAME context map every machine
+  callback reads — `ctx`, the parent's `transition/callback-ctx` against the
+  completion carrier — plus `:result`, and returns the new `:data` map, which
+  replaces the parent's:
 
-      (fn [{:keys [data result]}] new-data)
+      (fn [{:keys [data result state event]}] new-data)
 
-  `on-done` may be nil (the common case — no fold declared), in which case
-  `data` rides through untouched.
+  A nil return leaves `:data` as it was. `on-done` may be nil (the common case
+  — no fold declared), in which case `:data` rides through untouched.
 
   A throwing fold is CONTAINED: the parent's `:data` is left exactly as it was
   and the completion still lands, because a presentation callback must not be
@@ -235,10 +238,11 @@
   under `:advanced` + `goog.DEBUG=false`. `err-ctx` supplies the reporting
   coordinates (`:actor-id` — the PARENT actor whose `:data` was being folded —
   plus optional `:state`, `:frame`, `:child-id`)."
-  [on-done data result {:keys [actor-id state frame child-id]}]
+  [on-done ctx result {:keys [actor-id state frame child-id]}]
   (if on-done
-    (let [new-data (try
-                     (on-done {:data data :result result})
+    (let [data     (:data ctx)
+          new-data (try
+                     (on-done (assoc ctx :result result))
                      (catch #?(:clj Throwable :cljs :default) e
                        ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose;
                        ;; see error-emit). `:state` is the state the parent
@@ -270,4 +274,4 @@
                              (some? child-id) (assoc :child-id child-id))))
                        nil))]
       (if (some? new-data) new-data data))
-    data))
+    (:data ctx)))

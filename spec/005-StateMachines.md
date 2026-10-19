@@ -290,8 +290,8 @@ A transition spec for `:on` may be:
 {:on {:right-click-circle
       {:target :editing
        :guard  :circle-exists?
-       :action (fn [{[_ id radius] :event}]
-                 {:data {:circle-id id :initial-radius radius :preview-radius radius}})}}}
+       :action (fn [{data :data [_ id radius] :event}]
+                 {:data (assoc data :circle-id id :initial-radius radius :preview-radius radius)})}}}
 
 ;; multiple candidates with guards (first matching wins)
 {:on {:submit
@@ -338,7 +338,7 @@ A **non-namespaced** event id (a bare `:go`) has no `:ns/*` tier — only the ex
                   :mouse/*    {:action :note-move}        ;; any other :mouse/... event
                   :*          {:action :log-unknown}}}    ;; anything else
 
- :listening {:on {:msg/data {:action (fn [{ev :event}] {:data {:last ev}})}
+ :listening {:on {:msg/data {:action (fn [{data :data ev :event}] {:data (assoc data :last ev)})}
                   :*        {:action (fn [{ev :event}] {:fx [[:log/unknown ev]]})}}}}
 ```
 
@@ -433,11 +433,11 @@ The machine context map surfaces the **whole** recordable-coeffect record under 
 
 ```clojure
 ;; a guard / action that needs "now" reads the recorded fact, NOT (js/Date.now)
-:guard  (fn [{cofx :rf.cofx}]
+:guard  (fn [{data :data cofx :rf.cofx}]
           (> (- (:rf/time-ms cofx) (:started-at data)) timeout-ms))
 
-:action (fn [{cofx :rf.cofx}]
-          {:data {:completed-at (:rf/time-ms cofx)}})   ;; durable, replayable
+:action (fn [{data :data cofx :rf.cofx}]
+          {:data (assoc data :completed-at (:rf/time-ms cofx))})   ;; durable, replayable
 ```
 
 The `:rf.cofx` record carries `:rf/time-ms` whenever the machine is driven through the normal dispatch path (the router always stamps it). It is **absent** when the engine is driven as a pure function with no router coeffect (the conformance corpus / JVM fixtures); a destructure of `:rf.cofx` then binds `nil`, so pure-fn callers are unaffected. Region callbacks (inside a parallel machine) receive the same record.
@@ -462,7 +462,7 @@ A fact-consuming guard/action declares its requirements with **`:rf.cofx/require
 {:schedule-retry
  {:rf.cofx/requires [:payment/retry-jitter-ms]
   :fn (fn [{:keys [data payment/retry-jitter-ms]}]
-        {:data {:next-retry-in (+ 1000 retry-jitter-ms)}})}}
+        {:data (assoc data :next-retry-in (+ 1000 retry-jitter-ms))})}}
 ```
 
 - **Inline callbacks cannot declare requirements.** Fact-consuming guards/actions MUST be named entries (the form already preferred for visualisers and AI legibility). `:rf.cofx/requires` declared on an inline callback — a bare-fn guard/action, or the key placed directly on an `:on` / `:always` / `:after` / `:on-done` / `:spawn :on-done` / `:spawn :on-error` / `:entry` / `:exit` slot, or on a `:guards`/`:actions` entry that is a map carrying `:rf.cofx/requires` but no `:fn` — fails registration with **`:rf.error/machine-cofx-requires-inline`** (an inline fn has no entry to attach a checkable diet to). A bare fn destructuring beyond `{:data :event :state :meta :rf.cofx}` is additionally **lintable** (`:rf.warning/machine-cofx-consume-undeclared`, a dev-only recommendation).
@@ -486,8 +486,8 @@ An action is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)`** 
 
 ```clojure
 ;; inline — destructure :data and the event from the context map
-:action (fn [{[_ id radius] :event}]
-          {:data {:circle-id id :initial-radius radius :preview-radius radius}})
+:action (fn [{data :data [_ id radius] :event}]
+          {:data (assoc data :circle-id id :initial-radius radius :preview-radius radius)})
 
 ;; keyword reference — resolves to (get-in spec [:actions :clear-form])
 :action :clear-form
@@ -495,18 +495,19 @@ An action is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)`** 
 ;; the body lives in the machine's :actions map:
 (rf/reg-machine :drawer/editor
   {:actions {:clear-form
-             (fn [_]
-               {:data {:circle-id nil :initial-radius nil :preview-radius nil}})}
+             (fn [{:keys [data]}]
+               {:data (dissoc data :circle-id :initial-radius :preview-radius)})}
    :states {... :on {... {:action :clear-form}}}})
 ```
 
 Multiple steps in one action are **fn composition**, not a vector:
 
 ```clojure
-:action (fn [{:keys [data event] :as ctx}]
-          (let [a (action-clear ctx)
-                b (action-record-attempt ctx)]
-            {:data (merge (:data a) (:data b))
+:action (fn [{:keys [data] :as ctx}]
+          (let [a  (action-clear ctx)
+                d1 (:data a data)                              ;; no :data → unchanged
+                b  (action-record-attempt (assoc ctx :data d1))]
+            {:data (:data b d1)
              :fx   (into (:fx a []) (:fx b []))}))
 ```
 
@@ -782,27 +783,29 @@ Consumers: Xray's [Machine Inspector §Focused-transition lens](../tools/xray/sp
 Actions return:
 
 ```clojure
-{:data {<merged data updates>}        ;; the machine's own slice
+{:data <the machine's new data map>   ;; the machine's own slice
  :fx   [[<fx-id> <args>] ...]}        ;; standard re-frame fx vector
 ```
 
 Two keys. **Symmetric with `reg-event`'s `{:db :fx}`** — same shape, different scope. Both keys are optional. Returning `nil` means "no effects."
 
-`:data` semantics: **merge with the existing data map** (last write wins on key collision). An explicit `nil` **sets the value to `nil` (the key remains present)**; the merge never dissocs — there is no key-removal idiom in a `:data` write, only key-set-to-`nil`. A consumer that must distinguish "absent" from "present `nil`" should not rely on a `:data` write to remove the key:
+`:data` semantics: **the returned map REPLACES the machine's data map**, exactly as `:db` replaces app-db. An action that changes one field returns `(assoc data …)` or `(update data …)`, and an action that returns no `:data` key leaves the data map as it was. Replacement is what lets an action remove a key — it returns the map without it:
 
 ```clojure
-{:data {:circle-id nil :initial-radius nil :preview-radius nil}}
-;; → :circle-id, :initial-radius, :preview-radius are each PRESENT with value nil
+:action (fn [{:keys [data]}]
+          {:data (dissoc data :circle-id :initial-radius :preview-radius)})
 ```
 
-When N action slots fire in one transition (`:exit` → `:action` → `:entry`), `:data` updates merge in slot order; `:fx` vectors concatenate left-to-right.
+A literal map such as `{:data {:error nil}}` is therefore the WHOLE new data map: every other key goes. No `:data` return can sever a spawned actor's lineage or reset a timer epoch, because the runtime keeps those facts in the snapshot's `:rf/runtime` map, outside `:data` (per [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)).
+
+When N action slots fire in one transition (`:exit` → `:action` → `:entry`), each slot reads the data map the previous slot returned and returns the next one; `:fx` vectors concatenate left-to-right.
 
 **XState v6 converges on this shape; do not describe the effect map as following v6.** `6.0.0-alpha.22` changed XState's own interpretation to *"Pure transitions now return every effect needed to interpret actor logic in execution order"* — actor spawning, starting and stopping, event delivery, emitted events, timers, custom effects and actor termination all **returned as a declarative effect list** rather than performed as direct side effects. That is precisely the `{:data :fx}` map a re-frame2 action returns, and `:fx` is re-frame's own effects-as-data lineage, not a v6 import (checked against `xstate@6.0.0-alpha.52`).
 
 **XState-v5 parity — no `assign` to reorder.** XState v5 made a deliberate correctness fix over v4: `assign` actions are no longer hoisted ahead of other actions; they run **in declared order** interleaved with the transition's other actions, and each action observes the context produced by the assigns that ran before it. re-frame2 has **no separate `assign` primitive** — a `:data` write *is* the assign, and an action returns the atomic `{:data :fx}` map — so the v5 "no reorder" property is automatic rather than a rule the engine must enforce:
 
-- **Across slots in one transition**, `:data` merges in the fixed slot order (`:exit` deepest-first → `:action` → `:entry` shallowest-first → `:initial` cascade — per [§Level 2](#level-2--across-the-action-slots-in-one-transition)), and the engine threads the in-flight `:data` forward, so a later slot's action **and guard** sees every earlier slot's write. That is exactly v5's guarantee, at slot granularity.
-- **Within one action**, ordering is trivial: the fn is pure and returns `:data` and `:fx` together. There is no "assign then read it" *inside* a single action. The consequence an XState author should note: an `:fx` entry in an action **cannot read that same action's own `:data` write** — the merge has not happened yet at the point the `:fx` vector is built. To act on a freshly-computed value, either compute it in a `let` before building the effect map and use the local binding in both `:data` and `:fx`, or split the work into two slots (e.g. write in `:action`, read in the target's `:entry`).
+- **Across slots in one transition**, `:data` threads in the fixed slot order (`:exit` deepest-first → `:action` → `:entry` shallowest-first → `:initial` cascade — per [§Level 2](#level-2--across-the-action-slots-in-one-transition)), and the engine threads the in-flight `:data` forward, so a later slot's action **and guard** sees every earlier slot's write. That is exactly v5's guarantee, at slot granularity.
+- **Within one action**, ordering is trivial: the fn is pure and returns `:data` and `:fx` together. There is no "assign then read it" *inside* a single action. The consequence an XState author should note: an `:fx` entry in an action **cannot read that same action's own `:data` write** — the write has not happened yet at the point the `:fx` vector is built. To act on a freshly-computed value, either compute it in a `let` before building the effect map and use the local binding in both `:data` and `:fx`, or split the work into two slots (e.g. write in `:action`, read in the target's `:entry`).
 
 ### `:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`
 
@@ -856,7 +859,7 @@ Whoever fires the event has the data; they pass it. The machine never reaches ou
            {:fx   [[:dispatch [:drawer/apply-radius
                                (:circle-id data)
                                (:preview-radius data)]]]
-            :data {:circle-id nil :initial-radius nil :preview-radius nil}})}
+            :data (dissoc data :circle-id :initial-radius :preview-radius)})}
 ```
 
 This forces every cross-encapsulation write to be a *named, traced, reusable event* rather than a quiet reach into someone else's data. Tracing shows the apply-radius event by name.
@@ -874,20 +877,24 @@ Every machine callback receives a SINGLE context-map argument; the keys present 
 | `:guard` | `(fn [{:keys [data event state meta] cofx :rf.cofx}] boolean)` | `:data :event :state :meta :rf.cofx`, plus `:self-id :parent-id :spawned` | a boolean |
 | `:action` | `(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)` | `:data :event :state :meta :rf.cofx`, plus `:self-id :parent-id :spawned` | `{:data ... :fx ...}` (or `nil`) |
 | `:entry` / `:exit` | same as `:action` | `:data :event :state :meta :rf.cofx`, plus `:self-id :parent-id :spawned` | `{:data ... :fx ...}` (or `nil`) |
-| `:on-done` | `(fn [{:keys [data result]}] new-data)` | `:data :result` | the parent's new `:data` map |
+| `:on-done` | `(fn [{:keys [data result]}] new-data)` | `:data :event :state :meta :rf.cofx`, plus `:self-id :parent-id :spawned`, plus `:result` | the parent's new `:data` map |
 | `:after` delay-fn | `(fn [{:keys [snapshot]}] ms)` | `:snapshot` | a positive-int millisecond delay |
 | `:spawn :data` fn | `(fn [{:keys [snapshot event]}] data)` | `:snapshot :event` | the child's initial data map |
 
 **The runtime's facts arrive on the context, not in `:data`.** `:self-id` (a spawned actor's own address), `:parent-id` (its declarative spawner) and `:spawned` (the ids of the actors this machine spawned, keyed by invoke path) are read off the snapshot's `:rf/runtime` map and handed to the callback; each key is present only when the runtime has recorded it (per [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)). `:data` holds only what the machine's own definition and callbacks put there.
 
-**Which `:state` a lifecycle callback sees, and when `:event` is `nil`.** Two details the table cannot show. `:state` is the state of the SNAPSHOT the callback runs against, and exit — action — entry are threaded through ONE snapshot whose `:state` is not advanced between them, so an `:entry` callback's `:state` is the state being LEFT rather than the one being entered. And an eventless (`:always`) transition is selected and applied with no event at all, so `:event` is `nil` in every guard, action and entry it drives — a callback reachable both ways has to tolerate that rather than assume the macrostep's triggering event. Both are recorded here as the CURRENT behaviour and not as a lock: handing each step its own `:state`, and threading the triggering event into the `:always` drain, both remain open and neither is settled by this paragraph.
+**One read context.** Guards, actions, `:entry` / `:exit` and a fn `:on-done` read the same context map; `:on-done` adds `:result`, the child's reported output. Only the `:after` delay-fn and the `:spawn :data` producer keep purpose-specific inputs, because each answers one narrow question about a snapshot rather than acting on the machine.
+
+**Which `:state` a lifecycle callback sees.** A guard, an `:exit` and a transition `:action` read the configuration being LEFT — the transition has not landed yet. Every `:entry` reads the configuration being ENTERED, in the same shape the snapshot will commit (for a compound target, the full path to the leaf being entered), so an `:entry` can branch on where the machine now is. A fn `:on-done` reads the parent's configuration at the moment its child completed.
+
+**`:event` is `nil` in an `:always` transition.** An eventless transition is selected and applied with no event at all, so `:event` is `nil` in every guard, action and `:entry` an `:always` drives, including one that follows a raised event in the same macrostep. This is the contract: substituting the macrostep's outer event would misattribute the step, hiding which raise or entry actually enabled it. A callback reachable both ways tolerates a `nil` `:event`.
 
 **Why uniform context-map.** Slot-specific positional signatures (`(fn [data event])` for guards/actions, `(fn [data result])` for `:on-done`, `(fn [snapshot])` for `:after`, `(fn [snapshot event])` for `:spawn :data`) would create a paste-from-`:guard`-into-`:on-done` trap: `result` silently bound to the event vector (or vice-versa) with no runtime signal — a class of bug that survives review because both args destructure the same way. The unified shape eliminates the trap structurally: every callback receives ONE map, the keys say what they carry, and future slot additions extend the key set without expanding the arity-permutation matrix.
 
 **Return shape — narrow by purpose.** Three buckets:
 
 - `:guard` → boolean (the transition's gate).
-- `:action` / `:entry` / `:exit` / `:on-done` / `:spawn :data` → a fresh `:data` map (or, for actions, a `{:data :fx}` effects map). The runtime patches `:data` back into the snapshot. Logical state (`:loading` / `:loaded` / `:error`) is reserved for declarative transition apparatus (`:on` / `:always` / `:after`); callbacks can ONLY update working memory (the `:data` bag) — they cannot nudge the machine into a state the spec didn't declare. Matches xstate's `assign` invariant.
+- `:action` / `:entry` / `:exit` / `:on-done` / `:spawn :data` → a fresh `:data` map (or, for actions, a `{:data :fx}` effects map). The returned map replaces the snapshot's `:data`; `nil` (or an effects map without `:data`) leaves it as it was. Logical state (`:loading` / `:loaded` / `:error`) is reserved for declarative transition apparatus (`:on` / `:always` / `:after`); callbacks can ONLY update working memory (the `:data` bag) — they cannot nudge the machine into a state the spec didn't declare. Matches xstate's `assign` invariant.
 - `:after` delay-fn — returns the ms value the timer scheduler consumes.
 
 **Changing a snapshot.** A snapshot changes only through a transition — plus spawn, destroy and frame-state installation. Moving the machine and writing `:data` in one step is a transition with a `:target` and an `:action`; `:data` plus effects is an action returning `{:data … :fx …}`. Code outside the machine that needs to write its `:data` dispatches a named targetless transition (`[:dispatch [:session [:reset-retries]]]` against `:on {:reset-retries {:action …}}`), which keeps the state, spawns nothing, and runs as its own macrostep after the dispatching event commits.
@@ -907,7 +914,7 @@ A machine is registered as **one event handler**. `reg-machine` is the registrat
   {:initial :idle                                         ;; initial FSM-keyword
    :data    {:circle-id nil :initial-radius nil :preview-radius nil}
    :guards  {:circle-exists? (fn [{data :data}] (some? (:circle-id data)))}
-   :actions {:clear-error    (fn [_] {:data {:error nil}})}
+   :actions {:clear-error    (fn [{data :data}] {:data (dissoc data :error)})}
    :states  { ... }})
 ```
 
@@ -995,7 +1002,7 @@ The fold only applies when the outer event has length ≥ 3 AND the second eleme
    :data    {:attempts 0 :error nil}
    :guards  {:under-retry-limit (fn [{data :data}] (< (:attempts data) 3))}
    :actions {:begin-submit       (fn [{[_ creds] :event}] {:fx [[:http {...}]]})
-             :record-failure     (fn [{data :data}]      {:data {:attempts (inc (:attempts data))}})}
+             :record-failure     (fn [{data :data}]      {:data (update data :attempts inc)})}
    :states  { ... }})
 ```
 
@@ -1232,7 +1239,7 @@ The two mechanisms (`:raise` and `:fx [:dispatch ...]`) compose at four nested l
 
 An action returns `{:data ... :fx [...]}`. The two keys are independent:
 
-- **`:data`** — a single map; merged into the current data map (last write wins on key collision).
+- **`:data`** — a single map; it replaces the current data map.
 - **`:fx`** — a vector of `[fx-id args]` pairs; processed **in vector order**. The machine handler's effect-map composer walks `:fx` and routes by fx-id:
     - `[:raise <event-vec>]` → appended to the local pre-commit raise-queue.
     - `[:rf.machine/spawn <spawn-spec>]` → installs the new actor's snapshot immediately (a pure runtime-db write — no per-instance handler registration; the actor's liveness IS its snapshot, per [§Liveness is derived from runtime-db](#liveness-is-derived-from-runtime-db)). Each spawn happens before the next `:fx` entry is processed; the spawned id is tracked at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`; if `:start` is present, an event is queued to the new actor (which lazy-resolves its snapshot on first dispatch).
@@ -1265,7 +1272,7 @@ Self-transitions: re-frame2 follows **XState v5** — a `:target` that names the
 
 Composition across all action slots' returned effect maps:
 
-- `:data` updates merge in slot order — exit-cascade (deepest-first) → action → entry-cascade (shallowest-first) → initial-cascade. Last write wins on key collision.
+- `:data` threads in slot order — exit-cascade (deepest-first) → action → entry-cascade (shallowest-first) → initial-cascade. Each slot reads the map the previous slot returned; a slot that returns no `:data` passes it on unchanged.
 - `:fx` entries concatenate in slot order. Within the concatenated `:fx`, the Level-1 walk (`:raise` → local queue, `:rf.machine/spawn` / `:rf.machine/destroy` and the rest → `do-fx`) preserves order.
 
 #### Machine-emitted fx and their order
@@ -1294,7 +1301,7 @@ When a machine receives an event:
 2. Run the action group (Level 2).
 3. **Unified microstep loop — `:always` first, then dequeue one raise** (XState v5 / SCXML §3.13 macrostep): after the taken transition, the runtime runs ONE loop. Each iteration **prefers eventless (`:always`) transitions**: inspect the current state node's (and, for hierarchical compounds, every entered ancestor's deepest-first) `:always` vector; if a guarded entry matches (first-match-wins), apply that transition (run its `:action`, update the in-flight snapshot, accumulate its `:fx`, **append any events it raises to the *back*** of the internal-event queue), and loop. **Only when NO `:always` is enabled** does the runtime pop the **front** of the raise-queue, dispatch it through the same machinery, accumulate its `:fx` (including any `:rf.machine/spawn` / `:rf.machine/destroy` entries), **append any events it itself raises to the *back*** of the queue (behind the still-pending siblings) — and loop back to again prefer `:always`. The loop ends when no `:always` is enabled AND the raise-queue is empty.
 4. **Order within the loop.** Two rules hold simultaneously. (a) **`:always` settles before the next raise is dequeued** — a transition that raises `R` while entering a state with an enabled `:always` takes the `:always` first and handles `R` in the post-`:always` state (XState v5 / SCXML §3.13; see [§Order with `:raise`](#order-with-raise)). (b) **FIFO among raised events** — once dequeued, raises drain front-to-back, a raise's own raises appending to the back; so raises `[A]` then `[B]` where `A` raises `[C]` process `A, B, C` (see the *FIFO for `:raise`* bullet in [§Why these rules](#why-these-rules)). See [§Eventless `:always` transitions](#eventless-always-transitions) for the full microstep semantics.
-5. Commit the snapshot (state-keyword + merged data) to **runtime-db** at `[:rf.runtime/machines :snapshots <id>]`, in a single `:rf.db/runtime` write (the framework-authority machine handler's runtime-db effect, per [§Where snapshots live](#where-snapshots-live) — never an app-db `:db` write).
+5. Commit the snapshot (state-keyword + the threaded data) to **runtime-db** at `[:rf.runtime/machines :snapshots <id>]`, in a single `:rf.db/runtime` write (the framework-authority machine handler's runtime-db effect, per [§Where snapshots live](#where-snapshots-live) — never an app-db `:db` write).
 6. Emit the accumulated `:fx` as the event handler's return value, which the standard re-frame interceptor pipeline's `do-fx` then processes.
 
 The whole machine event — including all raised sub-events **and all `:always` microsteps** — appears as **one logical step** (one **macrostep**) to the outside. The trace shows it as one `:rf.machine/transition` with the raise-cascade and microstep count in its `:tags`. xstate/SCXML macrostep semantics: external observers (subs, other machines, tools) see only the post-commit settled snapshot.
@@ -1342,7 +1349,7 @@ Each frame's router keeps **two FIFO lanes**, and the drain always empties the i
 ;;   2. drain local raise-queue:
 ;;      pop :input1 → run its transition; its :fx [[:dispatch :ev-B]]
 ;;        outgoing fx: [[:dispatch :ev-A] [:dispatch :ev-B]]
-;;      pop :input2 → run its transition; data merges in
+;;      pop :input2 → run its transition; its :data replaces the data map
 ;;
 ;;   3. commit snapshot to runtime-db (one :rf.db/runtime write at [:rf.runtime/machines :snapshots <id>])
 ;;
@@ -2012,7 +2019,7 @@ An `:always` transition fires automatically when its guard becomes true — no e
 - **`:rf/transition` map** — a single transition spec `{:guard <guard-ref> :target <target> :action <action-ref> :meta <map>}` — the one-element case.
 - **guarded candidate-vector** — `[{:guard g1 :target s1} {:guard g2 :target s2} … {:target sN}]`, resolved **first-guard-pass-wins**, exactly as an `:on` clause's multiple-candidate form.
 
-Sugar normalises at registration time, exactly as `:after`'s value grammar does — the runtime sees only the desugared candidate-vector form. Checked **after entry** (or after any transition that lands in this state). First matching guard wins; subsequent candidates are not evaluated. A malformed value (neither of the four forms above) throws `:rf.error/machine-bad-always` at the first macrostep that walks it (per [009 §Error contract](009-Instrumentation.md)).
+Sugar normalises at registration time, exactly as `:after`'s value grammar does — the runtime sees only the desugared candidate-vector form. Checked **after entry** (or after any transition that lands in this state). Its guards and actions read `:event nil` (per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies)). First matching guard wins; subsequent candidates are not evaluated. A malformed value (neither of the four forms above) throws `:rf.error/machine-bad-always` at the first macrostep that walks it (per [009 §Error contract](009-Instrumentation.md)).
 
 ```clojure
 {:checking-form
@@ -2100,8 +2107,8 @@ Guards in `:always` resolve against the **machine's `:guards` map** (per [§Regi
 ```clojure
 {:initial :asking
  :guards  {:enough-correct? (fn [{data :data}] (>= (:correct-count data) 10))}
- :actions {:count-correct   (fn [{d :data}] {:data {:correct-count (inc (:correct-count d))}})
-           :count-wrong     (fn [{d :data}] {:data {:wrong-count (inc (:wrong-count d))}})}
+ :actions {:count-correct   (fn [{d :data}] {:data (update d :correct-count inc)})
+           :count-wrong     (fn [{d :data}] {:data (update d :wrong-count inc)})}
  :states
  {:asking
   {:always [{:guard :enough-correct? :target :winner}]
@@ -4432,10 +4439,11 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
    :actions
    {:begin-edit
     ;; Seed circle-id, initial-radius, and preview-radius from the right-click event.
-    (fn [{[_ id radius] :event}]
-      {:data {:circle-id      id
-              :initial-radius radius
-              :preview-radius radius}})
+    (fn [{data :data [_ id radius] :event}]
+      {:data (assoc data
+                    :circle-id      id
+                    :initial-radius radius
+                    :preview-radius radius)})
 
     :commit
     ;; Persist the previewed radius via :drawer/apply-radius and clear :data.
@@ -4462,8 +4470,8 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
       ;; internal self-transition — no :target, so no exit/entry.
       ;; Single-key :data update, single non-branching expression — inline OK
       ;; per the inspectability-bias escape hatch.
-      {:action (fn [{[_ new-r] :event}]
-                 {:data {:preview-radius new-r}})}
+      {:action (fn [{data :data [_ new-r] :event}]
+                 {:data (assoc data :preview-radius new-r)})}
 
       :close-dialog
       {:target :idle

@@ -186,7 +186,7 @@ machine to `:locked-out`.
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
     :record-error
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data

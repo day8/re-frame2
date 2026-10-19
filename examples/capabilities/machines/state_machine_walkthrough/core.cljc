@@ -70,7 +70,7 @@
     ;; Named once here, then used from two different slots below: as a
     ;; transition :action leaving :idle, and as :error-shown's :exit. Keyword
     ;; refs resolve machine-locally against this map, so one action serves both.
-    (fn [_] {:data {:error nil}})
+    (fn [{:keys [data]}] {:data (assoc data :error nil)})
 
     :issue-request
     ;; An action describes effects; it never performs side-effects itself
@@ -141,8 +141,8 @@
     ;; Slot order is :exit -> transition :action -> target :entry, so on a
     ;; direct retry the stale message is gone BEFORE :submitting's
     ;; :issue-request fires — a fresh request never rides alongside the previous
-    ;; failure. And {:data {:error nil}} MERGES, so :attempts survives untouched
-    ;; and the retry guard goes on counting.
+    ;; failure. And the action returns the WHOLE data map, built with assoc, so
+    ;; :attempts survives untouched and the retry guard goes on counting.
     {:exit :clear-error
      :on   {:walkthrough.login/dismiss {:target :idle}
             :walkthrough.login/submit  {:target :submitting}}}

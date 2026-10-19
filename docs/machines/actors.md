@@ -40,11 +40,11 @@ state:
               :on-success [self-id [:server-ok]]
               :on-failure [self-id [:server-err]]}]]})
     :keep-token
-    (fn [{[_ reply] :event}]
-      {:data {:token (get-in reply [:value :token])}})
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :token (get-in reply [:value :token]))})
     :keep-error
-    (fn [{[_ reply] :event}]
-      {:data {:reason (:error reply)}})}
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :reason (:error reply))})}
 
    :states
    {:running {:entry :issue-request
@@ -75,8 +75,9 @@ table again. The other guards, actions and states stay as defined there:
 :record-child-error
 (fn [{data :data event :event}]
   (let [reason (nth event 2)]
-    {:data {:attempts (inc (:attempts data))
-            :error (or (:message reason) "Login failed.")}}))
+    {:data (-> data
+               (update :attempts inc)
+               (assoc  :error (or (:message reason) "Login failed.")))}))
 
 ;; Replace under :states.
 :submitting
@@ -150,11 +151,11 @@ deadline destroys the actor and shows the error.
               :on-success [self-id [:server-ok]]
               :on-failure [self-id [:server-err]]}]]})
     :keep-token
-    (fn [{[_ reply] :event}]
-      {:data {:token (get-in reply [:value :token])}})
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :token (get-in reply [:value :token]))})
     :keep-error
-    (fn [{[_ reply] :event}]
-      {:data {:reason (:error reply)}})}
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :reason (:error reply))})}
 
    :states
    {:running {:entry :issue-request
@@ -177,7 +178,7 @@ deadline destroys the actor and shows the error.
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
     :record-timeout
     (fn [{data :data}]
       {:data (-> data
@@ -190,8 +191,9 @@ deadline destroys the actor and shows the error.
     :record-child-error
     (fn [{data :data event :event}]
       (let [reason (nth event 2)]
-        {:data {:attempts (inc (:attempts data))
-                :error (or (:message reason) "Login failed.")}}))}
+        {:data (-> data
+                   (update :attempts inc)
+                   (assoc  :error (or (:message reason) "Login failed.")))}))}
 
    :states
    {:idle

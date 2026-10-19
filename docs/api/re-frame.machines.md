@@ -61,8 +61,8 @@ The machines guide teaches the model, starting from [The table](../machines/conc
      :actions
      {:capture-credentials
       ;; Remember who's signing in so the snapshot carries it through the flow.
-      (fn [{[_ creds] :event}]
-        {:data {:credentials creds}})
+      (fn [{data :data [_ creds] :event}]
+        {:data (assoc data :credentials creds)})
 
       :issue-auth
       ;; Fire the login request; the reply loops back as :auth-ok / :auth-fail.
@@ -327,7 +327,7 @@ An action returns a map, or `nil` for no effects:
 
 | Key | Meaning |
 |---|---|
-| `:data` | Merged into the snapshot's `:data`, top-level keys only. |
+| `:data` | The machine's new `:data`; it replaces the snapshot's whole. Return `(assoc data …)` to change one key. |
 | `:fx` | An ordinary effects vector, plus the machine-only [`:raise`](#raise-event-vec). |
 
 A returned `:db` is dropped with `:rf.error/machine-action-wrote-db`. An `:after` delay fn is the one callback with a different context: it receives `{:snapshot …}`. [Guards and actions](../machines/concepts.md#guards-and-actions) in the guide teaches callbacks.

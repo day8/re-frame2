@@ -30,7 +30,7 @@ under `:authenticated`:
 
    :actions
    {:clear-error
-    (fn [_] {:data {:error nil}})
+    (fn [{data :data}] {:data (assoc data :error nil)})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]

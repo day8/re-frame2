@@ -294,8 +294,8 @@
    :actions
    {:clear-error
     ;; Wipe any stale error before a fresh attempt.
-    (fn [_]
-      {:data {:error nil}})
+    (fn [{:keys [data]}]
+      {:data (assoc data :error nil)})
 
     :record-error
     ;; Remember what went wrong (for the UI) and tick the attempt counter up by

@@ -100,7 +100,7 @@
       {:initial :idle
        :data    {:attempts 0 :token nil :error nil}
        :schemas {:data AuthLoginData}
-       :actions {:clear (fn [_] {:data {:error nil}})}
+       :actions {:clear (fn [{:keys [data]}] {:data (assoc data :error nil)})}
        :states  {:idle       {:on {:auth.login/submit {:target :submitting
                                                        :action :clear}}}
                  :submitting {}}})

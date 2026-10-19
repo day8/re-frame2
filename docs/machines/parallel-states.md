@@ -119,13 +119,14 @@ declaration order and write to the shared `:data` in that order.
 ## Shared data
 
 Because all regions share `:data`, two regions handling one event can both
-update it. `:data` merges, so an action that returns `{:data {:count n}}` writes
-only `:count`.
+update it. Each region's action reads the `:data` the previous one returned and
+returns the whole new map, so an action that changes one key returns
+`(update data …)`.
 
 ```clojure
 :actions
 {:bump (fn [{data :data}]
-         {:data {:count (inc (:count data))}})}
+         {:data (update data :count inc)})}
 ```
 
 If two regions run `:bump`, `:count` increments twice.

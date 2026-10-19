@@ -339,9 +339,10 @@
 ;; untouched without stripping the inherited committed `:tags` slot from
 ;; their snapshot.
 
-(defn- callback-ctx
+(defn callback-ctx
   "Build the unified context-map handed to a `:guard` / `:action` / `:entry`
-  / `:exit` callback. Per Spec 005 §Guards / §Actions
+  / `:exit` callback, and to a fn `:on-done` (which adds `:result`). Per Spec
+  005 §Path conventions in machine bodies
   the base shape is `{:data :event :state :meta}`, plus the actor's own
   lineage and spawned ids read off the snapshot's `:rf/runtime` map when it
   carries them: `:self-id` / `:parent-id` (a spawned actor's own address and
@@ -2313,7 +2314,8 @@
   ;; arity (which would churn every caller). `reduced` short-circuits on
   ;; the first throwing action, carrying the bare `:fail` Result.
   (let [acc (reduce
-              (fn [[acc-r cascade] {:keys [kind phase action state region source transition-slot]}]
+              (fn [[acc-r cascade] {:keys [kind phase action state region source transition-slot
+                                           ctx-state]}]
                 (rf.machines.result/with-ok [snap fx] acc-r
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
@@ -2328,16 +2330,23 @@
                                              :action action}
                                       source (assoc :source source))]
                     (if action
-                      (let [r0 (run-action machine snap action event emit-phase state transition-slot)]
+                      ;; An `:entry` step carries `:ctx-state`, the configuration
+                      ;; being entered, so its action reads the state it enters
+                      ;; rather than the one being left. The cascade's own
+                      ;; snapshot keeps its `:state` until `commit-snapshot`.
+                      (let [r0 (run-action machine
+                                           (cond-> snap (some? ctx-state) (assoc :state ctx-state))
+                                           action event emit-phase state transition-slot)]
                         (if (rf.machines.result/fail? r0)
                           (reduced [r0 cascade])
                           ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
                           ;; write (emitting the structured error) through the
                           ;; shared enforcement choke-point, then thread the
-                          ;; cleaned effects map's `:data` / `:fx` forward.
+                          ;; cleaned effects map's `:data` / `:fx` forward. A
+                          ;; returned `:data` REPLACES the machine's `:data`
+                          ;; (Spec 005 §Actions); no `:data` key leaves it alone.
                           (let [r        (enforce-db-disallow machine r0 action (:state snap))
-                                new-data (cond-> before-data
-                                           (contains? r :data) (merge (:data r)))
+                                new-data (if (contains? r :data) (:data r) before-data)
                                 new-snap (assoc snap :data new-data)
                                 new-fx   (vec (concat fx (or (:fx r) [])))
                                 step     (assoc base-step
@@ -2991,7 +3000,7 @@
   is normalised through the SAME candidate machinery as an `:on` clause
   (a guarded candidate-vector resolves first-guard-pass-wins; a bare action-
   less keyword / map is a data no-op). Returns a `rf.machines.result/ok` carrying
-  `[snap' fx]` (the action's `:data` merged, `:fx` collected), or a
+  `[snap' fx]` (the action's `:data` replacing the machine's, `:fx` collected), or a
   `rf.machines.result/fail` if the action threw. A nil / no-candidate `:on-done` returns
   `(ok snap [])` unchanged. Invoked with the synthetic
   `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
@@ -3018,8 +3027,7 @@
         (if (rf.machines.result/fail? r0)
           r0
           (let [r        (enforce-db-disallow machine r0 (:action tspec) (:state snap))
-                new-data (cond-> (:data snap)
-                           (contains? r :data) (merge (:data r)))]
+                new-data (if (contains? r :data) (:data r) (:data snap))]
             (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 
 (defn root-action-steps
@@ -3145,7 +3153,8 @@
 (defn run-root-entry
   "Run the tree root's `:entry` at birth, against the seeded snapshot and
   before any state below it is entered: the action sees `:state []`, the
-  empty configuration, as the initial descent's own `:entry` actions do.
+  root itself, where the initial descent's own `:entry` actions each see the
+  initial configuration they enter.
   Phase `:initial-entry`, event `[:rf.machine/start]`. Returns the Result
   with the snapshot's `:state` put back, or the `:fail` the action
   produced."
@@ -3676,10 +3685,15 @@
         ;; history-driven. All entry steps of a history-driven transition came
         ;; from the resolved leaf's entry cascade, so all carry the source.
         hist-source   (:source history-restore)
+        ;; Every `:entry` action reads the configuration being entered (Spec
+        ;; 005 §Path conventions in machine bodies), in the machine's own
+        ;; `:state` shape — the value `commit-snapshot` will commit.
+        entered-state (when-not internal? (denormalise-state machine target-leaf))
         entry-steps   (when-not internal?
                         (mapv (fn [[prefix n]]
                                 (cond-> {:kind :entry :phase entry-phase :state (vec prefix)
-                                         :region region :action (:entry n)}
+                                         :region region :action (:entry n)
+                                         :ctx-state entered-state}
                                   hist-source (assoc :source hist-source)))
                               entered-pairs))
         cascade-steps (vec (concat exit-steps action-steps entry-steps))

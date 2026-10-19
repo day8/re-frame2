@@ -146,11 +146,11 @@ handler's.
 An XState v5 action performs work or uses `assign` to update context; in v6 an
 entry/exit function returns the complete next `context` and queues effects
 through `enq` ([XState data and effects](https://stately.ai/docs/xstate/v6/data-and-effects)).
-A re-frame2 action instead returns a top-level data patch and effect descriptions:
+A re-frame2 action likewise returns the complete next `:data`, beside effect descriptions:
 
 ```clojure
 (fn [{data :data}]
-  {:data {:attempts (inc (:attempts data))}
+  {:data (update data :attempts inc)
    :fx   [[:analytics/track {:event :login-failed}]]})
 ```
 

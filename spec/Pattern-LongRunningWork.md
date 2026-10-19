@@ -67,8 +67,9 @@ A state machine that processes one batch per state transition, yields to the bro
       (let [{:keys [input chunk-size processed result]} data
             chunk    (subvec input processed (min (+ processed chunk-size) (count input)))
             outputs  (mapv expensive-fn chunk)]
-        {:data {:processed (+ processed (count chunk))
-                :result    (into result outputs)}}))}
+        {:data (assoc data
+                      :processed (+ processed (count chunk))
+                      :result    (into result outputs))}))}
 
    :states
    {:idle
