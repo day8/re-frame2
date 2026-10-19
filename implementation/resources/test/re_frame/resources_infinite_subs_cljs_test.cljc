@@ -183,9 +183,9 @@
 (deftest page-error-projection
   (load-page-0! :is5/feed (page [:a] "c1"))
   (load-more! :is5/feed)
-  (reply-failure! {:kind :rf.http/server :status 503})
-  (is (= {:kind :rf.http/server :status 503} (sub :rf.resource/page-error :is5/feed)))
-  (is (= {:page-error {:kind :rf.http/server :status 503} :error nil :refresh-error nil
+  (reply-failure! {:kind :rf.http/server :http-status 503})
+  (is (= {:kind :rf.http/server :http-status 503} (sub :rf.resource/page-error :is5/feed)))
+  (is (= {:page-error {:kind :rf.http/server :http-status 503} :error nil :refresh-error nil
           :items [:a] :status :loaded}
          (select-keys (sub :rf.resource/infinite-state :is5/feed)
                       [:page-error :error :refresh-error :items :status]))

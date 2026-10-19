@@ -82,7 +82,7 @@
             rows  (fn [op] (filterv #(= op (:operation %)) @traces))]
         (is (not= ::timed-out r) "the read's failure reply arrived")
         (testing "the entry keeps the production HTTP failure map"
-          (is (= [:error :rf.http/http-5xx 503] [(:status entry) (:kind err) (:status err)])))
+          (is (= [:error :rf.http/http-5xx 503] [(:status entry) (:kind err) (:http-status err)])))
         (testing "its request id names frame, resource and generation only"
           (is (= [:rf.req :rf/default :rf.work/resource :secret/article]
                  [(nth (:request-id err) 0) (nth (:request-id err) 1)

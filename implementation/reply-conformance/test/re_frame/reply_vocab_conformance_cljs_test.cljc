@@ -50,7 +50,7 @@
    :loader-id :article/loaded
    :frame     :app/main})
 
-(def ^:private a-failure {:kind :rf.http/http-5xx :status 503 :body "down"})
+(def ^:private a-failure {:kind :rf.http/http-5xx :http-status 503 :body "down"})
 (def ^:private an-abort {:kind :rf.http/aborted :reason :user})
 
 (defn- resource-stale-out [scoped-key carried current kind reason t]
