@@ -13,7 +13,7 @@
   is exactly why we install the rejecting login server here."
   (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [state-machine-walkthrough.core :as walkthrough]))
 
 ;; ============================================================================
@@ -143,7 +143,7 @@
   ;; which is a confusing afternoon you can skip by seeding up front.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (stub-transport/install-transport! :rf/default walkthrough/rejecting-server)
+    (rf.http.stub-transport/install-transport! :rf/default walkthrough/rejecting-server)
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              :rf/default
                       :doc             "State-machines walkthrough demo frame."

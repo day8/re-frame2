@@ -92,7 +92,7 @@
             [re-frame.http.managed]
             ;; The demo backend below: a stub transport, and the JSON reader it
             ;; reads the login request body with.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.http.json :as rf.http.json]))
 
 ;; ============================================================================
@@ -252,10 +252,10 @@
 
 (def demo-backend
   "The stub transport every login mount installs on its frame:
-   `(stub-transport/install-transport! frame-id model/demo-backend)`. Each
+   `(rf.http.stub-transport/install-transport! frame-id model/demo-backend)`. Each
    answer waits 50 ms, a courtesy to the reader: just long enough to actually
    see the `:submitting` state before it resolves."
-  (stub-transport/route-transport demo-answer {:delay-ms 50}))
+  (rf.http.stub-transport/route-transport demo-answer {:delay-ms 50}))
 
 ;; ============================================================================
 ;; STATE MACHINE

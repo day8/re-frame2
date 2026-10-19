@@ -82,7 +82,7 @@
             [re-frame.http.registry :as rf.http.registry]
             ;; The stub transport `backend` answers from. A testbed IS a
             ;; test affordance, so requiring it is correct.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [runner.core :as runner])
@@ -170,7 +170,7 @@
 ;; separate drain, as over a network. `run` installs it on the host frame.
 
 (def ^:private backend
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     {[:get "api/ok.json"]       {:body {:ok true :value "managed-http ok"}}
      [:get "api/items/missing"] {:status      404
                                  :status-text "Not Found"
@@ -522,7 +522,7 @@
   ;; — the host frame is already `make-frame`'d) so in-tree
   ;; dispatch/subscribe resolve to it (the carried invariant).
   (rf/make-frame {:id host-frame})
-  (stub-transport/install-transport! host-frame backend)
+  (rf.http.stub-transport/install-transport! host-frame backend)
   (rf/with-frame host-frame
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))

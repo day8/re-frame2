@@ -15,7 +15,7 @@
   isolation.cjs` covers the Story-sentinel absence."
   (:require [re-frame.core      :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [day8.re-frame2-xray.config :as xray-config]
             [login-form.events]
             [login-form.subs]
@@ -43,7 +43,7 @@
       {:status 401 :status-text "Unauthorized" :body {:message "Invalid credentials."}})))
 
 (def ^:private demo-backend
-  (stub-transport/route-transport {[:post "/api/login"] demo-login} {:delay-ms 250}))
+  (rf.http.stub-transport/route-transport {[:post "/api/login"] demo-login} {:delay-ms 250}))
 
 ;; ---------------------------------------------------------------------------
 ;; Live-app root view
@@ -107,7 +107,7 @@
   ;; this — they allocate their own frames and the `force-fx-stub`
   ;; decorator overrides `:rf.http/managed` per-frame.
   (rf/make-frame {:id :rf/default :doc "Login-form testbed default frame."})
-  (stub-transport/install-transport! :rf/default demo-backend)
+  (rf.http.stub-transport/install-transport! :rf/default demo-backend)
   ;; Seed the FSM by routing a no-op event into :login/flow. The
   ;; machine self-initialises (per [005 §Restore semantics]) — its
   ;; :initial state and :data seed the snapshot on first dispatch.

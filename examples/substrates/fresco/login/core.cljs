@@ -39,7 +39,7 @@
             ;; boot below. It names no substrate — the Fresco code lives only
             ;; here.
             [login.model :as model]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.fresco :as rf.fresco]
             ;; The client half of an SSR route: `rf.ssr/hydrate!` installs the
             ;; server's app-db from `__rf_payload` BEFORE the first client
@@ -334,7 +334,7 @@
   (rf/init! rf.fresco.substrate/adapter)
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
-    (stub-transport/install-transport! frame-id model/demo-backend)
+    (rf.http.stub-transport/install-transport! frame-id model/demo-backend)
     (let [payload (rf.ssr/read-server-payload)
           opts    {:identifier-prefix identifier-prefix}]
       (if (some? payload)

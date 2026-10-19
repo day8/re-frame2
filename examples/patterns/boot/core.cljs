@@ -30,7 +30,7 @@
             ;; The fake backend below is a stub transport, installed on the
             ;; frame in `mount!`. A real deployment drops this require and that
             ;; call.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [boot.schema]
             [boot.boot]
             [boot.views]))
@@ -141,7 +141,7 @@
 (def demo-transport
   "The stub transport `mount!` installs on the frame: `demo-answer` behind a
   `reply-delay-ms` pause."
-  (stub-transport/route-transport demo-answer {:delay-ms reply-delay-ms}))
+  (rf.http.stub-transport/route-transport demo-answer {:delay-ms reply-delay-ms}))
 
 ;; The toggle itself: an ordinary app-db slice in the ordinary loop — an event
 ;; writes it, a sub reads it, the view reads the sub. It is demo chrome rather
@@ -175,7 +175,7 @@
     ;; `install-transport!` sends the frame's managed HTTP to the fake backend
     ;; above, so every loader's GET meets a demo reply. Frame-wide is the right
     ;; reach here — the boot makes no other requests.
-    (stub-transport/install-transport! app-frame demo-transport)
+    (rf.http.stub-transport/install-transport! app-frame demo-transport)
     ;; The frame-root creates the frame and seeds it: `:initial-events` fires
     ;; `:boot/initialise` once on first mount to kick the boot off. A hot
     ;; reload reuses the frame and leaves the boot alone, so you don't re-run

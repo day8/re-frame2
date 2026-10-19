@@ -40,7 +40,7 @@
             ;; The failure outcomes go out through a stub transport (see
             ;; `failure-backend`). A testbed IS a test affordance, so a
             ;; test scope in its click handler is correct.
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -95,7 +95,7 @@
   600000)
 
 (def ^:private failure-backend
-  (stub-transport/route-transport
+  (rf.http.stub-transport/route-transport
     {[:get "api/4xx"]       {:status      404
                              :status-text "Not Found"
                              :headers     {"content-type" "text/html"}
@@ -129,7 +129,7 @@
   [outcome]
   (if (= :success outcome)
     (rf/dispatch [::go] {:frame :rf/default})
-    (stub-transport/with-transport failure-backend
+    (rf.http.stub-transport/with-transport failure-backend
       #(rf/dispatch-sync [::go] {:frame :rf/default}))))
 
 (rf/reg-event ::go

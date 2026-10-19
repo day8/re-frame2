@@ -47,7 +47,7 @@
    `:examples/nine-states` build."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.http.stub-transport :as stub-transport]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [day8.re-frame2-xray.config :as xray-config]
             ;; Pull in the example's registrations (machine / schemas / demo
             ;; events / subs / the `:ui/render` selector / views) and the
@@ -70,7 +70,7 @@
 
 (defn- install-live-frame! []
   (rf/make-frame {:id :rf/default :doc "Nine-states showcase live-app frame."})
-  (stub-transport/install-transport! :rf/default core/demo-transport)
+  (rf.http.stub-transport/install-transport! :rf/default core/demo-transport)
   ;; Now seed it. The `with-frame :rf/default` wrapper is what aims the
   ;; `dispatch-sync` at that frame — dispatch with no frame in scope and
   ;; you'd get `:rf.error/no-frame-context`.
