@@ -424,11 +424,11 @@ boundaries, needs live boundaries but not a React root.
             [re-frame.fresco :as h]
             [re-frame.fresco.substrate :as substrate]
             [re-frame.fresco.test.runtime :as rt]
-            [re-frame.test-support :as ts]
+            [re-frame.test-support :as test-support]
             [todo.subs]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter substrate/adapter :async? true})
+  (test-support/make-reset-runtime-fixture {:adapter substrate/adapter :async? true})
   rt/reset-bracket)
 
 (deftest a-boundary-holds-what-it-read
