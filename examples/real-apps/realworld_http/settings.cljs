@@ -75,13 +75,6 @@
    ;; above :settings/submit-success.
    :pending       nil})
 
-(defn- machine-data
-  "The `:settings/form` snapshot's `:data`, read out of runtime-db. The snapshot
-   lives at [:rf.runtime/machines :snapshots :settings/form]; naming that path
-   once here keeps the three handlers that need it from each spelling it out."
-  [runtime-db]
-  (get-in runtime-db [:rf.runtime/machines :snapshots :settings/form :data]))
-
 ;; ----------------------------------------------------------------------------
 ;; SAVES ON THE WIRE — the app-db ledger that makes a success reply identifiable
 ;; ----------------------------------------------------------------------------
@@ -228,10 +221,9 @@
 (rf/defmachine settings-form-machine
   {:initial :neutral
    :data    initial-data
-   ;; The snapshot lives in runtime-db
-   ;; ([:rf.runtime/machines :snapshots :settings/form]), not app-db, so its
-   ;; :data shape is validated right here via [:schemas :data] — an app-schema
-   ;; only sees the app-db partition.
+   ;; The snapshot lives in runtime-db (read it with [:rf/machine
+   ;; :settings/form]), not app-db, so its :data shape is validated right here
+   ;; via [:schemas :data] — an app-schema only sees the app-db partition.
    :schemas {:data app-schema/SettingsFormData}
    ;; The password the user types to change their credentials lands in this
    ;; machine's :data — the live draft at [:data :draft :password] and, once
@@ -500,7 +492,7 @@
   ;; The machine snapshot lives in runtime-db; the session identity lives in
   ;; app-db, so this handler reads both partitions.
   (fn handler-settings-submit [{:keys [db] rt :rf.db/runtime} _]
-    (let [draft   (:draft (machine-data rt))
+    (let [draft   (get-in (rf/compute-sub [:rf/machine :settings/form] rt) [:data :draft])
           errors  (validate-draft draft)
           ;; The issuance: who is sending it, and which account it names. Both
           ;; are computed HERE, at the moment the request goes out, and both
@@ -655,7 +647,7 @@
   "Is the ACTIVE ROUTE still the settings page? Reads RUNTIME-db, where the
    route slice lives. The resources twin carries the same predicate."
   [rt]
-  (= :realworld.user/settings (get-in rt [:rf.runtime/routing :current :route-id])))
+  (= :realworld.user/settings (:route-id (rf/compute-sub [:rf/route] rt))))
 
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
@@ -674,7 +666,7 @@
          User (and therefore a fresh token, just like login/register)."
    :sensitive [[:value :user :token]]}
   (fn handler-settings-submit-success [{:keys [db] rt :rf.db/runtime} [_ {:keys [value]}]]
-    (let [awaited (:pending (machine-data rt))
+    (let [awaited (get-in (rf/compute-sub [:rf/machine :settings/form] rt) [:data :pending])
           ;; The account the server says it saved. It is the ONLY handle the
           ;; reply offers, and it narrows rather than identifies — see §SESSION
           ;; OWNERSHIP.
@@ -748,7 +740,7 @@
          a failure reply can do because it bears no credential — see SESSION
          OWNERSHIP above."}
   (fn handler-settings-submit-error [{:keys [db] rt :rf.db/runtime} [_ owner username {:keys [error]}]]
-    (let [awaited (:pending (machine-data rt))
+    (let [awaited (get-in (rf/compute-sub [:rf/machine :settings/form] rt) [:data :pending])
           ;; A failure reply is TOLD its own issuance, so unlike the success
           ;; branch it always knows which save it settles — and can therefore
           ;; retire that exact ledger entry whatever it then decides to do with

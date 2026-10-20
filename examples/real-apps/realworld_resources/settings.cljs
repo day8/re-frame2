@@ -192,7 +192,7 @@
   "Is the ACTIVE ROUTE still the settings page? Reads RUNTIME-db, where the
    route slice lives. The http twin carries the same predicate."
   [rt]
-  (= :realworld.user/settings (get-in rt [:rf.runtime/routing :current :route-id])))
+  (= :realworld.user/settings (:route-id (rf/compute-sub [:rf/route] rt))))
 
 (rf/reg-event :settings/replied
   {:doc "The update-settings completion continuation (the `:reply-to` target). It

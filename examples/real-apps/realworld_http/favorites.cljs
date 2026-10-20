@@ -67,11 +67,11 @@
          limit/offset window via `rh/paginate-path` — the very same pagination
          the global feed uses."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [page      (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+    (let [page      (or (get-in (rf/compute-sub [:rf/route] rt) [:query :page]) 1)
           path      (rh/paginate-path "/articles/feed" nil page)
           ;; Which navigation this load serves; both reply targets carry it
           ;; (REPLY OWNERSHIP, http.cljs).
-          nav-token (rh/current-nav-token rt)]
+          nav-token (:nav-token (rf/compute-sub [:rf/route] rt))]
       {:db (-> db
                (assoc-in [:feed :status]
                          (if (seq (get-in db [:feed :data])) :fetching :loading))

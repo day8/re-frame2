@@ -85,7 +85,7 @@
 ;; param entirely — that's the canonical first-page URL.
 (rf/reg-event :home/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [current (get-in rt [:rf.runtime/routing :current])
+    (let [current (rf/compute-sub [:rf/route] rt)
           tag     (get-in current [:params :tag])
           feed    (get-in current [:query :feed])]
       (if tag
@@ -197,7 +197,7 @@
    one. Reads RUNTIME-db, where the route slice lives. The HTTP twin carries
    the same predicate (realworld_http/comments.cljs)."
   [rt slug]
-  (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+  (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)]
     (and (= :realworld.article/show route-id)
          (= slug (:slug params)))))
 
@@ -709,8 +709,7 @@
 ;; `?page=`. Page 1 drops the param — the canonical first-page URL.
 (rf/reg-event :profile/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [current]} (get rt :rf.runtime/routing)
-          {:keys [route-id params]} current
+    (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)
           query (cond-> {} (> page 1) (assoc :page page))]
       {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query query}]]]})))
 

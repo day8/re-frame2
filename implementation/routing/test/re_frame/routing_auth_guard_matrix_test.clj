@@ -39,9 +39,8 @@
   so stands aside exactly where it is most dangerous: a session that expires
   WHILE the user sits on a `:requires-auth` route can navigate in place (a query
   change, a tab switch) straight past the guard. The guard mirrors the runtime:
-  it resolves an in-place request from the CURRENT route slice
-  (`[:rf.runtime/routing :current]`, carried in the `:rf.db/runtime` coeffect)
-  before reading the tags, so the guard sees the protected route and fails
+  it resolves an in-place request from the CURRENT route slice (`[:rf/route]`
+  computed against the `:rf.db/runtime` coeffect) before reading the tags, so the guard sees the protected route and fails
   CLOSED.
 
   This suite guards BOTH holes: a `:rf.route/navigate` branch that trusts the
@@ -100,8 +99,8 @@
   never fire) and redirected to login."
   [ctx]
   (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
-                                    (get-in ctx [:coeffects :rf.db/runtime
-                                                 :rf.runtime/routing :current]))]
+                                    (rf/compute-sub [:rf/route]
+                                                    (get-in ctx [:coeffects :rf.db/runtime])))]
     (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
           needs-auth? (contains? (:tags route-meta) :requires-auth)
           signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]

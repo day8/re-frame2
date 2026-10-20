@@ -102,7 +102,7 @@ A "save and close" button should not ask. Save, then navigate with
 ```clojure
 (rf/reg-event :editor/save-and-close
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+    (let [{:keys [slug]} (:params (rf/compute-sub [:rf/route] rt))]
       {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))
        :fx [[:dispatch [:rf.route/navigate {:to            :app/article
                                             :params        {:slug slug}
@@ -156,7 +156,7 @@ to try **Save** before **Home**, and **Save and close**.
 
 (rf/reg-event :editor/save-and-close
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+    (let [{:keys [slug]} (:params (rf/compute-sub [:rf/route] rt))]
       {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))
        :fx [[:dispatch [:rf.route/navigate {:to            :app/article
                                             :params        {:slug slug}

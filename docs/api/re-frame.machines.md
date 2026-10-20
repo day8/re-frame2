@@ -50,7 +50,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
     - Returns `machine-id`. Registering it again replaces the definition, while a live snapshot is retained and reconciled on the next event.
     - The macro walks the literal spec at expansion time. It attaches source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` and `:actions` entry, and a reference-site `:source-coords` to each state node and transition map under `:states`. Xray uses these to go from a snapshot to the guard, action or state definition. The call site's own coordinates are on `handler-meta`.
     - Pass either a literal spec or a value defined with [`defmachine`](#defmachine). A value bound with plain `def` carries no source.
-    - The snapshot lives in the frame's `runtime-db` (not `app-db`) at `[:rf.runtime/machines :snapshots machine-id]`. Its shape is `{:state … :data …}` plus framework-managed slots for `:after` timer epochs and tags. Read it with the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription, or once with `subscribe-once`.
+    - The snapshot lives in the frame's `runtime-db` (not `app-db`) at `[:rf.runtime/machines :snapshots machine-id]`. Its shape is `{:state … :data …}` plus framework-managed slots for `:after` timer epochs and tags. A view reads it with the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription. An event handler computes the same vector against its `:rf.db/runtime` coeffect, `(rf/compute-sub [:rf/machine machine-id] (:rf.db/runtime cofx))`, and never spells the storage path.
 - **Errors**: every refusal throws at registration, not on first dispatch; [Registration errors](#registration-errors) below lists them.
 - **Example**:
   ```clojure

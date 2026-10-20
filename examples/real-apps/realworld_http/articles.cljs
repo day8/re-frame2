@@ -250,7 +250,7 @@
   ;; `/articles?tag=…&limit=…&offset=…`. Frontend route shape and API query
   ;; string are deliberately independent.
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [current   (get-in rt [:rf.runtime/routing :current])
+    (let [current   (rf/compute-sub [:rf/route] rt)
           tag       (get-in current [:params :tag])
           page      (or (get-in current [:query :page]) 1)
           path      (rh/paginate-path "/articles" (when tag {:tag tag}) page)
@@ -270,7 +270,7 @@
           has-data? (seq (:data slice))
           ;; Which navigation this load serves; both reply targets carry it
           ;; (REPLY OWNERSHIP, http.cljs).
-          nav-token (rh/current-nav-token rt)]
+          nav-token (:nav-token (rf/compute-sub [:rf/route] rt))]
       {:db (assoc db :articles
                   (-> slice
                       (assoc :tag    tag
