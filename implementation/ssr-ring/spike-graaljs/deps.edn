@@ -1,0 +1,49 @@
+;; SPIKE, NOT FOR MERGE: can `react-dom/server` render a compiled
+;; Fresco app inside the JVM under GraalJS? The findings live on the bead and
+;; in the PR body; this directory is the code that produced them.
+;;
+;; Run from this directory (see `spike.graaljs`'s docstring for the bundle
+;; build it needs first):
+;;
+;;   clojure -M:spike -m spike.graaljs all
+;;
+;; The `:spike` alias puts the login example's JVM host on the classpath, the
+;; same roots and deps as ssr-ring's `:crossing-test` alias, so the harness can
+;; drive `fresco.login.host` and capture the exact call the sidecar receives.
+{:paths ["src"]
+ :deps  {org.clojure/clojure        {:mvn/version "1.12.0"}
+         day8/re-frame2-ssr-ring    {:local/root ".."}
+         ;; GraalJS: the community, UPL/MIT coordinates. `org.graalvm.polyglot/js`
+         ;; is a POM that resolves to exactly these two plus their transitives.
+         org.graalvm.polyglot/polyglot   {:mvn/version "25.0.4"}
+         org.graalvm.js/js-language      {:mvn/version "25.0.4"}
+         org.graalvm.truffle/truffle-runtime {:mvn/version "25.0.4"}}
+
+ :aliases
+ {:spike {:extra-paths ["../../../examples/core"
+                        "../../../examples/substrates"]
+          :extra-deps  {day8/re-frame2-schemas   {:local/root "../../schemas"}
+                        day8/re-frame2-flows     {:local/root "../../flows"}
+                        day8/re-frame2-routing   {:local/root "../../routing"}
+                        day8/re-frame2-machines  {:local/root "../../machines"}
+                        day8/re-frame2-http      {:local/root "../../http"}
+                        day8/re-frame2-resources {:local/root "../../resources"}
+                        ;; `fresco.login.host` composes with ring-core.
+                        ring/ring-core           {:mvn/version "1.12.1"}}
+          :jvm-opts    ["-Xss4m"]}
+
+  ;; JIT on a STOCK JDK 21. The 25.x compiler module (`jdk.graal.compiler`)
+  ;; cannot load into JDK 21, whose JVMCI exports name the older module
+  ;; (`jdk.internal.vm.compiler`), so a stock 21 needs the version-matched
+  ;; 23.1 line, plus JVMCI flags and the compiler on the upgrade module path
+  ;; (see `spike.graaljs`'s docstring for the command line).
+  :jdk21-jit {:override-deps {org.graalvm.polyglot/polyglot       {:mvn/version "23.1.12"}
+                              org.graalvm.js/js-language          {:mvn/version "23.1.12"}
+                              org.graalvm.truffle/truffle-runtime {:mvn/version "23.1.12"}}
+              :extra-deps    {org.graalvm.compiler/compiler       {:mvn/version "23.1.12"}}}
+
+  ;; JIT on a GraalVM CE JDK (graal-25.4.4.1.1, JDK 25): libgraal ships in
+  ;; the JDK, so no flags; the polyglot jars must match its Truffle version.
+  :graalvm-jdk {:override-deps {org.graalvm.polyglot/polyglot       {:mvn/version "25.4.4.1.1"}
+                                org.graalvm.js/js-language          {:mvn/version "25.4.4.1.1"}
+                                org.graalvm.truffle/truffle-runtime {:mvn/version "25.4.4.1.1"}}}}}
