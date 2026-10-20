@@ -335,7 +335,7 @@ For a worked example, read `auth.cljs` in the [RealWorld example](../../../examp
 |---|---|---|
 | `:rf.error/http-bad-reply-target`; the submit never replies | `:on-success` / `:on-failure` is a bare keyword instead of an event vector | Write `[:form.login/submit-success]` |
 | `:rf.error/http-bad-request` | The request's final `:url` is blank or not a string | Build the URL before returning the effect |
-| `:rf.error/http-bad-retry-on` | `:retry :on` is a vector, or names a category outside `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` | Use a set of those categories |
+| `:rf.error/http-bad-retry-on` | `:retry :on` is a vector, or names something other than a category in `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` or a status integer from 400 to 599 | Use a set of those categories and statuses, such as `#{:rf.http/http-5xx 429}` |
 
 ## When not to use a form slice
 
