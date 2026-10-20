@@ -1041,7 +1041,7 @@
   into one `:id`).
 
   The named-address doors mirror this rule through `canonical-query`:
-  `{:to …}`, the in-place `:query` / `:query-merge` edit and
+  `{:to …}`, the in-place `:query` edit and
   `route-url` spell every entry by its URL token against this same vocabulary,
   so an undeclared key is a string key with a string value on every door, not
   only the URL ones."
@@ -1742,12 +1742,12 @@
 
   This is `coerce-query`'s mirror for the named-address doors. `match-url`
   keeps an undeclared key a string; if `{:to …}`, the
-  in-place `:query` / `:query-merge` edit and `route-url` passed the caller's
-  spelling through, one destination would commit two slices depending on the
-  door, `:query-merge {:page 2}` over a URL-seeded `{\"page\" \"1\"}` would keep
-  both and push `page=2&page=1`, and a nil delta could not remove the key.
-  Applied at three sites: `re-frame.routing.resolve/resolved-target`, the
-  `:query-merge` deltas before the fold, and `route-url` before its canonical
+  in-place `:query` edit and `route-url` passed the caller's spelling through,
+  one destination would commit two slices depending on the door, an in-place
+  `:query {:page 2}` over a URL-seeded `{\"page\" \"1\"}` would keep both and
+  push `page=2&page=1`, and a nil member could not remove the key.
+  Applied at three sites: `re-frame.routing.resolve/resolved-target`, an
+  in-place `:query` before it merges, and `route-url` before its canonical
   sort. The rule a programmer is told: undeclared query keys are URL strings,
   key and value, on every door; declare a key in `:query` or `:query-defaults`
   to get a keyword and a typed value.
@@ -1931,8 +1931,8 @@
   <query-params> :fragment <fragment>}` — `:to` names the route (requests
   spell the route id `:to`; facts spell it `:route-id`). Canonical inverse
   of `match-url` over values accepted by the route schema. Strictly
-  address-only: `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll`
-  / `:bypass-leave?`), and any unknown key are rejected LOUD
+  address-only: `:url`, policy keys (`:replace?` / `:scroll` /
+  `:bypass-leave?`), and any unknown key are rejected LOUD
   (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than
   silently ignored. There is no in-place form (a pure helper cannot read the
   current route); callers project their request/target into the address map.
@@ -2022,7 +2022,7 @@
                    (pr-str (type address)) ".")
               {:reason :not-a-map :value address})))
    ;; Strictly ADDRESS-ONLY (Spec 012 route-url): reject `:url`,
-   ;; `:query-merge`, policy keys, and any unknown key LOUD rather than
+   ;; policy keys, and any unknown key LOUD rather than
    ;; silently ignoring them. The navigate handler select-keys'es its request
    ;; and link-model projects its target map, so the framework callers never
    ;; trip this; a direct misuse of the public `route-url` fails fast. Bad
@@ -2031,8 +2031,8 @@
    ;; EP-0037 R0: the address-only key class is the ONE shared
    ;; `rf.routing.address/address-keys` constant every door measures the address against
    ;; (Spec 012 §The extraction law). route-url takes an already-extracted
-   ;; address, so a non-address key here (`:url` / `:query-merge` / policy /
-   ;; unknown) is a direct-misuse caller bug and rejects LOUD.
+   ;; address, so a non-address key here (`:url` / policy / unknown) is a
+   ;; direct-misuse caller bug and rejects LOUD.
    ;; The reject scan runs on the render path — every `route-link`
    ;; href synthesis pays it — so it walks the address's entries directly
    ;; instead of allocating a `keys` sequence and a lazy `remove` over it. The
@@ -2049,7 +2049,7 @@
                 'rf.routing/route-url
                 (str "route-url is address-only: it accepts only :to :params :query "
                      ":fragment. Rejected key(s) " (pr-str bad)
-                     " (:url / :query-merge / policy keys / unknown keys are not "
+                     " (:url / policy keys / unknown keys are not "
                      "accepted by route-url).")
                 {:route-id route-id :keys bad :reason :bad-address-keys}))))
    (when (nil? route-id)
