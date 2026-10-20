@@ -1,41 +1,10 @@
 (ns re-frame.resources.tooling
-  "Resources tooling sibling of `re-frame.resources` — carries the
-  derivation/process algebra view of registered resources
-  (`resource-algebra-view`, the STATIC view) and of a frame's live cache
-  entries (`resource-cache-algebra-view`, the LIVE view) that pair tools
-  (Xray, re-frame2-pair-mcp) and the conformance fixtures query, but no
-  production application code reads.
-
-  Bundle boundary:
-    - CLJS consumers needing the surface call
-      `re-frame.resources.tooling/<name>` directly. An app that loads the
-      resources artefact but never attaches a tool DCEs the body wholesale
-      (the sibling ns is loaded only when a test fixture, tool, or dev
-      preload requires it; the `re-frame.resources` facade never
-      `:require`s it).
-    - JVM consumers keep an ergonomic `re-frame.resources/<name>` alias
-      (gated under `#?(:clj ...)`). The JVM has no bundle to protect; the
-      alias costs nothing. The whole resources artefact is already
-      bundle-isolated from production builds (counter never `:require`s
-      `re-frame.resources`), so this sibling can never reach a no-resources
-      app's bundle; the `resources-tooling` entry in
-      `implementation/scripts/check-bundle-isolation.cjs` additionally proves
-      no stray `:require` ever pulled the body in (see the note at the foot
-      of this ns).
-
-  READ-ONLY over the registry + runtime. This ns touches NEITHER the
-  resource registrar write-path (`reg-resource` / `clear-resource`,
-  `re-frame.resources.registry`) NOR the resource events / mutation
-  write-path (`re-frame.resources.events`).
-  The STATIC view reads the `:resource` registry through the
-  `rf.registrar/lookup` / `rf.registrar/ids` registry seams; the LIVE view reads
-  the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
-  records through the `rf.frame/frame-runtime-db-value` read seam (the
-  same seam the SSR drain read uses).
-
-  Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
-  expose process nodes and the projected Malli
-  shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
+  "The derivation/process algebra views of resources for pair tools and
+  conformance fixtures: `resource-algebra-view` (static, over the registry)
+  and `resource-cache-algebra-view` (live, over a frame's cache). Read-only
+  over the registry and runtime-db; no production code reads it, and the
+  `re-frame.resources` facade never requires it, so an app that attaches no
+  tool dead-code-eliminates it. Derivations §Resources expose process nodes."
   (:require [re-frame.derivation.node :as rf.derivation.node]
             [re-frame.frame :as rf.frame]
             [re-frame.identity :as rf.identity]
@@ -44,100 +13,45 @@
             [re-frame.resources.scope-registry :as rf.resources.scope-registry]
             [re-frame.resources.ssr :as rf.resources.ssr]
             [re-frame.resources.state :as rf.resources.state]
-            ;; The standing scope rule lives in the production-reachable
-            ;; trace-egress ns, and this TOOL boundary opts into the same rule
-            ;; so the two off-box boundaries cannot answer differently. The edge points from the
-            ;; bundle-isolated sibling INTO a production-reachable ns, which is
-            ;; the safe direction: nothing here is pulled toward a bundle.
+            ;; The tool boundary opts into the trace-egress scope rule so the
+            ;; two off-box boundaries cannot answer differently. The edge runs
+            ;; from this bundle-isolated sibling into a production ns, the safe
+            ;; direction.
             [re-frame.resources.trace-egress :as rf.resources.trace-egress]
             [re-frame.resources.transport :as rf.resources.transport]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- algebra views --------------------------------------------------------
-;;
-;; Per [Derivations.md] §Resources expose process nodes and the projected Malli
-;; shapes in [Spec-Schemas
-;; §`:rf/derivation-node`]. A resource is the canonical PROCESS member of
-;; the derivation/process algebra (Derivations §Process — "Resources and
-;; machines are processes"), distinct from the subscription / flow
-;; DERIVATIONS: it has remote authority, owners, stale suppression, and
-;; host-transient in-flight work over time. A single `reg-resource`
-;; declaration lowers to MORE THAN ONE algebra node (Derivations §Source
-;; form and algebra view): a `:process` node for the cache entry PLUS the
-;; derived read facts (the `:rf.resource/*` selectors) over that entry —
-;; the latter are surfaced under `:selectors` on the process node, not
-;; minted as separate nodes here (they are ordinary subscriptions, already
-;; covered by the subscription algebra view).
-;;
-;; The static algebra view is assembled from registered resource metadata.
-;; These functions live in the bundle-isolated tooling sibling and have no
-;; `re-frame.core` facade export.
-;;
-;; The fixed classifications for EVERY resource process node (Derivations
-;; §Resources expose process nodes):
-;;   :kind        :process              (the superkind; refined :resource-process)
-;;   :storage     :runtime-db           (the LOCAL cache entry lives in runtime-db)
-;;   :authority   {:kind :remote …}     (the source of truth is external — the remote axis)
-;;   :evaluation  #{:on-route :on-reply :scheduled :manual}  (a multi-trigger process)
-;;   :lifecycle   :scoped-resource-key  (a scoped resource key owns the cache entry)
-;; The per-resource axes that vary are the declared INPUTS (params + scope),
-;; the OUTPUT runtime-db address, the `:authority` transport, and (for a
-;; `{:from-db <id>}` scope) the named-resolver enrichment.
-;;
-;; A resource consumes the shared vocabulary verbatim — it does NOT
-;; redefine the `:rf/storage-class` / `:rf/evaluation-policy` / `:rf/lifecycle`
-;; enums or the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
-;; Derivations).
+;; ---- static algebra view --------------------------------------------------
 
 (def resource-superkind
-  "The two-superkind classification a tool that understands only
-  `:derivation` / `:process` reads (Derivations §The node shape). A
-  resource is a `:process` — a derivation WITH state, lifecycle, and
-  commands over time."
+  "A resource is a `:process`. Derivations §The node shape."
   :process)
 
 (def resource-refined-kind
-  "The informative refinement (Derivations §The node shape — refined kinds
-  are informative, the superkind is canonical). A resource's source-form
-  refinement is `:resource-process`."
+  "The informative refinement of a resource node. Derivations §The node shape."
   :resource-process)
 
 (def resource-storage
-  "The LOCAL storage class of a resource process node (Derivations
-  §Resources expose process nodes): the cache entry lives in the
-  framework-owned `runtime-db` partition. The REMOTE authority is the
-  separate `:authority` axis — `:remote` is NOT a storage class."
+  "The local storage class: the cache entry lives in runtime-db. The remote
+  source of truth is the separate `:authority` axis. Derivations §Storage class."
   :runtime-db)
 
 (def resource-lifecycle
-  "The lifecycle class of a resource process node (Derivations §Lifecycle
-  and owner): a scoped resource key owns the cache entry; owners, freshness
-  policy, and GC release it. The unqualified lifecycle-CATEGORY kind
-  `:scoped-resource-key` (sibling to `:frame` / `:route` / `:machine-instance`)
-  — distinct from the `:resource/key` durable data field that carries the
-  concrete key value (one name per fact, EP-0007)."
+  "The lifecycle category: a scoped resource key owns the cache entry.
+  Distinct from the `:resource/key` data field. Derivations §Lifecycle and owner."
   :scoped-resource-key)
 
 (def resource-evaluation
-  "The evaluation policy SET of a resource process node (Derivations
-  §Evaluation policy — a process with more than one trigger carries the
-  set). A resource runs on route activation, manual refresh/ensure, async
-  reply, and scheduled stale/GC timers."
+  "A resource's trigger set: route activation, reply, scheduled timers and
+  manual refresh/ensure. Derivations §Evaluation policy."
   #{:on-route :on-reply :scheduled :manual})
 
 (def ^:private resource-selectors
-  "The public resource passive read-fact ids that derive over a
-  resource's runtime-db cache entry — the bare whole-read `:rf/resource`
-  plus the `:rf.resource/*` per-field selectors (Derivations §Resources expose process
-  nodes — \"the public selectors listed in `:selectors`\"; Spec 016
-  §Subscriptions). They are SEPARATE on-demand derivations over the
-  entry — reading them does NOT start resource work (Derivations §Evaluation
-  policy rule 1). Surfaced under the process node's `:selectors` so a tool
-  can see the read facts a resource projects, without minting them as
-  separate process nodes here. Matches the `register-subs!` family in
-  `re-frame.resources.subs`."
+  "The read-fact sub ids over a resource entry, surfaced under `:selectors`
+  rather than minted as nodes; reading one starts no work. Matches
+  `re-frame.resources.subs/register-subs!`. Spec 016 §Subscriptions (passive)."
   [:rf/resource
    :rf.resource/data
    :rf.resource/status
@@ -150,62 +64,34 @@
    :rf.resource/previous-data])
 
 (defn- resource-commands
-  "The process COMMAND descriptors a resource emits (Derivations §Process —
-  \"processes may produce command outputs, but commands are NOT facts\";
-  the EP-0014 §Resource declaration example `:commands` slot). A resource
-  drives the managed-HTTP transport (the `:transport`, defaulting to
-  `:rf.http/managed`) and lowers its completions onto the framework-internal
-  reply targets (Spec 016 — `:rf.resource.internal/succeeded` /
-  `…/failed`). The command becomes a fact only when the host returns a reply
-  event (Derivations §Process)."
+  "The transport command descriptor and its internal reply targets. Commands
+  are not facts. Derivations §Process."
   [transport-id]
   [{:effect  transport-id
     :replies {:success :rf.resource.internal/succeeded
               :failure :rf.resource.internal/failed}}])
 
 (defn- authority-for
-  "Build the `:authority` remote-axis map for a resource (Derivations
-  §Authority — the remote axis). The source of truth is external
-  (`:kind :remote`, `:system :server`); `:transport` MIRRORS the registered
-  transport (a recomputable PROJECTION of the Spec 016 registration fact —
-  never a second authoritative home). `transport-id` is the spec's
-  `:transport`, defaulting to the only built-in transport
-  (`rf.resources.transport/default-transport`, `:rf.http/managed`)."
+  "The remote `:authority` map; `:transport` mirrors the registered
+  transport. Derivations §Authority — the remote axis."
   [transport-id]
   {:kind      :remote
    :system    :server
    :transport transport-id})
 
 (defn- declared-inputs
-  "Lower a resource spec into the algebra view's declared inputs
-  (Derivations §Declared input / §Resources expose process nodes). A
-  resource's identity is `[cache-scope resource-id canonical-params]`, so
-  its static declared inputs are `[:param :rf.params]` (the params, whose
-  concrete shape is per-call — the `:params-schema` validates them) and a
-  `[:scope <policy>]` input naming the registered scope policy.
-
-  The DON'T-EXECUTE rule (Derivations §The don't-execute rule): static
-  inspection NEVER runs a scope/param resolver. Both policy shapes are
-  reported VERBATIM — an explicit `:rf.scope/global` claim, and a
-  `{:from-db <id>}` named-resolver reference (a genuinely STATIC fact: the
-  resolver id + its declared inputs surface via `scope-resolver`
-  enrichment) — while the params stay generic."
+  "The static declared inputs: generic params plus the scope policy reported
+  verbatim. Static inspection never runs a resolver.
+  Derivations §The don't-execute rule (EP-0014 issue-3 disposition)."
   [spec]
   [[:param :rf.params]
    [:scope (:scope spec)]])
 
 (defn- scope-resolver-enrichment
-  "Named-resolver enrichment (Derivations §Named-resolver enrichment,
-  EP-0014 issue-3): when a resource scope is a `{:from-db <resolver-id>}`
-  reference rather than an inline function, the static graph reports the
-  RESOLVER ID and its DECLARED INPUTS even while the params stay generic —
-  because the resolver's inputs are declared, not executed. Read READ-ONLY
-  through the `:resource-scope` registrar entry's `:rf/resource-scope`
-  projection (the resolver inputs as
-  `[:db <rf-path>]` descriptors). Returns the `:scope-resolver` map, or nil
-  when the scope is not a `{:from-db …}` reference (or the resolver is not
-  registered — a registration-time forward reference; the static graph then
-  carries the reference id alone, no inputs)."
+  "For a `{:from-db <id>}` scope, `{:id <id>}` plus the resolver's declared
+  `[:db <path>]` inputs when it is registered (a forward reference carries the
+  id alone); nil for any other scope.
+  Derivations §Named-resolver enrichment (EP-0014 issue-3 disposition)."
   [spec]
   (let [scope (:scope spec)]
     (when (rf.resources.scope-registry/from-db-reference? scope)
@@ -215,23 +101,13 @@
                          rf.resources.scope-registry/scope-kind scope-id))]
         (cond-> {:id scope-id}
           (some? rmeta)
-          ;; the resolver's declared inputs are static facts — each stored
-          ;; `[:db <rf-path>]` descriptor lowers to a `[:db <rf-path>]`
-          ;; declared input (Derivations §Declared input). The names key
-          ;; the descriptor map; the value is the `[:db path]` source.
           (assoc :inputs (vec (vals (:inputs rmeta)))
                  :whole-db? (boolean (:whole-db? rmeta))))))))
 
 (defn- with-metadata
-  "Attach source coordinates, the `:schema` data fact, the `:doc`, and the
-  opaque `:derive` request-fn token to a node when present. `:schema` is the
-  resource's `:data-schema` (the decoded-data fact the resource produces);
-  `:doc` is user-supplied. The `:source` coords are read READ-ONLY off the
-  registrar `slot` — `reg-resource` stamps `:ns` / `:file` / `:line` at the
-  slot's top level via `source-coords/merge-coords`, while `:rf/resource`
-  holds the spec — so coords ride the slot, not the spec. The `:request`
-  fn is the resource's whole-value process driver, surfaced under `:derive`
-  as an opaque token (never serialized)."
+  "Attaches source coords, `:schema` (the `:data-schema`), `:doc` and the
+  opaque `:derive` request-fn token when present. Coords ride the registrar
+  slot, not the spec."
   [node spec slot]
   (cond-> (rf.derivation.node/attach-source node slot)
     (contains? spec :data-schema) (assoc :schema (:data-schema spec))
@@ -239,21 +115,8 @@
     (contains? spec :request)     (assoc :derive (:request spec))))
 
 (defn- static-node-for
-  "Build the STATIC derivation/process algebra view of one resource from its
-  registered spec (Derivations §Resources expose process nodes;
-  Spec-Schemas §`:rf/derivation-node`). `resource-id` is the node's
-  canonical fact identity when static (Derivations §Fact identity — a
-  resource fact is identified by resource id when static, by
-  `[cache-scope resource-id canonical-params]` when concrete).
-
-  The fixed-classification spine — a `:process` whose cache entry lands in
-  runtime-db, external `:authority`, evaluated on the resource trigger set,
-  owned by its scoped resource key (the `:scoped-resource-key` lifecycle) —
-  plus the per-resource declared `:inputs`
-  (params + scope), the runtime-db `:output` address, the `:selectors`
-  read-fact ids, the `:commands` transport descriptors, the optional
-  `:scope-resolver` named-resolver enrichment, and source coords / schema /
-  doc / opaque `:derive` request token."
+  "The static process node for one registered resource.
+  Derivations §Resources expose process nodes."
   [resource-id spec slot]
   (let [transport-id (or (:transport spec) rf.resources.transport/default-transport)
         resolver     (scope-resolver-enrichment spec)]
@@ -273,69 +136,11 @@
         (with-metadata spec slot))))
 
 (defn resource-algebra-view
-  "Return the STATIC derivation/process algebra view of every registered
-  resource (EP-0014; [Derivations.md] §Resources expose process
-  nodes, [Spec-Schemas §`:rf/derivation-node`]).
-
-  Pure data over the `:resource` registry — read READ-ONLY through the
-  `rf.registrar/lookup` / `rf.registrar/ids` registry seams, never
-  touching the registrar write-path (`reg-resource` / `clear-resource`) or
-  the resource events / mutation write-path. The algebra-view companion to
-  `resources`: where `resources` returns `{:resource-ids […] :entries {…}}`,
-  this lowers every registered resource into the normalized
-  `:rf/derivation-node` PROCESS shape the derivation/process algebra names,
-  so a tool can show subscriptions, flows, resources, route facts, and
-  machine selectors as ONE family.
-
-  A resource is the canonical PROCESS member of the algebra (never a
-  derivation — Derivations §Process). Each node carries:
-
-  - `:id`          — the resource id (its canonical fact identity when static).
-  - `:kind`        — `:process` (the superkind; Derivations §Two superkinds).
-  - `:refinement`  — `:resource-process` (the informative refinement;
-                     Derivations §The node shape).
-  - `:source-form` — `{:kind :reg-resource :id <resource-id>}`.
-  - `:inputs`      — the declared inputs (Derivations §Declared input): the
-                     params (`[:param :rf.params]`) and the scope policy
-                     (`[:scope <policy>]` — an explicit `:rf.scope/global`
-                     claim or a `{:from-db <id>}` reference, each verbatim;
-                     the reference is never resolved — the don't-execute
-                     rule).
-  - `:scope-resolver` — present only for a `{:from-db <id>}` scope: the
-                     resolver id + its declared `[:db <rf-path>]` inputs
-                     (the named-resolver enrichment — static facts because
-                     the inputs are declared, not executed).
-  - `:output`      — `[:runtime [:rf.runtime/resources :entries]]` — the
-                     resource MATERIALIZES its cache entries into the
-                     runtime-db partition.
-  - `:storage`     — `:runtime-db` (the LOCAL representation home).
-  - `:authority`   — `{:kind :remote :system :server :transport <id>}` — the
-                     REMOTE axis: the source of truth is external; `:transport`
-                     mirrors the registered transport.
-  - `:evaluation`  — `#{:on-route :on-reply :scheduled :manual}` (a
-                     multi-trigger process).
-  - `:lifecycle`   — `:scoped-resource-key`.
-  - `:selectors`   — the `:rf.resource/*` read-fact ids that derive over the
-                     entry (separate on-demand derivations; reading one does
-                     not start work).
-  - `:commands`    — the transport command descriptors + their reply targets
-                     (commands are NOT facts — Derivations §Process).
-  - `:materialized?` — `true` (the cache entry has a durable runtime-db address).
-  - `:derive`      — the opaque `:request` body-fn token (never serialized).
-  - `:source` / `:schema` / `:doc` — present when the registration carried
-                     them (`:schema` is the `:data-schema`; source coords
-                     auto-captured by `reg-resource` via
-                     `source-coords/merge-coords`).
-
-  Zero-arity returns `{resource-id <node>}` for every registered resource
-  (`{}` when none). The one-arity form returns the single node for
-  `resource-id`, or `nil` if it is not registered. JVM-runnable — the
-  resource registry is partition-agnostic registration metadata.
-
-  There is NO public accessor (EP-0014 issue 1): this lives
-  in the bundle-isolated tooling sibling and is consumed by Xray + the
-  conformance fixtures; the public name is deferred until a third consumer
-  needs it. There is no `re-frame.core/resource-algebra-view` facade export."
+  "The static algebra view of registered resources. Zero-arity returns
+  `{resource-id <node>}` (`{}` when none); one-arity returns that resource's
+  node or nil. Pure data read through the registrar seams; JVM-runnable.
+  There is deliberately no `re-frame.core` export.
+  Derivations §Resources expose process nodes."
   ([]
    (reduce
      (fn [acc resource-id]
@@ -351,74 +156,29 @@
      (when (some? spec)
        (static-node-for resource-id spec slot)))))
 
-;; ---- live view (Derivations §Static and live graphs) ---------------------
+;; ---- live view and its tool-egress projection -----------------------------
 ;;
-;; The LIVE counterpart: where the static view reports the resource id and a
-;; generic params input, the live view reports one PROCESS node per concrete
-;; cache entry, keyed by its scoped resource key
-;; `[cache-scope resource-id canonical-params]` — the resource's canonical
-;; fact identity when concrete (Derivations §Fact identity). The concrete
-;; scope + params are realized edges (Derivations §Static and live graphs);
-;; the live owners, status, in-flight work-ledger links, and host-transient
-;; in-flight handle address are the live lifecycle state.
-
-;; ---- EP-0015 tool-egress projection --------------------------------------
-;;
-;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
-;; re-frame2-pair-mcp, conformance fixtures). EP-0015 treats resource entries,
-;; work-ledger rows, scopes, params, and owner/cause summaries as EGRESS
-;; RECORDS, and requires projected payloads at tool boundaries (Spec 015 §10;
-;; Derivations §Resources expose process nodes — the live-resource identity
-;; case where scope/params are embedded in the node KEY / `:id` / `:output` /
-;; `:inputs` / `:work-ledger`, which a generic value-path walk cannot reach).
-;;
-;; The SCOPE takes the framework's standing scope rule
-;; (`rf.resources.trace-egress/project-scope`), the rule the off-box trace
-;; projector gives every scope: every non-global scope tokenizes content-free,
-;; whatever the owner. The PARAMS reuse the SAME resource OWNER classification
-;; the SSR / durable-egress path uses — never a tooling-private elider —
-;; through the shared `rf.resources.ssr/disposition+project-key` pipeline:
-;;   - `classification/whole-entry-disposition` (inside the shared helper)
-;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. There is
-;;     no named-scope-resolver derived-sensitivity inheritance arm (EP-0025:
-;;     no sensitivity propagation);
-;;   - `rf.resources.ssr/project-scoped-key` (inside the shared helper) then projects the
-;;     scoped key per that disposition — `:redact` / `:omit` replace the
-;;     params with `{:rf/redacted …}` tokens (a content-FREE shape token for
-;;     the sensitive class, a canonical-bytes digest for the large one —
-;;     `rf.resources.ssr/redact-value`), while `:serialize` params ride
-;;     verbatim.
-;; The resource-id (position 1 of the 3-tuple) always survives, so a tool still
-;; sees WHICH resource each node names and edges still join nodes by the same
-;; projected key.
-;;
-;; A projection is MANY-TO-ONE: two sensitive entries whose params share a
-;; shape get one shape token, and two principals of one scope tier get one
-;; scope token. `resource-cache-algebra-view` therefore keeps entries whose
-;; projected keys coincide apart by ORDINAL (`collision-key`), never by
-;; anything derived from the raw scope or params.
+;; The live view is a tool egress boundary, and the scope and params sit in
+;; node keys where a value-path walk cannot reach them, so each key is
+;; projected here: the scope by the trace-egress standing scope rule, the
+;; params by the same owner classification the SSR path uses. The resource-id
+;; always survives. Projection is many-to-one, so entries whose projected keys
+;; coincide are kept apart by ordinal (`collision-key`), never by anything
+;; derived from the raw scope or params.
 
 (defn- project-key-for-egress
-  "Project a `scoped-key` for TOOL egress: the scope by the standing scope rule
-  (`rf.resources.trace-egress/project-scope`), the params by the owner's coarse
-  claim through the shared `rf.resources.ssr/disposition+project-key` pipeline
-  (`:redact` / `:omit` tokenize them; `:serialize` rides verbatim) — the rules
-  the off-box trace projector gives the same key. The resource-id always
-  survives. Returns the projected key. Pure.
-
-  `:params-schema` marks play no part: a schema is not a route into durable
-  classification (EP-0025; Spec 015 §Schemas describe shape, not durable
-  egress policy)."
+  "Projects `scoped-key` for tool egress: the scope through
+  `trace-egress/project-scope`, the params through
+  `ssr/disposition+project-key`. `:params-schema` marks play no part.
+  Returns the projected key. Spec 015 §Projection — applying classification at a boundary"
   [scoped-key frame-id]
   (let [[projected-key _disposition _spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
     (assoc projected-key 0 (rf.resources.trace-egress/project-scope (nth scoped-key 0)))))
 
 (defn- live-work-ledger-link
-  "Build the in-flight `:work-ledger` + `:host-transient` slots for a live node,
-  PROJECTING the record's `:resource/key` through `project-key` so it does not
-  leak the raw scope/params. The work-id names the attempt by resource id and
-  generation, so it carries neither and rides as-is. Returns the node `acc`
-  with both slots assoc'd."
+  "Assocs the `:work-ledger` summary and `:host-transient` handle address
+  onto `acc`, projecting the record's `:resource/key`. The work-id carries no
+  scope or params, so it rides as-is."
   [acc runtime-db work-id project-key]
   (let [record  (rf.resources.work-ledger/get-record runtime-db work-id)
         summary (select-keys record
@@ -433,21 +193,17 @@
            :host-transient [[:rf.http/in-flight work-id]])))
 
 (defn- collision-key
-  "The node identity of the `ordinal`-th of several live entries whose scoped
-  keys all PROJECT to `projected-key`: the same 3-tuple, its params component
-  wrapped as `{:rf.resource/collision <ordinal> :rf.resource/params <params>}`.
-  The ordinal is the only addition, so the key is as content-free as the
-  projection it wraps, names its resource at position 1, and — its params
-  being a map — is a scoped key to the graph egress projection. Pure."
+  "The identity of the `ordinal`-th of several entries projecting to
+  `projected-key`: the params wrapped as
+  `{:rf.resource/collision <ordinal> :rf.resource/params <params>}`. Adds
+  only the ordinal, so it stays as content-free as the projection."
   [[scope resource-id params] ordinal]
   [scope resource-id {:rf.resource/collision ordinal
                       :rf.resource/params    params}])
 
 (defn- visible-order
-  "Sort key ordering a collision group by what its nodes already SHOW — their
-  projected status, owners and in-flight work — so an ordinal carries nothing
-  the node does not. Members that tie show identical content, so which of
-  them takes which ordinal is unobservable. Pure."
+  "Sort key for a collision group, built only from what the nodes already
+  show, so an ordinal reveals nothing; tied members are indistinguishable."
   [node]
   (let [axes (select-keys node [:status :lifecycle :work-ledger :host-transient])]
     (try
@@ -456,28 +212,10 @@
         (pr-str axes)))))
 
 (defn- live-node-for
-  "Build the LIVE process node for one concrete cache entry. `proj-key` is the
-  entry's scoped key `[cache-scope resource-id canonical-params]` PROJECTED
-  for tool egress (`project-key-for-egress`); `node-key` is the identity the
-  node carries — `proj-key` itself, or its `collision-key` when other live
-  entries project to the same key. The static fixed classifications hold;
-  the live axes are the
-  realized `:inputs` (concrete `[:scope …]` + `[:param …]`), the concrete
-  `:output` runtime-db entry address, the live `:lifecycle` map (the
-  `:scoped-resource-key` kind + the entry's `:active-owners`), the entry `:status`,
-  and — when an attempt is in flight — the work-ledger record summary +
-  the host-transient in-flight handle address (Derivations §Output —
-  `:host-transient` in-flight work).
-
-  Every identity position — the `:id`, the `:output` runtime-path tail and
-  the in-flight work-ledger record's `:resource/key` — carries `node-key`; the
-  realized `[:scope …]` / `[:param …]` inputs carry the projected scope and
-  params. The in-flight work-id (on the work-ledger link and in the
-  host-transient handle address) names its attempt by resource id and
-  generation, so it carries no key to project.
-  No resource egresses a raw non-global scope here, a `:sensitive?` /
-  `:large?` resource never egresses its raw params (the value-path walk cannot
-  reach either), and a plain resource's params ride verbatim."
+  "The live process node for one cache entry. `proj-key` is its projected
+  scoped key and `node-key` the identity it carries (`proj-key` or its
+  `collision-key`); every identity position carries `node-key`.
+  Derivations §The live resource cache view."
   [runtime-db proj-key node-key frame-id entry static-node]
   (let [[proj-scope resource-id proj-params] proj-key
         project-key (fn [scoped-key]
@@ -498,80 +236,24 @@
              :selectors     resource-selectors
              :materialized? true
              :status        (:status entry)}
-      ;; an in-flight attempt links the durable work-ledger record (a small
-      ;; serializable summary — the in-flight identity, owners, causes,
-      ;; transport, status) AND names the host-transient in-flight handle
-      ;; address (the abortable handle lives OUTSIDE durable frame-state, in
-      ;; the `[frame-id work-id]` side table — Derivations §Output).
-      ;; The record's `:resource/key` is PROJECTED for tool egress; the
-      ;; work-id carries no scoped key.
       (some? work-id)
       (live-work-ledger-link runtime-db work-id project-key)
-      ;; carry the static node's source coords / schema / doc / derive token
-      ;; through to the live node (the same resource registration backs both).
       (contains? static-node :source) (assoc :source (:source static-node))
       (contains? static-node :schema) (assoc :schema (:schema static-node))
       (contains? static-node :doc)    (assoc :doc (:doc static-node))
       (contains? static-node :derive) (assoc :derive (:derive static-node)))))
 
 (defn resource-cache-algebra-view
-  "Return the LIVE derivation/process algebra view of a frame's resource
-  cache — one `:rf/derivation-node` per concrete cache entry (EP-0014;
-  [Derivations.md] §Static and live graphs).
-
-  The live counterpart to `resource-algebra-view`: where the static view
-  reports the resource id and a generic params input, the live view reports
-  the REALIZED `[:scope …]` + `[:param …]` edges for each concrete entry,
-  keyed by the entry's scoped resource key
-  `[cache-scope resource-id canonical-params]` — its canonical fact identity
-  when concrete (Derivations §Fact identity). Pure data over the frame's
-  `:rf.runtime/resources` `:entries` + `:rf.runtime/work-ledger` records,
-  read READ-ONLY through `rf.frame/frame-runtime-db-value` (the same read seam
-  the SSR drain uses) — never touching the
-  runtime write-path.
-
-  Per-entry node (the static fixed classifications hold — `:kind :process`,
-  `:storage :runtime-db`, external `:authority`, the resource trigger set,
-  `:lifecycle :scoped-resource-key`), plus the live axes:
-
-  - `:id`          — the concrete scoped resource key (the live fact identity),
-                     projected for tool egress. Where several live entries
-                     project to one key, each carries its `collision-key`
-                     instead, so every entry keeps a node of its own.
-  - `:inputs`      — the realized `[[:scope <scope>] [:param <params>]]` edges
-                     for THIS entry.
-  - `:output`      — `[:runtime [:rf.runtime/resources :entries <scoped-key>]]`
-                     (the concrete entry address).
-  - `:lifecycle`   — `{:kind :scoped-resource-key :owners <active-owners>}` (the live
-                     owner set keeping the entry alive — Derivations §Lifecycle
-                     and owner).
-  - `:status`      — the entry's lifecycle FSM status (`:idle` / `:loading` /
-                     `:fetching` / `:loaded` / `:error`).
-  - `:work-ledger` — present when an attempt is in flight: the entry's
-                     `:current-work` id + a small serializable summary of the
-                     linked work-ledger record (identity, owners, causes,
-                     transport, status — the work-ledger link).
-  - `:host-transient` — present when an attempt is in flight: the in-flight
-                     handle address `[[:rf.http/in-flight <work-id>]]` (the
-                     abortable handle lives OUTSIDE durable frame-state).
-  - `:selectors` / `:authority` / `:source` / `:schema` / `:doc` / `:derive`
-                     — carried through from the resource's static node.
-
-  Returns `{<key-id> <node>}` with one node for every live entry in the
-  frame's cache — keyed on the CEDN-1 byte `key-id` STRING of the node's
-  `:id`, which for a plain resource is the key the runtime storage / SSR
-  wire / indexes use, with each node carrying its kind-preserving
-  scoped-resource-key VECTOR under `:id`. `{}` when the frame has no entries,
-  an unknown / destroyed frame, or no resource cache subtree. JVM-runnable —
-  the cache entries + work records are serializable EDN runtime-db facts (no
-  host handles ride them; those live in the side table)."
+  "The live algebra view of `frame-id`'s resource cache: one process node
+  per entry, keyed on the byte `key-id` of the node's projected `:id`. `{}`
+  for no entries or an unknown frame. Read through
+  `rf.frame/frame-runtime-db-value`; JVM-runnable.
+  Derivations §The live resource cache view."
   [frame-id]
   (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
         entries    (get-in runtime-db (rf.resources.state/entries-path))
-        ;; `:entries` is keyed on the opaque byte
-        ;; `key-id`; the live node's `:id` / inputs use the entry's own
-        ;; `:resource/key` VECTOR (the canonical fact identity), read from the
-        ;; entry, not the map key.
+        ;; The node identity is the entry's own `:resource/key` vector; the
+        ;; `:entries` map key is an opaque byte key-id.
         members    (for [entry (vals entries)
                          :let  [scoped-key  (:resource/key entry)
                                 static-node (resource-algebra-view (second scoped-key))
@@ -579,13 +261,9 @@
                                 node-at     #(live-node-for runtime-db proj-key % frame-id
                                                             entry static-node)]]
                      {:proj-key proj-key :node (node-at proj-key) :node-at node-at})]
-    ;; Group by the PROJECTED key's byte `key-id`, never by the `=`-colliding
-    ;; scoped-key vector (a list-params and a vector-params entry are
-    ;; Clojure-= as vectors, yet two live entries). A group of one keeps its
-    ;; projected key; a larger group — entries the projection cannot tell
-    ;; apart — gives each member its `collision-key`, in `visible-order`. The
-    ;; returned map is keyed on each node's `:id`, so the map key, the `:id`,
-    ;; and every other identity position agree and carry no raw secret.
+    ;; Group by the projected key's byte key-id, never by the vector: list and
+    ;; vector params are Clojure-= yet two entries. A group of more than one
+    ;; gives each member its `collision-key`.
     (reduce-kv
       (fn [acc _proj-key-id group]
         (reduce (fn [acc node] (assoc acc (rf.resources.state/key-id (:id node)) node))
@@ -599,22 +277,10 @@
       {}
       (group-by #(rf.resources.state/key-id (:proj-key %)) members))))
 
-;; ---- bundle isolation ---------------------------------------------------
+;; ---- bundle isolation -----------------------------------------------------
 ;;
-;; `implementation/scripts/check-bundle-isolation.cjs` proves this tooling
-;; sibling never reaches the production counter bundle. The literal it greps
-;; the EMITTED module for is `resource-process` — the value of
-;; `resource-refined-kind` above, which every algebra node this namespace
-;; builds carries on `:refinement`, so a CLJS keyword's fully-qualified name
-;; is interned into the emitted JS as a string constant Closure does not
-;; rename.
-;;
-;; There is deliberately no `defonce ^:private bundle-isolation-sentinel`
-;; string here: private and unconsumed, it would be dropped by Closure
-;; `:advanced`, so any `do-not-rename` instruction it carried would guard
-;; nothing. `re-frame.derivation.egress` records the identical trap.
-;;
-;; The rule, and the reason a planted string is the WRONG instinct here: pick
-;; a literal a LIVE code path emits, and verify the count in the emitted
-;; module, never in the `.cljc`. The roster comment in check-bundle-
-;; isolation.cjs beside the `resources-tooling` entry is the full account.
+;; `check-bundle-isolation.cjs` proves this sibling never reaches the counter
+;; bundle by counting `resource-process` (the `resource-refined-kind` value
+;; every node carries) in the EMITTED module. Do not plant a private sentinel
+;; string instead: Closure `:advanced` drops an unconsumed one, so it would
+;; guard nothing.
