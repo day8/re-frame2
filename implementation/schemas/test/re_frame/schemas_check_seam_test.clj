@@ -182,4 +182,5 @@
     (is (= :rf.error/cofx-value-invalid (:rf.error/id @thrown)) "the injection still fails")
     (is (= [{:where :cofx :failing-id :cf/reads :frame :rf/default :rf.cofx/id :cf/graded}]
            (mapv #(select-keys (:tags %) [:where :failing-id :frame :rf.cofx/id]) evs)))
-    (is (not (contains? @thrown :value)) "the validator decided nothing, so no value rides")))
+    (is (= [:rf/redacted true] [(:value @thrown) (:sensitive? @thrown)])
+        "the validator decided nothing, so the value is withheld and the error says so")))
