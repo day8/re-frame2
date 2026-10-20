@@ -930,6 +930,29 @@
       (is (some? (find-by-testid tree (str base "-explain")))
           "humanized explain map renders via `edn-inspector`"))))
 
+(deftest sub-return-violation-says-the-value-passed-through-test
+  (testing "a `:sub-return` failure is reported and the sub still
+            delivers its computed value (Spec 010 §Per-step recovery
+            row 6), so the chip and prose say the value passed
+            through and never that the sub returned nil"
+    (let [row      {:kind       :rf.error/schema-validation-failure
+                    :where      :sub-return
+                    :failing-id :counter/doubled
+                    :value      "not-an-int"
+                    :recovery   :no-recovery
+                    :sensitive? false}
+          tree     (view/violation-block :subs 0 row)
+          base     "rf-xray-epoch-violation-subs-0"
+          recovery (text-of tree (str base "-recovery"))
+          prose    (text-of tree (str base "-prose"))]
+      (is (= "Passed through" recovery)
+          "the chip names what the runtime did with the value")
+      (is (string/includes? prose "passed through to its consumers")
+          "the prose says the failing value still reached its consumers")
+      (is (not (string/includes? (string/lower-case (str recovery " " prose))
+                                 "returned nil"))
+          "nothing on the block says the sub returned nil"))))
+
 ;; ---- the `schema check` link opens the FAILING registration -------------
 ;;
 ;; Resolving every non-`:app-db` coord under registrar kind `:schema`, which

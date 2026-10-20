@@ -5454,13 +5454,13 @@
 (defn- violation-recovery-label
   "Render the recovery posture chip on a violation's title bar.
   Short chip text; the prose sentence below carries
-  the full explanation ('commit to app-db', 'this sub returned
-  nil', etc.) so the chip can be tight."
+  the full explanation ('can't be committed to app-db', 'passed
+  through to its consumers', etc.) so the chip can be tight."
   [where rollback? recovery]
   (cond
     rollback?              "Aborted"
     (= where :fx-args)     "Skipped"
-    (= where :sub-return)  "Returned nil"
+    (= where :sub-return)  "Passed through"
     (= where :event)       "Rejected"
     (= where :cofx)        "Skipped"
     (= where :hot-reload)  "logged + skipped"
@@ -5591,8 +5591,8 @@
        :app-db     [:<> "This value failed a " link
                     " and can't be committed to app-db."]
        :fx-args    [:<> "fx aborted because args failed the " link "."]
-       :sub-return [:<> "This sub returned nil because its value failed the "
-                    link "."]
+       :sub-return [:<> "This sub's value failed the " link
+                    " and was passed through to its consumers."]
        :event      [:<> "This event was rejected because its payload failed the "
                     link "."]
        :cofx       [:<> "This handler was skipped because the coeffect failed the "
@@ -5615,7 +5615,7 @@
 
     1. Title bar: ⚠ + 'Schema Violation Error' + right-aligned
        recovery chip (per-`:where` text: 'Aborted' / 'Skipped' /
-       'Returned nil' / 'Rejected').
+       'Passed through' / 'Rejected').
     2. Prose sentence: per-`:where` canned natural-language
        explanation, with an inline `schema check` link to the
        schema's source registration.
