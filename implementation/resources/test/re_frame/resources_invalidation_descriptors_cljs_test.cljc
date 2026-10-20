@@ -4,7 +4,8 @@
   invalidates the mutation's resolved scope (:rf.scope/same), or descriptors
   {:scope … :tags #{…}}, each naming its own scope. Both lower to one engine
   that resolves scopes at settle time and fails closed on a nil or malformed
-  scope."
+  scope; a `{:from-db …}` scope resolves against the app-db the mutation was
+  issued in."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -156,21 +157,42 @@
            [(record-invalidations! #(reply-success! stale-args {:title "stale"})) (invalidated? global-key)])
         "the superseded reply fired no invalidation")))
 
-(deftest from-db-descriptor-resolved-at-settle-time
-  ;; Executed while zed is logged in; yan logs in before the reply settles.
-  (reg-article-resource!)
-  (reg-feed-resource!)
-  (reg-save! (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}]))
+(defn- issue-as-zed-settle-as-yan!
+  "Load zed's and yan's feeds ownerless, execute `:m/save` while zed is logged
+  in, log yan in, then settle by calling `settle!` with the managed-HTTP args
+  the execute lowered."
+  [instance-id settle!]
   (doseq [u ["zed" "yan"]]
     (ownerless-stale-load! {:resource :r/feed :scope [:rf.scope/session {:username u}]
                             :params {} :owner [:v :feed u]}))
   (rf/dispatch-sync [:t/login "zed"])
-  (execute! :m/save :z1)
+  (execute! :m/save instance-id)
   (let [reply-args @last-managed-args]
     (rf/dispatch-sync [:t/login "yan"])
-    (reply-success! reply-args {:title "new"}))
-  (is (= [true false] (map invalidated? [(session-feed-key "yan") (session-feed-key "zed")]))
-      "the settle-time session's feed is invalidated, the execute-time one untouched"))
+    (settle! reply-args)))
+
+(deftest from-db-descriptor-resolved-at-issuance
+  (reg-article-resource!)
+  (reg-feed-resource!)
+  (reg-save! (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}]))
+  (issue-as-zed-settle-as-yan! :z1 #(reply-success! % {:title "new"}))
+  (is (= [true false] (map invalidated? [(session-feed-key "zed") (session-feed-key "yan")]))
+      "the issuing session's feed is invalidated, the settle-time one untouched"))
+
+(deftest from-db-descriptor-on-failure-resolved-at-issuance
+  (reg-article-resource!)
+  (reg-feed-resource!)
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :invalidate-timing :after-failure
+     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (issue-as-zed-settle-as-yan!
+    :zf1 #(rf/dispatch-sync (conj (:on-failure %) {:status :error
+                                                   :error  {:kind :rf.http/http-5xx :http-status 500}})))
+  (is (= [true false] (map invalidated? [(session-feed-key "zed") (session-feed-key "yan")]))
+      "the failure-time invalidation takes the same issuance context"))
 
 (deftest from-db-descriptor-nil-fails-closed
   ;; Not logged in. The global article carries [:article-list], so a fallback
