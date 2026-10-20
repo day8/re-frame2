@@ -2,10 +2,12 @@
   "The login example's SERVER BUNDLE — the module `implementation/ssr-node`'s
   sidecar loads, and the Node half of the ssr-node crossing.
 
-  This is the whole of what an application writes to render on Node. It is
-  short on purpose: the framework owns the render (`re-frame.fresco.server/
-  render-body`), the state install (`re-frame.ssr.render-state/restore!`) and
-  the wire domain, so what is left here is an ENTRY TABLE and a boot.
+  This is the whole of what an application writes to render on Node: a build
+  id and one `re-frame.fresco.server/node-module` form naming the views. The
+  framework owns the rest — reading the wire's state back
+  (`re-frame.ssr.render-state/deserialize`), the render
+  (`re-frame.fresco.server/render-body`), the state install
+  (`re-frame.ssr.render-state/restore!`), the boot and the wire domain.
 
       npx shadow-cljs compile :examples/login-fresco-server
       node implementation/ssr-node/bin/serve.cjs \\
@@ -21,10 +23,10 @@
 
   ## The entry table, and what decides the state
 
-  `entries` publishes the ids a JVM host may name — here one,
+  `:entries` publishes the ids a JVM host may name — here one,
   `fresco.login.policy/root-entry`, read from the shared `.cljc` namespace
   so both halves spell it the same way. It names no state keys. Which keys
-  reach `render!` is the JVM host's `:render-state` policy
+  reach the render is the JVM host's `:render-state` policy
   (`fresco.login.policy/render-state-policy`, which `host.clj` hands the
   Node renderer): the JVM projects the settled frame under it, and the
   sidecar checks only the shape of what arrives — top-level key text, EDN
@@ -33,14 +35,11 @@
 
   ## The render module contract
 
-  `{:protocol 1 :buildId <string> :entries [<entry id> …] :boot fn :render fn}`, and
-  `render` returns the body markup as a string — `render-body`'s answer —
-  which is its ONE output channel. The service refuses a module that
-  returns anything else."
-  (:require [re-frame.core :as rf]
-            [re-frame.fresco.server :as rf.fresco.server]
-            [re-frame.fresco.substrate :as rf.fresco.substrate]
-            [re-frame.ssr.render-state :as rf.ssr.render-state]
+  `{:protocol 1 :buildId <string> :entries [<entry id> …] :boot fn :render fn}`,
+  which `node-module` builds, and `render` returns the body markup as a
+  string — `render-body`'s answer — which is its ONE output channel. The
+  service refuses a module that returns anything else."
+  (:require [re-frame.fresco.server :as rf.fresco.server]
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
             [fresco.login.core :as views]
@@ -68,61 +67,26 @@
 (goog-define build-id "login-fresco-dev")
 
 ;; ---------------------------------------------------------------------------
-;; The entry id — the one name both halves use
-;; ---------------------------------------------------------------------------
-;;
-;; It is NOT written here. `fresco.login.policy` owns it, in a `.cljc`
-;; namespace both this bundle and the JVM `host.clj` require. The
-;; render-state policy lives there too, and only the host reads it: the JVM
-;; projects, and this bundle renders what it is handed.
-
-(def root-entry
-  "The entry identifier a JVM host names in its renderer opts — from the
-  shared policy namespace, so both halves spell it the same way."
-  policy/root-entry)
-
-;; ---------------------------------------------------------------------------
 ;; The module
 ;; ---------------------------------------------------------------------------
 
-(defn- boot!
-  "Once per isolate, before the first render: seat the substrate. Fresco
-  ships its own, so this is the same one line the browser boot runs.
-
-  Nothing else. No frame is made here — a frame made at boot would be
-  shared by every request in this isolate, which is the one thing a
-  per-request renderer must not do."
-  []
-  (rf/init! rf.fresco.substrate/adapter))
-
-(defn- render!
-  "Render one request's body. `call` is the frozen `{entry, state, runtime,
-  args}` the service hands a module; the markup string returned is its only
-  output channel.
-
-  `state` and `runtime` arrive as key-text -> EDN-text, per partition,
-  because the service does not decode application data. `deserialize`
-  reads them back under the bundled SAFE EDN reader, and `render-body`
-  installs both partitions into a fresh per-request frame in one write."
-  [^js call]
-  (let [partitions (rf.ssr.render-state/deserialize
-                     {:rf/app-db     (js->clj (.-state call))
-                      :rf/runtime-db (js->clj (.-runtime call))})]
-    (rf.fresco.server/render-body
-      {:hiccup            [views/root-view]
-       :render-state      partitions
-       :identifier-prefix views/identifier-prefix
-       ;; The app's own frame config. Its `:initial-events` are NOT run:
-       ;; `render-body` forces
-       ;; the setup vector empty, because the JVM already drained them and
-       ;; the projection is the settled result.
-       :frame-opts        model/frame-config})))
-
 (def module
   "`module.exports` for the sidecar. Named in `shadow-cljs.edn` as the
-  `:examples/login-fresco-server` build's `:exports-var`."
-  #js {:protocol 1
-       :buildId  build-id
-       :entries  #js [root-entry]
-       :boot     boot!
-       :render   render!})
+  `:examples/login-fresco-server` build's `:exports-var`.
+
+  The entry id is NOT written here: `fresco.login.policy` owns it, in a
+  `.cljc` namespace both this bundle and the JVM `host.clj` require. The
+  render-state policy lives there too, and only the host reads it: the JVM
+  projects, and this bundle renders what it is handed.
+
+  `:boot` keeps its default, which seats Fresco's substrate — the same one
+  line the browser boot runs — and makes no frame, because a frame made at
+  boot would be shared by every request in this isolate. `:frame-opts` is
+  the app's own frame config; its `:initial-events` are NOT run, because
+  the JVM already drained them and the projection is the settled result."
+  (rf.fresco.server/node-module
+    {:build-id          build-id
+     :entries           [policy/root-entry]
+     :hiccup            [views/root-view]
+     :identifier-prefix views/identifier-prefix
+     :frame-opts        model/frame-config}))

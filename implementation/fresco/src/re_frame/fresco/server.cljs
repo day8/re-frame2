@@ -18,7 +18,8 @@
   bounded Node sidecar's half of the ssr-node crossing
   (`implementation/ssr-node/README.md`, §Node returns body markup and
   nothing else). Neither is built on the other, and neither
-  changes the other's spellings. `payload-script` and `document` are
+  changes the other's spellings. `node-module` wraps `render-body` into
+  the whole module that sidecar loads. `payload-script` and `document` are
   the composition helpers a host needs to rebuild the envelope without
   writing a second renderer; the roster and the argument for it are
   naming-ledger rows 22 and 50
@@ -50,6 +51,7 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
+            [re-frame.fresco.substrate :as rf.fresco.substrate]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
@@ -543,3 +545,61 @@
         ;; and the window must already be shut when it runs.
         (rf.fresco.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
+
+;; ---------------------------------------------------------------------------
+;; The sidecar's render module
+;; ---------------------------------------------------------------------------
+
+(defn- install-fresco-substrate!
+  "`node-module`'s default `:boot`: seat Fresco's own substrate, the same
+  one line a browser boot runs. Nothing else — a frame made at boot would be
+  shared by every request the isolate serves."
+  []
+  (rf/init! rf.fresco.substrate/adapter))
+
+(defn node-module
+  "The render module `implementation/ssr-node`'s sidecar loads — its
+  `module.exports` — built from one options map. Name the var holding it as
+  a `:node-library` build's `:exports-var`.
+
+      #js {:protocol 1 :buildId … :entries #js […] :boot fn :render fn}
+
+  That shape is the sidecar's render module contract
+  (`implementation/ssr-node/README.md`, §The render module contract); the
+  JVM renderer that calls it is Spec 011 §Client-side hydration boot helper.
+
+  `opts`:
+
+      :build-id          REQUIRED. This bundle's identity string. The JVM
+                         renderer's `:build-id` must equal it.
+      :entries           REQUIRED. The entry ids a JVM host may name.
+      :hiccup            REQUIRED. The root hiccup form, as `render-body`
+                         takes it.
+      :identifier-prefix as `render-body` takes it.
+      :frame-opts        as `render-body` takes it.
+      :boot              a zero-arg fn the sidecar runs once per isolate,
+                         before the first render. Default: seat Fresco's
+                         substrate, `(rf/init! re-frame.fresco.substrate/
+                         adapter)`.
+
+  `render` takes the frozen call the sidecar hands it, reads its `state`
+  and `runtime` partitions (key text -> EDN text) back with
+  `re-frame.ssr.render-state/deserialize`, and answers `render-body`'s
+  markup string. It renders `:hiccup` for every entry and reads no `args`,
+  so a bundle whose entries render different roots writes its own `render`
+  to the same contract."
+  [{:keys [build-id entries hiccup identifier-prefix frame-opts boot]}]
+  #js {:protocol 1
+       :buildId  build-id
+       :entries  (into-array entries)
+       :boot     (or boot install-fresco-substrate!)
+       :render   (fn [call]
+                   ;; String keys, so Closure cannot rename the sidecar's
+                   ;; field names under `:advanced`.
+                   (render-body
+                     {:hiccup            hiccup
+                      :render-state      (rf.ssr.render-state/deserialize
+                                           {:rf/app-db     (js->clj (unchecked-get call "state"))
+                                            :rf/runtime-db (js->clj (unchecked-get call "runtime"))})
+                      :identifier-prefix identifier-prefix
+                      :frame-opts        frame-opts}))})

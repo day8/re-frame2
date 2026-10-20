@@ -183,9 +183,14 @@ Node is handed a **projection** of the settled frame — not the frame — under
 policy the host declares, and it hands back a string. Nothing else crosses in
 either direction.
 
+`server.cljs` is one `re-frame.fresco.server/node-module` form: the build id,
+the entry table, the root view, the `identifier-prefix` and the frame config.
+`node-module` builds the module the sidecar loads, reading the projected state
+back and rendering it through `render-body`.
+
 Both halves make their frame from the same var, `model/frame-config`: the host
 passes it as `ssr-handler`'s `:frame`, and `server.cljs` hands it to
-`render-body` as `:frame-opts`, where its `:initial-events` do not run again
+`node-module` as `:frame-opts`, where its `:initial-events` do not run again
 because the JVM already drained them.
 
 ### The two policies
