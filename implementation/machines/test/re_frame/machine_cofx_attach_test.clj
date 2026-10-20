@@ -1,13 +1,12 @@
 (ns re-frame.machine-cofx-attach-test
-  "A named guard / action's `:rf.cofx/requires` is ensured before transition
-  selection on every slot the runtime selects from; an inline declaration is
-  refused at registration."
+  "A machine's top-level `:rf.cofx/requires` is ensured before transition
+  selection on every event addressed to the machine, whatever slot the runtime
+  selects from; a declaration anywhere else is refused at registration."
   (:require [clojure.string :as str]
-            [clojure.test :refer [are deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.machines]
-            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
             [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
@@ -18,31 +17,36 @@
 
 (def ^:private machine-state rf.machines.test-support/machine-state)
 
-(def ^:private rolled-six
-  {:rf.cofx/requires [:test/roll8]
-   :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))})
+(defn- rolled-six [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))
 
 (defn- reg-roll! [] (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6)))
-
-(defn- ensured-ids [m snap event]
-  (set (map :id (rf.machines.cofx-attach/ensure-set-for
-                  (rf.machines.cofx-attach/index-ensure-sets m) snap event))))
 
 (defn- registration-error-id [machine]
   (try (rf.machines.lifecycle-fx.registration/registered-definition machine) nil
        (catch ExceptionInfo e (:rf.error/id (ex-data e)))))
 
-(deftest inline-requires-is-refused-at-registration
+(deftest a-declaration-below-the-root-is-refused-at-registration
   (doseq [[label machine]
-          [["an inline :on transition map"
+          [["a named :guards entry map"
             {:initial :idle
-             :states  {:idle {:on {:go {:rf.cofx/requires [:rf/time-ms] :target :done}}}
+             :guards  {:g {:rf.cofx/requires [:rf/time-ms] :fn (fn [_] true)}}
+             :states  {:idle {:on {:go {:target :done :guard :g}}}
                        :done {}}}]
            ["a :guards entry map with no :fn"
             {:initial :idle
              :guards  {:bad {:rf.cofx/requires [:rf/time-ms]}}
              :states  {:idle {:on {:go {:target :done :guard :bad}}}
                        :done {}}}]
+           ["an inline :on transition map"
+            {:initial :idle
+             :states  {:idle {:on {:go {:rf.cofx/requires [:rf/time-ms] :target :done}}}
+                       :done {}}}]
+           ["a state node"
+            {:initial :idle
+             :states  {:idle {:rf.cofx/requires [:rf/time-ms]} :done {}}}]
+           ["a region body"
+            {:type    :parallel
+             :regions {:a {:rf.cofx/requires [:rf/time-ms] :initial :x :states {:x {}}}}}]
            ["a :type :choice candidate"
             {:initial :idle
              :states  {:idle     {:on {:go :checking}}
@@ -50,13 +54,17 @@
                                   :choice [{:rf.cofx/requires [:rf/time-ms] :target :a}
                                            {:target :b}]}
                        :a {} :b {}}}]]]
-    (is (= :rf.error/machine-cofx-requires-inline (registration-error-id machine)) label)))
+    (is (= :rf.error/machine-cofx-requires-inline (registration-error-id machine)) label))
+  (is (nil? (registration-error-id {:rf.cofx/requires [:rf/time-ms]
+                                    :initial :idle
+                                    :states  {:idle {}}}))
+      "control: the machine root accepts it"))
 
-;; Every transition slot refuses an inline declaration under the key the author
-;; wrote: a `:timeout` / `:on-timeout` lowers onto `:after`, and a `:spawn`'s
+;; Every transition slot refuses a declaration under the key the author wrote:
+;; a `:timeout` / `:on-timeout` lowers onto `:after`, and a `:spawn`'s
 ;; `:on-error` / transition-shaped `:on-done` are slots apart from `:on`. An
 ;; authored `:on` and `:after` are the controls.
-(deftest inline-requires-refusal-names-the-authored-key
+(deftest refusal-names-the-authored-key
   (let [inline {:rf.cofx/requires [:rf/time-ms] :target :done}]
     (doseq [[where machine]
             [["state :idle :on-timeout"
@@ -98,21 +106,20 @@
 
 (deftest candidate-action-and-always-closure-facts-are-ensured
   ;; :go's action, :b's :always action and :c's :always guard (two hops past
-  ;; the candidate target) each require a fact the ensure step must generate
-  ;; before the one macrostep that settles the whole chain.
+  ;; the candidate target) each read a fact the one ensure step generated
+  ;; before the macrostep that settles the whole chain.
   (rf/reg-cofx :test/token {:recordable? true} (fn [] :GENERATED))
   (rf/reg-cofx :test/jitter {:recordable? true} (fn [] 42))
   (reg-roll!)
   (rf/reg-machine :attach/closure
-    {:initial :a
+    {:rf.cofx/requires [:test/token :test/jitter :test/roll8]
+     :initial :a
      :data    {}
      :guards  {:rolled-six? rolled-six}
-     :actions {:capture {:rf.cofx/requires [:test/token]
-                         :fn (fn [{:keys [data] cofx :rf.cofx}]
-                               {:data (assoc data :captured (:test/token cofx))})}
-               :jitter  {:rf.cofx/requires [:test/jitter]
-                         :fn (fn [{:keys [data] cofx :rf.cofx}]
-                               {:data (assoc data :jitter (:test/jitter cofx))})}}
+     :actions {:capture (fn [{:keys [data] cofx :rf.cofx}]
+                          {:data (assoc data :captured (:test/token cofx))})
+               :jitter  (fn [{:keys [data] cofx :rf.cofx}]
+                          {:data (assoc data :jitter (:test/jitter cofx))})}
      :states  {:a    {:on {:go {:target :b :action :capture}}}
                :b    {:always {:action :jitter :target :c}}
                :c    {:always {:guard :rolled-six? :target :done}}
@@ -137,6 +144,14 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
             {:a :two :b :two}]
+           [:attach/region-root-on
+            {:type    :parallel
+             :guards  {:g rolled-six}
+             :regions {:a {:initial :idle
+                           :on      {:go {:target :done :guard :g}}
+                           :states  {:idle {} :done {}}}
+                       :b {:initial :x :states {:x {}}}}}
+            {:a :done :b :x}]
            [:attach/choice
             {:initial :idle
              :guards  {:g rolled-six}
@@ -144,105 +159,56 @@
                        :checking {:type :choice :choice [{:guard :g :target :hit} {:target :miss}]}
                        :hit {} :miss {}}}
             :hit]]]
-    (rf/reg-machine id machine)
+    (rf/reg-machine id (assoc machine :rf.cofx/requires [:test/roll8]))
     (rf/dispatch-sync [id [:go]])
     (is (= expected (machine-state id)) (str id))))
 
-;; The reg-machine macro walks an inline literal; both arms must keep a named
-;; entry map's :rf.cofx/requires and :fn at the top level, never re-wrap it.
-(deftest inline-literal-named-cofx-guard-fires-in-both-macro-arms
+;; The reg-machine macro walks an inline literal; both arms must keep the
+;; top-level :rf.cofx/requires.
+(deftest inline-literal-declaration-fires-in-both-macro-arms
   (reg-roll!)
   (doseq [[id dev?] [[:attach/inline-dev true] [:attach/inline-prod false]]]
     (with-redefs [rf.interop/debug-enabled? dev?]
       (rf/reg-machine id
-        {:initial :idle
-         :guards  {:rolled-six? {:rf.cofx/requires [:test/roll8]
-                                 :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))}}
+        {:rf.cofx/requires [:test/roll8]
+         :initial :idle
+         :guards  {:rolled-six? (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))}
          :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
                    :done {}}}))
     (rf/dispatch-sync [id [:go]])
     (is (= :done (machine-state id)) (str id))))
 
-(deftest region-body-root-on-guard-fact-is-ensured
-  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
-  (let [snap {:state {:a :idle :b :x} :data {}}]
-    (testing "CASE: the guard on region :a's own root :on"
-      (is (contains? (ensured-ids {:type    :parallel
-                                   :guards  {:g rolled-six}
-                                   :regions {:a {:initial :idle
-                                                 :on      {:go {:target :done :guard :g}}
-                                                 :states  {:idle {} :done {}}}
-                                             :b {:initial :x :states {:x {}}}}}
-                                  snap [:go])
-                     :test/roll8)))
-    (testing "CONTROL: the same guard on region :a's leaf :on"
-      (is (contains? (ensured-ids {:type    :parallel
-                                   :guards  {:g rolled-six}
-                                   :regions {:a {:initial :idle
-                                                 :states  {:idle {:on {:go {:target :done :guard :g}}}
-                                                           :done {}}}
-                                             :b {:initial :x :states {:x {}}}}}
-                                  snap [:go])
-                     :test/roll8)))))
+;; The declaration is ensured on every event addressed to the machine — one
+;; whose transition reads nothing included — so each mints its own value.
+(deftest every-event-ensures-the-whole-declaration
+  (let [calls (atom 0)]
+    (rf/reg-cofx :test/count {:recordable? true} (fn [] (swap! calls inc)))
+    (rf/reg-machine :attach/every
+      {:rf.cofx/requires [:test/count]
+       :initial :idle
+       :data    {}
+       :actions {:capture (fn [{:keys [data] cofx :rf.cofx}] {:data (assoc data :n (:test/count cofx))})}
+       :states  {:idle {:on {:tick {} :go {:target :done :action :capture}}}
+                 :done {}}})
+    (rf/dispatch-sync [:attach/every [:tick]])
+    (rf/dispatch-sync [:attach/every [:tick]])
+    (rf/dispatch-sync [:attach/every [:go]])
+    (is (= [3 {:n 3}] [@calls (rf.machines.test-support/machine-data :attach/every)]))))
 
-;; Each synthetic event selects from a slot the :on walk never visits.
-(deftest synthetic-slot-candidate-facts-are-ensured
-  (reg-roll!)
-  (let [flow {:initial :s1
-              :on-done {:target :after :guard :g}
-              :states  {:s1 {} :fin {:final? true}}}
-        par  {:type    :parallel
-              :guards  {:g rolled-six}
-              :regions {:a {:initial :flow :states {:flow flow :after {}}}
-                        :b {:initial :x :states {:x {}}}}}
-        two  {:initial :one :states {:one {} :two {}}}]
-    (are [ids m snap event] (= ids (ensured-ids m snap event))
-      ;; a region compound's :on-done, raised with its region head
-      #{:test/roll8} par {:state {:a [:flow :fin] :b :x}} [:rf.machine/done [:a :flow]]
-      ;; a done raised under a FOREIGN region head is not :a's
-      #{}            par {:state {:a [:flow :fin] :b :x}} [:rf.machine/done [:b :flow]]
-      ;; a single :spawn's :on-error
-      #{:test/roll8} {:initial :working
-                      :guards  {:g rolled-six}
-                      :states  {:working {:spawn {:machine-id :x/child
-                                                  :on-error   {:target :errored :guard :g}}}
-                                :errored {}}}
-                     {:state :working} [:rf.machine.spawn/error [:working] {:boom 1}]
-      ;; a state :after
-      #{:test/roll8} {:initial :waiting
-                      :guards  {:g rolled-six}
-                      :states  {:waiting {:after {5000 {:guard :g :target :done}}} :done {}}}
-                     {:state :waiting} [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
-      ;; a region state's :after, whose decl-path carries the region head
-      #{:test/roll8} {:type    :parallel
-                      :guards  {:g rolled-six}
-                      :regions {:a {:initial :waiting
-                                    :states  {:waiting {:after {3000 {:guard :g :target :done}}}
-                                              :done    {}}}
-                                :b two}}
-                     {:state {:a :waiting :b :one}} [:rf.machine.timer/after-elapsed 3000 1 [:a :waiting]]
-      ;; a parallel root's :after action
-      #{:test/roll8} {:type    :parallel
-                      :actions {:g rolled-six}
-                      :after   {1000 {:target [[:a :two] [:b :two]] :action :g}}
-                      :regions {:a two :b two}}
-                     {:state {:a :one :b :one}} [:rf.machine.timer/after-elapsed 1000 1 []])))
-
-;; A state-level :timeout lowers onto :after at registration, so the timer
-;; event that fires it ensures its :on-timeout guard's and action's facts as it
-;; would an :after transition's.
+;; A state-level :timeout lowers onto :after at registration; the timer event
+;; that fires it is addressed to the machine like any other.
 (deftest on-timeout-guard-and-action-facts-are-ensured
   (reg-roll!)
   (rf/reg-cofx :test/token {:recordable? true} (fn [] :GENERATED))
   (doseq [[id on-timeout] [[:attach/timeout-guard  {:guard :rolled-six? :target :done}]
                            [:attach/timeout-action {:action :capture :target :done}]]]
     (rf/reg-machine id
-      {:initial :idle
+      {:rf.cofx/requires [:test/roll8 :test/token]
+       :initial :idle
        :data    {}
        :guards  {:rolled-six? rolled-six}
-       :actions {:capture {:rf.cofx/requires [:test/token]
-                           :fn (fn [{:keys [data] cofx :rf.cofx}]
-                                 {:data (assoc data :captured (:test/token cofx))})}}
+       :actions {:capture (fn [{:keys [data] cofx :rf.cofx}]
+                            {:data (assoc data :captured (:test/token cofx))})}
        :states  {:idle    {:on {:go :waiting}}
                  :waiting {:timeout 5000 :on-timeout on-timeout}
                  :done    {}}})

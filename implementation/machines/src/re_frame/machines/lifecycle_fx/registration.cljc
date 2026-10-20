@@ -454,14 +454,13 @@
                         ;; POLICY (per-call opt ▸ frame config ▸ `:live`, the
                         ;; router stamped it as the `:rf.cofx/mint-policy`
                         ;; framework coeffect) onto the machine def under the
-                        ;; reserved `:rf/cofx-mint-policy` key. The dispatch-time
-                        ;; / bootstrap ensure steps read it so a `:strict`
+                        ;; reserved `:rf/cofx-mint-policy` key.
+                        ;; `ensure-machine-cofx` reads it so a `:strict`
                         ;; replay/`:test` machine refuses to mint a declared-
-                        ;; absent generator-backed guard/action fact (surfacing
+                        ;; absent generator-backed fact (surfacing
                         ;; missing-required) instead of always defaulting to
-                        ;; `:live`; the in-engine raised-event ensure reads the
-                        ;; SAME stamped policy. Stamped only alongside a
-                        ;; threaded token so pure-fn callers stay untouched.
+                        ;; `:live`. Stamped only alongside a threaded token so
+                        ;; pure-fn callers stay untouched.
                         (some? cofx) (assoc :rf/cofx-mint-policy
                                             (or mint-policy rf.cofx/default-mint-policy)))
         path          (rf.machines.paths/snapshot-path machine-id)
@@ -523,31 +522,26 @@
     (= rf.machines.transition/start-marker (first (:inner-event ctx))) :explicit
     :else                                                  :lazy))
 
-(defn- ensure-bootstrap-cofx
-  "The BIRTH-time consumer-attachment
-  ensure step, run BEFORE `maybe-boot`. The bootstrap cascade
-  (`apply-initial-entry-cascade`, inside `maybe-boot`) fires the initial-state
-  descent's `:entry` actions and the birth `:always` settle, so a named `:entry`
-  action (or birth-`:always`-reached action) declaring `:rf.cofx/requires` must
-  have its facts ensured BEFORE the cascade runs — otherwise it reads an
-  unensured token (the bootstrap hole). Computes
-  `rf.machines.cofx-attach/bootstrap-ensure-set-for` and ensures it onto the in-flight
-  `:rf.cofx` record (re-stamped onto the machine def under `:rf/cofx` so
-  `callback-ctx` surfaces it to the bootstrap `:entry` callbacks).
+(defn- ensure-machine-cofx
+  "Ensure the machine's declared `:rf.cofx/requires` onto the in-flight
+  `:rf.cofx` record, once per event addressed to the machine, BEFORE
+  `maybe-boot` — so the birth cascade's `:entry` actions, transition selection,
+  and every same-macrostep `:raise` read one ensured record (Spec 005
+  §Consumer attachment). The augmented record is re-stamped onto the machine
+  def under `:rf/cofx`, where `callback-ctx` surfaces it.
 
-  A no-op (returns `ctx` unchanged) when the machine is not bootstrapping, when
-  no causal token was threaded (`:rf/cofx` absent — pure-fn / no-router
-  callers), or when the birth ensure-set is empty."
+  Runs under the effective mint policy the router stamped
+  (`:rf/cofx-mint-policy`): `:strict` replay / `:test` refuse to mint a
+  declared-absent generator-backed fact and surface
+  `:rf.error/missing-required-cofx`. A no-op (returns `ctx`) when no causal
+  token was threaded (`:rf/cofx` absent — pure-fn / no-router callers) or the
+  machine declares nothing."
   [ctx]
   (let [machine (:machine ctx)]
-    (if-not (and (:needs-bootstrap? ctx) (contains? machine :rf/cofx))
+    (if-not (contains? machine :rf/cofx)
       ctx
       (let [recorded  (:rf/cofx machine)
-            ;; Ensure under the resolved effective mint policy the
-            ;; router stamped (`:rf/cofx-mint-policy`), so a `:strict` replay /
-            ;; `:test` birth refuses to mint a declared-absent generator-backed
-            ;; `:entry` / birth-`:always` fact (surfacing missing-required).
-            augmented (rf.machines.cofx-attach/bootstrap-ensure-cofx
+            augmented (rf.machines.cofx-attach/ensure-cofx
                         machine recorded (:frame-id ctx) (:machine-id ctx)
                         (:rf/cofx-mint-policy machine))]
         (if (identical? augmented recorded)
@@ -602,45 +596,6 @@
   `rf.machines.result/ok?` and projects accordingly."
   [ctx post-boot-snap]
   (rf.machines.parallel/machine-transition (:machine ctx) post-boot-snap (:inner-event ctx)))
-
-(defn- ensure-ctx-cofx
-  "The dispatch-time consumer-attachment
-  ensure step, run between `maybe-boot` and `run-step`. Computes the derived
-  per-(state × event-type) ensure-set for the POST-BOOT snapshot's active
-  state + the routed inner event (`rf.machines.cofx-attach/ensure-set-for`, incl. the
-  `:always` closure) and ensures it onto the in-flight `:rf.cofx` record
-  carried under the machine def's `:rf/cofx`, BEFORE transition selection.
-
-  Returns `ctx` with `:machine`'s `:rf/cofx` updated to the augmented record
-  (so `callback-ctx` surfaces every ensured fact to guards / actions during
-  selection). A no-op when the machine declares no requires, when no token
-  was threaded (`:rf/cofx` absent — pure-fn / no-router callers), or when the
-  ensure-set is empty — `ctx` is returned unchanged in all three.
-
-  Ensuring runs under the resolved effective mint policy the router stamped
-  (`:rf/cofx-mint-policy`). A provided fact absent from the record is
-  `:rf.error/missing-required-cofx`; a schema-invalid value is
-  `:rf.error/cofx-value-invalid` (both production hard errors, propagated by
-  `deliver-declared-cofx`)."
-  [ctx post-boot-snap]
-  (let [machine (:machine ctx)]
-    ;; Only run when a causal token was threaded (the normal dispatch path
-    ;; stamps `:rf/cofx`); pure-fn callers carry no token and consume no
-    ;; recordable facts, so there is nothing to ensure.
-    (if-not (contains? machine :rf/cofx)
-      ctx
-      (let [recorded  (:rf/cofx machine)
-            ;; Ensure under the resolved effective mint policy the
-            ;; router stamped (`:rf/cofx-mint-policy`); `:strict` replay / `:test`
-            ;; refuses to mint a declared-absent generator-backed guard/action
-            ;; fact (surfacing missing-required) rather than defaulting `:live`.
-            augmented (rf.machines.cofx-attach/ensure-cofx
-                        machine post-boot-snap (:inner-event ctx)
-                        recorded (:frame-id ctx) (:machine-id ctx)
-                        (:rf/cofx-mint-policy machine))]
-        (if (identical? augmented recorded)
-          ctx
-          (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
 
 (defn- apply-spawn-on-done
   "Apply a `:spawn` parent's `:on-done` fold to the ctx snapshot's `:data`,
@@ -978,9 +933,9 @@
   `run-step` → `commit-or-finalize` — with the intercept-spawn-all-
   event short-circuit branching off after step 1."
   [machine]
-  ;; Consumer attachment: the indexed spec carries `:rf/cofx-ensure-index`
-  ;; for the dispatch-time `ensure-ctx-cofx` to read.
-  (let [machine (rf.machines.cofx-attach/index-ensure-sets machine)]
+  ;; Consumer attachment: the spec carries its parsed `:rf/cofx-requires`
+  ;; for `ensure-machine-cofx` to read.
+  (let [machine (rf.machines.cofx-attach/parse-machine-requires machine)]
   ;; `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
@@ -990,13 +945,7 @@
   ;; `:initial` derives from a fn-form computed at dispatch time) to
   ;; satisfy the snapshot shape at reg-machine call time. Deferring the work
   ;; to the handler keeps registration tolerant of such specs.
-  ;;
-  ;; `machine` already carries the consumer-attachment index
-  ;; (`:rf/cofx-ensure-index`, stamped above by
-  ;; `rf.machines.cofx-attach/index-ensure-sets`), so the handler closure captures it and
-  ;; `prepare-machine-ctx` threads it onto the machine def — the dispatch-time
-  ;; `ensure-ctx-cofx` reads it to derive the per-(state × event-type)
-  ;; ensure-set (incl. the `:always` closure).
+
   (let [base-initial (delay (rf.machines.parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
@@ -1088,13 +1037,11 @@
           (or
             (reject-internal-event-external-dispatch
               (:machine ctx) (:machine-id ctx) (:frame-id ctx) (:inner-event ctx))
-          ;; Ensure the BIRTH initial-entry
-          ;; ensure-set onto the in-flight `:rf.cofx` record BEFORE `maybe-boot`
-          ;; runs the bootstrap cascade (which fires the initial-state `:entry`
-          ;; actions). The augmented `ctx` flows into both `maybe-boot` and the
-          ;; downstream `ensure-ctx-cofx` / `run-step`, so a generated birth fact
-          ;; is written back into the record the epoch captures.
-          (let [ctx         (ensure-bootstrap-cofx ctx)
+          ;; Ensure the machine's declared facts onto the in-flight
+          ;; `:rf.cofx` record BEFORE `maybe-boot`. The augmented `ctx` flows
+          ;; into both `maybe-boot` and `run-step`, so a generated fact is
+          ;; written back into the record the epoch captures.
+          (let [ctx         (ensure-machine-cofx ctx)
                 boot-result (maybe-boot ctx)]
             (if (rf.machines.result/fail? boot-result)
               ;; Route both a thrown initial-entry action AND a
@@ -1177,21 +1124,7 @@
                       :else
                       (rf.machines.lifecycle-fx.finalize/rest-machine m (:machine-id ctx) (:frame-id ctx)
                                                  new-runtime-db post-boot-snap fx)))
-                  ;; Ensure the derived
-                  ;; per-(state × event-type) cofx ensure-set onto the
-                  ;; in-flight `:rf.cofx` record BEFORE transition selection
-                  ;; (`run-step`) runs. A guard-consumed fact MUST be present
-                  ;; when guards execute during selection, so a mid-selection
-                  ;; host read can never put nondeterminism in the fold's most
-                  ;; sensitive spot (replay selecting a DIFFERENT transition).
-                  ;; Generated values are written back into the record the
-                  ;; epoch captures (so replay re-presents them); the augmented
-                  ;; record is re-stamped onto the machine def under `:rf/cofx`
-                  ;; so `callback-ctx` surfaces it to guards / actions / entry /
-                  ;; exit. A no-requires machine no-ops (returns the record
-                  ;; unchanged) and `ctx` is untouched.
-                  (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
-                        step-result (run-step ctx post-boot-snap)]
+                  (let [step-result (run-step ctx post-boot-snap)]
                     (if (rf.machines.result/fail? step-result)
                       ;; Route both a thrown transition action AND
                       ;; a bounded-depth abort (the runaway `:always` / `:raise`
@@ -1238,17 +1171,16 @@
 
   The checks read the definition as written, so each diagnostic names the
   keys the author wrote. The region order settles first, under its own
-  categories. The consumer-attachment sweep (`index-ensure-sets`) runs before
-  `validate-machine!`, so the inline-fn restriction
-  (`:rf.error/machine-cofx-requires-inline`) and the named-entry
-  `:rf.cofx/requires` parse (`:rf.error/cofx-request-invalid` /
-  `-name-collision`) surface as their own categories before guard/action ref
-  resolution would paint a bare entry map with requires and no `:fn` as the
-  generic `:rf.error/machine-unresolved-guard`."
+  categories. The consumer-attachment parse (`parse-machine-requires`) runs
+  before `validate-machine!`, so a misplaced `:rf.cofx/requires`
+  (`:rf.error/machine-cofx-requires-inline`) and a malformed one
+  (`:rf.error/cofx-request-invalid` / `-name-collision`) surface as their own
+  categories before guard/action ref resolution would paint a bare entry map
+  with requires and no `:fn` as the generic `:rf.error/machine-unresolved-guard`."
   [machine]
   (let [machine (rf.machines.parallel/normalise-region-order machine)]
     (rf.machines.lifecycle-fx.validation/validate-machine!
-      (rf.machines.cofx-attach/index-ensure-sets machine))
+      (rf.machines.cofx-attach/parse-machine-requires machine))
     (rf.machines.parallel/install-region-cache
       (rf.machines.parallel/normalise-definition machine))))
 
@@ -1334,13 +1266,12 @@
     ;; machine's durable `:data` for trace / SSR egress. Egress classification
     ;; comes from the frame's merged classification registry, including
     ;; per-actor `:source :machine` entries.
-    ;; The dev-only consumer-attachment
-    ;; lints (consume-without-declaring + ambient-durable). Run here in the
-    ;; home (with the machine-id known) over a locally-indexed copy so the
-    ;; lints read the parsed diets without altering the stored `:rf/machine`
-    ;; meta shape. DCE'd in production (`rf.interop/debug-enabled?`-gated inside
-    ;; `lint-machine!`). Idempotent — `index-ensure-sets` is pure.
-    (rf.machines.cofx-attach/lint-machine! machine-id (rf.machines.cofx-attach/index-ensure-sets machine))
+    ;; The dev-only consumer-attachment lints (consume-without-declaring +
+    ;; ambient-durable), run here where the machine-id is known, over a
+    ;; locally-parsed copy so the stored `:rf/machine` meta keeps its shape.
+    ;; DCE'd in production (`rf.interop/debug-enabled?`-gated inside
+    ;; `lint-machine!`).
+    (rf.machines.cofx-attach/lint-machine! machine-id (rf.machines.cofx-attach/parse-machine-requires machine))
     (rf.trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
                  {:machine-id machine-id
                   :initial    (:initial machine)})
@@ -1399,7 +1330,7 @@
   The actor runs the registration's own `:handler-fn` over its `:rf/machine`
   spec. `make-machine-handler` closes over no instance and reads the snapshot
   keyed on the dispatched event's first element, so the one handler built at
-  registration — validated, ensure-indexed and carrying its region cache —
+  registration — validated, its `:rf.cofx/requires` parsed, and carrying its region cache —
   serves the type's singleton and every spawned instance alike.
 
   The rest of the registration describes the TYPE and stays behind. Its opts

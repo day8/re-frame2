@@ -1,6 +1,6 @@
 (ns re-frame.machine-cofx-sub-source-test
-  "A machine named entry's `{:rf/sub query-v :as fact-id}` source is a recorded
-  token fact: evaluated live against the committed frame-state, re-presented
+  "A machine's `{:rf/sub query-v :as fact-id}` source is a recorded token
+  fact: evaluated live against the committed frame-state, re-presented
   verbatim under `:strict`, and refused when malformed or declared by an event."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -19,11 +19,11 @@
   (try (f) nil (catch ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (defn- capturing
-  "A machine whose :go action declares `requires` and records the `fact-id` it reads into `seen`."
+  "A machine declaring `requires` whose :go action records the `fact-id` it reads into `seen`."
   [requires fact-id seen]
-  {:initial :idle
-   :actions {:capture {:rf.cofx/requires requires
-                       :fn (fn [{cofx :rf.cofx}] (reset! seen (fact-id cofx)) nil)}}
+  {:rf.cofx/requires requires
+   :initial :idle
+   :actions {:capture (fn [{cofx :rf.cofx}] (reset! seen (fact-id cofx)) nil)}
    :states  {:idle {:on {:go {:target :done :action :capture}}}
              :done {}}})
 
@@ -59,7 +59,7 @@
       (is (= expected @seen) (str id)))))
 
 (deftest strict-absent-is-missing-required
-  (let [m (rf.machines.cofx-attach/index-ensure-sets
+  (let [m (rf.machines.cofx-attach/parse-machine-requires
             (capturing [{:rf/sub [:editor/gone?] :as :editor/gone}] :editor/gone (atom nil)))]
     (is (= :rf.error/missing-required-cofx
-           (error-id #(rf.machines.cofx-attach/ensure-cofx m {:state :idle} [:go] {} nil :sub/strict :strict))))))
+           (error-id #(rf.machines.cofx-attach/ensure-cofx m {} nil :sub/strict :strict))))))

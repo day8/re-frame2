@@ -8,7 +8,6 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.machines :as rf.machines]
-   [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
@@ -167,20 +166,3 @@
                        [:rf.machine.spawn/done [:a :loading] {:result "T" :error? false} 1])
                      [:snapshot :state]))))))
 
-;; ---- recorded facts --------------------------------------------------------
-
-(def ^:private rolled-six
-  {:rf.cofx/requires [:test/roll8]
-   :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))})
-
-(deftest spawn-on-done-guard-fact-is-ensured
-  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
-  (let [m {:initial :working :guards {:g rolled-six}
-           :states  {:working {:spawn {:machine-id :x/child
-                                       :on-done {:target :loaded :guard :g}}}
-                     :loaded  {}}}]
-    (is (contains? (set (map :id (rf.machines.cofx-attach/ensure-set-for
-                                   (rf.machines.cofx-attach/index-ensure-sets m)
-                                   {:state :working :data {}}
-                                   [:rf.machine.spawn/done [:working] {:result 1 :error? false}])))
-                   :test/roll8))))

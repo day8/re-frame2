@@ -38,12 +38,12 @@
   "A join child whose transition into its `:final?` state requires `:strictmint/roll`
   and stamps it into the `:output-key` slot, so the roll rides the completion."
   []
-  {:initial :running
+  {:rf.cofx/requires [:strictmint/roll]
+   :initial :running
    :data    {:id nil}
    :actions {:record-id  (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
-             :stamp-roll {:rf.cofx/requires [:strictmint/roll]
-                          :fn (fn [{data :data cofx :rf.cofx}]
-                                {:data (assoc data :roll (:strictmint/roll cofx))})}}
+             :stamp-roll (fn [{data :data cofx :rf.cofx}]
+                           {:data (assoc data :roll (:strictmint/roll cofx))})}
    :states  {:running {:on {:set-id {:action :record-id}
                             :go     {:target :done :action :stamp-roll}}}
              :done {:final? true :output-key :roll}}})
@@ -115,10 +115,12 @@
                      (reset! calls 0)
                      (rf.machines.test-support/reset-captured!)
                      (rf/dispatch-sync [a [:go]] {:rf.cofx cofx :rf.cofx/mint-policy policy}))]
-      ;; Record a genuine :live completion, reading the minted roll off its carrier.
+      ;; Record a genuine :live completion, reading the minted roll off its
+      ;; carrier. The child mints on each event addressed to it: its
+      ;; `:start` [:set-id :a] and the [:go] that completes it.
       (with-dispatch-observer sink #(rf/dispatch-sync [a [:go]]))
       (let [roll (:result (completion-of sink :sm3/rp :a))]
-        (is (= [1 #{:a} 6] [@calls (done) roll]))
+        (is (= [2 #{:a} 6] [@calls (done) roll]))
         (replay! {:strictmint/roll roll :rf/time-ms 1} :strict)
         (is (= [0 #{:a}] [@calls (done)]) "strict replay folds from the recorded fact")
         (replay! {:rf/time-ms 1} :strict)
@@ -133,7 +135,8 @@
   decides whether the parent reaches `:ready`."
   [parent-kw child-kw]
   (rf/reg-machine parent-kw
-    {:initial :idle
+    {:rf.cofx/requires [:strictmint/roll]
+     :initial :idle
      :data    {}
      :states  {:idle   {:on {:start :racing}}
                :racing {:spawn-all
@@ -143,14 +146,14 @@
                         :on {:all/done {:target :ready :action :res-action}}}
                :ready  {}}
      :actions {:res-action
-               {:rf.cofx/requires [:strictmint/roll]
-                :fn (fn [{data :data cofx :rf.cofx}]
-                      {:data (assoc data :roll (:strictmint/roll cofx))})}}}))
+               (fn [{data :data cofx :rf.cofx}]
+                 {:data (assoc data :roll (:strictmint/roll cofx))})}}))
 
 (deftest completion-carrier-inherits-strict-into-the-join-resolution
   (doseq [[parent-kw child-kw opts expected]
-          [[:sm5l/rp :sm5l/ca nil                                                      [1 true 0]]
-           [:sm5s/rp :sm5s/ca {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict} [0 false 1]]]]
+          ;; the parent mints on its live [:start] as well as on the carrier
+          [[:sm5l/rp :sm5l/ca nil                                                      [2 true 0]]
+           [:sm5s/rp :sm5s/ca {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict} [1 false 1]]]]
     (let [calls (atom 0)]
       (reg-roll! calls 6)
       (rf/reg-machine child-kw (mk-plain-child))

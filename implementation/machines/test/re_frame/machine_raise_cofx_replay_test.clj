@@ -1,5 +1,5 @@
 (ns re-frame.machine-raise-cofx-replay-test
-  "A generator-backed fact a raised event's guard mints mid-macrostep replays
+  "A generator-backed fact a raised event's guard reads replays
   deterministically: under `:strict` the recorded fact reproduces the live
   decision, and a token without it does not advance."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -11,11 +11,10 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; :inner's guard fact is not in :go's ensure-set, so it is ensured mid-drain.
 (def ^:private mint-machine
-  {:initial :a
-   :guards  {:check {:rf.cofx/requires [:replay/gen]
-                     :fn (fn [{cofx :rf.cofx}] (some? (:replay/gen cofx)))}}
+  {:rf.cofx/requires [:replay/gen]
+   :initial :a
+   :guards  {:check (fn [{cofx :rf.cofx}] (some? (:replay/gen cofx)))}
    :actions {:raise-inner (fn [_] {:fx [[:raise [:inner]]]})}
    :states  {:a    {:on {:go {:target :b :action :raise-inner}}}
              :b    {:on {:inner {:target :done :guard :check}}}

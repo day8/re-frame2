@@ -1,91 +1,55 @@
 (ns re-frame.machines.cofx-attach
   "Machine consumer-attachment for recordable coeffects. Per Spec 005
-  §Consumer attachment — declaring requirements on named entries.
+  §Consumer attachment.
 
   ## What this namespace does
 
-  A machine guard / action / entry / exit callback that consumes a host
-  fact (the wall-clock time, a generated UUID, a random draw) declares its
-  requirement with **`:rf.cofx/requires`** on the machine's **named** entry
-  — the `{:rf.cofx/requires [...] :fn (fn [...] ...)}` map form in
-  `:guards` / `:actions`. This namespace owns three pieces:
+  A machine whose guards / actions / `:entry` / `:exit` callbacks consume host
+  facts (the wall-clock time, a generated UUID, a random draw, a recorded sub
+  value) declares them ONCE, with **`:rf.cofx/requires`** at the top level of
+  its definition. The handler ensures that one set onto the in-flight
+  `:rf.cofx` record on every event addressed to the machine, before birth and
+  before transition selection, so every callback the macrostep runs — those a
+  same-macrostep `:raise` selects included — reads the same ensured record. A
+  guard-consumed fact is therefore never generated mid-selection: a host read
+  there would put nondeterminism in the fold's most sensitive spot (replay
+  selecting a DIFFERENT transition). Generated values are written back into
+  the record the epoch captures, so replay re-presents them.
 
-    1. **Inline-fn restriction (registration-time hard error).**
-       `:rf.cofx/requires` may live ONLY on a named `:guards` / `:actions`
-       ENTRY MAP (the form that also carries `:fn`). It may NOT ride an
-       inline callback — a bare-fn guard/action, or `:rf.cofx/requires`
-       placed directly on a transition slot (`:on` / `:always` / `:after`
-       entry) or on `:entry` / `:exit`. The declaration must sit with the
-       code that can be checked against it; an inline fn has no entry to
-       attach a checkable diet to. Violations are
-       `:rf.error/machine-cofx-requires-inline` (registration is rejected).
+  Three pieces:
 
-    2. **Derived ensure-sets (registration-time index + dispatch-time
-       ensure).** At registration `index-ensure-sets` walks the machine and
-       parses each named entry's `:rf.cofx/requires` (via
-       `re-frame.cofx/parse-requires`), building a per-named-entry parsed
-       diet plus the per-state `:always`-closure diet. At dispatch
-       `ensure-set-for` computes the union of parsed requires across every
-       guard/action any candidate transition for the inner event type can
-       touch on the active state path (leaf→root), INCLUDING the `:always`
-       cascade reachable from candidate targets and from the current state.
-       The handler ensures that set onto the in-flight `:rf.cofx` record
-       **before transition selection** runs (`re-frame.cofx/deliver-declared
-       -cofx`), so a guard-consumed fact is never generated per-fired-
-       transition — a mid-selection host read would put nondeterminism in
-       the fold's most sensitive spot (replay selecting a DIFFERENT
-       transition through the statechart). Generated values are written back
-       into the record the epoch captures, so replay re-presents them.
+    1. **Placement (registration-time hard error).** `:rf.cofx/requires` is
+       legal ONLY at the machine root. Anywhere else — a named `:guards` /
+       `:actions` entry, a transition slot, a state node, `:entry` / `:exit`,
+       a region body — is `:rf.error/machine-cofx-requires-inline`, naming the
+       site the author wrote.
+
+    2. **Parse + ensure.** `parse-machine-requires` parses the declaration
+       with the SAME `re-frame.cofx/parse-requires` the event path uses (so a
+       malformed declaration raises the same categories), with `allow-sub?`
+       true, and stamps the parsed set on the definition. `ensure-cofx`
+       delivers it through `re-frame.cofx/deliver-declared-cofx` under the
+       resolved mint policy.
 
     3. **Lint (dev-only diagnostic).** `:rf.warning/machine-cofx-consume-
-       undeclared` — a named guard/action whose `:fn` destructures a cofx
-       leaf key the entry did not declare in `:rf.cofx/requires` (consuming
-       without declaring); `:rf.warning/machine-cofx-ambient-durable` — a
-       named entry declaring an AMBIENT-grade id (`durable state folds facts,
-       never reads`, mechanically checkable for an action that may write
-       `:data`). Both are recommendations (Spec 005 §Consumer attachment /
-       EP-0017 §9), emitted at registration and DCE'd in production.
+       undeclared` — a named guard/action whose source reads a registered cofx
+       the machine did not declare; `:rf.warning/machine-cofx-ambient-durable`
+       — the machine declaring an AMBIENT-grade id (`durable state folds facts,
+       never reads`).
 
   ## Sub-valued recordable source
 
-  A machine named entry may declare the map form `{:rf/sub query-v :as
-  fact-id}` in its `:rf.cofx/requires` — a sub-valued RECORDABLE coeffect
-  source, accepted machines-only (the `allow-sub?` arity of
-  `re-frame.cofx/parse-requires`). It is a RECORDED TOKEN FACT, not
-  permission for a callback to read the sub cache: `query-v` is evaluated
-  ONCE against the committed pre-cascade frame-state and the value recorded
-  on the token under the mandatory owner-qualified `fact-id`; strict replay
-  re-presents it verbatim. The delivery lives in core cofx
-  (`deliver-declared-cofx`), which reaches the sub via the machines-owned
+  The declaration may carry the map form `{:rf/sub query-v :as fact-id}` — a
+  sub-valued RECORDABLE coeffect source, accepted machines-only (the
+  `allow-sub?` arity of `re-frame.cofx/parse-requires`). It is a RECORDED
+  TOKEN FACT, not permission for a callback to read the sub cache: `query-v` is
+  evaluated once per event against the committed pre-cascade frame-state and
+  the value recorded on the token under `fact-id`; strict replay re-presents it
+  verbatim. Core cofx reaches the sub through the machines-owned
   `:cofx/eval-recordable-sub` late-bind hook this ns publishes (core cofx
   cannot static-require subs / frame). It is a rung-3 tool of the minting
   ladder (derive-from-state ▸ payload threading ▸ recorded coeffect), NOT the
   default (Spec 005 §Causal host facts).
-
-  ## Why a separate namespace
-
-  The derivation + ensure machinery + lint are a cohesive unit
-  with their own require on `re-frame.cofx` (the core delivery surface).
-  Keeping them out of `lifecycle-fx.validation` / `lifecycle-fx.registration`
-  keeps those files focused and lets the engine require this leaf without a
-  cycle (it requires `grammar` / `choice`, `cofx`, `trace`, `interop`,
-  `registrar`, `error`, plus — for the sub-valued source evaluator hook —
-  `subs` / `frame` / `late-bind`; `choice` is a leaf requiring only `error`,
-  and none of subs / frame require the machines engine, so no cycle).
-
-  ## Desugared surfaces (`:choice` / `:timeout` / state-level `:after`)
-
-  Registration sweeps the definition as written (`index-ensure-sets`, ahead
-  of `validate-machine!`), so a refusal names the slot the author wrote; there
-  a `:type :choice` transient node's `:choice` candidate vector is its
-  `:always` candidate set (`always-entries`). The dispatch-time ensure-set
-  walks the registered definition, which registration has already desugared
-  (`rf.machines.parallel/normalise-definition`): a choice node carries
-  `:always`, and a `:timeout` / `:on-timeout` is an `:after` entry. So a
-  state-level `:after` table transition, authored or lowered from a
-  `:timeout`, contributes to the ensure-set for its synthetic timer event
-  (`after-diet-for-event`) — mirroring how the parallel ROOT `:after` is
-  handled by `parallel-root-diet`.
 
   XState offers NO parity guidance here — it has no replay contract; this
   surface is re-frame2's own (EP-0017 §Rationale — Why consumer attachment
@@ -106,148 +70,52 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- reserved spec keys (registration-derived index) ----------------------
-;;
-;; The registration-time index lives on the machine spec under a reserved
-;; `:rf/*` key so it threads through the handler closure with the rest of the
-;; machine def (`:rf/frame` / `:rf/platform` / `:rf/parent-id` / `:rf/cofx`)
-;; and reverts atomically with re-registration. Per Conventions §The single-
-;; root reserved set the key is owner-qualified under `:rf/*`.
-
-(def ^:private ensure-index-key
-  "Reserved machine-spec key carrying the registration-derived
-  consumer-attachment index — `{:by-entry {[:guards id] [parsed...] ...}
-  :always-by-state {<decl-path> [parsed...] ...}}`. Stamped by
-  `index-ensure-sets`; read by `ensure-set-for`."
-  :rf/cofx-ensure-index)
-
-;; ---- entry-map shape helpers ----------------------------------------------
-;;
-;; A `:guards` / `:actions` registry VALUE is one of three shapes (mirroring
-;; `transition/chase-ref`): a bare fn, a co-located ENTRY MAP carrying `:fn`
-;; (the named form the `reg-machine` macro produces, plus optional `:source-*`
-;; / `:rf.cofx/requires` slots), or a keyword indirection. `:rf.cofx/requires`
-;; can ride ONLY the entry-map form.
-
 (def ^:private requires-key :rf.cofx/requires)
 
-(defn- entry-map?
-  "True iff `v` is a co-located named-entry map (`{:fn <fn> ...}`)."
-  [v]
-  (and (map? v) (fn? (:fn v))))
+(def ^:private parsed-key
+  "Reserved machine-spec key carrying the parsed machine-level declaration,
+  stamped by `parse-machine-requires` and read by `ensure-cofx` and
+  `lint-machine!`. Owner-qualified under `:rf/*` (Conventions §The
+  single-root reserved set), so it threads through the handler closure with
+  the rest of the machine def and reverts atomically with re-registration."
+  :rf/cofx-requires)
 
-(defn- entry-requires
-  "The raw (unparsed) `:rf.cofx/requires` vector declared on a `:guards` /
-  `:actions` entry `v`, or nil. Only an entry MAP can carry it; a bare fn or
-  a keyword indirection never does."
-  [v]
-  (when (map? v) (requires-key v)))
+;; ---- placement (registration-time hard error) -----------------------------
 
-;; ---- inline-fn restriction (registration-time hard error) -----------------
-
-(defn- requires-inline-error
+(defn- requires-misplaced-error
   "Throw `:rf.error/machine-cofx-requires-inline` — `:rf.cofx/requires` was
-  found somewhere other than a named `:guards` / `:actions` entry MAP (an
-  inline callback or a bare slot). Registration is rejected. Per Spec 005
-  §Consumer attachment §Inline callbacks cannot declare requirements +
-  Spec 009 §Error catalogue."
+  found somewhere other than the machine root. Registration is rejected.
+  Spec 005 §Consumer attachment."
   [where detail]
   (rf.error/throw-error!
     :rf.error/machine-cofx-requires-inline
     'rf/reg-machine
-    (str ":rf.cofx/requires may be declared ONLY on a NAMED "
-         ":guards / :actions entry map (the "
-         "`{:rf.cofx/requires [...] :fn (fn [...] ...)}` form) "
-         "— never on an inline callback. A fact-consuming "
-         "guard / action must be a named entry so the declared "
-         "diet sits with the code that can be checked against "
-         "it (Spec 005 §Consumer attachment). Move the inline "
-         "fn into the machine's :guards / :actions map and "
-         "declare :rf.cofx/requires on its entry. Found at: "
-         where ".")
+    (str ":rf.cofx/requires is declared ONCE, at the top level of the machine "
+         "definition — never on a :guards / :actions entry, a transition, a "
+         "state, :entry / :exit or a region. The machine ensures that one set "
+         "on every event addressed to it (Spec 005 §Consumer attachment). Move "
+         "the requirement to the machine's top-level :rf.cofx/requires. Found "
+         "at: " where ".")
     {:recovery :no-recovery
      :extra    detail}))
 
-(defn- check-no-inline-requires!
-  "Reject `:rf.cofx/requires` anywhere it cannot be honoured. `v` is a
-  transition-slot value or a callback value. The ONLY legal home is a named
-  `:guards` / `:actions` entry map (validated separately by
-  `check-named-entry!`). Here we catch the inline cases:
-
-    - a MAP value (an inline transition map / inline callback map) carrying
-      `:rf.cofx/requires` directly — e.g. `{:on {:go {:rf.cofx/requires [...]
-      :target :done}}}` or an inline `:guards` entry that is a map but is NOT
-      the `{:fn ...}` named form;
-    - a vector of candidate maps any of which carries it.
-
-  A bare-fn / keyword value never carries the key (it is not a map), so it
-  passes here — the restriction it represents (a bare fn cannot declare) is
-  intrinsic. `where` names the declaring site for the diagnostic."
+(defn- check-not-declared!
+  "Reject `:rf.cofx/requires` on `v` — a slot value (a map, or a vector of
+  candidate maps). `where` names the declaring site for the diagnostic."
   [where v]
   (cond
-    (and (map? v) (contains? v requires-key) (not (entry-map? v)))
-    (requires-inline-error where {:offending v})
+    (and (map? v) (contains? v requires-key))
+    (requires-misplaced-error where {:offending v})
 
     (vector? v)
     (doseq [el v]
       (when (and (map? el) (contains? el requires-key))
-        (requires-inline-error where {:offending el})))))
-
-;; ---- named-entry shape + parse (registration-time) ------------------------
-
-(defn- check-named-entry!
-  "Validate a named `:guards` / `:actions` entry that carries
-  `:rf.cofx/requires`, and return its PARSED diet (the `parse-requires`
-  entry vector). A non-entry-map value carrying the key is the inline error
-  (a `{:rf.cofx/requires ...}` with no `:fn` — there is no callback to
-  deliver to). A well-formed entry's requires is parsed via the SAME
-  `re-frame.cofx/parse-requires` the event-handler path uses, so a malformed
-  declaration raises `:rf.error/cofx-request-invalid` / a duplicate id
-  `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler — but
-  with `allow-sub?` TRUE, so a machine named entry may additionally declare
-  the sub-valued recordable source `{:rf/sub query-v :as fact-id}`, which a
-  `reg-event` handler cannot. `[slot entry-id]` labels the error payload.
-  Returns `[]` for an entry with no requires."
-  [slot entry-id v]
-  (let [raw (entry-requires v)]
-    (cond
-      (nil? raw) []
-      ;; `:rf.cofx/requires` present but the value is not the named entry-map
-      ;; form (no `:fn`) — an inline declaration with nothing to deliver to.
-      (not (entry-map? v))
-      (requires-inline-error (str slot " " entry-id) {:offending v})
-      :else
-      (rf.cofx/parse-requires [slot entry-id] raw true))))
-
-;; ---- machine walkers (mirror validation's coverage) -----------------------
-;;
-;; `:guards` / `:actions` are the ONLY named-entry homes; the inline-fn
-;; restriction additionally sweeps every transition slot + `:entry` / `:exit`
-;; so an inline `:rf.cofx/requires` cannot hide on a slot value.
+        (requires-misplaced-error where {:offending el})))))
 
 (defn- always-entries
-  "Normalise a state-node's `:always` slot to a vector of entry maps through
-  the shared `rf.machines.grammar/candidate-maps`. Two
-  caller-specific policies stay HERE, not in the shared normaliser:
-
-    1. the optional `:always` nil semantics — an absent `:always` (missing
-       key, OR present with nil) yields `[]` (no ancestor-blocking, unlike
-       `:on` / `:after`'s nil-is-forbidden-transition form), so the nil is
-       gated BEFORE the shared normaliser (which would map nil to `[{}]`);
-    2. a malformed shape degrades to `[]` (`validate-machine!` refuses it
-       with `:rf.error/machine-bad-always`, as the runtime normaliser does).
-
-  Mirrors `validation/always-entries`.
-
-  A `:type :choice` transient node carries its candidate vector under
-  `:choice`, NOT `:always` — the choice lowers to `:always` only at
-  `rf.machines.choice/desugar-node-choice`, and the registration sweep reads the
-  definition as written. Since a choice state routes through the
-  IDENTICAL `:always` cascade the runtime settles it into, treat a choice
-  node's `:choice` vector as its `:always` candidates here; validation
-  guarantees a choice node never ALSO declares `:always` (a reserved key), so
-  there is no ambiguity. This choice-node source selection likewise stays at
-  the caller — the shared normaliser sees only the resolved slot value."
+  "A state node's `:always` candidates (a `:type :choice` node's `:choice`
+  vector, which lowers to `:always`), or `[]`. Malformed shapes degrade to
+  `[]`: `validate-machine!` refuses them under their own categories."
   [node]
   (let [a (if (rf.machines.choice/choice-node? node) (:choice node) (:always node))]
     (if (nil? a)
@@ -255,11 +123,9 @@
       (or (rf.machines.grammar/candidate-maps a) []))))
 
 (defn- walk-nodes-with-path
-  "Yield `[absolute-path node]` pairs for every state node, recursing
-  through `:states`; for a parallel machine, per region (region names are
-  not part of the path). Mirrors `validation/walk-state-nodes-with-path`.
-  Only map nodes and map `:states` are walked: this sweep runs before
-  `validate-machine!`, which refuses any other shape with its own category."
+  "Yield `[absolute-path node]` pairs for every map state node, recursing
+  through map `:states`; for a parallel machine, per region. This sweep runs
+  before `validate-machine!`, which refuses any other shape."
   [machine]
   (letfn [(states-of [n]
             (let [s (:states n)] (when (map? s) s)))
@@ -274,871 +140,105 @@
       (walk [] (states-of machine)))))
 
 (defn- clause-entries
-  "The `[trigger transition]` entries of `node`'s `:on` / `:after` clause, or
-  nil when the clause is absent or not a map. This sweep runs before
-  `validate-machine!`, which refuses a malformed clause with its own category,
-  so it skips one rather than failing on it."
+  "The entries of `node`'s `:on` / `:after` clause, or nil when the clause is
+  absent or not a map (`validate-machine!` refuses a malformed clause)."
   [node slot]
   (let [clause (get node slot)]
     (when (map? clause) clause)))
 
-(defn- check-inline-restriction!
-  "Sweep every transition slot + callback slot of every state node (and the
-  machine / region roots) for an inline `:rf.cofx/requires` declaration, and
-  reject it. The legal home — a named `:guards` / `:actions` entry map — is
-  parsed by `index-ensure-sets`; this pass catches the ILLEGAL homes. A
-  `:type :choice` node's candidates are swept via `always-entries` (which
-  reads its `:choice` vector — the choice lowers to `:always`); the diagnostic
-  labels them `:choice` so the author sees the slot they actually wrote. A
-  state- or spawn-level `:on-timeout` lowers onto `:after` the same way, so it
-  is swept, and labelled, as `:on-timeout`. A `:spawn`'s `:on-error` and
-  transition-shaped `:on-done` are transition slots apart from `:on`, swept
-  under their own keys; a fn `:on-done` is the `:data` fold and carries none."
+(defn- check-slots!
+  "Every transition and callback slot of `node`, labelled under the key the
+  author wrote: a choice node's candidates as `:choice`, a `:timeout`'s
+  `:on-timeout`, and a `:spawn`'s `:on-error` / `:on-done` apart from `:on`."
+  [where node]
+  (doseq [[_ev v] (clause-entries node :on)]    (check-not-declared! (str where " :on") v))
+  (doseq [[_d v]  (clause-entries node :after)] (check-not-declared! (str where " :after") v))
+  (check-not-declared! (str where " :on-timeout") (:on-timeout node))
+  (doseq [slot [:on-timeout :on-error :on-done]]
+    (check-not-declared! (str where " :spawn " slot) (get-in node [:spawn slot])))
+  (let [label (if (rf.machines.choice/choice-node? node) " :choice" " :always")]
+    (doseq [e (always-entries node)] (check-not-declared! (str where label) e)))
+  (when (contains? node :on-done)
+    (check-not-declared! (str where " :on-done") (:on-done node)))
+  (check-not-declared! (str where " :entry") (:entry node))
+  (check-not-declared! (str where " :exit")  (:exit node)))
+
+(defn- check-placement!
+  "Reject `:rf.cofx/requires` everywhere but the machine root: named
+  `:guards` / `:actions` entries, every state node and its slots, region
+  bodies, and the root's own transition slots."
   [machine]
-  (let [roots (if (and (map? (:regions machine)) (seq (:regions machine)))
-                (cons machine (filter map? (vals (:regions machine))))
-                [machine])
-        check-timeout-and-spawn-slots!
-        (fn [where node]
-          (check-no-inline-requires! (str where " :on-timeout") (:on-timeout node))
-          (doseq [slot [:on-timeout :on-error :on-done]]
-            (check-no-inline-requires! (str where " :spawn " slot) (get-in node [:spawn slot]))))
-        check-node!
-        (fn [path node]
-          (let [where       (str "state " (if (seq path) (peek path) :rf/root))
-                ;; a choice node's candidates ride `:choice`; `always-entries`
-                ;; surfaces them, but label the site `:choice` not `:always`.
-                always-label (if (rf.machines.choice/choice-node? node) " :choice" " :always")]
-            (doseq [[_ev v] (clause-entries node :on)]    (check-no-inline-requires! (str where " :on") v))
-            (doseq [[_d v]  (clause-entries node :after)] (check-no-inline-requires! (str where " :after") v))
-            (check-timeout-and-spawn-slots! where node)
-            (doseq [e (always-entries node)] (check-no-inline-requires! (str where always-label) e))
-            (when (contains? node :on-done)
-              (check-no-inline-requires! (str where " :on-done") (:on-done node)))
-            (check-no-inline-requires! (str where " :entry") (:entry node))
-            (check-no-inline-requires! (str where " :exit")  (:exit node))))]
-    (doseq [[path node] (walk-nodes-with-path machine)]
-      (check-node! path node))
-    (doseq [root roots]
-      (doseq [[_ev v] (clause-entries root :on)]    (check-no-inline-requires! ":rf/root :on" v))
-      (doseq [[_d v]  (clause-entries root :after)] (check-no-inline-requires! ":rf/root :after" v))
-      (check-timeout-and-spawn-slots! ":rf/root" root)
-      (when (contains? root :on-done)
-        (check-no-inline-requires! ":rf/root :on-done" (:on-done root))))))
+  (doseq [slot [:guards :actions]
+          [eid v] (get machine slot)]
+    (when (and (map? v) (contains? v requires-key))
+      (requires-misplaced-error (str slot " " eid) {:offending v})))
+  (doseq [[path node] (walk-nodes-with-path machine)]
+    (let [where (str "state " (peek path))]
+      (when (contains? node requires-key)
+        (requires-misplaced-error where {:offending (select-keys node [requires-key])}))
+      (check-slots! where node)))
+  (when (map? (:regions machine))
+    (doseq [[r body] (:regions machine)
+            :when (map? body)]
+      (when (contains? body requires-key)
+        (requires-misplaced-error (str "region " r) {:offending (select-keys body [requires-key])}))
+      (check-slots! ":rf/root" body)))
+  (check-slots! ":rf/root" machine))
 
-;; ---- registration-time index (parsed diets) -------------------------------
+;; ---- parse (registration-time) --------------------------------------------
 
-(defn- index-named-entries
-  "Parse every named `:guards` / `:actions` entry's `:rf.cofx/requires`,
-  returning `{[slot entry-id] [parsed...] ...}` (only entries that declared
-  a non-empty diet appear). Each entry is parsed + shape-checked via
-  `check-named-entry!`."
+(defn parse-machine-requires
+  "Check placement and parse the machine-level `:rf.cofx/requires`, returning
+  `machine` with the parsed set stamped under `:rf/cofx-requires`. Per Spec 005
+  §Consumer attachment.
+
+  Parsing goes through `re-frame.cofx/parse-requires` with `allow-sub?` true,
+  so a malformed declaration raises `:rf.error/cofx-request-invalid` / a
+  duplicate id `:rf.error/cofx-name-collision` exactly as a `reg-event`
+  handler's does, and the `{:rf/sub query-v :as fact-id}` source is accepted.
+  Pure and idempotent; called at registration on the definition as written,
+  before `validate-machine!`, and by `make-machine-handler`."
   [machine]
-  (into {}
-        (for [slot  [:guards :actions]
-              [eid v] (get machine slot)
-              :let  [parsed (check-named-entry! slot eid v)]
-              :when (seq parsed)]
-          [[slot eid] parsed])))
+  (check-placement! machine)
+  (assoc machine parsed-key
+         (rf.cofx/parse-requires [:rf/machine requires-key] (get machine requires-key) true)))
 
-(defn- entry-diet
-  "The parsed diet for a `:guards` / `:actions` REF as it appears on a
-  transition (`:guard` / `:action` / `:entry` / `:exit`). A keyword ref maps
-  to its named entry's parsed diet; an inline fn has the empty diet (it
-  cannot declare — the restriction guarantees it). `by-entry` is the
-  `index-named-entries` map."
-  [by-entry slot ref]
-  (if (keyword? ref)
-    (get by-entry [slot ref] [])
-    []))
-
-(defn- candidate-maps
-  "Normalise a transition-slot value to its candidate maps (each carrying
-  `:guard` / `:action` / `:target`) via the shared `rf.machines.grammar/candidate-maps`,
-  mapping the malformed form (grammar returns
-  nil) to NO candidates: `validation` is the designated throw surface, so a
-  malformed shape contributes nothing to the static ensure-set here."
-  [v]
-  (or (rf.machines.grammar/candidate-maps v) []))
-
-(defn- node-at
-  "Root→leaf descent into `machine`'s `:states` (or a region body's).
-  Thin wrapper over `rf.machines.grammar/node-at` so the closure walk resolves targets
-  against EXACTLY the tree the runtime drives."
-  [states path]
-  (rf.machines.grammar/node-at states (vec path)))
-
-(defn- resolve-target-path
-  "Normalise a candidate `:target` (declared at `decl-path`) to an absolute
-  path coordinate, or nil. A keyword is a sibling (direct child of the
-  declaring state's PARENT compound); a vector is absolute; `:same-state` is
-  the declaring state; nil / internal contributes the declaring state itself
-  (the `:always` on the unchanged state still runs). Mirrors the runtime
-  target resolution closely enough for the static closure."
-  [decl-path target]
-  (cond
-    (or (nil? target) (= :same-state target)) (vec decl-path)
-    (keyword? target) (conj (vec (drop-last decl-path)) target)
-    (vector? target)  (vec target)
-    :else             nil))
-
-(defn- initial-descent-path
-  "Descend `path` (an absolute path within `states`) through the `:initial`
-  chain to its leaf — the analog of `transition/initial-cascade` against a
-  `states` scope (NOT a machine). When `path` lands on a compound node with an
-  `:initial`, the cascade enters that child, and so on, exactly as the runtime
-  enters a compound target. `visited` guards a malformed `:initial` cycle.
-  Returns the full descent path (the deepest entered leaf)."
-  [states path]
-  (loop [p       (vec path)
-         visited #{}]
-    (let [n (node-at states p)]
-      (if (and (map? n) (:initial n) (:states n)
-               (not (contains? visited p)))
-        (recur (conj p (:initial n)) (conj visited p))
-        p))))
-
-(defn- lifecycle-diet-along-path
-  "Accumulate (into the transient `diet`) the named-`:actions` diets of the
-  `slot` (`:entry` or `:exit`) callback on every node along absolute `path`
-  within `states` (each prefix leaf→root order is irrelevant — the ensure-set
-  is a deduped union). A node's `:entry` / `:exit` value is a callback ref:
-  a keyword names an `:actions` entry (whose `:rf.cofx/requires` is the only
-  legal way for a lifecycle action to consume a recordable fact — inline
-  requires on `:entry` / `:exit` are rejected at registration), so its parsed
-  diet rides via `entry-diet by-entry :actions`. A bare-fn / nil ref has the
-  empty diet. `by-entry` is the `index-named-entries` map."
-  [by-entry states path slot diet]
-  (doseq [i (range (count path))]
-    (let [prefix (subvec (vec path) 0 (inc i))
-          node   (node-at states prefix)]
-      (doseq [d (entry-diet by-entry :actions (get node slot))]
-        (conj! diet d)))))
-
-(defn- always-step-for-state
-  "ONE `:always` settle step for the active state at `path` within `states`:
-  across every `:always` entry's `:guard` / `:action` on every node along the
-  path (leaf→root), accumulate (1) the parsed diets into the transient `diet`,
-  and (2) every `:always` target that hop COULD settle onto, returned as a
-  vector of absolute paths. A target is resolved from the node the `:always`
-  was DECLARED on (`prefix`), since a bare-keyword `:target` is a sibling of
-  the declaring state. `by-entry` is the `index-named-entries` map. The
-  per-hop helper `always-diet-for-state` drives to a fixed point."
-  [by-entry states path diet]
-  (let [targets (transient [])]
-    (doseq [i (range (count path))]
-      (let [prefix (subvec (vec path) 0 (inc i))
-            node   (node-at states prefix)]
-        (doseq [e (always-entries node)]
-          (doseq [d (entry-diet by-entry :guards  (:guard e))]  (conj! diet d))
-          (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d))
-          (when-let [tgt (resolve-target-path prefix (:target e))]
-            (conj! targets tgt)))))
-    (persistent! targets)))
-
-(defn- always-diet-for-state
-  "The `:always` closure diet for the active state at `path` within `states`:
-  the concatenation of parsed diets across every `:always` entry's `:guard` /
-  `:action` reachable as the `:always` cascade settles to a FIXED POINT from
-  this configuration. An `:always` declared at any active ancestor can fire
-  after the macrostep settles, and — critically — an `:always` whose guard
-  passes settles to its `:target`, whose OWN `:always` may then fire, and so
-  on (`transition/drain-to-fixed-point` runs every `:always` hop within ONE
-  macrostep). The static ensure-set must therefore chase every `:always`
-  `:target` to the same fixed point the runtime settles, so a guard/action
-  reached at chain depth >=2 (A --go--> B, B :always--> C, C :always {:guard
-  g-requiring-cofx}) still has its declared `:rf.cofx/requires` ensured BEFORE
-  the macrostep runs (the ensure step runs ONCE, `registration/ensure-ctx-
-  cofx`). `by-entry` is the `index-named-entries` map; `visited` tracks
-  resolved state-paths so an `:always` cycle terminates. Returns a vector of
-  `parse-requires` entries (deduped by the caller's `add!`)."
-  [by-entry states path]
-  (let [diet (transient [])]
-    (loop [worklist [(vec path)]
-           visited  #{}]
-      (if-let [p (peek worklist)]
-        (let [rest* (pop worklist)]
-          (if (contains? visited p)
-            (recur rest* visited)
-            (let [targets (always-step-for-state by-entry states p diet)
-                  next*   (reduce (fn [wl t]
-                                    (if (contains? visited t) wl (conj wl t)))
-                                  rest* targets)]
-              (recur next* (conj visited p)))))
-        (persistent! diet)))))
-
-(defn- scope-for
-  "Return the machine's top-level `:states` map — the scope a FLAT /
-  COMPOUND machine's snapshot state resolves within. This is a plain
-  `(:states machine)` read; it does NOT handle the parallel-region case.
-
-  The per-region union for a PARALLEL machine lives in `ensure-set-for` (it
-  iterates each region's body via `region-machine` and unions each region's
-  own scope, plus the parallel root's own transition surfaces) — NOT here.
-  `scope-for` is called only on the flat/compound path (and the root-level
-  surfaces inside `ensure-set-for`)."
-  [machine]
-  (:states machine))
-
-;; ---- registration-time entry point ----------------------------------------
-
-(defn index-ensure-sets
-  "Validate the inline-fn restriction and DERIVE the consumer-attachment
-  index, returning `machine` with the index stamped under
-  `:rf/cofx-ensure-index`. Per Spec 005 §Consumer attachment + EP-0017.
-
-  Two registration-time effects:
-    1. `check-inline-restriction!` — reject any `:rf.cofx/requires` on an
-       inline callback / bare slot (`:rf.error/machine-cofx-requires-inline`);
-    2. parse every named `:guards` / `:actions` entry's `:rf.cofx/requires`
-       (`:rf.error/cofx-request-invalid` / `-name-collision` on a malformed
-       declaration, IDENTICAL to the event-handler path) into a per-entry
-       parsed-diet index the dispatch-time `ensure-set-for` reads.
-
-  Idempotent and pure (machine → machine'); called at registration on the
-  definition as written, before `validate-machine!`, and by
-  `make-machine-handler` on the registered definition. A machine with no
-  `:rf.cofx/requires` anywhere stamps an empty index (cheap)."
-  [machine]
-  (check-inline-restriction! machine)
-  (let [by-entry (index-named-entries machine)]
-    (assoc machine ensure-index-key {:by-entry by-entry})))
-
-;; ---- dispatch-time ensure-set ---------------------------------------------
-
-;; The synthetic compound/parallel done-completion event id
-;; (`transition/done-event-id`). Inlined as a literal for the same cycle-free
-;; reason as `after-elapsed-event-id` below. The done signal is
-;; `[:rf.machine/done <completed-node-path>]`; the completed node's `:on-done`
-;; transition (a SEPARATE slot from `:on`) is the candidate the runtime selects
-;; (`transition/pick-done-transition`), so the ensure-set for a raised done
-;; event MUST add that `:on-done` guard/action diet (the enclosing
-;; `:on {:rf.machine/done …}` escape hatch IS already covered by the `:on` walk
-;; since the event-id matches an `:on` key, but the `:on-done` slot is not).
-(def ^:private done-event-id :rf.machine/done)
-
-;; The synthetic timer event id (`transition/after-elapsed-event-id`). Inlined
-;; as a literal so this leaf does not require `transition` — the docstring's
-;; require contract (`grammar` / `choice` / `cofx` / `trace` / `interop`) stays
-;; cycle-free. `pick-after-transition` / `root-after-match` in `transition` are
-;; the runtime peers. Defined here (ahead of `ensure-set-in-scope`) because both
-;; the per-state `after-diet-for-event` and the parallel-root `parallel-root-
-;; diet` route on it.
-(def ^:private after-elapsed-event-id :rf.machine.timer/after-elapsed)
-
-(defn- dedup-adder
-  "Returns the `add!` closure every ensure-set walk in this namespace
-  shares: conj each entry of a `parse-requires`-shaped `diet` onto `acc`
-  unless its `:id` is already in `seen-ids`.
-
-  THE DEDUP CONTRACT, stated once so all three walks (flat/compound
-  scope, parallel region union, initial-descent birth set) cannot drift
-  apart: THE KEY IS `:id`, AND FIRST OCCURRENCE WINS. A later entry
-  carrying an `:id` already seen is dropped whole — not merged, not
-  replacing the entry already accumulated. That is what makes the
-  ensure-set declaration-order-insensitive, which the walks' own
-  docstrings promise: a fact reachable from two candidate transitions is
-  ensured once, and the set does not depend on which walk order reached
-  it first.
-
-  Mutation note. Both args are `volatile!`s the CALLER binds and reads
-  back (`@acc` at the walk's edge, once, to materialise the result);
-  this closure only ever writes them. They are volatiles rather than
-  atoms because the walk is single-threaded, local and never escapes —
-  and volatiles rather than a bare loop accumulator because `add!` is
-  called from several mutually-recursive helpers that take it as an
-  argument, so there is no single reduction to thread a value through.
-  Note that `acc` and `seen-ids` hold PERSISTENT collections (a vector
-  and a set), so `vswap!` here is threading an ordinary `conj` return;
-  the stricter case — a `volatile!` wrapping a TRANSIENT, where
-  discarding `conj!`/`assoc!`'s return loses writes past the array-map
-  promotion — is the one documented at length in
-  `re-frame.source-coords`. The local `diet` transients built by the
-  callers below are materialised with `persistent!` before they reach
-  `add!`."
-  [seen-ids acc]
-  (fn [diet]
-    (doseq [{:keys [id] :as e} diet]
-      (when-not (contains? @seen-ids id)
-        (vswap! seen-ids conj id)
-        (vswap! acc conj e)))))
-
-(defn- on-done-diet-for-event
-  "Add (into `add!`) the `:on-done` guard/action diets of the completed node a
-  raised done event targets. `event` is `[:rf.machine/done
-  <node-path>]`; `<node-path>` (the 2nd element) is the absolute path of the
-  compound (or parallel-region) node whose `:final?` child completed. The node's
-  `:on-done` value is one-or-more candidate maps (mirroring
-  `transition/pick-done-transition` step 1); each candidate's `:guard` /
-  `:action` named-entry diet — and the `:entry` + `:always` diet of its
-  resolved `:target` (via `add-target!`) — joins the ensure-set, so an
-  `:on-done` guard/action declaring `:rf.cofx/requires` has its facts ensured
-  before the done transition is selected. No-op when the event is not a done
-  signal, the node-path does not resolve, or the node declares no `:on-done`.
-
-  `region` is the region name when `states` is a parallel region's body, else
-  nil. A region's done-raise carries a region-name head, so strip it iff it
-  names THIS region (a foreign head declines), exactly as
-  `transition/pick-done-transition` does."
-  [by-entry states event region add! add-target!]
-  (when (and (vector? event) (= done-event-id (first event)))
-    (let [raw-path  (second event)
-          done-path (cond
-                      (not (vector? raw-path)) nil
-                      region (when (= region (first raw-path)) (vec (rest raw-path)))
-                      :else  raw-path)]
-      (when (vector? done-path)
-        (let [node (node-at states done-path)]
-          (when (and (map? node) (contains? node :on-done))
-            (doseq [cand (candidate-maps (:on-done node))]
-              (add! (entry-diet by-entry :guards  (:guard cand)))
-              (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path done-path (:target cand))]
-                (add-target! tgt)))))))))
-
-;; The synthetic single-`:spawn` failure event id
-;; (`transition/spawn-error-event-id`), inlined for the same cycle-free reason
-;; as `done-event-id` above.
-(def ^:private spawn-error-event-id :rf.machine.spawn/error)
-
-(defn- spawning-node
-  "The `:spawn`-bearing node a spawn carrier's scope-relative `invoke-id`
-  names within `root`'s scope: the node at `invoke-id`, or, for the empty
-  `invoke-id` of a flat / compound machine root's own child, `root` itself. A
-  region body declares no `:spawn`, so `region` never resolves `[]`."
-  [root invoke-id region]
-  (cond
-    (seq invoke-id)          (node-at (:states root) invoke-id)
-    (and (vector? invoke-id)
-         (nil? region))      root))
-
-(defn- spawn-error-diet-for-event
-  "Add (into `add!`) the `:spawn :on-error` guard/action diets of the
-  `:spawn`-bearing node a raised `[:rf.machine.spawn/error <invoke-id> <err>]`
-  names — a slot separate from `:on` that `transition/pick-spawn-error-
-  transition` selects first — plus each candidate target's `:entry` +
-  `:always` diet. `root` owns the scope; `region` strips / declines a
-  region-name head exactly as `on-done-diet-for-event` does. No-op when the
-  event is not a spawn-error signal, the invoke-id does not resolve, or the
-  node declares no `:on-error`."
-  [by-entry root event region add! add-target!]
-  (when (and (vector? event) (= spawn-error-event-id (first event)))
-    (let [raw-id    (second event)
-          invoke-id (cond
-                      (not (vector? raw-id)) nil
-                      region (when (= region (first raw-id)) (vec (rest raw-id)))
-                      :else  raw-id)]
-      (when-let [node (spawning-node root invoke-id region)]
-        (let [on-error (get-in node [:spawn :on-error])]
-          (when (some? on-error)
-            (doseq [cand (candidate-maps on-error)]
-              (add! (entry-diet by-entry :guards  (:guard cand)))
-              (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path invoke-id (:target cand))]
-                (add-target! tgt)))))))))
-
-;; The single-`:spawn` completion carrier id (`transition/spawn-done-event-id`),
-;; inlined for the same cycle-free reason as `done-event-id` above.
-(def ^:private spawn-done-event-id :rf.machine.spawn/done)
-
-(defn- spawn-done-diet-for-event
-  "Add (into `add!`) the guard/action diets of a transition-shaped
-  `:spawn :on-done` on the `:spawn`-bearing node a
-  `[:rf.machine.spawn/done <invoke-id> <completion>]` carrier names — a slot
-  separate from `:on` that `transition/pick-spawn-done-transition` selects
-  first — plus each candidate target's `:entry` + `:always` diet. The twin of
-  `spawn-error-diet-for-event`, and it strips / declines a region-name head
-  the same way. A fn `:on-done` is the `:data` fold, not a transition, and adds
-  nothing. No-op when the event is not a spawn-done carrier, the invoke-id
-  does not resolve, or the node declares no transition-shaped `:on-done`."
-  [by-entry root event region add! add-target!]
-  (when (and (vector? event) (= spawn-done-event-id (first event)))
-    (let [raw-id    (second event)
-          invoke-id (cond
-                      (not (vector? raw-id)) nil
-                      region (when (= region (first raw-id)) (vec (rest raw-id)))
-                      :else  raw-id)]
-      (when-let [node (spawning-node root invoke-id region)]
-        (let [on-done (get-in node [:spawn :on-done])]
-          (when (and (some? on-done) (not (fn? on-done)))
-            (doseq [cand (candidate-maps on-done)]
-              (add! (entry-diet by-entry :guards  (:guard cand)))
-              (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path invoke-id (:target cand))]
-                (add-target! tgt)))))))))
-
-(defn- after-diet-for-event
-  "Add (into `add!`) the guard/action diet of a per-state (or per-region)
-  `:after`-TABLE transition the synthetic timer event fires, plus each
-  candidate target's `:entry` + `:always` diet. `event` is
-  `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`; the runtime
-  routes it to the SCHEDULING node at `decl-path` and selects the `:after`
-  entry at `delay-key` (`transition/pick-after-transition`) — a slot separate
-  from `:on`, so an `:after` guard/action declaring `:rf.cofx/requires` is
-  invisible to the `:on` walk. This adds it, mirroring how
-  `parallel-root-diet` handles the parallel-root `:after`.
-
-  `region` is the region name when `states` is a parallel region's `:states`
-  body, else nil. Within a region the carried decl-path is region-qualified
-  (`[region & in-region-path]`), so strip the region head to resolve within
-  the region scope; a decl-path naming a DIFFERENT region is not this region's
-  timer (declines). A root-owned timer (`decl-path` `[]`, resolved by
-  `parallel-root-diet`) does not resolve to a `:states` node here, so it is a
-  no-op on this path — no double-count. The resolution is a sound
-  over-approximation (no active-path liveness check — an un-fired / stale
-  timer's ensured facts are a harmless idempotent no-op), exactly as the
-  parallel-root clause is. No-op when the event is not an after-elapsed timer,
-  the decl-path does not resolve, or the node declares no `:after` at
-  `delay-key`."
-  [by-entry states event region add! add-target!]
-  (when (and (vector? event) (= after-elapsed-event-id (first event)))
-    (let [[_ delay-key _epoch raw-decl-path] event
-          decl-path (cond
-                      (nil? raw-decl-path) nil
-                      ;; region-qualified: strip the head iff it names THIS
-                      ;; region (else the timer belongs to a sibling region).
-                      region (when (= region (first raw-decl-path))
-                               (vec (rest raw-decl-path)))
-                      :else  (vec raw-decl-path))]
-      (when (seq decl-path)
-        (let [node (node-at states decl-path)]
-          (when (and (map? node) (contains? (:after node) delay-key))
-            (doseq [cand (candidate-maps (get-in node [:after delay-key]))]
-              (add! (entry-diet by-entry :guards  (:guard cand)))
-              (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path decl-path (:target cand))]
-                (add-target! tgt)))))))))
-
-(declare initial-path-for-scope)
-
-(defn- ensure-set-in-scope
-  "Compute the ensure-set (a set of `parse-requires` entries, deduped by
-  `:id`) for a single `states` scope, active `path`, and inner event type
-  `event-id`. The union of parsed diets across:
-
-    (a) every candidate transition for `event-id` on the active path
-        (leaf→root), the candidate's `:guard` + `:action` diets; PLUS
-    (b) the `:always` closure reachable from each candidate's target AND
-        from the current active state (the `:always` cascade that runs after
-        the transition settles — or after no transition fires).
-
-  When `event` is a raised compound/parallel done signal
-  (`[:rf.machine/done <node-path>]`), the completed node's `:on-done` guard/
-  action diets join the set too — the `:on` walk covers the enclosing
-  `:on {:rf.machine/done …}` escape hatch, but the `:on-done` slot is a
-  separate candidate the runtime selects.
-
-  When `event` is the synthetic `:after` timer signal
-  (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`), the
-  scheduling node's `:after`-table transition at `decl-path` / `delay-key`
-  joins the set (guard/action diet + the `:always` closure from its target) —
-  a slot separate from `:on`, so the `:on` walk misses it.
-  `region` is the region name when `states` is a parallel region's body (so the
-  region-qualified decl-path can be stripped / declined), else nil.
-
-  `root` is the node that owns `states` — the flat / compound machine, or a
-  parallel region's body — whose OWN `:on` the runtime consults after the
-  active path (`transition/pick-transition`'s root fallback, Spec 005
-  §Transition resolution steps 6-7), so its candidates join clause (a) at
-  decl-path `[]`.
-
-  `by-entry` is the registration index's `:by-entry` map. Returns a vector of
-  parsed-requires entries (deduped by id, declaration-order-insensitive — the
-  ensure step is order-independent)."
-  [by-entry root path event region]
-  (let [states   (:states root)
-        event-id (when (vector? event) (first event))
-        acc      (volatile! [])
-        seen-ids (volatile! #{})
-        add!     (dedup-adder seen-ids acc)
-        ;; Accumulate a lifecycle (`:entry`/`:exit`) slot's named-action diet
-        ;; along a path into a transient, then add! it deduped.
-        add-lifecycle! (fn [scope p slot]
-                         (let [diet (transient [])]
-                           (lifecycle-diet-along-path by-entry scope p slot diet)
-                           (add! (persistent! diet))))
-        ;; Everything arriving at a candidate's resolved target runs: the
-        ;; `:entry` of every node entered descending the target's `:initial`
-        ;; chain, then the `:always` closure it settles into. ONE closure for
-        ;; the `:on` walk and every synthetic slot (`:on-done`, `:spawn
-        ;; :on-error`, `:spawn :on-done`, `:after`), so none of them can
-        ;; ensure the `:always` half and forget the `:entry` half.
-        add-target! (fn [tgt]
-                      (add-lifecycle! states (initial-descent-path states tgt) :entry)
-                      (add! (always-diet-for-state by-entry states tgt)))]
-    ;; (a) candidate transitions for this event type, leaf→root. We do NOT
-    ;; stop at the first match — the ensure-set is STATIC (every candidate
-    ;; the selection COULD touch must have its guard-consumed facts ensured
-    ;; before selection runs, since a guard reads them to decide). The walk
-    ;; ends at the scope ROOT's own `:on` (decl-path `[]`), the fallback the
-    ;; runtime consults after the active path.
-    (doseq [[prefix node] (conj (mapv (fn [i]
-                                        (let [prefix (subvec (vec path) 0 (inc i))]
-                                          [prefix (node-at states prefix)]))
-                                      (range (count path)))
-                                [[] root])]
-      (let [on     (:on node)
-            ;; exact + :ns/* + :* descriptor tiers can all match this event.
-            keys*  (cond-> [event-id]
-                     (and (keyword? event-id) (namespace event-id))
-                     (conj (keyword (namespace event-id) "*"))
-                     :always (conj :*))]
-        (doseq [k     keys*
-                :when (contains? on k)
-                cand  (candidate-maps (get on k))]
-          (add! (entry-diet by-entry :guards  (:guard cand)))
-          (add! (entry-diet by-entry :actions (:action cand)))
-          ;; (c) the exit→action→entry cascade a fired candidate runs also
-          ;; executes the active-state `:exit` actions and the target-state
-          ;; `:entry` actions (a named `:actions` ref carrying
-          ;; `:rf.cofx/requires` is the only legal lifecycle consumer). Add the
-          ;; TARGET state's `:entry` diet — and the `:entry` diet of every node
-          ;; entered descending the target's `:initial` chain, since entering a
-          ;; compound target cascades into its initial leaf. The active-state
-          ;; `:exit` diet is added once below (it is candidate-independent).
-          ;; A ROOT `:same-state` re-descends the root's own `:initial`.
-          ;; (b) the :always closure reachable from this candidate's target
-          ;; rides the same `add-target!`.
-          (when-let [tgt (if (and (empty? prefix) (= :same-state (:target cand)))
-                           (initial-path-for-scope states (:initial root))
-                           (resolve-target-path prefix (:target cand)))]
-            (add-target! tgt)))))
-    ;; (c, exit) any fired candidate exits some suffix of the active state
-    ;; path; over-approximate soundly by ensuring the `:exit` diet
-    ;; of every active node leaf→root (an un-fired exit is a harmless no-op —
-    ;; generated facts are written back idempotently). Candidate-independent, so
-    ;; added once.
-    (add-lifecycle! states path :exit)
-    ;; (b-current) the :always closure from the current active state — an
-    ;; :always can fire on the unchanged configuration (an internal action
-    ;; microstep, or after a guard-blocked / unhandled event) reachable
-    ;; without any :on transition firing.
-    (add! (always-diet-for-state by-entry states path))
-    ;; (d) a raised compound/parallel done signal
-    ;; (`[:rf.machine/done <node-path>]`) selects the completed node's `:on-done`
-    ;; transition (a separate slot from `:on`); add its guard/action diet + its
-    ;; target's `:entry` / `:always` diet so an `:on-done` callback's
-    ;; `:rf.cofx/requires` is ensured before the done transition is selected.
-    (on-done-diet-for-event by-entry states event region add! add-target!)
-    ;; (d') a raised single-`:spawn` failure (`[:rf.machine.spawn/error
-    ;; <invoke-id> <err>]`) selects the spawning node's `:spawn :on-error`
-    ;; first — a slot separate from `:on`, like `:on-done`.
-    (spawn-error-diet-for-event by-entry root event region add! add-target!)
-    ;; (d'') a single-`:spawn` completion carrier (`[:rf.machine.spawn/done
-    ;; <invoke-id> <completion>]`) selects the spawning node's
-    ;; transition-shaped `:spawn :on-done` first — the success twin of (d').
-    (spawn-done-diet-for-event by-entry root event region add! add-target!)
-    ;; (e) the synthetic `:after` timer signal
-    ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
-    ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
-    ;; slot separate from `:on`. Add its candidates' guard/action diet + each
-    ;; target's `:entry` / `:always` diet, mirroring `parallel-root-diet`'s
-    ;; root-`:after` clause.
-    (after-diet-for-event by-entry states event region add! add-target!)
-    @acc))
-
-(defn- root-target-always-diet
-  "The `:always`-closure diet reachable from a PARALLEL-ROOT transition's
-  region-qualified `:target`, added into `add!`. A root `:on` / `:after`
-  `:target` is region-qualified (`[<region> & <in-region-path>]`, or a vector
-  OF such targets `[[<region> …] [<region> …]]`), or targetless (action-only).
-  Each region-qualified head resolves into THAT region's own `:states` body,
-  so the moved region's settled `:always` cascade (Spec 005 §Root parallel
-  `:on` — \"a moved region then settles its own `:always`\") contributes its
-  guard/action requires to the ensure-set exactly as `ensure-set-in-scope`'s
-  (b) clause does for a flat target — as does the `:entry` diet of every node
-  the moved region enters descending that target's `:initial` chain. A
-  non-region-qualified / malformed target (rejected at
-  registration) contributes nothing here."
-  [by-entry machine target add!]
-  (let [add-region-target!
-        (fn [t]
-          (when (and (vector? t) (seq t) (keyword? (first t)))
-            (let [region (first t)
-                  rpath  (vec (rest t))
-                  scope  (get-in machine [:regions region :states])]
-              (when (and scope (seq rpath))
-                (let [diet (transient [])]
-                  (lifecycle-diet-along-path by-entry scope (initial-descent-path scope rpath) :entry diet)
-                  (add! (persistent! diet)))
-                (add! (always-diet-for-state by-entry scope rpath))))))]
-    (cond
-      ;; multiple region-qualified targets — a vector of target-vectors.
-      (and (vector? target) (seq target) (vector? (first target)))
-      (doseq [t target] (add-region-target! t))
-      ;; a single region-qualified target.
-      (vector? target)
-      (add-region-target! target)
-      :else nil)))
-
-(defn- parallel-root-diet
-  "Compute the PARALLEL-ROOT's own `:on` / `:after` ensure-set contribution
-  for `event`, added into `add!`. The parallel branch of `ensure-set-for`
-  unions each region's scope; this adds the root's OWN transition surfaces,
-  which the runtime evaluates separately (`transition/root-on-match` /
-  `transition/root-after-match`) as the ancestor fallback (Spec 005 §Root
-  parallel `:on` / §Root-level `:after`). A coeffect declared by a root
-  `:on` / root `:after` guard/action — live transition surfaces — is thereby
-  ensured before selection.
-
-  Two surfaces, mirroring the two runtime root resolvers:
-
-    (a) root `:on` — for a user event, the root's own `:on` is the ancestor
-        fallback (consulted when no region handles the event). Like
-        `ensure-set-in-scope`'s (a) clause, the ensure-set is STATIC: every
-        candidate the selection COULD touch (across the exact / `:ns/*` / `:*`
-        descriptor tiers) has its guard + action diets ensured, plus the
-        `:always` closure reachable from each candidate's region-qualified
-        target.
-
-    (b) root `:after` — for the synthetic root timer event
-        (`[:rf.machine.timer/after-elapsed delay-key epoch []]`, carried
-        decl-path `[]`), the root's `:after` entry at `delay-key` contributes
-        its guard + action diets plus the `:always` closure from its target.
-
-  and, beside (a), (c) the root's own `:spawn :on-error` / transition-shaped
-  `:on-done` for a carrier from the root's child (invoke-id `[]`), which
-  `transition/root-spawn-carrier-match` selects ahead of the root `:on`.
-
-  Mirrors the runtime root resolvers' candidate grammar via `candidate-maps`
-  (the shared shape-wise normalisation). `by-entry` is the registration
-  index's `:by-entry` map."
-  [by-entry machine event event-id add!]
-  (if (= after-elapsed-event-id event-id)
-    ;; (b) root `:after` — only a `[]`-carried root timer is the root's own
-    ;; (a region-prefixed decl-path routes to its region, not the root).
-    (let [[_ delay-key _epoch raw-decl-path] event]
-      (when (= [] (vec raw-decl-path))
-        (doseq [cand (candidate-maps (get-in machine [:after delay-key]))]
-          (add! (entry-diet by-entry :guards  (:guard cand)))
-          (add! (entry-diet by-entry :actions (:action cand)))
-          (root-target-always-diet by-entry machine (:target cand) add!))))
-    ;; (a) root `:on` — three descriptor tiers (exact + :ns/* + :*), every
-    ;; candidate, mirroring `match-on-clause`'s tier walk on the root node.
-    (let [on    (:on machine)
-          keys* (cond-> [event-id]
-                  (and (keyword? event-id) (namespace event-id))
-                  (conj (keyword (namespace event-id) "*"))
-                  :always (conj :*))
-          ;; (c) a carrier for the root's own `:spawn` child
-          ;; (`[<carrier-id> [] …]`) selects the root `:spawn :on-error` /
-          ;; transition-shaped `:on-done` ahead of the root `:on`.
-          spawn-v (when (and (contains? #{spawn-error-event-id spawn-done-event-id} event-id)
-                             (= [] (second event)))
-                    (get-in machine [:spawn (if (= spawn-error-event-id event-id) :on-error :on-done)]))]
-      (doseq [cand (concat (when (and (some? spawn-v) (not (fn? spawn-v)))
-                             (candidate-maps spawn-v))
-                           (for [k     keys*
-                                 :when (contains? on k)
-                                 cand  (candidate-maps (get on k))]
-                             cand))]
-        (add! (entry-diet by-entry :guards  (:guard cand)))
-        (add! (entry-diet by-entry :actions (:action cand)))
-        (root-target-always-diet by-entry machine (:target cand) add!)))))
-
-(defn ensure-set-for
-  "Compute the consumer-attachment ENSURE-SET for `machine` (carrying the
-  registration index) given the active `snapshot` and the inner `event`.
-  Returns a `parse-requires`-shaped entry vector — the static union of every
-  `:rf.cofx/requires` any candidate guard/action for this event type could
-  touch on the active state path, INCLUDING the `:always` cascade reachable
-  from candidate targets (Spec 005 §Consumer attachment §the derived
-  per-(state × event-type) ensure-set). Empty when the machine declares no
-  requires (the no-op fast path) or the index is absent (pure-fn callers).
-
-  For a PARALLEL machine the snapshot's `:state` is a region-name → region-
-  state map; the ensure-set unions each region's own scope (each region's
-  path resolves within its own `:states` body), since the broadcast routes
-  the event to every region, PLUS the parallel ROOT's own `:on` / `:after`
-  candidates (the ancestor fallback the runtime evaluates separately via
-  `transition/root-on-match` / `root-after-match`). The set is
-  deduped by id across regions and the root."
-  [machine snapshot event]
-  (let [{:keys [by-entry]} (get machine ensure-index-key)
-        event-id (when (vector? event) (first event))]
-    (if (or (empty? by-entry) (nil? event-id))
-      []
-      (let [state (:state snapshot)]
-        (if (and (map? state) (map? (:regions machine)) (seq (:regions machine)))
-          ;; parallel — union each region's scope PLUS the parallel ROOT's own
-          ;; `:on` / `:after` (the ancestor fallback the runtime evaluates
-          ;; separately — `root-on-match` / `root-after-match`), deduped by id.
-          (let [acc      (volatile! [])
-                seen-ids (volatile! #{})
-                add!     (dedup-adder seen-ids acc)]
-            (doseq [[region region-state] state
-                    :let [body  (get-in machine [:regions region])
-                          scope (:states body)
-                          rpath (cond (vector? region-state) region-state
-                                      (keyword? region-state) [region-state]
-                                      :else nil)]
-                    :when (and scope rpath)]
-              (add! (ensure-set-in-scope by-entry body rpath event region)))
-            ;; the parallel root's own live transition surfaces.
-            (parallel-root-diet by-entry machine event event-id add!)
-            @acc)
-          ;; flat / compound — single scope.
-          (let [path (cond (vector? state) state
-                           (keyword? state) [state]
-                           :else nil)]
-            (if path
-              (ensure-set-in-scope by-entry machine path event nil)
-              [])))))))
-
-(defn- initial-path-for-scope
-  "The initial-descent leaf path for a `states` scope given an `:initial`
-  declaration (a keyword or a vector path). Mirrors `build-initial-snapshot`'s
-  flat/region initial cascade against the static scope. Returns nil for a
-  missing / malformed `:initial`."
-  [states initial-decl]
-  (let [decl-path (cond
-                    (keyword? initial-decl) [initial-decl]
-                    (vector? initial-decl)  (vec initial-decl)
-                    :else                   nil)]
-    (when (seq decl-path)
-      (initial-descent-path states decl-path))))
-
-(defn bootstrap-ensure-set-for
-  "Compute the consumer-attachment ENSURE-SET for `machine`'s BIRTH (initial-
-  entry) macrostep. The bootstrap cascade
-  (`parallel/apply-initial-entry-cascade`, run inside `maybe-boot` BEFORE the
-  dispatch-time `ensure-ctx-cofx`) fires the initial-state descent's `:entry`
-  actions, then the birth-time `:always` settle. A named `:actions` ref on an
-  `:entry` slot (or reached by a birth `:always`) carrying `:rf.cofx/requires`
-  must therefore have its facts ensured BEFORE `maybe-boot` runs — otherwise it
-  reads an unensured token.
-
-  Returns the deduped union of: the `:entry` diet of every node entered on the
-  initial-descent path, PLUS the `:always` closure reachable from the initial
-  leaf — for a flat / compound machine the single root scope, for a parallel
-  machine each region's own scope. Empty when the machine declares no requires
-  (the no-op fast path) or the index is absent (pure-fn callers)."
-  [machine]
-  (let [{:keys [by-entry]} (get machine ensure-index-key)]
-    (if (empty? by-entry)
-      []
-      (let [acc      (volatile! [])
-            seen-ids (volatile! #{})
-            add!     (dedup-adder seen-ids acc)
-            add-scope! (fn [scope initial-decl]
-                         (when-let [ipath (initial-path-for-scope scope initial-decl)]
-                           (let [diet (transient [])]
-                             (lifecycle-diet-along-path by-entry scope ipath :entry diet)
-                             (add! (persistent! diet)))
-                           ;; the birth `:always` settle from the initial leaf.
-                           (add! (always-diet-for-state by-entry scope
-                                                        (initial-path-for-scope scope initial-decl)))))]
-        (if (and (map? (:regions machine)) (seq (:regions machine)))
-          (doseq [[_region body] (:regions machine)]
-            (add-scope! (:states body) (:initial body)))
-          (add-scope! (scope-for machine) (:initial machine)))
-        @acc))))
-
-;; ---- the dispatch-time ensure step ----------------------------------------
-
-(defn- ensure-diet-onto
-  "Ensure a derived `ensure-set` (a `parse-requires`-shaped entry vector) onto
-  the in-flight `:rf.cofx` record `recorded`. Returns the (possibly generation-
-  augmented) record — equal to `recorded` when the set is empty or nothing was
-  generated. `deliver-declared-cofx` reads recordable values FROM the record
-  and writes generated ones back into it; we thread an empty coeffects map (the
-  delivered flat spread is unused by machines — callbacks read the WHOLE record
-  off `:rf.cofx`) and keep only the augmented record. The shared core of both
-  the dispatch-time (`ensure-cofx`) and birth-time (`bootstrap-ensure-cofx`)
-  ensure steps.
-
-  `mint-policy` (EP-0017 §6) gates the declared-absent generator-backed
-  branch — `:strict` (replay / the `:test` preset) refuses to mint and
-  surfaces `:rf.error/missing-required-cofx`, `:live`
-  generates. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
-  the EVENT path uses; threading the resolved policy here gives the machine
-  ensure path the SAME mint semantics rather than the 5-arity `:live` default."
-  [ensure-set recorded frame-id failing-id mint-policy]
-  (if (empty? ensure-set)
-    recorded
-    (:rf.cofx
-     (rf.cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id
-                                 frame-id mint-policy))))
+;; ---- the ensure step -------------------------------------------------------
 
 (defn ensure-cofx
-  "Ensure the consumer-attachment ensure-set for `machine` / `snapshot` /
-  `event` onto the in-flight `:rf.cofx` record `recorded` BEFORE transition
-  selection runs (Spec 005 §Consumer attachment). Returns the (possibly
-  generation-augmented) `:rf.cofx` record — equal to `recorded` when nothing
-  was generated. Generated values are written back so the epoch captures the
-  post-generation token and replay re-presents them; a provided fact absent
-  from the record is `:rf.error/missing-required-cofx`; a strict mint policy
-  generates nothing (an absent generator-backed fact is missing-required).
+  "Ensure `machine`'s parsed declaration onto the in-flight `:rf.cofx` record
+  `recorded`, returning the (possibly generation-augmented) record — equal to
+  `recorded` when nothing was generated, and `recorded` itself when the
+  machine declares nothing.
 
-  `frame-id` tags the trace / error emits; `failing-id` is the machine-id.
-  Delegates to `re-frame.cofx/deliver-declared-cofx` — the SAME satisfaction
-  surface the event-handler path uses — but discards the delivered coeffects
-  spread (machine callbacks read the WHOLE record off `:rf.cofx`, never a flat
-  delivery): we keep only the augmented record.
-
-  `mint-policy` (EP-0017 §6) is the EFFECTIVE policy the caller resolved
-  (per-call dispatch opt ▸ frame config ▸ `:live`), threaded into
-  `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
-  SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
-  a declared-absent generator-backed fact (surfacing missing-required), `:live`
-  generates.
-
-  A no-op (returns `recorded`) when the ensure-set is empty."
-  [machine snapshot event recorded frame-id failing-id mint-policy]
-  (ensure-diet-onto (ensure-set-for machine snapshot event)
-                    recorded frame-id failing-id mint-policy))
-
-(defn bootstrap-ensure-cofx
-  "Ensure the BIRTH (initial-entry) ensure-set onto the in-flight `:rf.cofx`
-  record `recorded` BEFORE `maybe-boot` runs the bootstrap cascade.
-  Same satisfaction surface / write-back / error semantics as `ensure-cofx`,
-  but the ensure-set is `bootstrap-ensure-set-for` (the initial-descent `:entry`
-  diet + the birth `:always` closure). `mint-policy` is the effective
-  resolved policy, threaded identically to `ensure-cofx`. A no-op
-  (returns `recorded`) when the bootstrap ensure-set is empty."
+  Runs once per event addressed to the machine, before birth and before
+  transition selection (Spec 005 §Consumer attachment). Delivery is
+  `re-frame.cofx/deliver-declared-cofx` — the event path's satisfaction
+  surface — under the effective `mint-policy`, so `:strict` (replay, the
+  `:test` preset) refuses to mint a declared-absent generator-backed fact and
+  surfaces `:rf.error/missing-required-cofx`. Machine callbacks read the WHOLE
+  record off `:rf.cofx`, so the delivered flat spread is discarded.
+  `frame-id` tags the emits; `failing-id` is the machine / actor id."
   [machine recorded frame-id failing-id mint-policy]
-  (ensure-diet-onto (bootstrap-ensure-set-for machine)
-                    recorded frame-id failing-id mint-policy))
+  (let [parsed (get machine parsed-key)]
+    (if (empty? parsed)
+      recorded
+      (:rf.cofx
+       (rf.cofx/deliver-declared-cofx {} parsed (or recorded {}) failing-id
+                                      frame-id mint-policy)))))
 
 ;; ---- lint (dev-only diagnostic) -------------------------------------------
 ;;
-;; Per Spec 005 §Consumer attachment + EP-0017 §9: a recommended lint. Two
-;; checks, both registration-time + dev-gated (DCE'd in production):
-;;
-;;   1. consume-without-declaring — a named guard/action whose `:fn` reads a
-;;      cofx leaf off the `:rf.cofx` record (`{:keys [rf/time-ms]}` /
-;;      `(:rf/time-ms cofx)`-style) that the entry did NOT declare in its
-;;      `:rf.cofx/requires`. The framework cannot ENSURE an undeclared fact,
-;;      so the read silently binds nil (live) or whatever a fixture happened
-;;      to supply (test) — the silent-nil hole consumer attachment closes.
-;;   2. ambient-durable — a named ACTION declaring an AMBIENT-grade id. An
-;;      action may write durable `:data`; folding an ambient (re-run-on-
-;;      replay) read into durable state is the "durable state folds facts,
-;;      never reads" violation, mechanically checkable.
-;;
-;; The consume-without-declaring lint is necessarily SHALLOW (a source-form
-;; heuristic over the `:source-code` the macro captured) — it is a
-;; recommendation, not a hard gate; a false negative is acceptable (the
-;; ensure-set still only ensures DECLARED facts, so an undeclared read is
-;; simply un-ensured, never wrong). We only lint when the `:source-code` slot
-;; is present (the macro path in dev); the plain-fn / production path skips.
+;; Per Spec 005 §Consumer attachment + EP-0017 §9: recommendation-grade,
+;; registration-time, DCE'd in production. The consume-undeclared scan is a
+;; shallow source-form heuristic over the `:source-code` the macro captured; a
+;; false negative is acceptable (an undeclared read is simply un-ensured).
 
 (defn- source-code->form
-  "Best-effort parse the macro-captured `:source-code` into a form for the
-  consume-undeclared token scan. The `reg-machine` / `defmachine` macro stamps
-  `:source-code` as a `pr-str` STRING (via
-  `re-frame.source-coords/walk-element-source` →
-  `collocate-element-source`), so the scan must read it BACK to a form before
-  `tree-seq` — a `tree-seq` over a raw string yields the string as a single
-  leaf, finding zero keyword tokens.
-
-  A non-string `:source-code` (a pre-stringified FORM — the shape the scan's
-  own contract documents and hand-built specs may carry directly) is returned
-  as-is. Returns nil on an unreadable string (an exotic reader macro the EDN
-  reader can't parse) — a tolerated false-NEGATIVE per the recommendation-grade
-  design: an unscanned entry simply leaves an undeclared read un-flagged, never
-  mis-flagged. Uses the SAFE EDN reader (`clojure.edn` / `cljs.reader` — no
-  `#=`/eval, mirroring `re-frame.ssr.boot`)."
+  "Best-effort read of the macro-captured `:source-code` (a `pr-str` string)
+  back to a form for the token scan, with the safe EDN reader. A non-string is
+  returned as-is; an unreadable string yields nil — left unscanned, never
+  mis-flagged."
   [source-code]
   (if (string? source-code)
     (try
@@ -1147,7 +247,6 @@
     source-code))
 
 (defn- emit-consume-undeclared!
-  "Emit `:rf.warning/machine-cofx-consume-undeclared` (dev-only diagnostic)."
   [machine-id slot entry-id leaf]
   (rf.trace/emit! :warning :rf.warning/machine-cofx-consume-undeclared
                {:machine-id machine-id
@@ -1157,77 +256,49 @@
                 :recovery   :warned-and-proceeded}))
 
 (defn- emit-ambient-durable!
-  "Emit `:rf.warning/machine-cofx-ambient-durable` (dev-only diagnostic)."
-  [machine-id slot entry-id cofx-id]
+  [machine-id cofx-id]
   (rf.trace/emit! :warning :rf.warning/machine-cofx-ambient-durable
                {:machine-id machine-id
-                :slot       slot
-                :entry-id   entry-id
                 :rf.cofx/id cofx-id
                 :recovery   :warned-and-proceeded}))
 
 (defn lint-machine!
   "Run the dev-only consumer-attachment lints over `machine` (carrying the
-  registration index), tagging diagnostics with `machine-id`. Per Spec 005
-  §Consumer attachment. A no-op under `rf.interop/debug-enabled?
-  false` (production) and when the machine declares no requires.
-
-  Recommendation-grade: emits `:rf.warning/*` diagnostics, never throws.
-  Called from the registration home AFTER the index is built (so it can read
-  the parsed diets and the entry source-forms)."
+  parsed declaration), tagging diagnostics with `machine-id`. Emits
+  `:rf.warning/*` diagnostics, never throws; a no-op in production."
   [machine-id machine]
   (when rf.interop/debug-enabled?
-    (let [{:keys [by-entry]} (get machine ensure-index-key)]
-      (when (seq by-entry)
-        (doseq [[[slot entry-id] parsed] by-entry]
-          (let [declared    (set (map :id parsed))
-                entry       (get-in machine [slot entry-id])
-                source-code (:source-code entry)]
-            ;; (2) ambient-durable — an ACTION declaring an ambient-grade id.
-            (when (= slot :actions)
-              (doseq [{:keys [id]} parsed]
-                (let [meta (rf.registrar/lookup :cofx id)]
-                  (when (and meta (not (:recordable? meta)))
-                    (emit-ambient-durable! machine-id slot entry-id id)))))
-            ;; (1) consume-without-declaring — heuristic source scan. The
-            ;; macro-captured `:source-code` is a `pr-str` STRING; parse it
-            ;; back to a form (`tree-seq` treats the raw string as one leaf),
-            ;; then scan it for
-            ;; `:rf.cofx`-record leaf reads not covered by `declared`. We
-            ;; look for symbol/keyword tokens of the shape `<ns>/<name>`
-            ;; destructured beside a `:rf.cofx`/`cofx` binding. Shallow by
-            ;; design (a recommendation, not a gate).
-            (when-let [form (source-code->form source-code)]
-              (let [tokens (->> (tree-seq coll? seq form)
-                                (filter keyword?)
-                                set)]
-                ;; A declared id appearing as a destructure key is fine; an
-                ;; `:rf.cofx` leaf keyword present in the source but NOT
-                ;; declared is the flagged case. Restrict to owner-qualified
-                ;; cofx-shaped keywords that are registered cofx ids to avoid
-                ;; flagging ordinary :data keys.
-                (doseq [t tokens
-                        :when (and (qualified-keyword? t)
-                                   (not (contains? declared t))
-                                   (some? (rf.registrar/lookup :cofx t)))]
-                  (emit-consume-undeclared! machine-id slot entry-id t))))))))))
+    (let [parsed   (get machine parsed-key)
+          declared (set (map :id parsed))]
+      ;; ambient-durable — an ambient-grade id folded into a machine, whose
+      ;; actions may write durable `:data`.
+      (doseq [{:keys [id]} parsed
+              :let  [meta (rf.registrar/lookup :cofx id)]
+              :when (and meta (not (:recordable? meta)))]
+        (emit-ambient-durable! machine-id id))
+      ;; consume-undeclared — a registered cofx id appearing in a named
+      ;; entry's source that the machine did not declare.
+      (doseq [slot            [:guards :actions]
+              [entry-id entry] (get machine slot)
+              :let  [form (when (map? entry) (source-code->form (:source-code entry)))]
+              :when form
+              t     (set (filter keyword? (tree-seq coll? seq form)))
+              :when (and (qualified-keyword? t)
+                         (not (contains? declared t))
+                         (some? (rf.registrar/lookup :cofx t)))]
+        (emit-consume-undeclared! machine-id slot entry-id t)))))
 
 ;; ---- sub-valued recordable source evaluator -------------------------------
 ;;
 ;; Core `re-frame.cofx/deliver-declared-cofx` delivers a machine sub-valued
-;; recordable source (`{:rf/sub query-v :as fact-id}`) by reaching this
-;; machines-owned evaluator through the `:cofx/eval-recordable-sub` late-bind
-;; hook — core cofx cannot static-require `subs` / `frame`, and publishing the
-;; hook from the machines artefact keeps the capability machines-scoped (a sub
-;; source can only be PARSED from a machine named entry). The query is computed
-;; ONCE against the committed PRE-CASCADE frame-state via the pure
-;; `compute-sub` path (which reads the full `{:rf.db/app … :rf.db/runtime …}`
-;; frame-state value — so an app-db sub and a runtime-db sub, e.g. `:rf/machine`,
-;; compute coherently). At ensure-time — before transition selection / the
-;; end-of-macrostep commit — the frame's stored state IS the pre-cascade
-;; snapshot (the CSI §2 processing-start grain). Core writes the resolved value
-;; back onto the token under `fact-id`; a same-macrostep `:raise` re-ensure
-;; then finds it present and re-presents it (no re-evaluation).
+;; recordable source (`{:rf/sub query-v :as fact-id}`) through the
+;; `:cofx/eval-recordable-sub` late-bind hook — core cofx cannot static-require
+;; `subs` / `frame`, and publishing the hook from the machines artefact keeps
+;; the capability machines-scoped. The query is computed against the committed
+;; PRE-CASCADE frame-state via the pure `compute-sub` path, which reads the
+;; full `{:rf.db/app … :rf.db/runtime …}` value, so an app-db sub and a
+;; runtime-db sub compute coherently. At ensure time the frame's stored state
+;; IS the pre-cascade snapshot (the CSI §2 processing-start grain).
 
 (rf.late-bind/set-fn! :cofx/eval-recordable-sub
   (fn eval-recordable-sub [query-v frame-id]

@@ -558,18 +558,7 @@
       (assoc :rf/cofx (:rf/cofx parent-machine))
 
       (not (contains? parent-machine :rf/cofx))
-      (dissoc :rf/cofx)
-
-      ;; Overlay the live effective cofx MINT POLICY the same way
-      ;; as `:rf/cofx` (match the parent's presence exactly: assoc when carried,
-      ;; dissoc otherwise) so a region's in-engine raised-event ensure
-      ;; mints under the SAME `:strict` / `:live` policy the parent
-      ;; dispatch resolved, never a stale cached one.
-      (contains? parent-machine :rf/cofx-mint-policy)
-      (assoc :rf/cofx-mint-policy (:rf/cofx-mint-policy parent-machine))
-
-      (not (contains? parent-machine :rf/cofx-mint-policy))
-      (dissoc :rf/cofx-mint-policy))))
+      (dissoc :rf/cofx))))
 
 (defn- reduce-regions
   "The APPLY fold: apply `step-fn` to each region of `parent-machine` in
@@ -1326,14 +1315,7 @@
       (rf.machines.result/with-ok [snap0 fx0] first-r
         (let [[raises0 real0] (split-raises fx0)
               external-handled? (rf.machines.result/handled? first-r)]
-          ;; `m` is the live parent machine threaded through the
-          ;; re-broadcast loop. Each dequeued raise's `ensure-raised-cofx`
-          ;; re-stamps it with an augmented `:rf/cofx` so the raised event's
-          ;; region guards/actions read the ensured / generated facts (overlaid
-          ;; onto each region spec by `region-spec-overlaid`). No-op for the
-          ;; pure-fn engine (no `:rf/cofx`).
           (loop [cur-snap   snap0
-                 m          machine
                  pending    (vec raises0)
                  acc-fx     real0
                  ;; `depth` counts internal events re-broadcast off the
@@ -1343,7 +1325,7 @@
                  acc-micro  (rf.machines.result/microsteps first-r)
                  acc-casc   (rf.machines.result/cascade first-r)
                  visited    [(:state snap0)]]
-            (let [always-matches (select-always-matches m cur-snap)]
+            (let [always-matches (select-always-matches machine cur-snap)]
              (cond
                ;; Eventless transitions always win over the internal-event
                ;; queue. SELECT the complete enabled regional set against one
@@ -1351,21 +1333,20 @@
                (seq always-matches)
                (if (>= acc-micro always-limit)
                  (let [info {:error-id :rf.error/machine-always-depth-exceeded
-                             :actor-id (or (:rf/parent-id m) (:id m))
+                             :actor-id (or (:rf/parent-id machine) (:id machine))
                              :depth acc-micro
                              :path visited
-                             :frame (:rf/frame m)
+                             :frame (:rf/frame machine)
                              :recovery :no-recovery}]
                    (rf.trace/emit-error! :rf.error/machine-always-depth-exceeded info)
                    (rf.machines.result/depth-abort info))
                  (let [round-r (apply-always-round
-                                 m cur-snap always-matches acc-micro)]
+                                 machine cur-snap always-matches acc-micro)]
                    (if (rf.machines.result/fail? round-r)
                      round-r
                      (rf.machines.result/with-ok [snap2 fx2] round-r
                        (let [[new-raises real-fx] (split-raises fx2)]
                          (recur snap2
-                                m
                                 (into pending new-raises)
                                 (into acc-fx real-fx)
                                 depth
@@ -1436,17 +1417,7 @@
 
               :else
               (let [ev   (first pending)
-                    ;; Ensure THIS raised event's declared cofx
-                    ;; onto the parent BEFORE re-broadcasting it across the
-                    ;; regions. `ensure-set-for` unions every region's scope (and
-                    ;; the parallel root's own `:on` / `:after`), so a region
-                    ;; guard/action a raised event selects has its `:rf.cofx/
-                    ;; requires` satisfied under the resolved mint policy. The
-                    ;; augmented `:rf/cofx` overlays onto each region spec via
-                    ;; `region-spec-overlaid`, and threads forward so a later
-                    ;; re-broadcast re-presents the generated value.
-                    m'    (rf.machines.transition/ensure-raised-cofx m cur-snap ev)
-                    bstep (broadcast-once m' cur-snap ev)
+                    bstep (broadcast-once machine cur-snap ev)
                     ;; A raised internal event declined by EVERY region consults
                     ;; the parallel root's own `:on` as the ancestor fallback —
                     ;; mirroring the EXTERNAL-seed path (`root-fallback-seed` in
@@ -1466,7 +1437,7 @@
                     ;; A `rf.machines.result/fail` short-circuits.
                     step  (if (rf.machines.result/fail? bstep)
                             bstep
-                            (root-fallback-seed m' cur-snap ev bstep))]
+                            (root-fallback-seed machine cur-snap ev bstep))]
                 (if (rf.machines.result/fail? step)
                   step
                   (rf.machines.result/with-ok [snap2 fx2] step
@@ -1509,7 +1480,6 @@
                                              :steps  (rf.machines.result/cascade step)})
                                       acc-casc)]
                       (recur snap2
-                             m'
                              ;; FIFO: drop the just-processed
                              ;; front, APPEND this broadcast's own raises to
                              ;; the BACK — behind the still-pending queue.
