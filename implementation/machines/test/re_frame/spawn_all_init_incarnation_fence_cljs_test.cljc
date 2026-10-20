@@ -25,8 +25,8 @@
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
   rf.machines.test-support/trace-capture-fixture)
 
-;; `run-init` installs the `:schemas/validate-with-registered-fn` hook itself,
-;; keyed on this marker, so the strict child's spawn-time gate runs the destroyer.
+;; `run-init` installs the `:schemas/check!` hook itself, keyed on this
+;; marker, so the strict child's spawn-time gate runs the destroyer.
 (def ^:private child-schema ::child-schema)
 
 (def ^:private strict-spawn
@@ -72,7 +72,7 @@
   (let [token-a       (rf.frame/frame-incarnation-token frame-a)
         fired?        (atom false)
         b-birth       (atom nil)
-        orig-validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
+        orig-check    (rf.late-bind/get-fn :schemas/check!)
         destroy+B!    (fn []
                         (when (and destroy? (compare-and-set! fired? false true))
                           (rf.frame/destroy-frame! frame-a)
@@ -85,11 +85,12 @@
           (destroy+B!))))
     (try
       (when (= :validator (:kind trigger))
-        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-          (fn [schema _data]
+        (rf.late-bind/set-fn! :schemas/check!
+          (fn [{:keys [schema]}]
             (when (= schema child-schema)
               (destroy+B!)
-              (not= :false (:verdict trigger))))))
+              (when (= :false (:verdict trigger))
+                {:category :rf.error/schema-validation-failure :tags {}})))))
       (rf.frame/call-with-event-owner-token frame-a token-a
         #(rf.machines.lifecycle-fx.spawn/spawn-all-init-fx {:frame frame-a} (init-args children)))
       {:b-birth   @b-birth
@@ -99,7 +100,7 @@
        :started   (rf.machines.test-support/events-of :rf.machine.spawn-all/started)}
       (finally
         (rf.error-emit/unregister-error-listener! ::destroyer)
-        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)))))
+        (rf.late-bind/set-fn! :schemas/check! orig-check)))))
 
 (deftest owner-loss-in-a-preflight-callback-leaves-the-successor-untouched
   (reg-children!)

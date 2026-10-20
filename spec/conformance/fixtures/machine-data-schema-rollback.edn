@@ -29,9 +29,8 @@
 ;; rejected, `:rollback? true`).
 ;;
 ;; Validation routes entirely through the optional late-bound
-;; `:schemas/validate-with-registered-fn` adapter (machine core requires no
-;; schema library); a host with no registered validator pays zero cost and
-;; emits no trace. The conformance corpus runners load the Malli adapter
+;; `:schemas/check!` seam (machine core requires no schema library); a host
+;; with no schemas artefact pays zero cost and emits no trace. The conformance corpus runners load the Malli adapter
 ;; (`re-frame.schemas.malli`) so the `[:map [:n pos-int?]]` schema validates.
 ;;
 ;; Dynamic-host only — statically typed hosts catch the shape mismatch at

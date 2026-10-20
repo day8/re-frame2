@@ -1854,10 +1854,9 @@
    ;; declared output `:schema` is exactly the "pin a state the real
    ;; derivation could never produce" anti-pattern, so we schema-validate
    ;; the pinned value the SAME way Spec 010 §step 6 validates a
-   ;; `:sub-return` — through the registered validator
-   ;; (`:schemas/validate-with-registered-fn`), dev-only. On a mismatch we
-   ;; emit `:rf.error/schema-validation-failure` with a `:where
-   ;; :sub-override` discriminator and still surface the pinned value,
+   ;; `:sub-return` — through the `:schemas/check!` seam, dev-only. On a
+   ;; mismatch it emits `:rf.error/schema-validation-failure` with a `:where
+   ;; :sub-override` discriminator and we still surface the pinned value,
    ;; as `:sub-return` does (`:recovery :no-recovery` — the failure is
    ;; reported, the view renders what was pinned).
    ;;

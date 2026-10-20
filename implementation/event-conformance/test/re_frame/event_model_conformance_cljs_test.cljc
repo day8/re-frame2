@@ -72,16 +72,16 @@
 
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
   ;; Exercise the schema seam without the schemas artefact.
-  (let [hook-ids [:schemas/validate-with-registered-fn :schemas/explain-with-registered-fn]
+  (let [hook-ids [:schemas/check!]
         previous (mapv rf.late-bind/get-fn hook-ids)]
     (try
-      (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-        (fn [schema value]
-          (and (vector? schema)
-               (= :enum (first schema))
-               (contains? (set (rest schema)) value))))
-      (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
-        (fn [schema value] {:schema schema :value value :failed true}))
+      (rf.late-bind/set-fn! :schemas/check!
+        (fn [{:keys [schema value]}]
+          (when-not (and (vector? schema)
+                         (= :enum (first schema))
+                         (contains? (set (rest schema)) value))
+            {:category :rf.error/schema-validation-failure
+             :tags     {:value value :explain {:schema schema :failed true}}})))
       (let [delivered-fact (atom ::unset)]
         (rf/reg-cofx :evt-conf/graded-fact
           {:recordable? true :provided? true :schema [:enum :allowed-a]})

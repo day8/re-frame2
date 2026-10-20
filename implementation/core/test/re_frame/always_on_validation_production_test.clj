@@ -223,9 +223,7 @@
   state of an app that never loaded `re-frame.schemas` — then republish it."
   [body-fn]
   (let [hooks [:schemas/validate-event!
-               :schemas/validate-with-registered-fn
-               :schemas/explain-with-registered-fn
-               :schemas/redact-validation-tags]
+               :schemas/check!]
         saved (mapv rf.late-bind/get-fn hooks)]
     (try
       (doseq [hook hooks] (rf.late-bind/set-fn! hook nil))

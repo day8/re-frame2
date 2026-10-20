@@ -855,14 +855,16 @@ top of the seed) and then **schema-validates the seeded app-db**. Per the
 rule above, direct seeding bypasses event / cofx validation but MUST
 validate the affected app-db schema: the runtime walks the frame's
 REGISTERED app-db schemas and validates each seeded slice, REUSING the
-existing schemas late-bind seam (`:schemas/frame-schema-entries` +
-`:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
-— the SAME validator the `:sub-return` path and the `:sub-override`
-fold-in reach; no new mechanism, no hard dep on the schemas artefact —
-when it is absent the check soft-passes). A seed that violates a
+existing schemas late-bind seams (`:schemas/frame-schema-entries` +
+`:schemas/check!` — the one validation seam the `:sub-return` path and the
+`:sub-override` fold-in reach; no new mechanism, no hard dep on the schemas
+artefact — when it is absent the check soft-passes). A seed that violates a
 registered schema FAILS the run with `:rf.error/story-db-seed-invalid`,
-whose ex-data carries every `:violations` entry (`{:path :value :schema
-:explain}`); the run never reaches the script. With no schemas artefact /
+whose ex-data carries every `:violations` entry (`{:path :schema :value
+:explain}`, plus `:explain-humanized` in development). The seam redacts each
+entry against its schema, so a violation on a `:sensitive?` slot carries
+`:rf/redacted` rather than the seeded value; the run never reaches the
+script. With no schemas artefact /
 no registered schema the seed is applied unchecked (the host-free floor).
 
 ### Script and `settled-boundary`
