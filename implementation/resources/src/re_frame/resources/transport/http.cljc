@@ -1,78 +1,44 @@
 (ns re-frame.resources.transport.http
-  "The managed-HTTP read transport for resources — the single built-in
-  transport. Per Spec 016 §Transport.
-
-  The resource runtime first creates or joins a work-ledger record, then
-  lowers an ensure/refetch into managed HTTP (`:rf.http/managed`, Spec
-  014), supplying `:request-id` / `:on-success` / `:on-failure` itself
-  from the attempt's work id and generation:
-
-      [:rf.http/managed
-       (assoc http-args
-              :request-id  [:rf.req frame-id work-id]
-              :on-success  [:rf.resource.internal/succeeded
-                            {:work/id … :generation … :rf.frame/id …}]
-              :on-failure  [:rf.resource.internal/failed
-                            {:work/id … :generation … :rf.frame/id …}])]
-
-  The payloads carry no `:resource/key` and no `:scope`: the reply handler
-  resolves the attempt's scoped key through the receiving frame's ledger
-  row, the one place that records which key an attempt serves, so the
-  scoped key never rides the transport. The verification-payload work
-  identity is `:work/id` — the qualified spelling the ledger row, the
-  entry's `:current-work`, and the uniform reply envelope all use (EP-0007
-  one-attempt-one-spelling: one attempt has one work id, one name). It is
-  NOT `:work-id`.
-
-  This namespace contains only the resources-owned lowering and args-map
-  construction. The emitted `:rf.http/managed` effect is registered by
-  `re-frame.http.managed`, which the `re-frame.resources` facade requires.
-
-  The lowering lives here: `lower` stamps the caller-supplied request-id and
-  the work-ledger correlation (`:work/id` / `:generation` / `:rf.frame/id`)
-  into the reply addressing."
+  "The resources-owned lowering into managed HTTP (`:rf.http/managed`, the
+  single built-in transport). The runtime supplies `:request-id`,
+  `:on-success` and `:on-failure` from the attempt's work id and generation.
+  The reply payloads carry `:work/id`, `:generation` and `:rf.frame/id` but
+  no `:resource/key` or `:scope`: the reply handler resolves the scoped key
+  through the receiving frame's ledger row, so it never rides the transport.
+  The effect itself is registered by `re-frame.http.managed`.
+  Spec 016 §Transport."
   (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 (def managed-http-fx
-  "The reserved fx-id the resource runtime emits to issue a managed-HTTP
-  read (`:rf.http/managed`, Spec 014). Per Spec 016 §Transport."
+  "The fx-id the resource runtime emits for a managed-HTTP read.
+  Spec 016 §Transport."
   :rf.http/managed)
 
 (def succeeded-reply
-  "The framework-internal success reply event id. Per Spec 016 §Events
-  (the internal replies) — user code MUST NOT dispatch it."
+  "The framework-internal success reply event id; user code MUST NOT dispatch
+  it. Spec 016 §Transport."
   :rf.resource.internal/succeeded)
 
 (def failed-reply
-  "The framework-internal failure reply event id. Per Spec 016 §Events —
-  user code MUST NOT dispatch it."
+  "The framework-internal failure reply event id; user code MUST NOT dispatch
+  it. Spec 016 §Transport."
   :rf.resource.internal/failed)
 
 (def reserved-reply-keys
-  "The reply-addressing / request-correlation keys the RUNTIME owns and an
-  app `:request` (the Spec 014 managed-HTTP args map) MUST NOT supply. Per
-  Spec 016 §Transport: the runtime supplies `:request-id` / `:on-success` /
-  `:on-failure` from the attempt's work id and generation; an app
-  that supplies them itself could bypass stale-suppression (point a reply
-  at an event other than the verifying internal handler, or reuse a
-  request-id the runtime correlates work by). `:reply-to`, Spec 014's
-  unified addressing key, is reserved with them: managed HTTP refuses it
-  beside the runtime's `:on-success` / `:on-failure`, and that refusal
-  lands at fx time, after the event has committed its in-flight entry.
-  Rejected loudly, inside the event."
+  "The reply-addressing keys the runtime owns and an app `:request` MUST NOT
+  supply: an app-supplied reply target or request-id would bypass stale
+  suppression. `:reply-to` is reserved with them because managed HTTP refuses
+  it beside `:on-success` / `:on-failure` only at fx time, after the event has
+  committed its in-flight entry. Spec 016 §Transport."
   #{:request-id :on-success :on-failure :reply-to})
 
 (defn reject-reserved-reply-keys!
-  "Reject an app `:request` (the Spec 014 managed-HTTP args map) that
-  supplies any runtime-owned reply-addressing key (`reserved-reply-keys`).
-  Throws `:rf.error/resource-reserved-request-key`. Per Spec 016 §Transport
-  (\"an app `:request` that bypasses stale-suppression by supplying
-  `:request-id` / `:on-success` / `:on-failure` / `:reply-to` is
-  rejected\"). `where`
-  names the dispatch surface; `resource-key` carries the scoped key for the
-  diagnostic. Returns `http-args` unchanged when it conforms."
+  "Returns `http-args` unchanged; throws
+  `:rf.error/resource-reserved-request-key` when it supplies any
+  `reserved-reply-keys`. `resource-key` names the attempt in the diagnostic,
+  `where` the dispatch surface. Spec 016 §Transport."
   [http-args resource-key where]
   (let [offending-keys (filter #(contains? http-args %) reserved-reply-keys)]
     (when (seq offending-keys)
@@ -98,47 +64,22 @@
     http-args))
 
 (defn build-managed-args
-  "Build the `:rf.http/managed` args map for a resource ensure/refetch (or a
-  mutation execute): the app `:request` (a Spec 014 managed-HTTP args map)
-  with the runtime-owned `:request-id` and the `:on-success` / `:on-failure`
-  internal reply addressing assoc'd in. Per Spec 016 §Transport.
+  "The `:rf.http/managed` args map: the app's `http-args` passed through
+  unchanged (its `:decode` / `:accept` / `:retry` included) with the
+  runtime-owned `:request-id`, `:on-success` and `:on-failure` assoc'd in.
+  Rejects reserved keys first (`reject-reserved-reply-keys!`).
 
-  The reply payloads stamp the qualified `:rf.frame/id` (the canonical
-  carried frame stamp, EP-0002 R3) — matching the `:work/frame` stamp on
-  the ledger record — plus `:work/id` and `:generation`, so the reply
-  handlers can verify frame + work-id + generation before writing (stale
-  suppression is the correctness boundary). They carry no `:resource/key`
-  and no `:scope`: the handler resolves the attempt's scoped key through the
-  receiving frame's ledger row. The verification work identity is `:work/id`
-  (the qualified EP-0007 spelling the ledger / entry / reply envelope
-  share), never the unqualified `:work-id`. `:resource/key` is read here
-  only to name the attempt in the reserved-key diagnostic.
-
-  Reply ADDRESSING is overridable so the SAME managed-HTTP lower serves
-  both resources and mutations: `:on-success-id` / `:on-failure-id` default
-  to the resource internal replies (`:rf.resource.internal/succeeded` /
-  `:rf.resource.internal/failed`), and `:reply-payload` (when supplied)
-  REPLACES the default resource verification payload (mutations stamp an
-  instance id, not a resource scoped key). The frame stamp
-  (`:rf.frame/id`) is always merged in so every reply carries the carried
-  frame invariant.
-
-  The app's `:request` return (`http-args`) — its top-level `:decode` /
-  `:accept` / `:retry` and the nested `:request` envelope pass through
-  UNCHANGED (transport retry belongs to managed HTTP). An app `:request`
-  that supplies the runtime-owned `:request-id` / `:on-success` /
-  `:on-failure`, or `:reply-to`, itself is REJECTED here
-  (`reject-reserved-reply-keys!`) — it would bypass stale suppression."
+  Addressing is overridable so mutations share this lowering:
+  `:on-success-id` / `:on-failure-id` default to the resource internal
+  replies, and `:reply-payload` replaces the default `{:work/id :generation}`
+  payload. `:rf.frame/id` is always merged into the payload so every reply
+  can be frame-verified. Spec 016 §Transport."
   [{:keys [http-args request-id work-id frame-id generation where
            on-success-id on-failure-id reply-payload]
     resource-key :resource/key}]
   (reject-reserved-reply-keys! http-args resource-key
                                (or where 're-frame.resources.transport.http/build-managed-args))
   (let [payload (assoc (or reply-payload
-                           ;; EP-0007: the verification work identity is the
-                           ;; qualified `:work/id` (the ledger row / entry
-                           ;; `:current-work` / reply-envelope spelling), one
-                           ;; attempt one name.
                            {:work/id    work-id
                             :generation generation})
                        :rf.frame/id frame-id)]
@@ -148,18 +89,9 @@
            :on-failure [(or on-failure-id failed-reply) payload])))
 
 (defn lower
-  "Lower a resource ensure/refetch into managed HTTP. Builds the
-  `:rf.http/managed` args (`build-managed-args`) and returns the fx pair
-  `[:rf.http/managed args]` the runtime threads into its `:fx` vector.
-
-  Per Spec 016 §Transport.
-
-  `ensure-ctx` is the live ensure-context the resource runtime assembles:
-  `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
-  map), `:request-id`, `:work-id`, `:resource/key` (diagnostics only — it
-  never reaches the payload), `:frame-id`, `:generation`, and `:where` (the
-  dispatch surface for diagnostics). The
-  built args carry the runtime-owned reply addressing; the app `:request`'s
-  reserved reply keys are rejected (`build-managed-args`)."
+  "Returns the fx pair `[:rf.http/managed args]` for a resource ensure or
+  refetch, built from `ensure-ctx` by `build-managed-args`. Its
+  `:resource/key` is for diagnostics only and never reaches the payload.
+  Spec 016 §Transport."
   [ensure-ctx]
   [managed-http-fx (build-managed-args ensure-ctx)])

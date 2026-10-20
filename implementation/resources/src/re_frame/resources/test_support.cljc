@@ -1,30 +1,7 @@
 (ns re-frame.resources.test-support
-  "Test-support namespace for the resources artefact (Spec 016).
-
-  This namespace is the home for resources test-only fixtures and reset
-  helpers — kept OUT of the always-on `re-frame.resources` production
-  façade so a test-runner-internal surface never reaches a production
-  registry. Test fixtures live behind an explicit test-support require, mirroring
-  `re-frame.routing.test-support`.
-
-  Production posture: this namespace is unreferenced from any production
-  module, so CLJS `:advanced` trims it wholesale and JVM/SSR sees
-  classpath absence through the normal artefact-require boundary.
-
-  ## What lives here
-
-  - `reset-resources!` — the per-test reset thunk the shared CLJS
-    `make-reset-runtime-fixture` reset-hooks table fires (via the
-    `:resources/reset-resources!` late-bind hook the façade publishes):
-    clears the `:resource`-kind registrar entries and the host-side
-    transient generation high-water marks (which are NOT runtime-db
-    state, so a runtime/frames reset does not clear them).
-
-  The reset helper clears the registrar (resource + mutation kinds), the
-  host-side generation cache, the runtime cache, and the host-side work-
-  ledger handles. Deterministic ensure/refetch replay without a live Fetch
-  rides on the managed-HTTP stub transports (`re-frame.http.stub-transport`),
-  beneath the same `:rf.http/managed` the runtime lowers onto."
+  "Test-only reset for the resources artefact, kept out of the
+  `re-frame.resources` façade so no production build carries it; CLJS
+  `:advanced` trims it as unreferenced. Mirrors `re-frame.routing.test-support`."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.resources.mutation-events :as rf.resources.mutation-events]
@@ -39,49 +16,23 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn reset-resources!
-  "Per-test reset: clear every `:resource`-kind registrar entry and the
-  host-side transient generation high-water marks. Fired by the shared
-  CLJS `make-reset-runtime-fixture` reset-hooks table via the
-  `:resources/reset-resources!` late-bind hook this namespace publishes
-  at ns-load (kept behind this explicit test-support require so the
-  production façade carries no test-fixture surface). Per
-  Spec 016 (test isolation)."
+  "Per-test reset: clears the resource, mutation and scope registrar kinds and
+  every host-side side table (generation cache, work-ledger handles, timers,
+  revalidation listeners, one-shot dev-warning dedupe sets). The host-side
+  tables are not runtime-db, so a runtime or frames reset leaves them behind,
+  and a leftover timer or listener would fire into a later test's frame."
   []
   (rf.registrar/clear-kind! rf.resources.registry/resource-kind)
-  ;; Clear the mutation registrar kind too; the mutation
-  ;; registry is the causal-write counterpart of the resource registry.
   (rf.registrar/clear-kind! rf.resources.mutation-registry/mutation-kind)
-  ;; Also clear the named resource-scope resolver registry. Pure resolvers hold
-  ;; no per-frame
-  ;; runtime state, so clearing the registrar kind is the whole reset.
   (rf.registrar/clear-kind! rf.resources.scope-registry/scope-kind)
   (rf.resources.state/reset-cache!)
-  ;; Drop the host-side work-ledger handles too; they are
-  ;; host-side transient state not cleared by the runtime / frames reset.
   (rf.resources.work-ledger/reset-cache!)
-  ;; Cancel and drop host-side stale / GC timer handles; likewise
-  ;; host-side transient state; cancels any armed timers so a leftover timer
-  ;; cannot fire into a later test's frame.
   (rf.resources.timers/reset-cache!)
-  ;; Remove host-side focus/reconnect revalidation listeners;
-  ;; likewise host-side transient state; detaches any installed window
-  ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (rf.resources.revalidate-listeners/reset-cache!)
-  ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set;
-  ;; likewise host-side transient dev state, cleared so each
-  ;; test observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
   (rf.resources.mutation-events/reset-mutation-scope-mismatch-warnings!)
-  ;; and the host-side settle-time SKIPPED-TARGET dev-warning dedupe set
-  ;; — the dedicated drop-and-warn tripwire for recoverable
-  ;; post-write `:patches` / `:populates` / `:removes` targets; likewise
-  ;; host-side transient dev state, cleared so each test observes the one-shot
-  ;; `:rf.warning/mutation-target-skipped` freshly.
   (rf.resources.mutation-events/reset-mutation-target-skipped-warnings!)
   nil)
 
-;; Publish the reset hook from this test-support ns-load — the shared CLJS
-;; make-reset-runtime-fixture reset-hooks table consults
-;; `:resources/reset-resources!` by key and no-ops when this namespace is
-;; absent (production builds never load it). Mirrors the
-;; re-frame.routing.test-support posture.
+;; The shared CLJS reset-fixture table consults this key and no-ops when this
+;; namespace is absent, which it always is in production.
 (rf.late-bind/set-fn! :resources/reset-resources! reset-resources!)
