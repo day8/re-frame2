@@ -9,10 +9,10 @@
   `:require` discipline, which is what makes it evidence about the door
   rather than about the runtime.
 
-      re-frame.core            events, subscriptions, frames
+      re-frame.core            events, subscriptions, frames, reg-state
       re-frame.routing         reg-route, and the navigate event
       re-frame.fresco         defview, sub, boundary, route-link,
-                               reg-state, root!, render!
+                               root!, render!
       re-frame.adapter.uix     the reactive adapter, installed at boot
 
   Nothing under `re-frame.fresco.impl.*`, nothing under

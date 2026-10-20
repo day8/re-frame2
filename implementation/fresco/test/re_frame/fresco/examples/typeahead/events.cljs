@@ -47,7 +47,7 @@
   each carries its release. There is a fourth way a read ends — the
   boundary UNMOUNTS — and no handler here can carry that one, because the
   public door offers application code no unmount signal at all (the
-  boundary shell is frozen at two hooks; `h/reg-state` mints a
+  boundary shell is frozen at two hooks; `rf/reg-state` mints a
   subscription and a setter and nothing else). The site is absent rather
   than wrong, so it is not a census row; it is C2's *demand outlives the
   read that wanted it*.

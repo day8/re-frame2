@@ -8,9 +8,9 @@
   \"how many are left\": a count of a map this file already holds is a
   subscription, not a fact.
 
-  ## Why `h/reg-state` is declared HERE
+  ## Why `rf/reg-state` is declared HERE
 
-  [[draft]] is the per-row edit text — `h/reg-state`'s own named example
+  [[draft]] is the per-row edit text — `rf/reg-state`'s own named example
   (*\"a row's draft text\"*), keyed by the to-do's id, which is a domain
   id and therefore a good React key and therefore a good instance key.
 
@@ -25,9 +25,9 @@
   action, so `[::db/draft id]` reads correctly as both.
 
   A `nil` draft means *this row is not being edited* — one representation
-  of unset, which is why cancelling an edit is `[::h/clear ::draft id]`
+  of unset, which is why cancelling an edit is `[:rf.state/clear ::draft id]`
   (removal, back to the default) rather than a write of `nil`."
-  (:require [re-frame.fresco :as rf.fresco]))
+  (:require [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -64,7 +64,7 @@
 
       (h/sub      [::draft id])          ;; nil unless this row is editing
       (dispatch   [::draft id \"milk\"])   ;; type, or open the editor
-      (dispatch   [::h/clear ::draft id]) ;; cancel — back to the default
+      (dispatch   [:rf.state/clear ::draft id]) ;; cancel — back to the default
 
   Absent means *not editing*, so opening the editor and seeding it with
   the current title are the same write, and the whole of `:on-double-
@@ -73,4 +73,4 @@
   A hand-rolled `[:ui :edit-draft]` path is the bug this deletes: every
   row on the page would share one draft, they would all open together,
   and nothing would complain."
-  (rf.fresco/reg-state ::draft {:default nil}))
+  (rf/reg-state ::draft {:default nil}))

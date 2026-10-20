@@ -832,7 +832,7 @@
     ;;
     ;; It lives here rather than in a component-local hover flag because a
     ;; Fresco boundary is a React function component with no form-2 outer
-    ;; body to hold one, and `rf.fresco/reg-state` CONSUMES an instance key
+    ;; body to hold one, and `rf/reg-state` CONSUMES an instance key
     ;; without minting one — so keeping the hover as STATE would force a
     ;; stable instance key onto every `resizable-table` call site. Pure CSS
     ;; needs none: the gutter stamps a stable `data-testid` this selector

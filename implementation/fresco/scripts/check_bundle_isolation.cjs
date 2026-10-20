@@ -333,7 +333,7 @@ const SENTINELS = [
     source: 'src/re_frame/fresco/forms.cljs',
     premise: ':re-frame.fresco.forms/drafts',
     why:
-      'The `h/reg-state` concern, which is a sub id, an event id and an ' +
+      'The `rf/reg-state` concern, which is a sub id, an event id and an ' +
       '`app-db` key at once — the module cannot read or write a draft ' +
       'without it, and a keyword carries its own fully-qualified name at ' +
       'runtime, so `:advanced` can neither rename nor drop it while the ' +
@@ -618,7 +618,7 @@ function selfTest() {
     `${green} … frescoBody frescoBoundary frescoOwner …`,   // neighbouring markers
     `${green} … rf.error/fresco-empty-vector rf.error/fresco-bad-head …`,
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
-    `${green} … re-frame.fresco/revision re-frame.fresco/clear …`,
+    `${green} … re-frame.fresco/revision re-frame.fresco/checked …`,
     `${green} … drafts buffered-field myapp.forms/buffered-field :app/drafts …`,
     // `re-frame.fresco.motion/presence` is the door's SYMBOL, which
     // `:advanced` renames and which reaches no bundle even when the module

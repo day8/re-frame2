@@ -177,7 +177,7 @@
 ;; `frame-provider`s do not collide. Two panels under ONE frame
 ;; do, and nothing inside the widget can separate them: a Fresco boundary
 ;; is a real React function component with no per-instance storage its
-;; body may use (hooks do not belong in a body, and `rf.fresco/reg-state`
+;; body may use (hooks do not belong in a body, and `rf/reg-state`
 ;; consumes an instance key rather than minting one). That case is the
 ;; CALLER's to name, which is what this is.
 ;;

@@ -15,7 +15,7 @@
                    :touched #{:assignee :notes}
                    :attempted? boolean}}
 
-  and, at `h/reg-state`'s own address rather than in this map, the
+  and, at `rf/reg-state`'s own address rather than in this map, the
   buffered field's live draft — see [[subject-draft]].
 
   ## Why [[can-submit?]] is a function and not a stored flag
@@ -35,7 +35,7 @@
   application does not pay for it — and the reason is written down
   because *which of the two* is the question a reader arrives with."
   (:require [clojure.string :as str]
-            [re-frame.fresco :as rf.fresco]))
+            [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -63,7 +63,7 @@
    :form             blank-form})
 
 ;; ---------------------------------------------------------------------------
-;; The buffered field's draft — h/reg-state, keyed by the ticket
+;; The buffered field's draft — rf/reg-state, keyed by the ticket
 ;; ---------------------------------------------------------------------------
 
 (def subject-draft
@@ -78,13 +78,13 @@
   solved by the model rather than by ordering).
 
   It is keyed by the ticket id and not by a hand-picked path for
-  `h/reg-state`'s own stated reason: a fixed `[:ui :subject-draft]` would
+  `rf/reg-state`'s own stated reason: a fixed `[:ui :subject-draft]` would
   be ONE draft shared by every ticket on the page, opening them all
   together with nothing on screen to say so."
-  (rf.fresco/reg-state ::subject-draft {:default nil}))
+  (rf/reg-state ::subject-draft {:default nil}))
 
 (defn draft-path
-  "`h/reg-state`'s documented `app-db` layout for [[subject-draft]] — the
+  "`rf/reg-state`'s documented `app-db` layout for [[subject-draft]] — the
   `[:ui <concern> <ikey>]` triple, as a function of the instance key.
 
   Written out here rather than at three call sites because the `:ui` root

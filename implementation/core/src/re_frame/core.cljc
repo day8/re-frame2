@@ -139,6 +139,7 @@
             [re-frame.core-schemas  :as rf.core-schemas]
             [re-frame.core-machines :as rf.core-machines]
             [re-frame.core-resources :as rf.core-resources]
+            [re-frame.core-state    :as rf.core-state]
             [re-frame.core-ssr      :as rf.core-ssr]
             [re-frame.core-epoch    :as rf.core-epoch]
             [re-frame.core-http     :as rf.core-http]
@@ -1616,6 +1617,25 @@
   the coeffect db (EP-0016 issue 7). Implementation ships in
   `day8/re-frame2-resources`."}
   resolve-resource-scope rf.core-resources/resolve-resource-scope)
+
+;; ---- per-instance view state (Spec 002 §Per-instance view state) ---------
+;;
+;; A plain fn on both hosts, so every view substrate shares one spelling. A
+;; clear is a dispatch of the shared `:rf.state/clear` event, so there is no
+;; clear fn here.
+
+(def ^{:doc "Register the per-instance state `concern`: a sub and a setter
+  event under `concern` reading and writing `[:ui concern instance-key]`,
+  plus the shared clear event `[:rf.state/clear concern instance-key]`.
+
+      (rf/reg-state :todo.ui/expanded? {:default false})
+      @(rf/subscribe [:todo.ui/expanded? id])     ;; read
+      (rf/dispatch [:todo.ui/expanded? id true])  ;; write
+
+  `opts` may carry `:default` and nothing else. Returns `concern`. See
+  `re-frame.core-state/reg-state` and Spec 002 §Per-instance view state."
+       :arglists '([concern] [concern opts])}
+  reg-state rf.core-state/reg-state)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;

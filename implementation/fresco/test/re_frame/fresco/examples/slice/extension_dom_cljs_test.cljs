@@ -221,7 +221,7 @@
 
         (testing "and coming back, the state is where the article left it"
           (is (= "true" (expanded intents))
-              "the disclosure came back with *Intents are data* — `h/reg-state`
+              "the disclosure came back with *Intents are data* — `rf/reg-state`
                keyed it by the slug, so it survived the article leaving the
                screen entirely and rejoined it when it returned")
           (is (= ["intents"] (texts m ".tag-list .tag")))

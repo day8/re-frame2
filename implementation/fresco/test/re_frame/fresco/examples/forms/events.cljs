@@ -11,18 +11,18 @@
 
   [[commit-subject]] and [[cancel-subject]] both END an editing session,
   and ending a session is two facts at once: the draft is gone, and the
-  field must re-baseline. `h/reg-state` mints a setter and shares the
-  framework's `[::h/clear <concern> <ikey>]`, and clear is an EVENT
+  field must re-baseline. `rf/reg-state` mints a setter and shares the
+  framework's `[:rf.state/clear <concern> <ikey>]`, and clear is an EVENT
   rather than a value — deliberately, so that a concern whose values are
   keywords cannot have a legitimate write mistaken for a removal.
 
   That is right for `reg-state` and it is why this application does not
-  use it here. A commit that dispatched `[::h/clear …]` for the removal
+  use it here. A commit that dispatched `[:rf.state/clear …]` for the removal
   and wrote the revision in its own `:db` would land the two in
   DIFFERENT turns, and the turn in between renders a field whose
   revision has already moved while its draft has not — a reset spent on
   the text it was supposed to discard. So both handlers write
-  `h/reg-state`'s documented `[:ui <concern> <ikey>]` path directly,
+  `rf/reg-state`'s documented `[:ui <concern> <ikey>]` path directly,
   through [[re-frame.fresco.examples.forms.db/draft-path]]. `reg-state`
   states that tier is app-space and that an ordinary handler may read and
   write it; this is the case that needs the second half.
@@ -95,7 +95,7 @@
          the session ends.
 
          It takes NO text argument. The draft is already in `app-db` —
-         every keystroke wrote it there through `h/reg-state`'s setter —
+         every keystroke wrote it there through `rf/reg-state`'s setter —
          and reading it here rather than off the DOM event is what makes
          the handler safe to fire twice. Enter then blur, double Enter,
          or a blur arriving after Escape all find no session the second

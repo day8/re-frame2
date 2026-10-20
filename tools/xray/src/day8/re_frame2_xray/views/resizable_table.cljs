@@ -490,7 +490,7 @@
 ;;
 ;; A hover flag held as component-local state would stand between the
 ;; widget and a Fresco boundary: a React function component has no form-2
-;; outer body to allocate per-instance state in, and `rf.fresco/reg-state`
+;; outer body to allocate per-instance state in, and `rf/reg-state`
 ;; consumes an instance key rather than minting one — so hover STATE
 ;; would force a stable instance key onto every call site. As CSS, the
 ;; gutter is a pure function CALLED like `body-spacer`, so it is not a

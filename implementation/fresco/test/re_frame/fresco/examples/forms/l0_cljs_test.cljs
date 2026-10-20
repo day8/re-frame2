@@ -64,7 +64,7 @@
 (defn- send! [frame event-v] (rf/dispatch-sync event-v {:frame frame}))
 
 (defn- type-subject!
-  "Type `text` into the buffered subject field — `h/reg-state`'s own
+  "Type `text` into the buffered subject field — `rf/reg-state`'s own
   setter event, which is what `:on-input` dispatches."
   [frame text]
   (send! frame [rf.fresco.examples.forms.db/subject-draft ticket text]))

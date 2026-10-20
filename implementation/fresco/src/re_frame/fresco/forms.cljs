@@ -14,7 +14,7 @@
         :on-commit   [:todo/title-committed id]
         :placeholder \"What needs doing?\"}]
 
-  Nothing new underneath: the draft is an `h/reg-state` concern
+  Nothing new underneath: the draft is an `rf/reg-state` concern
   (`drafts`), the reset is `::h/revision`, the protocol is three ordinary
   events (`::edit`, `::commit`, `::cancel` — named for tests by
   `re-frame.fresco.test.forms`) and the field is one `h/defview`
@@ -22,7 +22,7 @@
   controlled `<input>`'s own; it mints no refusal id — a `nil` or invalid
   `:control` fails the draft read, so every render emits
   `:rf.error/sub-exception` carrying `reg-state`'s
-  `:rf.error/fresco-state-bad-argument` and the field shows `:value`, and a
+  `:rf.error/state-bad-argument` and the field shows `:value`, and a
   `:type` whose value is not its text, such as `\"checkbox\"`, raises
   `:rf.error/fresco-revision-not-controlled` while `:value` is `nil`; and
   an application that
@@ -39,24 +39,24 @@
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
   `docs/design/fresco/product/forms-recipes.md`."
-  (:require [re-frame.events :as rf.events]
+  (:require ;; `reg-state` and `ui-root` (see `draft-path`), from their home.
+            [re-frame.core-state :as rf.core-state]
+            [re-frame.events :as rf.events]
             ;; Side-effecting: registers `:dispatch`, which the commit and
             ;; cancel handlers emit. Named here so the module is correct
             ;; standing alone rather than through `re-frame.core`.
             [re-frame.fx]
-            [re-frame.fresco :as rf.fresco]
-            ;; For `ui-root` alone — see `draft-path`.
-            [re-frame.fresco.impl.state :as rf.fresco.impl.state]))
+            [re-frame.fresco :as rf.fresco]))
 
 ;; ---------------------------------------------------------------------------
 ;; The draft's home
 ;; ---------------------------------------------------------------------------
 
 (def drafts
-  "The `h/reg-state` concern every buffered draft lives under, and the
+  "The `rf/reg-state` concern every buffered draft lives under, and the
   address an application clears to end one:
 
-      (dispatch [::h/clear forms/drafts [:todo 7 :title]])
+      (dispatch [:rf.state/clear forms/drafts [:todo 7 :title]])
 
   The value under one control is `{:revision r :draft text}`; absence
   means no editing session, and it is the ONLY spelling of none, which is
@@ -70,7 +70,7 @@
   release bundle for this exact string; a namespace rename would move a
   `::drafts` keyword while the scan went on matching nothing
   (`forms-cljs-test/the-concern-is-what-the-bundle-gate-pins`)."
-  (rf.fresco/reg-state :re-frame.fresco.forms/drafts {:default nil}))
+  (rf.core-state/reg-state :re-frame.fresco.forms/drafts {:default nil}))
 
 (defn- draft-path
   "`reg-state`'s `[:ui <concern> <ikey>]` layout for `control`. The
@@ -80,7 +80,7 @@
   shows a field whose session has ended and whose draft has not. The `:ui`
   tier is app-space by `reg-state`'s own contract."
   [control]
-  [rf.fresco.impl.state/ui-root drafts control])
+  [rf.core-state/ui-root drafts control])
 
 (defn- record-of [db control] (get-in db (draft-path control)))
 
@@ -216,7 +216,7 @@
   the one thing about the address this module cannot decide. A `nil` or
   unusable address fails the draft read on every render: the read emits
   `:rf.error/sub-exception` carrying `reg-state`'s
-  `:rf.error/fresco-state-bad-argument`, and the field shows `:value`,
+  `:rf.error/state-bad-argument`, and the field shows `:value`,
   never a draft.
 
   Ownership: `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and

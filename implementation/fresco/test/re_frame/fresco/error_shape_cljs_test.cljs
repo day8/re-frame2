@@ -95,21 +95,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-builds-the-canonical-map-and-the-bracketed-id-message
-  (let [throw! #(rf.fresco.impl.error/fail! :rf.error/fresco-state-bad-argument
-                             're-frame.fresco.impl.state/reg-state
-                             "reg-state options must be a map."
-                             {:options :not-a-map})]
+  (let [throw! #(rf.fresco.impl.error/fail! :rf.error/fresco-boundary-unknown-prop
+                             're-frame.fresco.impl.boundary/boundary
+                             "h/error-boundary was given :fallbak, which is not one of its props."
+                             {:prop :fallbak})]
     (testing "the ex-data is core's four slots over the class's own — asserted
               whole, so a slot the constructor stopped writing cannot hide"
-      (is (= {:rf.error/id :rf.error/fresco-state-bad-argument
-              :where       're-frame.fresco.impl.state/reg-state
-              :reason      "reg-state options must be a map."
+      (is (= {:rf.error/id :rf.error/fresco-boundary-unknown-prop
+              :where       're-frame.fresco.impl.boundary/boundary
+              :reason      "h/error-boundary was given :fallbak, which is not one of its props."
               :recovery    :no-recovery
-              :options     :not-a-map}
+              :prop        :fallbak}
              (refusal throw!))))
     (testing "and the message is the reason with the bracketed id appended —
               core's derivation, so message and discriminator cannot drift"
-      (is (= "reg-state options must be a map. [:rf.error/fresco-state-bad-argument]"
+      (is (= "h/error-boundary was given :fallbak, which is not one of its props. [:rf.error/fresco-boundary-unknown-prop]"
              (message-of throw!))))))
 
 (deftest extra-cannot-erase-or-replace-what-the-constructor-guarantees
@@ -118,24 +118,24 @@
             class's own slots ride alongside untouched"
     (rf.fresco.impl.error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
-    (let [data (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-state-bad-argument
-                                      're-frame.fresco.impl.state/reg-state
-                                      "reg-state options must be a map."
+    (let [data (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-boundary-unknown-prop
+                                      're-frame.fresco.impl.boundary/boundary
+                                      "h/error-boundary was given :fallbak, which is not one of its props."
                                       {:rf.error/id :rf.error/fresco-true-child
                                        :where       nil
                                        :reason      "replaced"
                                        :recovery    :something-else
                                        :view        "app.impostor/not-this-one"
                                        :source      {:ns 'app.impostor}
-                                       :options     :not-a-map}))]
+                                       :prop        :fallbak}))]
       (rf.fresco.impl.error/declared!)
-      (is (= {:rf.error/id :rf.error/fresco-state-bad-argument
-              :where       're-frame.fresco.impl.state/reg-state
-              :reason      "reg-state options must be a map."
+      (is (= {:rf.error/id :rf.error/fresco-boundary-unknown-prop
+              :where       're-frame.fresco.impl.boundary/boundary
+              :reason      "h/error-boundary was given :fallbak, which is not one of its props."
               :recovery    :no-recovery
               :view        "app.pickers/calendar"
               :source      {:ns 'app.pickers :file "app/pickers.cljs" :line 12 :column 3}
-              :options     :not-a-map}
+              :prop        :fallbak}
              data)
           "the whole ex-data, so an overridden field cannot hide behind a
            select-keys that never looked at it"))))
@@ -148,19 +148,19 @@
   (testing "outside every extent a forged `:view` and `:source` are DROPPED,
             not overwritten — a catch site reading `:view` gets absence
             rather than a file name the call site made up"
-    (let [data (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-state-bad-argument
-                                      're-frame.fresco.impl.state/reg-state
-                                      "reg-state options must be a map."
+    (let [data (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-boundary-unknown-prop
+                                      're-frame.fresco.impl.boundary/boundary
+                                      "h/error-boundary was given :fallbak, which is not one of its props."
                                       {:view    "app.impostor/not-a-view"
                                        :source  {:ns 'app.impostor
                                                  :file "app/impostor.cljs"
                                                  :line 1 :column 1}
-                                       :options :not-a-map}))]
-      (is (= {:rf.error/id :rf.error/fresco-state-bad-argument
-              :where       're-frame.fresco.impl.state/reg-state
-              :reason      "reg-state options must be a map."
+                                       :prop :fallbak}))]
+      (is (= {:rf.error/id :rf.error/fresco-boundary-unknown-prop
+              :where       're-frame.fresco.impl.boundary/boundary
+              :reason      "h/error-boundary was given :fallbak, which is not one of its props."
               :recovery    :no-recovery
-              :options     :not-a-map}
+              :prop        :fallbak}
              data)
           "the whole ex-data — the class's own slot rides through, the two
            ambient keys are gone, and nothing was left nil in their place"))))
