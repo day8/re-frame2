@@ -25,8 +25,8 @@
             [[canonical-dom]], [[capture-intents]], [[fire!]].
       L2  one hook-free Fresco body, run for its semantic tree
           → [[tree]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
-            [[intents]], and the accessibility trio [[role]] /
-            [[accessible-name]] / [[unnamed-controls]].
+            [[intents]], and the three markup readings [[markup-role]] /
+            [[markup-name]] / [[markup-unnamed-controls]].
       L3  React lifecycle, context, hooks, refs, errors, foreign hosts
           → the mounted facade (`re-frame.fresco.test.mounted`). NOT here.
       L4  IME, caret, focus, hydration, layout, performance
@@ -1612,7 +1612,7 @@
         (tree-seq map? :children tree)))
 
 ;; ---------------------------------------------------------------------------
-;; L2 — accessibility: the role, the name, and the controls that have neither
+;; L2 — what the MARKUP says about a role and a name
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Data-first markup is what makes this tier possible at all. A role is an
@@ -1621,7 +1621,11 @@
 ;; these three sit at L2 beside `attrs` and `text` rather than at L3 with a
 ;; document.
 ;;
-;; WHAT THEY ARE NOT. They are not an implementation of ARIA. The real
+;; THE `markup-` PREFIX IS THE CLAIM. Each answers what the authored markup
+;; says, and that is an approximation of what assistive technology is told:
+;; an empty `markup-unnamed-controls` is a fact about the markup, not an
+;; accessibility verdict. They are not an implementation of ARIA, and
+;; growing them toward one is not the way to a better answer. The real
 ;; accessible-name computation walks a live tree with computed style,
 ;; `aria-hidden` subtrees, host-language quirks per element and a recursion
 ;; whose termination rules fill a specification; a browser is the only honest
@@ -1657,7 +1661,7 @@
   "The role a tag carries with no `:role` attribute, for the tags whose
   answer is decidable FROM THE NODE ALONE.
 
-  Four tags answer conditionally and are handled in [[role]] rather than
+  Four tags answer conditionally and are handled in [[markup-role]] rather than
   here: `:a` (a link only with an `:href`), `:input` (by `:type`),
   `:select` (a listbox when it takes more than one) and `:img` (a
   presentational image when its `:alt` is empty).
@@ -1699,7 +1703,7 @@
 (def ^:private interactive-roles
   "The roles a user OPERATES, and therefore the roles for which a missing
   accessible name is a defect rather than a style. The set
-  [[unnamed-controls]] ranges over."
+  [[markup-unnamed-controls]] ranges over."
   #{:button :link :textbox :searchbox :checkbox :radio
     :combobox :listbox :slider :spinbutton})
 
@@ -1739,13 +1743,13 @@
           not-empty
           keyword))
 
-(defn role
-  "The ARIA role of `node` — the `:role` the author wrote, else the role
-  the tag carries implicitly — as a keyword, or `nil` when the node has
-  none.
+(defn markup-role
+  "The role the MARKUP gives `node` — the `:role` the author wrote, else
+  the role the tag carries implicitly — as a keyword, or `nil` when it
+  gives none.
 
-      (ht/role (ht/find tree #(= :button (:tag %))))   ;=> :button
-      (ht/role (ht/find tree #(= \"alert\" (:role (ht/attrs %)))))
+      (ht/markup-role (ht/find tree #(= :button (:tag %))))   ;=> :button
+      (ht/markup-role (ht/find tree #(= \"alert\" (:role (ht/attrs %)))))
       ;=> :alert
 
   Total over the node set: a **fragment** and a **view-boundary** answer
@@ -1759,8 +1763,8 @@
   (cond
     (nil? node)    nil
     (string? node) (refuse! :rf.error/ui-tree-malformed
-                            (str "text content is not a node — role projects "
-                                 "map nodes; text carries no role.")
+                            (str "text content is not a node — markup-role "
+                                 "projects map nodes; text carries no role.")
                             {:value node})
     (map? node)
     (case (node-kind node)
@@ -1812,11 +1816,12 @@
   [nodes]
   (flat (str/join " " (keep #(flat (text %)) nodes))))
 
-(defn accessible-name
-  "The accessible name `node` carries WITHIN `tree`, as a flat string, or
-  `nil` when it has none.
+(defn markup-name
+  "The name the MARKUP gives `node` WITHIN `tree`, as a flat string, or
+  `nil` when it gives none — the decidable part of an accessible name,
+  not the name a screen reader is guaranteed to announce.
 
-      (ht/accessible-name tree (ht/find tree #(= :select (:tag %))))
+      (ht/markup-name tree (ht/find tree #(= :select (:tag %))))
       ;=> \"Language\"          ;; from the <label for=…> beside it
 
   `tree` is needed and is not decoration: `aria-labelledby` points at
@@ -1862,7 +1867,7 @@
   (cond
     (nil? node)    nil
     (string? node) (refuse! :rf.error/ui-tree-malformed
-                            (str "text content is not a node — accessible-name "
+                            (str "text content is not a node — markup-name "
                                  "projects map nodes; read text with ht/text on "
                                  "the node that contains it.")
                             {:value node})
@@ -1898,19 +1903,21 @@
                 (flat (attr node :value))
                 (joined (labels-for tree node)))
               nil)
-            (when (contains? named-by-content (role node))
+            (when (contains? named-by-content (markup-role node))
               (flat (text node)))
             (flat (attr node :title)))))))
 
-(defn unnamed-controls
-  "Every node in `tree` a user can OPERATE that has no accessible name,
-  in document order — the empty vector when there are none.
+(defn markup-unnamed-controls
+  "Every node in `tree` a user can OPERATE to which the markup gives no
+  name ([[markup-name]]), in document order — the empty vector when there
+  are none. An empty vector is a fact about the markup, not an
+  accessibility verdict.
 
-      (is (= [] (ht/unnamed-controls tree)))
+      (is (= [] (ht/markup-unnamed-controls tree)))
 
   One assertion for the whole rendering, and the nodes it answers with
   name themselves in the failure output. The roles it ranges over are
-  [[interactive-roles]]; the name is [[accessible-name]]'s, with all of
+  [[interactive-roles]]; the name is [[markup-name]]'s, with all of
   its stated narrowings.
 
   It does NOT exempt a control inside an `aria-hidden` or `hidden`
@@ -1921,5 +1928,5 @@
   [tree]
   (find-all tree
             (fn [n]
-              (and (contains? interactive-roles (role n))
-                   (nil? (accessible-name tree n))))))
+              (and (contains? interactive-roles (markup-role n))
+                   (nil? (markup-name tree n))))))

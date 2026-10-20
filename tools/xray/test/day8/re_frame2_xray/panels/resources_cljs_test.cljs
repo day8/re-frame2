@@ -567,7 +567,7 @@
      :resource/key k
      :generation   2
      :status       :failed
-     :outcome      {:error {:status 401 :body work-secret} :completed-at 9}}))
+     :outcome      {:error {:http-status 401 :body work-secret} :completed-at 9}}))
 
 (def ^:private sensitive-work-regs
   {:article/by-slug {:rf/resource {:scope :rf.scope/global :sensitive? true

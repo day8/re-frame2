@@ -344,10 +344,12 @@ flag, `goog.DEBUG`, which the ClojureScript toolchain sets to `false` for produc
 In an `:advanced` build the Closure compiler removes every branch guarded by it, so
 the bundle contains no trace code at all.
 
-On the JVM there is no Closure compiler, so the flag defaults to on, which is right
-for tests and the REPL. A production JVM process, an SSR host especially, must set
-`-Dre-frame.debug=false`. The `RE_FRAME_DEBUG` environment variable works too; `false`,
-`0`, `no`, `off` and the empty string all count as false, in any case. See
+On the JVM there is no Closure compiler, so the flag is read when the process starts.
+A JVM that hosts SSR defaults it to off, so a production server is in release posture
+unless it opts in with `-Dre-frame.debug=true`, as its REPL and tests do. Any other JVM
+defaults it to on, which is right for tests and the REPL, and a production process must
+set `-Dre-frame.debug=false`. The `RE_FRAME_DEBUG` environment variable works too, with
+the same words in any case. See
 [Configure dev and production builds](how-to/configure-dev-and-prod.md).
 
 What survives is an always-on error channel, separate from the trace stream. It

@@ -73,7 +73,7 @@
                                                :params {:slug "w"}}])
       (rf/dispatch-sync [:rf.resource.internal/failed
                          {:resource/key scoped-key :work/id wid1 :generation 1
-                          :error {:kind :rf.http/http-5xx :status 503}}]
+                          :error {:kind :rf.http/http-5xx :http-status 503}}]
                         {:rf.cofx {:rf/time-ms 1781444444444}})
       (is (= [:suppressed 1781444444444]
              ((juxt :status (comp :completed-at :outcome)) (record wid1)))))))

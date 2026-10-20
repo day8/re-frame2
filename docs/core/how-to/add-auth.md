@@ -164,13 +164,13 @@ The same chain has a response side, which is where you catch an expired token:
 ;; A 401 may expire only the session whose credential this request carried.
 ;; `:after` receives the reply envelope:
 ;;   {:status :ok :value …}
-;;   {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}
+;;   {:status :error :error {:kind :rf.http/http-4xx :http-status 401 …}}
 (rf/reg-http-interceptor :my-app/expired-session
   {:after (fn [ctx response]
             (when (and (contains? ctx :auth/generation)
                        (= :error (:status response))
                        (= :rf.http/http-4xx (get-in response [:error :kind]))
-                       (= 401 (get-in response [:error :status])))
+                       (= 401 (get-in response [:error :http-status])))
               ;; The reply runs in a transport callback with no frame in
               ;; scope, so a bare (rf/dispatch …) would raise
               ;; :rf.error/no-frame-context. Dispatch into this request's frame.
@@ -181,7 +181,7 @@ The same chain has a response side, which is where you catch an expired token:
 
 The post-`:before` context reaches `:after` unchanged, including `:auth/generation`. Anonymous requests carry no generation, so a rejected login does not trigger logout. The `:auth/expired` handler in step 6 compares the captured counter with current state when the event runs; checking only in this callback could race a queued login success.
 
-Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:cancelled`; the HTTP status code of a 4xx/5xx is at `(get-in response [:error :status])`, beside the failure `:kind`. Branch on the `:kind` keywords ([Managed HTTP](../../async/http.md) lists them), never on a message string.
+Branch on the `:kind` keywords ([Managed HTTP](../../async/http.md) lists them), never on a message string.
 
 To refresh the token and retry instead of logging out, drive the request from a [state machine](../../machines/concepts.md). Transport `:retry` decides from the failure category alone, so it can't wait on a second request ([Build a form](build-a-form.md#let-transport-retry-ride-out-the-flaky-network)).
 

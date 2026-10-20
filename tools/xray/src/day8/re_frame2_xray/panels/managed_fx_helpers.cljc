@@ -918,8 +918,8 @@
                     (when (and (vector? wid) (< 2 (count wid))) (nth wid 2)))
         error   (:error tags)
         http-code (case status
-                  :ok    (get-in tags [:meta :status])
-                  :error (when (map? error) (:status error))
+                  :ok    (get-in tags [:meta :http-status])
+                  :error (when (map? error) (:http-status error))
                   nil)]
     {:status       status
      :completion   :joined

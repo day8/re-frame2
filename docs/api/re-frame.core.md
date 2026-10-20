@@ -223,20 +223,20 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
 
         | Grade | Metadata | Where the value comes from | On replay |
         |---|---|---|---|
-        | Ambient | neither key | The supplier, each time a declaring handler runs; not recorded. | The supplier runs again and may answer differently. |
-        | Recordable | `{:recordable? true}` | The supplier, or the dispatch's `:rf.cofx` opt; recorded with the event. | The recorded value is presented. |
-        | Provided | `{:recordable? true :provided? true}`, no supplier | The event: stamped by the framework or a feature artefact, or passed in `:rf.cofx`. `:rf/time-ms` is one. | The recorded value is presented. |
+        | Recordable | neither key (the default) | The supplier, or the dispatch's `:rf.cofx` opt; recorded with the event. | The recorded value is presented. |
+        | Provided | `{:provided? true}`, no supplier | The event: stamped by the framework or a feature artefact, or passed in `:rf.cofx`. `:rf/time-ms` is one. | The recorded value is presented. |
+        | Ambient | `{:recordable? false}` | The supplier, each time a declaring handler runs; not recorded. | The supplier runs again and may answer differently. |
 
-        Use ambient only for values no `app-db` write depends on, such as a display preference, and recordable for a world fact that ends up in `app-db`. A handler that declares a provided fact the event does not carry fails with `:rf.error/missing-required-cofx`.
-    - A `{:recordable? true}` coeffect's value must be EDN (not a function, Promise or DOM node; a `js/Date` is a valid `#inst`), and must match the registration's `:schema` when the schemas artefact is loaded. Both are checked in every build as the value is recorded, and a failure throws `:rf.error/cofx-value-invalid`. See [What is validated](re-frame.schemas.md#what-is-validated).
+        Use recordable for a world fact that ends up in `app-db`, and ambient only for values no `app-db` write depends on, such as a display preference, or for a supplier that returns a host object. A handler that declares a provided fact the event does not carry fails with `:rf.error/missing-required-cofx`.
+    - A recordable coeffect's value must be EDN (not a function, Promise or DOM node; a `js/Date` is a valid `#inst`), and must match the registration's `:schema` when the schemas artefact is loaded. Both are checked in every build as the value is recorded, and a failure throws `:rf.error/cofx-value-invalid`. See [What is validated](re-frame.schemas.md#what-is-validated).
     - A handler that declares an unregistered id throws `:rf.error/unregistered-cofx` when its event runs; registration does not check it. A supplier that throws emits `:rf.error/coeffect-exception`, and the handler does not run.
-    - Under the `:strict` mint policy, a `{:recordable? true}` fact the dispatch did not supply is not generated, and the handler fails with `:rf.error/missing-required-cofx`. Frames made with `:preset :test` default to `:strict`, so tests pass the value in the `:rf.cofx` dispatch opt, or opt back into generation with `{:rf.cofx/mint-policy :live}`.
+    - Under the `:strict` mint policy, a recordable fact the dispatch did not supply is not generated, and the handler fails with `:rf.error/missing-required-cofx`. Frames made with `:preset :test` default to `:strict`, so tests pass the value in the `:rf.cofx` dispatch opt, or opt back into generation with `{:rf.cofx/mint-policy :live}`.
     - `:platforms` (a set of `:client` / `:server`) limits where the supplier runs. Elsewhere an ambient fact is absent from the coeffects map, and a recordable one fails with `:rf.error/missing-required-cofx`.
     - To read a subscription from a handler, wrap `subscribe-once` in a cofx and declare it.
     - See [Coeffects](../core/coeffects.md).
 - **Errors**:
     - At registration:
-        - `:rf.error/cofx-registration-invalid`: `:provided? true` without `:recordable? true`, a supplier passed with `:provided? true`, or no supplier on a fact that is not provided.
+        - `:rf.error/cofx-registration-invalid`: `:provided? true` beside `:recordable? false`, a supplier passed with `:provided? true`, or no supplier on a fact that is not provided.
         - `:rf.error/cofx-name-collision`: the id is `:db` or `:event`, which are the handler's own arguments.
     - When a declaring event runs:
         - `:rf.error/unregistered-cofx`: the handler declares an id with no `reg-cofx`.
@@ -254,7 +254,8 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   ;; An ambient supplier, parameterised by the storage key. The value only
   ;; styles the page and never reaches app-db, which is what makes ambient right.
   (rf/reg-cofx :ui/local-theme
-    {:doc "Ambient localStorage read for the display theme."}
+    {:recordable? false
+     :doc         "Ambient localStorage read for the display theme."}
     (fn [storage-key]
       (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 

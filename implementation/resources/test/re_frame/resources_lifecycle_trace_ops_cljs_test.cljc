@@ -190,7 +190,7 @@
                                                             :params {:slug "w"}}])
                    (rf/dispatch-sync [:rf.resource.internal/failed
                                       {:work/id (:current-work (entry k)) :generation 2}
-                                      {:status :error :error {:kind :rf.http/http-5xx :status 503}}])))
+                                      {:status :error :error {:kind :rf.http/http-5xx :http-status 503}}])))
         rows   (fn [op] (tags-of traces op))]
     (is (every? #(seq (rows %)) attempt-ops) "precondition: every attempt op under test was emitted")
     (doseq [op attempt-ops

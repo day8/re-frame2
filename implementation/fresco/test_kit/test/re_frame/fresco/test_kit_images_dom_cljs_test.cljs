@@ -231,12 +231,17 @@
     (do
       (register-the-override!)
       (let [{:keys [handle]}
-            (attempt #(rf.fresco.test.mounted/shadow!
-                        {:reference      [screen {}]
-                         :candidate      [screen {}]
-                         :images         app-wins
-                         :initial-events [[::seed "one"]]
-                         :script         [{:click "button.announce"}]}))]
+            (attempt #(let [s (rf.fresco.test.mounted/shadow!
+                                {:reference      [screen {}]
+                                 :candidate      [screen {}]
+                                 :images         app-wins
+                                 :initial-events [[::seed "one"]]})]
+                        (try
+                          ((:checkpoint! s))
+                          (doseq [m [(:reference s) (:candidate s)]]
+                            (.click (.querySelector (:container m) "button.announce")))
+                          ((:checkpoint! s))
+                          (finally ((:stop! s))))))]
         (testing "shadow comparison accepts images"
           (is (= {:status :green :checkpoints 2} handle)))
         (testing "each shadow mount runs the image's winner"

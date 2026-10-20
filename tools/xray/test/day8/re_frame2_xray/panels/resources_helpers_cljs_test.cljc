@@ -240,7 +240,7 @@
       :data [[{:id 9}]]
       :page-params [nil]
       :next-page-param nil
-      :page-error {:kind :rf.http/server-error :status 500}
+      :page-error {:kind :rf.http/server-error :http-status 500}
       :generation 2 :loaded-at (- now 500) :stale-at (+ now 50000)
       :active-owners #{[:feed/opened "feed2"]}}}))
 
@@ -387,7 +387,7 @@
    {:id 25 :operation :rf.resource/page-failed
     :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
            :generation 4 :status-before :loaded :status-after :loaded
-           :page-error {:kind :rf.http/server-error :status 500}}}])
+           :page-error {:kind :rf.http/server-error :http-status 500}}}])
 
 (defn- page-of [rows id]
   (:page (first (filter #(= id (:id %)) rows))))
@@ -786,7 +786,7 @@
                     :status       :failed
                     :owners       #{[:route :route/article "nav-1"]}
                     :causes       [[:route-entry :route/article work-secret]]
-                    :outcome      {:error {:status 401 :body work-secret}
+                    :outcome      {:error {:http-status 401 :body work-secret}
                                    :completed-at 42}}))]
     (byte-keyed-ledger [(record :article/by-slug) (record :comments/list)])))
 
@@ -837,7 +837,7 @@
   (let [failed    {:resource/id   :article/by-slug
                    :resource/key  [session-scope :article/by-slug {:slug "welcome"}]
                    :status        :error
-                   :error         {:kind :rf.http/server-error :status 500}
+                   :error         {:kind :rf.http/server-error :http-status 500}
                    :data          nil
                    :generation    1
                    :active-owners #{[:route :route/article "nav-1"]}}

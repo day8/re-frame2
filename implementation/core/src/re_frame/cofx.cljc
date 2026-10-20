@@ -12,16 +12,17 @@
 
   Two grades (the grade is a property, not a namespace):
 
-    - **ambient** (default) — its supplier runs at context assembly, the
-      value is delivered to declaring handlers and NEVER recorded; replay
-      re-runs the supplier. Legal only where no durable write depends on
-      the value (display preferences, diagnostics, host-transient reads).
-    - **recordable** (`:recordable? true`) — the fact is ensured onto the
-      causal token, recorded, and re-presented verbatim by replay. A
-      `:provided? true` recordable fact has NO generator: its value is
-      stamped onto the token by its owner (framework, subsystem, dispatch
-      boundary). The framework ships exactly ONE built-in registration —
-      `:rf/time-ms` (recordable, provided), stamped at enqueue.
+    - **recordable** (default) — the fact is ensured onto the causal token,
+      recorded, and re-presented verbatim by replay, so its value must be
+      EDN. A `:provided? true` fact has NO generator: its value is stamped
+      onto the token by its owner (framework, subsystem, dispatch boundary).
+      The framework ships exactly ONE built-in registration — `:rf/time-ms`
+      (provided), stamped at enqueue.
+    - **ambient** (`:recordable? false`) — its supplier runs at context
+      assembly, the value is delivered to declaring handlers and NEVER
+      recorded; replay re-runs the supplier. Legal only where no durable
+      write depends on the value (display preferences, diagnostics,
+      host-transient reads, host objects that are not EDN).
 
   `inject-cofx` is REMOVED (EP-0017, no alias) — calling it is the hard
   error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`."
@@ -101,9 +102,9 @@
 (defn- emit-cofx-registration-invalid!
   "Emit `:rf.error/cofx-registration-invalid` (registration-time, diagnostic)
   and throw. The malformed-METADATA case — a `reg-cofx` whose grade is
-  internally contradictory (`:provided?` without `:recordable?`; a missing
-  supplier on a non-provided fact; a provided fact carrying a supplier that
-  delivery will silently ignore). DISTINCT from
+  internally contradictory (`:provided? true` beside `:recordable? false`; a
+  missing supplier on a non-provided fact; a provided fact carrying a
+  supplier that delivery will silently ignore). DISTINCT from
   `:rf.error/cofx-name-collision`, which is reserved for the call-time
   ownership clashes (`:db` / `:event` fold-argument keys; the same id twice
   in one `:rf.cofx/requires`). A duplicate cofx id across namespaces is
@@ -134,25 +135,25 @@
            "and `:event` are the handler's own arguments — staged by the "
            "runtime, not registered coeffects, and not declarable via "
            "`:rf.cofx/requires`. Choose an owner-qualified fact name.")))
-  (let [recordable? (boolean (:recordable? meta))
+  ;; A coeffect is RECORDABLE unless its metadata says `:recordable? false`.
+  (let [recordable? (boolean (get meta :recordable? true))
         provided?   (boolean (:provided? meta))]
-    ;; `:provided?` is meaningful ONLY alongside `:recordable? true` — a
-    ;; provided fact is recordable by definition (its owner stamps the
-    ;; value onto the token; an ambient fact always runs a supplier). A
-    ;; `{:provided? true}` without `:recordable? true` is a malformed
-    ;; grade that would otherwise register as an ambient fact with a nil
-    ;; supplier, surfacing only as an opaque host NPE at delivery
+    ;; A provided fact is recordable by definition (its owner stamps the
+    ;; value onto the token; an ambient fact always runs a supplier), so
+    ;; `:provided? true` beside an explicit `:recordable? false` is a
+    ;; malformed grade that would otherwise register as an ambient fact with
+    ;; a nil supplier, surfacing only as an opaque host NPE at delivery
     ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
     ;; site instead (Spec-Schemas §`:rf/cofx-meta`). This is a
     ;; malformed-grade error, NOT a name collision.
     (when (and provided? (not recordable?))
       (emit-cofx-registration-invalid!
         id
-        (str "`reg-cofx` id `" id "` declared `:provided? true` without "
-             "`:recordable? true`. A provided coeffect is recordable by "
+        (str "`reg-cofx` id `" id "` declared `:provided? true` beside "
+             "`:recordable? false`. A provided coeffect is recordable by "
              "definition (its owner stamps the value onto the token); an "
-             "ambient coeffect always runs a supplier. Either add "
-             "`:recordable? true` (a provided recordable fact) or drop "
+             "ambient coeffect always runs a supplier. Either drop "
+             "`:recordable? false` (a provided recordable fact) or drop "
              "`:provided?` and supply a value-returning fn (an ambient "
              "fact).")))
     ;; A PROVIDED recordable fact has NO generator: its value is stamped
@@ -163,8 +164,8 @@
     ;; looks like it provides a generator, but the first handler requiring
     ;; the fact (when it is absent from the token) fails as
     ;; `:rf.error/missing-required-cofx`. Reject the contradiction at the
-    ;; call site. The valid provided shape is
-    ;; `{:recordable? true :provided? true}` with NO supplier.
+    ;; call site. The valid provided shape is `{:provided? true}` with NO
+    ;; supplier.
     (when (and provided? (some? supplier))
       (emit-cofx-registration-invalid!
         id
@@ -174,20 +175,20 @@
              "delivered verbatim, so this supplier would be silently "
              "ignored at delivery (the first consumer fails as "
              "`:rf.error/missing-required-cofx`). Either drop the supplier "
-             "(a provided recordable fact: `{:recordable? true :provided? "
-             "true}`) or drop `:provided?` (a recordable fact whose "
-             "supplier generates the value).")))
-    ;; A non-recordable (ambient) fact with no supplier cannot produce a
-    ;; value; only a PROVIDED recordable fact legitimately omits its
-    ;; generator (its owner stamps the token). An ambient fact MUST carry a
-    ;; supplier. This is a malformed-grade error, NOT a name collision.
+             "(a provided recordable fact: `{:provided? true}`) or drop "
+             "`:provided?` (a recordable fact whose supplier generates the "
+             "value).")))
+    ;; Only a PROVIDED fact legitimately omits its supplier (its owner stamps
+    ;; the token). A generator-backed recordable fact and an ambient fact both
+    ;; MUST carry one, or they cannot produce a value. This is a
+    ;; malformed-grade error, NOT a name collision.
     (when (and (nil? supplier) (not provided?))
       (emit-cofx-registration-invalid!
         id
         (str "`reg-cofx` id `" id "` declared no supplier. Only a PROVIDED "
-             "recordable fact (`{:recordable? true :provided? true}`) may "
-             "omit its supplier — its owner stamps the value onto the token. "
-             "An ambient supplier must be a value-returning fn.")))
+             "fact (`{:provided? true}`) may omit its supplier — its owner "
+             "stamps the value onto the token. Every other coeffect needs a "
+             "value-returning supplier.")))
     {:recordable? recordable?
      :provided?   provided?}))
 
@@ -209,15 +210,16 @@
 
   Shapes:
 
-      (reg-cofx :id                                  (fn [] value))
-      (reg-cofx :id {:doc \"...\" :recordable? true}  (fn [] value))
+      (reg-cofx :id                                   (fn [] value))
+      (reg-cofx :id {:doc \"...\" :recordable? false}  (fn [] value))
 
   Optional metadata keys:
 
-      :recordable?  mark the fact RECORDABLE — ensured onto the causal
-                    token, recorded, and re-presented verbatim by replay.
-                    Default false (the AMBIENT grade — runs at context
-                    assembly, never recorded).
+      :recordable?  the grade. Default true: RECORDABLE — ensured onto the
+                    causal token, recorded, and re-presented verbatim by
+                    replay, so the value must be EDN. `false` is the
+                    AMBIENT grade — runs at context assembly, never
+                    recorded.
       :provided?    (recordable only) the fact has NO generator: its value
                     is stamped onto the token by its owner. An absent
                     provided fact a handler declares is
@@ -243,17 +245,18 @@
                                           `:rf.error/image-duplicate-id`,
                                           not here.)
       :rf.error/cofx-registration-invalid the metadata grade is malformed —
-                                          `:provided?` without
-                                          `:recordable?`, a missing supplier
-                                          on a non-provided fact, or a
-                                          provided fact carrying a (silently
-                                          ignored) supplier.
+                                          `:provided? true` beside
+                                          `:recordable? false`, a missing
+                                          supplier on a non-provided fact, or
+                                          a provided fact carrying a
+                                          (silently ignored) supplier.
 
   Examples:
 
-      ;; ambient (default) — a display preference; never feeds durable state
+      ;; ambient — a display preference; never feeds durable state
       (rf/reg-cofx :ui/local-theme
-        {:doc \"Ambient localStorage read for the display theme.\"}
+        {:recordable? false
+         :doc \"Ambient localStorage read for the display theme.\"}
         (fn [storage-key]
           (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
@@ -261,7 +264,7 @@
       ;; recorded value is durable, so never a credential, session id or
       ;; key (spec/Privacy.md §Recordable coeffects must exclude secrets).
       (rf/reg-cofx :app.boot/feature-flags
-        {:recordable? true :provided? true
+        {:provided? true
          :doc \"The feature-flag snapshot the boot dispatch is stamped with.\"})
 
   Returns `id`.
@@ -1243,8 +1246,7 @@
 ;; carry no `reg-cofx` registration.
 
 (reg-cofx :rf/time-ms
-  {:recordable? true
-   :provided?   true
+  {:provided? true
    :doc "The framework's one provided recordable coeffect: wall-clock epoch
         milliseconds, stamped onto every dispatch and reply envelope at
         enqueue (EP-0010 / EP-0017). The canonical durable causal-time fact —

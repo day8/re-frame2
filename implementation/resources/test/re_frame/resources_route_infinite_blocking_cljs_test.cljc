@@ -94,7 +94,7 @@
 
 (deftest blocking-infinite-route-page-0-failure-errors-route
   (let [nav-token (navigate-to-blocking-feed!)
-        failure   {:kind :rf.http/server :status 503 :message "upstream down"}]
+        failure   {:kind :rf.http/server :http-status 503 :message "upstream down"}]
     (reply-page! :on-failure {:status :error :error failure})
     (is (= [:error failure nil nil nil]
            ((juxt :status :error :page-error :refresh-error :data) (entry k)))

@@ -163,6 +163,8 @@ Do not "fix" these — flagging an allowed ambient read as a violation is itself
 - animation jitter, decorative particle positions, local non-durable retry jitter, performance sampling (host-transient randomness);
 - host-side monotonic allocators (generation counters, work-id high-water marks) — these only move forward and are host-transient by classification; restore does not rewind them.
 
+A `reg-cofx` that supplies one of these registers `{:recordable? false}`. A v2 coeffect is recordable unless it says so, which a v1 cofx never was: an unmarked registration is recorded and replayed, and a supplier returning a host object fails `:rf.error/cofx-value-invalid` the first time it runs.
+
 ## Reporting
 
 World-input migration is **report-worthy even when the app runs** — the failure is silent (replay/restore-only), invisible to the boot smoke-test, so the report is the only record that the boundary was checked. List each durable ambient read found, the bucket you assigned it, and the route taken (envelope / payload / recordable cofx) or — for diagnostic/host-transient — the reason it stayed ambient.

@@ -226,7 +226,7 @@
                       {:errors [{:sink :test.sinks/classified-reason
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       (classify-sensitive! :obs/reason [:reason])
-      (rf/reg-cofx :kuky65/classified-boom-cofx
+      (rf/reg-cofx :kuky65/classified-boom-cofx {:recordable? false}
                    (fn [] (throw (ex-info "supplier leaked hunter2 into its message" {}))))
       (reg-event-at! {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11}
                      :kuky65/classified-reason-event

@@ -148,11 +148,14 @@ returns, so a plain unit test can check them:
 Checking both states shows that the attribute really follows the
 subscription.
 
-Given a `tree` from `ht/tree`, `(is (= [] (ht/unnamed-controls tree)))` fails
-on any button, link or field with no accessible name, and names the nodes. `ht/role` and
-`(ht/accessible-name tree node)` return one node's role and name, computed from
-`:aria-labelledby`, `:aria-label`, `<label>`s and text. They check the markup,
-not a screen reader.
+Given a `tree` from `ht/tree`, `(is (= [] (ht/markup-unnamed-controls tree)))`
+fails on any button, link or field whose markup gives it no name, and names the
+nodes. `ht/markup-role` and `(ht/markup-name tree node)` return the role and
+name one node's markup gives it, from `:role` or the tag, `:aria-labelledby`,
+`:aria-label`, `<label>`s and text. They read the markup, not an accessibility
+tree: hidden content and names borrowed through other labelled elements are not
+modelled, so an empty list is a fact about what you wrote, not a verdict on what
+a screen reader announces.
 
 Tests on data cannot check real focus, Tab order, modal trapping, keyboard
 movement in virtualised lists, or screen-reader behaviour. Test those in real

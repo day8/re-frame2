@@ -188,7 +188,7 @@
   ;; is the correlation arm's, not the :error arm's
   (assert-mutation-settle-cleans-correlation-scope
     (drive-mutation-reply-to! {:status :error
-                               :error  {:kind :rf.http/http-5xx :status 503 :body {:reason "upstream down"}}})
+                               :error  {:kind :rf.http/http-5xx :http-status 503 :body {:reason "upstream down"}}})
     :error))
 
 ;; ===========================================================================

@@ -555,13 +555,13 @@ A JWT that was valid at boot can expire while the reader is still using the app.
                        (not (:auth/restore? ctx))
                        (= :error (:status response))
                        (= :rf.http/http-4xx (get-in response [:error :kind]))
-                       (= 401 (get-in response [:error :status])))
+                       (= 401 (get-in response [:error :http-status])))
               (rf/dispatch [:auth/logout {:generation (:auth/generation ctx)}]
                            {:frame (:frame ctx)}))
             response)})                     ;; :after MUST return the response
 ```
 
-Mind the **two `:status` levels**: the reply's `:status` is `:error`, and the HTTP code sits inside the failure map at `[:error :status]`, beside its `:kind`. And pass the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can raise `:rf.error/no-frame-context`.
+Pass the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can raise `:rf.error/no-frame-context`.
 
 The restore request handles its own failure, including the deferred deep-link bounce in Part 4. The global hook skips `:auth/restore?` so it cannot clear that pending destination first.
 

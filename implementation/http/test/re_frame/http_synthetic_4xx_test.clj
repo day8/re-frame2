@@ -69,9 +69,9 @@
       ;; Two hits: the attempt and one retry. A direct finalise never retries.
       (await-condition! #(= 2 (.get hits)))
       (await-condition! #(seq @replies))
-      (is (= [{:status :error :error {:kind :rf.http/http-4xx :status 302 :body redirect-body}}]
+      (is (= [{:status :error :error {:kind :rf.http/http-4xx :http-status 302 :body redirect-body}}]
              (mapv #(-> (select-keys % [:status :error])
-                        (update :error select-keys [:kind :status :body]))
+                        (update :error select-keys [:kind :http-status :body]))
                    @replies))
           "one final reply, carrying the raw 3xx status and body")
       (is (empty? (rf.http.registry/in-flight-snapshot)))

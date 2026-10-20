@@ -170,7 +170,7 @@
   `:rf.reply/work-status :completed`.
 
   `response-meta` is the successful response's wire facts —
-  `{:status <int> :status-text <string> :headers <normalized map>}` as the
+  `{:http-status <int> :status-text <string> :headers <normalized map>}` as the
   transport normalized them — riding under the envelope's `:meta`
   family-extension slot (Managed-Effects §The reply map: `:meta`
   effect-family-data) so `:after` middleware and the app reply target can

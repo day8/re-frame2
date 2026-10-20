@@ -1776,8 +1776,7 @@
   `:schema`, so resources run without the schemas artefact; the
   `{:generation N :counter N}` shape is checked always-on by
   `allocated-generation` where the generation folds into resource state."
-  {:recordable? true
-   :doc "The recordable generation allocation for the active frame's resource
+  {:doc "The recordable generation allocation for the active frame's resource
 /mutation work: `{:generation N :counter N}`, minted at processing-start from
 the host-side monotone high-water allocator (`generation-cache`) and recorded
 on the causal token. `:generation` is the durable join key written onto the

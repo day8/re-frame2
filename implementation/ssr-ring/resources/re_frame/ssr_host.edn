@@ -1,0 +1,6 @@
+;; The SSR-host marker. `re-frame.interop` looks for this resource when it
+;; loads: on a classpath that carries it, the JVM debug gate defaults OFF
+;; unless `-Dre-frame.debug` or `RE_FRAME_DEBUG` sets it (Spec 011 §The
+;; debug gate on an SSR JVM). Its presence is the whole signal; nothing reads
+;; its content.
+{}

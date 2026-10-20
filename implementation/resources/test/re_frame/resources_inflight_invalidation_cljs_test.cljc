@@ -156,7 +156,7 @@
       ;; :revision, so the mutation's rollback meets a conflict (:invalidate)
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :r5]}])
       (rf/dispatch-sync (conj (:on-failure mutation)
-                              {:status :error :error {:kind :rf.http/http-5xx :status 500}}))
+                              {:status :error :error {:kind :rf.http/http-5xx :http-status 500}}))
       (is (stale? article-key) "the conflict rollback marked the key stale")
       (let [n (request-count)]
         (succeed! read {:title "Old"})

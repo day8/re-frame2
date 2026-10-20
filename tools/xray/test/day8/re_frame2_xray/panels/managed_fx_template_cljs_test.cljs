@@ -230,9 +230,9 @@
     (let [r      (assoc (record {:surface :http :fx-id :rf.http/managed
                                  :status :error :http-status 500})
                         :failure {:kind :rf.http/http-5xx
-                                  :tags {:status 500 :body "oops"}})
+                                  :tags {:http-status 500 :body "oops"}})
           opened (template/record-panel noop-dispatch (open-all r) r)]
-      (is (some #{{:status 500 :body "oops"}} (tree-nodes opened))))))
+      (is (some #{{:http-status 500 :body "oops"}} (tree-nodes opened))))))
 
 (deftest an-all-zero-wire-falls-back-to-the-na-line
   (testing "phases that are all zero-length leave the waterfall nothing to
@@ -409,8 +409,8 @@
           r    (joined-http-record :error
                  {:http-status 500 :attempts 2 :duration-ms 850
                   :wire        {:phases [[:issued 0] [:elapsed 850]] :total-ms 850}
-                  :res         {:kind :rf.http/http-5xx :status 500}
-                  :failure     {:kind :rf.http/http-5xx :tags {:kind :rf.http/http-5xx :status 500}}
+                  :res         {:kind :rf.http/http-5xx :http-status 500}
+                  :failure     {:kind :rf.http/http-5xx :tags {:kind :rf.http/http-5xx :http-status 500}}
                   :reply-link  {:dispatch-id 41 :frame :rf/default}})
           tree (template/record-panel #(swap! seen conj %) nil r)
           ids  (set (testids tree))

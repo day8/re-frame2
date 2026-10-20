@@ -104,7 +104,7 @@
   ;; exactly as reg-cofx installs them
   (let [body (fn [] 42)
         d    (runnable {:reg-cofx [[:clock/now body]]})]
-    (is (= [:cofx :clock/now body false false]
+    (is (= [:cofx :clock/now body true false]
            [(:kind d) (:id d) (:handler-fn d) (:recordable? d) (:provided? d)])))
   ;; a PROVIDED fact has no generator, so its inline entry carries a nil body,
   ;; the shape reg-cofx accepts

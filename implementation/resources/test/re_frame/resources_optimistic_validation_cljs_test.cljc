@@ -56,7 +56,7 @@
 (defn- reply-failure! [args failure]
   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
-(def ^:private http-500 {:kind :rf.http/http-5xx :status 500})
+(def ^:private http-500 {:kind :rf.http/http-5xx :http-status 500})
 
 (def ^:private article-key
   (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))

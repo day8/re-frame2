@@ -782,11 +782,11 @@
 
 (def ^:private failure-envelope
   "A 422 envelope echoing the submitted secret in `:body` and `:detail`."
-  {:kind      :rf.http/http-4xx
-   :status    422
-   :body      {:email (str secret "@example.com")}
-   :body-text (str "email " secret " is already registered")
-   :detail    {:errors [{:field :email :value secret}]}})
+  {:kind        :rf.http/http-4xx
+   :http-status 422
+   :body        {:email (str secret "@example.com")}
+   :body-text   (str "email " secret " is already registered")
+   :detail      {:errors [{:field :email :value secret}]}})
 
 (def ^:private abort-envelope
   "Lowered to `:status :cancelled`, still under `:error` — `:status` is not the

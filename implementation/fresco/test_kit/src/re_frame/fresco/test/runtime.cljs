@@ -13,8 +13,13 @@
   and no shipping namespace requires it, so nothing a shipped page runs
   reaches it.
 
-  Three kinds of door:
+  Four kinds of door:
 
+  - **The supported seam** — [[render-and-commit!]], a boundary rendered
+    and committed with no React root, and [[reset-bracket]], the `:each`
+    fixture that reads residue BEFORE it resets. A test that needs live
+    boundaries and a clean runtime needs these two and no
+    `re-frame.fresco.impl.*` namespace.
   - **The census** — [[stats]], [[residue]] and the settling point
     [[quiesced!]] that makes a residue BASELINE honest.
   - **The cell and entry witnesses** — [[cell-reaction]], [[cell-readers]],
@@ -24,11 +29,13 @@
     [[shell-hook-ledger]], the shell's declared hook calls the
     dispatcher-level witness counts against.
 
-  The commit seam itself — `collector/render-body`, `collector/last-reads`
-  and `collector/commit-boundary!`, the three calls that take React's
-  place — lives on the collector, because it is the runtime's own seam
-  rather than an instrument."
-  (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+  [[render-and-commit!]] is a composition of the collector's own commit
+  seam — `collector/render-body`, `collector/last-reads` and
+  `collector/commit-boundary!`, the three calls that take React's place —
+  which stays on the collector because it is the runtime's seam rather
+  than an instrument."
+  (:require [cljs.test :as t :include-macros true]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
             [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]))
@@ -201,3 +208,106 @@
   dispatcher received against this, so a third hook appearing in the
   shell fails a test rather than a review."
   [:use-context/frame :use-sync-external-store/subscription-epoch])
+
+;; ---------------------------------------------------------------------------
+;; The supported seam — a boundary without React, and the bracket around it
+;; ---------------------------------------------------------------------------
+
+(defn render-and-commit!
+  "Run `body` as one boundary in `frame-kw` and commit it in React's
+  place, answering what a test asserts on:
+
+      {:element  the React element the body rendered
+       :reads    the set of `[frame-kw query-v]` sub-keys it read
+       :release  the cleanup React would hold — call it to take the
+                 boundary down}
+
+      (let [{:keys [reads release]}
+            (rt/render-and-commit! ::app (fn [_] (h/sub [:todo/count]) nil))]
+        (is (= #{[::app [:todo/count]]} reads))
+        (release))
+
+  `body` is a body function or a `defview` head; a head runs the body it
+  was minted from, as `re-frame.fresco.test/tree` does, so it needs a
+  development build. `props` defaults to `{}`.
+
+  The commit is the `subscribe` closure `useSyncExternalStore` would
+  call, so the boundary is registered, its cells acquired and its edges
+  drawn exactly as a mounted one's are — in Node, with no root. It is
+  handed a notifier that does nothing: the boundary does not re-render
+  when a read moves, so a test that wants the new value renders again.
+
+  A boundary nobody released is residue, and [[reset-bracket]] fails the
+  test that left it."
+  ([frame-kw body] (render-and-commit! frame-kw body {}))
+  ([frame-kw body props]
+   (let [body-fn (if (rf.fresco.impl.codec/boundary-head? body)
+                   (rf.fresco.impl.codec/retained-body body)
+                   body)
+         element (rf.fresco.impl.collector/render-body frame-kw body-fn props)
+         entry   (rf.fresco.impl.collector/last-reads)]
+     {:element element
+      :reads   (reads-of entry)
+      :release (rf.fresco.impl.collector/commit-boundary! entry (fn []))})))
+
+(defn- leaked
+  "The counters of a [[residue]] reading that are not zero, or nil."
+  [reading]
+  (not-empty (into {} (filter (fn [[_ n]] (pos? n))) reading)))
+
+(defn- check-then-reset!
+  "Wait for quiescence, REPORT what the runtime still holds, and only then
+  reset it. Answers a promise of the reading.
+
+  The order is the whole of the instrument: `collector/reset-runtime!`
+  empties the very tables [[residue]] reads, so a reset taken first
+  answers clean whether or not anything was released."
+  []
+  (.then (quiesced!)
+         (fn [_]
+           (let [reading (residue)
+                 l       (leaked reading)]
+             (t/do-report
+               (if l
+                 {:type     :fail
+                  :message  (str "the runtime still held residue after quiescence, "
+                                 "read before the bracket's reset: "
+                                 (pr-str l) ". A boundary was committed and "
+                                 "never released — call the :release "
+                                 "render-and-commit! answered — or a "
+                                 "subscription outlived the test.")
+                  :expected '(zero? residue)
+                  :actual   l}
+                 {:type     :pass
+                  :message  "the runtime held no residue after quiescence"
+                  :expected '(zero? residue)
+                  :actual   reading}))
+             (rf.fresco.impl.collector/reset-runtime!)
+             reading))))
+
+(def reset-bracket
+  "**The reset bracket** — a `cljs.test` `:each` fixture, in map form.
+
+      (use-fixtures :each rt/reset-bracket)
+
+  Before each test it resets the runtime, so the test starts from empty
+  tables. After it, it waits for [[quiesced!]], reads [[residue]], fails
+  the test through `cljs.test/do-report` if any counter is above zero,
+  and only THEN resets. Reading first is what lets it see a leak: a
+  reset empties the tables the reading counts, so a bracket that reset
+  before it checked would pass every test.
+
+  A map because the check waits on the runtime's reapers, and `cljs.test`
+  runs only a map fixture's half asynchronously. It does not mix with
+  function fixtures in one namespace, so build any other fixture there
+  in map form — `re-frame.test-support/make-reset-runtime-fixture` takes
+  `:async? true` — and list this one AFTER it: `:after` halves run in
+  reverse, so the check then runs before that fixture's teardown can
+  destroy the frames the residue lives in.
+
+  The failure is reported after the test's own reporting has closed, so
+  it names no test; the message names what leaked."
+  {:before (fn [] (rf.fresco.impl.collector/reset-runtime!))
+   :after  (fn []
+             (t/async done
+               (.then (check-then-reset!) (fn [_] (done)))))})

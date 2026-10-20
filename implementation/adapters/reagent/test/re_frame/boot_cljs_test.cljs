@@ -170,7 +170,7 @@
                                    @traces)]
             (is (= [:failed 503 nil [] #{:routes :flags} true [true true]]
                    [(rf/compute-sub [:app.boot/state] db)
-                    (:status (rf/compute-sub [:app.boot/error] db))
+                    (:http-status (rf/compute-sub [:app.boot/error] db))
                     (:user boot-data)
                     rejected
                     cancelled

@@ -270,9 +270,9 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-success! (page [{:id 0 :title "A"}] 1))
     (load-more!)
-    (reply-failure! {:kind :rf.http/server :status 503})
+    (reply-failure! {:kind :rf.http/server :http-status 503})
     (let [vm (feed-state)]
-      (is (= [{:kind :rf.http/server :status 503} nil nil [{:id 0 :title "A"}] :loaded]
+      (is (= [{:kind :rf.http/server :http-status 503} nil nil [{:id 0 :title "A"}] :loaded]
              [(:page-error vm) (:error vm) (:refresh-error vm) (:items vm) (:status (entry))])
           ":page-error recorded (the third channel), NOT the first-load :error or whole-feed :refresh-error; the accumulated page is KEPT and the feed returns to :loaded (couldn't-load-more, retry)"))
     ;; retry the load-more — it succeeds, clearing the page-error and appending.
@@ -294,8 +294,8 @@
             ONLY). The example's view shows the full error screen on :error; the
             inline retry on :page-error — distinct axes."
     (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
-    (reply-failure! {:kind :rf.http/server :status 500})
+    (reply-failure! {:kind :rf.http/server :http-status 500})
     (let [vm (feed-state)]
-      (is (= [false {:kind :rf.http/server :status 500} nil nil :error]
+      (is (= [false {:kind :rf.http/server :http-status 500} nil nil :error]
              [(:has-data? vm) (:error vm) (:page-error vm) (:refresh-error vm) (:status (entry))])
           "with no data loaded, the page-0 failure surfaces via the first-load :error channel (NOT :page-error, page 0 is not a load-more, nor :refresh-error) and the entry settles :status :error"))))

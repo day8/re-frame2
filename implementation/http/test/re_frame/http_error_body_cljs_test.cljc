@@ -51,7 +51,7 @@
   (testing "a 422 whose Content-Type is application/json: :body holds the
             keyword-keyed value, :body-text the raw text"
     (let [failure (failure-for {:status 422 :body {:errors {:email ["is invalid"]}}})]
-      (is (= [:rf.http/http-4xx 422] [(:kind failure) (:status failure)]))
+      (is (= [:rf.http/http-4xx 422] [(:kind failure) (:http-status failure)]))
       (is (= {:errors {:email ["is invalid"]}} (:body failure)))
       (is (= "{\"errors\":{\"email\":[\"is invalid\"]}}" (:body-text failure)))))
   (testing "a 500 under an RFC 6839 +json media type parses the same way"

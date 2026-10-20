@@ -310,10 +310,10 @@
 (deftest failure-settled-at-from-reply-completed-at
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 500}
                   {:rf.cofx {:rf/time-ms 1781078999999}})
   (let [i (instance :mf1)]
-    (is (= {:status :error :settled-at 1781078999999 :error {:kind :rf.http/http-5xx :status 500}}
+    (is (= {:status :error :settled-at 1781078999999 :error {:kind :rf.http/http-5xx :http-status 500}}
            (select-keys i [:status :settled-at :error])))
     (is (nil? (:result i)))))
 
@@ -404,7 +404,7 @@
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-settle}) save-article-request)
   (doseq [[label slug settle!]
-          [["failure" "failed" #(reply-failure! % {:kind :rf.http/http-5xx :status 503})]
+          [["failure" "failed" #(reply-failure! % {:kind :rf.http/http-5xx :http-status 503})]
            ["success" "saved"  #(reply-success! % {:title "new"})]]]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global :params {:slug slug}}])
@@ -555,7 +555,7 @@
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug (str "a" i)}}])
     (if (even? i)
       (reply-success! @last-managed-args {:saved i})
-      (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})))
+      (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 503})))
   (is (= 0 (count (instances))))
   (is (= 0 (count (mutation-ledger-rows)))))
 
@@ -563,7 +563,7 @@
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :form/save}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 503})
   (is (= :error (:status (instance :form/save))))
   (is (= 1 (count (mutation-ledger-rows))))
   (rf/dispatch-sync [:rf.mutation/clear {:instance :form/save}])
@@ -910,9 +910,9 @@
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ec1
                       :reply-to [:test/save-replied]}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 503})
   (is (= 1 (count @replied)))
-  (is (= {:status :error :error {:kind :rf.http/http-5xx :status 503} :mutation :m/save
+  (is (= {:status :error :error {:kind :rf.http/http-5xx :http-status 503} :mutation :m/save
           :instance :ec1 :affected-keys #{} :cause [:mutation :m/save :ec1]}
          (select-keys (second (first @replied))
                       [:status :error :mutation :instance :affected-keys :cause])))
@@ -987,7 +987,7 @@
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :afk1
                       :reply-to [:test/save-replied]}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 503})
   (is (some? (:invalidated-at (entry (article-key)))))
   (let [reply (second (first @replied))]
     (is (= :error (:status reply)))

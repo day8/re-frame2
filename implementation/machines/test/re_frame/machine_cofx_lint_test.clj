@@ -32,7 +32,7 @@
    :states  {:idle {:on {:go {:target :done :guard :g}}} :done {}}})
 
 (deftest ambient-durable-fires-only-for-an-action-declaring-an-ambient-cofx
-  (rf/reg-cofx :lint/ambient {:doc "ambient (default grade)"} (fn [] :A))
+  (rf/reg-cofx :lint/ambient {:recordable? false} (fn [] :A))
   (rf/reg-cofx :lint/recordable {:recordable? true} (fn [] :R))
   ;; let-bound, so the macro stamps no :source-code; a guard is a pure read
   ;; and a recordable fact is replay-safe to fold, so neither warns.

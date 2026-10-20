@@ -51,7 +51,7 @@
   [:rf.resource.internal/failed
    {:work/id      [:rf.work/resource :res/article 2]
     :generation   2
-    :error        {:kind :rf.http/http-5xx :status 503}}]]
+    :error        {:kind :rf.http/http-5xx :http-status 503}}]]
 
  :fixture/expect
  {;; The refresh failed but the prior data is preserved: :loaded, has-data,
@@ -59,7 +59,7 @@
   :sub-values
   {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :loaded :data {:title "Welcome"} :error nil
-    :refresh-error {:kind :rf.http/http-5xx :status 503}
+    :refresh-error {:kind :rf.http/http-5xx :http-status 503}
     :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
 
   :trace-emissions

@@ -132,8 +132,8 @@
 (deftest reply-to-fires-on-accepted-failure
   (rf/reg-resource :rr/article article-spec article-request)
   (ensure-article! [:view :a] [:test/read-replied])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-  (is (= [{:status :error :error {:kind :rf.http/http-5xx :status 503} :cache-hit? false}]
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :http-status 503})
+  (is (= [{:status :error :error {:kind :rf.http/http-5xx :http-status 503} :cache-hit? false}]
          (mapv #(select-keys % [:status :error :cache-hit?]) (replies)))))
 
 (deftest replied-trace-emitted-for-accepted-reply

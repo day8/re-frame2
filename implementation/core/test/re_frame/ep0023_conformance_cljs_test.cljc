@@ -221,7 +221,7 @@
         img   (rf/image
                 {:id :inline/cofx
                  :registrations
-                 {:reg-cofx  [[:inline.cofx/locale {:doc "Inline ambient supplier."} (fn [] "en-AU")]]
+                 {:reg-cofx  [[:inline.cofx/locale {:recordable? false :doc "Inline ambient supplier."} (fn [] "en-AU")]]
                   :reg-event [[:inline.cofx/touch
                                {:doc "Inline event declaring a cofx requirement."
                                 :rf.cofx/requires [:inline.cofx/locale]}

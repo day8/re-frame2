@@ -10,8 +10,8 @@ end-to-end.
 | Outcome | `data-testid` (option) | Strategy | Reply `:status` / `:error :kind` |
 |---|---|---|---|
 | 200 success | `:success` | Live Fetch against `api/success.json` (static asset shipped under the testbed dir). | `:status :ok`, `:value {:ok true :value "http-toggle success"}` |
-| 4xx | `:rf.http/http-4xx` | Stub route answers `404` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-4xx`, `:status 404`, `:body "<html>not found</html>"` |
-| 5xx | `:rf.http/http-5xx` | Stub route answers `500` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-5xx`, `:status 500`, `:body "<html>server error</html>"` |
+| 4xx | `:rf.http/http-4xx` | Stub route answers `404` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-4xx`, `:http-status 404`, `:body "<html>not found</html>"` |
+| 5xx | `:rf.http/http-5xx` | Stub route answers `500` with a raw HTML body. | `:status :error`, `:error :kind :rf.http/http-5xx`, `:http-status 500`, `:body "<html>server error</html>"` |
 | timeout | `:rf.http/timeout` | Stub route holds the request past its `:timeout-ms 1000`. | `:status :error`, `:error :kind :rf.http/timeout`, `:limit-ms 1000` |
 | aborted | `:rf.http/aborted` | Stub route holds the request, so the spec can observe `:status :loading` and click Cancel, whose live `:rf.http/managed-abort` aborts it. | `:status :cancelled`, `:error :kind :rf.http/aborted` |
 | transport | `:rf.http/transport` | Stub route fails as the network would. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |

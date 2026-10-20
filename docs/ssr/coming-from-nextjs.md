@@ -35,7 +35,7 @@ the effect with `:platforms`.
 | `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource): loaded on the server, shipped in the payload, and rendered on the client without a second fetch. |
 | `next/server` runtime, route handlers, middleware | The Ring adapter, `day8/re-frame2-ssr-ring`: `ssr-handler` returns a Ring handler, and `ssr-middleware` mounts it inside an existing Ring app. See [Ring handler](glossary.md#ring-handler). |
 | Rendering in Node | The JVM renders by default. A native view layer such as Fresco renders its body on a Node sidecar through the [Node renderer](glossary.md#node-renderer), while the JVM keeps the request, the payload and the response. |
-| `next build` / `NODE_ENV=production` | A production build: an `:advanced` client bundle, and the server JVM started with [`-Dre-frame.debug=false`](../core/how-to/configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property). |
+| `next build` / `NODE_ENV=production` | A production build: an `:advanced` client bundle, and a server JVM in production posture, its [default](../core/how-to/configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property). Development opts in with `-Dre-frame.debug=true`. |
 
 ## Differences to know
 

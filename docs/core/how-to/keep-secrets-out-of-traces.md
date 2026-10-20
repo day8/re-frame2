@@ -109,8 +109,8 @@ The same `:sensitive` key works on the other registrations that define a payload
 (rf/reg-sub :partner/api-token {:sensitive [[]]}
   (fn [db _] (get-in db [:tenant :partner-api-key])))
 
-;; a coeffect classifies the value it supplies
-(rf/reg-cofx :session/current {:sensitive [[:token]]}
+;; a coeffect classifies the value it supplies; a credential is never recorded
+(rf/reg-cofx :session/current {:recordable? false :sensitive [[:token]]}
   (fn [] {:user "alice" :token (read-token)}))
 
 ;; an effect classifies paths into its argument map

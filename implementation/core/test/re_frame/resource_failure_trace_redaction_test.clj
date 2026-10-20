@@ -8,9 +8,9 @@
             [re-frame.privacy :as rf.privacy]))
 
 (def ^:private http-failure-envelope
-  {:status    422
-   :body-text "{\"auth-token\":\"on-box-secret-PII\"}"
-   :detail    :rf.http/http-4xx})
+  {:http-status 422
+   :body-text   "{\"auth-token\":\"on-box-secret-PII\"}"
+   :detail      :rf.http/http-4xx})
 
 (deftest failure-envelope-redacted-on-box
   ;; Only the envelope slot is summarized; every structural tag rides verbatim.

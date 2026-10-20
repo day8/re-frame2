@@ -346,7 +346,8 @@ The host calls `set-request!` before draining the frame. Handlers declare
 `{:rf.cofx/requires [:rf.server/request]}` and read the value at
 `:rf.server/request`. Tests without a host adapter populate the same slot
 explicitly."
-   :platforms #{:server}}
+   :platforms #{:server}
+   :recordable? false}
   rf.ssr.request/request-cofx)
 
 ;; ---- error-projector registry ---------------------------------------------

@@ -435,7 +435,7 @@
 (deftest ^:requires-debug event-run-end-stamps-user-injected-coeffects-without-fx
   (testing "a handler that injects a cofx and returns only :db still stamps it on
             :rf.event/run-end — a :db-only return emits no :rf.fx/do-fx to carry it"
-    (rf/reg-cofx :fx-test/now (fn [] "2026-05-18T19:00:00Z"))
+    (rf/reg-cofx :fx-test/now {:recordable? false} (fn [] "2026-05-18T19:00:00Z"))
     (rf/reg-event :fx-test/db-only-with-cofx
       {:rf.cofx/requires [:fx-test/now]}
       (fn [{:keys [fx-test/now]} _] {:db {:stamped-at now}}))

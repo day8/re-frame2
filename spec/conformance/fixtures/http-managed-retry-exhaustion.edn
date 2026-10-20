@@ -47,7 +47,7 @@
    [[:dispatch [:flaky/load-error
                 {:status :error
                  :error  {:kind        :rf.http/http-5xx
-                          :status      503
+                          :http-status 503
                           :status-text "Service Unavailable"
                           :body        {:err true}
                           :headers     {}}}]]]}}
@@ -63,7 +63,7 @@
  {:final-app-db
   {:flaky {:error {:status :error
                    :error  {:kind        :rf.http/http-5xx
-                            :status      503
+                            :http-status 503
                             :status-text "Service Unavailable"
                             :body        {:err true}
                             :headers     {}}}}}

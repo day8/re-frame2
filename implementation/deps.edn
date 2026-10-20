@@ -55,7 +55,10 @@
   ;; every artefact and the example sources on the classpath. Production
   ;; CI runs each artefact's :test alias separately.
   :test
-  {:extra-paths ["core/test"
+  {;; ssr-ring on this classpath defaults the debug gate OFF; the suites
+   ;; read traces.
+   :jvm-opts    ["-Dre-frame.debug=true"]
+   :extra-paths ["core/test"
                  "adapters/reagent/test"
                  "adapters/uix/test"
                  "schemas/test"

@@ -322,7 +322,7 @@ The pattern, distilled to a worked sketch:
 ;; ---------- Semantic retry — state machine handles 401-vs-200-vs-fatal ------
 ;; The auth machine routes by outcome:
 ;;   - :on-done → done.
-;;   - :on-error whose failure is {:kind :rf.http/http-4xx :status 401} → :refreshing.
+;;   - :on-error whose failure is {:kind :rf.http/http-4xx :http-status 401} → :refreshing.
 ;;     The refresh path itself is a managed request; on success it loops back
 ;;     to :loading-me — a *semantic* retry of the original /api/me call.
 ;;   - :on-error otherwise (5xx after retries exhausted, network error,
@@ -338,10 +338,10 @@ The pattern, distilled to a worked sketch:
 
    :guards
    ;; the :on-error event carries the wrapper's classified :rf.http/* failure
-   ;; map at (nth event 2); branch on (:kind error) / (:status error).
+   ;; map at (nth event 2); branch on (:kind error) / (:http-status error).
    {:got-401? (fn [{[_ _ error] :event}]
                 (and (= :rf.http/http-4xx (:kind error))
-                     (= 401 (:status error))))
+                     (= 401 (:http-status error))))
     :token-stale? (fn [{:keys [data]}]
                     (some? (:token data)))}                  ;; refresh viable
 

@@ -111,13 +111,56 @@
           twice    (rf.fresco.impl.presence/step once children 99 timeout-ms)]
       (is (= once twice)))))
 
-(deftest first-appearance-slots-are-frozen-so-an-exiting-child-does-not-jump
-  (let [s (-> (state-of [[[(toast 1 "a") (toast 2 "b") (toast 3 "c")] 0]])
-              rf.fresco.impl.presence/settle
-              (rf.fresco.impl.presence/step [(toast 1 "a") (toast 3 "c")] 100 timeout-ms))]
-    (is (= [1 2 3] (:order s)) "the middle child holds its slot while it exits")
-    (let [s (rf.fresco.impl.presence/step s [(toast 1 "a") (toast 3 "c") (toast 4 "d")] 120 timeout-ms)]
-      (is (= [1 2 3 4] (:order s)) "and a genuinely new child is appended"))))
+(defn- settled-on
+  "The settled state after one render of `ids`, at instant 0."
+  [ids]
+  (rf.fresco.impl.presence/settle
+    (state-of [[(mapv #(toast % (str %)) ids) 0]])))
+
+(defn- order-after
+  "The render order once `ids` is the input, at `now`."
+  [s ids now]
+  (:order (rf.fresco.impl.presence/step s (mapv #(toast % (str %)) ids) now timeout-ms)))
+
+(deftest with-nothing-exiting-the-order-is-exactly-the-input-order
+  (let [s (settled-on [1 2 3])]
+    (is (= [3 1 2] (order-after s [3 1 2] 100))
+        "a re-sorted input renders re-sorted — retained keys do not keep their old slots")
+    (is (= [2 1 3] (order-after s [2 1 3] 100)) "a swap renders swapped")
+    (is (= [0 1 2 3] (order-after s [0 1 2 3] 100))
+        "a prepended key renders first, not at the end")
+    (is (= [1 4 2 3] (order-after s [1 4 2 3] 100))
+        "a new key renders where the input put it")))
+
+(deftest an-exiting-child-holds-its-place-after-the-key-it-followed
+  (let [s (settled-on [1 2 3])]
+    (testing "the middle child holds its slot while it exits"
+      (is (= [1 2 3] (order-after s [1 3] 100))))
+    (testing "and a new key still renders where the input put it"
+      (let [gone (rf.fresco.impl.presence/step s [(toast 1 "1") (toast 3 "3")] 100 timeout-ms)]
+        (is (= [1 2 4 3] (order-after gone [1 4 3] 120))
+            "2 stays straight after 1, the key it followed; 4 takes its input slot after it")))
+    (testing "live keys follow a reorder, and the exiting key travels with the key it followed"
+      (is (= [3 1 2] (order-after s [3 1] 100))))
+    (testing "an exiting head stays at the head"
+      (is (= [1 2 3] (order-after s [2 3] 100)))
+      (is (= [1 5 2 3] (order-after s [5 2 3] 100))))
+    (testing "a run of exiting keys stays together, in the order it had"
+      (is (= [1 2 3] (order-after s [1] 100)))
+      (is (= [4 1 2 3] (order-after s [4 1] 100))))
+    (testing "a key that comes back takes its input slot again"
+      (let [gone (rf.fresco.impl.presence/step s [(toast 1 "1") (toast 3 "3")] 100 timeout-ms)]
+        (is (= [2 3 1] (order-after gone [2 3 1] 150)))))))
+
+(deftest the-merged-order-is-a-fixed-point-of-step
+  (testing "re-deriving with the same input changes nothing, so the React
+            half's adjust-during-render converges after one extra pass"
+    (let [s       (settled-on [1 2 3 4])
+          inputs  (mapv #(toast % (str %)) [4 1])
+          once    (rf.fresco.impl.presence/step s inputs 100 timeout-ms)
+          twice   (rf.fresco.impl.presence/step once inputs 150 timeout-ms)]
+      (is (= [4 1 2 3] (:order once)))
+      (is (= once twice)))))
 
 (defn- refusal-data
   "Run `f` and answer the ex-data of the refusal it raised — or a marker

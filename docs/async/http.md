@@ -158,7 +158,7 @@ frame capture.
 The failure map always carries a `:kind`: a keyword from a fixed list of seven, never a string.
 
 - **No response at all.** `:rf.http/transport` is a network, DNS or connection error, or a `:body` that could not be prepared. In the browser, the same trouble against a cross-origin URL also carries `:cross-origin? true`, because Fetch reports a CORS refusal and a dropped connection the same way, so it may be either. `:rf.http/timeout` means the per-attempt timeout fired.
-- **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:status`, `:headers`, the raw response text at `:body-text`, and the `:body` — parsed when its Content-Type is JSON, the raw text otherwise.
+- **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:http-status`, `:headers`, the raw response text at `:body-text`, and the `:body` — parsed when its Content-Type is JSON, the raw text otherwise.
 - **A 2xx the app rejected.** `:rf.http/decode-failure` means your `:decode` rejected the body; `:rf.http/accept-failure` means your [`:accept`](#a-valid-200-can-still-be-a-failure-accept) did.
 - **Cancelled.** `:rf.http/aborted`, with a `:reason` saying who cancelled: `:user` for a manual abort or `:abort-signal`, `:actor-destroyed` for a machine actor's destroy. A supersession, a frame's teardown and an epoch restore abort too, but deliver no reply.
 

@@ -531,7 +531,7 @@
                                            :mark      (::mark ctx)}))}])
         (let [reply (request! (str base "/items"))]
           (is (= {:remaining "37" :mark :stamped} (:rate-limit reply)))
-          (is (= 200 (get-in reply [:meta :status]))))))))
+          (is (= 200 (get-in reply [:meta :http-status]))))))))
 
 ;; ---- chain resolution is at ISSUE time ------------------------------------
 ;;
@@ -617,7 +617,7 @@
       (fn [base]
         (reg-and-name! [:accept-404
                         {:after (fn [_ctx resp]
-                                  (if (= 404 (get-in resp [:error :status]))
+                                  (if (= 404 (get-in resp [:error :http-status]))
                                     (-> resp (dissoc :error) (assoc :status :ok :value []))
                                     resp))}])
         (let [routed (routed! (str base "/missing") split)]
@@ -642,7 +642,7 @@
                           {:after (fn [_ctx resp]
                                     (if (= :ok (:status resp))
                                       (-> resp (dissoc :value :meta)
-                                          (assoc :status :error :error {:kind :rf.http/http-5xx :status 503}))
+                                          (assoc :status :error :error {:kind :rf.http/http-5xx :http-status 503}))
                                       resp))}])
           (let [routed (routed! (str base "/minted") split
                                 {:retry {:on #{:rf.http/http-5xx} :max-attempts 3
