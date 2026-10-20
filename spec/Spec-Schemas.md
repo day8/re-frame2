@@ -3575,7 +3575,7 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events the runtime FIRES-AND-FORGETS after a successful activation (EP-0037 R1). Never drives readiness; a planning-failure target dispatches none. Per [012 §Per-route data loading](012-Routing.md#per-route-data-loading).
    [:can-leave       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id>]) returns boolean — true means "OK to leave". Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:can-enter       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id> <target>]) returns boolean — true means "OK to enter". A false/non-boolean is a TERMINAL denial dispatching :rf.route/entry-denied. Per [012 §Entry is terminal](012-Routing.md#entry-is-terminal).
-   [:scroll          {:optional true} [:enum :top :restore :preserve false]] ;; CLOSED vocabulary; `false` suppresses the :rf.nav/scroll fx. There is no map form — nothing would interpret it, so it would validate and then silently no-op. Per [012 §Custom scroll strategies](012-Routing.md#custom-scroll-strategies).
+   [:scroll          {:optional true} [:enum :top :restore false]]           ;; CLOSED vocabulary; `false` suppresses the :rf.nav/scroll fx. There is no map form — nothing would interpret it, so it would validate and then silently no-op. Per [012 §Custom scroll strategies](012-Routing.md#custom-scroll-strategies).
    [:sensitive       {:optional true} [:vector Path]]                      ;; projection-relative :rf/paths redacted at egress while the route is active (EP-0025). Per [012 §Route data classification](012-Routing.md#route-data-classification).
    [:large           {:optional true} [:vector Path]]])                    ;; projection-relative :rf/paths kept off the wire at egress while active (EP-0025); sensitive wins at same path. Per [012 §Route data classification](012-Routing.md#route-data-classification).
 ```
@@ -3834,11 +3834,12 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
   [:map
    ;; CLOSED vocabulary, with no map form: no registry, callback, or late-bound hook
    ;; interprets a map strategy, so an admitted map would validate here, ride the planner
-   ;; verbatim, and then fall into the fx handler's nil branch: no scroll, no diagnostic. An
-   ;; accepted-and-ignored value is strictly worse than a rejected one. An unsupported
-   ;; strategy fails at `:where :fx-args`, and the handler's own default emits
-   ;; `:rf.error/unsupported-scroll-strategy` on hosts without the optional schemas artefact.
-   [:strategy  [:enum :top :restore :preserve]]
+   ;; verbatim, to a handler with nothing to do with it. An accepted-and-ignored value is
+   ;; strictly worse than a rejected one. An unsupported strategy fails at `:where :fx-args`;
+   ;; on hosts without the optional schemas artefact the handler throws on it, surfacing as
+   ;; `:rf.error/fx-handler-exception`. "Don't scroll" is no strategy: `:scroll false` emits
+   ;; no effect.
+   [:strategy  [:enum :top :restore]]
    [:from      {:optional true} [:map [:id :keyword] [:params {:optional true} :map] [:query {:optional true} :map]]]
    [:to        {:optional true} [:map [:id :keyword] [:params {:optional true} :map] [:query {:optional true} :map]]]
    ;; Runtime-captured saved position (for :restore), read straight off the browser's
