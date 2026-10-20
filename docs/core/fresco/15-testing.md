@@ -144,8 +144,9 @@ vector the button contains.
 ## L2: one view body as a semantic tree
 
 A `defview` cannot be called directly. `ht/tree` supplies a browser-free render
-context, resolves `h/sub` calls from a fixture map, and returns a versioned
-semantic tree.
+context, resolves `h/sub` calls from a fixture map, and returns the hiccup the
+body returned, normalised, so a test asserts in the language the view is
+written in.
 
 ```clojure
 (ns todo.views-test
@@ -164,12 +165,12 @@ semantic tree.
             :done? false}}})]
     (is (= "Buy milk"
            (ht/text
-            (ht/find tree #(= :label (:tag %))))))
+            (ht/find tree #(= :label (first %))))))
 
     (is (= [:todo/toggle 7]
            (:on-change
             (ht/attrs
-             (ht/find tree #(= :input (:tag %)))))))
+             (ht/find tree #(= :input (first %)))))))
 
     (is (= [[:todo/toggle 7]]
            (ht/intents tree)))))
@@ -178,20 +179,43 @@ semantic tree.
 The head may be the `defview` or its underlying body function. No React
 element is created, and nothing mounts or paints.
 
+### The tree is hiccup
+
+Every node is `[head attrs & children]`, and `attrs` is always a map. The
+`.class#id` sugar is folded into `:class` and `:id`, `nil` attributes are
+dropped, `:on-*` intents stay in the map as the data you wrote, adjacent text
+is joined, and `for` results are spliced in place. A small body is often
+clearest asserted whole:
+
+```clojure
+(is (= [:li {}
+        [:label {}
+         [:input {:type :checkbox :checked false :on-change [:todo/toggle 7]}]
+         "Buy milk"]]
+       tree))
+```
+
+Attribute values are what the author wrote: there is no px rule and no
+canonical style map. A function-valued attribute records as
+`{:rf.ui/opaque :fn}`, so a test can see that a callback is there without
+comparing functions.
+
 Useful tree helpers include:
 
-- `ht/find` — find a node using a predicate over node maps;
-- `ht/attrs` — return a node's attributes;
+- `ht/find` / `ht/find-all` — find nodes using a predicate over nodes;
+- `ht/attrs` — return a node's attribute map;
 - `ht/text` — collect its text;
 - `ht/intents` — collect event intents in the tree.
 
-A node's `:tag` identifies an element. `:view-id` identifies a child view call.
-It is a string, the `"<ns>/<sym>"` name that `ht/view-name` returns for the
-view (and the name React DevTools shows). Take it from the var rather than
-typing the string, so a rename moves the test with the code:
+A node's head identifies it: a tag keyword for an element, `:<>` for a
+fragment, and `:rf.ui/view` for a child view call. A view call's attribute map
+carries `:view-id`, the `"<ns>/<sym>"` name that `ht/view-name` returns for the
+view (and the name React DevTools shows), beside the props the call passed.
+Take it from the var rather than typing the string, so a rename moves the test
+with the code:
 
 ```clojure
-(ht/find tree #(= (ht/view-name views/todo-row) (:view-id %)))
+(ht/find tree #(= (ht/view-name views/todo-row) (:view-id (ht/attrs %))))
 ```
 
 If the tree contains an `h/route-link`, compare intents by membership rather
@@ -200,21 +224,20 @@ than exact equality; see
 
 ### The root is always a node
 
-`ht/tree` returns a node map, never `nil`. A body that returns one element
-roots in that element. A body that returns text, several forms, or nothing at
-all roots in a fragment: a map carrying the version and a `:children` vector.
-So a body whose whole return is `nil`, usually a `when` that did not fire,
-returns this, and `(nil? tree)` is false:
+`ht/tree` returns a node, never `nil`. A body that returns one element roots in
+that element. A body that returns text, several forms, or nothing at all roots
+in a fragment. So a body whose whole return is `nil`, usually a `when` that did
+not fire, returns this, and `(nil? tree)` is false:
 
 ```clojure
-{:rf.ui/tree-version 1 :children []}
+[:<> {}]
 ```
 
-Assert `(empty? (:children tree))`. Asserting the absence of the node you care
-about is stronger still, because it survives the body later gaining a wrapper:
+Assert `(= [:<> {}] tree)`. Asserting the absence of the node you care about is
+stronger still, because it survives the body later gaining a wrapper:
 
 ```clojure
-(is (nil? (ht/find tree #(= :nav (:tag %)))))
+(is (nil? (ht/find tree #(= :nav (first %)))))
 ```
 
 ### Subscription fixtures
@@ -239,7 +262,12 @@ L2 runs one body. A nested child such as:
 [todo-row {:key id :id id}]
 ```
 
-is represented by its view id, props and children; its body does not expand.
+is recorded as the call it is, and its body does not expand:
+
+```clojure
+[:rf.ui/view {:view-id "todo.views/todo-row" :key 7 :id 7}]
+```
+
 Assert the child's props at the parent call site and test the child
 separately, so each failure points at one view.
 
@@ -503,17 +531,17 @@ moves. That proves the test can fail.
         (ht/tree
          [views/todo-list {}]
          {:subs {[:todo/visible] [{:id 1} {:id 2} {:id 3}]}})
-        rows (:children tree)]
+        rows (ht/find-all tree #(= :rf.ui/view (first %)))]
     (is (= 3 (count rows)))
-    (is (= [{:id 1} {:id 2} {:id 3}]
-           (mapv ht/attrs rows)))))
+    (is (= [1 2 3]
+           (mapv #(:id (ht/attrs %)) rows)))))
 
 (deftest every-visible-todo-gets-a-row--sabotage-twin
   (let [tree
         (ht/tree
          [views/todo-list {}]
          {:subs {[:todo/visible] []}})]
-    (is (empty? (:children tree)))))
+    (is (= [:ul {}] tree))))
 ```
 
 The list test proves that the parent calls one row per id with the expected
@@ -537,7 +565,7 @@ props. The row's own test proves what a row renders.
 | `hm/assert-clean!` fails | A subscription, reader edge or frame survived unmount | Fix the leak; a foreign host that keeps a callback, or a frame the app made and did not destroy, is a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | An L1 equality on a helper's Hiccup sees an unexpected `nil` | A `when` in the helper returned `nil`; it renders nothing but is still in the authored data | Include that `nil` in the expected value, or filter it before comparing |
-| `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(empty? (:children tree))` ([The root is always a node](#the-root-is-always-a-node)) |
+| `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(= [:<> {}] tree)` ([The root is always a node](#the-root-is-always-a-node)) |
 | Every `hm` call compiles but nothing mounts | The test lane has no `document` | Run L3 on a `:browser-test` target ([Where L3's DOM comes from](#where-l3s-dom-comes-from)) |
 | An `ht/intents` equality reds when an unrelated test is added | The tree holds a route link, whose navigate decision carries a per-call probe frame id | Compare by membership, or filter to the heads you own ([The intent stream carries more than your events](#the-intent-stream-carries-more-than-your-events)) |
 | A collection test remains green with an empty list | The assertion is vacuously true | Assert the count and add a sabotage twin |

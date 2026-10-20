@@ -580,7 +580,8 @@ Related: [Testing](15-testing.md#the-testing-ladder).
 ### Semantic harness
 
 `ht/tree` runs one hook-free Fresco view body with injected subscription
-fixtures and returns a semantic tree. Nested views remain represented as calls.
+fixtures and returns the hiccup it returned, normalised. Nested views remain
+represented as calls.
 Hosts and raw React elements are refused, and a hook call fails with React's
 own error; all three belong at L3.
 
