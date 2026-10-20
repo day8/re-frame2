@@ -136,7 +136,7 @@ returns, so a plain unit test can check them:
 (defn toggle-attrs [open?]
   (let [tree (ht/tree [views/filter-toggle {}]
                       {:subs {[:todo.ui/filter-menu-open?] open?}})]
-    (ht/attrs (ht/find tree #(= :button (:tag %))))))
+    (ht/attrs (ht/find tree #(= :button (first %))))))
 
 (deftest toggle-announces-its-state
   (is (= "menu" (:aria-haspopup (toggle-attrs true))))

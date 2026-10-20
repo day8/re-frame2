@@ -67,7 +67,7 @@ There is no 004 view contract, and this corpus asserts none. `004B` and `004C` o
 
 | # | Title | One-liner |
 |---|---|---|
-| 004B | [UI Tree and Conversion](004B-UI-Tree-and-Conversion.md) | The structural render-tree ABI v1 — five closed node variants, canonical form, semantic normalization `N` — plus the one DOM conversion table its emitters share. |
+| 004B | [UI Tree and Conversion](004B-UI-Tree-and-Conversion.md) | The structural tree a Fresco view body is tested as — normalised Hiccup, its canonical form and projections — plus the one DOM conversion table its emitters share. |
 | 004C | [Root identity and mount](004C-Roots-and-Mount.md) | Root identity: the host-passed root-id and the identifier-prefix rule a hydrating root keeps, idempotent payload install, content-digest conflict detection, and the hydrating-root boot sequence. Owns no mount verb — the client root is [006](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)'s. |
 | 005 | [State Machines](005-StateMachines.md) | Transition-table grammar layered on 002's machines-as-event-handlers hooks. |
 | 006 | [Reactive Substrate](006-ReactiveSubstrate.md) | Substrate-agnostic core + adapter contract. Reagent default; plain-atom for JVM/SSR/headless. |

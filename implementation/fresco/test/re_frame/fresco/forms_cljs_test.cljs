@@ -177,7 +177,7 @@
                                         props)]
            {:subs {[rf.fresco.forms/drafts control] record}}))
 
-(defn- input-attrs [tree] (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :input (:tag %)))))
+(defn- input-attrs [tree] (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :input (first %)))))
 
 (defn- shown
   "What the field would DISPLAY for `record` under `revision`, against a

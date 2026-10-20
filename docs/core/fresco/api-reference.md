@@ -383,10 +383,9 @@ ht/ladder
 (ht/capture-intents frame-kw f)
 (ht/fire! frame-kw form prop event)
 
-;; L2 — the structural tree
+;; L2 — the structural tree, as normalised hiccup
 (ht/tree form)
 (ht/tree form {:subs fixtures})
-ht/tree-version
 (ht/find-all tree pred)   (ht/find tree pred)
 (ht/attrs node)           (ht/text node)      (ht/intents tree)
 (ht/markup-role node)     (ht/markup-name tree node)
@@ -408,10 +407,9 @@ ht/tree-version
 | `ht/canonical-dom` | a DOM subtree serialised with attribute names sorted and the development annotations `data-rf2-source-coord` and `data-rf-view` removed |
 | `ht/capture-intents` | runs `f` and returns `{:value <f's value> :intents [event-v …]}` — the events dispatched into `frame-kw` meanwhile. Other frames' events are ignored. An event whose registration declares `:sensitive` paths is captured with those paths as `:rf/redacted`, as on every other observation surface |
 | `ht/fire!` | converts one handler position to its React callback and invokes it with an event described as data; returns `{:intents […] :prevented? bool}` |
-| `ht/tree` | runs one hook-free body under injected read fixtures and returns its versioned semantic tree. `opts` takes only `:subs`; any other key throws |
-| `ht/tree-version` | the structural-tree schema version `ht/tree` stamps on its root |
+| `ht/tree` | runs one hook-free body under injected read fixtures and returns the hiccup it returned, normalised: every node is `[head attrs & children]`, a child view call is `[:rf.ui/view {:view-id …} …]`, and a body that renders nothing answers `[:<> {}]`. `opts` takes only `:subs`; any other key throws |
 | `ht/find-all` / `ht/find` | every node, or the first node, for which `pred` is truthy, in document order. `nil` threads through a missed match |
-| `ht/attrs` | the merged attribute projection of a node — `:attrs` with `:events` for an element, the passed props for a boundary call, `{}` for a fragment |
+| `ht/attrs` | the attribute map of a node — an element's attributes with its `:on-*` intents, the passed props and `:view-id` for a view call, `{}` or `{:key k}` for a fragment |
 | `ht/text` | the concatenation of a node's text descendants. Over a boundary node this is what the **call site** wrote, never the child's own rendering |
 | `ht/intents` | every event vector the tree carries, in document order — what a rendering **offers** to dispatch, where `ht/capture-intents` says what it did |
 | `ht/markup-role` | the role the markup gives a node — the `:role` written, else the tag's implicit role — as a keyword, or `nil`. A reading of the markup, not of an accessibility tree |
