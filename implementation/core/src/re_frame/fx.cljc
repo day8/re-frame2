@@ -6,7 +6,6 @@
   artefact carries none of their code."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.reg-meta :as rf.reg-meta]
@@ -347,61 +346,19 @@
   `extras`: `:source`, the child's own trigger, never inherited; `:ms`, a
   number to delay by, else dispatch now; `:id`, read only with `:ms`, which
   replaces any timer pending under it; `:source-detail`, for the dispatched
-  trace; `:rf.flow/settle?`, set only by `settle-flows-after-walk!`; and
-  `:rf.cofx`, merged verbatim so an owner-qualified fact is recorded and
-  re-presented on strict replay."
+  trace; and `:rf.cofx`, merged verbatim so an owner-qualified fact is
+  recorded and re-presented on strict replay."
   [frame-id parent-envelope event
-   {:keys [source ms id source-detail] rf-cofx :rf.cofx flow-settle? :rf.flow/settle?}]
+   {:keys [source ms id source-detail] rf-cofx :rf.cofx}]
   (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
                (some? source-detail) (assoc :source-detail source-detail)
-               (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
-               (true? flow-settle?)  (assoc :rf.flow/settle? true))]
+               (some? rf-cofx)       (assoc :rf.cofx rf-cofx))]
     (if (number? ms)
       ;; A timer callback, dispatched after the emitting event returned, so it
       ;; joins the external lane even at 0 ms.
       (arm-dispatch-later! frame-id ms event opts id)
       (when-let [f (rf.late-bind/get-fn :router/dispatch!)]
         (f event opts)))))
-
-;; ---- flow settle after a state-writing walk (Spec 013 §Sequencing) --------
-
-(defn- walk-changed-flowed-frame-state?
-  "True when a completed `:fx` walk changed `frame-id`'s frame-state container
-  and the frame runs a flow: the settle's trigger.
-
-  The flow pass, the router's outermost `:after`, has already run when the
-  walk starts, so a write during the walk (a machine lifecycle effect, a
-  resource write, any user fx) would leave flows publishing the pre-write
-  value. Keyed on the container rather than a list of writers, which would be
-  easy to leave incomplete. The flows guard keeps this free where it does not
-  apply: without it, a frame with no flows would enqueue a settle that
-  recomputes nothing after every writing walk."
-  [frame-id state-at-walk-start]
-  (and (not (identical? state-at-walk-start (rf.frame/frame-state-value frame-id)))
-       (if-let [has-flows? (rf.late-bind/get-fn :flows/frame-has-flows?)]
-         (boolean (has-flows? frame-id))
-         false)))
-
-(defn- settle-flows-after-walk!
-  "Enqueue one settle event when `walk-changed-flowed-frame-state?`, at the
-  end of the walk so one pass settles everything the walk wrote (Spec 013
-  §Sequencing — settling on the dispatching frame). It goes through
-  `child-dispatch!` to inherit the parent's overrides and frame, with
-  `:source :fx-dispatch`, since `:source` is a closed enum and the walk is its
-  trigger. `:rf.flow/settle?` puts it at the head of the internal lane, ahead
-  of the handler's own continuations (see `router/insert-envelope`).
-
-  The event id is a literal rather than `re-frame.events/settle-flows-event-id`
-  because `events` requires `cofx`, which requires this namespace. A mismatch
-  would raise `:rf.error/no-such-handler` on every settle, which the settle
-  tests assert against."
-  [frame-id parent-envelope state-at-walk-start]
-  (when (walk-changed-flowed-frame-state? frame-id state-at-walk-start)
-    (child-dispatch! frame-id parent-envelope
-                     [:rf/settle-flows]
-                     {:source            :fx-dispatch
-                      :rf.flow/settle?  true}))
-  nil)
 
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body fn `(fn [frame-id parent-envelope args])`, driven by
@@ -858,8 +815,6 @@
   begins; a failing entry is reported and the walk continues (Spec 002 §`:fx`
   ordering and atomicity guarantees). Malformed entries are dropped by
   `fx-entry-ok?`. With `*effect-sink*` bound, entries are recorded, not run.
-  When the walk wrote the state of a frame running a flow, one settle is
-  enqueued at the end.
 
   `opts`: `:overrides`, the effective `:fx-overrides`; `:origin-event` and
   `:parent-envelope`, passed to handlers as `:event` and `:envelope`; and
@@ -870,30 +825,22 @@
    (do-fx frame-id fx-vec active-platform nil))
   ([frame-id fx-vec active-platform
     {:keys [overrides origin-event parent-envelope effects]}]
-   ;; The settle's baseline: the frame state after this event's flow pass and
-   ;; install, compared by identity when the walk ends.
-   (let [state-at-walk-start (rf.frame/frame-state-value frame-id)]
-     (loop [pairs (seq fx-vec)]
-       (cond
-         (nil? pairs)
-         (do
-           (rf.trace/emit! :rf.fx :rf.fx/do-fx
-                        (cond-> {:frame frame-id}
-                          (some? effects)
-                          (assoc :rf.event/fx          (:fx effects)
-                                 :rf.event/db-present? (contains? effects :db))))
-           ;; After the terminal marker, so the settle's dispatch trace reads as
-           ;; a consequence of the walk rather than part of it.
-           (settle-flows-after-walk! frame-id parent-envelope
-                                     state-at-walk-start))
+   (loop [pairs (seq fx-vec)]
+     (cond
+       (nil? pairs)
+       (rf.trace/emit! :rf.fx :rf.fx/do-fx
+                    (cond-> {:frame frame-id}
+                      (some? effects)
+                      (assoc :rf.event/fx          (:fx effects)
+                             :rf.event/db-present? (contains? effects :db))))
 
-         :else
-         (let [pair (first pairs)]
-           (when (fx-entry-ok? pair frame-id origin-event)
-             (if-let [sink *effect-sink*]
-               ;; Dry-run records but never executes the entry.
-               (swap! sink conj [(first pair) (second pair)])
-               (handle-one-fx frame-id pair active-platform
-                              (or overrides {}) origin-event
-                              parent-envelope)))
-           (recur (next pairs))))))))
+       :else
+       (let [pair (first pairs)]
+         (when (fx-entry-ok? pair frame-id origin-event)
+           (if-let [sink *effect-sink*]
+             ;; Dry-run records but never executes the entry.
+             (swap! sink conj [(first pair) (second pair)])
+             (handle-one-fx frame-id pair active-platform
+                            (or overrides {}) origin-event
+                            parent-envelope)))
+         (recur (next pairs)))))))

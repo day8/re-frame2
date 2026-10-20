@@ -229,9 +229,10 @@
 
 (deftest ^:requires-debug schema-rejection-keeps-flow-claims-on-the-committed-output
   ;; A re-registration that moves a flow's output path reaches the frame on its
-  ;; next event, whose pass claims the new path and vacates the old one. When
-  ;; that event is rejected the old output stays committed, so its claim comes
-  ;; back with the restored memo; the next committed event moves both.
+  ;; next event, whose pass claims the new path and vacates the old one. Ahead
+  ;; of the install a pass only adds claims, so when that event is rejected the
+  ;; old output stays committed and keeps its claim; the next committed event
+  ;; installs the exact set, moving both.
   (let [mover (fn [path]
                 (rf/reg-flow :mover {:inputs      [[:n]]
                                      :output-path path

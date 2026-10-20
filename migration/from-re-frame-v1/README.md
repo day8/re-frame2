@@ -480,7 +480,7 @@ re-frame2 reserves a single root keyword namespace for **framework-owned** ids: 
 
 - **Rename to a non-reserved namespace.** Pick a top-level segment that doesn't shadow the framework — typically the project's own root namespace.
 - **Genuinely override a framework extension point.** A small number of framework-owned events are extension points (for example `:rf/hydrate` is documented as customisable via re-registration of the standard handler). The agent confirms the override is intentional and leaves it; otherwise renames.
-- **Decline to action.** The user takes responsibility for the collision (rare). Nothing warns at runtime about the reserved namespace: the one reserved-id guard is `:rf.error/reserved-event-id`, which refuses a `reg-event` of the three framework-owned event ids `:rf/set-db`, `:rf/install-frame-state` and `:rf/settle-flows`.
+- **Decline to action.** The user takes responsibility for the collision (rare). Nothing warns at runtime about the reserved namespace: the one reserved-id guard is `:rf.error/reserved-event-id`, which refuses a `reg-event` of the three reserved framework event ids `:rf/set-db`, `:rf/install-frame-state` and the retired `:rf/settle-flows`.
 
 This is Type B because the rewrite depends on intent the agent can't recover statically — was the user *trying* to override a framework event or accidentally colliding? The user must say.
 

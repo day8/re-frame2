@@ -9,7 +9,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             ;; `replace-frame-state!` is the epoch artefact's tool write; it
-            ;; resets the frame's flow memo through `:flows/restore-last-inputs!`.
+            ;; distrusts the frame's flow memo through `:flows/distrust-memo!`.
             [re-frame.epoch :as rf.epoch]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]

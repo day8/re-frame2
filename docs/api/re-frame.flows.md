@@ -121,15 +121,15 @@ Flows run inside the event pipeline, in a pass the router makes once per event:
 - **After the handler, before the install.** Every event a frame handles runs the flow pass over the flows its `:flows` names as the router's outermost `:after` interceptor: after the handler and every other interceptor, so a `path` interceptor has already spliced its slice back into the whole `app-db`, and before the new `app-db` installs and the event's `:fx` run. An event whose handler returns no `:db` still runs the pass, over the current `app-db`.
 - **Against the pending state.** Inputs are read from the state the event is about to commit, its pending `app-db` and `runtime-db`. Each recomputed output is written into the pending `app-db`, so the event installs `app-db` once, with the handler's write and the flows' outputs together. A handler therefore reads a flow's output as it stood after the previous event.
 - **In dependency order, dirty-checked.** A flow that reads another flow's output runs after it and sees the value computed in the same pass. A flow whose input values are `=` to those of its last run skips `derive-fn` and emits `:rf.flow/skip`.
-- **Checked with the event.** The frame's app-db schemas validate the pending `app-db` with the flows' outputs in it ([What is validated](re-frame.schemas.md#what-is-validated)). When they reject it, nothing installs and the frame's evaluation memo rolls back, so the flows recompute on the next event.
+- **Checked with the event.** The frame's app-db schemas validate the pending `app-db` with the flows' outputs in it ([What is validated](re-frame.schemas.md#what-is-validated)). When they reject it, nothing installs and the frame's evaluation memo does not advance, since it advances only with the install, so the flows recompute on the next event.
 - **Not after a failure.** When the handler or an interceptor throws, the pass does not run. When a flow throws, the event commits nothing; see [When a flow throws](#when-a-flow-throws).
-- **Writes made by `:fx`.** The pass has already run when the `:fx` walk starts, so an effect that writes `app-db` or `runtime-db`, such as a machine transition or a resource write, lands after it. In a frame that runs flows, the walk then queues one `[:rf/settle-flows]` event at the head of the frame's queue, so the flows see the write before the drain finishes and before any event the same handler dispatched.
+- **Writes made by `:fx`.** The pass has already run when the `:fx` walk starts, so an effect that writes `app-db` or `runtime-db`, such as a machine spawn or a user effect calling `swap-runtime-db!`, lands after it. When the walk changed the frame's state, the event runs the pass again over what the walk left and installs the outputs before it ends, so the flows see the write in the same event and epoch, before any event the handler dispatched. A throw in that second pass installs nothing of it and reports `:rf.error/flow-eval-exception` against the event; the walk's writes stand.
 - **Never outside an event.** Registering, re-registering or clearing a flow runs nothing; each frame running it reconciles the change on its next event.
 - **Re-registration.** A frame whose memo row was computed with a different definition recomputes that flow on its next event even when its inputs are unchanged. When the new definition moves `:output-path`, that pass removes the value at the old path in the same pending `app-db`.
 
 ## When a flow throws
 
-If a flow's `derive-fn` throws, or its result cannot be written at `:output-path`, the event aborts before `app-db` is installed. Nothing from that event is committed, the flows after it in the pass do not run, and the flow is tried again on the frame's next event. The failure is reported as `:rf.error/flow-eval-exception`. [What happens when a derive throws](../core/flows.md#what-happens-when-a-derive-throws) walks through an example.
+If a flow's `derive-fn` throws, or its result cannot be written at `:output-path`, the event aborts before `app-db` is installed. Nothing from that event is committed, the flows after it in the pass do not run, and the flow is tried again on the frame's next event. A throw in the second pass an event runs after its `:fx` wrote the frame's state installs nothing of that pass; the event's own install and its `:fx` writes stand. The failure is reported as `:rf.error/flow-eval-exception`. [What happens when a derive throws](../core/flows.md#what-happens-when-a-derive-throws) walks through an example.
 
 The error goes through the always-on error reporting, so production builds report it too, to the frame's `:observability :errors` sinks (or the process default's). See [Report errors in production](../core/how-to/report-errors-in-production.md) to wire the listeners.
 
@@ -178,12 +178,13 @@ Not for application code — used by adapters, tools and the test harness.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (run-flows-on-db frame-id db runtime-db) → app-db
+  (run-flows-on-db frame-id db runtime-db) → {:db app-db, :publish! thunk?, :claims f?}
   ```
-- **Description**: Runs the flows a frame's `:flows` names over a pending frame-state and returns the resulting `app-db`. The router installs it as the outermost `:after` interceptor, so it runs last, against the chain's pending `:db` effect and before `app-db` is installed; [When flows run](#when-flows-run) places it in the event.
+- **Description**: Runs the flows a frame's `:flows` names over a pending frame-state and returns the candidate: the resulting `app-db` under `:db`, plus what the caller publishes once that candidate installs. The router runs it as the outermost `:after` interceptor, so it runs last, against the chain's pending `:db` effect and before `app-db` is installed, and again after an `:fx` walk that wrote the frame's state; [When flows run](#when-flows-run) places it in the event.
     - Flows run in dependency order. Each is dirty-checked, and each recomputed result is written with `assoc-in` into the returned `app-db`. Outputs write `app-db` only.
     - `db` is the pending `app-db`; `runtime-db` is the pending `runtime-db` (pass `nil` to resolve only bare `app-db` inputs).
-    - A throw stops the pass, leaves the frame's evaluation memo as it was, and re-raises as `:rf.error/flow-eval-exception` (see [When a flow throws](#when-a-flow-throws)). The router then discards the pending `:db` effect, so the event commits nothing.
+    - The pass does not advance the frame's evaluation memo. When the memo would change, the result carries `:publish!`, a no-argument function the caller invokes once the candidate has installed; when a flow's output classification changes, it carries `:claims`, a function of `runtime-db` the caller applies to the candidate `runtime-db` it installs.
+    - A throw stops the pass and re-raises as `:rf.error/flow-eval-exception` (see [When a flow throws](#when-a-flow-throws)). The router then discards the pending `:db` effect, so the event commits nothing and the memo stays as it was.
 
 ### `reset-flows!`
 
