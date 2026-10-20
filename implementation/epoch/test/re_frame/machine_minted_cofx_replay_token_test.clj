@@ -9,6 +9,10 @@
   A sub-valued source (`{:rf/sub query-v :as fact-id}`) is evaluated inside the
   machine run too, so its value reaches the token the same way; the second
   deftest replays it from the real epoch record (Spec 005 §Consumer attachment).
+  The third pins that the value leaving the token takes the sub's own
+  classification (Spec 015 §Registration-owned transient classification), and
+  that a record whose sub fact was redacted is refused as incomplete input
+  rather than replayed with the substitute (Tool-Pair §Replay).
 
   ## Production gate
 
@@ -100,3 +104,46 @@
                 (-> (:rf.db/runtime (rf/frame-state-value :test/main))
                     (get-in [:rf.runtime/machines :snapshots :subfact/m :data :c]))])
             "the strict replay re-presents the recorded value without re-evaluating the query")))))
+
+(deftest sub-fact-leaves-the-token-projected-by-its-subs-classification
+  (let [seen   (atom nil)
+        traces (atom [])]
+    (rf/make-frame {:id :test/main})
+    (rf/reg-sub :subfact/session {:sensitive [[:token]]}
+      (fn [db _] (get db :session {:user "ada" :token "s3cret"})))
+    (rf/reg-sub :subfact/cfg (fn [db _] (get db :cfg 250)))
+    (rf/reg-machine :subfact/auth
+      {:initial :idle
+       :data    {}
+       :actions {:sample {:rf.cofx/requires [{:rf/sub [:subfact/session] :as :subfact/session-v}
+                                             {:rf/sub [:subfact/cfg] :as :subfact/cfg-v}]
+                          :fn (fn [{data :data cofx :rf.cofx}]
+                                (reset! seen (select-keys cofx [:subfact/session-v :subfact/cfg-v]))
+                                {:data (assoc data :user (:user (:subfact/session-v cofx)))})}}
+       :states  {:idle {:on {:go {:target :done :action :sample}}}
+                 :done {}}})
+    (rf/dispatch-sync [:subfact/auth [:rf.machine/start]] {:frame :test/main})
+    (rf/register-listener! :trace ::traces (fn [ev] (swap! traces conj ev)))
+    (try
+      (rf/dispatch-sync [:subfact/auth [:go]] {:frame :test/main :rf.cofx {:rf/time-ms 1}})
+      (finally (rf/unregister-listener! :trace ::traces)))
+    (let [projected {:user "ada" :token :rf/redacted}
+          generated (into {}
+                          (comp (filter #(= :rf.cofx/generated (:operation %)))
+                                (map (comp (juxt :rf.cofx/id :rf.cofx/value) :tags)))
+                          @traces)
+          rec       (epoch-record-for [:subfact/auth [:go]])]
+      (is (= {:subfact/session-v {:user "ada" :token "s3cret"} :subfact/cfg-v 250} @seen)
+          "the handler reads the real values off the in-flight token")
+      (is (= :done (machine-state :subfact/auth)))
+      (is (= {:subfact/session-v projected :subfact/cfg-v 250} generated)
+          ":rf.cofx/generated carries each fact projected by its own sub's classification")
+      (is (= {:rf/time-ms 1 :subfact/session-v projected :subfact/cfg-v 250} (:rf.cofx rec))
+          "the record's token carries the projected sensitive fact beside the unchanged one")
+      (is (= {:ok?    false
+              :reason :rf.epoch/replay-non-replayable-record
+              :cause  :incomplete-inputs
+              :lost   [{:slot :rf.cofx :path [:subfact/session-v :token] :loss :redacted}]}
+             (select-keys (rf.epoch/replay-epoch! :test/main (:epoch-id rec))
+                          [:ok? :reason :cause :lost]))
+          "strict replay refuses the redacted fact rather than re-presenting the substitute"))))
