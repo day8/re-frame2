@@ -993,8 +993,9 @@
 
 (defn- maybe-retry!
   "Decide whether attempt n's `failure` retries, and hand the outcome to
-  `completed!`. A retry needs budget left (`:max-attempts`) and a failure kind
-  the policy's `:on` names; `:rf.http/aborted` never retries.
+  `completed!`. A retry needs budget left (`:max-attempts`) and a failure the
+  policy's `:on` names, by its `:kind` or by the `:http-status` a 4xx / 5xx
+  failure carries; `:rf.http/aborted` never retries.
 
   The decision does not settle whether the request is still live —
   `completed!`'s commit does. An abort that lands after this decision commits
@@ -1002,31 +1003,32 @@
   re-issued (Spec 014 §Abort precedence).
 
   A failure that does not retry ends the request. When retries were part of
-  its lifecycle — an attempt after the first, or a retry-eligible kind under a
-  multi-attempt policy — that end is marked by the terminal
+  its lifecycle — an attempt after the first, or a retry-eligible failure under
+  a multi-attempt policy — that end is marked by the terminal
   `:rf.http/retry-attempt` STOP row (`:next-backoff-ms nil`, `:recovery
   :no-recovery`). It is NOT always exhaustion: the sequence also stops when a
-  later attempt fails with a kind outside `:retry :on`. A non-retried,
-  non-eligible failure on attempt 1 emits no such row — there was no retry
-  sequence to stop. The honest `:retried` row for a retry that DOES go ahead
-  is emitted by `fire!`, once attempt n+1 is really starting."
+  later attempt fails with a failure `:retry :on` does not name. A
+  non-retried, non-eligible failure on attempt 1 emits no such row — there
+  was no retry sequence to stop. The honest `:retried` row for a retry that
+  DOES go ahead is emitted by `fire!`, once attempt n+1 is really starting."
   [record ctx failure]
   (let [{:keys [retry attempt]}           ctx
         {:keys [on max-attempts backoff]} retry
-        on-set (or on #{})
-        kind   (:kind failure)]
+        on-set   (or on #{})
+        kind     (:kind failure)
+        eligible (or (contains? on-set kind)
+                     (contains? on-set (:http-status failure)))]
     (completed! record ctx
                 (if (and (some? max-attempts)
                          (> max-attempts attempt)
-                         (contains? on-set kind)
+                         eligible
                          (not= :rf.http/aborted kind))
                   {:failure  failure
                    :retry-ms (rf.http.encoding/compute-backoff-ms (or backoff {}) attempt)}
                   {:failure failure
                    :stop?   (and (some? max-attempts)
                                  (> max-attempts 1)
-                                 (or (> attempt 1)
-                                     (contains? on-set kind)))}))))
+                                 (or (> attempt 1) eligible))}))))
 
 (defn- complete-fenced!
   "THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform

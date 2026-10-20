@@ -1,8 +1,8 @@
 (ns re-frame.http-retry-on-validation-test
   "Spec 014 §Closed-set `:retry :on` validation. `:rf.http/managed` validates
   `:retry :on` at fx-call time, before the middleware chain and before any
-  attempt: a member outside the closed retryable set, or an `:on` that is not
-  a set, throws `:rf.error/http-bad-retry-on`, and so does a `:retry` map
+  attempt: a member that is neither a retryable category nor a status from 400
+  to 599, or an `:on` that is not a set, throws `:rf.error/http-bad-retry-on`, and so does a `:retry` map
   without `:max-attempts` (Spec 014 §Retry and backoff)."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -15,6 +15,9 @@
 
 (def ^:private closed-set
   #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx})
+
+(def ^:private retryable-set
+  {:categories closed-set :http-status-range [400 599]})
 
 (defn- call-managed!
   "Invoke the live handler with `retry` and no reply target; returns the
@@ -32,13 +35,24 @@
 
 (defn- expected-bad-members [members]
   {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed :recovery :no-recovery
-   :retryable-set closed-set :bad-members members})
+   :retryable-set retryable-set :bad-members members})
 
 (deftest mixed-good-and-bad-reports-only-bad
   (is (= (expected-bad-members #{:rf.http/aborted :rf.http/decode-failure})
          (bad-members (call-managed! {:on #{:rf.http/transport :rf.http/http-5xx
                                              :rf.http/aborted :rf.http/decode-failure}
                                       :max-attempts 3})))))
+
+(deftest a-status-outside-400-599-or-a-non-keyword-member-is-refused
+  ;; A retried status is one a 4xx or 5xx failure carries at :http-status, so
+  ;; an integer outside 400-599 names nothing that could retry.
+  (are [member] (= (expected-bad-members #{member})
+                   (bad-members (call-managed! {:on #{:rf.http/http-5xx 429 member} :max-attempts 3})))
+    99
+    399
+    600
+    "429"
+    429.0))
 
 (deftest non-set-on-shapes-rejected
   ;; A vector would make `contains?` test index membership, silently disabling retry.
@@ -49,9 +63,11 @@
                         [:rf.error/id :where :recovery :bad-shape :bad-type])))))
 
 (deftest retry-without-members-passes-through
-  ;; The whole closed set, no :on and a nil :on all pass.
+  ;; The whole closed set, statuses from 400 to 599, no :on and a nil :on all pass.
   (are [retry] (not= :rf.error/http-bad-retry-on (:rf.error/id (call-managed! retry)))
     {:on closed-set :max-attempts 3}
+    {:on #{429} :max-attempts 3}
+    {:on #{:rf.http/http-5xx 400 599} :max-attempts 3}
     {:max-attempts 3}
     {:on nil :max-attempts 3}))
 
