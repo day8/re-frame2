@@ -670,7 +670,8 @@
   run-start it resolves nothing; the caller pins a trigger of its own.
 
   The same walk collects `:rf.cofx/generated` traces that occur after
-  run-start, notably generator facts minted inside machine guards/actions.
+  run-start, notably generator facts minted inside machine guards/actions and
+  the values of a machine's sub-valued `{:rf/sub query-v :as fact-id}` sources.
   Merging those projected values into the initial token makes strict replay
   re-present every fact the run consumed. Pre-handler mints merge
   idempotently; later same-id mints win in event order."
