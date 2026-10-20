@@ -87,7 +87,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
         - `:rf.error/reg-event-bad-middle-slot`: the middle argument is not a map, such as re-frame v1's positional interceptor vector.
         - `:rf.error/reg-event-bare-interceptor`: an interceptor map passed as the middle argument instead of under `:interceptors`.
         - `:rf.error/reg-event-bad-interceptors`: `:interceptors` is not a vector of interceptor ids (`:my/ic` or `[id arg]`); an inline interceptor map in it raises `:rf.error/inline-interceptor-removed`.
-        - `:rf.error/reserved-event-id`: the id is one of the framework-owned events `:rf/set-db`, `:rf/install-frame-state` or `:rf/settle-flows`.
+        - `:rf.error/reserved-event-id`: the id is one of the framework-owned events `:rf/set-db` and `:rf/install-frame-state`, or the retired `:rf/settle-flows`, which stays reserved.
         - `:rf.error/unregistered-interceptor`: an `:interceptors` entry names an id with no `reg-interceptor`. References are checked when `reg-event` runs, and a frame's `:interceptors` when `make-frame` runs, so register interceptors first.
         - `:rf.error/interceptor-factory-arity`: an entry's shape does not match the registered interceptor (see [`reg-interceptor`](#reg-interceptor)). Factories do not run at registration, so `[:rf.interceptor/path :cart]` registers and throws `:rf.error/path-interceptor-bad-path` when the event runs.
         - `:rf.error/cofx-request-invalid`: `:rf.cofx/requires` is not a vector, or an entry is neither an id nor `[id arg]`.
