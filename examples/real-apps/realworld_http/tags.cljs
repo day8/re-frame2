@@ -237,8 +237,7 @@
 ;; `home-context` flattens the two home routes into one tidy
 ;; `{:tag :feed :page}` — the tag from the `/tag/:tag` route's params, the feed
 ;; and page from the query. It takes the route as a map: `:home/load` hands it
-;; the activation target its `:on-match` appends, `:home/show-page` the live
-;; route slice off the `:rf.db/runtime` coeffect. (The subs below instead
+;; the activation target its `:on-match` appends. (The subs below instead
 ;; compose off the public `[:rf.route/params]` / `[:rf.route/query]` subs.)
 (defn home-context [route]
   (let [query (:query route {})]
@@ -275,16 +274,18 @@
              your-feed?       (conj [:dispatch [:feed/load]])
              (not your-feed?) (conj [:dispatch [:articles/load]]))})))
 
-;; Switching feed, or applying/clearing a tag, is a fresh navigation — and so
-;; it drops any lingering `?page=` and lands you back on page 1. That's the
-;; official Conduit behaviour: change the feed or the tag and the page-number
-;; control resets. Only `:home/show-page` carries the current feed/tag forward,
-;; because paging shouldn't change what you're paging through.
+;; Switching feed, or applying/clearing a tag, is a fresh navigation — a `:to`
+;; destination, whose query is taken literally — and so it drops any lingering
+;; `?page=` and lands you back on page 1. That's the official Conduit behaviour:
+;; change the feed or the tag and the page-number control resets. Only
+;; `:home/show-page` carries the current feed/tag forward, because paging
+;; shouldn't change what you're paging through.
 ;;
 ;; (URL shapes again: the tag filter navigates to the `/tag/:tag` PATH route
 ;; `:realworld/home-tag`, the following feed uses `?feed=following`.
-;; `:home/show-page` re-aims at whichever home route is active — the tag route
-;; keeps its `:tag` param — so paging stays inside the tag.)
+;; `:home/show-page` navigates in place, so it stays on whichever home route is
+;; active — the tag route keeps its `:tag` param — and paging stays inside the
+;; tag.)
 
 (rf/reg-event :home/show-global-feed
   (fn [_ _]
@@ -295,19 +296,16 @@
     {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query {:feed following-feed-token}}]]]}))
 
 (rf/reg-event :home/show-page
-  {:doc "Jump to a 1-indexed page of the active home feed, carrying the current
-         feed / tag along so you keep paging the same list. A tag-filtered list
-         re-aims at the `/tag/:tag` route, tag param intact and `?page=` set;
-         otherwise the home route carries `?feed=` + `?page=`. Either way,
-         changing `?page=` re-fires the route's `:on-match` (same route, new
-         query), which re-runs `:home/load` and the fetch with the new
-         limit/offset window. The URL leads; the data follows."}
-  (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [tag feed]} (home-context (rf/compute-sub [:rf/route] rt))]
-      (if tag
-        {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query {:page page}}]]]}
-        (let [query (cond-> {:page page} feed (assoc :feed feed))]
-          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query query}]]]})))))
+  {:doc "Jump to a 1-indexed page of the active home feed. It navigates in
+         place — no `:to` — so it stays on the current route with its params,
+         and its `:query` merges into the current query: the `/tag/:tag` route
+         keeps its tag, `?feed=` rides along, and only `?page=` changes, so you
+         keep paging the same list. Changing `?page=` re-fires the route's
+         `:on-match` (same route, new query), which re-runs `:home/load` and
+         the fetch with the new limit/offset window. The URL leads; the data
+         follows."}
+  (fn [_ [_ page]]
+    {:fx [[:dispatch [:rf.route/navigate {:query {:page page}}]]]}))
 
 (rf/reg-event :tags/apply-filter
   (fn [_ [_ tag]]
