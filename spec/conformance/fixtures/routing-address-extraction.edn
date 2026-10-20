@@ -20,7 +20,7 @@
 ;;      request`; changing path params always requires a destination.
 ;;   3. EDIT-BRANCH complement — an in-place `{:query ...}` request follows
 ;;      the edit branch: it PATCHES the current location (route-id + params
-;;      carried, query replaced) and is never validated/stored as a
+;;      carried, query merged) and is never validated/stored as a
 ;;      RouteAddress.
 ;;   4. WHOLE-ROSTER validation before extraction — a misspelled/foreign key
 ;;      (namespaced included) rejects with `:reason :unknown-keys` even when
