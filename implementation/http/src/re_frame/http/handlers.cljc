@@ -59,41 +59,12 @@
   (or (contains? retryable-categories member)
       (and (integer? member) (<= 400 member 599))))
 
-(defn validate-retry!
-  "Per Spec 014 §Closed-set `:retry :on` validation, a
-  `:retry :on` value, when present and non-nil, MUST be a SET whose members
-  are each a `retryable-categories` keyword or an HTTP status integer from
-  400 to 599, and a `:retry` map MUST carry
-  `:max-attempts` (Spec 014 §Retry and backoff). Three failure shapes throw
-  `:rf.error/http-bad-retry-on` at fx-call time (before `run-attempt!`),
-  so the misuse surfaces at the dispatch site rather than downstream:
-
-  - SHAPE: a non-set `:on` (keyword, vector, list, string, map, …).
-    `contains?` on sequential values tests indexes rather than category
-    membership, so accepting those values would silently disable retries.
-
-  - MEMBERSHIP: a set `:on` carrying a non-retryable `:rf.http/*` category
-    (`:rf.http/aborted`, `:rf.http/decode-failure`,
-    `:rf.http/accept-failure`), any keyword outside the `:rf.http/*`
-    retryable subset, an integer outside 400-599, or any other value.
-
-  - CEILING: a `:retry` map without `:max-attempts`. The transport retries
-    only under that ceiling, so such a map would validate and never retry.
-    No ceiling is defaulted, because an extra attempt re-sends a request
-    that may not be idempotent.
-
-  All three throw `:rf.error/http-bad-retry-on` per Spec 009 §Error event
-  catalogue, distinguished by ex-data (`:bad-shape`, `:bad-members`, or
-  `:received` carrying the ceiling-less map).
-
-  Intentional no-retry shapes that pass untouched: absent `:retry`, and,
-  beside `:max-attempts`, an absent `:on`, an explicit `:on nil` or the
-  empty set `#{}`. The transport's membership gate is false for every
-  failure under those, so we do not force `:on` to be non-empty here.
-
-  Public so the test-support stubs, which stand in for `:rf.http/managed`
-  as `:fx-overrides` targets, refuse the same args map with the same error
-  before their `:before` chain runs, as this handler does."
+(defn- validate-retry!
+  "Refuses a `:retry` policy the transport cannot honour, throwing
+  `:rf.error/http-bad-retry-on` at fx-call time before `run-attempt!`, so
+  the misuse surfaces at the dispatch site instead of riding the request as
+  a retry that never fires. The rules are Spec 014 §Closed-set `:retry :on`
+  validation and Spec 014 §Retry and backoff."
   [args-map]
   ;; `contains?` separates an explicit `:on nil` (intentional no-retry —
   ;; pass) from an absent key, so we read `:on` only when the `:retry`

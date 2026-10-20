@@ -192,10 +192,14 @@ this allows two retries. Only the final exhausted failure dispatches your
 failure handler; intermediate failures appear in traces. Cancellation also
 stops a pending retry.
 
+`:on` also takes HTTP status integers from 400 to 599 beside the categories,
+so `#{:rf.http/http-5xx 429}` retries every 5xx and a 429 without retrying
+every 4xx.
+
 Leave automatic retry off writes unless the server provides an idempotency
 contract: a timeout or lost response does not prove the write failed. The
 [retry reference](../api/re-frame.http.md#rfhttpmanaged-args-map) records the
-allowed categories and backoff defaults.
+allowed categories, statuses and backoff defaults.
 
 When another attempt first needs an application decision, such as refreshing
 an auth token, coordinate it through event handlers or a [machine](http-machines.md).
