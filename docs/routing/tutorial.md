@@ -383,11 +383,11 @@ keyword (`:tag`); an undeclared one stays a string key (`"tag"`), so `(:tag quer
 would return `nil`.
 
 To change the query without leaving the page, navigate in place: omit `:to` and pass
-`:query-merge`, which merges into the current query. A `nil` value removes a key:
+`:query`, which merges into the current query. A `nil` value removes a key:
 
 ```clojure
 ;; inside a view, where `dispatch` is bound to the view's frame
-[:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:tag nil}}])}
+[:button {:on-click #(dispatch [:rf.route/navigate {:query {:tag nil}}])}
  "Clear filter"]
 ```
 

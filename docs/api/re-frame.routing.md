@@ -210,11 +210,11 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 ### `[:rf.route/navigate {request}]`
 
 - **Kind**: event
-- **Payload**: one request map. Address keys: `:to` (a route id), `:url` (a URL inside the app), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`.
+- **Payload**: one request map. Address keys: `:to` (a route id), `:url` (a URL inside the app), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`.
 - **Description**: Navigates the frame the event is dispatched to.
     - With `:to`, the target is built from `:params`, `:query` and `:fragment` alone, and the route's `:query-defaults` fill absent query keys. Nothing carries over from the current route.
     - With `:url`, the URL is matched as a reload of it would be. A `route-link` click dispatches this form, and it suits a URL from a notification, a server redirect or a document-level click listener of your own (see [Routing → Linking from views](../routing/concepts.md#linking-from-views)). `:fragment` beside it replaces the URL's own. A URL no route matches commits the [not-found route](#not-found-route). An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
-    - With neither, the request edits the current location in place. `:query` replaces the whole query, `:query-merge` merges into it (a `nil` value removes that key), and `:fragment` replaces the fragment. Path params cannot change in place, because new params are a new destination.
+    - With neither, the request edits the current location in place. `:query` merges into the current query (a `nil` value removes that key, and `:query nil` clears the whole query), and `:fragment` replaces the fragment. Path params cannot change in place, because new params are a new destination.
     - `:replace? true` replaces the current history entry instead of pushing one. `:scroll` overrides the target route's [`:scroll`](#reg-route) for this navigation. `:bypass-leave? true` skips the current route's `:can-leave` guard once; the target's `:can-enter` still runs.
     - A request identical to the current location does nothing and runs no guards. Any other request runs the current route's `:can-leave` guard, then the `:can-enter` guards of the target and its ancestors, parent first, and the first `false` ends it (see [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) and [`:rf.route/entry-denied`](#rfrouteentry-denied-denial)).
     - A request that changes only the fragment then updates `:fragment`, pushes the URL and scrolls. It keeps the navigation token and does not re-run `:on-match` or the resource plan.
@@ -229,22 +229,20 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
     |---|---|
     | `:bad-event-arity` | The event is exactly `[:rf.route/navigate {request}]`, with no third element such as a separate opts map. |
     | `:request-not-a-map` | The request is a map. |
-    | `:unknown-keys` | Every key is one of the address, policy and edit keys above. A namespaced key is refused too. |
+    | `:unknown-keys` | Every key is one of the address and policy keys above. A namespaced key is refused too. |
     | `:to-url-exclusive` | `:to` or `:url`, not both. |
-    | `:url-excludes-address` | `:url` takes no `:params`, `:query` or `:query-merge`. `:fragment` is allowed and replaces the URL's own. |
+    | `:url-excludes-address` | `:url` takes no `:params` or `:query`. `:fragment` is allowed and replaces the URL's own. |
     | `:params-requires-destination` | `:params` needs `:to`: changing path params is a new destination, never an in-place edit. |
-    | `:query-exclusive` | `:query` or `:query-merge`, not both. |
-    | `:query-merge-in-place-only` | `:query-merge` needs a request with no `:to` or `:url`. |
-    | `:query-merge-not-map` | `:query-merge` is a map. `{}` is a no-op and a `nil` inside it removes a key, but a `nil` or other non-map value for `:query-merge` itself is refused. |
+    | `:query-not-map` | An in-place `:query` is a map or `nil`. `{}` is a no-op and a `nil` inside it removes a key, but any other value is refused. |
     | `:bad-scroll` | `:scroll` is `:top`, `:restore`, `false` or `nil`. |
-    | `:no-destination-or-change` | The request names a destination or an in-place change. `{}` and a policy-only map such as `{:replace? true}` are refused; `{:query {}}` and `{:fragment nil}` are valid. |
+    | `:no-destination-or-change` | The request names a destination or an in-place change. `{}` and a policy-only map such as `{:replace? true}` are refused; `{:query nil}` and `{:fragment nil}` are valid. |
     | `:no-current-route` | An in-place request needs a current route to edit. |
 - **Example**:
   ```clojure
   [:rf.route/navigate {:to :app/article :params {:id "intro"}}]   ;; a named route
   [:rf.route/navigate {:to :app/home :replace? true}]             ;; no new history entry
   [:rf.route/navigate {:url "/articles/intro?tab=comments"}]      ;; a URL, e.g. from a notification
-  [:rf.route/navigate {:query-merge {:page 2 :filter nil}}]       ;; same route, edit the query
+  [:rf.route/navigate {:query {:page 2 :filter nil}}]             ;; same route, edit the query
   ```
 
 ### `[:rf.route/handle-url-change url opts?]`
@@ -529,7 +527,7 @@ a string, and a non-integer id is flagged `:validation-failed?`.
     - `:rf.error/missing-route-param`: a required path segment's param is `nil`, absent or `""`. An empty segment would be dropped when the URL is matched, so it cannot round-trip.
     - `:rf.error/route-url-validation`, for any of these:
         - the address is not a map (`:reason :not-a-map`), or has no `:to` (`:reason :missing-to`);
-        - the map carries a non-address key such as `:url`, `:query-merge`, `:replace?`, `:scroll`, `:bypass-leave?` or an unknown key (`:reason :bad-address-keys`);
+        - the map carries a non-address key such as `:url`, `:replace?`, `:scroll`, `:bypass-leave?` or an unknown key (`:reason :bad-address-keys`);
         - `:params` carries a key the route's pattern does not capture (`:reason :uncaptured-params`);
         - `:params` or `:query` fail the route's schemas;
         - `:params` fills a later optional group while an earlier one is left out. Sequential optional groups are filled in order, or `match-url` would read the value into the earlier group.
