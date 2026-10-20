@@ -3,10 +3,10 @@
 
   A URL door keeps a query key the route did not declare as a STRING key with
   a STRING value (`match-url`'s rule), so the named-address doors
-  — `[:rf.route/navigate {:to …}]`, the in-place `:query` / `:query-merge`
-  edit, `route-url` and so `route-link`'s href — must not pass the caller's
-  spelling straight through. On a route with no query vocabulary that would give one
-  destination two slices: `:query-merge {:page 2}` over a URL-seeded
+  — `[:rf.route/navigate {:to …}]`, the in-place `:query` edit, `route-url`
+  and so `route-link`'s href — must not pass the caller's spelling straight
+  through. On a route with no query vocabulary that would give one
+  destination two slices: an in-place `:query {:page 2}` over a URL-seeded
   `{\"page\" \"1\"}` would commit BOTH spellings and push `page=2&page=1`, which a
   reload reads back as `page=1`; `{:page nil}` could not remove the key; and a
   programmatic `{:to … :query {:q \"x\"}}` followed by the SAME URL through the
@@ -16,10 +16,10 @@
   destination route's declared vocabulary (`rf.routing.registry/canonical-query`):
   an undeclared entry becomes a string key with a string value, and a string
   key naming a declared token becomes that declared keyword. It runs at the
-  resolved-target seam, on the `:query-merge` deltas before the fold, and in
+  resolved-target seam, on an in-place `:query` before it merges, and in
   `route-url` before the canonical sort.
 
-  The `:query-merge` suite in `routing-navigation-test` cannot see
+  The in-place `:query` suite in `routing-navigation-test` cannot see
   this defect class: every route there declares its keys, and a declared key is
   keyword-keyed on every door. Every route below is BARE unless the test
   says otherwise."
@@ -44,24 +44,24 @@
 
 ;; ---- the in-place fold ------------------------------------------------------
 
-(deftest query-merge-over-a-url-seeded-undeclared-key-overwrites-it
-  (testing "a keyword delta for an undeclared key REPLACES the URL-seeded string
+(deftest in-place-query-over-a-url-seeded-undeclared-key-overwrites-it
+  (testing "a keyword member for an undeclared key REPLACES the URL-seeded string
             key rather than adding a keyword twin, so the pushed URL carries
             one page= and a reload reads the edit back"
     (rf/reg-route :route/search {} "/search")
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=1&q=x"
                          {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query {:page 2}}])
       (is (= [{"page" "2" "q" "x"} ["/search?page=2&q=x"]]
              [(:query (slice)) @pushed]))
-      (testing "and a nil delta removes the key it names"
+      (testing "and a nil member removes the key it names"
         (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page nil}}])
+        (rf/dispatch-sync [:rf.route/navigate {:query {:page nil}}])
         (is (= [{"q" "x"} ["/search?q=x"]]
                [(:query (slice)) @pushed]))))))
 
-(deftest query-merge-with-a-string-key-for-a-declared-token-is-that-keyword
+(deftest in-place-query-with-a-string-key-for-a-declared-token-is-that-keyword
   (testing "the mirror case: a DECLARED key spelled as a string names the
             declared keyword, so it merges over the typed value instead of
             emitting page= twice"
@@ -69,7 +69,7 @@
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/decl?page=2"
                          {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {"page" 3}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query {"page" 3}}])
       (is (= [{:page 3} ["/decl?page=3"]]
              [(:query (slice)) @pushed])))))
 
