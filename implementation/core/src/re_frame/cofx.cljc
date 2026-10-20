@@ -27,6 +27,7 @@
   `inject-cofx` is REMOVED (EP-0017, no alias) — calling it is the hard
   error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`."
   (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.classification :as rf.classification]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -1044,11 +1045,17 @@
       ;; record. Epoch capture folds `:rf.cofx/generated` into that token — the
       ;; same route a generator's mid-run mint takes — so strict replay from
       ;; the record re-presents the fact (Spec 005 §Consumer attachment).
+      ;; The fact has no `reg-cofx` registration for the trace chokepoint to
+      ;; classify it by, so it leaves the token projected by its sub's own
+      ;; classification, the value `:rf.sub/run` carries for the same query
+      ;; (Spec 015 §Registration-owned transient classification). The in-flight
+      ;; token keeps the raw value, because the callback consumes it.
       (when rf.interop/debug-enabled?
         (rf.trace/emit! :rf.cofx :rf.cofx/generated
                         {:rf.cofx/id    fact-id
                          :frame         frame-id
-                         :rf.cofx/value value}))
+                         :rf.cofx/value (rf.classification/project-sub-value
+                                          value query-v frame-id)}))
       (-> acc
           (assoc-in [:coeffects fact-id] value)
           (assoc-in [:rf.cofx fact-id] value)))
