@@ -747,17 +747,58 @@
            (:rows (proj/side-effects-step [(db-changed-ev [[[:counter] 0 1 :edit]])]))))))
 
 (deftest side-effects-db-row-schema-fail-only-test
-  (testing "a :db schema-fail rollback carries just the :db ✗ row"
+  (testing "a :db candidate rejected before install carries just the :db ✗
+            row: a rejected candidate emits no change trace and walks no :fx"
     (is (= [{:fx-id :db :status :error}]
            (:rows (proj/side-effects-step
-                    [(db-changed-ev [])
-                     (schema-violation-ev :app-db :counter/inc [:counter] -3 true)]))))))
+                    [(schema-violation-ev :app-db :counter/inc [:counter] -3 true)]))))))
 
 (deftest side-effects-db-row-noop-test
   (testing "an unchanged-db commit (`:rf.event/db-noop`) still surfaces the :db
             row, as :noop, so the event visibly ran and committed nothing"
     (is (= [{:fx-id :db :status :noop}]
            (:rows (proj/side-effects-step [(db-noop-ev)]))))))
+
+;; A walk that writes a flowed frame's state settles its flows inside the
+;; event, through the event's own commit path (Spec 013 §Sequencing), so a
+;; rejected settle candidate emits its `:rollback? true` failure AFTER the
+;; event's install and walk, which stood. The streams below are in the
+;; substrate's emission order.
+
+(deftest side-effects-db-row-reads-the-events-own-commit-test
+  (let [walk            [(fx-handled-ev :p/set-n "bad" 0.1)
+                         (do-fx-ev [[:p/set-n "bad"]])]
+        settle-rejected (schema-violation-ev :app-db :p/go [:derived] "bad" true)
+        rows            (fn [events]
+                          (mapv (juxt :fx-id :status)
+                                (:rows (proj/side-effects-step events))))]
+    (testing "a settle rejected after the install leaves the handler's row ✓"
+      (is (= [[:db :ok] [:p/set-n :ok]]
+             (rows (concat [(db-changed-ev []) (frame-state-changed-ev #{:app-db})]
+                           walk [settle-rejected])))))
+    (testing "or ∅ when the handler's install changed nothing"
+      (is (= [[:db :noop] [:p/set-n :ok]]
+             (rows (concat [(db-noop-ev)] walk [settle-rejected])))))
+    (testing "and a handler that returned no :db gets no :db row from it"
+      (is (= [[:p/set-n :ok]]
+             (rows (concat walk [settle-rejected])))))))
+
+(defn- malformed-schema-ev
+  "`:rf.error/malformed-schema` as a candidate validator emits it: the schema
+  at `where` could not be evaluated, so the candidate was refused fail-closed."
+  [where]
+  (ev :error :rf.error/malformed-schema
+      {:where where :rollback? true :recovery :no-recovery}))
+
+(deftest side-effects-malformed-schema-rejection-test
+  (testing "a schema that could not be evaluated rejects the candidate too, so
+            the row of its partition paints ✗"
+    (is (= [[:db :error]]
+           (mapv (juxt :fx-id :status)
+                 (:rows (proj/side-effects-step [(malformed-schema-ev :app-db)])))))
+    (is (= [[:rf.db/runtime :error]]
+           (mapv (juxt :fx-id :status)
+                 (:rows (proj/side-effects-step [(malformed-schema-ev :machine-data)])))))))
 
 (deftest side-effects-per-row-status-test
   (testing "each :fx row carries its own status, read off the trace ops"
@@ -876,12 +917,11 @@
                            (db-changed-ev [])
                            (frame-state-changed-ev #{:app-db :runtime-db})
                            (fx-handled-ev :http/post {} 1.0)]))))))
-  (testing "a :machine-data schema-fail rollback paints the runtime-db row ✗"
+  (testing "a :machine-data candidate rejected before install paints the
+            runtime-db row ✗"
     (is (= [{:fx-id :rf.db/runtime :status :error}]
            (:rows (proj/side-effects-step
-                    [(do-fx-ev {:rf.db/runtime {:machines {}}})
-                     (frame-state-changed-ev #{:runtime-db})
-                     (schema-violation-ev :machine-data :some/machine
+                    [(schema-violation-ev :machine-data :some/machine
                                           [:machines] {:bad true} true)]))))))
 
 (deftest runtime-db-machine-data-violation-attaches-to-row-test
@@ -1341,7 +1381,6 @@
             row — the failed commit — not to HANDLER, which describes what the
             handler returned; the rolled-back ledger is the :db ✗ row alone"
     (let [steps (proj/project (record [(dispatched-ev [:counter/inc] :ui nil)
-                                       (db-changed-ev [[[:count] 0 "boom" :modified]])
                                        (schema-violation-ev :app-db :counter/inc
                                                             [:count] "boom" true)]))]
       (is (nil? (:violations (some #(when (= :handler (:step %)) %) steps))))
@@ -1473,14 +1512,14 @@
              (mapv :db-rolled-back? (concat (:errors se) (mapcat :errors (:rows se)))))))))
 
 (deftest schema-rollback-stamps-db-rolled-back-true-test
-  (testing "a `:where :app-db` schema-fail rollback DID revert the commit, so
-            an exception card this cascade carries `:db-rolled-back? true`"
+  (testing "a `:where :app-db` rejection of the event's own candidate rolled
+            it back, so an exception card this cascade carries
+            `:db-rolled-back? true`"
     (is (= [true]
            (mapv :db-rolled-back?
                  (mapcat :errors
                          (proj/project
                            (record [(dispatched-ev [:standard-epochs/set-bad-auth] :ui nil)
-                                    (db-changed-ev [[[:auth :token] "ok" 42 :modified]])
                                     (schema-violation-ev :app-db :standard-epochs/set-bad-auth
                                                          [:auth :token] 42 true)
                                     (handler-exception-ev :standard-epochs/set-bad-auth
