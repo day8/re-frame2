@@ -1,96 +1,16 @@
 (ns re-frame.resources.scope-registry
-  "Named resource-scope resolvers — `reg-resource-scope` /
-  `clear-resource-scope` / the `resolve-resource-scope` resolver helper, plus
-  the registry-side introspection accessors and the `{:from-db <id>}`
-  reference resolver. Per Spec 016 §Named resource-scope resolvers
-  (`reg-resource-scope`) and EP-0016 Decision 3 (slice 2).
-
-  A resource-scope resolver is a registrar entry under the `:resource-scope`
-  kind (the third resources-artefact kind, alongside `:resource` and
-  `:mutation`). It derives a CACHE SCOPE from declared db inputs — the one
-  scope-resolution currency the same named resolver carries to resource
-  registration, route resources, event-side ensure, subscriptions,
-  invalidation descriptors, and populate/patch/remove targets.
-
-  ## The `{:inputs …}` metadata + resolver-fn grammar (the ONE canonical form)
+  "Named resource-scope resolvers: `reg-resource-scope`,
+  `clear-resource-scope`, the pure `resolve-resource-scope` helper, and
+  `{:from-db <id>}` reference resolution. A resolver derives a cache scope
+  from declared db inputs, and every scope-taking site resolves it the same
+  way.
 
       (rf/reg-resource-scope :realworld/session
         {:inputs {:username [:db [:auth :user :username]]}}
         (fn [{:keys [username]} _ctx]
           (when username [:rf.scope/session {:username username}])))
 
-  The 3-slot shape is `(scope-id metadata resolve-fn)`: the resolver is the
-  THIRD (value) slot, not a `:resolve` key inside the metadata map.
-
-  - `:inputs` (metadata) — a map `{name source-descriptor}`. The ONLY shipped
-    source descriptor is `[:db <rf-path>]`, where `<rf-path>` is an EP-0012
-    concrete `:rf/path` (the path algebra in `re-frame.path`). `[:runtime
-    <path>]` is RESERVED, not shipped — declaring one is a loud
-    registration error (route-derived scope un-defers only when an in-repo
-    consumer carries a principal in a path segment and needs named-resolver
-    scope at ANY site, a route entry included, per Spec 016 §Route-derived
-    scope is reserved).
-  - The resolver (the third, value slot) — `(fn [inputs ctx] -> scope | nil)`.
-    PURE. **The first arg is ALWAYS the resolved input map** — this is the one
-    stable, Name-over-place meaning across every registration.
-    It derives a scope from that map; it MUST NOT fetch, dispatch, mutate
-    state, read ambient host state, or perform transport work. The `ctx` arg
-    is RESERVED and is invoked as literal `nil` — a resolver
-    MUST derive scope from its declared `:inputs`, not from `ctx`. A `nil`
-    result is FAIL-CLOSED at every scope-requiring site (never an implicit
-    global read).
-
-  ### Reading the whole db — name it as an input (no first-arg meaning-shift)
-
-  There is no bare-fn sugar and no first-arg meaning-shift: `:inputs` is
-  REQUIRED and the resolver's first arg is ALWAYS the inputs map. When a
-  resolver genuinely needs the whole db, declare it as an explicit named
-  input on the ROOT path and read it off the inputs map:
-
-      (rf/reg-resource-scope :realworld/session
-        {:inputs {:db [:db []]}}
-        (fn [{:keys [db]} _ctx]
-          (when-let [u (get-in db [:auth :user :username])]
-            [:rf.scope/session {:username u}])))
-
-  `:whole-db?` on the stored spec is DERIVED from that declaration — true iff
-  some declared input targets the root path `[:db []]` — never authored. It
-  marks the whole-db cost on both axes (narrow re-resolution AND
-  sensitivity-inheritance precision, EP-0015 disposition 8) for tooling, and
-  it says exactly what the declaration already says.
-
-  ## No derived-sensitivity propagation (EP-0025)
-
-  There is NO sensitivity PROPAGATION from a resolver's `:db` inputs to its
-  derived scope. There is no sensitivity propagation anywhere (subs / flows /
-  the resource scope-resolver arm) — classification does not flow input →
-  output (Spec 015 §No propagation, no taint). A resolver carries no
-  `:rf.egress/output-sensitivity` declassification claim: the key is
-  silently ignored if present (NOT a fail-closed enum validation). A resource
-  is governed by its OWN projection-relative `:sensitive` / `:large`
-  declarations (lowered per instance into the per-frame elision registry — see
-  `re-frame.resources.classification`), never by sensitivity inherited from the
-  paths its scope resolver read. The off-box trace egress of a resolved scope's
-  identity-bearing values is FAIL-CLOSED (`project-scope-resolved-egress`)
-  — that is conservative redaction of resolver-owned values copied into trace
-  tags, not a propagation engine.
-
-  ## The `resolve-resource-scope` resolver helper
-
-  `resolve-resource-scope` resolves a named scope against a SUPPLIED db
-  value — a plain function over the registry, no effect-API surface and no
-  resolution-timing ambiguity. It is NOT an effect and has no app-state /
-  dispatch side effects, and it is a PURE data helper: it
-  routes through the trace-free `resolve-scope*-pure` evaluator, so a passive
-  read advertised as pure does NOT emit `:rf.resource/scope-resolved` into the
-  trace bus. The CAUSAL resolution boundaries that DO carry that trace evidence
-  (the inputs/resolved-scope/`:resolved-nil?` row tooling reads — a resource
-  event's `{:from-db …}` scope, route entry, mutation settle) run the traced
-  `resolve-scope*` wrapper instead.
-  Its canonical use is the logout idiom: resolve the concrete old scope from
-  the handler's coeffect db (the pre-transition causal input) and pass it to
-  `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
-  the concrete scope from the coeffect db (EP-0016 issue 7)."
+  Spec 016 §Named resource-scope resolvers (`reg-resource-scope`)"
   (:require [re-frame.error :as rf.error]
             [re-frame.path :as rf.path]
             [re-frame.registrar :as rf.registrar]
@@ -103,42 +23,26 @@
 ;; ---- the :resource-scope registrar kind ----------------------------------
 
 (def scope-kind
-  "The registrar kind for named resource-scope resolvers
-  (`:resource-scope`). Per Spec 016 §Named resource-scope resolvers / the
-  kind taxonomy. A member of the core registrar's closed kind set;
-  resolvers register their canonical spec under this kind."
+  "The registrar kind for named resource-scope resolvers."
   :resource-scope)
 
 ;; ---- input source descriptors --------------------------------------------
 
 (def shipped-input-sources
-  "The CLOSED set of shipped input source-descriptor heads.
-  Only `:db` ships — `[:db <rf-path>]` reads the path off the frame app-db.
-  `:runtime` is RESERVED (`[:runtime <path>]`, route-derived scope) and is
-  rejected fail-closed at registration until an in-repo consumer carrying a
-  principal in a path segment needs named-resolver scope at ANY site — a
-  route entry included, as well as a sub / event ensure / invalidation.
-  Per Spec 016 §The
-  `{:inputs …}` metadata + resolver-fn grammar / §Route-derived scope is
-  reserved."
+  "The closed set of shipped input source heads: only `:db`.
+  Spec 016 §The `{:inputs …}` metadata + resolver-fn grammar"
   #{:db})
 
 (def reserved-input-sources
-  "Input source-descriptor heads that are RESERVED (named in the spec /
-  EP-0014 input vocabulary) but NOT shipped — declaring one
-  is a loud registration error that names the reservation, so a typo is not
-  mistaken for an unshipped feature. `:runtime` is the route-derived source
-  (`[:runtime <path>]`) — reserved until an in-repo consumer carries a
-  principal in a path segment and needs named-resolver scope at ANY site, a
-  route entry included. Per Spec 016 §Route-derived scope
-  is reserved."
+  "Source heads that are named but not shipped. Declaring one is a loud,
+  named error, so a typo is not mistaken for an unshipped feature.
+  Spec 016 §Route-derived scope is reserved (`[:runtime path]`, not shipped)"
   #{:runtime})
 
 ;; ---- registration-error shape --------------------------------------------
 
 (defn- registration-error
-  "Build the canonical thrown-error shape (Spec 009 §The thrown-error
-  shape) for a `reg-resource-scope` validation failure."
+  "The thrown-error shape for a `reg-resource-scope` validation failure."
   [error-id where reason extra]
   (rf.error/thrown-ex-info
     error-id
@@ -150,12 +54,9 @@
 ;; ---- validation ----------------------------------------------------------
 
 (defn- validate-input-descriptor!
-  "Validate ONE `:inputs` source descriptor `[source-head rf-path]` for
-  resolver `scope-id` input `input-name`. The only shipped head is `:db`
-  with a concrete `:rf/path` (an EP-0012 sequential path). A `:runtime`
-  head is RESERVED (loud, named reservation). Any other shape is a loud
-  `:rf.error/invalid-resource-scope-spec`. Returns the canonical
-  descriptor `[:db <vector-path>]`."
+  "Returns the canonical `[:db <vector-path>]` for one `:inputs` descriptor.
+  Throws `:rf.error/resource-scope-source-reserved` for a reserved head and
+  `:rf.error/invalid-resource-scope-spec` for any other bad shape."
   [scope-id input-name descriptor]
   (when-not (and (vector? descriptor) (= 2 (count descriptor)))
     (throw (registration-error
@@ -193,12 +94,8 @@
                     "016 §The :inputs grammar.")
                {:scope-id scope-id :input input-name :source head}))
 
-      ;; A `:db` target must be a CONCRETE sequential `:rf/path`. nil is NOT
-      ;; the root path — the root is the explicit `[]`, which is how the
-      ;; whole-db read is spelled and what `:whole-db?` is derived from. A
-      ;; nil here is an accidental absent path and
-      ;; fails closed rather than silently targeting the whole db (EP-0012:
-      ;; explicit root, no silent nil→root).
+      ;; nil is not the root path: the root is the explicit `[]`, so a nil
+      ;; fails closed instead of silently reading the whole db.
       (not (sequential? raw-path))
       (throw (registration-error
                :rf.error/invalid-resource-scope-spec
@@ -211,8 +108,7 @@
                     "/ Conventions §The :rf/path algebra.")
                {:scope-id scope-id :input input-name :descriptor descriptor}))
 
-      ;; Route through the VALIDATED concrete boundary:
-      ;; a host/opaque or template segment in a `:db` path fails closed here.
+      ;; A host/opaque or template segment fails closed in normalize-concrete.
       :else
       (try
         [:db (rf.path/normalize-concrete raw-path)]
@@ -226,45 +122,17 @@
                         " Per Conventions §Segment domain.")
                    {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
-;; EP-0025: a resolver's derived scope does NOT inherit its `:db` inputs'
-;; classification — there is no sensitivity PROPAGATION (subs / flows / this
-;; resource-scope arm), so there is no `:rf.egress/output-sensitivity`
-;; declassification claim. The key is silently ignored if present (Spec 015
-;; §No propagation, no taint), never validated fail-closed. A resource is
-;; governed by its OWN projection-relative `:sensitive` / `:large` declarations.
+;; A resolver's `:rf.egress/output-sensitivity` key is silently ignored, not
+;; validated: there is no sensitivity propagation from its inputs.
+;; Spec 016 §No derived-sensitivity propagation
 
 (defn- canonical-spec
-  "Normalize the 3-slot `(reg-resource-scope scope-id metadata resolve-fn)`
-  registration into the canonical STORED spec map. Per Spec 016 §The
-  `{:inputs …}` metadata + resolver-fn grammar.
-
-  The `:resolve` fn is the THIRD slot (the resolver HANDLER); the middle
-  `metadata` slot carries the reflection-config keys (`:inputs`, `:doc`). This
-  mirrors reg-resource / reg-mutation, where `:params-schema` shapes the
-  `:request` handler from the metadata slot — here `:inputs` shapes the
-  `:resolve` handler.
-
-  There is ONE form. `metadata` MUST be a map carrying an `:inputs` map
-  (`{:inputs {name [:db path]} :doc …}`); a missing `:inputs` is a loud
-  `:rf.error/invalid-resource-scope-spec`. Validates every declared input
-  descriptor and stores `{:inputs <canonical> :resolve <fn> :whole-db? <bool>
-  :doc …}`. The `:resolve` first arg is ALWAYS the resolved inputs map — the
-  one stable Name-over-place meaning, with no per-form exception.
-
-  `:whole-db?` is DERIVED, never authored: true iff some declared input
-  descriptor targets the ROOT path (the explicit `[]`, exactly as
-  `validate-input-descriptor!` defines it — nil is never the root). Tooling
-  reads it to mark the whole-db cost on both axes (EP-0015 disposition 8);
-  reading the whole db is spelled `{:inputs {:db [:db []]}}`.
-
-  EP-0025: there is NO `:rf.egress/output-sensitivity` claim — there is no
-  sensitivity propagation. A `:rf.egress/output-sensitivity` key on a
-  resolver spec is silently ignored (NOT validated fail-closed); a resource's
-  classification rides its own projection-relative `:sensitive` / `:large`
-  declarations, not its scope resolver's input paths.
-
-  Returns the canonical stored spec; throws a loud
-  `:rf.error/invalid-resource-scope-spec` on a malformed argument."
+  "Returns the stored spec `{:inputs :resolve :whole-db? :doc}` for the 3-slot
+  registration. `metadata` must be a map with an `:inputs` map; `resolve-fn`
+  is the third slot, and a `:resolve` inside `metadata` is refused as
+  mislocated. Throws `:rf.error/invalid-resource-scope-spec`.
+  `:whole-db?` is derived: true iff some input targets the root path `[]`.
+  Spec 016 §The `{:inputs …}` metadata + resolver-fn grammar"
   [scope-id metadata resolve-fn]
   (when-not (map? metadata)
     (throw (registration-error
@@ -276,9 +144,6 @@
                   "the :inputs / :doc reflection-config metadata map is the "
                   "SECOND slot, the :resolve fn is the THIRD.")
              {:scope-id scope-id :value metadata})))
-  ;; `:resolve` is the third-slot VALUE (the resolver handler). A
-  ;; `:resolve` left INSIDE the metadata map is a mislocated key; reject it
-  ;; loudly rather than silently ignore it.
   (when (contains? metadata :resolve)
     (throw (registration-error
              :rf.error/invalid-resource-scope-spec
@@ -326,9 +191,6 @@
                       {} inputs)]
       {:inputs    canonical
        :resolve   resolve-fn
-       ;; DERIVED, never authored: the whole-db cost mark is true iff some
-       ;; declared input targets the ROOT path — the explicit `[]`, exactly as
-       ;; `validate-input-descriptor!` defines it (nil is never the root).
        :whole-db? (boolean (some (fn [[_ path]] (= [] (vec path)))
                                  (vals canonical)))
        :doc       doc})))
@@ -336,36 +198,11 @@
 ;; ---- reg-resource-scope / clear-resource-scope ---------------------------
 
 (defn reg-resource-scope
-  "Register a named resource-scope resolver under `scope-id`. Per the canonical
-  Spec 001 3-slot grammar / Spec 016 §Named resource-scope resolvers /
-  EP-0016 D3:
-
-      (rf/reg-resource-scope :realworld/session
-        {:inputs {:username [:db [:auth :user :username]]}}
-        (fn [{:keys [username]} _ctx]
-          (when username [:rf.scope/session {:username username}])))
-
-  The `:resolve` fn — the resolver HANDLER — is the THIRD slot; the middle slot
-  is the reflection-config metadata map (`:inputs`, `:doc`). This mirrors
-  reg-resource / reg-mutation (where `:params-schema` shapes the `:request`
-  handler from the metadata slot). The `:resolve` first arg is ALWAYS the
-  resolved inputs map (the stable Name-over-place meaning).
-
-  `:inputs` is REQUIRED — there is ONE arity and one callback contract. To read
-  the whole db, declare it as an input on the root path
-  (`{:inputs {:db [:db []]}}`); tooling's `:whole-db?` mark is DERIVED from that
-  declaration rather than authored.
-
-  Validates the declared inputs (only `[:db <rf-path>]` ships; `[:runtime …]` is
-  reserved and rejected loudly), requires a fn resolver in the value slot, and
-  writes a `:resource-scope`-kind registrar entry carrying the canonical spec
-  plus captured source coords. A `:resolve` left INSIDE the metadata map is
-  rejected loudly as a mislocated key.
-
-  Emits `:rf.resource/registered` (`:kind :resource-scope`) on first-time
-  registration so the resolver appears in the Xray resource lifecycle
-  timeline alongside resources. Returns `scope-id` per the `reg-*`
-  return-value convention ([Conventions §reg-* return-value convention])."
+  "Registers resolver `resolve-fn`, `(fn [inputs ctx] -> scope | nil)`, under
+  `scope-id` with `metadata` `{:inputs {name [:db path]} :doc …}`, and returns
+  `scope-id`. Refuses what `canonical-spec` refuses. Emits
+  `:rf.resource/registered` on first registration.
+  Spec 016 §Named resource-scope resolvers (`reg-resource-scope`)"
   [scope-id metadata resolve-fn]
   (let [spec     (canonical-spec scope-id metadata resolve-fn)
         previous (rf.registrar/lookup scope-kind scope-id)]
@@ -374,12 +211,8 @@
       scope-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc spec)}
-               ;; Forward the caller's image-selection stamp, as
-               ;; `reg-resource` does. Select from `metadata`, NOT from `spec`:
-               ;; `canonical-spec` builds a fresh {:inputs :resolve :whole-db?
-               ;; :doc} map that never carried the key, so the stamp would
-               ;; otherwise be dropped before the source store sees it (Spec 001
-               ;; §Production elision contract).
+               ;; Select the image-selection stamp from `metadata`: the
+               ;; canonical spec never carries it.
                (select-keys metadata [:ns :rf.provenance/ns])
                {:rf/resource-scope spec
                 :handler-fn        (:resolve spec)})))
@@ -392,30 +225,18 @@
     scope-id))
 
 (defn clear-resource-scope
-  "Remove a registered resource-scope resolver (a registration-lifecycle
-  removal — the `clear-` decrement counterpart of `reg-resource-scope`, per
-  [Conventions §Tear-down verb axis]). A resolver holds no per-frame runtime
-  state of its own (it is a pure derivation consulted at use time), so there
-  is nothing to dispose beyond the registrar entry. No-op (returns
-  `scope-id`) when the id is not registered. Per Spec 016 §Named
-  resource-scope resolvers."
+  "Removes the resolver registered under `scope-id` and returns `scope-id`; a
+  no-op when none is. A resolver holds no per-frame state, so nothing else is
+  disposed."
   [scope-id]
   (rf.registrar/unregister! scope-kind scope-id)
   scope-id)
 
-;; ---- registry-side introspection -----------------------------------------
-;; No `scope-resolver-ids` / `scope-resolver-meta` accessors:
-;; the resolver registry is read through the generic registrar grammar plus
-;; the documented `:rf/resource-scope` inner-key projection —
-;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
-;;   (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id}))
+;; ---- registry lookup -----------------------------------------------------
 
 (defn require-scope-resolver!
-  "Look the resolver spec up by `scope-id`, throwing
-  `:rf.error/resource-scope-not-registered` (the loud, fail-closed
-  boundary) when no `:resource-scope`-kind registrar entry exists. `where`
-  names the call-site public surface. Returns the canonical spec map. Per
-  Spec 016 §Named resource-scope resolvers."
+  "Returns the stored spec for `scope-id`, or throws
+  `:rf.error/resource-scope-not-registered` naming `where`."
   [scope-id where]
   (or (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id))
       (throw (registration-error
@@ -427,52 +248,25 @@
                     "resource-scope resolvers.")
                {:scope-id scope-id}))))
 
-;; ---- input evaluation (Spec 016 §The `:inputs` grammar — `[:db path]`) ----
+;; ---- input evaluation ----------------------------------------------------
 
 (defn eval-inputs
-  "Evaluate a resolver's declared `:inputs` against a db value, returning
-  `{input-name resolved-value}`. The only shipped source is `[:db <rf-path>]`
-  — the value at `<rf-path>` in `db` (via the EP-0012 `re-frame.path` get,
-  nil when missing). Pure. Per Spec 016 §The `:inputs` grammar."
+  "Returns `{input-name value}`, reading each `[:db rf-path]` off `db` (nil
+  when missing). Pure."
   [inputs db]
   (reduce-kv
     (fn [acc input-name [_source rf-path]]
       (assoc acc input-name (rf.path/get db rf-path)))
     {} (or inputs {})))
 
-;; ---- off-box trace egress projection of scope-resolution rows -
-;;
-;; The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
-;; `:input-values` (the concrete db reads — e.g. `{:username "jake"}`) and the
-;; derived `:scope` (e.g. `[:rf.scope/session {:username "jake"}]`). These are
-;; owner-local, identity-bearing values the CENTRAL trace egress pipeline only
-;; knows as generic tag slots — a value-path walk cannot classify a resolver's
-;; `:input-values` once they have been copied into trace tags (EP-0015; the
-;; resource trace family is an egress record set). So the resource family owns
-;; an egress projector for the row, the SSR/tool-projection analogue, consumed
-;; off-box through a late-bound hook (epoch tool-pair); on-box listeners keep
-;; the raw evidence (the row is dev observability — the leak is at off-box /
-;; epoch / MCP egress, not the local listener).
+;; ---- off-box trace egress ------------------------------------------------
 
 (defn project-scope-resolved-egress
-  "Project a `:rf.resource/scope-resolved` trace row's `tags` for OFF-BOX
-  egress. The resolved `:input-values` (the raw db reads) and
-  `:scope` (the derived identity tuple, which embeds those reads) are
-  UNCONDITIONALLY replaced by the `:rf/redacted` sentinel and the row is
-  stamped `:sensitive? true`. The redaction is FAIL-CLOSED: a db-reading
-  resolver MAY read a frame-sensitive path the off-box value-path walk cannot
-  prove safe (the row carries the resolved VALUES, not the path provenance),
-  so a resolved tenant / user / impersonation identity must never ride an
-  off-box wire raw. There is no declassification escape hatch (EP-0025), so
-  the redaction is always-on for every resolved-scope row — the
-  trusted-local `:rf.egress/include-sensitive?` opt-in at the epoch consumer is the only
-  lift. The STRUCTURAL slots — `:resource-id` (the resolver id), `:kind`, the
-  declared input NAMES (`:inputs`), `:whole-db?`, `:resolved-nil?` — ride
-  verbatim (they carry no user value and a tool needs them to attribute the
-  resolution). Idempotent (`:rf/redacted` re-redacts to itself); a non-map
-  `tags` rides unchanged. Pure. The on-box listener path never calls this —
-  the raw evidence stays for dev tooling; this is the OFF-BOX egress
-  projector."
+  "Projects a `:rf.resource/scope-resolved` row's `tags` for off-box egress:
+  `:input-values` and `:scope` become `:rf/redacted` and the row is marked
+  `:sensitive? true`. Fail-closed, because the row carries resolved values
+  without their path provenance; the structural slots ride verbatim. A
+  non-map passes through. Pure and idempotent; on-box listeners never call it."
   [tags]
   (if-not (map? tags)
     tags
@@ -481,64 +275,26 @@
                :scope        :rf/redacted
                :sensitive?   true))))
 
-;; ---- the pure resolve helper (Spec 016 §`clear-scope` … coeffect db) ------
+;; ---- resolver evaluation -------------------------------------------------
 
 (defn- resolve-scope-from-inputs
-  "PURE core of resolver evaluation: given the ALREADY-EVALUATED resolver
-  `in-vals`, call `:resolve` with `(in-vals nil)` (the `ctx` arg is reserved,
-  literal nil), then route a non-nil result through the SHARED
-  concrete-scope canonicalization path (`rf.resources.state/canonicalize-scope`). A nil
-  result passes through as nil (the fail-closed unresolved condition). Shared
-  by `resolve-scope*-pure` and the traced `resolve-scope*` wrapper so a single
-  causal resolution evaluates its declared `:inputs` exactly ONCE."
+  "Calls `:resolve` with `(in-vals nil)` and canonicalizes a non-nil result.
+  Shared so a traced resolution evaluates its inputs once."
   [scope-id spec in-vals where]
   (let [raw ((:resolve spec) in-vals nil)]
     (when (some? raw)
       (rf.resources.state/canonicalize-scope raw where scope-id))))
 
 (defn resolve-scope*-pure
-  "PURE: resolve resolver `spec` against `db`, returning a canonical scope
-  value or nil — WITHOUT emitting any observability state.
-  Evaluates the declared `:inputs` off `db`, calls `:resolve` with
-  `(inputs nil)` (the `ctx` arg is reserved, literal nil), then
-  routes a non-nil result through the SHARED concrete-scope canonicalization
-  path (`rf.resources.state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
-  keyword fail-closed, rejects a host/opaque value, rejects the global scope
-  wrapped as the singleton `[:rf.scope/global]` in favour of the canonical
-  bare keyword). A nil result passes through as nil (the fail-closed
-  unresolved condition the use site interprets).
-
-  This is the resolver EVALUATOR. Passive reads advertised as pure — the
-  `resolve-resource-scope` helper and subscription key resolution — call this
-  directly so a read does not mutate the trace bus. The traced
-  `resolve-scope*` wrapper layers the `:rf.resource/scope-resolved` evidence
-  on for CAUSAL boundaries (events / routes / mutations)."
+  "Resolves `spec` against `db` to a canonical scope, or nil when the resolver
+  returns nil. Emits no trace, so passive reads use it."
   [scope-id spec db where]
   (resolve-scope-from-inputs scope-id spec (eval-inputs (:inputs spec) db) where))
 
 (defn resolve-scope*
-  "Resolve resolver `spec` against `db` AND emit the dev-time
-  `:rf.resource/scope-resolved` trace evidence — the TRACED wrapper over the
-  pure `resolve-scope*-pure` evaluator, for use at CAUSAL resolution
-  boundaries (resource events, route entry, mutation settle). Returns the same
-  canonical scope value (or nil) the pure evaluator does.
-
-  Emits `:rf.resource/scope-resolved` carrying the resolver id, the declared
-  input NAMES, the resolved input VALUES, and the resolved scope (or
-  `:resolved-nil? true`). The resolved `:input-values` / `:scope` are
-  owner-local identity-bearing values the generic value-path trace egress walk
-  cannot classify, so the resource family owns their OFF-BOX egress projector
-  (`project-scope-resolved-egress`, published as
-  `:resources/project-scope-resolved-egress` and consulted by the epoch
-  tool-pair): unconditional fail-closed redaction for every db-reading
-  resolver (EP-0015). The on-box listener keeps the raw
-  evidence (the leak is at off-box / epoch / MCP egress, not the local
-  listener). Tooling reads the declared inputs to avoid unnecessary whole-db
-  re-resolution and to mark the whole-db cost (EP-0015 disposition 8).
-  PASSIVE reads
-  advertised as pure (`resolve-resource-scope`, subscription resolution) MUST
-  call `resolve-scope*-pure` instead — they do not emit observability state
-  during a read."
+  "As `resolve-scope*-pure`, and also emits `:rf.resource/scope-resolved` with
+  the input names and values and the result. For causal boundaries only
+  (events, route entry, mutation settle)."
   [scope-id spec db where]
   (let [inputs   (:inputs spec)
         in-vals  (eval-inputs inputs db)
@@ -554,34 +310,11 @@
     resolved))
 
 (defn resolve-resource-scope
-  "Resolver helper: resolve the named resource-scope resolver `scope-id`
-  against the supplied `db` value, returning a canonical concrete scope or
-  nil. A PURE function over the resolver registry — NOT an effect, no
-  resolution-timing ambiguity, no app-state / dispatch side effects, and
-  NO observability side effect either: it routes through the
-  trace-free `resolve-scope*-pure` evaluator, so a passive read advertised as
-  pure does NOT emit `:rf.resource/scope-resolved` into the trace bus. The
-  CAUSAL resolution boundaries that DO carry trace evidence (a resource
-  event's `{:from-db …}` scope, route entry, mutation settle) run the traced
-  `resolve-scope*` wrapper instead. Per Spec 016 §`clear-scope` resolves the
-  concrete scope from the coeffect db (EP-0016 issue 7).
-
-  Canonical use is the logout/account-switch idiom: resolve the concrete old
-  scope from the handler's COEFFECT db (pre-transition by definition — the
-  EP-0010-coherent causal input) and pass it to `:rf.resource/clear-scope`
-  concretely:
-
-      (rf/reg-event :auth/logout
-        (fn [{:keys [db]} _]
-          (let [old (rf/resolve-resource-scope db :realworld/session)]
-            {:db (dissoc db :auth)
-             :fx [[:dispatch [:rf.resource/clear-scope {:scope old :cause :logout}]]]})))
-
-  Throws `:rf.error/resource-scope-not-registered` when no resolver is
-  registered under `scope-id` (the loud fail-closed boundary — a typo'd
-  reference is never a silent nil). A resolver that returns nil for the
-  supplied db yields nil (the fail-closed unresolved condition; the use site
-  interprets it — never an implicit global)."
+  "Resolves the named resolver `scope-id` against `db` to a canonical scope,
+  or nil. Pure and trace-free. Throws `:rf.error/resource-scope-not-registered`
+  for an unknown id. Its use is resolving the old scope from a handler's
+  coeffect db before `:rf.resource/clear-scope`.
+  Spec 016 §`clear-scope` resolves the concrete scope from the coeffect db (not a snapshot)"
   [db scope-id]
   (let [spec (require-scope-resolver! scope-id 'rf/resolve-resource-scope)]
     (resolve-scope*-pure scope-id spec db 'rf/resolve-resource-scope)))
@@ -589,84 +322,37 @@
 ;; ---- {:from-db <id>} reference resolution --------------------------------
 
 (defn from-db-reference?
-  "True iff `scope` is a named-resolver REFERENCE `{:from-db <resolver-id>}`
-  — the single derived-scope reference form (Spec 016 §Resolver references).
-  A concrete scope value (a keyword, a `[:rf.scope/session …]` tuple, a
-  plain map without `:from-db`) is NOT a reference.
-
-  The shape is defined ONCE, at the concrete-scope boundary that has to
-  REFUSE a reference (`state/from-db-reference-scope?`); this is
-  the resolution-side spelling, and the two can never disagree."
+  "True iff `scope` is a `{:from-db <resolver-id>}` reference. Delegates to
+  the state-side predicate so the two can never disagree."
   [scope]
   (rf.resources.state/from-db-reference-scope? scope))
 
 (defn resolve-from-db-reference
-  "Resolve a `{:from-db <resolver-id>}` reference against `db` at USE TIME —
-  the single use-time resolution rule, uniform across every site that
-  accepts a derived scope (resource registration, route resources, ensure /
-  refetch payloads, subscriptions, invalidation descriptors, populate/patch
-  targets). Returns the resolved canonical scope, or nil (the
-  fail-closed unresolved condition — the caller interprets it; route
-  planning MUST NOT substitute global, a sub is explainable as \"scope
-  unresolved\"). `where` names
-  the call-site for the structured registry error. Per Spec 016 §Resolver
-  references — `{:from-db <id>}`."
+  "Resolves `reference` against `db` at use time with trace evidence. Returns
+  the canonical scope, or nil for the caller to interpret; throws for an
+  unregistered resolver. Spec 016 §Resolver references — `{:from-db <id>}`"
   [reference db where]
   (let [scope-id (:from-db reference)
         spec     (require-scope-resolver! scope-id where)]
     (resolve-scope* scope-id spec db where)))
 
 (defn resolve-from-db-reference-pure
-  "PURE: resolve a `{:from-db <resolver-id>}` reference against `db` WITHOUT
-  emitting `:rf.resource/scope-resolved` trace evidence — the trace-free
-  counterpart of `resolve-from-db-reference`, for PASSIVE reads advertised as
-  pure: subscription key resolution re-keys a sub on every
-  frame-state change, so a traced resolve would flood the trace bus with a row
-  per re-render of a passive read. Routes through `resolve-scope*-pure`. The
-  CAUSAL `{:from-db …}` resolution sites (resource events, route entry,
-  mutation settle) call the traced `resolve-from-db-reference` instead — they
-  are the inspectable causal evidence. Same return contract: the resolved
-  canonical scope, or nil (the fail-closed unresolved condition)."
+  "As `resolve-from-db-reference` without the trace, because subscriptions
+  re-key on every frame-state change and would flood the trace bus."
   [reference db where]
   (let [scope-id (:from-db reference)
         spec     (require-scope-resolver! scope-id where)]
     (resolve-scope*-pure scope-id spec db where)))
 
-;; ---- ScopeInput resolution — the single public scope-taking arm ----------
+;; ---- ScopeInput resolution -----------------------------------------------
 
 (defn resolve-scope-input
-  "Resolve a public ScopeInput — a CONCRETE scope value OR a `{:from-db <id>}`
-  named-resolver reference — to a canonical concrete cache scope, for a
-  scope-taking OPERATION at a CAUSAL boundary (the direct
-  `:rf.resource/invalidate-tags` event and the `:rf.mutation/execute`
-  execution-scope resolution — its second consumer). The
-  single symmetric resolution arm, so a `{:from-db …}` reference
-  resolves IDENTICALLY at every public scope slot that accepts one (event
-  ensure / invalidate-tags / mutation execute) — never a raw literal-canonicalize
-  exception, which would key
-  nothing and fail as a silent zero-match. Per Spec 016 §Resolver references —
-  the single use-time resolution rule, uniform across every site.
-
-    - concrete arm — the literal scope is routed through the shared
-      `rf.resources.state/canonicalize-scope` validation path ONCE (reserved-typo /
-      wrapped-global / host-value fail-closed);
-    - reference arm — `resolve-from-db-reference` resolves against `db` at use
-      time AND emits the causal `:rf.resource/scope-resolved` evidence; its
-      result is ALREADY canonical (`resolve-scope*` canonicalizes the resolver
-      output), so it is NEVER canonicalized twice.
-
-  Returns the canonical concrete scope, or nil ONLY when a `{:from-db …}`
-  reference resolved nil (its declared `:inputs` are absent — e.g. no logged-in
-  user). The nil POLICY is per-operation at the CALL SITE: a scope-REQUIRING
-  operation (ensure / invalidate / a supplied execute reference) throws
-  `:rf.error/resource-scope-unresolved-reference`. (`:rf.resource/clear-scope`
-  is NOT a consumer: it takes a concrete scope only and
-  canonicalizes it directly.) `where` names the
-  boundary; `resource-id` scopes the concrete-scope validation error (the
-  mutation id for `:rf.mutation/execute`; nil for a
-  tag invalidation that spans resources). Throws
-  `:rf.error/resource-scope-not-registered` (via `resolve-from-db-reference`)
-  when a reference names an unregistered resolver — before any mutation."
+  "Resolves a ScopeInput (a concrete scope or a `{:from-db <id>}` reference)
+  to a canonical scope at a causal boundary, so a reference resolves the same
+  at every scope slot. A concrete scope is canonicalized once; a reference's
+  result is already canonical. Returns nil only for a reference that resolved
+  nil, and the call site applies its nil policy. `resource-id` scopes the
+  validation error. Spec 016 §Resolver references — `{:from-db <id>}`"
   [scope db where resource-id]
   (if (from-db-reference? scope)
     (resolve-from-db-reference scope db where)
