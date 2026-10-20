@@ -3,7 +3,7 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Eight retired spellings are
+repo source is a CI failure, not a doc note. Nine retired spellings are
 lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1).
@@ -63,6 +63,11 @@ lintable:
       A second, validated fx beside it would make the short name the
       dangerous one, so the id is retired with NO alias, and so is its
       `:rf.error/safe-redirect-*` error family.
+
+  (i) The `:rf.route/navigate` request key `:query-merge`. There is one way
+      to edit the current query in place: an in-place `:query` merges into
+      it, and a nil member removes its key. The key is retired with NO alias
+      — the navigate gate rejects a leftover one as an unknown key.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -283,6 +288,12 @@ retired SHAPES:
       appears: an `:fx` entry, a `reg-fx`, a listener's category set. A
       retirement note spells it as backticked prose, and the opening
       backtick denies the token-start boundary.
+
+  (i) `:query-merge` as a Clojure KEYWORD TOKEN, delimited exactly as rule (c)
+      delimits `:query-retain`, for rule (c)'s reason: the key has no
+      sanctioned code use, so a delimited token in a navigate request IS the
+      violation. Tests are outside the default surface, which is what lets
+      the routing suite assert that a leftover `:query-merge` is refused.
 
 WHY RULE (g) IS THE ONLY WIDE ONE
 
@@ -975,6 +986,16 @@ _RETIRED_SAFE_REDIRECT_RE = re.compile(
     r"(?=[\s)\]},]|$)"           # keyword-token end
 )
 
+# (i) The retired in-place navigate key `:query-merge`, as a delimited Clojure
+#     KEYWORD TOKEN — the rule (c) shape, for the same reason: no sanctioned
+#     code use. The trailing lookahead also rejects `:query-merge/x` and
+#     `:query-merged`.
+_RETIRED_QUERY_MERGE_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
+    r":query-merge"
+    r"(?=[\s)\]},]|$)"           # keyword-token end
+)
+
 # (e) The retired facade fn `machine-has-tag?`, in its TWO shapes.
 #     Both are matched on the RAW line — see (e) under "WHY THE SHAPES ARE
 #     SCOPED PRECISELY" for why this rule alone does not mask comments.
@@ -1366,6 +1387,15 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
                         raw_snippet(line_no))
             )
 
+    # (i) The retired `:query-merge` navigate key — line-local for the reason
+    #     (c) is: no sanctioned code use at all.
+    for line_no, line in enumerate(masked, start=1):
+        if _RETIRED_QUERY_MERGE_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-query-merge-key",
+                        raw_snippet(line_no))
+            )
+
     # (e) The retired facade fn `machine-has-tag?`. RAW lines, not masked —
     #     a carrier can sit inside a `;;` comment, and the qualified shape has
     #     no legitimate prose use. See (e) in the module docstring for the
@@ -1733,8 +1763,15 @@ _FIX_HINTS = {
         "Declare the keys the route owns in `:query` / `:query-defaults`; "
         "carry query state across routes with an ordinary pure function over "
         "the destination address at the call site (Spec 012 §Carrying query "
-        "state across routes). To edit the CURRENT route's query, use the "
-        "in-place `:query` / `:query-merge` request."
+        "state across routes). To edit the CURRENT route's query, use an "
+        "in-place `:query` request, which merges into it."
+    ),
+    "retired-query-merge-key": (
+        "The `:rf.route/navigate` key `:query-merge` is retired with no "
+        "alias — the navigate gate rejects it as an unknown key. Use an "
+        "in-place `:query` (a request with no `:to` / `:url`): it merges "
+        "into the current query, a nil member removes its key, and "
+        "`:query nil` clears the query (Spec 012 §In-place navigation)."
     ),
     "retired-bench-coordinate": (
         "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — is "
@@ -1837,6 +1874,7 @@ def main(argv: list[str]) -> int:
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
             "repo source (the bare :frame coeffect; redirect :url/:to; "
             "route :query-retain; the SSR fx :rf.server/safe-redirect; "
+            "the navigate key :query-merge; "
             "a fresco front.*/arm1.* bench coordinate, "
             "as a symbol OR as a string; the retired facade fn "
             "machine-has-tag?, qualified or redefined; the retired product "
@@ -2007,6 +2045,7 @@ _FIXTURE_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     ("scan", "positive/redirect_url_multiline.cljc",      1),
     ("scan", "positive/query_retain_reg_route_meta.cljc", 1),
     ("scan", "positive/safe_redirect_fx.cljc",            2),
+    ("scan", "positive/query_merge_navigate.cljc",        1),
     ("coord", "coord/positive/where_symbol_front.cljc",     1),
     ("coord", "coord/positive/assertion_string_front.cljc", 1),
     ("coord", "coord/positive/syntax_quoted_symbol.cljc",   1),
