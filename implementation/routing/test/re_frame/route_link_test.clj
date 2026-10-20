@@ -69,13 +69,13 @@
 (deftest route-link-policy-keys-ride-the-click-not-the-anchor
   (rf/reg-route :route/cart {} "/cart")
   (let [props {:to :route/cart :fragment "top" :class "nav"
-               :replace? true :scroll :preserve :bypass-leave? true}]
+               :replace? true :scroll false :bypass-leave? true}]
     (testing "the policy keys never reach the <a>; html attrs and children pass through"
       (is (= [:a {:href "/cart#top" :class "nav"} "Cart"]
              (rf.routing/route-link-render-ssr props "Cart"))))
     (testing "the click's :rf.route/navigate carries each policy key written"
       (is (= [:rf.route/navigate
-              {:url "/cart#top" :replace? true :scroll :preserve :bypass-leave? true}]
+              {:url "/cart#top" :replace? true :scroll false :bypass-leave? true}]
              (click-payload props))))))
 
 (deftest route-link-replace-replaces-the-history-entry
@@ -93,9 +93,11 @@
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :route/cart {:scroll :restore} "/cart")
   (let [seen (record-nav-fx!)]
-    ;; No link :scroll → the route's own; a link :scroll overrides it.
-    (doseq [[props strategies] [[{:to :route/cart}                  [:restore]]
-                                [{:to :route/cart :scroll :preserve} [:preserve]]]]
+    ;; No link :scroll → the route's own; a link :scroll overrides it, and a
+    ;; link :scroll false emits no scroll effect.
+    (doseq [[props strategies] [[{:to :route/cart}               [:restore]]
+                                [{:to :route/cart :scroll :top}  [:top]]
+                                [{:to :route/cart :scroll false} []]]]
       (is (= strategies
              (into [] (comp (filter (comp #{:rf.nav/scroll} first))
                             (map (comp :strategy second)))

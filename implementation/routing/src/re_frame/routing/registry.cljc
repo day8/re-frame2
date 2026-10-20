@@ -275,8 +275,8 @@
 
 (defn- validate-scroll!
   "Authoring-boundary guardrail for `reg-route`'s `:scroll`: a present value
-  must pass `rf.routing.address/valid-scroll?` — `:top` / `:restore` /
-  `:preserve`, `false`, or nil (Spec 012 §Scroll restoration). Throws
+  must pass `rf.routing.address/valid-scroll?` — `:top` / `:restore`,
+  `false`, or nil (Spec 012 §Scroll restoration). Throws
   `:rf.error/route-bad-metadata` naming `:scroll` under `:keys` and carrying
   the offending `:value`, rather than letting the value register and fail
   later inside the `:rf.nav/scroll` fx."

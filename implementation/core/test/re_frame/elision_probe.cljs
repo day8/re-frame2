@@ -360,7 +360,7 @@
 
 ;; ---- call-site source-coord macros ----------------------------------------
 ;;
-;; The `dispatch` / `dispatch-sync` / `subscribe` macros stamp an
+;; The `dispatch` / `dispatch-sync` macros stamp an
 ;; `:rf.trace/call-site` map at compile time (dev-only; elided in production).
 ;; Under `:advanced` + `goog.DEBUG=false`, the macro's
 ;; `(if interop/debug-enabled? <stamp-branch> <no-stamp-branch>)` expansion
@@ -376,9 +376,7 @@
   (rf/reg-cofx     :probe/cs-cofx  (fn [] :ok))
   ;; dispatch + dispatch-sync macros
   (rf/dispatch [:probe/cs-event])
-  (rf/dispatch-sync [:probe/cs-event])
-  ;; subscribe macro
-  (let [_r (rf/subscribe [:probe/cs-sub])] nil))
+  (rf/dispatch-sync [:probe/cs-event]))
 
 ;; ---- reg-view-injected dispatch/subscribe call-site ----------------------
 ;;

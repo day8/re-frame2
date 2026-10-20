@@ -353,8 +353,8 @@ It reports on the route's blocking `:resources` ([details](#when-a-loader-fails)
 
 A fragment-only change updates the slice and doesn't re-fire `:on-match`. A route's
 `:scroll` (or a navigate's or link's) is `:top` (the default for links and navigates),
-`:restore` (the default for Back, Forward and the first load), `:preserve`, or
-`false` for no scroll effect. `:top` scrolls the element whose `id` is the fragment
+`:restore` (the default for Back, Forward and the first load), or `false` for no
+scroll effect, which leaves the page where it is. `:top` scrolls the element whose `id` is the fragment
 into view, or the page to the top when there is no such element.
 
 ## Nested layouts

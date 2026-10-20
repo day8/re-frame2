@@ -150,8 +150,8 @@
              ;; facade) — the frame api captures the
              ;; render-time frame ONCE, and the injected `dispatch` /
              ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
-             ;; They shadow the coord-capturing `dispatch` / `subscribe`
-             ;; MACROS for the whole view body, so a view's on-click
+             ;; They shadow the facade's `dispatch` / `subscribe` for
+             ;; the whole view body, so a view's on-click
              ;; `#(dispatch [...])` would otherwise classify as
              ;; `:source :unknown` with no call-site. We pass the view's
              ;; coord into the frame api's `:dispatch-opts` so the dispatch

@@ -1,21 +1,9 @@
 (ns re-frame.router.diagnostics
-  "Dev-only diagnostics for the router: cross-frame dispatch-sync warnings
-  and the no-handler error path. A sibling of `re-frame.router`, holding
-  the warning / error fns that the router facade reaches into.
-
-  There is no `:rf/default` floor for a bare dispatch to slide onto: a
-  dispatch under no established scope fails loudly at envelope-build time
-  with `:rf.error/no-frame-context` (emitted from
-  `re-frame.frame/require-current-frame!`) — an always-on,
-  production-survivable error.
-
-  Every fn here either runs on a cold/error path or sits behind
-  `rf.interop/debug-enabled?` — production builds (`:advanced` +
-  `goog.DEBUG=false`) DCE the bodies and the keyword reason-strings.
-
-  The cross-ns indirection from the router facade is amortised: callers
-  (`process-event*`, `dispatch!`, `dispatch-sync!`) all sit on the
-  facade and reach into this ns only on the rare warning / error paths."
+  "Router diagnostics on cold or dev-gated paths: the no-handler and
+  ambiguous-handler errors, the cross-frame dispatch-sync warning, the
+  dispatch-opts and payload checks, and the always-on `:rf.cofx` boundary
+  validation. Kept apart from `re-frame.router`, which reaches in only on
+  these rare paths."
   (:require [clojure.string :as str]
             [re-frame.cofx.value-check :as rf.cofx.value-check]
             [re-frame.error :as rf.error]
@@ -29,18 +17,12 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn handle-ambiguous-handler!
-  "Emit `:rf.error/ambiguous-registration` when a dispatched event's id is
-  registered by more than one namespace and its frame — one made without
-  `:images` — resolves the registration store live, so it runs neither. `ex`
-  is the throw the frame's lookup raised; its ex-data names the
-  `:registration`, the `:namespaces` and the remedy `:reason`. The event does
-  not run, every other id keeps working, and the drain continues.
-
-  The record is always-on (it survives `goog.DEBUG=false`): the cause is a
-  production-reachable registration mistake — a handler moved between
-  namespaces, or a late-loaded module duplicating an id — and nothing else
-  would say why the event did nothing. Reached through the
-  `:error-emit/emit-error-both` hook, like [[handle-no-handler!]]."
+  "Emit `:rf.error/ambiguous-registration` for an event whose id more than one
+  namespace registers, on a frame made without `:images`; the event does not
+  run and the drain continues. `ex` is the lookup's throw, whose ex-data names
+  the `:registration`, the `:namespaces` and the remedy `:reason`. Always-on:
+  a handler moved between namespaces or a late-loaded duplicate is a
+  production mistake, and nothing else would say why the event did nothing."
   [ex event-id event frame]
   (when-let [emit-error-both!
              (rf.late-bind/get-fn :error-emit/emit-error-both)]
@@ -64,33 +46,12 @@
          :reason       reason}))))
 
 (defn handle-no-handler!
-  "Emit `:rf.error/no-such-handler` when a dispatched event has no
-  registered handler on its (explicitly carried) target frame. The
-  dispatch reached here only because its frame was resolved (an explicit
-  `{:frame …}` override, an established scope, or a captured stamp) — a
-  frameless bare dispatch never gets this far: it raised
-  `:rf.error/no-frame-context` at envelope-build time (EP-0002 §Dispatch
-  And Router).
-
-  The `:rf.error/no-such-handler` category ALSO fans out through the
-  always-on error-emit listener (surface #4) so
-  it survives `:advanced` + `goog.DEBUG=false` and reaches off-box
-  observability shippers — a dispatch to a never-registered handler is a
-  production-meaningful runtime error. Recovery is the runtime's built-in
-  `:replaced-with-default` (a no-op); there is no app-steering recovery
-  policy. Reached via the `:error-emit/dispatch-on-error` late-bind hook
-  (this diagnostics ns cannot static-require `re-frame.error-emit`
-  without a load cycle). The `:frame`-stampable record carries the target
-  `frame` + attempted `event` for shipper attribution.
-
-  The dev `rf.trace/emit-error!` below stays dev-only (it DCEs under
-  `goog.DEBUG=false`); the always-on listener fan-out is what survives."
+  "Emit `:rf.error/no-such-handler` for an event with no handler on its
+  resolved frame, on the always-on channel and the dev trace, since a
+  dispatch to a never-registered handler is production-meaningful. Recovery
+  is `:replaced-with-default`, a no-op. Late-bound, as requiring
+  `re-frame.error-emit` here would be a load cycle."
   [event-id event frame]
-  ;; Both channels via the shared helper: axis 1 the always-on
-  ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
-  ;; `:advanced` + `goog.DEBUG=false`). No exception — invalid op; `elapsed-ms 0`.
-  ;; Reached via the `:error-emit/emit-error-both` hook (this diagnostics ns
-  ;; cannot static-require error-emit — load cycle).
   (when-let [emit-error-both!
              (rf.late-bind/get-fn :error-emit/emit-error-both)]
     (emit-error-both!
@@ -108,22 +69,10 @@
        :recovery          :replaced-with-default})))
 
 (defn find-other-draining-frame-id
-  "Per Spec 002 §dispatch-sync cross-frame note. Return the
-  frame-id of any registered, non-destroyed frame OTHER than `target-frame-id`
-  whose router currently shows `:in-sync-drain?` or `:in-drain?` true.
-  Returns nil when no such frame exists.
-
-  Used by `re-frame.router/dispatch-sync!` to detect the cross-frame
-  cascade pattern (frame A mid-drain, a handler calls
-  `(rf/dispatch-sync! [...] {:frame :b})`). The same-frame case is
-  already an error; the cross-frame case is intentional but surprising,
-  so we surface it as
-  `:rf.warning/cross-frame-dispatch-sync-during-drain` rather than
-  refuse. Frames are independent state machines (per Spec 002 §Rules
-  rule 1) and frame B's drain doesn't violate frame A's contract.
-
-  Dev-only — the caller gates on `rf.interop/debug-enabled?` to skip the
-  registry walk in production."
+  "The id of a live frame other than `target-frame-id` that is mid-drain, or
+  nil. `dispatch-sync!` warns on that cross-frame interleave rather than
+  refusing it, since frames are independent (Spec 002 §Cross-frame
+  `dispatch-sync` during a sibling drain warns but proceeds). Dev-only."
   [target-frame-id]
   (some (fn [frame-id]
           (when (not= frame-id target-frame-id)
@@ -134,110 +83,33 @@
         (rf.frame/frame-ids)))
 
 (def ^:const known-dispatch-opts
-  "The closed set of keys `build-envelope` reads off the
-  `dispatch` / `dispatch-sync` opts map (and therefore the only keys that
-  affect dispatch behaviour). Every other key is silently swallowed, so a
-  typo'd opt (`:fram` for `:frame`, `:src` for `:source`) changes nothing
-  and gives no signal — the no-silent-swallow principle
-  forbids that quietness. `emit-unknown-dispatch-opts-warning!` warns on
-  any opts key outside this set.
-
-  The set mirrors the reads in `re-frame.router/build-envelope`:
-    :frame                  resolved target frame
-    :fx-overrides           per-call fx-id remapping
-    :interceptor-overrides  per-call interceptor remapping
-    :trace-id               tooling correlation id
-    :source                 closed-enum trigger-kind / functional-origin
-    :source-detail          per-source-kind detail payload
-    :origin                 actor identity tag
-    :rf.cofx                EP-0017 flat recordable-coeffect map
-                            (caller-supplied `:rf/time-ms` + owner-qualified
-                            facts; the router fills `:rf/time-ms` when absent)
-    :rf.cofx/mint-policy    EP-0017 §6 per-call cofx mint policy
-                            (`:live` / `:strict`); the most-specific binding
-                            point — a Tool-Pair replay supplies `:strict`, a
-                            test that wants a fresh value supplies `:live`.
-                            Absent ⇒ the frame config's policy, else the
-                            router's `:live` default
-    :rf.trace/call-site     macro-stamped invocation coord (dev-only)
-    :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
-                            framework-private `[:rf/settle-flows]` child a
-                            completed `:fx` walk dispatches when it wrote the
-                            state of a frame running a flow
-                            (`fx/settle-flows-after-walk!`).
-                            `insert-envelope` reads it to put the settle at the
-                            head of the internal lane, ahead of the
-                            continuations that same handler queued. INTERNAL —
-                            not an app-facing opt, and not a
-                            general priority lever
-    :step-index             frame-construction setup-step index, stamped by
-                            `frame.cljc`'s `run-setup-events!` onto each
-                            `:initial-events` dispatch (EP-0027); read by
-                            `build-envelope` and carried onto the dispatched
-                            trace as `:rf.frame/init-step-index`
-    :rf.frame/expected-incarnation
-                            the EXACT incarnation token
-                            (`:drain-lock`) a `capture-frame` op pinned at
-                            capture, threaded by `re-frame.core/capture-dispatch!`.
-                            `build-envelope` reads it and carries it onto the
-                            envelope so `dispatch!` / `dispatch-sync!` refuse to
-                            enqueue into a same-id successor resolved after the
-                            capture's liveness pre-check. INTERNAL (reserved
-                            `:rf.frame/` namespace) — not an app-facing opt."
+  "The closed set of dispatch-opts keys `re-frame.router/build-envelope`
+  reads. Any other key is ignored, so a typo like `:fram` would change
+  nothing silently; `emit-unknown-dispatch-opts-warning!` warns instead
+  (Conventions §No silent swallow). `:rf.flow/settle?` and
+  `:rf.frame/expected-incarnation` are internal, not app-facing."
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
     :rf.flow/settle? :step-index
     :rf.frame/expected-incarnation})
 
 (def ^:const retired-draft-opt-hints
-  "Dispatch-opt keys that named a fact only ever spelled in the spec's own
-  DRAFTS (never shipped in a released artefact), mapped to a targeted
-  did-you-mean hint. A retired DRAFT name earns NO dedicated retired-name
-  error id — that privilege is reserved for names that SHIPPED and so carry
-  wide training-data exposure (per [Conventions §The tombstone rule], the
-  shipped-names-only rule). A draft-era key is therefore handled by the
-  SAME generic closed-key surface as any other unrecognised opt
-  (`emit-unknown-dispatch-opts-warning!`), but with a specific replacement
-  suggestion appended so the fix stays actionable:
-
-    :rf.world/inputs → :rf.cofx  (the recordable-coeffect envelope field is
-                                  `:rf.cofx` (EP-0017); the flat
-                                  `fact-name → value` map is supplied under it)
-    :dispatched-at   → the durable causal-time fact
-                       `(:rf/time-ms (:rf.cofx envelope))` (EP-0010 —
-                       there is no caller-supplied dispatch-time field)
-
-  Dev-only, like the warning it feeds: the whole map DCEs under `:advanced` +
-  `goog.DEBUG=false` (only reached inside `emit-unknown-dispatch-opts-warning!`,
-  itself gated on `rf.interop/debug-enabled?`)."
+  "Did-you-mean hints for dispatch opts that existed only in spec drafts.
+  Drafts never shipped, so they get no dedicated retired-name error
+  (Conventions §The tombstone rule); the unknown-opt warning appends the hint
+  instead. Dev-only."
   {:rf.world/inputs
    "did you mean `:rf.cofx`? (EP-0017 renamed the recordable-coeffect envelope field — supply the flat `fact-name → value` map under `:rf.cofx`; the framework time fact is `:rf/time-ms`)"
    :dispatched-at
    "there is no caller-supplied dispatch-time opt — the durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`, stamped by the framework; for a diagnostic dispatch-time read the trace event's own `:time` stamp (Spec 009)"})
 
 (defn- validate-supplied-cofx-values!
-  "ALWAYS-ON structural-EDN check of a SUPPLIED `:rf.cofx` map's values.
-  Every value other than
-  the framework's `:rf/time-ms` fact rides the durable causal record, so each
-  MUST be recordable EDN data (EP-0017:386). The first non-recordable value
-  throws `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`).
-
-  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (EP-0017 §3 / §5 / Open
-  Issue 9 — structural EDN always, hard errors in production as well as dev):
-  a supplied recordable value that is a host handle folds a non-EDN value into
-  the durable causal record (epoch ledger, replay, SSR payload, Xray) — corrupt
-  durable state, not a dev nicety, for the same reason `validate-cofx!`'s
-  map-shape and `:rf/time-ms` checks run always-on. The walk runs only when a
-  `:rf.cofx` was supplied (no allocation
-  on the override-free hot path), and the recordable predicate short-circuits
-  at the first non-EDN leaf. The declared-`:schema` check (cofx.cljc) is the
-  complementary always-on per-supplier contract; this is the structural
-  always-EDN floor that fires even when no `:schema` was declared.
-
-  The `:supplied` arm of the shared `rf.cofx.value-check/check-edn-value!`
-  — its generated-value twin lives at the generator write-back site
-  (`re-frame.cofx`). The always-on listener carries the triggering `event` (the
-  supplied path runs at the dispatch boundary, before any frame is owned)."
+  "Throw `:rf.error/cofx-value-invalid` (`:non-edn-recordable-value`) at the
+  first value of a supplied `:rf.cofx` that is not recordable EDN; the
+  framework's `:rf/time-ms` is checked separately. Always-on, because a host
+  handle folded into the durable causal record corrupts it in production too.
+  The `:supplied` arm of `rf.cofx.value-check/check-edn-value!`; a declared
+  `:schema` is checked later, in `re-frame.cofx`."
   [supplied event]
   (let [event-id (first event)]
     (reduce-kv
@@ -250,57 +122,15 @@
       supplied)))
 
 (defn validate-cofx!
-  "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is
-  structurally malformed at the PUBLIC dispatch boundary.
-
-  `:rf.cofx` is the durable causal token (the flat
-  recordable-coeffect map): its `:rf/time-ms` is the one host-clock fact
-  durable writes fold (Spec 002 §Recordable coeffects), and replay / restore
-  / SSR-hydration feed it verbatim. So a malformed token is not a harmless
-  typo — a non-map supplied value, or a non-integer `:rf/time-ms`, propagates
-  straight into durable-write code (the epoch record's `:committed-at`,
-  resource `:settled-at`, …) and makes the fold dishonest. The pair-tool
-  already validates its own wire shape, but that does NOT protect ordinary
-  public `dispatch` / `dispatch-sync`; a single central validator at the
-  dispatch boundary is simpler to reason about than relying on every caller /
-  tool to validate.
-
-  The contract MIRRORS the `:rf.cofx` schema (Spec-Schemas.md §:rf.cofx):
-
-    - a supplied `:rf.cofx` MUST be nil or a MAP (`nil` ⇒ the router
-      stamps a fresh map — the ordinary live-dispatch path);
-    - a supplied `:rf/time-ms` MUST be an integer (wall-clock epoch ms — the
-      framework's lone provided-on-the-envelope fact).
-
-  Other facts (app-owned, subsystem-qualified) pass the cheap MAP-SHAPE gate
-  here, then — ALWAYS-ON (per EP-0017 Open Issue 9 — structural EDN always,
-  hard error in production too) —
-  each value is walked by `validate-supplied-cofx-values!` to confirm it is
-  recordable EDN data (EP-0017:386): a host handle (DOM node, Promise, function,
-  atom, JS / Java object) supplied as a recordable coeffect throws
-  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`) in dev AND
-  production. A narrower per-supplier `:schema` gate (cofx.cljc satisfaction
-  step, the complementary always-on production contract) is the deeper check
-  that follows; this is the structural always-EDN floor that catches the author
-  error at the dispatch source.
-
-  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?`: a corrupt causal
-  token is a correctness contract that must fail fast in `:advanced` +
-  `goog.DEBUG=false`
-  production too (a non-integer `:rf/time-ms` folded into a durable timestamp
-  is a production data-integrity bug, not a dev nicety). The cost is a
-  `contains?` + a `map?` / `int?` check on the dispatch path — no allocation
-  unless the caller supplied a `:rf.cofx`.
-
-  Each message describes the rejected value by its `rf.error/diag-value-summary`
-  shape and never prints it: the printer overflows on a cyclic host object, which
-  would replace this error with a stack overflow. The ex-data carries the raw
-  value, since holding it prints nothing.
-
-  Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
-  `ensure-cofx` stamps `:rf/time-ms`, so an invalid token fails fast WITHOUT
-  first reading the clock for a dispatch that cannot proceed. Per Spec 002
-  §Recordable coeffects + EP-0010 §Time + EP-0017 §The envelope field."
+  "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is not nil
+  or a map, or carries a non-integer `:rf/time-ms` (Spec-Schemas
+  §`:rf.cofx`); then check every other value is recordable EDN. Always-on:
+  the token folds into durable writes and replay, so a malformed one is a
+  production data-integrity bug, and one check at the public dispatch
+  boundary covers every caller. Messages describe the rejected value by its
+  `rf.error/diag-value-summary` and never print it, since a cyclic host object
+  would overflow the printer; the ex-data carries the raw value. Runs before
+  the router reads the clock."
   [opts event]
   (when (contains? opts :rf.cofx)
     (let [supplied (:rf.cofx opts)]
@@ -336,52 +166,22 @@
           {:extra {:event-id   (first event)
                    :event      event
                    :rf/time-ms (:rf/time-ms supplied)}}))
-      ;; Structural-EDN-ALWAYS check of the
-      ;; SUPPLIED values, AFTER the map-shape + `:rf/time-ms` shape checks above
-      ;; and BEFORE the per-supplier `:schema` validation (cofx.cljc,
-      ;; satisfaction step). ALWAYS-ON (EP-0017 Open Issue 9 — production hard
-      ;; error too): a non-EDN recordable value (a host handle) throws
-      ;; `:rf.error/cofx-value-invalid` / `:non-edn-recordable-value`. Only
-      ;; runs when `supplied` is a map (the non-map case already threw above).
+      ;; After the shape checks, and before the per-supplier `:schema` check
+      ;; in `re-frame.cofx`.
       (when (map? supplied)
         (validate-supplied-cofx-values! supplied event)))))
 
 (defn unknown-dispatch-opts
-  "Return the seq of keys in `opts` that fall OUTSIDE
-  `known-dispatch-opts`, or nil when every key is known (so callers can
-  `when-let` the result). Dev-only — the sole caller gates on
-  `rf.interop/debug-enabled?`."
+  "The keys of `opts` outside `known-dispatch-opts`, or nil when every key is
+  known. Dev-only."
   [opts]
   (when rf.interop/debug-enabled?
     (seq (remove known-dispatch-opts (keys opts)))))
 
 (defn emit-unknown-dispatch-opts-warning!
-  "Emit `:rf.warning/unknown-dispatch-opt` when a
-  `dispatch` / `dispatch-sync` opts map carries one or more keys outside
-  the recognised `known-dispatch-opts` set. The runtime reads only the
-  known keys in `build-envelope`; an unrecognised key (almost always a
-  typo — `:fram` instead of `:frame`) is otherwise silently swallowed and
-  changes nothing, producing wrong behaviour with no signal. It is surfaced
-  loudly rather than left as a quiet footgun (the no-silent-swallow
-  principle).
-
-  One warning per dispatch call carrying unknown keys: the message names
-  every bad key and the full known set so the fix is obvious. The dispatch
-  proceeds unchanged — this is observational, never refusal (`:recovery
-  :no-recovery`).
-
-  A key that named a RETIRED DRAFT fact (`retired-draft-opt-hints` —
-  `:rf.world/inputs`, `:dispatched-at`) rides this same generic surface (it
-  earns no dedicated retired-name error id per the shipped-names-only
-  tombstone rule, [Conventions §The tombstone rule]) but the reason string
-  appends a specific did-you-mean naming the canonical replacement, so the
-  fix stays as actionable as a bespoke error would have made it.
-
-  Body gated on `rf.interop/debug-enabled?` so the whole surface — the
-  warning keyword's interned slot, the reason-string allocation, the
-  `unknown-dispatch-opts` walk — DCEs wholesale under `:advanced` +
-  `goog.DEBUG=false`. The caller in `build-envelope` reads the
-  unknown-key seq inside the same gate so production never walks the opts."
+  "Emit `:rf.warning/unknown-dispatch-opt` naming every unrecognised key and
+  the known set, with a did-you-mean for a retired draft key. Warn-only: the
+  dispatch proceeds. Dev-only, gated wholesale so production DCEs it."
   [unknown event]
   (when rf.interop/debug-enabled?
     (let [event-id (first event)
@@ -413,15 +213,11 @@
                     :recovery     :no-recovery}))))
 
 (defn emit-cross-frame-warning!
-  "Emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
-  when `dispatch-sync!` lands on frame `target-frame-id` while a different
-  frame (`other-frame-id`) is mid-drain. The caller frame is read from
-  `rf.frame/*current-frame*`; when unbound (no frame context — e.g. a
-  process-level REPL caller threading the dispatch through some unusual
-  path) the field is `:rf/none`.
-
-  The cross-frame case is intentional but surprising: warn, do not refuse.
-  Continues with the dispatch."
+  "Emit `:rf.warning/cross-frame-dispatch-sync-during-drain` when
+  `dispatch-sync!` targets `target-frame-id` while `other-frame-id` is
+  mid-drain. A warning, not a refusal: the interleave is legal but rarely
+  intended. The caller frame is `*current-frame*`, or `:rf/none` when
+  unbound."
   [target-frame-id other-frame-id event]
   (let [caller-frame-id (or rf.frame/*current-frame* :rf/none)
         reason          (str "dispatch-sync! against `" target-frame-id "` while frame `"
@@ -448,22 +244,14 @@
 
 ;; ---- event-payload serialisability lint -----------------------------------
 ;;
-;; Per Conventions §Event payloads SHOULD be serialisable data: event vectors
-;; SHOULD contain recordable, serialisable data (the same causal-tokens-are-
-;; values discipline `:rf.cofx` already enforces ALWAYS-ON for coeffects).
-;; Unlike the `:rf.cofx` structural-EDN floor — a hard, always-on MUST because
-;; a bad cofx value corrupts the durable causal record — event payloads are a
-;; SHOULD: permissive `:any` payloads and ad-hoc CLJS test payloads still rely
-;; on carrying a live fn/object occasionally, so this is a dev-only WARNING,
-;; never a throw.
+;; Conventions §Event payloads SHOULD be serialisable data. A SHOULD, unlike
+;; the `:rf.cofx` MUST, because permissive payloads and ad-hoc CLJS tests
+;; still carry a live fn or object, so this is a dev-only warning.
 
 (def ^:const payload-lint-node-budget
-  "Node-visit budget for `find-non-serialisable-payload-path`'s bounded walk
-  — bounds a pathological deeply-nested / huge event payload so the lint
-  cannot itself become a performance footgun on the hot dispatch path. A
-  budget-exhausted walk returns nil (no warning) rather than continuing
-  unbounded — a false negative is the correct fail-safe direction for an
-  ADVISORY surface (see `re-frame.reply/walk-find-host-handle-bounded`)."
+  "Node budget for the payload walk, so the lint cannot become a hot-path
+  cost. An exhausted walk reports nothing: a false negative is the safe
+  direction for an advisory."
   500)
 
 (defn- payload-host-handle?
@@ -477,34 +265,17 @@
        (not (inst? v))))
 
 (defn find-non-serialisable-payload-path
-  "Dev-only. Walk `event` (the full dispatched event vector) for a host
-  handle — fn / Promise / AbortController / DOM node / RegExp: the
-  `re-frame.reply/host-handle?` deny-list minus instants
-  (`payload-host-handle?`) — via the budget-bounded walker
-  `re-frame.reply/walk-find-host-handle-bounded`.
-  Returns the path to the first offending value, or nil when the payload is
-  clean (or the walk budget was exhausted first — a false negative, the safe
-  direction for an advisory lint). The leading event-id keyword never
-  matches (`host-handle?` is false for a keyword), so walking the whole
-  vector rather than just its args is harmless.
-
-  The sole caller (`re-frame.router/build-envelope`) gates this call on
-  `rf.interop/debug-enabled?`, so production never walks the payload."
+  "The path to the first host handle (`payload-host-handle?`) in `event`, or
+  nil when it is clean or the walk budget ran out. Dev-only; the caller
+  gates it."
   [event]
   (rf.reply/walk-find-host-handle-bounded event payload-lint-node-budget
                                           payload-host-handle?))
 
 (defn emit-non-serialisable-event-payload-warning!
-  "Emit `:rf.warning/non-serialisable-event-payload` (Conventions §Event
-  payloads SHOULD be serialisable data) when `find-non-serialisable-payload-
-  path` found a host handle in `event`'s payload at `path`. Advisory only —
-  the dispatch proceeds unchanged (`:recovery :no-recovery`): replay, SSR
-  hydration, and epoch history all assume a value-shaped event, but this is
-  a SHOULD, not a MUST, so the runtime warns rather than rejects.
-
-  Dev-only — `rf.interop/debug-enabled?`-gated wholesale (mirrors
-  `emit-unknown-dispatch-opts-warning!`): the whole surface DCEs under
-  `:advanced` + `goog.DEBUG=false`."
+  "Emit `:rf.warning/non-serialisable-event-payload` for the host handle at
+  `path` in `event`. Advisory: the dispatch proceeds. Dev-only, gated
+  wholesale."
   [event path]
   (when rf.interop/debug-enabled?
     (let [event-id (first event)

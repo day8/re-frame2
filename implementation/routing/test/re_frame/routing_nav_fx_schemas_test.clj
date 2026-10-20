@@ -30,7 +30,6 @@
   (let [schema (registered-schema :rf.nav/scroll)]
     (doseq [args [{:strategy :top}
                   {:strategy :restore}
-                  {:strategy :preserve}
                   ;; the full planner output, descriptors carrying :params and :query
                   {:strategy  :restore
                    :from      {:id :route/cart :params {:id "7"} :query {:q "x"}}
@@ -46,6 +45,8 @@
   (doseq [[fx-id bad] [[:rf.nav/scroll {}]   ;; :strategy is required
                        ;; the vocabulary is closed: nothing would interpret a map form
                        [:rf.nav/scroll {:strategy {:to :element :selector "#article"}}]
+                       ;; "don't scroll" is no strategy: `:scroll false` emits no effect
+                       [:rf.nav/scroll {:strategy :preserve}]
                        [:rf.nav/scroll {:strategy :restore :saved-pos [0]}]
                        [:rf.nav/scroll {:strategy :restore :saved-pos ["0" "0"]}]
                        [:rf.nav/scroll {:strategy :top :fragment :install}]

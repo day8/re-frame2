@@ -88,8 +88,8 @@
             no address key beside :url"
     (rf/reg-route :route/cart {} "/cart")
     (doseq [[props payload] [[{:to :route/cart} {:url "/cart"}]
-                             [{:to :route/cart :replace? true :scroll :preserve :bypass-leave? true}
-                              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]]]
+                             [{:to :route/cart :replace? true :scroll false :bypass-leave? true}
+                              {:url "/cart" :replace? true :scroll false :bypass-leave? true}]]]
       (is (= {:dispatched [:rf.route/navigate payload] :source :router :prevented? true}
              (click! props (mk-event {})))
           (pr-str props)))))
