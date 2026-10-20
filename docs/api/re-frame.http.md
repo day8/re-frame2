@@ -58,7 +58,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
     | `:request` | map | required | The request envelope, in the second table below. |
     | `:decode` | `:auto`, `:json`, `:text`, `:blob`, `:array-buffer`, `:form-data`, a Malli schema or a fn | `:auto` | How to read a 2xx body; the forms are listed below this table. JSON object keys decode to keywords. |
     | `:accept` | `(fn [decoded] …)` | none: every decoded 2xx body is a success | A domain check after decoding. Returning `{:ok value}` makes `value` the success `:value`; returning `{:failure user-map}` fails the request as `:rf.http/accept-failure`. |
-    | `:retry` | `{:on #{kinds} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}` | none: nothing is retried | The retry policy; its rules are below this table. |
+    | `:retry` | `{:on #{kinds-and-statuses} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}` | none: nothing is retried | The retry policy; its rules are below this table. |
     | `:timeout-ms` | milliseconds, `nil` or `0` | `30000` | The per-attempt timeout. An explicit `nil` or `0` turns it off. |
     | `:rf.http/max-decoded-keys` | integer | `10000` | The most unique JSON object keys the decoder will intern for this request. Exceeding it fails the request as `:rf.http/decode-failure` with `:reason :too-many-keys`. |
     | `:reply-to` | event vector or `nil` | none | Receives both the success and the failure reply; see [Reply addressing](#reply-addressing). |
@@ -72,7 +72,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
         - `:json`, `:text`, `:blob`, `:array-buffer` or `:form-data` forces one.
         - A Malli schema parses JSON and validates it. It decodes only a response whose `Content-Type` is JSON or absent; any other type fails as `:rf.http/decode-failure`. It needs Malli at run time, and `day8/re-frame2-http` does not bring it: add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot. Without Malli, a request with a schema `:decode` is refused at dispatch with `:rf.error/schemas-artefact-missing`, before anything is sent. See [Response-body classification](#response-body-classification) for the schema's `:sensitive?` and `:large?` props.
         - A fn `(fn [body-text headers] → value)` does it all. It receives the raw body text (`""` for an empty body), and a throw fails as `:rf.http/decode-failure`.
-    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` is required in a `:retry` map and counts the first attempt, so `3` means up to two retries; a `:retry` map without it is refused rather than defaulted, because every extra attempt re-sends the request. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
+    - `:retry`: `:on` must be a set whose members are retryable kinds, `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`, or HTTP status integers from 400 to 599, which match a failure carrying that `:http-status`. So `#{:rf.http/http-5xx 429}` retries every 5xx and a 429, where `:rf.http/http-4xx` would also retry 400, 401, 403, 404 and 422. `#{}` or `nil` retries nothing. `:max-attempts` is required in a `:retry` map and counts the first attempt, so `3` means up to two retries; a `:retry` map without it is refused rather than defaulted, because every extra attempt re-sends the request. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
     - `:request-id`: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
 
     The `:request` envelope:
@@ -99,7 +99,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
     - `:cache`: `:default` uses normal HTTP freshness rules; `:no-store` bypasses the cache; `:reload` fetches and updates it; `:no-cache` revalidates a cached response; `:force-cache` accepts a cached response regardless of freshness; `:only-if-cached` requires one and requires `:mode :same-origin`. These are [Fetch options](https://fetch.spec.whatwg.org/#concept-request-cache-mode), separate from a re-frame resource cache. The browser validates their combinations. Although Fetch defines a navigation mode, application requests cannot use `:mode :navigate`.
 - **Errors**, all raised at dispatch, before the request is sent. The effect throws: the request is not sent, no reply is dispatched, the event's other effects still run, and error listeners receive `:rf.error/fx-handler-exception`, whose `:exception` carries the id below:
     - `:rf.error/http-bad-request` — the final `:url`, after the `:before` interceptor chain, is missing, `nil`, non-string or blank.
-    - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set drawn from the retryable kinds, or a `:retry` map has no `:max-attempts`.
+    - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set of retryable kinds and statuses from 400 to 599, or a `:retry` map has no `:max-attempts`.
     - `:rf.error/http-bad-reply-target` — a reply-target value that is neither an event vector nor `nil`; `:reply-to` beside `:on-success` / `:on-failure` (`:reason :mixed-addressing`); or one of `:on-success` / `:on-failure` without the other (`:reason :unpaired-split`).
     - `:rf.error/http-no-reply-target` — none of `:reply-to`, `:on-success` or `:on-failure` is present.
     - `:rf.error/schemas-artefact-missing` — the `:decode` is a schema but Malli is not loaded, so the response could not be validated; or the schema carries a `:sensitive?` or `:large?` prop but `re-frame.schemas` is not loaded, so the response could not be classified. Add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot.
@@ -112,7 +112,8 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
              {:request    {:method :get :url "/api/cart"}
               :request-id :cart/load
               :timeout-ms 5000
-              :retry      {:on           #{:rf.http/transport :rf.http/http-5xx}
+              ;; 429 retries a rate limit without retrying every 4xx.
+              :retry      {:on           #{:rf.http/transport :rf.http/http-5xx 429}
                            :max-attempts 3}
               :on-success [:cart/loaded]
               :on-failure [:cart/load-failed]}]]}))
@@ -245,7 +246,7 @@ A failure's `:kind` is one of seven values, all reserved under `:rf.http/*`. The
 | `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id`; `:message` on some paths |
 
 - The status is classified before the body is decoded, so a 4xx or 5xx response never runs `:decode`. Its raw text is on the failure map's `:body-text`, and its `:body` is that text parsed, keys as keywords, when the Content-Type is JSON (`json` or a `+json` suffix), else the text itself. The parse is best-effort: a body that does not parse, or exceeds the key cap, stays the raw string, and the kind is still `:rf.http/http-4xx` / `:rf.http/http-5xx`. An empty 2xx JSON body decodes to `nil` rather than failing.
-- The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
+- The first four kinds are the ones `:retry :on` accepts, beside the statuses from 400 to 599 a 4xx or 5xx failure carries at `:http-status`. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
 - Every failure map also names the request it came from: `:request {:method :url}` (the method sent, `:get` when the request set none), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
 - Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
 
