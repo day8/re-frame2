@@ -21,6 +21,15 @@
   [& ids]
   (rf/make-frame {:id :rf/default :flows (vec ids)}))
 
+(defn- pass!
+  "Run `:rf/default`'s flow pass over `db` and `runtime-db`, and publish its
+  memo as the router does once the candidate installs. Returns the candidate
+  app-db."
+  [db runtime-db]
+  (let [{:keys [db publish!]} (rf.flows/run-flows-on-db :rf/default db runtime-db)]
+    (when publish! (publish!))
+    db))
+
 (deftest runtime-only-change-recomputes-while-app-db-value-identical
   ;; The same app-db value is handed to every pass, so only runtime-db can
   ;; dirty the flow. A value-equal runtime-db skips `:derive`, and the pass
@@ -33,7 +42,7 @@
       (fn [route-id] (swap! calls conj route-id) route-id))
     (run-flows! :route-slug)
     (is (= [{:unrelated 1 :slug :home} {:unrelated 1 :slug :about} {:unrelated 1 :slug :about}]
-           (mapv #(rf.flows/run-flows-on-db :rf/default app-db (rt %)) [:home :about :about])))
+           (mapv #(pass! app-db (rt %)) [:home :about :about])))
     (is (= [:home :about] @calls))))
 
 (deftest mixed-app-db-and-runtime-inputs-resolve-in-declaration-order
@@ -42,7 +51,7 @@
     vector)
   (run-flows! :mixed)
   (is (= [:A :R :B]
-         (:combined (rf.flows/run-flows-on-db :rf/default {:app-first :A :app-last :B} {:rt {:mid :R}})))))
+         (:combined (pass! {:app-first :A :app-last :B} {:rt {:mid :R}})))))
 
 (deftest runtime-input-trace-value-elides-at-stripped-declaration-path
   ;; The elision registry keys declarations by partition-relative path, so the
@@ -56,8 +65,7 @@
       (run-flows! :route-blob)
       (rf.frame/swap-runtime-db! :rf/default
         (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:rt :val]]})))
-      (rf.flows/run-flows-on-db :rf/default {}
-        (assoc-in (rf.frame/frame-runtime-db-value :rf/default) [:rt :val] {:big "payload"}))
+      (pass! {} (assoc-in (rf.frame/frame-runtime-db-value :rf/default) [:rt :val] {:big "payload"}))
       (let [[input] (get-in (peek @computed) [:tags :input-values])]
         (is (= [:rt :val] (get-in input [:rf.size/large-elided :path]))))
       (finally

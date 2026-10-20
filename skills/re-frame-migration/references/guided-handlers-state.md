@@ -83,7 +83,7 @@ So the rule is: **classify by host and by position before you touch a hit.**
 
 1. **Rename to a feature prefix**. Pick the project's own top-level namespace (e.g. `:cart/...`, `:auth/...`). This is the default move.
 2. **Intentional override** of a documented framework extension point. Confirm with the author that this is deliberate; leave the registration in place; note it in the report.
-3. **Decline**. The author keeps the reserved id knowingly. The collision is silent — only the reserved standard events (`:rf/set-db`, `:rf/install-frame-state`, `:rf/settle-flows`) refuse registration, with `:rf.error/reserved-event-id`. Rare; document the reasoning in the report.
+3. **Decline**. The author keeps the reserved id knowingly. The collision is silent — only the reserved standard events (`:rf/set-db`, `:rf/install-frame-state`, and the retired `:rf/settle-flows`) refuse registration, with `:rf.error/reserved-event-id`. Rare; document the reasoning in the report.
 
 ---
 

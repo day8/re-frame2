@@ -538,8 +538,8 @@
   the machines lazy-actor-handler resolver (which materialises a spawned
   actor's handler-meta on demand from its app-db snapshot rather than from
   a per-instance registrar entry), the inline `:reg-event` lowering
-  (`lower-inline-event`), and the framework-standard `:rf/set-db`,
-  install-frame-state and `:rf/settle-flows` descriptors. `register-event!`
+  (`lower-inline-event`), and the framework-standard `:rf/set-db` and
+  install-frame-state descriptors. `register-event!`
   does NOT call it — it builds the same `:interceptors` chain inline — so a
   change to the shape here must be made there too. The cascade in
   `re-frame.router/process-event*` drives whatever it is handed, registered
@@ -770,8 +770,8 @@
 ;; `rf.registrar/register!` path (see `register-set-db-standard!`), so this guard —
 ;; which fires only on the public `register-event!` entry — does not reject the
 ;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`,
-;; `:rf/install-frame-state` and `:rf/settle-flows` — see the def's docstring
-;; for why each is in): the OTHER framework `:rf/*` events (`:rf/hydrate`,
+;; `:rf/install-frame-state` and the retired `:rf/settle-flows` — see the def's
+;; docstring for why each is in): the OTHER framework `:rf/*` events (`:rf/hydrate`,
 ;; `:rf.route/navigate`, …) are registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
@@ -798,16 +798,11 @@
                        under the id would replace core's install along with its
                        framework-write authority and its whole-payload
                        `:sensitive` classification.
-    `:rf/settle-flows` NEVER registered at all (Spec 013 §Sequencing). It
-                       resolves through the router's unresolved-handler seam
-                       from `settle-flows-handler-meta`, so it has zero
-                       registrar footprint and never appears in an app's event
-                       catalogue. Listing it here closes the one hole that
-                       footprint-free ownership leaves open: a registrar entry
-                       is consulted BEFORE the seam, so an app
-                       `(reg-event :rf/settle-flows …)` would silently SHADOW
-                       the framework's settle and leave every state-writing
-                       walk's flows a drain behind. It fails loud instead."
+    `:rf/settle-flows` retired: an event whose `:fx` walk writes a flowed
+                       frame's state settles its flows itself (Spec 013
+                       §Sequencing), so nothing dispatches this id and nothing
+                       handles it. Retired ids stay reserved and are never
+                       recycled, so registering it still fails loud."
   #{:rf/set-db :rf/install-frame-state :rf/settle-flows})
 
 (defn- reject-reserved-event-id!
@@ -1287,96 +1282,6 @@
   install-frame-state-event-id)
 
 (register-install-frame-state-standard!)
-
-;; ---- the framework-private flow-settle event (Spec 013 §Sequencing) -------
-;;
-;; An effect that writes frame state — a machine spawn or destroy, a resource
-;; write, a user fx calling `re-frame.frame/swap-runtime-db!` — runs in the
-;; `:fx` walk, the LAST drain stage, after the flow-transform `:after` has
-;; already evaluated this event's flows. So the write lands after the pass that
-;; would have read it, and the flows' outputs are one drain behind it.
-;;
-;; The runtime closes that by having the `:fx` walk enqueue ONE of these on the
-;; same frame whenever the walk changed the state of a frame running a flow
-;; (fx.cljc `settle-flows-after-walk!` / `do-fx`). It drains inside the same
-;; run-to-completion pass, runs the ordinary chain — so the framework's
-;; `flows-after-interceptor` transforms the pending `:db` exactly as it does for
-;; any other event — and settles before the dispatch returns. It is enqueued at
-;; the HEAD of the frame's queue (`router/insert-envelope`, keyed on the
-;; `:rf.flow/settle?` envelope flag), so it drains ahead of the continuations
-;; the writing handler queued with its own `:dispatch` effects and they read
-;; the settled `app-db`.
-;;
-;; This is the framework performing, once, the follow-up no-op dispatch every
-;; application would otherwise hand-write.
-;;
-;; PRIVATE BY CONSTRUCTION, not by convention. It is NOT registered — not into
-;; the registrar, not into the EP-0023 image standard registry. The router's
-;; unresolved-handler seam (`router/resolve-unhandled`) materialises
-;; `settle-flows-handler-meta` for it, the same mechanism a spawned machine
-;; actor's handler resolves through. Consequences worth stating, because they
-;; are the whole reason for choosing the seam over a private `rf.registrar/register!`:
-;;
-;;   * it never appears in `rf.registrar/registrations :event`, so it adds no row
-;;     to an app's event catalogue, tooling projection, or generated code — the
-;;     ceremony it exists to remove does not simply move from the app
-;;     into the framework;
-;;   * it needs no image-standard registration, because a generation-routed
-;;     `rf.registrar/lookup` returns nil for an unregistered id and falls through
-;;     to the same seam — so it resolves identically in every image generation;
-;;   * `reserved-event-ids` lists it anyway, because the registrar IS consulted
-;;     first: an app registration would shadow it silently.
-;;
-;; It is dispatchable by hand (`[:rf/settle-flows]`) — every event id is.
-;; Doing so is harmless and uninteresting: it writes nothing of its own and
-;; merely runs the flow pass that the next event would have run anyway.
-
-(def settle-flows-event-id
-  "The framework-private flow-settle event id (Spec 013 §Sequencing). Lives in
-  the single-root `:rf/*` framework namespace and is listed in
-  `reserved-event-ids`, but — unlike `:rf/set-db` — it is never registered; see
-  `settle-flows-handler-meta`."
-  :rf/settle-flows)
-
-(defn settle-flows-handler
-  "The `:rf/settle-flows` event handler (Spec 013 §Sequencing).
-
-  It returns `nil` — no effects at all — and that is the entire point. The work
-  is not done by this handler; it is done by the framework's flow-transform
-  `:after`, which runs on EVERY event and needs only that an event run. With no
-  `:db` effect of its own the transform reads the CURRENT app-db as the pending
-  value, walks the flows against the frame state as the just-completed `:fx`
-  walk left it, and publishes a `:db` effect only if a flow actually changed
-  something. A settle over an already-settled frame therefore installs nothing
-  and emits no `:rf.event/db-changed`.
-
-  Because it is an ordinary event, everything else is ordinary too — one app-db
-  install, one epoch record, the normal topo/dirty-check pass, and a derive
-  throw reported through the SAME `:rf.error/flow-eval-exception` path with the
-  same `:phase` discriminator as any other drain. No second failure path, and
-  no second install inside the event whose walk wrote the state."
-  [_coeffects _event]
-  nil)
-
-(def ^:private settle-flows-meta
-  "Spec 001 registration metadata for the `:rf/settle-flows` handler-meta.
-  Carried so tooling that receives the materialised meta (via the router's
-  unresolved-handler seam) sees the same `:doc` shape a registered event would."
-  {:doc "Framework-private flow-settle event (Spec 013 §Sequencing). Enqueued
-        by the `:fx` walk when it wrote the state of a frame running a flow, so
-        the flows' outputs settle on the dispatching frame rather than one
-        drain later. Writes nothing itself. Not registered, not app API."})
-
-(defn settle-flows-handler-meta
-  "Build the registrar-shaped handler-meta the router's unresolved-handler seam
-  drives `:rf/settle-flows` with.
-
-  Identical in shape to what `register-event!` would have installed — the
-  `:handler-fn` plus the `:interceptors` chain whose tail is the
-  `:rf/event-handler` wrapper — so the cascade is byte-shape-indistinguishable
-  from a registered event's. It just never enters a registry."
-  []
-  (event-handler-meta settle-flows-meta [] settle-flows-handler))
 
 ;; ---- retired public names — facade-exported throwing stubs ----------------
 ;;

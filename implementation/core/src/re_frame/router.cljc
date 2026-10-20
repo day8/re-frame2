@@ -113,10 +113,6 @@
                                      :dispatch
                                      {:where    're-frame.router/build-envelope
                                       :event-id (first event)})))
-        ;; `insert-envelope` head-inserts the flow settle so it precedes the
-        ;; handler's own continuations (Spec 013 §Sequencing — settling on the
-        ;; dispatching frame). An ordering guarantee, so never debug-gated.
-        flow-settle?       (true? (:rf.flow/settle? opts))
         ;; Per-call mint policy (Spec 002 §Mint policies). A correctness
         ;; lever, so never debug-gated; carried only when supplied.
         mint-policy        (:rf.cofx/mint-policy opts)
@@ -143,7 +139,6 @@
       call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
-      flow-settle?       (assoc :rf.flow/settle? true)
       mint-policy        (assoc :rf.cofx/mint-policy mint-policy)
       step-index         (assoc :step-index step-index)
       expected-incarnation (assoc :rf.frame/expected-incarnation expected-incarnation))))
@@ -161,29 +156,17 @@
         {::ambiguous e}
         (throw e)))))
 
-(def ^:private framework-private-handler-metas
-  "event-id → handler-meta for framework-owned events that are never
-  registered (Spec 013 §Sequencing — settling on the dispatching frame).
-
-  A `delay` because building the handler wrapper at namespace load would add
-  a load-order dependency against one that already runs the other way."
-  (delay {rf.events/settle-flows-event-id (rf.events/settle-flows-handler-meta)}))
-
 (defn- resolve-unhandled
-  "Handler-meta for an event the registrar does not know, or nil.
-
-  Framework-owned ids resolve first, which keeps `:rf/settle-flows` out of the
-  app's event catalogue and out of an optional artefact's reach. Then the
+  "Handler-meta for an event the registrar does not know, or nil: the
   late-bound `:machines/resolve-actor-handler-meta`, which rebuilds a spawned
   actor's handler-meta from its app-db snapshot, so actor liveness is a pure
   function of app-db. A throwing resolver degrades to nil rather than abort
   the drain."
   [event frame]
-  (or (get @framework-private-handler-metas (first event))
-      (when-let [resolve! (rf.late-bind/get-fn :machines/resolve-actor-handler-meta)]
-        (try
-          (resolve! event frame)
-          (catch #?(:clj Throwable :cljs :default) _ nil)))))
+  (when-let [resolve! (rf.late-bind/get-fn :machines/resolve-actor-handler-meta)]
+    (try
+      (resolve! event frame)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (def ^:private empty-fx-overrides
   "Shared sentinel for the override-free hot path, so no dispatch allocates a
@@ -598,18 +581,6 @@
                 :rf.event/v        emit-event
                 :frame             frame}))
 
-(defn- restore-flow-snapshots!
-  "Roll the frame's flow memo back to the snapshot the flows `:after` stashed
-  on `ctx`, for an event that will not commit. A flow pass advances the memo
-  before commit is decided, so without this a fresh flow's output never
-  re-materialises and a vacated output path keeps its stale value (Spec 013
-  §Failure semantics). A no-op when no flow ran or the flows artefact is
-  absent."
-  [ctx frame]
-  (when (contains? ctx :rf/flow-last-inputs-before)
-    (when-let [restore-li (rf.late-bind/get-fn :flows/restore-last-inputs!)]
-      (restore-li frame (:rf/flow-last-inputs-before ctx)))))
-
 (defn- commit-frame-effects!
   "Install the cascade's `:db`, `:rf.db/runtime` and classification effects as
   one atomic `commit-frame-transition!` (Spec 002 §An ordinary `:db` return
@@ -632,6 +603,9 @@
         ;; (Spec 015 §Durable app-db — the four commit-plane effects). They
         ;; were validated pre-commit in `rf.events/commit-fx-effects`.
         class-effect? (rf.elision/classification-effect? effects)
+        ;; The flow pass's exact output claims, a fn of runtime-db, install
+        ;; with the outputs they describe (Spec 013 §Failure semantics).
+        flow-claims  (:claims (:rf/flow-pass ctx))
         nil-db?      (and app-effect? (nil? (:db effects)))
         new-db       (if nil-db? {} (:db effects))]
     (when (and nil-db? rf.interop/debug-enabled?)
@@ -647,7 +621,7 @@
                          "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
                          "nil); for a deliberate clear, return `{:db {}}` (which emits no "
                          "diagnostic).")}))
-    (if (or app-effect? rt-effect? class-effect?)
+    (if (or app-effect? rt-effect? class-effect? flow-claims)
       (let [emit-event (rf.interceptor/get-coeffect ctx :event)
             ;; A whole-value `:rf.db/runtime` effect would drop the elision
             ;; registry, which other subsystems write out of band, so the
@@ -657,23 +631,25 @@
             ;; a route activation can rewrite the registry mid-cascade, and the
             ;; stale snapshot would let those paths egress raw for one commit.
             live-runtime-result
-            (when (or rt-effect? class-effect?)
+            (when (or rt-effect? class-effect? flow-claims)
               (rf.frame/frame-record-state-value frame-record))
             live-runtime-db
             (get live-runtime-result rf.frame/runtime-partition-key)
             reconciled-rt  (when rt-effect?
                              (rf.elision/reconcile-runtime-db-effect
                                (:rf.db/runtime effects) live-runtime-db))
-            new-runtime-db (cond
-                             class-effect?
-                             (rf.elision/apply-classification-effects
-                               (if rt-effect? reconciled-rt live-runtime-db)
-                               effects)
-                             rt-effect? reconciled-rt
-                             :else nil)
+            new-runtime-db (cond-> (cond
+                                     class-effect?
+                                     (rf.elision/apply-classification-effects
+                                       (if rt-effect? reconciled-rt live-runtime-db)
+                                       effects)
+                                     rt-effect? reconciled-rt
+                                     flow-claims live-runtime-db
+                                     :else nil)
+                             flow-claims flow-claims)
             ;; A no-op classification collapses to no change at commit, so a
             ;; stray partition write is harmless.
-            rt-partition?  (or rt-effect? class-effect?)
+            rt-partition?  (or rt-effect? class-effect? flow-claims)
             partitions (cond-> {}
                          app-effect?   (assoc rf.frame/app-partition-key     new-db)
                          rt-partition? (assoc rf.frame/runtime-partition-key new-runtime-db))
@@ -705,7 +681,9 @@
   transform over the pending `:db` effect (Spec 013 §Drain integration).
 
   Outermost is load-bearing: `path`'s `:after` must splice the handler's slice
-  back into the full db before flows read their full-app-db inputs. A flow
+  back into the full db before flows read their full-app-db inputs. The pass's
+  result rides `:rf/flow-pass`, so its claims install with the candidate and
+  its memo publishes only once that candidate has installed. A flow
   throw discards the pending `:db` and stashes the throw under
   `:rf/flow-error`, so the event aborts with nothing installed and no `:fx`
   (Spec 013 §Failure semantics). Emits the dev-only pending-db pair: t1
@@ -718,9 +696,8 @@
     :after
     (fn [ctx]
       ;; The chain already errored, so this event will not commit. Running
-      ;; flows anyway would advance the flow memo against a doomed db, so a
-      ;; fresh flow's output would never re-materialise, and would emit
-      ;; spurious traces (Spec 013 §Failure semantics).
+      ;; flows anyway would emit spurious traces (Spec 013 §Failure
+      ;; semantics).
       (if (:rf/interceptor-error ctx)
         ctx
         (let [frame       (:rf.frame/id (:coeffects ctx))
@@ -762,15 +739,8 @@
                                   class-effects))))
           (if run-on-db
             (try
-              (let [;; Snapshot the flow memo before the pass advances it.
-                    ;; Candidate validation can still reject the transition
-                    ;; after the chain, outside `run-flows-on-db`'s own
-                    ;; restore, and `commit-and-flow!` then restores this.
-                     snapshot-li (rf.late-bind/get-fn :flows/snapshot-last-inputs)
-                     li-before   (when snapshot-li
-                                   (snapshot-li frame))
-                     new-db (run-on-db frame pending-db pending-runtime-db)]
-                 (do
+              (let [pass   (run-on-db frame pending-db pending-runtime-db)
+                    new-db (:db pass)]
                 ;; t2 can fire with no handler `:db`, when flows synthesised
                 ;; one, so resolve the attribution lazily.
                 (when (not (identical? new-db pending-db))
@@ -784,10 +754,9 @@
                                    class-effects
                                    (assoc :re-frame.classification/pending-classification-effects
                                           class-effects)))))
-                (if (or has-db? (not (identical? new-db pending-db)))
-                    (cond-> (rf.interceptor/assoc-effect ctx :db new-db)
-                      snapshot-li (assoc :rf/flow-last-inputs-before li-before))
-                    ctx)))
+                (cond-> (assoc ctx :rf/flow-pass pass)
+                  (or has-db? (not (identical? new-db pending-db)))
+                  (rf.interceptor/assoc-effect :db new-db)))
               (catch #?(:clj Throwable :cljs :default) e
                 ;; Dropping `:db` is the whole abort: the install is deferred
                 ;; to one write, so there is nothing to unwind.
@@ -1008,9 +977,47 @@
     (rf.performance/mark-and-measure :event event-id
       (rf.interceptor/execute-chain full-chain ctx))))
 
+(defn- publish-flow-memo!
+  "Advance the frame's flow memo to the rows the pass in `ctx` proposed, once
+  the candidate they describe has installed (Spec 013 §Failure semantics)."
+  [ctx]
+  (when-let [publish! (:publish! (:rf/flow-pass ctx))]
+    (publish!)))
+
+(defn- settle-flows-after-walk!
+  "Run the flow pass again when the `:fx` walk changed the frame's state, and
+  install its outputs in this same event (Spec 013 §Sequencing). The pass and
+  install run before the walk, so a write during it — a machine lifecycle
+  effect, any fx calling `swap-runtime-db!` — would otherwise leave every flow
+  reading it stale for the continuations the walk queued. Keyed on the
+  container's identity rather than a list of writers, which would be easy to
+  leave incomplete; a frame running no flows passes through the pass
+  unchanged.
+
+  The install is the event's own commit path: candidate validation, one atomic
+  transition, the memo published with it. A flow throw installs nothing and
+  reports `:rf.error/flow-eval-exception` against this event; the walk's own
+  writes stand, as every effect's do."
+  [state-before-walk event-id event frame frame-record start-ms]
+  (when-let [run-on-db (rf.late-bind/get-fn :flows/run-flows-on-db)]
+    (let [state (rf.frame/frame-state-value frame)]
+      (when-not (identical? state state-before-walk)
+        (let [db (get state rf.frame/app-partition-key)]
+          (try
+            (let [pass (run-on-db frame db (get state rf.frame/runtime-partition-key))
+                  ctx  {:coeffects    {:db db :event event}
+                        :rf/flow-pass pass}]
+              (when (commit-frame-effects!
+                      (if (identical? (:db pass) db) {} {:db (:db pass)})
+                      event-id event frame frame-record ctx)
+                (publish-flow-memo! ctx)))
+            (catch #?(:clj Throwable :cljs :default) e
+              (emit-flow-eval-exception! e event event-id frame start-ms))))))))
+
 (defn- commit-and-flow!
   "Settle the cascade: emit any chain, flow or effect-shape failure, else
-  commit the flow-augmented effects and walk `:fx` (Spec 002 §Drain-loop
+  commit the flow-augmented effects, publish the flow memo, walk `:fx` and
+  settle the flows over whatever the walk wrote (Spec 002 §Drain-loop
   pseudocode). Returns the outcome for the always-on event-emit record:
 
     :ok          committed, `:fx` walked
@@ -1022,10 +1029,10 @@
     :rejected    a `:boundary? true` handler refused the payload; production
                  too
 
-  Every non-`:ok` outcome installs nothing and skips `:fx`, at no cost because
-  the install is one deferred write. An `:fx` throw does not wind back
-  app-db. `:rejected` has the lowest priority, so a chain throw, flow throw or
-  rollback during the unwind still wins."
+  Every non-`:ok` outcome installs nothing, publishes nothing and skips `:fx`,
+  at no cost because the install is one deferred write. An `:fx` throw does
+  not wind back app-db. `:rejected` has the lowest priority, so a chain throw,
+  flow throw or rollback during the unwind still wins."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [error        (:rf/interceptor-error final-ctx)
         flow-error   (:rf/flow-error final-ctx)
@@ -1033,14 +1040,12 @@
         ;; a malformed `:fx` is still here to be refused.
         effects      (:effects final-ctx)
         shape-defect (rf.events/effect-map-defect effects event)
-        class-defect (rf.elision/classification-effect-defect effects)
-        restore!     #(restore-flow-snapshots! final-ctx frame)]
+        class-defect (rf.elision/classification-effect-defect effects)]
     (cond
       error
       (do
         (emit-pipeline-exception!
           error event-id frame final-ctx start-ms)
-        (restore!)
         :error)
 
       flow-error
@@ -1055,32 +1060,31 @@
       (do
         (emit-effect-map-shape!
           shape-defect event event-id frame start-ms)
-        (restore!)
         :error)
 
       class-defect
       (do
         (emit-classification-effect-shape!
           class-defect event event-id frame start-ms)
-        (restore!)
         :error)
 
       ;; `re-frame.cofx` already emitted `:rf.error/coeffect-exception`. Below
       ;; every emitting arm, so a failure the unwind itself produced still
       ;; reports.
       (:rf/cofx-failed? final-ctx)
-      (do (restore!)
-          :error)
+      :error
 
       (not (commit-frame-effects!
              effects event-id event frame frame-record final-ctx))
-      (do
-        (restore!)
-        :rolled-back)
+      :rolled-back
 
       :else
       (do
-        (run-fx-effects! effects frame frame-record fx-overrides envelope)
+        (publish-flow-memo! final-ctx)
+        (let [state-before-walk (rf.frame/frame-state-value frame)]
+          (run-fx-effects! effects frame frame-record fx-overrides envelope)
+          (settle-flows-after-walk!
+            state-before-walk event-id event frame frame-record start-ms))
         (if (:rf/boundary-rejected? final-ctx) :rejected :ok)))))
 
 ;; ---- the boundary-rejection always-on record ------------------------------
@@ -1868,10 +1872,9 @@
   "`q` (a PersistentQueue of envelopes, or nil) with `envelope` at its head,
   dequeued next.
 
-  PersistentQueue has no head-push, so the lane is rebuilt. Only the flow
-  settle and the `dispatch-sync` seed use this, and neither has siblings a
-  head-push could reverse: the `:fx` walk enqueues at most one settle, at its
-  very end, and a `dispatch-sync` call pushes exactly one seed."
+  PersistentQueue has no head-push, so the lane is rebuilt. Only the
+  `dispatch-sync` seed uses this, and a `dispatch-sync` call pushes exactly
+  one seed, so there is no sibling a head-push could reverse."
   [q envelope]
   (into rf.interop/empty-queue (cons envelope q)))
 
@@ -1885,21 +1888,16 @@
   enqueue paths so they cannot drift (Spec 002 §Run-to-completion dispatch
   (drain semantics)):
 
-  1. The flow settle goes to the head of the internal lane. Behind the
-     handler's continuations, they would read flow outputs derived from the
-     state before its `:fx` walk, and could persist a decision the settle
-     does not undo (Spec 013 §Sequencing — settling on the dispatching frame).
-  2. A dispatch made synchronously inside this frame's in-flight event, on
+  1. A dispatch made synchronously inside this frame's in-flight event, on
      this host thread, joins the back of the internal lane.
-  3. Every other dispatch, `:dispatch-later` at 0 ms included, joins the back
+  2. Every other dispatch, `:dispatch-later` at 0 ms included, joins the back
      of the external lane.
 
   Lanes change order only: every envelope is still its own event and epoch."
   [state envelope]
-  (cond
-    (:rf.flow/settle? envelope) (update state :internal head-insert envelope)
-    (in-event-here? state)      (update state :internal lane-conj envelope)
-    :else                       (update state :queue lane-conj envelope)))
+  (if (in-event-here? state)
+    (update state :internal lane-conj envelope)
+    (update state :queue lane-conj envelope)))
 
 (defn- enqueue-envelope!
   "Insert `envelope` into the lane of `router` that `insert-envelope` gives
