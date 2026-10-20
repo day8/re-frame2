@@ -86,19 +86,26 @@
 (deftest sub-override-schema-is-key-presence
   (doseq [token [nil false]]
     (testing (pr-str token)
-      (let [seen     (spy-validator!)
-            surfaced (atom ::unread)]
-        (is (= [[:sub-override :no-recovery]]
-               (failure-recoveries
-                 #(reset! surfaced (rf.subs.override-schema/validate-sub-override!
-                                     {:pinned :state} [:sub/x] {:schema token} nil)))))
-        (is (= {:pinned :state} @surfaced) "the false verdict passes the pinned value through")
+      (let [seen (spy-validator!)]
+        (is (= {:pinned :state}
+               (rf.subs.override-schema/validate-sub-override!
+                 {:pinned :state} [:sub/x] {:schema token} nil))
+            "the false verdict passes the pinned value through")
         (is (= [token] @seen)))))
   (let [seen (spy-validator!)]
     (is (= {:pinned :state}
            (rf.subs.override-schema/validate-sub-override!
              {:pinned :state} [:sub/x] {:doc "no schema"} nil)))
     (is (= [] @seen) "an omitted :schema never consults the validator")))
+
+;; ^:requires-debug — the failure is reported on the trace stream, which is
+;; dev-only.
+(deftest ^:requires-debug sub-override-failure-reports-no-recovery
+  (spy-validator!)
+  (is (= [[:sub-override :no-recovery]]
+         (failure-recoveries
+           #(rf.subs.override-schema/validate-sub-override!
+              {:pinned :state} [:sub/x] {:schema :int} nil)))))
 
 ;; ^:requires-debug — the consult delegates to the schemas artefact's
 ;; `validate-sub!`, whose body is dev-only (it returns true under
