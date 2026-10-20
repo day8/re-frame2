@@ -28,13 +28,13 @@ React re-invokes. So the Reagent question "is this ephemeral enough to keep in
 the component?" has no yes-branch, and the real decision is *which owner does
 this value belong to* — three answers, in order of how often they are right:
 
-- **Product state, or any UI flag → app-db, and `h/reg-state` is the sugar.**
+- **Product state, or any UI flag → app-db, and `rf/reg-state` is the sugar.**
   Anything another view, an event, a test, a tool or a reload cares about — a
   selected filter, an open panel, a draft the app acts on.
 
   ```clojure
   ;; once, beside the views
-  (def tags-open? (h/reg-state ::tags-open? {:default false}))
+  (def tags-open? (rf/reg-state ::tags-open? {:default false}))
 
   ;; in the view
   (h/defview disclosure [{:keys [ikey title]}]
@@ -46,10 +46,12 @@ this value belong to* — three answers, in order of how often they are right:
 
   `reg-state` mints exactly three things — a parametric sub, a setter event
   `[::concern ikey v]`, and participation in the shared clear event
-  `[::h/clear ::concern ikey]` — and stores under `[:ui ::concern ikey]` in
+  `[:rf.state/clear ::concern ikey]` — and stores under `[:ui ::concern ikey]` in
   app-db. The concern must be a namespace-qualified keyword; the instance key is
   a keyword, string, number, UUID, or a vector of those (`nil` is refused at
-  both read and write). **Do not be squeamish about "app-db for a dropdown flag":** frame
+  read, write and clear). It is core's, not Fresco's, so a Reagent view still
+  waiting for its migration can read and write the same concern with
+  `@(subscribe [tags-open? ikey])` and `dispatch`. **Do not be squeamish about "app-db for a dropdown flag":** frame
   state is cheap, and it is what makes the toggle inspectable and testable.
 
 - **A control that drafts and commits → `re-frame.fresco.forms/buffered-field`.**

@@ -241,7 +241,7 @@ rule complete.
 - **Honest scoping is a first-class deliverable.** `catalog-reject.md` is not a
   footnote. It is deliberately **short** — Fresco has a first-class
   foreign-React door, callback refs, an error boundary, portals,
-  instance-keyed app-db state sugar (`h/reg-state`) and a real test kit — and a
+  instance-keyed app-db state sugar (core's `rf/reg-state`) and a real test kit — and a
   short honest list is worth more than a long stale one.
 
 ## 6. Open questions (deferred to Mike)

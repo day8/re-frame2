@@ -15,15 +15,16 @@ flag and the dismiss event.
 
 ## Anchored popovers
 
-Store the open flag in app-db. `h/reg-state` from
+Store the open flag in app-db. `rf/reg-state` from
 [Ephemeral state](11-ephemeral-state.md) gives you the subscription and setter:
 
 ```clojure
 (ns app.todos.filters
-  (:require [re-frame.fresco :as h]
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]
             [re-frame.fresco.overlay :as overlay]))
 
-(h/reg-state :todo.ui/filter-open? {:default false})
+(rf/reg-state :todo.ui/filter-open? {:default false})
 
 (h/defview filter-menu [{:keys [id]}]
   (let [open?      (h/sub [:todo.ui/filter-open? id])
@@ -105,7 +106,7 @@ dismisses it, `:on-dismiss` sets the flag false, and focus returns to
       (= showing :active) (remove :done?)
       (= showing :done)   (filter :done?))))
 
-(h/reg-state :todo.ui/filter-open? {:default false})
+(rf/reg-state :todo.ui/filter-open? {:default false})
 
 (h/defview filter-menu [{:keys [id]}]
   (let [open?      (h/sub [:todo.ui/filter-open? id])
@@ -151,11 +152,11 @@ dismisses it, `:on-dismiss` sets the flag false, and focus returns to
             [re-frame.fresco :as h]
             [re-frame.fresco.overlay :as overlay]))
 
-(h/reg-state :todo.ui/confirm-delete? {:default false})
+(rf/reg-state :todo.ui/confirm-delete? {:default false})
 
 (rf/reg-event :todo/delete-confirmed
   (fn [_ [_ id]]
-    {:fx [[:dispatch [::h/clear :todo.ui/confirm-delete? id]]
+    {:fx [[:dispatch [:rf.state/clear :todo.ui/confirm-delete? id]]
           [:dispatch [:todo/delete id]]]}))
 
 (h/defview confirm-delete [{:keys [id]}]
@@ -199,7 +200,7 @@ the row.
          '[re-frame.fresco :as h]
          '[re-frame.fresco.overlay :as overlay])
 
-(h/reg-state :todo.ui/confirm-delete? {:default false})
+(rf/reg-state :todo.ui/confirm-delete? {:default false})
 
 (rf/reg-event :todo/delete
   (fn [{:keys [db]} [_ id]]
@@ -207,7 +208,7 @@ the row.
 
 (rf/reg-event :todo/delete-confirmed
   (fn [_ [_ id]]
-    {:fx [[:dispatch [::h/clear :todo.ui/confirm-delete? id]]
+    {:fx [[:dispatch [:rf.state/clear :todo.ui/confirm-delete? id]]
           [:dispatch [:todo/delete id]]]}))
 
 (h/defview confirm-delete [{:keys [id]}]
@@ -353,7 +354,7 @@ Use a native `:select` for ordinary single selection. When a custom option
 layout needs a popover, add application events and state for the keyboard
 interaction. This example uses no other overlay primitive. Its open flag and
 active option are read by the keyboard events, so this widget stores them with ordinary subscriptions and
-events rather than `h/reg-state`.
+events rather than `rf/reg-state`.
 
 ```clojure
 (rf/reg-sub :combo/open?

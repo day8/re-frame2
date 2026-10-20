@@ -15,15 +15,17 @@ Use an explicit app-db address for state that affects what the application can
 do or what another part of the application can observe: open, expanded,
 selected, or the active tab.
 
-`h/reg-state` registers one subscription and one setter event, stored under
-`[:ui concern instance-key]`, that every instance shares:
+`rf/reg-state` registers one subscription and one setter event, stored under
+`[:ui concern instance-key]`, that every instance shares. It is core's rather than
+Fresco's, so the same concern works from a Reagent or UIx view too
+([A widget's own state](../views.md#a-widgets-own-state)):
 
 ```clojure
 (ns app.todos.views
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as h]))
 
-(h/reg-state :todo.ui/expanded? {:default false})
+(rf/reg-state :todo.ui/expanded? {:default false})
 
 (h/defview todo-item [{:keys [id]}]
   (let [{:keys [title notes]} (h/sub [:todo/by-id id])
@@ -38,7 +40,7 @@ selected, or the active tab.
 ```
 
 `(h/sub [:todo.ui/expanded? id])` reads, `[:todo.ui/expanded? id value]`
-writes, and `[::h/clear :todo.ui/expanded? id]` removes the entry so that
+writes, and `[:rf.state/clear :todo.ui/expanded? id]` removes the entry so that
 instance reads its default again. A hundred todo rows share the one
 registration, and because the state is at an app-db address you get replay,
 frame isolation, Xray visibility, and direct test setup.
@@ -51,7 +53,7 @@ registration, so a namespace reload is harmless.
 The cell below runs `todo-item` for two todos and prints what app-db holds at
 `[:ui :todo.ui/expanded?]` underneath. Expand a todo and watch its entry
 appear there, keyed by the todo's id. **Forget todo 1** dispatches
-`[::h/clear :todo.ui/expanded? 1]`, which removes the entry so the todo reads
+`[:rf.state/clear :todo.ui/expanded? 1]`, which removes the entry so the todo reads
 its default again.
 
 ```cljs-rf2
@@ -68,7 +70,7 @@ its default again.
 (rf/reg-sub :app/expanded-slice              ;; for the printout
   (fn [db _] (get-in db [:ui :todo.ui/expanded?])))
 
-(h/reg-state :todo.ui/expanded? {:default false})
+(rf/reg-state :todo.ui/expanded? {:default false})
 
 (h/defview todo-item [{:keys [id]}]
   (let [{:keys [title notes]} (h/sub [:todo/by-id id])
@@ -86,7 +88,7 @@ its default again.
    [:ul
     (for [id (h/sub [:todo/ids])]
       [todo-item {:key id :id id}])]
-   [:button {:type "button" :on-click [::h/clear :todo.ui/expanded? 1]}
+   [:button {:type "button" :on-click [:rf.state/clear :todo.ui/expanded? 1]}
     "Forget todo 1"]
    [:pre "[:ui :todo.ui/expanded?] " (pr-str (h/sub [:app/expanded-slice]))]])
 
@@ -311,7 +313,7 @@ Everything else is application state and should have one app-db address.
 (h/event [e] [:todo/drag-moved id (.-clientX e) (.-clientY e)])
 ```
 
-The open flag belongs at an app-db address through `h/reg-state`
+The open flag belongs at an app-db address through `rf/reg-state`
 ([section 1](#1-application-visible-state-app-db)), and pointer movement
 belongs in an island that dispatches the completed drop
 ([section 3](#3-host-private-mechanics-native-state)).
@@ -324,7 +326,7 @@ belongs in an island that dispatches the completed drop
 | A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into an island |
 | You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Fresco has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
-| `:rf.error/fresco-state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option; a failed read returns `nil`, not the default | Pass a stable id such as the entity id: a keyword, string, number, UUID or vector of those. The error's reason names which argument is wrong |
+| `:rf.error/state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option; a failed read returns `nil`, not the default | Pass a stable id such as the entity id: a keyword, string, number, UUID or vector of those. The error's reason names which argument is wrong |
 | Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
 | A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
 | app-db accumulates many `:ui` entries | Application-visible UI state is correctly stored there | Namespace the slice and exclude it from persistence when appropriate |

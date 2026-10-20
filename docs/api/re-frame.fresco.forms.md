@@ -15,7 +15,7 @@ its code. It is ClojureScript only; the namespace does not exist on the JVM.
           [re-frame.fresco.forms :as forms])
 ```
 
-It is built from ordinary Fresco parts: the draft is an `h/reg-state` concern, the
+It is built from ordinary parts: the draft is an `rf/reg-state` concern, the
 reset is `::h/revision`, the protocol is three ordinary events, and the field is
 one `h/defview`, so it adds no hooks beyond a view's own.
 [Forms](../core/fresco/05-forms.md) teaches the interaction protocol, the rejection
@@ -66,7 +66,7 @@ rule and the recipes the module leaves to the application.
       `re-frame.fresco.test.forms`.
 - **Options**:
     - `:control` (required): a keyword, string, number or vector, following
-      [`reg-state`](re-frame.fresco.md#reg-state)'s address rules. It is an opaque
+      [`reg-state`](re-frame.core.md#reg-state)'s address rules. It is an opaque
       identity for the draft, not an `app-db` path.
       Make it identify the form instance and the field; two fields with one address
       share one draft.
@@ -85,7 +85,7 @@ rule and the recipes the module leaves to the application.
   other ids:
     - A `nil` or otherwise invalid `:control` fails the draft read: every render
       emits `:rf.error/sub-exception`, whose exception carries `reg-state`'s
-      `:rf.error/fresco-state-bad-argument`, and the field shows `:value`, never a
+      `:rf.error/state-bad-argument`, and the field shows `:value`, never a
       draft.
     - A `:type` whose value is not its text, such as `"checkbox"`, raises
       `:rf.error/fresco-revision-not-controlled` while `:value` is `nil`.
@@ -116,7 +116,7 @@ rule and the recipes the module leaves to the application.
   ```clojure
   forms/drafts
   ```
-- **Description**: The `h/reg-state` concern every buffered draft lives under, and
+- **Description**: The `rf/reg-state` concern every buffered draft lives under, and
   the address an application clears to end a draft: on route entry, an explicit
   cancel, or a successful save reply.
     - The value under one control is `{:revision r :draft text}`. Absence means no
@@ -129,11 +129,12 @@ rule and the recipes the module leaves to the application.
   ;; End the draft when the save reply arrives.
   (rf/reg-event :todo/title-saved
     (fn [_ [_ id]]
-      {:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}))
+      {:fx [[:dispatch [:rf.state/clear forms/drafts [:todo id :title]]]]}))
   ```
 
 ## See also
 
 - [Fresco API reference](../core/fresco/api-reference.md) — every Fresco name, with
   the chapter that teaches it.
-- [`re-frame.fresco`](re-frame.fresco.md) — `h/reg-state` and `::h/revision`.
+- [`re-frame.core`](re-frame.core.md) — `reg-state`.
+- [`re-frame.fresco`](re-frame.fresco.md) — `::h/revision`.
