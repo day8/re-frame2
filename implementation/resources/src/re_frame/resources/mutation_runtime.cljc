@@ -450,8 +450,8 @@
 ;; ---- map-form exact targets -----------------------------------------------
 ;; `{:resource … :params … :scope …}` is the only public target form; the
 ;; `[scope resource-id params]` tuple is the storage form. Derived scopes
-;; resolve against the settle-time app-db, so the events layer resolves each
-;; target's scope before these validators see it.
+;; resolve against the mutation's issuance context, so the events layer
+;; resolves each target's scope before these validators see it.
 ;; Spec 016 §Map-form exact resource targets.
 
 (defn target-map?
@@ -692,7 +692,7 @@
   empty gives `[]`; a map is one descriptor; a collection of maps is a
   descriptor vector; any other collection is the bare tag-set shorthand, one
   descriptor at `:rf.scope/same`. Scopes are left for the events layer to
-  resolve at settle time. Throws `:rf.error/mutation-invalid-invalidation`
+  resolve. Throws `:rf.error/mutation-invalid-invalidation`
   otherwise. Spec 016 §Scoped invalidation descriptors (per-target)."
   [raw where]
   (cond

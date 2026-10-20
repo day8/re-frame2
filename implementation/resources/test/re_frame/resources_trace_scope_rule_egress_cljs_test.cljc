@@ -129,6 +129,27 @@
         "a plain owner's params and data ride")
     (is (nil? (:sensitive? tags)) "the scope rule alone stamps nothing")))
 
+(deftest a-mutation-payloads-issuance-scopes-agree-with-its-scope
+  ;; The reply payload carries, beside the mutation's own :scope, the scope
+  ;; each named resolver resolved to when the mutation was issued; every one
+  ;; takes the rule the payload's :scope takes.
+  (let [payload {:instance-id    :i1
+                 :work/id        [:rf.work/resource [:rf.mutation :i1] 3]
+                 :scope          tuple-scope
+                 :from-db-scopes {:t/session tuple-scope
+                                  :t/tenant  map-scope
+                                  :t/global  :rf.scope/global
+                                  :t/absent  nil}}
+        tags  (rf.resources.trace-egress/project-fx-args-egress
+                {:rf.fx/args {:on-success [:rf.mutation.internal/succeeded payload]}} :test/frame)
+        out   (second (get-in tags [:rf.fx/args :on-success]))
+        p     rf.resources.trace-egress/project-scope]
+    (is (= {:t/session (p tuple-scope) :t/tenant (p map-scope) :t/global :rf.scope/global :t/absent nil}
+           (:from-db-scopes out)))
+    (is (= (p tuple-scope) (:scope out)))
+    (is (not (carries? tags)))
+    (is (nil? (:sensitive? tags)) "the scope rule alone stamps nothing")))
+
 ;; ---- the params are the owner's -------------------------------------------
 
 (deftest a-plain-owners-params-ride-byte-identical

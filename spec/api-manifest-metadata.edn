@@ -1151,9 +1151,9 @@
   ;; `re-frame.subs.tooling` namespace (`sub-topology` / `sub-cache-snapshot`)
   ;; directly, with `subs/sub-topology` / `subs/sub-cache-snapshot` as JVM
   ;; aliases.
-  ["re-frame.core" "compute-sub"]          {:tier :testing :owner "008" :status "v1"
+  ["re-frame.core" "compute-sub"]          {:tier :front-porch :owner "008" :status "v1"
                                            :action :keep
-                                           :justification "A test-tier read that computes a subscription's value with no live view. The fixture layer (re-frame.test-support) is about runtime state rather than sub evaluation, so it has no peer there, and test authors reach it in the same file as the reg-sub it exercises."}
+                                           :justification "The front-porch read of framework state from an event handler: it computes the subscription vector a view would subscribe to against the handler's own :rf.db/runtime coeffect, so a handler names [:rf/machine id] or [:rf/route] instead of spelling a framework storage path, and the one read grammar holds in handlers too. The same pure, cache-free computation is how a test asserts a sub, in the same file as the reg-sub it exercises."}
   ;; Schema introspection + validator-install fns are not façade
   ;; exports: `app-schemas`,
   ;; `app-schema-meta`, `app-schemas-digest`, `set-schema-fns!`,

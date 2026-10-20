@@ -303,7 +303,7 @@
          query), which re-runs `:home/load` and the fetch with the new
          limit/offset window. The URL leads; the data follows."}
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [tag feed]} (home-context (get-in rt [:rf.runtime/routing :current]))]
+    (let [{:keys [tag feed]} (home-context (rf/compute-sub [:rf/route] rt))]
       (if tag
         {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query {:page page}}]]]}
         (let [query (cond-> {:page page} feed (assoc :feed feed))]

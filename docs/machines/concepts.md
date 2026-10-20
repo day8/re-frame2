@@ -53,6 +53,9 @@ the table matches. At the REPL, read the framework subscription using the
 ;; => {:state :submitting :data {:attempts 0 :error nil} :tags #{:auth/busy}}
 ```
 
+An event handler computes the same vector against the runtime-db it receives,
+`(rf/compute-sub [:rf/machine :auth.login/flow] (:rf.db/runtime cofx))`.
+
 The snapshot lives in [runtime-db](../core/glossary.md#runtime-db), so undo,
 time-travel, and SSR hydration work without extra wiring.
 

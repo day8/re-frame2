@@ -34,11 +34,11 @@
 
 ;; ---- closed-set `:retry :on` validation ----------------------------------
 ;;
-;; Per Spec 014 §Closed-set `:retry :on` validation: `:retry :on` is
-;; restricted to the *retryable* subset of the failure-category vocabulary.
-;; The other `:rf.http/*` categories (`:rf.http/aborted`,
-;; `:rf.http/decode-failure`, `:rf.http/accept-failure`) are
-;; non-retryable by construction and rejected at the effect boundary.
+;; Per Spec 014 §Closed-set `:retry :on` validation: a `:retry :on` member is
+;; a category from the *retryable* subset of the failure-category vocabulary,
+;; or an HTTP status from 400 to 599. The other `:rf.http/*` categories
+;; (`:rf.http/aborted`, `:rf.http/decode-failure`, `:rf.http/accept-failure`)
+;; are non-retryable by construction and rejected at the effect boundary.
 (def retryable-categories
   "The closed set of `:rf.http/*` failure categories permitted in
   `:retry :on`. Per Spec 014 §Closed-set `:retry :on` validation."
@@ -47,10 +47,23 @@
     :rf.http/http-4xx
     :rf.http/http-5xx})
 
+(def ^:private retryable-set
+  "Both forms of a `:retry :on` member, as the `:retryable-set` ex-data of a
+  refused one: the categories, and the inclusive range of statuses. A status
+  outside 400-599 never reaches the retry decision as a 4xx or 5xx failure's
+  `:http-status`, so it could name nothing that retries."
+  {:categories        retryable-categories
+   :http-status-range [400 599]})
+
+(defn- retryable-member? [member]
+  (or (contains? retryable-categories member)
+      (and (integer? member) (<= 400 member 599))))
+
 (defn validate-retry!
   "Per Spec 014 §Closed-set `:retry :on` validation, a
-  `:retry :on` value, when present and non-nil, MUST be a SET drawn
-  exclusively from `retryable-categories`, and a `:retry` map MUST carry
+  `:retry :on` value, when present and non-nil, MUST be a SET whose members
+  are each a `retryable-categories` keyword or an HTTP status integer from
+  400 to 599, and a `:retry` map MUST carry
   `:max-attempts` (Spec 014 §Retry and backoff). Three failure shapes throw
   `:rf.error/http-bad-retry-on` at fx-call time (before `run-attempt!`),
   so the misuse surfaces at the dispatch site rather than downstream:
@@ -61,8 +74,8 @@
 
   - MEMBERSHIP: a set `:on` carrying a non-retryable `:rf.http/*` category
     (`:rf.http/aborted`, `:rf.http/decode-failure`,
-    `:rf.http/accept-failure`) or any keyword outside the `:rf.http/*`
-    retryable subset.
+    `:rf.http/accept-failure`), any keyword outside the `:rf.http/*`
+    retryable subset, an integer outside 400-599, or any other value.
 
   - CEILING: a `:retry` map without `:max-attempts`. The transport retries
     only under that ceiling, so such a map would validate and never retry.
@@ -75,9 +88,8 @@
 
   Intentional no-retry shapes that pass untouched: absent `:retry`, and,
   beside `:max-attempts`, an absent `:on`, an explicit `:on nil` or the
-  empty set `#{}`. The transport loop's `(contains? on-set kind)` gate is
-  false for every kind under those, so we do not force `:on` to be
-  non-empty here.
+  empty set `#{}`. The transport's membership gate is false for every
+  failure under those, so we do not force `:on` to be non-empty here.
 
   Public so the test-support stubs, which stand in for `:rf.http/managed`
   as `:fx-overrides` targets, refuse the same args map with the same error
@@ -94,18 +106,19 @@
           (when-not (set? on)
             (throw (rf.error/thrown-ex-info
                      :rf.error/http-bad-retry-on :rf.http/managed
-                     "`:retry :on` must be a SET of retryable-category keywords per Spec 014 §Closed-set `:retry :on` validation; a non-set value (keyword, vector, list, string, …) is rejected because the transport membership gate `(contains? on-set kind)` tests index membership over a sequential collection and would silently disable retry. Use `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`, `#{}` for no-retry, or omit `:on`"
+                     "`:retry :on` must be a SET of retryable-category keywords and HTTP status integers per Spec 014 §Closed-set `:retry :on` validation; a non-set value (keyword, vector, list, string, …) is rejected because the transport membership gate `contains?` tests index membership over a sequential collection and would silently disable retry. Use `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`, `#{:rf.http/http-5xx 429}`, `#{}` for no-retry, or omit `:on`"
                      {:extra {:bad-shape     on
                               :bad-type      (type on)
-                              :retryable-set retryable-categories}})))
-          ;; MEMBERSHIP: every member must be a retryable category.
-          (let [bad-members (into #{} (remove retryable-categories) on)]
+                              :retryable-set retryable-set}})))
+          ;; MEMBERSHIP: every member must be a retryable category or a
+          ;; 4xx / 5xx status.
+          (let [bad-members (into #{} (remove retryable-member?) on)]
             (when (seq bad-members)
               (throw (rf.error/thrown-ex-info
                        :rf.error/http-bad-retry-on :rf.http/managed
-                       "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
+                       "`:retry :on` members must each be a category from the closed retryable set #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx} or an HTTP status integer from 400 to 599; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
                        {:extra {:bad-members   bad-members
-                                :retryable-set retryable-categories}})))))))
+                                :retryable-set retryable-set}})))))))
     ;; CEILING: the transport retries only under `:max-attempts`, so a map
     ;; without it would validate and then never retry. It is refused rather
     ;; than defaulted: a default would add re-sends to a request that may not

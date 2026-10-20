@@ -8,7 +8,7 @@
   throws a `compare` exception, so both boundaries order the offending keys by
   the shared CEDN-1 identity (`re-frame.identity/canonical-bytes`), a total,
   host-symmetric order. The non-map and missing-`:to` `route-url` guards and
-  the `:query-merge` value shape are pinned here too. The JVM-rich door
+  the in-place `:query` value shape are pinned here too. The JVM-rich door
   behaviour (slice unchanged, no push, the other `:reason` discriminators)
   lives in routing_navigation_test.clj and routing_address_extraction_test.clj.
 
@@ -94,14 +94,14 @@
       (when rf.interop/debug-enabled?
         (is (= expected (select-keys (:tags err) [:reason :keys])))))))
 
-;; ---- navigate `:query-merge` VALUE shape is total on both hosts ----------
+;; ---- navigate in-place `:query` VALUE shape is total on both hosts --------
 
-(deftest navigate-non-map-query-merge-rejects-cross-host
-  (testing "the always-on gate rejects any present non-map :query-merge with a
-            stable reason, so neither host's collection semantics decide it;
-            a map delta, empty included, passes"
+(deftest navigate-non-map-in-place-query-rejects-cross-host
+  (testing "the always-on gate rejects any present non-map, non-nil in-place
+            :query with a stable reason, so neither host's collection
+            semantics decide it; nil, and a map, empty included, pass"
     (let [current {:route-id :route/search :query {:q "x"}}
-          verdict #(rf.routing.address/classify {:query-merge %} current)]
-      (is (= (repeat 4 {:reason :query-merge-not-map :keys [:query-merge]})
-             (map verdict [[:page 2] "oops" nil [[:page 2]]])))
-      (is (= [nil nil] (map verdict [{} {:page 2}]))))))
+          verdict #(rf.routing.address/classify {:query %} current)]
+      (is (= (repeat 3 {:reason :query-not-map :keys [:query]})
+             (map verdict [[:page 2] "oops" [[:page 2]]])))
+      (is (= [nil nil nil] (map verdict [nil {} {:page 2}]))))))

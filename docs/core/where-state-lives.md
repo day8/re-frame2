@@ -52,7 +52,7 @@ A subscription must stay pure. One that fetches, writes `localStorage` or reads 
 
 ### Question 2: must a handler read it? Then make it a flow
 
-A new requirement: `:todo/add` refuses a new todo while 50 are still open, so the handler needs the count. Handlers can't read subscriptions: a handler receives app-db as a plain `db` value, and a subscription's value is not in it. Recomputing the count inside the handler puts the formula in two places.
+A new requirement: `:todo/add` refuses a new todo while 50 are still open, so the handler needs the count. A handler receives app-db as a plain `db` value, and a subscription's value is not in it. Recomputing the count inside the handler puts the formula in two places.
 
 The value now needs to be part of the application's state. That is a [flow](glossary.md#flow): when these `app-db` paths change, recompute this and write the result to that path.
 
@@ -148,7 +148,7 @@ Three booleans encode eight combinations, but sync has five legal states, and ev
     :failed   {:on {:todo.sync/retry    {:target :syncing}}}}})
 ```
 
-Sync can now only be in a state it can reach. The timeout belongs to `:syncing` and is cancelled when the machine leaves it, so a stale timer can't fire later. The machine's current state, its [snapshot](../machines/glossary.md#snapshot), lives in [runtime-db](glossary.md#runtime-db), the framework's part of frame state, where handlers can't overwrite it and time-travel and Xray can see it. A view reads it with `@(subscribe [:rf/machine :todo/sync])`.
+Sync can now only be in a state it can reach. The timeout belongs to `:syncing` and is cancelled when the machine leaves it, so a stale timer can't fire later. The machine's current state, its [snapshot](../machines/glossary.md#snapshot), lives in [runtime-db](glossary.md#runtime-db), the framework's part of frame state, where handlers can't overwrite it and time-travel and Xray can see it. A view reads it with `@(subscribe [:rf/machine :todo/sync])`, and an event handler computes the same vector against the runtime-db it receives: `(rf/compute-sub [:rf/machine :todo/sync] (:rf.db/runtime cofx))`.
 
 An event the current state doesn't handle is a no-op: dispatch `[:todo/sync [:todo.sync/done]]` while the machine is `:idle` and the snapshot is unchanged, with a `:rf.machine.event/unhandled-no-op` trace. You don't need to check the state before dispatching.
 

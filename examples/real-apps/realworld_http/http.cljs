@@ -25,7 +25,8 @@
      `https://api.realworld.show/api`, and drop the `install-transport!` call.
    - local reference backend — the upstream Node/Postgres backend on
      `http://localhost:3000/api`."
-  (:require [re-frame.http.stub-transport :as rf.http.stub-transport]
+  (:require [re-frame.core :as rf]
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [realworld-shared.http :as wh]
             ;; The in-process Conduit demo backend shared by both RealWorld
             ;; examples — this app's transport onto it is `demo-transport`, at
@@ -176,17 +177,13 @@
 ;; afresh on every navigation. The request captures it, the reply target
 ;; carries it, and the settle acts only while it is still the current one.
 
-(defn current-nav-token
-  "The committed navigation's token, read off RUNTIME-db (handlers get it as the
-   `:rf.db/runtime` coeffect). Nil before the first navigation."
-  [rt]
-  (get-in rt [:rf.runtime/routing :current :nav-token]))
-
 (defn same-navigation?
   "Was a reply's request issued under the navigation that is still current?
-   `nav-token` is what `current-nav-token` read when the request went out."
+   `rt` is the handler's `:rf.db/runtime` coeffect, and `nav-token` is what
+   `(:nav-token (rf/compute-sub [:rf/route] rt))` read when the request went
+   out."
   [rt nav-token]
-  (= nav-token (current-nav-token rt)))
+  (= nav-token (:nav-token (rf/compute-sub [:rf/route] rt))))
 
 ;; ============================================================================
 ;; CLOCK — the framework's recordable time fact (:rf/time-ms)

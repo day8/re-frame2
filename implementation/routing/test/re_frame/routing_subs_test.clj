@@ -14,6 +14,24 @@
                        {:rf.route/cause :link}])
     (is (= "scroll-restoration" @(rf/subscribe [:rf.route/fragment])))))
 
+(deftest a-handler-reads-the-route-with-compute-sub
+  (testing "a handler reads the current route by computing the [:rf/route]
+            vector against its own :rf.db/runtime coeffect"
+    (rf/reg-route :route/docs {} "/docs/:page")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing" {:rf.route/cause :link}])
+    (let [seen (atom ::unset)]
+      (rf/reg-event :test/read-route
+        (fn [{rt :rf.db/runtime} _]
+          (reset! seen [(:nav-token (rf/compute-sub [:rf/route] rt))
+                        (rf/compute-sub [:rf.route/params] rt)])
+          {}))
+      (rf/dispatch-sync [:test/read-route])
+      (is (= [(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                      [:rf.runtime/routing :current :nav-token])
+              {:page "routing"}]
+             @seen))
+      (is (string? (first @seen)) "control: the route carries a token"))))
+
 (deftest sub-rf-route-chain
   (testing ":rf.route/chain walks :parent from the active route up to the root"
     (rf/reg-route :route/account          {} "/account")

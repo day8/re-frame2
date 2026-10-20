@@ -3,8 +3,7 @@
   `:rf.route/navigate` and URL-driven `:rf.route/handle-url-change`:
   fragment handling, the not-found fallback and its address-bar parity, the
   fail-closed open-redirect matrices, the rule-3 no-op and fragment-only
-  short-circuits, in-place `:query` / `:query-merge` edits, and the structural
-  request gate.
+  short-circuits, in-place `:query` edits, and the structural request gate.
 
   ## Posture split
 
@@ -98,9 +97,9 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
     (is (= ["/cart"] @pushed))))
 
-(deftest navigate-present-but-nil-query-clears-like-an-empty-map
-  ;; Presence, not truthiness, discriminates: `:query nil` is the same "clear
-  ;; the query" as `:query {}`, on the destination and the in-place branch.
+(deftest navigate-present-but-nil-query-clears-the-query
+  ;; Presence, not truthiness, discriminates: `:query nil` clears the query on
+  ;; the destination and the in-place branch alike.
   (rf/reg-route :route/search {} "/search")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query nil}])
   (is (= {} (:query (nav-slice))))
@@ -463,8 +462,8 @@
 ;; ---- in-place navigation (Spec 012 §In-place navigation) ------------------
 
 (deftest routing-in-place-target-stays-on-current-route
-  ;; No :to / :url holds the route and its path-params; a wholesale :query
-  ;; replaces the current query.
+  ;; No :to / :url holds the route and its path-params; the in-place :query
+  ;; merges into the current query, overwriting the key it names.
   (rf/reg-route :route/article
                 {:params [:map [:id :string]]
                  :query  [:map [:tab {:optional true} :string]]}
@@ -476,28 +475,45 @@
            (select-keys (nav-slice) [:route-id :params :query])))
     (is (= ["/articles/intro?tab=history"] @pushed))))
 
-(deftest routing-query-merge-nil-removes-a-key
-  ;; A nil :query-merge value removes the key from the slice as well as the
-  ;; URL, while the rest of the current query folds through.
+(deftest routing-in-place-query-merges-into-the-current-query
+  ;; An in-place :query merges: each member sets its key and the rest of the
+  ;; current query carries. A destination's :query is taken literally.
+  (rf/reg-route :route/search
+                {:query [:map [:q {:optional true} :string]
+                              [:tab {:optional true} :string]]}
+                "/search")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=x" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/navigate {:query {:tab "a"}}])
+    (is (= {:q "x" :tab "a"} (:query (nav-slice))))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:tab "b"}}])
+    (is (= {:tab "b"} (:query (nav-slice))))
+    (is (= ["/search?q=x&tab=a" "/search?tab=b"] @pushed))))
+
+(deftest routing-in-place-query-nil-member-removes-its-key
+  ;; A nil member of an in-place :query removes its key from the slice as well
+  ;; as the URL, while the rest of the current query carries.
   (rf/reg-route :route/search
                 {:query [:map [:q {:optional true} :string]
                               [:sort {:optional true} :string]]}
                 "/search")
   (let [pushed (record-pushes!)]
     (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&sort=recent" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:sort nil}}])
+    (rf/dispatch-sync [:rf.route/navigate {:query {:sort nil}}])
     (is (= {:q "clojure"} (:query (nav-slice))))
     (is (= ["/search?q=clojure"] @pushed))))
 
-(deftest routing-in-place-query-merge-no-op-when-unchanged
-  ;; Spec 012 rule 3: a merge that leaves the query as it was is the complete
-  ;; no-op — nothing pushed, no fresh nav-token.
+(deftest routing-in-place-query-no-op-when-unchanged
+  ;; Spec 012 rule 3: an in-place :query that leaves the query as it was is the
+  ;; complete no-op — nothing pushed, no fresh nav-token. `{}` changes nothing.
   (rf/reg-route :route/search {:query [:map [:page {:optional true} :int]]} "/search")
   (let [pushed (record-pushes!)]
     (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=2" {:rf.route/cause :link}])
     (let [token-before (:nav-token (nav-slice))]
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query {:page 2}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query {}}])
       (is (empty? @pushed))
+      (is (= {:page 2} (:query (nav-slice))))
       (is (= token-before (:nav-token (nav-slice)))))))
 
 ;; ---- fragment-only navigation (Spec 012 §Fragments rules 3-4) -------------
@@ -629,7 +645,8 @@
     (reset! leave-calls 0)
     (let [before (nav-slice)]
       (doseq [[event reason ks]
-              [[[:rf.route/navigate {:query-merge [:page 2]}]             :query-merge-not-map [:query-merge]]
+              [[[:rf.route/navigate {:query [:page 2]}]                   :query-not-map       [:query]]
+               [[:rf.route/navigate {:query-merge {:page 2}}]             :unknown-keys        [:query-merge]]
                [[:rf.route/navigate "/gate-b"]                            :request-not-a-map   []]
                [[:rf.route/navigate {:to :route/gate-b} {:replace? true}] :bad-event-arity     []]
                [[:rf.route/navigate {:to :route/gate-b :scroll :smooth}]  :bad-scroll          [:scroll]]

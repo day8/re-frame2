@@ -39,9 +39,8 @@
   so stands aside exactly where it is most dangerous: a session that expires
   WHILE the user sits on a `:requires-auth` route can navigate in place (a query
   change, a tab switch) straight past the guard. The guard mirrors the runtime:
-  it resolves an in-place request from the CURRENT route slice
-  (`[:rf.runtime/routing :current]`, carried in the `:rf.db/runtime` coeffect)
-  before reading the tags, so the guard sees the protected route and fails
+  it resolves an in-place request from the CURRENT route slice (`[:rf/route]`
+  computed against the `:rf.db/runtime` coeffect) before reading the tags, so the guard sees the protected route and fails
   CLOSED.
 
   This suite guards BOTH holes: a `:rf.route/navigate` branch that trusts the
@@ -85,7 +84,7 @@
         url (matched-id url)
         ;; in-place: a query or fragment edit on the current route
         (and (nil? params)
-             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
+             (or (contains? a :query) (contains? a :fragment)))
         {:id (:route-id current) :params (or (:params current) {})}
         :else nil))     ;; malformed: the runtime rejects it with :rf.error/navigate-bad-request
 
@@ -100,8 +99,8 @@
   never fire) and redirected to login."
   [ctx]
   (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
-                                    (get-in ctx [:coeffects :rf.db/runtime
-                                                 :rf.runtime/routing :current]))]
+                                    (rf/compute-sub [:rf/route]
+                                                    (get-in ctx [:coeffects :rf.db/runtime])))]
     (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
           needs-auth? (contains? (:tags route-meta) :requires-auth)
           signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]
@@ -179,20 +178,20 @@
             "a {:url ...} navigate to a public route is delivered normally")))
 
     (testing "in-place :rf.route/navigate (no :to / :url)"
-      (is (skipped? (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
+      (is (skipped? (ctx-for [:rf.route/navigate {:query {:tab "x"}}]
                              settings-slice))
           "a signed-out self-nav from a protected route MUST be gated — reading
            handler-meta on the request's named target keyword would see no tags
            and open")
       (is (= login-redirect
-             (redirect (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
+             (redirect (ctx-for [:rf.route/navigate {:query {:tab "x"}}]
                                 settings-slice)))
           "and redirected to login")
-      (let [ctx (ctx-for [:rf.route/navigate {:query-merge {:page 2}}]
+      (let [ctx (ctx-for [:rf.route/navigate {:query {:page 2}}]
                          home-slice)]
         (is (= ctx (auth-guard-before ctx))
             "a self-nav from a PUBLIC route is delivered normally"))
-      (is (let [ctx (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
+      (is (let [ctx (ctx-for [:rf.route/navigate {:query {:tab "x"}}]
                              settings-slice {:id 1})]
             (= ctx (auth-guard-before ctx)))
           "a self-nav from a protected route while SIGNED IN is delivered normally"))
@@ -237,7 +236,7 @@
 
     ;; Session expires; a self-nav (query change) must NOT commit.
     (rf/dispatch-sync [:test/sign-out])
-    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:tab "secret"}}])
+    (rf/dispatch-sync [:rf.route/navigate {:query {:tab "secret"}}])
     (let [cur (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current])]
       ;; `:app/settings` declares no query vocabulary, so a committed `:tab`
@@ -270,7 +269,7 @@
     ;; The runtime holds the route-id fixed at the current (protected) route and
     ;; applies only the query change — the operation the guard must recognise.
     (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
-    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:tab "x"}}])
+    (rf/dispatch-sync [:rf.route/navigate {:query {:tab "x"}}])
     (let [cur (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current])]
       (is (= :app/settings (:route-id cur))

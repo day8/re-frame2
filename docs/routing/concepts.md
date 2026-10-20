@@ -194,7 +194,7 @@ the route stays where it is and the runtime emits `:rf.route/external-url-reques
 Link to other sites with a plain `[:a {:href …}]`.
 
 `:to` and `:url` are alternatives, and a `:url` carries its own path and query, so it
-takes no `:params`, `:query` or `:query-merge`. A request that breaks a rule like that,
+takes no `:params` or `:query`. A request that breaks a rule like that,
 or names an unknown key, is rejected with `:rf.error/navigate-bad-request`, and
 the error's `:reason` names the rule. The
 [full rules](../api/re-frame.routing.md#navigate-request-rules) are in the API reference.
@@ -218,28 +218,27 @@ error.
 <a id="navigate-in-place-change-the-query-stay-on-the-route"></a>
 
 Leave out `:to` and `:url` and the request edits the current location. The route and
-its params stay; `:query-merge` folds into the query, `:query` replaces it, and
-`:fragment` moves the anchor:
+its params stay; `:query` merges into the query, and `:fragment` moves the anchor:
 
 ```clojure
 ;; Next page — change one key, keep the tag filter.
-[:rf.route/navigate {:query-merge {:page 2}}]
+[:rf.route/navigate {:query {:page 2}}]
 
 ;; A new tag resets the page — nil removes the key.
-[:rf.route/navigate {:query-merge {:tag "ssr" :page nil}}]
+[:rf.route/navigate {:query {:tag "ssr" :page nil}}]
 
 ;; Clear every filter.
-[:rf.route/navigate {:query {}}]
+[:rf.route/navigate {:query nil}]
 
 ;; Change a view option without adding a Back step.
-[:rf.route/navigate {:query-merge {:sort :top} :replace? true}]
+[:rf.route/navigate {:query {:sort :top} :replace? true}]
 ```
 
 `@(subscribe [:rf.route/query])` reads the result, already coerced, so `:page` is `2`
 rather than `"2"`.
 
 Removing a query key restores its `:query-defaults` value, if it has one. In the
-paginated route above, `{:query-merge {:page nil}}` therefore returns to page 1.
+paginated route above, `{:query {:page nil}}` therefore returns to page 1.
 
 An in-place request needs a current route to edit, and it can't change path params:
 `:params` names a new address, so it needs `:to`.
@@ -255,11 +254,11 @@ line is `route-url` for the current query:
 (rf/reg-view article-filters []
   (let [{:keys [page] :as query} @(subscribe [:rf.route/query])]
     [:div
-     [:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:page (inc page)}}])}
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query {:page (inc page)}}])}
       "Next page"]
-     [:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:tag "ssr" :page nil}}])}
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query {:tag "ssr" :page nil}}])}
       "#ssr"]
-     [:button {:on-click #(dispatch [:rf.route/navigate {:query {}}])}
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query nil}])}
       "Clear filters"]
      [:pre (pr-str query)]
      [:p [:code (rf.routing/route-url {:to :app/articles :query query})]]]))

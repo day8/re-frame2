@@ -28,7 +28,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 | Unified vs split targets | `:reply-to` is one target for both success and failure — the reply handler branches on `(:status reply)` handling `{:status :ok :value v …}`, `{:status :error :error m …}`, or `{:status :cancelled :error m …}`. `:on-success` / `:on-failure` are the split routing sugar over it; pass `:on-failure nil` to swallow. |
 | Schema-driven decode | `:decode <malli-schema>` runs via `010`'s decode pipeline. Status-check fires BEFORE decode, so a 404 with HTML body classifies as `:rf.http/http-4xx`, never `:rf.http/decode-failure`. |
 | `:accept` post-decode normalisation | `(fn [decoded] {:ok v} or {:failure m})` lets a structurally-valid 200 surface as a domain failure. |
-| `:retry` — transport-level only | Function of failure category + attempt count; nothing else. Semantic retry belongs in a state machine — see *§The retry-ownership boundary*. |
+| `:retry` — transport-level only | Function of failure category or status + attempt count; nothing else. `:on` takes categories and status integers from 400 to 599, so `#{:rf.http/http-5xx 429}` retries a rate limit without retrying every 4xx. Semantic retry belongs in a state machine — see *§The retry-ownership boundary*. |
 | `:request-id` abort | Stable `=`-comparable id; `[:rf.http/managed-abort id]` cancels in-flight, delivering a `{:status :cancelled …}` envelope (its `:error` carries `{:kind :rf.http/aborted …}`) to your reply target. |
 | Seven-category failure taxonomy | `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`. Closed set. |
 | Request decoration (`rf/reg-http-interceptor`) | Auth / tracing / tenant headers or a common base URL for *every* managed request a frame issues live once in an HTTP interceptor — registered at the top level, run by each frame that names it in `:http-interceptors` — not in each request map. Recipe: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-the-managed-http-seam) — it decorates plain `:rf.http/managed` calls exactly as it does resource reads. |
@@ -48,7 +48,7 @@ The issuing handler declares the request and names its reply target; a **dedicat
             :decode    ArticleResponse
             :accept    (fn [decoded] (if-let [a (:article decoded)]
                                        {:ok a} {:failure {:reason :missing-article}}))
-            :retry     {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
+            :retry     {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout 429}
                         :max-attempts 4
                         :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
             :reply-to  [:article/load-replied]}]]}))   ;; ← required: names the reply target
@@ -115,11 +115,12 @@ Each child wrapper aborts when the join resolves and surviving siblings are torn
 
 ## The retry-ownership boundary
 
-A single test: **does the retry decision depend on anything other than failure category and attempt count?**
+A single test: **does the retry decision depend on anything other than failure category or status and attempt count?**
 
 | Decision | Owner |
 |---|---|
 | "After a 5xx, wait `backoff(N)` and try again." | `:rf.http/managed` `:retry` — transport. |
+| "After a 429, back off and try again; a 404 is final." | `:rf.http/managed` `:retry` with `:on #{429}` — transport. |
 | "After a network timeout, retry with backoff." | `:rf.http/managed` `:retry` — transport. |
 | "After a 401, refresh the token, **then** retry." | State machine — semantic. |
 | "Body says `:rate-limited`, wait the hinted delay." | State machine — semantic. |
@@ -139,7 +140,7 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 ## Anti-patterns
 
-- **Encoding semantic retry into `:retry :on`.** `:retry` is category + attempt count only. Lift to a state machine the moment retry needs to inspect body, refresh a token, or check app state.
+- **Encoding semantic retry into `:retry :on`.** `:retry` is category or status + attempt count only. Lift to a state machine the moment retry needs to inspect body, refresh a token, or check app state.
 - **Hand-rolling a `reg-fx` HTTP effect (the [`async-effect.md`](async-effect.md) shape) when `:rf.http/managed` would do.** There is no shipped raw `:http` fx; a hand-rolled one is for wire-level control (custom transport, raw bytes). Common case is `:rf.http/managed` — what pair tools, `:fx-overrides`, and conformance fixtures key off.
 - **Decoding before status check.** Runtime classifies status BEFORE decode; `:decode` only runs on 2xx. Don't write decoders that throw on 4xx.
 - **Passing `:reply-to` / `:on-success` / `:on-failure` through the wrapper's `:spawn :data`.** They get overridden — the wrapper self-routes to the parent. Use the fx form directly when you want explicit reply addressing.

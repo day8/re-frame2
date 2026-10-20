@@ -1266,13 +1266,17 @@
   unsubscribe     rf.subs/unsubscribe)
 
 (def ^{:doc "Compute a subscription's value against a supplied `db`,
-  bypassing the reactive cache. **Pure / JVM-runnable testing entry
-  point** — no live cache mutation, no frame state required: hand it a
-  `query-v` and an `app-db` value and it returns the value the
-  registered sub would compute for that hypothetical db. Use in JVM
-  unit-test suites that want to assert sub correctness without
-  mounting a frame; CLJS handler bodies and views normally reach the
-  cached value via `subscribe` / `subscribe-once`."}
+  bypassing the reactive cache. It is how an event handler reads
+  framework state: compute the vector a view subscribes to against the
+  handler's own `:rf.db/runtime` coeffect —
+  `(compute-sub [:rf/machine id] (:rf.db/runtime cofx))`,
+  `(:nav-token (compute-sub [:rf/route] rt))` — rather than spelling
+  where the framework stores it. It is also the pure, JVM-runnable form
+  a test asserts a sub with: hand it a `query-v` and an `app-db` value
+  and it returns what the registered sub would compute. `db` may be an
+  app-db, a runtime-db or a whole frame-state value. No live cache
+  mutation and no frame required; a view reads the cached value with
+  `subscribe`."}
   compute-sub     rf.subs/compute-sub)
 
 ;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017).

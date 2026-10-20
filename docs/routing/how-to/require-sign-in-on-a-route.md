@@ -319,7 +319,7 @@ Reduce each to one `{:id <route-id> :params <map>}` target, or `nil`, and decide
         url (matched-id url)
         ;; in-place: a query or fragment edit on the current route
         (and (nil? params)
-             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
+             (or (contains? a :query) (contains? a :fragment)))
         {:id (:route-id current) :params (or (:params current) {})}
         :else nil))     ;; malformed: the runtime rejects it with :rf.error/navigate-bad-request
 
@@ -331,8 +331,8 @@ Reduce each to one `{:id <route-id> :params <map>}` target, or `nil`, and decide
   {:before
    (fn [ctx]
      (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
-                                       (get-in ctx [:coeffects :rf.db/runtime
-                                                    :rf.runtime/routing :current]))]
+                                       (rf/compute-sub [:rf/route]
+                                                       (get-in ctx [:coeffects :rf.db/runtime])))]
        (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
              needs-auth? (contains? (:tags route-meta) :requires-auth)
              signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]

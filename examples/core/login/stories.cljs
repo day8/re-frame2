@@ -219,9 +219,8 @@
 
   ;; Empty — the state a user first lands on. The one bit of stage-setting:
   ;; the variant starts the machine with the reserved `[:rf.machine/start]`
-  ;; kick, which runs its `:initial` entry and stops. Without the kick the
-  ;; `[:rf.runtime/machines :snapshots :auth.login/flow]` slot sits nil until
-  ;; the first real event.
+  ;; kick, which runs its `:initial` entry and stops. Without the kick
+  ;; `[:rf/machine :auth.login/flow]` reads nil until the first real event.
   (rf.story/reg-variant :story.login/empty
     {:compose    [:fragment.login/form-base]
      :doc        "Fresh form, nothing typed, no submit clicked — the

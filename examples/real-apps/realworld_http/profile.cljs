@@ -779,7 +779,7 @@
          which re-runs the tab's load with the new limit/offset window. The URL
          is the input; the data follows."}
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+    (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)]
       {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query {:page page}}]]]})))
 
 ;; ============================================================================
