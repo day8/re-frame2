@@ -32,7 +32,7 @@
 {:fixture/id           :routing/address-extraction
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/error :core/trace}
- :fixture/doc          "EP-0037 R0 address parity (row 1): a flat wrapper carrying an address plus the policy key :replace? navigates to the address's target — policy changes only the effect (replace-url vs push-url), not the resolved target/URL, and route-url builds the same URL. In-place :params rejects with :params-requires-destination; an in-place {:query} follows the edit branch (route-id + params carried, query replaced); an unknown key (namespaced included) rejects with :unknown-keys before extraction."
+ :fixture/doc          "EP-0037 R0 address parity (row 1): a flat wrapper carrying an address plus the policy key :replace? navigates to the address's target — policy changes only the effect (replace-url vs push-url), not the resolved target/URL, and route-url builds the same URL. In-place :params rejects with :params-requires-destination; an in-place {:query} follows the edit branch (route-id + params carried, query merged); an unknown key (namespaced included) rejects with :unknown-keys before extraction."
 
  :fixture/registry
  {:event {:rf/init           {:doc "Seed the current route."}
@@ -66,7 +66,7 @@
   [:rf.route/navigate {:params {:slug "x"}}]
 
   ;; (3) In-place {:query} — EDIT branch. Stays on route/article, carries the
-  ;;     slug, replaces the query wholesale. Never validated as a RouteAddress.
+  ;;     slug, merges into the query. Never validated as a RouteAddress.
   [:rf.route/navigate {:query {:tab "history"}}]
 
   ;; (4) Unknown namespaced key beside a valid :to — REJECTS before
