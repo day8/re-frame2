@@ -20,7 +20,6 @@
             [re-frame.cofx :as rf.cofx]
             [re-frame.fx :as rf.fx]
             [re-frame.router.diagnostics :as rf.router.diagnostics]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.performance :as rf.performance
@@ -399,29 +398,29 @@
                              :rf.cofx         (:rf.cofx envelope)
                              :rf.cofx/mint-policy mint-policy}
                       (:source envelope)   (assoc :source (:source envelope))
-                      (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))]
-    ;; Deliver exactly the declared facts (Spec 002 §Declaration and delivery
-    ;; — `:rf.cofx/requires`). A throwing supplier or generator sets
-    ;; `:rf/skip-handler?` rather than throw out of assembly.
-    (let [{:keys [coeffects rf/skip-handler?] :as delivered}
-          (if (seq requires)
-            (rf.cofx/deliver-declared-cofx
-              base-cofx requires (:rf.cofx envelope) (first event) frame
-              mint-policy)
-            {:coeffects base-cofx :rf.cofx (:rf.cofx envelope) :rf/skip-handler? false})
-          ;; Restamp with the delivered record, which carries any generated
-          ;; fact.
-          coeffects (assoc coeffects :rf.cofx (:rf.cofx delivered))]
-      (cond-> {:coeffects coeffects
-                 :effects {}
-                 :rf/framework-authority? (rf.events/framework-authority? handler-meta)
-                 :rf/fx-overrides fx-overrides}
-          ;; Delivery sets its skip flag only when a supplier / generator
-          ;; threw. `:rf/cofx-failed?` tells `commit-and-flow!` this skip is a
-          ;; FAILURE, so the event settles `:error` with nothing installed; an
-          ;; interceptor's deliberate `:rf/skip-handler?` carries no marker.
-          skip-handler? (assoc :rf/skip-handler? true
-                               :rf/cofx-failed? true)))))
+                      (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
+        ;; Deliver exactly the declared facts (Spec 002 §Declaration and
+        ;; delivery — `:rf.cofx/requires`). A throwing supplier or generator
+        ;; sets `:rf/skip-handler?` rather than throw out of assembly.
+        {:keys [coeffects rf/skip-handler?] :as delivered}
+        (if (seq requires)
+          (rf.cofx/deliver-declared-cofx
+            base-cofx requires (:rf.cofx envelope) (first event) frame
+            mint-policy)
+          {:coeffects base-cofx :rf.cofx (:rf.cofx envelope) :rf/skip-handler? false})
+        ;; Restamp with the delivered record, which carries any generated
+        ;; fact.
+        coeffects (assoc coeffects :rf.cofx (:rf.cofx delivered))]
+    (cond-> {:coeffects coeffects
+             :effects {}
+             :rf/framework-authority? (rf.events/framework-authority? handler-meta)
+             :rf/fx-overrides fx-overrides}
+      ;; Delivery sets its skip flag only when a supplier / generator
+      ;; threw. `:rf/cofx-failed?` tells `commit-and-flow!` this skip is a
+      ;; FAILURE, so the event settles `:error` with nothing installed; an
+      ;; interceptor's deliberate `:rf/skip-handler?` carries no marker.
+      skip-handler? (assoc :rf/skip-handler? true
+                           :rf/cofx-failed? true))))
 
 (def ^:private handler-wrapping-interceptor-ids
   "Ids of the interceptor that wraps the event handler: a captured
@@ -463,7 +462,7 @@
   (Spec 009 §Error contract). The chain captures rather than rethrows so the
   drain does not abort. `:handler-id` is stamped only when the handler itself
   threw."
-  [error event-id event frame ctx start-ms]
+  [error event-id frame ctx start-ms]
   (let [exception  (:exception error)
         ;; nil-safe: a thrown non-Error value (legal in CLJS) has no
         ;; `.-message`.
@@ -1037,7 +1036,7 @@
       error
       (do
         (emit-pipeline-exception!
-          error event-id event frame final-ctx start-ms)
+          error event-id frame final-ctx start-ms)
         (restore!)
         :error)
 
@@ -1267,7 +1266,7 @@
   None of these survive an async escape; use `capture-frame` or `:fx` there.
   A stale drain whose `owner-token` no longer matches the frame's record runs
   nothing."
-  [envelope frame-record owner-token]
+  [envelope owner-token]
   (rf.frame/call-with-event-owner-token
     (:frame envelope)
     owner-token
@@ -1613,7 +1612,7 @@
           (binding [rf.frame/*run-frame-state-before* fs-before]
             (call-with-event-in-flight
               router
-              #(process-event! envelope frame-record owner-token)))
+              #(process-event! envelope owner-token)))
           (settle-event-epoch! frame-id fs-before
                                (rf.frame/frame-record-state-value frame-record)
                                time-ms (:dispatch-id envelope))
