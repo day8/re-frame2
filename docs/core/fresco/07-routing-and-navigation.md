@@ -296,8 +296,8 @@ dispatch the navigation as an intent:
 
 ```clojure
 [:button
- {:on-click [:rf.route/navigate {:query-merge {:page 2}
-                                 :scroll      false}]}
+ {:on-click [:rf.route/navigate {:query  {:page 2}
+                                 :scroll false}]}
  "Next page"]
 ```
 

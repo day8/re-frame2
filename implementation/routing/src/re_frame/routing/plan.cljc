@@ -15,7 +15,7 @@
 
   Everything here is PURE (or returns telemetry as DATA). Target
   resolution forks on the request's source kind — a named address or
-  in-place edit (the `:query-merge` fold, `route-url` validation/reject) or
+  in-place edit (the in-place `:query` merge, `route-url` validation/reject) or
   a raw URL (open-redirect gating, app-URL reduction, `match-url`) — and
   lives with the pipeline in `url_change.cljc`. Once the target and the
   classification flags are resolved, the pipeline feeds the helpers below

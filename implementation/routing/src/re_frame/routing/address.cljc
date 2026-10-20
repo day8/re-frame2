@@ -12,7 +12,7 @@
       address keys        #{:to :params :query :fragment}
       raw-URL escape      #{:url}
       policy keys         #{:replace? :scroll :bypass-leave?}
-      edit keys           #{:query :query-merge :fragment}
+      edit keys           #{:query :fragment}
       link behaviour keys #{:on-click :prefetch}
 
   Two operations make up the law:
@@ -83,17 +83,18 @@
   (or (nil? v) (false? v) (boolean (some #(= v %) scroll-strategies))))
 
 (def edit-keys
-  "In-place EDIT key class — `:query` / `:query-merge` / `:fragment`. When no
-  destination (`:to` / `:url`) is present these PATCH the current location and
-  are NEVER validated or stored as a RouteAddress (Spec 012 §The extraction
-  law rule 3). Key PRESENCE — not truthiness — discriminates: `:query {}`
-  clears the query, `:fragment nil` clears the fragment.
+  "In-place EDIT key class — `:query` / `:fragment`. When no destination
+  (`:to` / `:url`) is present these PATCH the current location and are NEVER
+  validated or stored as a RouteAddress (Spec 012 §The extraction law rule
+  3). Key PRESENCE — not truthiness — discriminates: an in-place `:query`
+  merges into the current query (a nil member removes its key, `:query nil`
+  clears the query), and `:fragment nil` clears the fragment.
 
-  Because presence rather than truthiness selects the branch, the VALUE of
-  `:query-merge` is checked by `classify` rather than inferred by the fold
-  that consumes it: it must be a map of query deltas, and a present non-map
-  (nil included) rejects `:reason :query-merge-not-map`."
-  #{:query :query-merge :fragment})
+  Because presence rather than truthiness selects the branch, the VALUE of an
+  in-place `:query` is checked by `classify` rather than inferred by the merge
+  that consumes it: it must be a map or nil, and anything else rejects
+  `:reason :query-not-map`."
+  #{:query :fragment})
 
 (def link-behavior-keys
   "`route-link` BEHAVIOUR key class — `:on-click` and `:prefetch` (EP-0037 R3).
@@ -160,9 +161,9 @@
   (or (contains? request :to) (contains? request :url)))
 
 (defn in-place?
-  "True when `request` carries an in-place EDIT key (`:query` / `:query-merge`
-  / `:fragment`). Presence (not truthiness) discriminates — `:query {}` and
-  `:fragment nil` are valid lone in-place requests."
+  "True when `request` carries an in-place EDIT key (`:query` / `:fragment`).
+  Presence (not truthiness) discriminates — `:query nil` and `:fragment nil`
+  are valid lone in-place requests."
   [request]
   (boolean (seq (set/intersection (set (keys request)) edit-keys))))
 
@@ -213,24 +214,22 @@
 
   The rules (Spec 012 §Validity rules):
   1. `:to` xor `:url`.
-  2. `:url` excludes `:params` / `:query` / `:query-merge` — a raw URL IS the
-     address. `:url` + `:fragment` is legal.
+  2. `:url` excludes `:params` / `:query` — a raw URL IS the address.
+     `:url` + `:fragment` is legal.
   3. `:params` requires a destination (`:to` / `:url`) — it names path params
      for a FRESH address, so it is NEVER accepted in-place (changing params is
      a destination): `:reason :params-requires-destination`.
-  4. `:query` xor `:query-merge`.
-  5. `:query-merge` requires an in-place request (no `:to` / `:url`).
-  6. A destination (`:to` / `:url`) OR an in-place change is required;
+  4. A destination (`:to` / `:url`) OR an in-place change is required;
      PRESENCE discriminates. Empty maps and pure-policy maps reject loud.
-  7. An in-place request before any current route exists rejects loud.
-  8. Unknown keys reject (namespaced included), reported in a total canonical
+  5. An in-place request before any current route exists rejects loud.
+  6. Unknown keys reject (namespaced included), reported in a total canonical
      order (`rf.identity/canonical-bytes`) so heterogeneous EDN keys never trip a
      `compare`-based `sort`.
-  9. `:query-merge`'s VALUE is a map of query deltas — a present non-map
-     (including nil) rejects `:reason :query-merge-not-map`. `{}`
-     is a valid exact no-op; a nil INSIDE the map deletes a key.
-  10. `:scroll`'s VALUE passes `valid-scroll?` — a strategy, `false` or nil;
-      anything else rejects `:reason :bad-scroll`.
+  7. An in-place `:query`'s VALUE is a map or nil — anything else rejects
+     `:reason :query-not-map`. `{}` is a valid exact no-op, a nil INSIDE the
+     map deletes a key, and `nil` itself clears the query.
+  8. `:scroll`'s VALUE passes `valid-scroll?` — a strategy, `false` or nil;
+     anything else rejects `:reason :bad-scroll`.
 
   This is the ONE definition every door's whole-roster
   closure is measured against."
@@ -253,39 +252,33 @@
       {:reason :to-url-exclusive :keys [:to :url]}
 
       (and (contains? request :url)
-           (some #(contains? request %) [:params :query :query-merge]))
-      {:reason :url-excludes-address :keys (present :params :query :query-merge)}
+           (some #(contains? request %) [:params :query]))
+      {:reason :url-excludes-address :keys (present :params :query)}
 
       (and (contains? request :params) (not dest?))
       {:reason :params-requires-destination :keys [:params]}
 
-      (and (contains? request :query) (contains? request :query-merge))
-      {:reason :query-exclusive :keys [:query :query-merge]}
-
-      (and (contains? request :query-merge) dest?)
-      {:reason :query-merge-in-place-only :keys [:query-merge]}
-
-      ;; `:query-merge`'s VALUE is a map of query deltas. PRESENCE
-      ;; discriminates the in-place branch (`edit-keys`), so this gate is the
-      ;; only place that can speak about the value at all; without this rule a
-      ;; non-map would sail through to the in-place `merge` fold, where
-      ;; Clojure's collection semantics would decide the outcome three ways: a
-      ;; two-element vector IS a map entry to `merge`, so `{:query-merge
-      ;; [:page 2]}` would silently COMMIT a real navigation (query changed,
-      ;; nav-token advanced, URL pushed); a string would reach a raw
-      ;; ClassCastException with no ex-data; and a present nil would vanish into
-      ;; the fold's `if-let` as a silent no-op. One structural boundary, one
-      ;; local explanation. Deliberately placed AFTER the roster and
-      ;; mutual-exclusion rules so a request that is wrong in two ways
-      ;; reports the roster / relationship violation first.
+      ;; An in-place `:query`'s VALUE is a map or nil. PRESENCE discriminates
+      ;; the in-place branch (`edit-keys`), so this gate is the only place
+      ;; that can speak about the value at all; without this rule a non-map
+      ;; would sail through to the in-place `merge`, where Clojure's collection
+      ;; semantics would decide the outcome: a two-element vector IS a map
+      ;; entry to `merge`, so `{:query [:page 2]}` would silently COMMIT a
+      ;; real navigation (query changed, nav-token advanced, URL pushed), and
+      ;; a string would reach a raw ClassCastException with no ex-data. One
+      ;; structural boundary, one local explanation. Deliberately placed AFTER
+      ;; the roster and relationship rules so a request that is wrong in two
+      ;; ways reports the roster / relationship violation first.
       ;;
-      ;; `{}` is a valid exact no-op, and a nil INSIDE the delta map
-      ;; deletes a key — this rule is about the delta map itself, never its
-      ;; members. A present nil for the map itself rejects rather than
-      ;; vanishing: omission is already the unambiguous spelling for "no
-      ;; merge".
-      (and (contains? request :query-merge) (not (map? (:query-merge request))))
-      {:reason :query-merge-not-map :keys [:query-merge]}
+      ;; This rule is about the map itself, never its members: `{}` is a valid
+      ;; exact no-op, a nil INSIDE the map deletes a key, and `nil` itself
+      ;; clears the query. A destination's `:query` is the address's own and
+      ;; `route-url` judges it.
+      (and (not dest?)
+           (contains? request :query)
+           (some? (:query request))
+           (not (map? (:query request))))
+      {:reason :query-not-map :keys [:query]}
 
       ;; `:scroll` is checked where it is authored, so a value outside the
       ;; closed vocabulary refuses the navigation instead of committing it

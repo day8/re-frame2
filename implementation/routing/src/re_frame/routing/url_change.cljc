@@ -195,12 +195,12 @@
   into it — an application that carries global URL state spells it as a pure
   function over the address before dispatch (Spec 012 §Carrying query state
   across routes). An in-place edit PATCHES the current location: route and
-  path params carry, `:query` replaces wholesale, `:query-merge` folds its
-  deltas over the current query (a nil member removes a key) and an omitted
-  `:fragment` carries. Presence, not truthiness, discriminates throughout, so
-  a present-but-nil `:query` clears like `{}`. The deltas are SPELLED the way
-  the current route's URL spells them before they fold, so a delta overwrites
-  or removes the entry it names instead of landing beside it.
+  path params carry, `:query` merges into the current query (a nil member
+  removes its key) and an omitted `:fragment` carries. Presence, not
+  truthiness, discriminates throughout, so a present-but-nil `:query` clears
+  the query. The in-place members are SPELLED the way the current route's URL
+  spells them before they merge, so a member overwrites or removes the entry
+  it names instead of landing beside it.
 
   The facts lower through the ResolvedTarget seam
   (`rf.routing.resolve/resolved-target`), which fills the route's
@@ -212,13 +212,12 @@
   (let [to?        (contains? request :to)
         route-id   (if to? (:to request) (:route-id current))
         route-meta (rf.registrar/lookup :route route-id)
-        query      (cond
-                     to?                        (:query request)
-                     (contains? request :query) (:query request)
-                     :else                      (:query current))
-        query      (or (if-let [deltas (:query-merge request)]
-                         (merge query (rf.routing.registry/canonical-query route-meta deltas))
-                         query)
+        query      (or (cond
+                         to?                               (:query request)
+                         (not (contains? request :query))  (:query current)
+                         (some? (:query request))
+                         (merge (:query current)
+                                (rf.routing.registry/canonical-query route-meta (:query request))))
                        {})
         {:keys [params fragment] :as target}
         (rf.routing.resolve/resolved-target

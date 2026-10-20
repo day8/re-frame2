@@ -2422,9 +2422,13 @@
 
 (defn compute-sub
   "Compute a subscription's value against a supplied db, bypassing the
-  reactive cache. Useful in tests that want to inspect what a sub
-  WOULD compute given a snapshot of state without going through the
-  per-frame cache. Supports the same declared-input chain shape as subscribe.
+  reactive cache. An event handler reads framework state this way:
+  `(compute-sub [:rf/machine id] (:rf.db/runtime cofx))` reads a machine's
+  snapshot, and `(:nav-token (compute-sub [:rf/route] rt))` the current
+  navigation's token, without spelling where either is stored. A test uses
+  it to inspect what a sub WOULD compute given a snapshot of state without
+  going through the per-frame cache. Supports the same declared-input chain
+  shape as subscribe.
 
   Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6:
   the return value is validated against any :schema on the

@@ -167,7 +167,7 @@
    a walk to any non-article page, the route's does not. See TWO QUESTIONS
    above."
   [rt slug]
-  (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+  (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)]
     (and (= :realworld.article/show route-id)
          (= slug (:slug params)))))
 
@@ -389,7 +389,7 @@
          CORRELATION GATE above."
    :rf.cofx/requires [:realworld/temp-comment-id]}
   (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
-    (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
+    (let [slug      (get-in (rf/compute-sub [:rf/route] rt) [:params :slug])
           draft     (get-in db [:comment-form :draft])
           body      (str/trim (or (:body draft) ""))
           user      (get-in db [:auth :user])
@@ -483,7 +483,7 @@
          cannot slot the previous article's comment into the current one's
          list. `:on-success` needs neither: it is a no-op."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
-    (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
+    (let [slug     (get-in (rf/compute-sub [:rf/route] rt) [:params :slug])
           comments (vec (get-in db [:comments :data]))
           index    (first (keep-indexed (fn [idx comment]
                                           (when (= id (:id comment)) idx))

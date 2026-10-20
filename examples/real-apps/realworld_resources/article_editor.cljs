@@ -320,7 +320,7 @@
     ;; framework already tracks the current route, so this reads the live route
     ;; slice off the `:rf.db/runtime` coeffect rather than adding any lifecycle
     ;; machinery.
-    (let [current        (get-in rt [:rf.runtime/routing :current])
+    (let [current        (rf/compute-sub [:rf/route] rt)
           still-editing? (and (= :realworld.editor/edit (:route-id current))
                               (= slug (get-in current [:params :slug])))]
       (when (and still-editing? (= :ok status))
@@ -370,12 +370,6 @@
 ;; stays on the instance, where the form shows it and a retry re-executes under
 ;; it; one the reader abandons after it settled keeps its settled row.
 
-(defn- current-nav-token
-  "The committed navigation's token, read off RUNTIME-db. Nil before the first
-   navigation."
-  [rt]
-  (get-in rt [:rf.runtime/routing :current :nav-token]))
-
 (rf/reg-event :editor/submit
   {:doc "Save the article. Gates on `can-submit?`, the same pure function the
          button's sub calls. Valid-and-dirty fires the save mutation; an invalid
@@ -385,7 +379,7 @@
     (let [{:keys [slug draft]} (:editor db)
           submittable? (can-submit? (:editor db))
           errors      (validate-draft draft)
-          nav-token   (current-nav-token rt)]
+          nav-token   (:nav-token (rf/compute-sub [:rf/route] rt))]
       (cond
         ;; Valid but unchanged → nothing to save. The button is already disabled in
         ;; this state; this is just the belt-and-braces no-op for a programmatic
@@ -444,7 +438,7 @@
       ;; Issued under a navigation the reader has since left: not this page's
       ;; to act on, whatever it says — but the instance is this write's own, so
       ;; retire it (WRITE OWNERSHIP above).
-      (not= nav-token (current-nav-token rt))
+      (not= nav-token (:nav-token (rf/compute-sub [:rf/route] rt)))
       {:fx [[:dispatch [:rf.mutation/clear {:instance instance}]]]}
 
       ;; A failure on the current page stays on the instance for a retry.
@@ -472,7 +466,7 @@
          save-vs-delete on the reply value."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (when-let [slug (get-in db [:editor :slug])]
-      (let [nav-token (current-nav-token rt)]
+      (let [nav-token (:nav-token (rf/compute-sub [:rf/route] rt))]
         {:fx [[:dispatch [:rf.mutation/execute
                           {:mutation :realworld/delete-article
                            :params   {:slug slug}

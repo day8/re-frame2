@@ -119,7 +119,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change
                        (str "/acct/" param-secret "/visible?token=before&page=1")
                        {:rf.route/cause :link}])
-    (let [in-place {:query-merge {:token query-secret :page "2"}}
+    (let [in-place {:query {:token query-secret :page "2"}}
           events   (capture-traces #(rf/dispatch-sync [:rf.route/navigate in-place]))]
       (when rf.interop/debug-enabled?
         (let [requests (event-args :rf.route/navigate events)]

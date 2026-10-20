@@ -70,7 +70,7 @@ The public composition model is `image → frame → event stream`; there is **n
 | Surface | Shape |
 |---|---|
 | `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — owned-ns surface, **not** on the `rf/` façade (the `reg-route` registration macro stays on `rf/`) |
-| `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — one address-only map (`:to` required); `:fragment` appends `#frag` (nil/empty omitted, percent-encoded); `:url` / `:query-merge` / policy / unknown keys reject loud; owned-ns surface, **not** on the `rf/` façade |
+| `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — one address-only map (`:to` required); `:fragment` appends `#frag` (nil/empty omitted, percent-encoded); `:url` / policy / unknown keys reject loud; owned-ns surface, **not** on the `rf/` façade |
 | `rf/route-link` | the registered view at `:route/link` — `[rf/route-link {:to :route-id :params {} :query {} :fragment "" & html-attrs} & children]`. Renders one `<a href>` (built via `route-url`) and intercepts plain primary-button clicks to dispatch `[:rf.route/navigate {:url <href>}]`; modifier-key / middle-clicks defer to the browser. Computes no active state |
 
 ## HTTP — `day8/re-frame2-http`

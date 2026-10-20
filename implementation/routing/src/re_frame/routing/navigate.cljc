@@ -4,7 +4,7 @@
   Per Spec 012 §Navigation is an event: ONE flat request map,
   `[:rf.route/navigate {request}]`. Address keys `:to` / `:url` / `:params` /
   `:query` / `:fragment`; policy keys `:replace?` / `:scroll` /
-  `:bypass-leave?`; the in-place edit key `:query-merge`. A destination
+  `:bypass-leave?`. A destination
   request (`:to` / `:url`) builds a FRESH address; an in-place request
   (neither) PATCHES the current location. `:rf.route/continue` replays a
   blocked navigation through this door with its one-shot `:bypass-leave?`.

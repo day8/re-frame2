@@ -367,8 +367,8 @@
   ;; The machine snapshot lives in runtime-db.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)
-          nav-token   (rh/current-nav-token rt)
-          mode        (get-in rt [:rf.runtime/machines :snapshots :ui/article-editor :state :mode])
+          nav-token   (:nav-token (rf/compute-sub [:rf/route] rt))
+          mode        (get-in (rf/compute-sub [:rf/machine :ui/article-editor] rt) [:state :mode])
           submittable? (can-submit? (:editor db))
           errors      (validate-draft draft)]
       (cond
@@ -460,7 +460,7 @@
          OWNERSHIP above)."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug      (get-in db [:editor :slug])
-          nav-token (rh/current-nav-token rt)]
+          nav-token (:nav-token (rf/compute-sub [:rf/route] rt))]
       {:fx [[:dispatch [:ui/article-editor [:submit-started]]]
             [:rf.http/managed
              (rh/request {:method     :delete

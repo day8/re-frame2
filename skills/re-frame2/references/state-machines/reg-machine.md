@@ -174,7 +174,7 @@ The framework ships two subs:
 @(rf/subscribe [:rf.machine/has-tag? :my/feature :loading])   ;; tag containment-bit
 ```
 
-The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `[:rf.machine/has-tag? machine-id tag]` is the companion derived subscription — see `tags.md` — read the same way, with the ordinary `subscribe`; there is no named-read-sugar fn over either.
+The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `[:rf.machine/has-tag? machine-id tag]` is the companion derived subscription — see `tags.md` — read the same way, with the ordinary `subscribe`; there is no named-read-sugar fn over either. An event handler reads either vector with `compute-sub` against the runtime-db it receives — `(rf/compute-sub [:rf/machine machine-id] (:rf.db/runtime cofx))` — and never spells the storage path.
 
 Project off the snapshot with ordinary `reg-sub`:
 
