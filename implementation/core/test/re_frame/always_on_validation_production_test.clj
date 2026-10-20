@@ -114,11 +114,11 @@
              (select-keys (record-of c :rf.error/cofx-value-invalid) [:event-id :frame]))
           "the always-on record fired; red under the gate means Spec 010:179 is elided"))))
 
-;; The `[:ref ...]` target is deliberately UNREGISTERED: Malli throws on it, the
-;; recordable check fails closed, and the redaction decision is the walker's
-;; against the declared schema — the path under test. This surface is
-;; always-on, so a walker that treated `:ref` as walkable-and-flag-free would
-;; ship the value off-box in a production build.
+;; The `[:ref ...]` target is deliberately UNREGISTERED: Malli throws on it, so
+;; the recordable check reports a malformed schema, fails closed, and withholds
+;; the value, because nothing proved it non-sensitive. This surface is
+;; always-on, so a check that read the throw as a pass, or shipped the value
+;; with its error, would put it off-box in a production build.
 
 (deftest recordable-cofx-with-ref-schema-redacts-off-box-in-every-posture
   (rf/reg-cofx :prod/ref-ctx {:recordable? true :schema [:ref :fixture/user]}

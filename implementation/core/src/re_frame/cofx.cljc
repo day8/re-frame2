@@ -36,6 +36,7 @@
             [re-frame.cofx.value-check :as rf.cofx.value-check]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
@@ -644,6 +645,9 @@
                                            :failing-id failing-id}
                                           redacted)})))
 
+(def ^:private withheld-value-tags
+  {:value rf.privacy/redacted-sentinel :sensitive? true})
+
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
   `:schema` (from `meta`). A no-op when the registration declares no
@@ -664,9 +668,10 @@
   FAILS CLOSED on a validator that throws (a malformed schema, or a throw
   escaping the seam itself) — coercing the throw to a PASS would fold an
   unvalidated value into the durable ledger, the exact fail-OPEN class this
-  check exists to close. A malformed schema also reports the development
-  `:rf.error/malformed-schema` trace every validating surface emits for one.
-  Returns `value` on success."
+  check exists to close. The throw decided nothing about the value, so the
+  error withholds it (`:value :rf/redacted`, `:sensitive? true`), and a
+  malformed schema also reports the development `:rf.error/malformed-schema`
+  trace every validating surface emits for one. Returns `value` on success."
   [cofx-id value meta failing-id frame-id]
   ;; KEY-presence, not value truthiness: a present nil /
   ;; false `:schema` is a declaration whose exact token goes to the
@@ -700,15 +705,21 @@
                                     :tags-only? true
                                     :extra-tags {:rf.cofx/id cofx-id}})
                            (catch #?(:clj Throwable :cljs :default) _
-                             ;; A throw escaping the seam decided nothing
-                             ;; about the value, so it reports none of it.
-                             {:tags {}}))]
+                             {:category ::seam-threw}))]
           (if (nil? failure)
             value
             (do
               (when (= :rf.error/malformed-schema (:category failure))
                 (rf.trace/emit-error! :rf.error/malformed-schema (:tags failure)))
-              (emit-cofx-value-invalid! cofx-id (:tags failure) failing-id frame-id))))))))
+              (emit-cofx-value-invalid! cofx-id
+                                        (if (= :rf.error/schema-validation-failure (:category failure))
+                                          (:tags failure)
+                                          ;; A throw decided nothing about the
+                                          ;; value, so nothing proved it
+                                          ;; non-sensitive: it is withheld, and
+                                          ;; the error says so.
+                                          withheld-value-tags)
+                                        failing-id frame-id))))))))
 
 ;; ---- structural-EDN check of GENERATED recordable values ------------------
 ;;
