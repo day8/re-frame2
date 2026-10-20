@@ -86,11 +86,11 @@
   "The closed set of dispatch-opts keys `re-frame.router/build-envelope`
   reads. Any other key is ignored, so a typo like `:fram` would change
   nothing silently; `emit-unknown-dispatch-opts-warning!` warns instead
-  (Conventions §No silent swallow). `:rf.flow/settle?` and
-  `:rf.frame/expected-incarnation` are internal, not app-facing."
+  (Conventions §No silent swallow). `:rf.frame/expected-incarnation` is
+  internal, not app-facing."
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.flow/settle? :step-index
+    :step-index
     :rf.frame/expected-incarnation})
 
 (def ^:const retired-draft-opt-hints

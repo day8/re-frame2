@@ -1,14 +1,15 @@
 (ns re-frame.flows-rollback-dirty-check-test
-  "The flow pass advances a frame's evaluation memo, folding its outputs and
-  its departed flows' vacations into the pending `:db`. When the event then
-  fails to commit — a schema rejection, a chain error, or a final-effects
-  abort — the memo rolls back with the discarded candidate. A row left
-  advanced would make the next same-input drain skip the flow, so its output
-  would never materialise; a dropped departure row would lose its vacation.
+  "The flow pass proposes a frame's next evaluation memo, folding its outputs
+  and its departed flows' vacations into the pending `:db`, and the memo
+  advances only once that candidate installs. When the event fails to commit
+  — a schema rejection, a chain error, or a final-effects abort — the memo
+  stays as it was. An advanced row would make the next same-input drain skip
+  the flow, so its output would never materialise; a dropped departure row
+  would lose its vacation.
 
-  A pass also rewrites its flows' output claims in the live elision registry
-  ahead of the commit, so a pass that throws hands them back to the outputs
-  the frame still holds.
+  Ahead of the commit a pass only ADDS output claims to the live elision
+  registry, and the exact set installs with the candidate, so a pass that
+  throws leaves every claim on the outputs the frame still holds.
 
   A predicate validator stands in for Malli (Spec 010 §Non-Malli validators)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -117,8 +118,9 @@
   "Run `:secret`, whose whole output at `[:old]` is classified, beside an
   effect's claim on `[:note]`. Then re-register it with `metadata` and a
   `:derive` that throws, and dispatch an event that changes nothing. Returns
-  `[before after]`, each the app-db, the frame's sensitive claims and the
-  committed output as the wire walker elides it."
+  `[before after]`, each the app-db, the frame's sensitive claims as a set of
+  `[path owner]` pairs, and the committed output as the wire walker elides
+  it."
   [metadata]
   (rf/reg-event :seed (fn [_ _] {:db {:n 3 :note "public"} :sensitive [[:note]]}))
   (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
@@ -128,7 +130,9 @@
   (rf/dispatch-sync [:seed])
   (let [observe (fn []
                   {:db     (db)
-                   :claims (rf.elision/sensitive-declarations :rf/default)
+                   :claims (set (for [[path owners] (rf.elision/sensitive-declarations :rf/default)
+                                      owner owners]
+                                  [path owner]))
                    :old    (rf.elision/elide-wire-value
                              (:old (db)) {:frame :rf/default :path [:old]})})
         before  (observe)]
@@ -140,7 +144,12 @@
   (let [[before after] (a-throwing-replacement
                          {:inputs [[:n]] :output-path [:new] :sensitive [[]]})]
     (is (= :rf/redacted (:old before)) "precondition: the committed output is classified")
-    (is (= before after) "app-db, the claims and the redaction stay as committed")))
+    (is (= (dissoc before :claims) (dissoc after :claims))
+        "app-db and the redaction stay as committed")
+    (is (every? (:claims after) (:claims before)) "every committed claim stands")
+    (is (= #{[[:new] {:source :flow :flow-id :secret}]}
+           (reduce disj (:claims after) (:claims before)))
+        "the one extra claim is the replacement's own path, which no output occupies")))
 
 (deftest a-throwing-replacement-that-drops-the-mark-keeps-the-committed-claims
   (let [[before after] (a-throwing-replacement {:inputs [[:n]] :output-path [:old]})]

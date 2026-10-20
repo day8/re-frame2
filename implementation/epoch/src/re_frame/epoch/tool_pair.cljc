@@ -883,21 +883,21 @@
 ;; installs. A tool write installs frame-state OUTSIDE any drain, flow outputs
 ;; included, so the memo would still describe the timeline the write replaced:
 ;; an event that sets an input back to its pre-write value would skip the flow
-;; and keep the output the write installed. Rewinding the memo to `{}` strips
-;; every row's inputs and output, so the next drain re-claims and recomputes
-;; every flow against the installed state, while each row keeps its definition,
-;; and so the output path a later departure or moved `:output-path` vacates.
+;; and keep the output the write installed. Distrusting the memo strips every
+;; row's inputs and output, so the next drain re-claims and recomputes every
+;; flow against the installed state, while each row keeps its definition, and
+;; so the output path a later departure or moved `:output-path` vacates.
 ;; Late-bound so epoch never statically depends on the optional flows
 ;; artefact — absent the artefact the hook is nil and there is no memo to reset.
 
 (defn reset-flows-dirty-check!
-  "Rewind `frame-id`'s flow evaluation memo to `{}` after a successful tool
-  write: every row keeps its definition and loses its inputs and output. The
-  caller holds the frame's drain serialization and has just installed on the
-  exact incarnation, so the reset lands on that incarnation. Returns nil."
+  "Distrust `frame-id`'s flow evaluation memo after a successful tool write:
+  every row keeps its definition and loses its inputs and output. The caller
+  holds the frame's drain serialization and has just installed on the exact
+  incarnation, so the reset lands on that incarnation. Returns nil."
   [frame-id]
-  (when-let [restore-last-inputs! (rf.late-bind/get-fn :flows/restore-last-inputs!)]
-    (restore-last-inputs! frame-id {}))
+  (when-let [distrust-memo! (rf.late-bind/get-fn :flows/distrust-memo!)]
+    (distrust-memo! frame-id))
   nil)
 
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
