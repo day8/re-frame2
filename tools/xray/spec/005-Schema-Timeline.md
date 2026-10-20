@@ -23,14 +23,16 @@ the trace firehose to find them.
 Your app subtly mis-renders. The console shows nothing dramatic; the
 trace firehose shows three `:rf.error/schema-validation-failure`
 events scattered across the last 100 traces. You can't tell which
-schema, which path, or whether the framework recovered (replaced with
-default) or rejected the app-db candidate outright.
+schema, which path, or what the framework did about it: skipped a
+handler or an effect, rejected the app-db candidate outright, or
+reported the failure and let the value through.
 
 ## Insight Xray provides
 
 A **horizontal timeline** with one row per registered schema; coloured
-dot per failure (red = `:skip-handler` / `:rollback-db` /
-`:re-raised`; yellow = `:replaced-with-default`); a 600ms label-flash
+dot per failure (red where the framework stopped work, yellow where it
+reported the failure and let the value through — see
+[§Recovery](#recovery)); a 600ms label-flash
 on the empty→non-empty transition so newly-failing schemas catch the
 eye. Click a dot → side panel with full Malli explanation, recovery
 mode, triggering cascade, registration source-coord, and two
@@ -55,8 +57,10 @@ validation failure emits a trace event:
 ```clojure
 {:op-type   :error
  :operation :rf.error/schema-validation-failure
- :recovery  <one of :skip-handler :skip-fx :rollback-db :replaced-with-default :re-raised>
- :tags      {:where  <one of :event-coercion :db-shape :fx-shape ...>
+ :recovery  <:skipped for :fx-args, otherwise :no-recovery>
+ :tags      {:where  <one of :event :fx-args :app-db :sub-return :sub-override
+                      :machine-data :machine-output>
+             :rollback? <true when the candidate was rejected>
              :path   <path-into-app-db-or-event>
              :value  <the offending value>
              :schema <the schema id>
@@ -83,15 +87,9 @@ Schemas panel is active, it fills the canvas instead):
 - **One row per registered schema** (from `(re-frame.schemas/app-schemas
   {:frame frame-id})`).
 - **A dot at the timestamp** where the validation failed.
-- **Colour encodes recovery**:
-
-  | Recovery | Colour |
-  |---|---|
-  | `:skip-handler` | Red. |
-  | `:skip-fx` | Red. |
-  | `:rollback-db` | Red. |
-  | `:replaced-with-default` | Yellow. |
-  | `:re-raised` | Red, with a thicker stroke. |
+- **Colour encodes what the framework did** — red where it stopped
+  work, yellow where it reported the failure and let the value
+  through. [§Recovery](#recovery) maps each failure to its colour.
 
 - **Time axis** scrolls horizontally; default window is the last 60s.
   Drag-zoom to expand. The Trace-timeline panel governs the same time
@@ -104,11 +102,11 @@ Click a dot → side panel:
 ```
 ┌─ schema violation ───────────────────────────────────╮
 │  schema     :schema/user-auth                        │
-│  where      :event-coercion                          │
+│  where      :app-db                                  │
 │  path       [:auth :email]                           │
 │  value      nil                                      │
 │  expected   string?                                  │
-│  recovery   :replaced-with-default                   │
+│  recovery   :no-recovery (rejected)                  │
 │                                                      │
 │  Malli explanation:                                  │
 │    {:schema [:map [:email string?]]                  │
@@ -144,21 +142,24 @@ at [:auth :email], expected :string, got nil
 Cheap-to-read; cheap-to-dismiss; gives the answer without committing
 to a panel pivot.
 
-## The five recovery categories
+## Recovery
 
-Per [Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery):
+What the framework does about each failure, and the `:recovery` value it
+stamps, is [Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery);
+this section says only how the timeline draws it. Every failure carries
+`:recovery :no-recovery` except a skipped effect, which carries `:skipped`,
+so the timeline colours by `:where` and `:rollback?` rather than by
+`:recovery` alone:
 
-| Recovery | What the framework did | Xray surface |
+| Failure | What the framework did | Xray surface |
 |---|---|---|
-| `:skip-handler` | Handler did not run. | Red dot. Detail explains the handler was skipped; suggests checking the event payload shape. |
-| `:skip-fx` | Specific fx invocation skipped. | Red dot. Detail names the fx-id that was skipped. |
-| `:rollback-db` | The candidate `app-db` was REJECTED before install (rf2-uhk9ko — app-db keeps its pre-handler value; nothing was written or reverted). | Red dot. Detail diff shows what *would* have been written. |
-| `:replaced-with-default` | The schema's `:default` substituted for the bad value. | Yellow dot (the framework recovered cleanly). Detail names the default that was used. |
-| `:re-raised` | The validation error was rethrown. | Red dot with a thicker stroke. Detail says "consumed by an error boundary; check the surrounding `:on-error`." |
+| `:where :event` | The handler did not run. | Red dot. Detail suggests checking the event payload shape. |
+| `:where :fx-args` (`:recovery :skipped`) | That one effect was skipped; its siblings ran. | Red dot. Detail names the fx-id that was skipped. |
+| `:where :app-db` or `:machine-data` | The candidate was rejected before install (`:rollback? true`), or a spawn's install was skipped; nothing was written. | Red dot. Detail diff shows what *would* have been written. |
+| `:where :sub-return`, `:sub-override` or `:machine-output` | Reported; the value still reached its consumer. | Yellow dot. Detail shows the value that was passed through. |
 
-The five-category palette is **closed** (per Spec 010); Xray does not
-invent additional categories. If a sixth lands via a spec increment,
-the timeline gains a row colour.
+Xray invents no outcomes of its own: a recovery Spec 010 adds gains a
+colour here.
 
 ## Reading the timeline at a glance
 
@@ -276,7 +277,6 @@ When no schemas are registered:
    validation events will appear here:
    • Schema violations
    • Path-typed lookups
-   • Schema-replaced-with-default events
    → Read about schema integration
 ```
 
