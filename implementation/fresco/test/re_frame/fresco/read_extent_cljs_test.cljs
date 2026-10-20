@@ -591,6 +591,23 @@
               that body's own edge"
       (is (= #{(sub-key [:re/right])} (rf.fresco.test.runtime/reads-of entry))))))
 
+(deftest a-lazy-seq-under-any-prop-is-forced-in-the-body-that-wrote-it
+  (seeded!)
+  ;; The repair `realize-deep` makes at EVERY prop, not only `:children`. A
+  ;; lazy seq carrying reads, handed to a child under an ordinary prop, is
+  ;; forced at the crossing — inside THIS body's render — so its reads are
+  ;; this body's edges. Forced in the child instead, they would be filed
+  ;; under the child and frozen by the seq's cache on its next render.
+  (let [!handed (atom nil)
+        entry   (probe! (fn [_]
+                          (let [vs (map (fn [_] (rf.fresco/sub [:re/right])) [1 2])]
+                            (reset! !handed vs)
+                            [:div [crossing-child {:v vs}]])))]
+    (testing "the writing body's read set carries the reads the seq made"
+      (is (= #{(sub-key [:re/right])} (rf.fresco.test.runtime/reads-of entry))))
+    (testing "and the seq crossed already realised"
+      (is (realized? @!handed)))))
+
 (deftest an-escaped-deferral-forced-in-another-body-is-the-declared-limit
   (seeded!)
   ;; **The residue neither discriminator reaches, measured rather than
