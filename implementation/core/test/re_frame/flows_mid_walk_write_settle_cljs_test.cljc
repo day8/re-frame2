@@ -12,6 +12,10 @@
   The settle is keyed on the container, not on a list of writers, so the
   test-local `:p/write-snapshot` effect stands for every writer.
 
+  Epochs and flow traces are dev instrumentation, so the assertions on them
+  sit inside `debug-enabled?`; the event and app-db assertions beside them
+  hold in every build.
+
   Lives in core's test tree because only core's `:test` classpath carries the
   machines, flows and epoch artefacts together."
   (:require
@@ -24,6 +28,7 @@
    ;; runs, and `reg-machine` and the lifecycle effects do not resolve.
    [re-frame.flows]
    [re-frame.frame :as rf.frame]
+   [re-frame.interop :as rf.interop]
    [re-frame.machines]
    [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
    [re-frame.test-support :as rf.test-support]))
@@ -103,7 +108,8 @@
           (rf/dispatch-sync [:p/two-writes])
           (is (= {:mstate :busy :mnote "x"} (select-keys (db) [:mstate :mnote])))
           (is (= [:p/two-writes] @runs))
-          (is (= 1 (- (epochs) before))))))))
+          (when rf.interop/debug-enabled?
+            (is (= 1 (- (epochs) before)))))))))
 
 (deftest a-continuation-queued-before-spawn-sees-the-newborn
   (testing "a `:dispatch` placed before `:rf.machine/spawn` reads the newborn's
@@ -124,14 +130,15 @@
       (fn [runs]
         (let [before (epochs)]
           (rf/dispatch-sync [:p/spawn])
-          (is (= :born (->> (rf.epoch/epoch-history :rf/default)
-                            (filter #(= :p/spawn (:event-id %)))
-                            first :db-after :cstate))
-              "the spawning event's own epoch holds the fresh flow, so a restore to it is consistent")
           (is (= :born (:child-seen (db))))
           ;; The spawn's bootstrap event is the machine's own dispatch.
           (is (= [:p/spawn :p/record-child :c/one] @runs))
-          (is (= (count @runs) (- (epochs) before)) "one epoch per event"))))))
+          (when rf.interop/debug-enabled?
+            (is (= :born (->> (rf.epoch/epoch-history :rf/default)
+                              (filter #(= :p/spawn (:event-id %)))
+                              first :db-after :cstate))
+                "the spawning event's own epoch holds the fresh flow, so a restore to it is consistent")
+            (is (= (count @runs) (- (epochs) before)) "one epoch per event")))))))
 
 (deftest walks-that-write-no-frame-state-run-no-second-pass
   (testing "a `{:fx [[:dispatch ...]]}` walk on a frame with flows"
@@ -169,7 +176,8 @@
             (rf/dispatch-sync [:pm/timed [:go]])
             (is (= :busy (:tstate (db))) "fresh after the transition")
             (is (pos? (count @runs)) "control — the recorder saw the transition")
-            (is (= (count @runs) @visits) "one flow pass per event")))
+            (when rf.interop/debug-enabled?
+              (is (= (count @runs) @visits) "one flow pass per event"))))
         (finally
           (rf/unregister-listener! :trace ::visits))))))
 
