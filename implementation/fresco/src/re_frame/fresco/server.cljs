@@ -51,7 +51,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
-            [re-frame.fresco.substrate :as rf.fresco.substrate]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
@@ -550,13 +549,6 @@
 ;; The sidecar's render module
 ;; ---------------------------------------------------------------------------
 
-(defn- install-fresco-substrate!
-  "`node-module`'s default `:boot`: seat Fresco's own substrate, the same
-  one line a browser boot runs. Nothing else — a frame made at boot would be
-  shared by every request the isolate serves."
-  []
-  (rf/init! rf.fresco.substrate/adapter))
-
 (defn node-module
   "The render module `implementation/ssr-node`'s sidecar loads — its
   `module.exports` — built from one options map. Name the var holding it as
@@ -578,9 +570,16 @@
       :identifier-prefix as `render-body` takes it.
       :frame-opts        as `render-body` takes it.
       :boot              a zero-arg fn the sidecar runs once per isolate,
-                         before the first render. Default: seat Fresco's
-                         substrate, `(rf/init! re-frame.fresco.substrate/
-                         adapter)`.
+                         before the first render: where the bundle seats
+                         its substrate, `#(rf/init! rf.fresco.substrate/
+                         adapter)` for Fresco's own. Absent, the module
+                         publishes no `boot`, and a render with no adapter
+                         seated fails with `:rf.error/no-adapter-installed`.
+
+  `:boot` has no default because this module cannot name the substrate:
+  `re-frame.fresco.substrate` is an optional module that only the
+  application requires
+  (`implementation/fresco/scripts/check_optional_module_reachability.py`).
 
   `render` takes the frozen call the sidecar hands it, reads its `state`
   and `runtime` partitions (key text -> EDN text) back with
@@ -589,17 +588,19 @@
   so a bundle whose entries render different roots writes its own `render`
   to the same contract."
   [{:keys [build-id entries hiccup identifier-prefix frame-opts boot]}]
-  #js {:protocol 1
-       :buildId  build-id
-       :entries  (into-array entries)
-       :boot     (or boot install-fresco-substrate!)
-       :render   (fn [call]
-                   ;; String keys, so Closure cannot rename the sidecar's
-                   ;; field names under `:advanced`.
-                   (render-body
-                     {:hiccup            hiccup
-                      :render-state      (rf.ssr.render-state/deserialize
-                                           {:rf/app-db     (js->clj (unchecked-get call "state"))
-                                            :rf/runtime-db (js->clj (unchecked-get call "runtime"))})
-                      :identifier-prefix identifier-prefix
-                      :frame-opts        frame-opts}))})
+  (let [module #js {:protocol 1
+                    :buildId  build-id
+                    :entries  (into-array entries)
+                    :render   (fn [call]
+                                ;; String keys, so Closure cannot rename the
+                                ;; sidecar's field names under `:advanced`.
+                                (render-body
+                                  {:hiccup            hiccup
+                                   :render-state      (rf.ssr.render-state/deserialize
+                                                        {:rf/app-db     (js->clj (unchecked-get call "state"))
+                                                         :rf/runtime-db (js->clj (unchecked-get call "runtime"))})
+                                   :identifier-prefix identifier-prefix
+                                   :frame-opts        frame-opts}))}]
+    (when (some? boot)
+      (unchecked-set module "boot" boot))
+    module))

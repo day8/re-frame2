@@ -778,7 +778,9 @@ a build id, an **entry table** of the ids a host may name, a once-per-isolate
 
 ```clojure
 (ns my-app.server
-  (:require [re-frame.fresco.server :as server]
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco.server :as server]
+            [re-frame.fresco.substrate :as substrate]
             ;; The entry id and frame config, shared with the host in step 3.
             [my-app.policy :as policy]
             [my-app.views :as views]))
@@ -792,6 +794,8 @@ a build id, an **entry table** of the ids a host may name, a once-per-isolate
   (server/node-module
     {:build-id          build-id
      :entries           [policy/root-entry]
+     ;; Once per isolate, before the first render.
+     :boot              #(rf/init! substrate/adapter)
      :hiccup            [views/root-view]
      :identifier-prefix views/identifier-prefix
      ;; The host's frame config, so `route-link` hrefs carry the same
@@ -800,8 +804,10 @@ a build id, an **entry table** of the ids a host may name, a once-per-isolate
      :frame-opts        policy/frame-config}))
 ```
 
-`boot` seats Fresco's substrate unless you pass a `:boot` fn of your own.
-`render` reads the request's two state partitions back with
+`:boot` is where the bundle seats its substrate, and it has no default:
+`re-frame.fresco.substrate` is an optional module only the application
+requires. Leave it out and the first render fails with
+`:rf.error/no-adapter-installed`. `render` reads the request's two state partitions back with
 `re-frame.ssr.render-state/deserialize` and renders through
 `re-frame.fresco.server/render-body`, whose options `:hiccup`,
 `:identifier-prefix` and `:frame-opts` are. It renders `:hiccup` whichever entry

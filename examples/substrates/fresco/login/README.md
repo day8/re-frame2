@@ -184,7 +184,8 @@ policy the host declares, and it hands back a string. Nothing else crosses in
 either direction.
 
 `server.cljs` is one `re-frame.fresco.server/node-module` form: the build id,
-the entry table, the root view, the `identifier-prefix` and the frame config.
+the entry table, a `:boot` that seats Fresco's substrate, the root view, the
+`identifier-prefix` and the frame config.
 `node-module` builds the module the sidecar loads, reading the projected state
 back and rendering it through `render-body`.
 

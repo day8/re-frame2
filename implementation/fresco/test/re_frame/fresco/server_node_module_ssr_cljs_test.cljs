@@ -10,9 +10,8 @@
   `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`; this file is the
   narrow one, so a failure names the helper rather than the example.
 
-  The fixture installs NO adapter, so the `:boot` rows can see which
-  substrate the module seats, and every render row boots first, as the
-  sidecar does.
+  The fixture installs NO adapter, so the `:boot` rows can see what the
+  module seats, and every render row boots first, as the sidecar does.
 
   Runtime: `-cljs-test`, so the focused `:node-test-fresco` build and the
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
@@ -74,13 +73,19 @@
 
 (def ^:private entry "test/root")
 
+(defn- seat-fresco!
+  "The `:boot` a Fresco bundle passes."
+  []
+  (rf/init! rf.fresco.substrate/adapter))
+
 (defn- module
   ([] (module {}))
   ([opts]
    (rf.fresco.server/node-module
      (merge {:build-id "node-module-test"
              :entries  [entry]
-             :hiccup   [both-partitions {}]}
+             :hiccup   [both-partitions {}]
+             :boot     seat-fresco!}
             opts))))
 
 (defn- frozen-call
@@ -113,7 +118,7 @@
     (is (= "node-module-test" (.-buildId m)))
     (is (array? (.-entries m)) "the entry table is a JS array, as the sidecar reads it")
     (is (= [entry] (vec (.-entries m))))
-    (is (fn? (.-boot m)))
+    (is (identical? seat-fresco! (.-boot m)) "the caller's `:boot`, published as given")
     (is (fn? (.-render m)))))
 
 ;; ---------------------------------------------------------------------------
@@ -138,15 +143,21 @@
 ;; boot
 ;; ---------------------------------------------------------------------------
 
-(deftest boot-defaults-to-seating-the-fresco-substrate
+(deftest the-boot-seats-what-the-caller-names
   (is (nil? (rf/current-adapter)) "the control: the fixture seated nothing")
   ((.-boot ^js (module)))
-  (is (identical? rf.fresco.substrate/adapter (rf/current-adapter)))
   (is (= :rf.adapter/fresco (:kind (rf/current-adapter)))))
 
-(deftest a-supplied-boot-replaces-the-default
-  (let [calls (atom 0)
-        ^js m (module {:boot #(swap! calls inc)})]
-    ((.-boot m))
-    (is (= 1 @calls) "the caller's boot ran")
-    (is (nil? (rf/current-adapter)) "and the default did not run beside it")))
+(deftest without-a-boot-the-module-publishes-none-and-a-render-fails-loud
+  (let [^js m  (module {:boot nil})
+        thrown (try ((.-render m) (frozen-call partitions))
+                    nil
+                    (catch :default e (ex-data e)))]
+    (is (not (js-in "boot" m)) "no default substrate: the sidecar runs no boot")
+    (is (nil? (rf/current-adapter)) "and nothing seated one")
+    ;; A fresh isolate has never seated an adapter and reports
+    ;; `no-adapter-installed`; this process has, and the reset fixture
+    ;; disposed it, so it reports `adapter-disposed`. Both name the absence.
+    (is (contains? #{:rf.error/no-adapter-installed :rf.error/adapter-disposed}
+                   (:rf.error/id thrown))
+        "so the first render names the missing adapter rather than rendering")))

@@ -3,11 +3,11 @@
   sidecar loads, and the Node half of the ssr-node crossing.
 
   This is the whole of what an application writes to render on Node: a build
-  id and one `re-frame.fresco.server/node-module` form naming the views. The
-  framework owns the rest — reading the wire's state back
+  id and one `re-frame.fresco.server/node-module` form naming the views and
+  the substrate. The framework owns the rest — reading the wire's state back
   (`re-frame.ssr.render-state/deserialize`), the render
   (`re-frame.fresco.server/render-body`), the state install
-  (`re-frame.ssr.render-state/restore!`), the boot and the wire domain.
+  (`re-frame.ssr.render-state/restore!`) and the wire domain.
 
       npx shadow-cljs compile :examples/login-fresco-server
       node implementation/ssr-node/bin/serve.cjs \\
@@ -39,7 +39,9 @@
   which `node-module` builds, and `render` returns the body markup as a
   string — `render-body`'s answer — which is its ONE output channel. The
   service refuses a module that returns anything else."
-  (:require [re-frame.fresco.server :as rf.fresco.server]
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco.server :as rf.fresco.server]
+            [re-frame.fresco.substrate :as rf.fresco.substrate]
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
             [fresco.login.core :as views]
@@ -79,14 +81,15 @@
   render-state policy lives there too, and only the host reads it: the JVM
   projects, and this bundle renders what it is handed.
 
-  `:boot` keeps its default, which seats Fresco's substrate — the same one
-  line the browser boot runs — and makes no frame, because a frame made at
-  boot would be shared by every request in this isolate. `:frame-opts` is
-  the app's own frame config; its `:initial-events` are NOT run, because
-  the JVM already drained them and the projection is the settled result."
+  `:boot` seats Fresco's substrate — the same one line the browser boot
+  runs — and makes no frame, because a frame made at boot would be shared by
+  every request in this isolate. `:frame-opts` is the app's own frame
+  config; its `:initial-events` are NOT run, because the JVM already drained
+  them and the projection is the settled result."
   (rf.fresco.server/node-module
     {:build-id          build-id
      :entries           [policy/root-entry]
+     :boot              #(rf/init! rf.fresco.substrate/adapter)
      :hiccup            [views/root-view]
      :identifier-prefix views/identifier-prefix
      :frame-opts        model/frame-config}))
