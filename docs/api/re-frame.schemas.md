@@ -42,13 +42,13 @@ Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and r
 
 The four checks in the table, and the machine and `:sub-override` checks, report a failure rather than throw it; see [Errors](README.md#errors) for how a reported id reaches you.
 
-- **The trace.** Each failure emits an `:rf.error/schema-validation-failure` trace, which Xray shows on the event that caused it. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
+- **The trace.** Each failure emits an `:rf.error/schema-validation-failure` trace, which Xray shows on the event that caused it. Its tags carry `:where`, `:failing-id` (the event, effect, subscription or machine id), `:frame`, `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it in development builds) and `:reason`, in the same shape whichever check found the failure; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
 - **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:machine-data`, `:machine-output`, `:sub-return` and `:sub-override`; `:skipped` for `:fx-args`.
 - **The always-on `:errors` record.** Two failures are also reported on the always-on `:errors` stream, so they reach the frame's `:observability :errors` sinks, or the browser console when no sink handles them. Neither record carries the failing value:
     - An `app-db` rejection's record carries `:rf.error/id`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the leaf path or the schema.
     - A [`:boundary? true`](#validation-in-production) event's failure sends a record with a fixed key set: `:rf.error/id`, `:where`, `:source :boundary`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery` and `:time`.
-- **A malformed schema.** In development builds `reg-app-schema` and `reg-app-schemas` compile each schema through the bundle's `:compile` and throw on a malformed one, such as a childless `[:vector]` or an unknown operator. A malformed schema that registers anyway, under a bundle with no `:compile` or as a `:schema` on another registration, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
-- **Redaction.** When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers). These props change only what the validation-failure trace carries, except on a managed-HTTP request's `:decode` schema, whose props also classify the response body ([Response-body classification](re-frame.http.md#response-body-classification)). They do not classify `app-db`, a machine's `:data` or a resource's cached data, and a `:sensitive?` slot in a resource's `:data-schema` redacts nothing, because that schema is never run. [Where to declare, by owner](../core/how-to/keep-secrets-out-of-traces.md#where-to-declare-by-owner) says where each kind of data is classified.
+- **A malformed schema.** In development builds `reg-app-schema` and `reg-app-schemas` compile each schema through the bundle's `:compile` and throw on a malformed one, such as a childless `[:vector]` or an unknown operator. A malformed schema that registers anyway, under a bundle with no `:compile` or as a `:schema` on another registration, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`, whichever check ran it; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
+- **Redaction.** When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers). These props change only what the validation-failure trace carries, except on a managed-HTTP request's `:decode` schema, whose props also classify the response body ([Response-body classification](re-frame.http.md#response-body-classification)). They do not classify `app-db`, a machine's `:data` or a resource's cached data, and a `:sensitive?` slot in a resource's `:data-schema` redacts nothing, because that schema is never run. An `app-db` failure's trace is redacted by the path's classification instead: the `:sensitive` effect that declares a path sensitive covers its validation failures too, so the path is declared once. A `:sensitive?` prop on an `app-db` schema is legal and still redacts that schema's failures, but it is not how an `app-db` path is declared sensitive. [Where to declare, by owner](../core/how-to/keep-secrets-out-of-traces.md#where-to-declare-by-owner) says where each kind of data is classified.
 
 Event, effect and subscription failures appear only in the trace, so without Xray, tap the trace yourself:
 
@@ -355,7 +355,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
 
 ### Boundary validation and redaction
 
-Other parts of the framework call these three functions in every build. `validate-with-registered-fn` and `explain-with-registered-fn` run the installed validator and explainer for the checks outside the four entry points above, among them the [`{:boundary? true}`](#validation-in-production) event check and route `:params` / `:query` validation. Every validation-failure trace emitted outside this namespace is redacted by `redact-validation-tags`.
+Every check outside the four entry points above — the [`{:boundary? true}`](#validation-in-production) event check, a `:sub-override` pin, machine `:data` and `:output`, a recordable coeffect's `:schema`, route `:params` / `:query` and a resource's `:params-schema` — runs through one seam, the `:schemas/check!` late-bind hook, which the entry points use too. It returns the verdict and the failure's tags in one shape, redacted against the schema, and emits the standard trace unless the check reports the failure under its own recovery. The seam is built from these three functions, which run in every build; the framework's own checks call the seam rather than these.
 
 #### `validate-with-registered-fn`
 
@@ -364,11 +364,11 @@ Other parts of the framework call these three functions in every build. `validat
   ```clojure
   (validate-with-registered-fn schema value) → boolean
   ```
-- **Description**: Validates `value` against `schema` with the installed validator. The `:boundary? true` check calls it, and it runs in production builds as well as development ones.
+- **Description**: Validates `value` against `schema` with the installed validator, in production builds as well as development ones.
     - Returns `true` when the value conforms.
     - Returns `false` when it does not, including when a malformed schema makes the validator throw (fail closed).
     - Returns `true` when no validator is installed: no validator means no validation, as on the development-build path.
-    - Emits no trace, because the boundary check emits the failure itself.
+    - Emits no trace.
 
 #### `explain-with-registered-fn`
 
@@ -377,7 +377,7 @@ Other parts of the framework call these three functions in every build. `validat
   ```clojure
   (explain-with-registered-fn schema value) → explanation | nil
   ```
-- **Description**: Explains why `value` fails `schema`, using the installed explainer. The boundary check uses it beside `validate-with-registered-fn`.
+- **Description**: Explains why `value` fails `schema`, using the installed explainer.
     - Returns the explanation when the value fails.
     - Returns `nil` when the value conforms, when no explainer is installed, or when the explainer throws. A throwing explainer degrades to `nil` because a diagnostic must never change the verdict.
 
@@ -389,11 +389,11 @@ Other parts of the framework call these three functions in every build. `validat
   (redact-validation-tags schema tags) → tags
   ```
 - **Description**: Redacts a validation-failure trace's `tags` map according to the `schema` the failing value was checked against.
-    - Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit.
+    - The validation seam applies it to every failure's tags, so every check outside `app-db` redacts the same way.
     - For a `:sensitive?` schema, the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are replaced with `:rf/redacted`, and `:sensitive? true` is added. An opaque compiled schema that the walker cannot inspect is treated as sensitive.
     - For a `:large?` schema that is not sensitive, the same slots except `:rf.sub/query-v` are replaced with the `:rf.size/large-elided` marker, and `:large? true` is added.
     - Otherwise the tags are returned unchanged.
-    - Idempotent. Callers outside the artefact reach it through the `:schemas/redact-validation-tags` late-bind hook; when the schemas artefact is absent, the tags pass through unchanged.
+    - Idempotent.
 
 ### Schema classification walkers
 

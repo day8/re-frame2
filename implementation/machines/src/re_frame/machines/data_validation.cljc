@@ -373,8 +373,8 @@
     ;; KEY-presence, not value truthiness: a present nil /
     ;; false `[:schemas :output]` is a declaration whose exact token is
     ;; delegated to the registered validator (default Malli then throws
-    ;; → the malformed-schema catch below surfaces it and proceeds,
-    ;; per the best-effort completion posture); only an ABSENT key
+    ;; → the seam reports `:rf.error/malformed-schema` and the completion
+    ;; proceeds, per the best-effort completion posture); only an ABSENT key
     ;; means no declaration.
     (if-not (contains? (get spec :schemas) :output)
       true
