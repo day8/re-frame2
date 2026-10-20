@@ -503,9 +503,12 @@
   Each validator sees its own partition's candidate and runs only when this
   transition writes that partition: app schemas on `db-after`, skipping slices
   left `identical?` to `db-before`, and machine `[:schemas :data]` on
-  `runtime-db-after`. Both arms always run, so every violation emits its own
-  trace. A validator-machinery throw also rejects (fail closed), since a
-  throwing validator cannot prove conformance."
+  `runtime-db-after`. The app arm also receives `runtime-db-after`, whose
+  elision registry already carries this event's classification effects, so a
+  failure trace honours a path the same event classifies even though the
+  rejection installs nothing. Both arms always run, so every violation emits
+  its own trace. A validator-machinery throw also rejects (fail closed), since
+  a throwing validator cannot prove conformance."
   [db-before db-after runtime-db-after app-effect? rt-effect? event-id frame]
   (let [emit-throw-reject!
         ;; The always-on record goes first, so the JVM SSR listener's
@@ -565,7 +568,7 @@
             true))
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
-                                  db-after :app-db db-before)
+                                  db-after :app-db db-before runtime-db-after)
         machines-ok?
         (run-partition-validator! rt-effect? :machines/validate-machine-data!
                                   runtime-db-after :machine-data)]

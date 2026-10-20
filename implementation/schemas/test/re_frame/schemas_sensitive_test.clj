@@ -16,6 +16,7 @@
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.flows]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -168,6 +169,20 @@
     (let [trace (dispatch-failure-trace [:auth/seed "flow-SECRET"])]
       (is (not (str/includes? (pr-str trace) "flow-SECRET")))
       (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace))))))
+
+(deftest app-db-validation-redacts-a-path-the-same-event-classifies
+  (testing "a :sensitive returned by the event that writes the failing value
+            governs its failure trace, though the rejection installs nothing"
+    (rf/reg-app-schema [:session :key] [:map [:key :int]])
+    (rf/reg-event :session/write-classified
+      (fn [{:keys [db]} [_ v]]
+        {:db        (assoc-in db [:session :key] {:key v})
+         :sensitive [[:session :key]]}))
+    (let [trace (dispatch-failure-trace [:session/write-classified "same-event-SECRET"])]
+      (is (not (str/includes? (pr-str trace) "same-event-SECRET")))
+      (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace)))
+      (is (empty? (rf.elision/sensitive-declarations :rf/default))
+          "the rejected event's classification never installs"))))
 
 (deftest app-db-validation-size-elides-a-registry-large-path
   (let [blob (apply str (repeat 40 "BLOB-"))]

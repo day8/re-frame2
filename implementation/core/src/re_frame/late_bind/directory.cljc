@@ -286,7 +286,7 @@
     :description "Validate an event vector against the registered event schema."}
    {:key         :schemas/validate-app-schema!
     :producer-ns 're-frame.schemas
-    :description "`(fn [db-after event-id frame db-before])` — validate a candidate app-db against the frame's registered app-db schemas before it installs, skipping each registered slice the candidate leaves `identical?` to `db-before`. False rejects the candidate."}
+    :description "`(fn [db-after event-id frame db-before runtime-db-after])` — validate a candidate app-db against the frame's registered app-db schemas before it installs, skipping each registered slice the candidate leaves `identical?` to `db-before`, and projecting a failure through the elision registry of `runtime-db-after`, the candidate runtime-db (nil when the transition leaves it alone). False rejects the candidate."}
    {:key         :schemas/validate-fx!
     :producer-ns 're-frame.schemas
     :description "Validate an fx-handler's args against the registered fx schema (Spec 010 step 5)."}
