@@ -131,45 +131,12 @@
   [v]
   (or (nil? v) (vector? v)))
 
-(defn validate-reply-target!
-  "Per Spec 014 §Reply addressing — every `:rf.http/managed`
-  request MUST address its reply. A reply is addressed by `:reply-to` (the
-  unified target for BOTH success and failure — the app branches on the
-  canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
-  split routing sugar, supplied as a pair; an explicit `nil` silences that
-  branch).
-
-  Three dispatch-time guards, all fired BEFORE `run-attempt!` (matching the
-  other args-map guards — `validate-retry!` → `:rf.error/http-bad-retry-on`;
-  `validate-url!` → `:rf.error/http-bad-request`):
-
-  1. PRESENCE — there is no CO-LOCATED DEFAULT (the reply merged under
-     `:rf/reply` back to the originating event id when NO target was
-     supplied): omitting EVERY reply target FAILS LOUD with
-     `:rf.error/http-no-reply-target` rather than silently routing the reply
-     back to the dispatching event.
-
-  2. STYLE — the unified `:reply-to` and the split
-     `:on-success` / `:on-failure` sugar are alternate STYLES, and each
-     addresses BOTH branches. A map carrying both styles is refused with
-     `:rf.error/http-bad-reply-target` (`:reason :mixed-addressing`), and so
-     is one split key without its partner (`:reason :unpaired-split`), which
-     would leave the other outcome with no handler. The check is
-     `encoding/validate-reply-addressing!`.
-
-  3. SHAPE — each SUPPLIED `:reply-to` / `:on-success` /
-     `:on-failure` must be an event VECTOR or `nil`. Per Spec 014 §Request
-     envelope this shape check is a DISPATCH-TIME guard (alongside
-     `:retry :on` and `:url`). With the vector-or-nil check ONLY in
-     `encoding/build-reply-event`, firing at COMPLETION time, a typo'd
-     bare keyword (`:on-success :items/loaded`) would issue the request and
-     then throw `:rf.error/http-bad-reply-target` async in the reply tail.
-     Validating the shape here fails fast, BEFORE the network call.
-     `build-reply-event`'s guard is belt-and-braces.
-
-  Public so the test-support stubs, which stand in for `:rf.http/managed`
-  as `:fx-overrides` targets, refuse the same args map with the same error
-  before their `:before` chain runs, as this handler does."
+(defn- validate-reply-target!
+  "Refuses a request whose reply is unaddressed or misaddressed, throwing
+  `:rf.error/http-no-reply-target` or `:rf.error/http-bad-reply-target` at
+  fx-call time before `run-attempt!`, so the misuse surfaces at the dispatch
+  site instead of in the reply tail after the request has gone out. The
+  rules are Spec 014 §Reply addressing and Spec 014 §Request envelope."
   [args-map]
   (when-not (some #(contains? args-map %) rf.http.encoding/reply-address-keys)
     (throw (rf.error/thrown-ex-info
