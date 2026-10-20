@@ -1,66 +1,20 @@
 (ns re-frame.resources.reply-handlers
-  "Spec 016 — the framework-INTERNAL reply-handler substrate SHARED by the
-  resource read path (`re-frame.resources.events`) and the mutation write
-  path (`re-frame.resources.mutation-events`).
+  "The internal reply-handler substrate shared by the resource read path
+  (`events`) and the mutation write path (`mutation-events`): the live-slot
+  verifier, the stale-suppress reply builder and the stale-suppressed trace
+  emitter. The two families differ only in the knobs they pass: `path-fn`
+  (payload → durable slot path, nil for no slot), `work-kind`,
+  `stale-reason`, `correlation-fn`, and at emit time the trace id and bespoke
+  facts.
 
-  ## What this namespace is
-
-  The layer ABOVE `re-frame.resources.reply` (the canonical reply-envelope
-  builder, `rreply`). Both the resource and mutation families verify a late
-  internal reply against the LIVE durable slot (frame + work-id + generation)
-  and, on a superseded / vanished / cross-frame reply, lower the SAME stale-
-  suppression outcome (`:status :stale` / `:rf.reply/work-status :suppressed`) and emit
-  the SAME stale-suppressed trace shape. That trio of behaviours —
-  the live-slot verifier, the stale-suppress reply builder, and the
-  stale-suppressed trace emitter — differs between `events.cljc` and
-  `mutation_events.cljc` ONLY in the durable slot it looks up and a
-  handful of vocabulary knobs, so this ns owns it ONCE, parameterized by those
-  knobs.
-
-  ## The three knobs each family passes
-
-  - **`path-fn`** — `(payload) → db-path` for the family's durable slot: the
-    resource entry at the scoped key resolved from the receiving frame's
-    ledger row (`ledger-row-for-reply`), or the mutation instance
-    (`mstate/instance-path` keyed on `:instance-id`). A nil path means there
-    is no slot to verify against. Used by `live-slot-for-reply` (the verifier
-    reads `:current-work` + `:generation` off the slot) and by
-    `current-generation` (the `:current` half of the carried-vs-current stale
-    gate reads the slot's live `:generation`).
-  - **`work-kind`** — `rf.resources.reply/work-kind-resource` | `rf.resources.reply/work-kind-mutation`
-    (Managed-Effects §Work-id correlation).
-  - **`stale-reason`** — `:rf.resource/superseded` | `:rf.mutation/superseded`
-    (the family's `:rf.reply/stale-reason` on the suppressed reply).
-
-  …plus a `correlation-fn` (`(payload) → extra-correlation` — the family's
-  diagnostic correlation keys beyond the carried/current `:generation` pair:
-  `:resource/key` for a resource; `:instance/id` + `:mutation/id` for a
-  mutation; both add `:scope`) and, at emit time, the `trace-id`
-  (`:rf.resource/stale-suppressed` | `:rf.mutation/stale-suppressed`) plus the
-  family's `bespoke-facts` (`:resource/key …` | `:instance …`). These ride the
-  SAME mechanism — they are per-family vocabulary, not behaviour.
-
-  ## Stale suppression is the correctness boundary
-
-  A late reply carrying a superseded work-id / generation MUST NEVER mutate a
-  newer (or another frame's) durable slot — Spec 016 §Cancellation is
-  opportunistic; stale suppression is mandatory. The verifier checks the
-  reply's stamped `:rf.frame/id` against the RECEIVING frame FIRST (a
-  cross-frame reply is rejected before the per-frame slot lookup), then the
-  slot's `:current-work` + `:generation` against the reply token. A reply with
-  no stamped frame (a direct-dispatch test payload) skips the frame check (nil
-  never collides with a concrete frame id) and is verified by work-id +
-  generation alone. A suppressed reply settles its work through
-  `settle-suppressed-work!`, which settles nothing for a cross-frame reply:
-  two frames can hold the same work-id, so the receiving frame's row and
-  handle under it are that frame's own live work."
+  A late reply carrying a superseded work-id or generation never writes a
+  newer or another frame's slot.
+  Spec 016 §Cancellation is opportunistic; stale suppression is mandatory."
   (:require [re-frame.resources.reply :as rf.resources.reply]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]
             [re-frame.trace :as rf.trace]))
 
-;; ---------------------------------------------------------------------------
-;; (1) Live-slot verifier (Spec 016 §Transport — stale suppression).
-;; ---------------------------------------------------------------------------
+;; ---- live-slot verifier ---------------------------------------------------
 
 (defn- cross-frame-reply?
   "True when `payload` carries a stamped `:rf.frame/id` other than
@@ -70,48 +24,25 @@
     (and (some? reply-frame-id) (not= reply-frame-id receiving-frame-id))))
 
 (defn ledger-row-for-reply
-  "The RECEIVING frame's work-ledger row for an internal reply's `:work/id`,
-  or nil. The row is the one place that records which scoped key an attempt
-  serves (`:resource/key`), so a resource reply resolves its entry through
-  it rather than carrying the key on the transport. A cross-frame reply
-  resolves nothing: two frames can hold the same work-id (see
-  `rf.resources.work-ledger/resource-work-id`), so the row under it here is
-  the receiving frame's own work. Nil too when the row is gone — the attempt
-  was dropped with its entry — and the reply is then stale."
+  "The receiving frame's work-ledger row for a reply's `:work/id`, or nil.
+  The row records which scoped key the attempt serves, so a resource reply
+  finds its entry through it. Nil for a cross-frame reply, because two frames
+  can hold the same work-id, and nil when the row is gone (the reply is then
+  stale)."
   [runtime-db receiving-frame-id {work-id :work/id :as payload}]
   (when-not (cross-frame-reply? receiving-frame-id payload)
     (rf.resources.work-ledger/get-record runtime-db work-id)))
 
 (defn live-slot-for-reply
-  "Look the live durable slot up for an internal reply and verify it is still
-  the one the reply belongs to: the reply's stamped `:rf.frame/id` equals the
-  RECEIVING frame (`receiving-frame-id`), the slot at `(path-fn payload)`
-  exists (a nil path is no slot), its `:current-work` equals the reply's `:work/id`, AND its
-  `:generation` equals the reply's `:generation`. Returns the slot value on a
-  match, nil on a cross-frame / stale / superseded / vanished reply (which MUST
-  be suppressed).
+  "The live durable slot at `(path-fn payload)` when the reply still owns it,
+  else nil (the reply MUST then be suppressed). It owns it when the stamped
+  `:rf.frame/id` is the receiving frame, and the slot's `:current-work` and
+  `:generation` equal the reply's `:work/id` and `:generation`.
 
-  FRAME VERIFICATION: the runtime stamps the
-  qualified `:rf.frame/id` into every reply payload at lowering; the reply
-  handler runs in the RECEIVING frame's cofx. A reply whose payload frame does
-  not match the receiving frame is REJECTED without touching this frame's slot
-  or ledger — a misrouted reply (a cross-frame request-id collision, or a reply
-  re-dispatched into the wrong frame) can never mutate the wrong frame's slot.
-  The frame stamp is checked FIRST (before the per-frame slot lookup) so a
-  cross-frame reply is rejected even when both frames happen to hold the same
-  slot at the same generation. A reply with no stamped frame (a direct-dispatch
-  test payload that omits `:rf.frame/id`) skips the frame check (nil never
-  collides with a concrete frame id) and is verified by work-id + generation
-  alone — so such direct-dispatch tests are deterministic.
-
-  The verification work identity is `:work/id` (EP-0007 — the qualified
-  spelling the ledger row, the slot's `:current-work`, and the uniform reply
-  envelope share). One attempt, one work id, one name. The generation check is
-  belt-and-braces for a future transport that reuses a work-id.
-
-  `path-fn` is the family's slot path: `(payload) → db-path` (the resource
-  entry at the ledger-resolved scoped key, or the mutation
-  `mstate/instance-path`-by-`:instance-id`)."
+  The frame check runs first, so a cross-frame reply is rejected even when
+  both frames hold the same slot at the same generation. An unstamped payload
+  (a direct-dispatch test) skips it. The generation check guards a transport
+  that reuses a work-id. Spec 016 §Cancellation is opportunistic; stale suppression is mandatory."
   [runtime-db receiving-frame-id path-fn {work-id :work/id :keys [generation] :as payload}]
   (when-not (cross-frame-reply? receiving-frame-id payload)
     (when-let [slot (some->> (path-fn payload) (get-in runtime-db))]
@@ -120,14 +51,11 @@
         slot))))
 
 (defn settle-suppressed-work!
-  "Settle a suppressed reply's work in the RECEIVING frame: clear the host
-  handle for `[receiving-frame-id work-id]` and settle the ledger row terminal
-  `:suppressed` with `outcome`. Returns the handler's effect map.
-
-  A cross-frame reply settles NOTHING and returns `{}`: its work-id names the
-  issuing frame's attempt, and two frames can hold the same work-id (see
-  `rf.resources.work-ledger/resource-work-id`), so the row and handle under
-  that work-id here are the receiving frame's own live work."
+  "Settles a suppressed reply's work in the receiving frame: clears the host
+  handle and settles the ledger row terminal `:suppressed` with `outcome`.
+  Returns the handler's effect map. A cross-frame reply settles nothing and
+  returns `{}`, because the row and handle under that work-id here are the
+  receiving frame's own live work."
   [runtime-db receiving-frame-id {work-id :work/id :as payload} outcome]
   (if (cross-frame-reply? receiving-frame-id payload)
     {}
@@ -135,52 +63,23 @@
         {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
                           runtime-db work-id :suppressed outcome)})))
 
-;; ---------------------------------------------------------------------------
-;; (2) Current-generation reader (the `:current` half of the stale gate).
-;; ---------------------------------------------------------------------------
+;; ---- current-generation reader --------------------------------------------
 
 (defn current-generation
-  "Read the LIVE counterpart generation for a stale-suppression gate: the
-  `:generation` of the durable slot currently occupying `(path-fn payload)` at
-  completion. nil when no slot occupies it (it was removed / GC'd / cleared —
-  no live counterpart, exactly the supersession the gate records). This is the
-  `:current` half of the carried-vs-current pair the canonical stale reply
-  carries; the `:carried` half is the generation stamped on the reply token
-  (`(:generation payload)`)."
+  "The `:generation` of the slot now at `(path-fn payload)`, or nil when the
+  slot is gone. It is the `:current` half of the stale gate's carried-vs-current
+  pair; the reply token's `:generation` is the `:carried` half."
   [runtime-db path-fn payload]
   (some->> (path-fn payload) (get-in runtime-db) :generation))
 
-;; ---------------------------------------------------------------------------
-;; (3) Stale-suppress reply builder (lowers through the shared substrate).
-;; ---------------------------------------------------------------------------
+;; ---- stale-suppress reply builder -----------------------------------------
 
 (defn stale-suppress-reply
-  "Build the canonical `:status :stale` reply outcome for a superseded /
-  vanished reply through the SHARED `re-frame.reply` substrate (via
-  `rf.resources.reply/stale-reply`), so the family lowers its stale outcome exactly as
-  every other managed-async family does (Managed-Effects §Stale suppression).
-  The carried correlation is the reply token's `:work/id` + `:generation`; the
-  current correlation is the live slot's `:generation` (nil when the slot is
-  gone — no live counterpart). The result rides `:rf.reply/status :stale` /
-  `:rf.reply/work-status :suppressed` / `:rf.reply/stale-reason` / the
-  carried-vs-current generation pair onto the family's
-  `…/stale-suppressed` trace, alongside its bespoke facts, via
-  `emit-stale-suppressed!`.
-
-  Returns the `re-frame.reply/suppress` outcome map (`:deliver?` is false — the
-  app reply target MUST NOT run; `:reply` is the data-only `:status :stale`
-  reply; `:rf.reply/work-status :suppressed`).
-
-  The three family knobs:
-  - `path-fn` reads the live slot's `:current` generation (see
-    `current-generation`);
-  - `work-kind` is `rf.resources.reply/work-kind-resource` | `rf.resources.reply/work-kind-mutation`;
-  - `stale-reason` is the family's `:rf.reply/stale-reason`.
-  `correlation-fn` is `(payload) → extra-correlation` (the family's diagnostic
-  correlation keys merged ONTO the carried/current `:generation` pair —
-  `:resource/key` / `:scope` for a resource; `:instance/id` / `:mutation/id` /
-  `:scope` for a mutation). `extra` threads diagnostic facts (e.g. `:outcome`)
-  onto the stale reply."
+  "The canonical `:status :stale` outcome for a superseded or vanished reply,
+  built through the shared `re-frame.reply` substrate so every managed-async
+  family lowers stale replies the same way. Returns the
+  `re-frame.reply/suppress` outcome map (`:deliver?` false). `extra` merges
+  diagnostic facts onto the reply. Managed-Effects §Stale suppression."
   [runtime-db path-fn {work-id :work/id :as payload} {:keys [work-kind stale-reason correlation-fn]} extra]
   (let [carried-generation      (:generation payload)
         current-slot-generation (current-generation runtime-db path-fn payload)]
@@ -195,47 +94,24 @@
                                                           :current current-slot-generation})}
                        extra)})))
 
-;; ---------------------------------------------------------------------------
-;; (4) Stale-suppressed trace emitter (reply-envelope vocabulary).
-;; ---------------------------------------------------------------------------
+;; ---- stale-suppressed trace emitter ---------------------------------------
 
 (defn emit-stale-suppressed!
-  "Emit the family's `…/stale-suppressed` trace (`trace-id`) for a suppressed
-  late reply, carrying its bespoke facts (`bespoke-facts` — `:resource/key` /
-  `:generation` / `:outcome` for a resource; `:instance` / `:generation` /
-  `:outcome` for a mutation) PLUS the canonical reply-envelope vocabulary
-  alongside them (the work identity rides as `:rf.reply/work-id` — one
-  name per fact): `:rf.reply/status :stale`, `:rf.reply/work-status
-  :suppressed`, `:rf.reply/stale-reason`, `:rf.reply/work-id`, and
-  `:rf.reply/correlation` (the carried-vs-current generation gate) — the SAME
-  shape the machine `:rf.machine/done` and HTTP / probe stale paths
-  ride (Managed-Effects §Tracing / EP-0011). `stale` is the
-  `stale-suppress-reply` outcome; its trace summary routes wire slots through
-  the shared elider via `rf.resources.reply/trace-reply`.
-
-  `bespoke-facts` is the family's leading per-trace map (its caller-side
-  spelling of `:rf.frame/id` + the durable key + `:generation` / `:outcome`);
-  the `:rf.reply/*` facts are MERGED on top."
+  "Emits the family's `…/stale-suppressed` trace `trace-id`: `bespoke-facts`
+  with the reply-envelope `:rf.reply/*` facts merged on top, the same shape
+  every managed-async stale path rides. `stale` is the `stale-suppress-reply`
+  outcome. Managed-Effects §Tracing."
   [trace-id bespoke-facts stale]
   (let [trace-summary (rf.resources.reply/trace-reply (:reply stale))]
     (rf.trace/emit! :rf.event trace-id
                  (merge bespoke-facts
-                        {;; reply-envelope vocabulary (Managed-Effects §9) — the
-                         ;; canonical :status :stale reply produced via the
-                         ;; shared substrate, recorded alongside the bespoke
-                         ;; facts above.
-                         :rf.reply/status      (:status trace-summary)
+                        {:rf.reply/status      (:status trace-summary)
                          :rf.reply/work-status (:rf.reply/work-status trace-summary)
                          :rf.reply/work-id     (:rf.reply/work-id trace-summary)
                          :rf.reply/stale-reason (:rf.reply/stale-reason trace-summary)
                          :rf.reply/correlation (:correlation trace-summary)
-                         ;; The SHARED carried/current stale-gate
-                         ;; facts `re-frame.reply/suppress` computes on
-                         ;; `(:trace stale)`. Projecting them here lets the
-                         ;; uniform reply-envelope view read the stale gate
-                         ;; without family-specific parsing (the
-                         ;; `:rf.reply/correlation` above is the reply's bespoke
-                         ;; generation pair; these are the shared substrate facts
-                         ;; Xray's reply-envelope panel reads).
+                         ;; The shared substrate's stale-gate facts, so the
+                         ;; reply-envelope view reads the gate without
+                         ;; family-specific parsing.
                          :rf.reply/carried     (:rf.reply/carried (:trace stale))
                          :rf.reply/current     (:rf.reply/current (:trace stale))}))))
