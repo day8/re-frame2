@@ -370,7 +370,8 @@
   cue, and each has its own grain:
     - a scoped key (`carrier-family-value?`) projects through the owner;
     - `:scope` in a runtime payload (`carrier-family-payload?`) takes
-      `project-scope` unconditionally;
+      `project-scope` unconditionally, as does each scope in a mutation
+      payload's issuance `:from-db-scopes`;
     - `:value` / `:params` of a read reply (`resource-reply?`) tokenize iff its
       owner redacts, and otherwise its declared paths substitute
       (`redact-reply-declarations`);
@@ -418,6 +419,10 @@
                      (cond
                        (and runtime-payload? (= :scope map-key))
                        (project-scope map-value)
+
+                       (and runtime-payload? (= :from-db-scopes map-key) (map? map-value))
+                       (into {} (map (fn [[scope-id scope]] [scope-id (project-scope scope)]))
+                             map-value)
 
                        ;; Only `:scope` takes the scope rule; the other
                        ;; correlation facts take the walk.

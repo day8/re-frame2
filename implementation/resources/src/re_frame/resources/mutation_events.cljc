@@ -83,17 +83,18 @@
 
 (defn- resolve-exact-target-scope
   "Resolves a map-form target's declared `:scope` (default `:rf.scope/same`)
-  at settle time to `[:resolved <scope>]`, or `[:nil-resolved <from-db-id>]`
-  when a `{:from-db …}` reference resolves nil (the target is dropped, never
-  written under an implicit global). Spec 016 §Map-form exact resource targets."
-  [target mut-scope db where]
+  to `[:resolved <scope>]`, or `[:nil-resolved <from-db-id>]` when a
+  `{:from-db …}` reference resolves nil (the target is dropped, never written
+  under an implicit global). A reference reads `from-db-scopes`, the
+  mutation's issuance context. Spec 016 §Map-form exact resource targets."
+  [target mut-scope from-db-scopes where]
   (let [scope (rf.resources.mutation-runtime/target-scope target)]
     (cond
       (= scope rf.resources.mutation-runtime/same-scope-marker)
       [:resolved mut-scope]
 
       (rf.resources.scope-registry/from-db-reference? scope)
-      (if-let [s (rf.resources.scope-registry/resolve-from-db-reference scope db where)]
+      (if-let [s (rf.resources.scope-registry/resolve-from-db-scopes scope from-db-scopes where)]
         [:resolved (rf.resources.state/canonicalize-scope s where nil)]
         [:nil-resolved (:from-db scope)])
 
@@ -109,12 +110,12 @@
   This runs after the server write, so a recoverable bad target is dropped
   and collected rather than stranding the mutation; cache-identity
   corruption still throws. Spec 016 §Map-form exact resource targets."
-  [runtime-db patches-fn params result clock-ms mut-scope db where]
+  [runtime-db patches-fn params result clock-ms mut-scope from-db-scopes where]
   (let [[patches nil-ids skipped]
         (when patches-fn
           (rf.resources.mutation-runtime/validate-target-map!
             (patches-fn params result)
-            #(resolve-exact-target-scope % mut-scope db where)
+            #(resolve-exact-target-scope % mut-scope from-db-scopes where)
             rf.resources.registry/resource-meta :patches where :skip-recoverable))]
     (if (seq patches)
       (reduce-kv
@@ -140,12 +141,12 @@
   `:loaded`, tagged by its resource's `:tags` fn so a later invalidation can
   reach it. Returns and drops targets as `apply-patches` does.
   Spec 016 §Populate is an authoritative load."
-  [runtime-db populates-fn params result clock-ms mut-scope db where]
+  [runtime-db populates-fn params result clock-ms mut-scope from-db-scopes where]
   (let [[populates nil-ids skipped]
         (when populates-fn
           (rf.resources.mutation-runtime/validate-target-map!
             (populates-fn params result)
-            #(resolve-exact-target-scope % mut-scope db where)
+            #(resolve-exact-target-scope % mut-scope from-db-scopes where)
             rf.resources.registry/resource-meta :populates where :skip-recoverable))]
     (if (seq populates)
       (reduce-kv
@@ -195,7 +196,7 @@
   `[runtime-db' removed-keys removed-work nil-resolved-ids skipped-targets]`
   and drops targets as `apply-patches` does.
   Spec 016 §Map-form exact resource targets."
-  [runtime-db removes-fn params result clock-ms mut-scope db where]
+  [runtime-db removes-fn params result clock-ms mut-scope from-db-scopes where]
   (let [targets (when removes-fn
                   (let [raw (removes-fn params result)]
                     ;; validate-target-map! threads values; a remove has none.
@@ -207,7 +208,7 @@
         (when (seq targets)
           (rf.resources.mutation-runtime/validate-target-map!
             targets
-            #(resolve-exact-target-scope % mut-scope db where)
+            #(resolve-exact-target-scope % mut-scope from-db-scopes where)
             rf.resources.registry/resource-meta :removes where :skip-recoverable))]
     (if (seq resolved)
       (reduce-kv
@@ -259,12 +260,12 @@
   `[{scoped-key patch-fn-or-nil} nil-resolved-ids]` through the same
   fail-closed boundary `:patches` uses, or `[nil []]` when there is none. A
   nil patch-fn is an optimistic remove."
-  [optimistic-fn params mut-scope db where]
+  [optimistic-fn params mut-scope from-db-scopes where]
   (if-not optimistic-fn
     [nil []]
     (rf.resources.mutation-runtime/validate-target-map!
       (optimistic-fn params)
-      #(resolve-exact-target-scope % mut-scope db where)
+      #(resolve-exact-target-scope % mut-scope from-db-scopes where)
       rf.resources.registry/resource-meta :optimistic where)))
 
 (defn- warn-optimistic-tag-descriptor-skipped!
@@ -344,11 +345,11 @@
   matcher as invalidation; a later descriptor wins on a shared key. Returns
   `[{scoped-key patch-fn} nil-resolved-ids]`. There is no cross-scope form.
   Spec 016 §Optimistic writes are fail-closed and scope-bounded."
-  [descriptors entries mut-scope db where]
+  [descriptors entries mut-scope from-db-scopes where]
   (reduce
     (fn [[m nils] {:keys [scope tags patch]}]
       (let [[outcome scope-or-id] (resolve-descriptor-scope
-                                    {:scope scope} mut-scope db where)]
+                                    {:scope scope} mut-scope from-db-scopes where)]
         (case outcome
           :nil-resolved [m (conj nils scope-or-id)]
           ;; cross-scope is unreachable (a descriptor has no :cross-scope? here)
@@ -548,27 +549,28 @@
 ;; once. Spec 016 §Scoped invalidation descriptors (per-target).
 
 (defn- resolve-descriptor-scope
-  "Resolves one descriptor's scope at settle time: `[:resolved <scope>]`
-  (`:rf.scope/same` → `mut-scope`; concrete canonicalized; `{:from-db …}`
-  against `db`), `[:cross-scope]` for a `:cross-scope? true` descriptor, or
-  `[:nil-resolved <from-db-id>]`, which produces no invalidation rather than
-  a global one. Spec 016 §Scoped invalidation descriptors (per-target)."
-  [{:keys [scope cross-scope?]} mut-scope db where]
+  "Resolves one descriptor's scope: `[:resolved <scope>]` (`:rf.scope/same` →
+  `mut-scope`; concrete canonicalized; `{:from-db …}` from `from-db-scopes`,
+  the mutation's issuance context), `[:cross-scope]` for a `:cross-scope?
+  true` descriptor, or `[:nil-resolved <from-db-id>]`, which produces no
+  invalidation rather than a global one.
+  Spec 016 §Scoped invalidation descriptors (per-target)."
+  [{:keys [scope cross-scope?]} mut-scope from-db-scopes where]
   (cond
     cross-scope?                                [:cross-scope]
     (= scope rf.resources.mutation-runtime/same-scope-marker)          [:resolved mut-scope]
-    (rf.resources.scope-registry/from-db-reference? scope)   (if-let [s (rf.resources.scope-registry/resolve-from-db-reference scope db where)]
+    (rf.resources.scope-registry/from-db-reference? scope)   (if-let [s (rf.resources.scope-registry/resolve-from-db-scopes scope from-db-scopes where)]
                                                   [:resolved (rf.resources.state/canonicalize-scope s where nil)]
                                                   [:nil-resolved (:from-db scope)])
     :else                                       [:resolved (rf.resources.state/canonicalize-scope scope where nil)]))
 
 (defn- invalidation-plan
-  "The settle-time plan for `:invalidates` (`(fn [params result] -> tags |
-  descriptor | descriptors)`): `{:dispatches [<resolved-descriptor> …]
-  :unresolved [<from-db-id> …] :descriptor-count n}`, or nil when the
-  mutation has none. Nil-resolving descriptors land in `:unresolved` and
-  dispatch nothing. Spec 016 §Cache-consequence callback signatures."
-  [invalidates-fn params result mut-scope db where]
+  "The plan for `:invalidates` (`(fn [params result] -> tags | descriptor |
+  descriptors)`): `{:dispatches [<resolved-descriptor> …] :unresolved
+  [<from-db-id> …] :descriptor-count n}`, or nil when the mutation has none.
+  Nil-resolving descriptors land in `:unresolved` and dispatch nothing.
+  Spec 016 §Cache-consequence callback signatures."
+  [invalidates-fn params result mut-scope from-db-scopes where]
   (when invalidates-fn
     (let [descriptors (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                         (invalidates-fn params result) where)]
@@ -577,7 +579,7 @@
           (if-not (seq tags)
             plan
             (let [[outcome scope-or-id] (resolve-descriptor-scope
-                                          descriptor mut-scope db where)]
+                                          descriptor mut-scope from-db-scopes where)]
               (case outcome
                 :nil-resolved
                 (update plan :unresolved conj scope-or-id)
@@ -836,8 +838,10 @@
   "`:rf.mutation/execute` with `{:mutation :params :instance :scope :cause
   :reply-to}`: mints the instance and its work-ledger row, applies any
   optimistic plan, and lowers `:request` through managed HTTP. `:scope` is a
-  ScopeInput resolved against this event's app-db; params, scope, instance
-  id and `:reply-to` are all validated before anything is written. The
+  ScopeInput resolved against this event's app-db, which is also the
+  mutation's issuance context: every `{:from-db …}` its consequences name
+  resolves from it, at execute and at settle. Params, scope, instance id and
+  `:reply-to` are all validated before anything is written. The
   generation is the recorded allocation, so ids and the stale verdict
   reproduce on replay. `{:optimistic? false}` opts one call out of the
   optimistic plan. Returns the effects map.
@@ -854,6 +858,10 @@
         cparams    (rf.resources.mutation-registry/validate+canonicalize-params
                      mutation spec (rf.resources.state/params-present? payload) where)
         cscope     (rf.resources.mutation-registry/resolve-scope mutation spec scope app-db)
+        ;; The mutation's one context: every `{:from-db …}` a consequence
+        ;; names resolves from it, here and, riding the reply payload, at
+        ;; settle, so a reply never lands in another viewer's cache.
+        from-db-scopes (rf.resources.scope-registry/resolve-all-pure app-db where)
         _          (rf.resources.mutation-runtime/validate-instance-id! instance where)
         ;; `:reply-to` rides the reply payload across the transport and is
         ;; dispatched later, so a malformed or host-handle target fails here,
@@ -872,7 +880,7 @@
         invalidate-timing (or (:invalidate-timing spec) :after-success)
         before?    (= :before-request invalidate-timing)
         before-plan (when before?
-                      (invalidation-plan (:invalidates spec) cparams nil cscope app-db where))
+                      (invalidation-plan (:invalidates spec) cparams nil cscope from-db-scopes where))
         ;; Nothing is populated before the request, so nothing is exempt.
         before-fxs  (when before-plan
                       (plan->fx before-plan [:mutation mutation instance-id] #{}))
@@ -901,7 +909,8 @@
                                               :work/id     work-id
                                               :scope       cscope
                                               :generation  generation}
-                                       (some? reply-to') (assoc :reply-to reply-to'))
+                                       (seq from-db-scopes) (assoc :from-db-scopes from-db-scopes)
+                                       (some? reply-to')    (assoc :reply-to reply-to'))
                       :work-id      work-id
                       :resource/key [:rf.mutation instance-id]
                       :scope        cscope
@@ -917,14 +926,14 @@
         opt-entries (when has-opt? (get-in runtime-db (rf.resources.state/entries-path)))
         [exact-tm exact-nils]
         (when has-opt?
-          (optimistic-exact-targets (:optimistic spec) cparams cscope app-db where))
+          (optimistic-exact-targets (:optimistic spec) cparams cscope from-db-scopes where))
         [tag-tm tag-nils]
         (when has-opt?
           (optimistic-tag-targets
             (normalize-optimistic-tag-descriptors
               (when-let [f (:optimistic-tags spec)] (f cparams))
               {:frame-id frame-id :mutation mutation})
-            opt-entries cscope app-db where))
+            opt-entries cscope from-db-scopes where))
         ;; Exact wins over tag-matched; `merge` keeps a nil (remove) patch-fn.
         opt-target-map (when has-opt? (merge tag-tm exact-tm))
         opt-nil-ids    (-> (vec exact-nils) (into tag-nils))
@@ -1148,10 +1157,11 @@
   reads in flight on written keys, applies `:removes`, dispatches the
   `:after-success` / `:after-settle` invalidation, commits any optimistic
   apply, settles the instance `:success`, and continues into `:reply-to`. A
-  stale reply is suppressed and writes nothing.
+  `{:from-db …}` resolves from the payload's issuance `:from-db-scopes`,
+  never this event's app-db. A stale reply is suppressed and writes nothing.
   Spec 016 §Phase order (normative)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms, app-db :db}
-   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope from-db-scopes reply-to] :as payload} http-result]]
   (let [where      'rf.mutation.internal/succeeded
         runtime-db (or rt {})
         ;; The reply event's declared `:rf/time-ms`, read once at the
@@ -1174,13 +1184,13 @@
             timing      (or (:invalidate-timing spec) :after-success)
             clock-ms    completed-at
             ;; Populate wins on a key written by both (it runs last).
-            [rdb1 patched-ks patch-policies patch-nil-ids patch-skipped]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
-            [rdb2 populated-ks populate-policies populate-nil-ids populate-skipped] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
+            [rdb1 patched-ks patch-policies patch-nil-ids patch-skipped]        (apply-patches runtime-db (:patches spec) params result clock-ms scope from-db-scopes where)
+            [rdb2 populated-ks populate-policies populate-nil-ids populate-skipped] (apply-populates rdb1 (:populates spec) params result clock-ms scope from-db-scopes where)
             [rdb2' superseded-reads] (supersede-reads-under-writes
                                        runtime-db rdb2 (set/union patched-ks populated-ks) work-id)
             ;; Before the invalidation match, so a removed key is never also
             ;; reported stale.
-            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result clock-ms scope app-db where)
+            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result clock-ms scope from-db-scopes where)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             patch-target-skipped    (mapv #(assoc % :arm :patches) patch-skipped)
@@ -1190,7 +1200,7 @@
                                     (into populate-target-skipped)
                                     (into remove-target-skipped))
             inv-plan    (when (#{:after-success :after-settle} timing)
-                          (invalidation-plan (:invalidates spec) params result scope app-db where))
+                          (invalidation-plan (:invalidates spec) params result scope from-db-scopes where))
             inv-fxs     (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id] populated-ks))
             inv-tags    (when inv-plan (plan-tags inv-plan))
             ;; Against the post-consequence cache, which the dispatched
@@ -1345,9 +1355,10 @@
   cache, settles the instance `:error` (terminal until a causal clear), and
   continues into `:reply-to`. An `:rf.http/aborted` envelope lowers to
   `:status :cancelled` and settles the ledger row `:cancelled`. A stale reply
-  is suppressed. Spec 016 §Optimistic settle — commit / rollback / reconcile."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms, app-db :db}
-   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
+  is suppressed. A `{:from-db …}` resolves from the payload's issuance
+  `:from-db-scopes`. Spec 016 §Optimistic settle — commit / rollback / reconcile."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope from-db-scopes reply-to] :as payload} http-result]]
   (let [where      'rf.mutation.internal/failed
         runtime-db (or rt {})
         ;; the reply event's declared `:rf/time-ms`, never a fresh clock read
@@ -1384,7 +1395,7 @@
             ;; The failure result is nil, so descriptor fns see only params,
             ;; and nothing was populated to exempt.
             inv-plan (when (#{:after-failure :after-settle} timing)
-                       (invalidation-plan (:invalidates spec) params nil scope app-db where))
+                       (invalidation-plan (:invalidates spec) params nil scope from-db-scopes where))
             inv-fxs  (when inv-plan (plan->fx inv-plan cause #{}))
             inv-tags (when inv-plan (plan-tags inv-plan))
             invalidated-ks (when inv-plan
