@@ -247,11 +247,11 @@
   (navigate-article! "intro")
   (let [nav-token (:nav-token (slice))
         evs       (errors-of (record-error-traces!
-                               #(settle-failure! (article-key "intro") {:status 503 :message "upstream down"}))
+                               #(settle-failure! (article-key "intro") {:http-status 503 :message "upstream down"}))
                              :rf.error/resource-route-blocking)]
     (is (= [{:resource-id :article/by-slug
              :nav-token   nav-token
-             :error       {:status 503 :message "upstream down"}}]
+             :error       {:http-status 503 :message "upstream down"}}]
            (mapv #(select-keys (:tags %) [:resource-id :nav-token :error]) evs))
         "exactly one blocking-failure trace, carrying the first-load envelope")
     (is (string? (:reason (:tags (first evs)))))
@@ -693,9 +693,9 @@
           [["an absent entry: its ensure has not been applied yet" nil :pending]
            ["own usable data" {:status :loaded :data {:a 1}} :ready]
            ["a BACKGROUND-refresh failure keeps its data — never a failed first load"
-            {:status :loaded :data {:a 1} :refresh-error {:kind :rf.http/server :status 503}} :ready]
+            {:status :loaded :data {:a 1} :refresh-error {:kind :rf.http/server :http-status 503}} :ready]
            ["a FIRST-load failure"
-            {:status :error :data nil :attempt 1 :error {:kind :rf.http/server :status 503}} :failed]
+            {:status :error :data nil :attempt 1 :error {:kind :rf.http/server :http-status 503}} :failed]
            ["work in flight" {:status :loading :data nil :attempt 1} :pending]
            ["enqueued but never attempted: its load is coming" {:status :idle :data nil :attempt 0} :pending]
            ["settled with no data and nothing left to settle it (an ABORTED first load)"
@@ -734,7 +734,7 @@
         "one still pending → :loading, and only it remains")
     (is (= [:error :rf.error/resource-route-blocking :article/by-slug (blocking-map req-a)]
            (project :loading {req-a {:resource/id :article/by-slug :status :error :data nil :attempt 1
-                                     :error {:kind :rf.http/server :status 503}}}))
+                                     :error {:kind :rf.http/server :http-status 503}}}))
         "a failed blocking first load → :error, NOT pruned so a later success re-projects :idle"))
   ;; What keeps a committed PLANNING error (no blocking slot written) from being
   ;; clobbered back to :idle.
@@ -749,10 +749,10 @@
   {:resource/id :article/by-slug :status :loading :data nil :attempt 1})
 
 (defn- failed-req
-  "A blocking FIRST-load failure whose envelope `:status` identifies it."
+  "A blocking FIRST-load failure whose envelope `:http-status` identifies it."
   [http-status]
   {:resource/id :article/by-slug :status :error :data nil :attempt 1
-   :error       {:kind :rf.http/server :status http-status}})
+   :error       {:kind :rf.http/server :http-status http-status}})
 
 (defn- blocking-error-count [traces]
   (count (errors-of traces :rf.error/resource-route-blocking)))
@@ -771,7 +771,7 @@
                                       (assoc-in rdb1 (rf.resources.state/entry-path early) (failed-req 500)))))))]
     (is (= [:error 500 (blocking-map early late) 1]
            [(get-in @final [:rf.runtime/routing :current :transition])
-            (get-in @final [:rf.runtime/routing :current :error :error :status])
+            (get-in @final [:rf.runtime/routing :current :error :error :http-status])
             (get-in @final (rf.resources.route/blocking-path "nav-1"))
             (blocking-error-count traces)])
         "the slice reports the CURRENT first failure, neither is pruned, and ONE trace fired"))
@@ -830,7 +830,7 @@
               [:idle nil nil {}]]
              ["restore: a FAILED blocking first load"
               rf.resources.ssr/reconcile-on-restore (req {:status :error :data nil
-                                                         :error {:kind :rf.http/server :status 503}})
+                                                         :error {:kind :rf.http/server :http-status 503}})
               [:error :rf.error/resource-route-blocking :article/by-slug (blocking-map req-a)]]
              ["hydration: the requirement arrived WITH data"
               rf.resources.ssr/hydrate-runtime-db (req {:status :loaded :data {:x 1}})

@@ -134,7 +134,7 @@
 (defn- reply-failure! [args error frame]
   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error error}) {:frame frame}))
 
-(def ^:private http-500 {:kind :rf.http/http-5xx :status 500})
+(def ^:private http-500 {:kind :rf.http/http-5xx :http-status 500})
 
 (defn- managed-request-for
   [url-fragment]

@@ -44,7 +44,7 @@
     (eval-recipe form))
   (eval-recipe (first (recipe-forms "rf/reg-event :cart/add-item")))
   ;; The fixture loads the real server-request provider; the app owns its session.
-  (rf/reg-cofx :app.csrf/active-token {:platforms #{:server}}
+  (rf/reg-cofx :app.csrf/active-token {:recordable? false :platforms #{:server}}
     (fn [] "tok-abc")))
 
 (defn- dispatch-action [payload]

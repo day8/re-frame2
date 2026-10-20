@@ -123,8 +123,8 @@ This is the canonical `:http-xhrio` shape from a typical v1 app — a GET that f
              (assoc-in [:article :status] :error)
              (assoc-in [:article :error]
                   (case (:kind error)                  ;; the classified failure category
-                    :rf.http/http-4xx       {:kind :not-found  :status (:status error)}
-                    :rf.http/http-5xx       {:kind :server-err :status (:status error)}
+                    :rf.http/http-4xx       {:kind :not-found  :status (:http-status error)}
+                    :rf.http/http-5xx       {:kind :server-err :status (:http-status error)}
                     :rf.http/transport      {:kind :network    :message (:message error)}
                     :rf.http/timeout        {:kind :timeout    :elapsed-ms (:elapsed-ms error)}
                     :rf.http/decode-failure {:kind :bad-payload :cause (:cause error)}
@@ -137,7 +137,7 @@ What changed:
 - **The request envelope splits: `:uri` → `:request :url`, `:method` → `:request :method`.** Every wire-shape key (`:method`, `:url`, `:headers`, `:params`, `:body`) is nested under `:request`; lifecycle keys (`:decode`, `:accept`, `:retry`, `:timeout-ms`, `:on-success`, `:on-failure`, `:request-id`, `:abort-signal`) stay at the top level.
 - **`:response-format (ajax/json-response-format {:keywords? true})` becomes `:decode :json`.** The keywordisation default is the same; the surface vocabulary is keyword-sugar instead of a fn-valued slot.
 - **`:on-success` payload changes from `response` to the canonical `{:status :ok :value <response> …}` envelope.** The v1 handler received the decoded body as the last arg; the v2 handler receives the uniform reply envelope. The handler body destructures `{:keys [value]}` to get the payload.
-- **`:on-failure` payload changes from `{:status :response :failure}` to the canonical `{:status :error :error {:kind <:rf.http/*> ...kind-tags...} …}` envelope.** The v1 handler keyed off `:status` (HTTP status code) and `:failure` (ajax-cljs's failure enum); the v2 handler pulls the classified failure map out from under `:error` and keys off `(:kind error)`, a closed `:rf.http/*` keyword. The rewrite of the failure body is the substantial part of every per-call-site conversion — the operator decides which categories the app handles distinctly vs lumps into a single "show error UI" branch.
+- **`:on-failure` payload changes from `{:status :response :failure}` to the canonical `{:status :error :error {:kind <:rf.http/*> ...kind-tags...} …}` envelope.** The v1 handler keyed off `:status` (HTTP status code) and `:failure` (ajax-cljs's failure enum); the v2 handler pulls the classified failure map out from under `:error` and keys off `(:kind error)`, a closed `:rf.http/*` keyword; a 4xx/5xx failure carries its status code as `:http-status`. The rewrite of the failure body is the substantial part of every per-call-site conversion — the operator decides which categories the app handles distinctly vs lumps into a single "show error UI" branch.
 - **The registrars collapse to `reg-event`.** The v1 `reg-event-fx :article/load` and the two `reg-event-db` result handlers all become the one public `reg-event` (EP-0018; [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) — `reg-event-fx` is a pure rename, and each `reg-event-db` result handler gains a `{:keys [db]}` destructure and a `{:db …}` return wrap. This is the mechanical M-73 codemod and applies whether or not you adopt managed-HTTP.
 - **The `(:require [re-frame.http.managed])` clause is added.** Per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http), the managed-HTTP namespace's load-time registrations must fire before the `[:rf.http/managed ...]` entry hits the drain; without the require, the `:fx` runner raises `:rf.error/no-such-fx`. (The `[day8.re-frame.http-fx]` require is dropped.)
 

@@ -221,8 +221,7 @@
 ;; recordable-vs-ambient coeffects entry:
 ;; ../../../docs/core/glossary.md#recordable-vs-ambient-coeffects
 (rf/reg-cofx :new-todo/todo-id
-  {:recordable? true
-   :doc "Replayable fresh id for a newly-submitted todo."}
+  {:doc "Replayable fresh id for a newly-submitted todo."}
   (fn [] (random-uuid)))
 
 ;; ============================================================================

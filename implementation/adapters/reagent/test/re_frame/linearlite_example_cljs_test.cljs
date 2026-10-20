@@ -163,7 +163,7 @@
   (rf/dispatch-sync [:linearlite/create-issue "Doomed"])
   (let [tmp-id (:id (issue-by-title "Doomed"))]
     (is (= 3 (count (issues))) "precondition: the optimistic card was added")
-    (reply-failure! {:kind :rf.http/http-5xx :status 503})
+    (reply-failure! {:kind :rf.http/http-5xx :http-status 503})
     (is (= demo-board (board-data)) "the board is exactly its pre-write value")
     (is (= [true false] ((juxt :error? :optimistic?) (mutation-state [:create tmp-id]))))))
 

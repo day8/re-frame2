@@ -185,7 +185,8 @@
 ;; feeding the handler.
 
 (rf/reg-cofx :standard-epochs/now
-  {:doc "Ambient wall-clock supplier — the current time (ms since epoch),
+  {:recordable? false
+   :doc "Ambient wall-clock supplier — the current time (ms since epoch),
          delivered under `:standard-epochs/now` to declaring handlers."}
   (fn cofx-now [] (.getTime (js/Date.))))
 
@@ -193,7 +194,8 @@
 ;; being exercised — the supported way to light up the cofx error surface
 ;; (`:rf.error/coeffect-exception`, EP-0017 §8).
 (rf/reg-cofx :standard-epochs/throwing-cofx
-  {:doc "Throws when its supplier runs at context assembly so Xray's Epoch
+  {:recordable? false
+   :doc "Throws when its supplier runs at context assembly so Xray's Epoch
          panel surfaces a cofx error. A feature being exercised, not a buggy
          demo."}
   (fn cofx-throws []

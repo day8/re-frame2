@@ -148,8 +148,8 @@
           [[:sc/article #(rf/dispatch-sync [:rf.resource.internal/succeeded
                                              {:resource/key %1 :work/id %2 :generation 1 :data {:title "W"}}])
             {:status :completed}]
-           [:fa/article #(fail! %1 %2 {:kind :rf.http/http-5xx :status 503} {:rf.cofx {:rf/time-ms 1781649764112}})
-            {:status :failed :outcome {:error {:kind :rf.http/http-5xx :status 503} :completed-at 1781649764112}}]
+           [:fa/article #(fail! %1 %2 {:kind :rf.http/http-5xx :http-status 503} {:rf.cofx {:rf/time-ms 1781649764112}})
+            {:status :failed :outcome {:error {:kind :rf.http/http-5xx :http-status 503} :completed-at 1781649764112}}]
            [:ab/article #(fail! %1 %2 {:kind :rf.http/aborted :reason :aborted} {:rf.cofx {:rf/time-ms 1781649764112}})
             {:status :cancelled :outcome {:reason :aborted :completed-at 1781649764112}}]]]
     (rf/reg-resource rid (article-spec) article-spec-request)
@@ -266,7 +266,7 @@
         fail! #(rf/dispatch-sync
                  (conj (:on-failure @last-managed-args)
                        {:status :error
-                        :error  {:kind :rf.http/server-error :status 500}}))]
+                        :error  {:kind :rf.http/server-error :http-status 500}}))]
     (is (> 12 rf.resources.work-ledger/default-terminal-tail) "precondition: more attempts than the tail")
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :fl 1])])
     (fail!)

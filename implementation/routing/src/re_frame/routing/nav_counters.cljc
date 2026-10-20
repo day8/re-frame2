@@ -173,7 +173,7 @@
 ;; reads the host snapshot and mints the next id, returning the allocation
 ;; map carrying BOTH the
 ;; id AND the allocator high-water `:counter`. Being RECORDABLE
-;; (`:recordable? true`, NOT `:provided?`), the cofx machinery writes the
+;; (the default grade, NOT `:provided?`), the cofx machinery writes the
 ;; produced allocation back into the in-flight `:rf.cofx` causal record (EP-0017
 ;; §5, router `:live` policy) — so the epoch captures it and replay re-presents
 ;; the SAME id verbatim. An ambient, unrecorded cofx would let replay
@@ -187,8 +187,7 @@
   It declares no `:schema`, so routing runs without the schemas artefact.
   The `{:token \"nav-N\" :counter N}` shape is checked always-on by
   `checked-nav-allocation` where the token folds into the route slice."
-  {:recordable? true
-   :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
+  {:doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
 minted at processing-start from the host nav-token
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
 coeffect). Delivered FLAT under the `:rf.route/nav-allocation` key in the
@@ -221,8 +220,7 @@ Recorded so record+replay re-presents the same nav-token verbatim
   `{:id \"pn-N\" :counter N}` shape is checked always-on by
   `checked-pending-nav-allocation` where the id folds into the
   pending-navigation slot."
-  {:recordable? true
-   :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
+  {:doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
 minted at processing-start from the host pending-nav
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
 coeffect). Delivered FLAT under the `:rf.route/pending-nav-allocation` key

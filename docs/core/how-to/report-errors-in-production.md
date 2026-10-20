@@ -133,9 +133,9 @@ What still runs in a production build (`:advanced`, `goog.DEBUG=false`), in shor
 
 The sink only observes. What happens after a failure is fixed per category by the framework ([Errors](../errors.md)): a destroyed frame's operation is ignored and reported, a failed subscription returns `nil`, and a handler that throws [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. Recovery has already happened by the time your sink runs, and there is no hook to swallow, substitute, or retry.
 
-!!! warning "Gotcha: turn off the JVM debug flag on an SSR host"
+!!! note "The JVM debug flag on a server"
 
-    On the JVM the debug flag defaults to on. A production SSR host should set `-Dre-frame.debug=false`, or it keeps user input in trace rings for every request ([Configure dev and production builds](configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property)). The error stream runs either way, so this bridge works regardless of the setting.
+    An SSR host defaults the JVM debug flag to off, so it keeps no trace rings of user input; any other long-running JVM defaults it to on and should set `-Dre-frame.debug=false` ([Configure dev and production builds](configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property)). The error stream runs either way, so this bridge works regardless of the setting.
 
 ## 5. Verify it in dev
 

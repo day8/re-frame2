@@ -83,7 +83,7 @@
 
 (def ^:private outcomes
   {:success {:reply-key :on-success :result {:status :ok :value {:items [1] :next nil}}}
-   :failure {:reply-key :on-failure :result {:status :error :error {:kind :rf.http/http-5xx :status 503}}}})
+   :failure {:reply-key :on-failure :result {:status :error :error {:kind :rf.http/http-5xx :http-status 503}}}})
 
 ;; ---- the check ----------------------------------------------------------------
 

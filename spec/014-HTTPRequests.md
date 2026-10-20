@@ -508,7 +508,7 @@ The framework already holds this identity at finalisation; it is stamped onto th
 |---|---|---|
 | `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed — in the browser, any Fetch network rejection, including one against a cross-origin URL that may be a CORS refusal (see [§Cross-origin classification](#cross-origin-classification)) — **also** a request-preparation failure (a throwing `:body` thunk or a body the encoder rejects; see [§Body encoding](#body-encoding)), which carries an extra `:stage :request-prep` tag | `:message`, `:cause`, (`:stage` on a prep failure), (`:cross-origin? true` on a browser Fetch rejection against a cross-origin URL) |
 | `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms` (measured wall-clock delta, `>= :limit-ms`, same semantics on both hosts — see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)), `:limit-ms` (the configured per-attempt budget) |
-| `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the error body: parsed when the Content-Type is JSON, else the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:body-text` (the raw response text), `:headers` |
+| `:rf.http/http-4xx` | Non-2xx 4xx response | `:http-status`, `:status-text`, `:body` (the error body: parsed when the Content-Type is JSON, else the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:body-text` (the raw response text), `:headers` |
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
 | `:rf.http/decode-failure` | A success-eligible (2xx) response whose body the decode pipeline rejected (schema validation error, JSON syntax error, custom decoder threw). Non-2xx responses never produce `:rf.http/decode-failure` — they classify by status. | `:body-text`, `:cause`, `:schema-validation-failure?` |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}` — OR `:accept` threw / returned a malformed shape (see [§`:accept`](#accept--domain-failure-normalisation)). For the `{:failure user-map}` case the user's failure map sits at `:detail`; for the throw / malformed-return cases `:detail` is a framework descriptor of the bad-accept condition. `:decoded` carries the pre-`:accept` decoded value for context. | `:detail` (user's verbatim failure map, or framework bad-accept descriptor), `:decoded` |
@@ -530,7 +530,7 @@ There is **one** reply shape. Every managed-HTTP completion delivers the framewo
 {:status       :ok            ;; one of :ok | :error | :cancelled | :stale (:stale is a suppression outcome — never delivered to an app target; see §Actor-destroyed suppression)
  :value        <decoded-and-accepted-payload>   ;; on :ok
  :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled — the classified failure map, verbatim
- :meta         {:status 200 :status-text "OK" :headers {…}} ;; on a live-transport :ok — the successful response's wire facts (§Successful-response metadata)
+ :meta         {:http-status 200 :status-text "OK" :headers {…}} ;; on a live-transport :ok — the successful response's wire facts (§Successful-response metadata)
  :rf.reply/work-id      [:rf.work/http issuance attempt] ;; the attempt identity
  :rf.reply/work-kind    :http
  :rf.reply/work-status  :completed | :failed | :timed-out | :cancelled
@@ -557,14 +557,12 @@ Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#statu
 - a **timeout** → `:status :error` with `:rf.reply/work-status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
 - an **abort** → `:status :cancelled` with `:cancelled? true`, `:rf.reply/cancel-reason`, and the `:rf.http/aborted` shape under `:error`.
 
-**The priced wrinkle — `:status` at two levels on HTTP 4xx/5xx.** The reply's top-level `:status :error` and the `:error` map's own `:status` (the HTTP status code, e.g. `503`) are distinct facts at two levels — the reply-envelope status vs the wire status. This mirrors the `:kind`-at-two-levels shape (the reply status vs the failure category `:kind`) and is accepted as the cost of one uniform envelope.
-
 #### Successful-response metadata — `:meta`
 
 A **successful live-transport completion** carries the response's wire facts on the envelope's `:meta` family-extension slot ([Managed-Effects §The reply map](Managed-Effects.md#the-reply-map): `:meta` is effect-family data):
 
 ```clojure
-:meta {:status      200                     ;; the actual numeric wire status
+:meta {:http-status 200                     ;; the actual numeric wire status
        :status-text "OK"                    ;; the transport's status text ("" on the JVM — HttpClient exposes no reason phrase)
        :headers     {"content-type"          "application/json"
                      "x-ratelimit-remaining" "37"
@@ -580,7 +578,7 @@ A **successful live-transport completion** carries the response's wire facts on 
 
 Boundaries of the slot:
 
-- **Success only.** Failure and cancellation replies carry no `:meta` — their wire facts (`:status`, `:status-text`, `:headers`, `:body`, `:body-text`) already ride the classified `:error` map, exactly as before.
+- **Success only.** Failure and cancellation replies carry no `:meta` — their wire facts (`:http-status`, `:status-text`, `:headers`, `:body`, `:body-text`) already ride the classified `:error` map, exactly as before.
 - **Every transport threads it.** A [stub transport](#stub-transports--the-real-pipeline-over-a-fake-wire) answers with a response, so its replies carry `:meta` exactly as a host send's do. A synthetic caller that supplies none gets no `:meta` — it is **omitted**, never fabricated (Managed-Effects: omit optional fields when absent).
 - **Privacy.** The reply **delivered to the app** carries `:meta` raw — it is on-box app data, the caller's own response. On the trace surface (`:rf.http/replied`), header values whose names are in the merged denylist (the immutable built-in defaults ∪ the app-declared [`:carriers {:headers […]}`](#http-carriers-ep-0025) extension) are redacted to `:rf/redacted` before egress, matching the failure-map `:headers` posture ([§Privacy](#privacy)); ordinary headers stay useful on-box. `:meta` is a core **wire-bearing slot**, so a per-call `:sensitive?` request force-redacts it wholesale on the trace via the shared canonical-reply elider, exactly like `:value`.
 
@@ -884,7 +882,7 @@ Returns the (possibly-transformed) response map. The runtime threads each `:afte
 1. **Rate-limit header parsing.** Read `(get-in response [:meta :headers "x-ratelimit-remaining"])` once on the response ([§Successful-response metadata](#successful-response-metadata--meta)), attach a structured `:rate-limit` slot to the reply; downstream handlers consume the structured form without re-parsing per-call.
 2. **Response-time telemetry.** `:before` stamps a wall-clock mark on ctx; `:after` reads it and computes the elapsed delta. The ctx-carried-from-before contract is what makes this expressible in a single interceptor.
 3. **Cache-Control inspection.** Parse the `(get-in response [:meta :headers "cache-control"])` directives once; attach a structured `:cache` slot; downstream handlers consume `:max-age` / `:public?` / etc. without re-parsing the header.
-4. **401 auth-token refresh.** Inspect the failure shape on a `:status :error` response whose `:error` is `:rf.http/http-4xx` with `(:status (:error response))` == 401; tag the reply with `:auth-refresh-required true` so a downstream handler can mint a refresh dispatch without every call site reimplementing the check.
+4. **401 auth-token refresh.** Inspect the failure shape on a `:status :error` response whose `:error` is `:rf.http/http-4xx` with `(:http-status (:error response))` == 401; tag the reply with `:auth-refresh-required true` so a downstream handler can mint a refresh dispatch without every call site reimplementing the check.
 
 ### Chain order and frame scope
 

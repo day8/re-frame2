@@ -358,14 +358,15 @@ the first real producer ships.
 
 Every coeffect id is **registered** (see §2) and carries a grade:
 
-- **Ambient** (the default) — its supplier runs at context assembly, the
-  value is delivered to declaring handlers and **never recorded**; replay
-  re-runs the supplier. Permitted only where no durable write depends on the
-  value (display preferences, diagnostics, host-transient measurements).
-- **Recordable** (`:recordable? true`) — the fact is **ensured onto the
-  causal token** before the fold consumes it, recorded with the token, and
+- **Recordable** (the default) — the fact is **ensured onto the causal
+  token** before the fold consumes it, recorded with the token, and
   re-presented verbatim by replay. Required for any fact that can affect
   durable frame-state.
+- **Ambient** (`:recordable? false`) — its supplier runs at context
+  assembly, the value is delivered to declaring handlers and **never
+  recorded**; replay re-runs the supplier. Permitted only where no durable
+  write depends on the value (display preferences, diagnostics,
+  host-transient measurements).
 
 The normative rule (unchanged from EP-0010, restated in the new vocabulary):
 a transition that performs a durable write MUST consume world facts from the
@@ -380,23 +381,22 @@ call-site-parameterized ids. The ctx→ctx handler shape is retired with
 `inject-cofx`.
 
 ```clojure
-;; ambient (default grade) — a display preference; never feeds durable state
+;; ambient — a display preference; never feeds durable state
 (rf/reg-cofx :ui/local-theme
-  {:doc "Ambient localStorage read for the display theme."}
+  {:recordable? false
+   :doc "Ambient localStorage read for the display theme."}
   (fn [storage-key]
     (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
-;; recordable, generator-backed — an app-owned replayable supplier
+;; recordable (the default), generator-backed — an app-owned replayable supplier
 (rf/reg-cofx :counter/delta
-  {:recordable? true
-   :doc    "Replayable d6 roll."
+  {:doc    "Replayable d6 roll."
    :schema [:int {:min 1 :max 6}]}
   (fn [] (inc (rand-int 6))))
 
 ;; recordable, PROVIDED — stamped by a subsystem/boundary; no generator
 (rf/reg-cofx :rf.route/location
-  {:recordable? true
-   :provided?   true
+  {:provided? true
    :doc "The location fact the routing subsystem stamps on its dispatches."
    :schema :rf.route/location-schema})
 ```
@@ -708,7 +708,7 @@ delivery).
 | `:rf.error/missing-required-cofx` | a required fact is absent and cannot be ensured — strict mode (no generator runs), or any mode for a provided fact whose value wasn't stamped |
 | `:rf.error/unregistered-cofx` | a required id has no registration (the typo case) — registration-time where statically checkable, else first processing |
 | `:rf.error/cofx-request-invalid` | malformed `:rf.cofx/requires` at registration |
-| `:rf.error/cofx-registration-invalid` | malformed `reg-cofx` metadata grade at registration — `:provided?` without `:recordable?`, a missing supplier on a non-provided fact, or a provided fact carrying a (silently ignored) supplier |
+| `:rf.error/cofx-registration-invalid` | malformed `reg-cofx` metadata grade at registration — `:provided? true` beside `:recordable? false`, a missing supplier on a non-provided fact, or a provided fact carrying a (silently ignored) supplier |
 | `:rf.error/cofx-value-invalid` | a supplied/replayed value fails the structural EDN check or the registration's `:schema` — **fires in production** |
 | `:rf.error/cofx-name-collision` | registration-time name collision (above) — the fold's argument keys (`:db` / `:event`), or the same id declared twice in one `:rf.cofx/requires` scope. A duplicate cofx id across namespaces is `:rf.error/ambiguous-registration` at use on a frame made without `:images`, or `:rf.error/image-duplicate-id` at EP-0023 image assembly, not here |
 | `:rf.warning/unknown-dispatch-opt` (generic, not a dedicated id) | `:rf.world/inputs` supplied in dispatch opts — a draft-only name earns no dedicated error id; it rides the generic unrecognised-opt warning with a did-you-mean naming `:rf.cofx` |
@@ -757,7 +757,7 @@ The testing story is *supply data, don't swap mechanisms*:
 ;; 3. Ambient stub — the seam is re-registration (visible, greppable), never
 ;;    a monkey-patch; legal only because ambient facts never feed durable
 ;;    state.
-(rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
+(rf/reg-cofx :ui/local-theme {:recordable? false :doc "Test stub."} (fn [_k] "dark"))
 ```
 
 The boundary invariant behind the opts map: dispatch opts override the

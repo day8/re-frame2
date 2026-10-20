@@ -14,7 +14,13 @@
 ;;
 ;; Per Spec 006 §Adapter shipping convention, this optional artefact depends
 ;; on core and SSR; neither depends on it.
-{:paths ["src"]
+;;
+;; `resources/` carries `re_frame/ssr_host.edn`, the marker that makes a JVM
+;; with this artefact on its classpath an SSR host, so the debug gate
+;; defaults OFF there (Spec 011 §The debug gate on an SSR JVM). It is on
+;; `:paths` for a `:local/root` consumer and on `:src-dirs` for the jar. The two test
+;; aliases below opt back in with `-Dre-frame.debug=true`.
+{:paths ["src" "resources"]
  :deps  {day8/re-frame2     {:local/root "../core"}
          day8/re-frame2-ssr {:local/root "../ssr"}
          ;; The JVM->Node adapter (`re-frame.ssr.ring.node`) speaks JSON to
@@ -56,6 +62,9 @@
                        ;; End-to-end tests observe bytes through a real Jetty
                        ;; host. These test dependencies are not published.
                        ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
+         ;; Dev posture: this artefact on the classpath defaults the debug
+         ;; gate OFF, and the suite reads traces.
+         :jvm-opts    ["-Dre-frame.debug=true"]
          ;; The default gate excludes the JVM->Node->JVM crossing witness
          ;; (`:crossing`, which spawns a Node sidecar — this alias stays
          ;; Node-free); `:crossing-test` below runs exactly that set.
@@ -82,6 +91,7 @@
                  day8/re-frame2-resources  {:local/root "../resources"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
+   :jvm-opts    ["-Dre-frame.debug=true"]
    :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
                  "-i" ":crossing"]}
 
@@ -100,4 +110,4 @@
    :version  "../../VERSION"
    :license  {:name "MIT"
               :url  "https://opensource.org/licenses/MIT"}
-   :src-dirs ["src"]}}}
+   :src-dirs ["src" "resources"]}}}

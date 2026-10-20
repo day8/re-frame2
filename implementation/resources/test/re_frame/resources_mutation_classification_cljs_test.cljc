@@ -114,7 +114,7 @@
                           :instance :i2
                           :reply-to [:m/replied]}])
       (rf/dispatch-sync (conj (:on-failure @last-managed-args)
-                              {:status :error :error {:status 422 :body "nope"}}))
+                              {:status :error :error {:http-status 422 :body "nope"}}))
       (is (= redacted-params (:params @replied)))
       (is (not (str/includes? (pr-str @replied) PW))))
     (testing "clear drops the lowered instance declaration"

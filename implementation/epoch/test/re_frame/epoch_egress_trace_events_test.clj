@@ -76,8 +76,8 @@
             on-box) rides untouched"
     (rf/make-frame {:id :test/http})
     (are [operation tags expected] (= expected (projected-tags (http-record operation tags) nil))
-      :rf.http/retry-attempt {:failure {:status 500 :body http-secret} :rf.http/off-box-body :omit}
-                             {:failure {:status 500 :body :rf/redacted} :rf.http/off-box-body :omit}
+      :rf.http/retry-attempt {:failure {:http-status 500 :body http-secret} :rf.http/off-box-body :omit}
+                             {:failure {:http-status 500 :body :rf/redacted} :rf.http/off-box-body :omit}
       :rf.http/replied       {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify}
                              {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify})))
 

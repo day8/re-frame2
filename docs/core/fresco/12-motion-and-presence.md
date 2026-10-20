@@ -141,11 +141,11 @@ A missing or non-positive `:timeout-ms` raises
 `:rf.error/fresco-presence-timeout-required`.
 
 Children must be keyed Hiccup vectors; a child without a `:key` raises
-`:rf.error/fresco-presence-child-unkeyed`. Presence freezes order at first
-appearance so an exiting sibling does not jump while it leaves. That order
-also applies to present children: rearranging the input does not rearrange
-already-retained keys. Use this for stable-order collections, not a sortable
-list that must follow every new input order.
+`:rf.error/fresco-presence-child-unkeyed`. Presence renders its children in
+the order you pass them, so a sorted or reordered list stays sorted. An exiting
+child is no longer in that input, so Presence keeps it straight after the child
+it followed, or at the front if nothing preceded it, and it moves with that
+child if the list reorders while it fades.
 
 Presence retains a single conditional element too. A `nil` child is skipped,
 so `[motion/presence {:timeout-ms 200} (when open? [:div.banner {:key :banner} …])]`

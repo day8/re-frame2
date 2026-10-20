@@ -35,7 +35,7 @@ So the example registers the host read as a recordable coeffect: a `reg-cofx` su
 
 ```clojure
 (rf/reg-cofx :todo.storage/todos
-  {:recordable? true :doc "…"}
+  {:doc "…"}
   (fn [] (read-todos-from-storage)))   ;; the generator: reads the host once
 ```
 

@@ -52,7 +52,8 @@
 
   Universal platform: the route slice exists on both client and server,
   so the cofx resolves under SSR and browser alike."
-  {:doc "The current navigation epoch token, read from
+  {:recordable? false
+   :doc "The current navigation epoch token, read from
 `[:rf.runtime/routing :current :nav-token]` and delivered FLAT under the
 `:rf.route/nav-token` key in the handler coeffects map (EP-0017 §5). Declare with
 `:rf.cofx/requires [:rf.route/nav-token]` on an `:on-match`-reached
@@ -98,7 +99,8 @@ superseding navigation suppresses the stale result. Per Spec 012
 
   Universal platform: the route slice exists on both client and server, so the
   cofx resolves under SSR and browser alike."
-  {:doc "The current route id, read from
+  {:recordable? false
+   :doc "The current route id, read from
 `[:rf.runtime/routing :current :route-id]` and delivered FLAT under the
 `:rf.route/route-id` key in the handler coeffects map (EP-0017 §5). Declare
 ALONGSIDE `:rf.route/nav-token` on an `:on-match`-reached handler

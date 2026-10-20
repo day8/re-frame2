@@ -63,7 +63,7 @@
   ([args] (fail! args nil))
   ([args time-ms]
    (dispatch-at! (conj (:on-failure args)
-                       {:status :error :error {:kind :rf.http/http-4xx :status 401}})
+                       {:status :error :error {:kind :rf.http/http-4xx :http-status 401}})
                  time-ms)))
 
 (defn- toggle

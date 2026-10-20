@@ -20,7 +20,7 @@
   3. **Whether a `<label>` really labels a control.** `label.control` and
      `input.labels` are the engine's OWN association, computed from
      `for` and from ancestry. [[the-engine-agrees-with-the-structural-
-     names]] compares them with `ht/accessible-name`'s answer for the
+     names]] compares them with `ht/markup-name`'s answer for the
      same page — the one row that can catch the structural helper being
      confidently wrong.
 

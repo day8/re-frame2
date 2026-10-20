@@ -39,11 +39,11 @@
 
 (deftest resource-failure-reply-is-canonical
   (testing "a failure carries the :rf.http/* envelope and the causal :completed-at"
-    (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/http-5xx :status 503}
+    (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/http-5xx :http-status 503}
                                               resource-opts)]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= {:status :error :rf.reply/work-status :failed :rf.reply/work-kind :resource
-              :error {:kind :rf.http/http-5xx :status 503} :completed-at 1781078400456}
+              :error {:kind :rf.http/http-5xx :http-status 503} :completed-at 1781078400456}
              (select-keys r [:status :rf.reply/work-status :rf.reply/work-kind :error :completed-at])))
       (is (nil? (:value r)))))
   (testing "an :rf.http/aborted envelope lowers to :cancelled, not :error"

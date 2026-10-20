@@ -89,7 +89,7 @@
     (is (= ["c3*" 3] [(:next-page-param e1) (rf.resources.state/page-count e1)]))))
 
 (deftest replace-page-clears-error-channels
-  (let [e0 (rf.resources.state/entry-page-failed (accumulated-3) {:error {:kind :rf.http/server :status 503}})
+  (let [e0 (rf.resources.state/entry-page-failed (accumulated-3) {:error {:kind :rf.http/server :http-status 503}})
         e1 (replace-page e0 (page [:a*] "c1") nil 0)]
     (is (some? (:page-error e0)) "precondition: the failure recorded a page error")
     (is (= [nil nil nil] ((juxt :page-error :refresh-error :invalidated-at) e1)))))

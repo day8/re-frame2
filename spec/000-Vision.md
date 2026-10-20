@@ -555,7 +555,7 @@ A `reg-fx` handler receives a **separate, smaller** map (`:frame` — the frame 
 
 Macros (CLJS reference): `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-app-schema`, `reg-route`, `with-frame`. All registration is macro-based to capture source coords and elide docstrings in prod. (State machines themselves register as event handlers, through `reg-machine`; guards and actions are declared in the machine's own `:guards` / `:actions` maps, not via separate registration calls; per [005](005-StateMachines.md).) Source-coord capture via macros is a CLJS-implementation choice; other-language ports use stack inspection or codegen.
 
-Not macros: `dispatch`, `dispatch-sync`, `subscribe`. All are functions accepting an optional opts-map second argument. `reg-view`'s lexical injection handles the multi-frame ergonomics inside views without making them macros. re-frame2 does **not** ship `dispatch-to`, `dispatch-with`, or `dispatch-sync-with` — the two-arg form covers those cases.
+`subscribe` is not a macro: it is a plain function on both hosts. `dispatch` and `dispatch-sync` are macros in call position, so each call records its source line for tools, and on CLJS the same names are plain functions in value position. All three accept an optional opts-map second argument. `reg-view`'s lexical injection handles the multi-frame ergonomics inside views. re-frame2 does **not** ship `dispatch-to`, `dispatch-with`, or `dispatch-sync-with` — the two-arg form covers those cases.
 
 ### Substrate decoupling (Reagent fusion)
 

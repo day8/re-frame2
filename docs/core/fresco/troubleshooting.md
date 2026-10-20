@@ -543,10 +543,10 @@ You gave a test-kit door non-map options, or an option outside its closed
 roster: `#{:subs}` for an L2 `tree`; `:initial-events`, `:images`,
 `:container` and `:clock` for `hm/mount!`; those and `:html` for
 `hm/hydrate!`, whose promise rejects with it rather than throwing; and
-`:reference`, `:candidate`, `:images`, `:initial-events` and `:script` for
-`hm/shadow!`. `hm/shadow!` also raises it for a script step other than
-`{:click selector}` or `{:type [selector text]}`. Remove the key or step the
-message names. `hm/advance-clock!` raises it on a handle whose `hm/mount!` or
+`:reference`, `:candidate`, `:images` and `:initial-events` for `hm/shadow!`.
+Remove the key the message names. A `:script` given to `hm/shadow!` is refused
+the same way: drive the two mounts it returns yourself and call `:checkpoint!`
+where you want them compared. `hm/advance-clock!` raises it on a handle whose `hm/mount!` or
 `hm/hydrate!` was not given `{:clock true}`, or whose mount has come down; pass
 `{:clock true}` to the mount that makes the handle.
 

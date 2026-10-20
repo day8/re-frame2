@@ -214,7 +214,7 @@
 
 (deftest load-more-failure-keeps-the-feed-and-recovers-on-next-success
   (let [k        (load-page-0! :pfr/feed (page [:a] "c1"))
-        envelope {:kind :rf.http/server :status 503}]
+        envelope {:kind :rf.http/server :http-status 503}]
     (load-more! :pfr/feed)
     (let [wid (:current-work (entry k))]
       (reply-failure! envelope)
@@ -290,7 +290,7 @@
   (let [k   (feed-key :fl0/feed)
         wid (:current-work (entry k))]
     (reset! scheduled-timers [])
-    (reply-failure! {:kind :rf.http/server :status 503})
+    (reply-failure! {:kind :rf.http/server :http-status 503})
     (is (= [:error nil :failed] [(:status (entry k)) (:current-work (entry k)) (work-status wid)])
         "a failed first load settles :error and its row :failed")
     (is (= {:gc 5000 :stale 1000 :poll nil} (:timers (last-schedule-for k)))
@@ -440,7 +440,7 @@
 (deftest loaded-feed-page-0-refresh-failure-is-a-refresh-error
   (let [k        (load-page-0! :rfe/feed (page [:a] "c1"))
         q        {:resource :rfe/feed :scope :rf.scope/global :params {:filter :recent}}
-        envelope {:kind :rf.http/http-5xx :status 503}]
+        envelope {:kind :rf.http/http-5xx :http-status 503}]
     (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
     (reply-failure! envelope)
     (is (= [:loaded [(page [:a] "c1")] envelope nil nil nil]
@@ -456,7 +456,7 @@
 (deftest loaded-feed-page-0-refresh-failure-stops-the-sweep
   (let [k (accumulate-3! :rfs/feed {:refetch {:refetch-all-pages? true}})]
     (refetch-feed! :rfs/feed)
-    (reply-failure! {:kind :rf.http/server :status 503})
+    (reply-failure! {:kind :rf.http/server :http-status 503})
     (let [e (entry k)]
       (is (= [:loaded 3 true nil false]
              [(:status e) (page-count k) (some? (:refresh-error e)) (:page-error e)
@@ -516,7 +516,7 @@
       (release-and-invalidate!)
       (ensure! :wd/feed)
       (reply-success! (page [:a*] "c1"))
-      (reply-failure! {:kind :rf.http/server :status 503})
+      (reply-failure! {:kind :rf.http/server :http-status 503})
       (is (= [false true] [(contains? (entry k) :refetch-sweep) (some? (:invalidated-at (entry k)))])
           "the failed leg stops the sweep, and pages 1-2 were never refreshed")))
   (testing "CONTROL — the window-preserving default refreshes page 0 only, which covers it"

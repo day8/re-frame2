@@ -110,9 +110,9 @@
    ;; `re-frame.capture-frame` (the frame api constructor behind
    ;; `capture-frame` and the `reg-view` injection) sits below the
    ;; facade, but its ops must call the facade's `^:no-doc` `dispatch-impl` /
-   ;; `dispatch-sync-impl` / `subscribe-impl` `def`-aliases — the seams the
-   ;; call-site macros target and tool tests `with-redefs` — rather than the
-   ;; owning fns directly. The facade publishes the three at load; the
+   ;; `dispatch-sync-impl` `def`-aliases — the seams the call-site macros
+   ;; target and tool tests `with-redefs` — and its public `subscribe`, rather
+   ;; than the owning fns directly. The facade publishes the three at load; the
    ;; constructor reads them at capture time.
    {:key         :core/dispatch-impl
     :producer-ns 're-frame.core
@@ -120,9 +120,9 @@
    {:key         :core/dispatch-sync-impl
     :producer-ns 're-frame.core
     :description "The facade's `dispatch-sync-impl` seam (a `def`-alias of re-frame.router/dispatch-sync!), read live for a frame api's :dispatch-sync op. Consumed by re-frame.capture-frame/make-capture-frame."}
-   {:key         :core/subscribe-impl
+   {:key         :core/subscribe
     :producer-ns 're-frame.core
-    :description "The facade's `subscribe-impl` seam (a `def`-alias of re-frame.subs/subscribe), read live for a frame api's :subscribe op. Consumed by re-frame.capture-frame/make-capture-frame."}
+    :description "The facade's public `subscribe` (a `def`-alias of re-frame.subs/subscribe), read live for a frame api's :subscribe op. Consumed by re-frame.capture-frame/make-capture-frame."}
 
    ;; ---- EP-0023 inline-registration lowering -------------------------------
    ;; `re-frame.image-assembly` lowers an image's inline `:registrations` fn

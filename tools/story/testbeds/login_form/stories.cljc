@@ -200,9 +200,9 @@
               ;; specific terminal state regardless of timing.
               [:login/flow [:login/failure
                             {:status :error
-                             :error  {:kind    :rf.http/http-4xx
-                                      :status  401
-                                      :message "Invalid credentials."}}]]]
+                             :error  {:kind        :rf.http/http-4xx
+                                      :http-status 401
+                                      :message     "Invalid credentials."}}]]]
      :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      ;; EP-0001: the machine snapshot lives in the frame's runtime-db
      ;; partition, so the state checkpoint reads it via
@@ -234,7 +234,7 @@
                             {:email "ada@example.com" :password "wrong"}]]
               [:login/flow [:login/failure
                             {:status :error
-                             :error  {:kind :rf.http/http-4xx :status 401 :message "Invalid credentials."}}]]
+                             :error  {:kind :rf.http/http-4xx :http-status 401 :message "Invalid credentials."}}]]
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
      :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]

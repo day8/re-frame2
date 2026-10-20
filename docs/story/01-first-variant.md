@@ -51,9 +51,9 @@ The parent groups the view and shared defaults:
             [:login/submit {:email "ada@example.com" :password "wrong"}]]
            [:login/flow
             [:login/failure {:status :error
-                             :error  {:kind    :rf.http/http-4xx
-                                      :status  401
-                                      :message "Invalid credentials."}}]]]
+                             :error  {:kind        :rf.http/http-4xx
+                                      :http-status 401
+                                      :message     "Invalid credentials."}}]]]
    :script [[:assert [:rf.assert/state-is :login/flow :error]]]
    :tags #{:dev :docs :test}})
 ```

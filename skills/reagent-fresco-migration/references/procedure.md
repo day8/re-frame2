@@ -296,8 +296,9 @@ settle doors and residue check, so assert the page and the teardown yourself.
 **`hm/shadow!` is the migration's own instrument**, and it is the one worth
 reaching for on a screen that must not change behaviour: it mounts the Reagent
 original and the Fresco candidate against isolated copies of the same seeded
-frame, drives one interaction script through both, and compares canonical DOM
-and the intent stream at each checkpoint.
+frame and returns both handles. You drive both with the same Testing Library /
+user-event interactions, and each `:checkpoint!` you call compares canonical
+DOM, live control state and the intent stream.
 
 **Both arms are handed to the Fresco runtime**, so the Reagent original crosses
 in as a retained Reagent component
@@ -309,16 +310,24 @@ and remounts the subtree), then cross it with `[:> …]` or a declared `h/defhos
 ;; Once, at top level.
 (def old-article-row (r/reactify-component old/article-row))
 
-(is (= :green
-       (:status
-        (hm/shadow!
-         {:reference      [:> old-article-row {:id 7}]
-          :candidate      [new/article-row {:id 7}]
-          :initial-events [[:demo/install-fixture]]
-          :script         [{:click "button.edit"}
-                           {:type  ["input.title" "Better title"]}
-                           {:click "button.save"}]}))))
+(deftest the-port-matches-the-original
+  (async done
+    (let [s    (hm/shadow! {:reference      [:> old-article-row {:id 7}]
+                            :candidate      [new/article-row {:id 7}]
+                            :initial-events [[:demo/install-fixture]]})
+          user (.setup user-event)
+          both (fn [f] (-> (f (:reference s)) (.then #(f (:candidate s)))))]
+      (is (= :green (:status ((:checkpoint! s)))))
+      (-> (both #(.click user (tl/getByRole (:container %) "button" #js {:name "Edit"})))
+          (.then #(is (= :green (:status ((:checkpoint! s))))))
+          (.catch #(is false (str %)))
+          (.then (fn [_] ((:stop! s)) (done)))))))
 ```
+
+`tl` is `@testing-library/dom` and `user-event` is
+`@testing-library/user-event`'s default export. Work that lands on a later task
+— a route-link navigation, an HTTP reply — is waited for on each mount with
+`hm/settle-until!` before the checkpoint that should see it.
 
 **Use a single-word prop across the crossing, or map it deliberately.** The
 `[:>]` boundary converts prop names, so a kebab `:article-id` arrives on the
@@ -335,28 +344,18 @@ callbacks at the crossing, or keep a capture the original already took.
 Three disciplines make it worth its cost. **Add a sabotage control first** —
 change a candidate prop deliberately and confirm the run turns red at the
 expected checkpoint — because a comparator nobody has seen fail proves nothing.
-**Script the real screen behaviour**, not a single happy click: green means the
-implementations matched *for the flows in the script*. And know its reach: it
-covers canonical DOM and intents, not focus, caret, IME, layout or paint. Those
-need a browser test.
+**Drive the real screen behaviour**, not a single happy click: green means the
+implementations matched *at the checkpoints you took*. Keep a few assertions of
+your own beside them, because two sides agreeing does not make either right.
+And know its reach: it covers canonical DOM, live control state and intents,
+not focus, caret, IME, layout or paint. Those need a browser test.
 
-Omit `:script` for interactive development and both mounts stay live. **Nothing
-is compared automatically** — there is no per-commit checkpoint and no click
-mirroring between the two mounts; a reading is taken only when you ask for one.
-So keep the returned handle, drive **both** mounts, and call `:checkpoint!`
-at each point you actually want compared, then `:stop!`:
-
-```clojure
-(let [s (hm/shadow! {:reference [:> old-article-row {:id 7}]
-                     :candidate [new/article-row {:id 7}]})]
-  (try
-    ;; drive both mounts by hand …
-    (is (= :green (:status ((:checkpoint! s)))))
-    (finally ((:stop! s)))))
-```
-
-Read the verdict each time — a checkpoint you never call proves nothing, and
-`:stop!` is the caller's teardown. Focus, caret, IME, layout and paint still
+**Nothing is compared automatically** — there is no per-commit checkpoint and
+no click mirroring between the two mounts; a reading is taken only when you ask
+for one. So keep the returned value, drive **both** mounts, call `:checkpoint!`
+at each point you actually want compared, and read the verdict each time — a
+checkpoint you never call proves nothing. `:stop!` is the caller's teardown,
+and it belongs where it runs on every path out. Focus, caret, IME, layout and paint still
 need a browser test.
 
 When a screen is green and its browser tests pass, **remove the Reagent

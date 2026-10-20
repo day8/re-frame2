@@ -90,8 +90,7 @@ what it held then. So register the read as a coeffect with
             [re-frame.core :as rf]))
 
 (rf/reg-cofx :todo.storage/todos
-  {:doc         "The saved todos, read from localStorage."
-   :recordable? true}
+  {:doc "The saved todos, read from localStorage."}
   (fn []
     (or (some-> (.-localStorage js/globalThis)
                 (.getItem "todos")
@@ -109,10 +108,10 @@ The supplier is a plain function that returns the value. The runtime calls it wh
 it to the handler. The handler stays pure: given the same stored todos, it always
 builds the same app-db.
 
-`:recordable? true` is what makes replay safe. The saved todos decide what goes into
-app-db, so the value must be recorded, and replay must reuse the recorded value
-rather than read storage again. [Two grades](#two-grades-ambient-and-recordable)
-below explains the choice.
+Recording is what makes replay safe, and a coeffect is recordable unless it says
+otherwise. The saved todos decide what goes into app-db, so the value must be
+recorded, and replay must reuse the recorded value rather than read storage again.
+[Two grades](#two-grades-ambient-and-recordable) below explains the choice.
 
 The pair is symmetrical: the effect `:todo.storage/save` is the only code that writes
 storage, and the coeffect `:todo.storage/todos` is the only code that reads it.
@@ -153,12 +152,13 @@ Every coeffect is registered with a
 [grade](glossary.md#recordable-vs-ambient-coeffects) that decides whether its value
 is recorded:
 
-- **Recordable** (`:recordable? true`). The value is recorded with the event and
-  handed back unchanged on replay. Use it for any fact that can end up in app-db,
-  like the saved todos or the clock.
-- **Ambient** (the default). The supplier runs again on replay and nothing is
-  recorded. Use it only when no app-db write depends on the answer, such as a display
-  preference or a diagnostic measurement.
+- **Recordable** (the default). The value is recorded with the event and handed
+  back unchanged on replay, so it must be plain data. Use it for any fact that can
+  end up in app-db, like the saved todos or the clock.
+- **Ambient** (`:recordable? false`). The supplier runs again on replay and nothing
+  is recorded. Use it only when no app-db write depends on the answer, such as a
+  display preference or a diagnostic measurement, and for a supplier that returns a
+  host object such as a DOM node.
 
 Recorded facts travel in one flat map on the dispatch
 [envelope](glossary.md#event-envelope), fact id to value:
@@ -175,7 +175,8 @@ serves several keys:
 
 ```clojure
 (rf/reg-cofx :ui/local-setting
-  {:doc "Ambient localStorage read for display settings."}
+  {:recordable? false
+   :doc         "Ambient localStorage read for display settings."}
   (fn [storage-key]
     (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
@@ -231,9 +232,8 @@ them, record one fresh id and derive the rest from it:
 
 ```clojure
 (rf/reg-cofx :list/copy-id
-  {:doc         "A fresh id for one list copy. The handler derives each row id from it."
-   :recordable? true
-   :schema      :uuid}
+  {:doc    "A fresh id for one list copy. The handler derives each row id from it."
+   :schema :uuid}
   (fn [] (random-uuid)))
 
 (rf/reg-event :list/duplicate
@@ -312,7 +312,7 @@ frame.) [Testing event handlers](testing/event-handlers.md) covers this, along w
 ### Provided facts
 
 A recordable coeffect can be registered with no supplier. A **provided** fact,
-`{:recordable? true :provided? true}`, has its value put on the event by an owner:
+`{:provided? true}`, has its value put on the event by an owner:
 a subsystem, or the dispatch call itself through the `:rf.cofx` option. Registering
 it gives the fact a `:doc`, a `:schema`, and an id, so a typo'd requirement reports
 differently from a missing value. `:rf/time-ms` is core's own provided fact, and the
@@ -350,6 +350,6 @@ Branch on the [`:rf.error/*` id](glossary.md#error-record), never on the message
 - **The same id declared twice** in one handler, or a coeffect named `:db` or
   `:event`: `:rf.error/cofx-name-collision`. A malformed `:rf.cofx/requires` (not a
   vector, or a non-id entry) raises `:rf.error/cofx-request-invalid` at registration.
-- **A contradictory grade**, such as `:provided?` without `:recordable?`, a missing
+- **A contradictory grade**, such as `:provided? true` beside `:recordable? false`, a missing
   supplier on a non-provided fact, or a provided fact given a supplier:
   `:rf.error/cofx-registration-invalid`.

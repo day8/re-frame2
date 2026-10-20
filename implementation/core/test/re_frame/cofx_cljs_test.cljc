@@ -1,6 +1,7 @@
 (ns re-frame.cofx-cljs-test
-  "Coeffect delivery through `reg-cofx` and `:rf.cofx/requires`: declared-only
-  flat delivery, the recordable generator and its mint policies, the cofx error
+  "Coeffect delivery through `reg-cofx` and `:rf.cofx/requires`: the grades
+  (recordable by default, `:recordable? false` ambient), declared-only flat
+  delivery, the recordable generator and its mint policies, the cofx error
   family, and the removed `inject-cofx` (Spec 001 §`reg-cofx`, Spec 002
   §Satisfaction algorithm, Spec 009 §Error catalogue).
 
@@ -154,8 +155,8 @@
   (testing "a contradictory grade is :rf.error/cofx-registration-invalid naming
             the id, and nothing registers"
     (doseq [[label id f]
-            [["provided without :recordable? true" :cofx-test/bad-grade
-              #(rf/reg-cofx :cofx-test/bad-grade {:provided? true})]
+            [["provided beside an explicit :recordable? false" :cofx-test/bad-grade
+              #(rf/reg-cofx :cofx-test/bad-grade {:recordable? false :provided? true})]
              ["no supplier and not provided" :cofx-test/no-supplier
               #(rf/reg-cofx :cofx-test/no-supplier {:doc "missing supplier"})]
              ;; Delivery never runs a provided fact's supplier, so accepting
@@ -170,6 +171,58 @@
         (is (nil? (rf.registrar/lookup :cofx id)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Grades: recordable unless `:recordable? false`
+;; ---------------------------------------------------------------------------
+
+(deftest unmarked-cofx-is-recordable-and-strict-replay-re-presents-it
+  (testing "a reg-cofx with no :recordable? key is recordable: the live run
+            writes its value onto the causal record, and a strict replay of
+            that record re-presents it verbatim without running the supplier"
+    (let [calls (atom 0)
+          seen  (atom [])]
+      (rf/reg-cofx :app/x (fn [] (swap! calls inc)))
+      (rf/reg-event :app/uses-x
+        {:rf.cofx/requires [:app/x]}
+        (fn [cofx _] (swap! seen conj [(:app/x cofx) (:rf.cofx cofx)]) {}))
+      (is (= [true false] ((juxt :recordable? :provided?) (rf.registrar/lookup :cofx :app/x))))
+      (rf/dispatch-sync [:app/uses-x])
+      (let [[_ recorded] (first @seen)]
+        (is (= [1 1] [(ffirst @seen) (:app/x recorded)])
+            "the generated value is delivered and written onto the causal record")
+        (rf/dispatch-sync [:app/uses-x] {:rf.cofx/mint-policy :strict :rf.cofx recorded})
+        (is (= 1 @calls) "replay never re-runs the supplier")
+        (is (= [1 1] [(first (second @seen)) (:app/x (second (second @seen)))])
+            "replay re-presents the recorded value verbatim")))))
+
+(deftest recordable-false-is-ambient
+  (testing "{:recordable? false} registers an ambient coeffect: its supplier
+            runs on every dispatch, strict replay included, and its value never
+            reaches the causal record"
+    (let [calls (atom 0)
+          seen  (atom [])]
+      (rf/reg-cofx :app/y {:recordable? false} (fn [] (swap! calls inc)))
+      (rf/reg-event :app/uses-y
+        {:rf.cofx/requires [:app/y]}
+        (fn [cofx _] (swap! seen conj [(:app/y cofx) (contains? (:rf.cofx cofx) :app/y)]) {}))
+      (is (= [false false] ((juxt :recordable? :provided?) (rf.registrar/lookup :cofx :app/y))))
+      (rf/dispatch-sync [:app/uses-y])
+      (rf/dispatch-sync [:app/uses-y] {:rf.cofx/mint-policy :strict})
+      (is (= [[1 false] [2 false]] @seen)))))
+
+(deftest provided-alone-is-a-provided-recordable-fact
+  (testing "{:provided? true} needs no :recordable? true beside it: the fact
+            registers with no supplier and is delivered from the token"
+    (let [seen (atom ::unset)]
+      (rf/reg-cofx :app/boundary {:provided? true})
+      (rf/reg-event :app/uses-boundary
+        {:rf.cofx/requires [:app/boundary]}
+        (fn [{:keys [app/boundary]} _] (reset! seen boundary) {}))
+      (is (= [true true nil]
+             ((juxt :recordable? :provided? :handler-fn) (rf.registrar/lookup :cofx :app/boundary))))
+      (rf/dispatch-sync [:app/uses-boundary] {:rf.cofx {:app/boundary "edge"}})
+      (is (= "edge" @seen)))))
+
+;; ---------------------------------------------------------------------------
 ;; Ambient suppliers
 ;; ---------------------------------------------------------------------------
 
@@ -179,8 +232,9 @@
             :rf.cofx/arg only for an [id arg] declaration"
     (let [traces    (collect-traces! ::run-tags)
           delivered (atom ::unset)]
-      (rf/reg-cofx :cofx-test/local-pref (fn [storage-key] (str "value-for-" storage-key)))
-      (rf/reg-cofx :cofx-test/locale (fn [] "en-AU"))
+      (rf/reg-cofx :cofx-test/local-pref {:recordable? false}
+        (fn [storage-key] (str "value-for-" storage-key)))
+      (rf/reg-cofx :cofx-test/locale {:recordable? false} (fn [] "en-AU"))
       (rf/reg-event :cofx-test/read-ambient
         {:rf.cofx/requires [[:cofx-test/local-pref "theme"] :cofx-test/locale]}
         (fn [cofx _]
@@ -203,7 +257,7 @@
     (let [traces    (collect-traces! ::run-redact)
           delivered (atom ::unset)]
       (rf/reg-cofx :cofx-test/session
-        {:sensitive [[:token]]}
+        {:recordable? false :sensitive [[:token]]}
         (fn [] {:token "super-secret-jwt" :public "ok"}))
       (rf/reg-event :cofx-test/read-session
         {:rf.cofx/requires [:cofx-test/session]}
@@ -233,7 +287,7 @@
           cofx-fired? (atom false)
           delivered?  (atom ::unset)]
       (rf/reg-cofx :cofx-test/browser-locale
-        {:platforms #{:client}}
+        {:recordable? false :platforms #{:client}}
         (fn [] (reset! cofx-fired? true) "en-US"))
       (rf/reg-event :cofx-test/read-browser-locale
         {:rf.cofx/requires [:cofx-test/browser-locale]}

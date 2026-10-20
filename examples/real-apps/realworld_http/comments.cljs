@@ -190,8 +190,7 @@
 ;; coeffects guide:
 ;; ../../../docs/core/coeffects.md#two-grades-ambient-and-recordable
 (rf/reg-cofx :realworld/temp-comment-id
-  {:recordable? true
-   :doc "A replay-safe temp-id for an optimistically-posted comment."}
+  {:doc "A replay-safe temp-id for an optimistically-posted comment."}
   (fn [] (str "temp-" (random-uuid))))
 
 ;; ============================================================================

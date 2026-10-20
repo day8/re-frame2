@@ -760,7 +760,7 @@
                                           :justification "Front-porch: the effect registrar, the other half of what a reg-event returns. An app that registers events registers effects in the same file."}
   ;; `reg-cofx`'s signature is NOT v1's (EP-0017): a
   ;; value-returning supplier `(fn [] v)` / `(fn [arg] v)` plus a registration
-  ;; grade (ambient default, or recordable via `:recordable?`/`:provided?`),
+  ;; grade (recordable by default, optionally `:provided?`; `:recordable? false` is ambient),
   ;; where v1 took a ctx→ctx handler `(fn [ctx] ctx)`.
   ;; A real front-porch registrar, with the status
   ;; "v1 (changed, EP-0017)" (cf. spec/API.md §Registration,

@@ -577,8 +577,7 @@
   ;; it via `:rf.cofx/requires` and reads it from the coeffects map.
   ;; See docs/core/glossary.md#recordable-vs-ambient-coeffects.
   (rf/reg-cofx :ws.app/request-id
-    {:recordable? true
-     :doc "A replayable correlation id for one request-reply round-trip."}
+    {:doc "A replayable correlation id for one request-reply round-trip."}
     (fn [] (random-uuid)))
 
   (rf/reg-event :ws.app/request

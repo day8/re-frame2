@@ -282,7 +282,7 @@
 
   Written as a sweep over the tree rather than as four assertions about
   one element, so a second combobox added tomorrow is audited the day it
-  lands — the shape `ht/unnamed-controls` takes too, and
+  lands — the shape `ht/markup-unnamed-controls` takes too, and
   the reason this file's claims are `= []` rather than a list of
   attribute readings.
 
@@ -304,7 +304,7 @@
                     owner  (some by-id owned)
                     referent (get by-id target)]
                 (cond-> []
-                  (not (contains? activedescendant-roles (name (or (rf.fresco.test/role node) :none))))
+                  (not (contains? activedescendant-roles (name (or (rf.fresco.test/markup-role node) :none))))
                   (conj :role-may-not-carry-activedescendant)
 
                   (empty? owned)
@@ -324,7 +324,7 @@
   document order."
   [tree]
   (into []
-        (comp (filter #(= :option (rf.fresco.test/role %)))
+        (comp (filter #(= :option (rf.fresco.test/markup-role %)))
               (filter #(true? (attr % :aria-selected)))
               (map #(attr % :id)))
         (rf.fresco.test/find-all tree (constantly true))))
@@ -351,7 +351,7 @@
          *3 of 3, 日本語* at all")
 
     (testing "and the pieces, named, so a failure above says which"
-      (let [trigger (rf.fresco.test/find t #(= :combobox (rf.fresco.test/role %)))]
+      (let [trigger (rf.fresco.test/find t #(= :combobox (rf.fresco.test/markup-role %)))]
         (is (= trigger-id (attr trigger :id)))
         (is (= listbox-id (attr trigger :aria-controls)))
         (is (= (option-id "ja") (attr trigger :aria-activedescendant)))
@@ -374,7 +374,7 @@
     (testing "and the trigger reads as an ordinary button, which is
               precisely the problem: everything about it is legal markup"
       (let [trigger (rf.fresco.test/find t #(some? (attr % :aria-activedescendant)))]
-        (is (= :button (rf.fresco.test/role trigger)))
+        (is (= :button (rf.fresco.test/markup-role trigger)))
         (is (nil? (attr trigger :aria-controls)))))))
 
 (deftest aria-selected-follows-the-commitment-and-not-the-keyboard

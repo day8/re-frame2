@@ -301,8 +301,8 @@ something that must own the mount.
 ## 3. Prove the port with shadow comparison
 
 `hm/shadow!` mounts the original and the port against separate copies of the
-same seeded frame, drives both with one interaction script, and compares their
-DOM and dispatched events at each checkpoint.
+same seeded frame. You drive both with the same interactions, and at each
+checkpoint you ask for, it compares their DOM and dispatched events.
 
 It lives in `re-frame.fresco.test.mounted`, so it needs the test kit and a
 build with real React and a real DOM (level L3 in [Testing](15-testing.md)). A
@@ -331,7 +331,10 @@ pointing at the original is a screen that never migrates.
 
 ```clojure
 (ns app.migration.todo-row-shadow
-  (:require [reagent.core :as r]
+  (:require [cljs.test :refer [async deftest is]]
+            ["@testing-library/dom" :as tl]
+            ["@testing-library/user-event" :default user-event]
+            [reagent.core :as r]
             [re-frame.fresco.test.mounted :as hm]
             [app.views.todo-row-reagent :as old]
             [app.views.todo-row :as new]))
@@ -340,14 +343,35 @@ pointing at the original is a screen that never migrates.
 ;; element type and remounts the subtree.
 (def old-todo-row (r/reactify-component old/todo-row))
 
-(hm/shadow!
- {:reference      [:> old-todo-row {:id 1}]
-  :candidate      [new/todo-row {:id 1}]
-  :initial-events [[:todo/initialise]]
-  :script         [{:click "button.edit"}
-                   {:type  ["input.title" "Buy oat milk"]}
-                   {:click "button.save"}]})
-;; => {:status :green :checkpoints 4}
+(defn- on-both
+  "Run `f` against each mount, one after the other."
+  [s f]
+  (-> (f (:reference s)) (.then #(f (:candidate s)))))
+
+(defn- button [m label]
+  (tl/getByRole (:container m) "button" #js {:name label}))
+
+(defn- retitle! [user m title]
+  (let [field (tl/getByRole (:container m) "textbox")]
+    (-> (.clear user field) (.then #(.type user field title)))))
+
+(deftest the-port-matches-the-original
+  (async done
+    (let [s    (hm/shadow! {:reference      [:> old-todo-row {:id 1}]
+                            :candidate      [new/todo-row {:id 1}]
+                            :initial-events [[:todo/initialise]]})
+          user (.setup user-event)]
+      (is (= {:status :green :checkpoints 1} ((:checkpoint! s))))
+      (-> (on-both s #(.click user (button % "Edit")))
+          (.then #(on-both s (fn [m] (retitle! user m "Buy oat milk"))))
+          (.then #(is (= :green (:status ((:checkpoint! s))))))
+          (.then #(on-both s (fn [m] (.click user (button m "Save")))))
+          (.then (fn [_]
+                   (is (= {:status :green :checkpoints 3} ((:checkpoint! s))))
+                   (is (some? (tl/queryByText (:container (:candidate s))
+                                              "Buy oat milk")))))
+          (.catch #(is false (str %)))
+          (.then (fn [_] ((:stop! s)) (done)))))))
 ```
 
 Fresco mounts both sides, so the original enters the way any foreign React
@@ -377,36 +401,42 @@ refuses with `:rf.error/ambiguous-registration`, passes the same vector here.
 `hm/mount!` and `hm/hydrate!` take the same option
 ([Mount options](15-testing.md#mount-options)).
 
-A red result names the checkpoint and the DOM node or event that differs.
+`hm/shadow!` returns `{:reference handle :candidate handle :checkpoint! f
+:stop! f}`. The two handles are ordinary [mounted handles](15-testing.md#l3-mounted-react-and-dom),
+so every `hm` operation and every Testing Library query works on each.
+Nothing is compared until you call `:checkpoint!`, which settles both mounts,
+compares them, and numbers the reading. `:stop!` takes both mounts down.
 
-A green result covers only the flows in the script, so script the screen's
-real behaviour rather than one happy click. Before trusting the comparator,
+A red result names the checkpoint and the DOM node or event that differs:
+
+```clojure
+{:status :red :checkpoints 3 :checkpoint 2
+ :difference {:kind :dom :reason :attribute :attribute "class"
+              :at "div[0] > ul[1] > li[0]"
+              :reference "row done" :candidate "row"}}
+```
+
+A green result covers only the interactions you drove, so drive the screen's
+real behaviour rather than one happy click. Keep a few assertions of your own
+beside the checkpoints, such as the saved title above: a green checkpoint says
+the two sides agree, not that either is right. Before trusting the comparator,
 break the candidate on purpose and confirm the run turns red at the expected
 checkpoint.
 
-A step is `{:click selector}` or `{:type [selector text]}` and nothing else.
-Another verb or option raises `:rf.error/fresco-test-bad-option` before
-anything mounts, and a step whose selector matches nothing, or matches only one
-side, is itself a red (`:kind :script`), so a typo cannot pass. Each step
-settles synchronously, so a route-link navigation, an HTTP reply or a
-`:dispatch-later` lands after the checkpoint that would have seen it. Seed the
-settled state instead, or check the async flow in a mounted test with
-`hm/settle-until!`.
-
-Omit `:script` during interactive development. The call returns a handle, both
-mounts stay live, and nothing is compared until you ask: drive both by hand,
-call `:checkpoint!` at each point you want compared, and `:stop!` when done.
+**Wait for asynchronous work before a checkpoint.** A route-link click, an HTTP
+reply or a `:dispatch-later` reaches the page on a later task. Wait for it on
+each mount with `hm/settle-until!`, then take the checkpoint:
 
 ```clojure
-(let [s (hm/shadow! {:reference [:> old-todo-row {:id 1}]
-                     :candidate [new/todo-row {:id 1}]})]
-  ;; drive the page by hand, then take a reading
-  ((:checkpoint! s))   ;; => {:status :green :checkpoints 1}
-  ((:stop! s)))
+(-> (on-both s #(.click user (tl/getByRole (:container %) "link" #js {:name "Buy milk"})))
+    (.then #(on-both s (fn [m]
+                         (hm/settle-until! m (fn [] (= :todo/detail (route-of m)))
+                                           {:label "the detail page"}))))
+    (.then #(is (= :green (:status ((:checkpoint! s)))))))
 ```
 
-Each `:checkpoint!` call settles both mounts, compares them, and numbers the
-reading; `:stop!` takes both mounts down.
+where `route-of` reads `:rf.route/id` in that mount's frame:
+`(rf/subscribe-once [:rf.route/id] {:frame (:frame m)})`.
 
 Shadow comparison checks DOM and dispatched events. It does not check focus,
 caret, IME, layout, or paint; use the browser levels in

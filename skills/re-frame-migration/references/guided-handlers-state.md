@@ -43,7 +43,7 @@ Present every call site with its file:line and the four options; collect the aut
 
 ## M-5 — Var-aliased `reg-*`
 
-**READ THE HOST FIRST — most hits are not migration sites at all.** On **CLJS**, `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` (and `dispatch` / `dispatch-sync` / `subscribe` / `reg-interceptor`) are macros in *call* position and plain **fn Vars in value position, under the same name** — [Conventions §Convention A](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#convention-a--same-name-cljs-value-alias-no--twin). So `(apply rf/reg-sub …)`, `(def register-sub rf/reg-sub)` and `(map #(apply rf/reg-event %) pairs)` **work as written and are left alone**. On the **JVM** the same names are macros only, and value-position use is a real compile-time failure.
+**READ THE HOST FIRST — most hits are not migration sites at all.** On **CLJS**, `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` (and `dispatch` / `dispatch-sync` / `reg-interceptor`) are macros in *call* position and plain **fn Vars in value position, under the same name** — [Conventions §Convention A](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#convention-a--same-name-cljs-value-alias-no--twin). So `(apply rf/reg-sub …)`, `(def register-sub rf/reg-sub)` and `(map #(apply rf/reg-event %) pairs)` **work as written and are left alone**. On the **JVM** the same names are macros only, and value-position use is a real compile-time failure. `subscribe` is a plain fn on both hosts, so it is never one of these hits.
 
 So the rule is: **classify by host and by position before you touch a hit.**
 
