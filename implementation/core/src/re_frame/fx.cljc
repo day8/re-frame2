@@ -6,7 +6,6 @@
   artefact carries none of their code."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.reg-meta :as rf.reg-meta]

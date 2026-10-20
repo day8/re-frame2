@@ -10,7 +10,6 @@
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.flows.topo :as rf.flows.topo]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.path :as rf.path]
             [re-frame.registrar :as rf.registrar]
