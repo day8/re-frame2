@@ -3504,10 +3504,14 @@ row drops out cleanly and the humanized / raw map renders alone.
 
 #### Rollback blast-radius mute
 
-When the cascade carries an `:app-db` violation with
-`:rollback? true`, the projection's
+When validation rejected the event's own candidate — the rejection
+`db-rolled-back?` or `runtime-db-rolled-back?` reads, at `:where :app-db`
+or `:where :machine-data` — the projection's
 `mark-rolled-back-downstream` pass flags every step AFTER the
-SIDE EFFECTS step with `:rolled-back? true`. The view's pipeline
+SIDE EFFECTS step with `:rolled-back? true`. A post-walk flow settle's
+rejection mutes nothing: the event's install stood and its subscriptions
+and views ran on it
+([Spec 013 §Sequencing](../../../spec/013-Flows.md#sequencing--settling-on-the-dispatching-frame)). The view's pipeline
 wrapper applies a `:opacity 0.55` overlay to those steps. The SIDE
 EFFECTS step itself stays visible — the violation rides on its `:db`
 row (per the attachment table above, post-rf2-8resu / rf2-kt6js) so
