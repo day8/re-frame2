@@ -193,7 +193,9 @@
    ;; anyway. The session feed lives in the session scope, so it gets its own
    ;; per-target descriptor naming `{:from-db :realworld/session}`: one mutation,
    ;; reaching across both scopes. Both derived-scope targets resolve against the
-   ;; acting author at settle time.
+   ;; app-db the mutation was issued in, so the acting author's entries are the
+   ;; ones staled (Spec 016 §Resolver references: a mutation's consequences
+   ;; resolve against its issuance context).
    ;;
    ;; A third descriptor stales the author's OWN `:realworld/author-articles`
    ;; (My Articles) cache, keyed off the reply's `:article :author :username` —

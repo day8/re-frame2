@@ -78,23 +78,14 @@
 (rf/reg-event :home/clear-tag
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
 
-;; Paging keeps the active feed and tag (read off the live route) and swaps only
-;; `?page=`, so page N and N+1 share a filter but live under distinct cache keys.
-;; A tag-filtered page re-targets the `/tag/:tag` PATH route with the tag param
-;; preserved; otherwise the home route carries `?feed=`. Page 1 drops the `?page=`
-;; param entirely — that's the canonical first-page URL.
+;; Paging navigates in place — no `:to` — so it stays on the active route (the
+;; `/tag/:tag` PATH route keeps its tag param) and its `:query` merges into the
+;; current one: `?feed=` rides along and only `?page=` moves, so page N and N+1
+;; share a filter but live under distinct cache keys. Page 1 removes `?page=`
+;; (a `nil` member drops its key) — that's the canonical first-page URL.
 (rf/reg-event :home/go-to-page
-  (fn [{rt :rf.db/runtime} [_ page]]
-    (let [current (rf/compute-sub [:rf/route] rt)
-          tag     (get-in current [:params :tag])
-          feed    (get-in current [:query :feed])]
-      (if tag
-        (let [query (cond-> {} (> page 1) (assoc :page page))]
-          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query query}]]]})
-        (let [query (cond-> {}
-                      feed       (assoc :feed feed)
-                      (> page 1) (assoc :page page))]
-          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query query}]]]})))))
+  (fn [_ [_ page]]
+    {:fx [[:dispatch [:rf.route/navigate {:query {:page (when (> page 1) page)}}]]]}))
 
 (rf/reg-sub :home/selected-tag {:inputs [[:rf.route/params]]} (fn [[p] _] (:tag p)))
 (rf/reg-sub :home/your-feed?   {:inputs [[:rf.route/query]]}  (fn [[q] _] (= following-feed-token (:feed q))))
@@ -705,13 +696,12 @@
 (rf/reg-sub :profile/page {:inputs [[:rf.route/query]]}
   (fn [[q] _] (or (:page q) 1)))
 
-;; Paging within a profile tab keeps the current route and username and swaps only
-;; `?page=`. Page 1 drops the param — the canonical first-page URL.
+;; Paging within a profile tab navigates in place the same way: it keeps the
+;; current route and username and swaps only `?page=`. Page 1 drops the param —
+;; the canonical first-page URL.
 (rf/reg-event :profile/go-to-page
-  (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)
-          query (cond-> {} (> page 1) (assoc :page page))]
-      {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query query}]]]})))
+  (fn [_ [_ page]]
+    {:fx [[:dispatch [:rf.route/navigate {:query {:page (when (> page 1) page)}}]]]}))
 
 (reg-view profile-page []
   (let [favorites?     @(subscribe [:profile/favorites-tab?])
