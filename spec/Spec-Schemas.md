@@ -3503,7 +3503,7 @@ Implementations rank candidates by descending tuple, and its sixth element makes
 > **Owner:** [012-Routing §The RouteAddress value](012-Routing.md#the-routeaddress-value)
 > **Status:** v1-required
 
-The caller-authored **address** of one registered named destination — the closed `{:to :params :query :fragment}` map every navigation door, `route-url`, `rf/route-link` (and a view substrate's own spelling of it), and `:rf.route/prefetch` resolves through ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Canonical `RouteAddress`). `:rf.route/prefetch` accepts **only** this named form (never a raw `:url`), rejecting anything else before planning with `:rf.error/prefetch-bad-address` (see [012 §Route-plan prefetch](012-Routing.md#route-plan-prefetch--warm-mode-intent-preload)). It is destination *intent*, never navigation policy (`:replace?` / `:scroll` / `:bypass-leave?`) and never an in-place edit (`:query-merge`); those travel beside the address in the same flat public map but keep their own shapes, so a future feature cannot make a policy or edit key serialisable as a destination. The resolved *fact* is the [`:rf/route-slice`](#rfroute-slice) — facts say `:route-id`, intent says `:to`.
+The caller-authored **address** of one registered named destination — the closed `{:to :params :query :fragment}` map every navigation door, `route-url`, `rf/route-link` (and a view substrate's own spelling of it), and `:rf.route/prefetch` resolves through ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Canonical `RouteAddress`). `:rf.route/prefetch` accepts **only** this named form (never a raw `:url`), rejecting anything else before planning with `:rf.error/prefetch-bad-address` (see [012 §Route-plan prefetch](012-Routing.md#route-plan-prefetch--warm-mode-intent-preload)). It is destination *intent*, never navigation policy (`:replace?` / `:scroll` / `:bypass-leave?`) and never an in-place edit (a request with neither `:to` nor `:url`, whose `:query` merges into the current query); those travel beside the address in the same flat public map but keep their own shapes, so a future feature cannot make a policy or edit key serialisable as a destination. The resolved *fact* is the [`:rf/route-slice`](#rfroute-slice) — facts say `:route-id`, intent says `:to`.
 
 ```clojure
 (def RouteAddress
@@ -3533,7 +3533,7 @@ The closed **replay union** of a `:rf/route-address` and the raw-URL escape — 
     [:fragment {:optional true} [:maybe :string]]]])                       ;; explicit #fragment override of a URL-embedded one
 ```
 
-The raw branch is a required string `:url` plus an optional string-or-`nil` `:fragment`; it excludes `:to`, `:params`, `:query`, and `:query-merge` (a raw URL IS the address). It is a *replay* shape only — it does **not** give `route-url` or prefetch a second accepted input spelling; those take a `:rf/route-address`.
+The raw branch is a required string `:url` plus an optional string-or-`nil` `:fragment`; it excludes `:to`, `:params`, and `:query` (a raw URL IS the address). It is a *replay* shape only — it does **not** give `route-url` or prefetch a second accepted input spelling; those take a `:rf/route-address`.
 
 ### `:rf/route-slice`
 
