@@ -287,11 +287,18 @@
       redacted whole and the trace is stamped `:sensitive? true`; otherwise,
       when it classifies anything large, a size marker stands in for them.
 
+  The registry walked is the one the candidate transition would install,
+  `runtime-db-after`'s (nil when the transition leaves runtime-db alone, so the
+  committed registry stands). The failure is projected before that commit, and
+  a classification effect returned by the event that wrote the failing value
+  must already govern it, though the rejection installs nothing.
+
   The walker fails closed: a frame it cannot resolve redacts the whole value,
   which reads here as sensitive."
-  [tags frame-id registered-path registered-value leaf-path leaf-value]
+  [tags frame-id runtime-db-after registered-path registered-value leaf-path leaf-value]
   (let [walk       (fn [v path extra]
-                     (rf.elision/elide-wire-value v (merge {:frame frame-id :path path} extra)))
+                     (rf.elision/elide-candidate-value
+                       v (merge {:frame frame-id :path path} extra) runtime-db-after))
         sensitive? (not= registered-value
                          (walk registered-value registered-path {:rf.egress/include-large? true}))
         large?     (and (not sensitive?)
@@ -900,6 +907,7 @@
     (validate-app-schema! db event-id)                   ;; current frame, named handler
     (validate-app-schema! db event-id frame-id)          ;; explicit frame
     (validate-app-schema! db event-id frame-id db-before)
+    (validate-app-schema! db event-id frame-id db-before runtime-db-after)
 
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
@@ -910,15 +918,22 @@
   `[]`) with required map entries. A present value, `nil` included, is
   checked.
 
-  db-before (the 4-arity, and the shape the router's late-bind call uses —
-  it invokes the hook as `(validate db-after event-id frame db-before)`)
-  is the app-db the candidate replaces. A registered path
+  db-before (the 4-arity) is the app-db the candidate replaces. A registered path
   whose slice the candidate leaves `identical?` to it is skipped, because
   this commit does not write it: a registration the live slice does not
   satisfy is named by `:rf.schema/violation` when it happens, and the
   slice is checked again when an event writes it. A parent path is still
   checked when a write lands beneath it, and `[]` whenever the db changed.
   Without db-before every present entry is checked.
+
+  runtime-db-after (the 5-arity, and the shape the router's late-bind call
+  uses — it invokes the hook as
+  `(validate db-after event-id frame db-before runtime-db-after)`) is the
+  candidate runtime-db the same transition would install, nil when it leaves
+  runtime-db alone. A failure projects through ITS elision registry, so a
+  classification effect returned by the event that wrote the failing value
+  governs the failure trace. Without it the frame's committed registry is
+  walked.
 
   Returns:
     true   — every registered schema conformed (or no validator /
@@ -937,8 +952,10 @@
   ([db] (validate-app-schema! db nil (rf.frame/current-frame)))
   ([db event-id] (validate-app-schema! db event-id (rf.frame/current-frame)))
   ([db event-id frame-id]
-   (validate-app-schema! db event-id frame-id nil))
+   (validate-app-schema! db event-id frame-id nil nil))
   ([db event-id frame-id db-before]
+   (validate-app-schema! db event-id frame-id db-before nil))
+  ([db event-id frame-id db-before runtime-db-after]
    ;; Per Spec 009 §Production builds the entire body lives inside a
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
    ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
@@ -1200,7 +1217,8 @@
                                               ;; Then the frame's elision registry,
                                               ;; at the unsanitized leaf path.
                                               (project-through-registry
-                                                frame-id registered-path registered-value
+                                                frame-id runtime-db-after
+                                                registered-path registered-value
                                                 (if in-path
                                                   (into (vec registered-path) in-path)
                                                   registered-path)

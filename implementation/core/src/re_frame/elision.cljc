@@ -1426,6 +1426,28 @@
        :else
        rf.privacy/redacted-sentinel))))
 
+(defn ^:no-doc elide-candidate-value
+  "Walk `v` under `opts` as `elide-wire-value` does, but against the elision
+  registry of `runtime-db`, the CANDIDATE runtime-db a commit is about to
+  install, rather than the frame's committed one. A value a transition carries
+  is projected before that transition commits, so a path classified by the
+  SAME event is redacted from its first egress. A nil `runtime-db` means the
+  transition leaves runtime-db alone, so the committed registry stands.
+
+  The governing frame is the explicit `:frame` opt, and it must name a LIVE
+  frame, else the whole value is the sentinel. Internal: the one
+  candidate-registry walk, consumed by `elide-pending-db` and by the schemas
+  artefact's `:app-db` validation-failure projection."
+  [v opts runtime-db]
+  (assert-egress-opts! 're-frame.elision/elide-candidate-value walker-opt-keys opts)
+  (let [frame-id (:frame opts)]
+    (if (and (some? frame-id) (some? (rf.frame/frame frame-id)))
+      (elide-against-registry v opts frame-id
+                              (if (some? runtime-db)
+                                (get runtime-db :rf.runtime/elision)
+                                (registry-of frame-id)))
+      rf.privacy/redacted-sentinel)))
+
 (defn ^:no-doc elide-pending-db
   "Walk `v`, a PENDING app-db value rooted at the db root, against the
   CANDIDATE registry: `frame-id`'s committed elision registry with the EP-0025
@@ -1435,26 +1457,17 @@
   registry alone would ship a path classified in the SAME event raw,
   breaking the first-egress promise above.
 
-  The walk is `elide-wire-value`'s own (map-of key skip, index-free descent,
-  owner-aware markers), under the same fail-closed contract: `frame-id` must
-  name a LIVE frame, else the whole value is the sentinel. A malformed effect
-  payload — which the router refuses pre-commit, after t1 has fired — fails
-  closed too. Internal: consumed by `re-frame.classification`'s
+  The walk is `elide-candidate-value`'s, under its fail-closed contract:
+  `frame-id` must name a LIVE frame, else the whole value is the sentinel. A
+  malformed effect payload — which the router refuses pre-commit, after t1 has
+  fired — fails closed too. Internal: consumed by `re-frame.classification`'s
   `project-db-tags`."
   [v frame-id effects]
-  (cond
-    (not (and (some? frame-id) (some? (rf.frame/frame frame-id))))
+  (if (classification-effect-defect effects)
     rf.privacy/redacted-sentinel
-
-    (classification-effect-defect effects)
-    rf.privacy/redacted-sentinel
-
-    :else
-    (elide-against-registry
-      v {:frame frame-id} frame-id
-      (get (apply-classification-effects
-             {:rf.runtime/elision (registry-of frame-id)} effects)
-           :rf.runtime/elision))))
+    (elide-candidate-value
+      v {:frame frame-id}
+      (apply-classification-effects {:rf.runtime/elision (registry-of frame-id)} effects))))
 
 (defn marker?
   [v]
