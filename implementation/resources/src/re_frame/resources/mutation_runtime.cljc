@@ -1,98 +1,44 @@
 (ns re-frame.resources.mutation-runtime
-  "Mutation runtime-db paths + the durable mutation-INSTANCE shape, plus
-  the pure controlled resource patch / populate helpers. Per Spec 016
-  §Mutations.
+  "The mutation runtime-db path, the durable mutation-instance shape, and the
+  pure cache transforms the mutation handlers apply: controlled patch /
+  populate, the optimistic apply and its settle protocol, target and
+  instance-id validation, and invalidation-descriptor normalization. The
+  impure swaps live in `re-frame.resources.mutation-events`.
 
-  A mutation is a named, causal WRITE to remote state that, on success,
-  invalidates / patches / populates cached resource reads. `reg-mutation`
-  registers it; `:rf.mutation/execute` runs it. Mutation runtime state is
-  keyed by mutation **INSTANCE** id, NOT only by mutation id, so two
-  concurrent `:comment/add` submissions never clobber each other's pending /
-  error / result state.
-
-  Mutation instances live ONLY at `:rf.runtime/mutations` inside the
-  runtime-db partition (`:rf.db/runtime`) — a reserved runtime-db key
-  (per [Conventions §Reserved runtime-db keys]), allocated lazily,
-  per-frame isolated, never an app-db location. The map is keyed by
-  the CEDN-1 byte identity of the instance id `{<key-id> <instance>}`; each row
-  retains the kind-preserving id under `:instance/id`. Xray groups instances
-  under their registered `:mutation/id` while showing each request / invalidation
-  / patch / result separately.
-
-  ## Two-level identity (mirrors the resource entry ↔ work-record split)
-
-  - **Mutation INSTANCE** (the durable runtime row, here) — pending /
-    error / result FACTS keyed by instance id, per submission.
-  - **Work record** (the `:rf.runtime/work-ledger`, neutral) —
-    the in-flight attempt the instance points at via `:current-work`,
-    carrying owners / causes / deadline / outcome and the host-handle
-    side-table correlation. Mutations reuse the resource work-ledger
-    substrate wholesale (work-kind `:mutation`).
-
-  This namespace fixes the reserved key path, the durable instance
-  shape, and the PURE patch / populate transition over resource entries
-  (the mutation success handler applies them); the swaps over these
-  paths live in `re-frame.resources.mutation-events`."
+  Instances are keyed by instance id, not mutation id, so two concurrent
+  submissions of one mutation never clobber each other; each points at its
+  in-flight work-ledger record through `:current-work`.
+  Spec 016 §Mutations (first public-beta gate)."
   (:require [re-frame.error :as rf.error]
             [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- reserved runtime-db path --------------------------------------------
-;;
-;; Inside runtime-db itself, framework code reads/writes the bare
-;; `[:rf.runtime/mutations …]` path; inside a full frame-state projection
-;; the mutation subtree is at `[:rf.db/runtime :rf.runtime/mutations …]`.
 
 (def mutations-key
-  "The reserved runtime-db key for the mutation-instance subtree
-  (`:rf.runtime/mutations`). A map `{<key-id> <instance>}`, keyed on the
-  CEDN-1 byte `key-id` of the mutation INSTANCE id (see `instance-key-id`) so
-  concurrent submissions of the same mutation id do not clobber each other.
-  Per Spec 016 §Cache home and write authority / EP-0003 §Mutations."
+  "The reserved runtime-db key of the mutation-instance map
+  `{<key-id> <instance>}`.
+  Spec 016 §`:rf.runtime/mutations` — mutation-instance runtime."
   :rf.runtime/mutations)
 
 (defn instance-key-id
-  "The CEDN-1 BYTE-IDENTITY map-key for a mutation INSTANCE id — its
-  `canonical-bytes` string. The SAME canonical identity the
-  resource cache key uses (`rf.resources.state/key-id`), applied to the instance id.
-
-  WHY (the EP-0012 `=`-collapse guard, mirrored for mutations): a caller MAY
-  supply a sequential / collection instance id (a row-keyed form addresses its
-  instance by `[:row 7]`; `validate-instance-id!` accepts any serializable
-  EDN). Clojure map keys compare by `=`, which is
-  COARSER than the authoritative CEDN-1 byte identity for SEQUENTIAL
-  vector-vs-list — `(= [:row 7] '(:row 7))` is TRUE while their
-  `canonical-bytes` differ (`v[…]` vs `l(…)`). Keyed on the raw instance id
-  under `:rf.runtime/mutations`, two CEDN-distinct submissions would address
-  the SAME runtime row and clobber / gate each other.
-  Keying on the canonical-bytes STRING makes the map-key comparison EXACTLY
-  the CEDN-1 byte identity, so a list-id row and a vector-id row get DISTINCT
-  instances — without erasing the kind (the kind-preserving instance id is
-  stored alongside on the instance as `:instance/id`). The bytes string is
-  plain serializable EDN, so it rides the epoch / restore / trace wire with no
-  custom handler — exactly the resource cache (`rf.resources.state/key-id`) discipline.
-
-  Total on a `validate-instance-id!`-conforming id (`serializable-edn?` →
-  `canonical-bytes` is total on canonical EDN). Per EP-0003 §Mutations /
+  "The map key for a mutation instance id: its CEDN-1 canonical-bytes string,
+  as for the resource cache key. Clojure `=` equates `[:row 7]` and
+  `'(:row 7)`, which would let two distinct submissions share a row; the bytes
+  string keeps them apart and is plain EDN on every wire. The kind-preserving
+  id is stored on the instance as `:instance/id`.
   Conventions §Canonical EDN identity."
   [instance-id]
   (rf.resources.state/key-id instance-id))
 
 (defn instances-path
-  "Runtime-db-relative path to the mutation-instances map
-  `{<key-id> <instance>}` — keyed on the CEDN-1 byte `key-id`
-  (`instance-key-id`), NOT the raw instance id. Per Spec 016
-  §Cache home."
+  "Runtime-db-relative path to the instance map."
   []
   [mutations-key])
 
 (defn instance-path
-  "Runtime-db-relative path to a single mutation instance by its instance
-  id — the map is keyed on the instance id's CEDN-1 byte `key-id`
-  (`instance-key-id`), so two CEDN-distinct sequential ids (`[:row 7]` vs
-  `'(:row 7)`) address DISTINCT rows. Per EP-0003 §Mutations
-  (runtime state keyed by mutation instance id)."
+  "Runtime-db-relative path to one instance, keyed by `instance-key-id`."
   [instance-id]
   [mutations-key (instance-key-id instance-id)])
 
@@ -106,43 +52,24 @@
   (and (vector? instance-id) (= :rf.mutation/instance (first instance-id))))
 
 ;; ---- durable mutation-instance shape -------------------------------------
-;;
-;; Plain EDN — host handles (AbortControllers) live in the work-ledger side
-;; table keyed by `[frame-id work-id]`, NEVER on the instance. The instance
-;; stores FACTS, not derived booleans (`:pending?` / `:settled?` are public
-;; derived sub values, computed in the subs layer, never stored).
+;; Plain EDN facts only: host handles live in the work-ledger side table, and
+;; `:pending?` / `:settled?` are derived in the subs layer.
 
 (def terminal-statuses
-  "The terminal mutation-instance statuses (the write has settled). A
-  terminal instance under a caller-supplied id is cleared by an explicit causal
-  `:rf.mutation/clear` (NOT a form-error reset) or pruned by registration
-  teardown; one under a generated id is cleared by the runtime once settled.
-  Per EP-0003 §Mutations (failure-state lifetime + causal clear/reset)."
+  "The settled instance statuses. A terminal instance under a caller id stays
+  until a causal `:rf.mutation/clear`; one under a generated id is cleared by
+  the runtime."
   #{:success :error})
 
 (defn terminal?
-  "True iff `status` is a terminal mutation-instance status (the write has
-  settled with a result or an error). Per EP-0003 §Mutations."
+  "True iff `status` is terminal."
   [status]
   (contains? terminal-statuses status))
 
 (defn empty-instance
-  "Construct a fresh `:pending` mutation instance for `mutation-id` /
-  `instance-id`. The durable instance stores FACTS (status / result /
-  error / timestamps / generation / current-work / the canonical params /
-  scope / the affected-resource-key reservation for the optimistic-rollback
-  trace shape), NOT derived booleans (`:pending?` / `:settled?` are derived
-  in the subs layer). Per EP-0003 §Mutations.
-
-  Opts:
-  - `:scope`         — the resolved cache scope the invalidation / patch
-                       defaults to (same scope rules as resources)
-  - `:params`        — the canonical params the request / `:invalidates` /
-                       `:patches` close over
-  - `:cause`         — the initiating cause
-  - `:generation`    — the monotone generation (stale-suppression identity)
-  - `:work-id`       — the linked work-ledger record id
-  - `:started-at`    — epoch-ms"
+  "A fresh `:pending` instance for `mutation-id` / `instance-id`. Opts:
+  `:scope` (the resolved execution scope), `:params` (canonical), `:cause`,
+  `:generation`, `:work-id`, `:started-at`."
   [mutation-id instance-id {:keys [scope params cause generation work-id started-at]}]
   {:mutation/id   mutation-id
    :instance/id   instance-id
@@ -156,23 +83,14 @@
    :current-work  work-id
    :started-at    started-at
    :settled-at    nil
-   ;; The optimistic-rollback trace reservation (EP-0003 §Mutations:
-   ;; "the mutation trace shape should reserve room for them now: affected
-   ;; resource keys, patch summaries, snapshot ids, rollback result, and
-   ;; reconciliation refetches"). The optimistic apply (EP-0019) fills the
-   ;; `:patch-summary` half: its `:snapshot-id` / `:rollback` slots carry the
-   ;; recorded snapshot-inverse the SETTLE step replays (commit / rollback /
-   ;; reconcile). nil until the execute (phase 1.5) / success path writes them.
+   ;; Filled by the execute's optimistic apply and the success path;
+   ;; `:patch-summary` carries the recorded inverse the settle step replays.
    :affected-keys nil
    :patch-summary nil})
 
 (defn instance-succeeded
-  "Transition a mutation instance to `:success` with the decoded `result`,
-  recording `:settled-at`, the produced `:affected-keys` (the resource keys
-  the success path patched / populated / invalidated), and the
-  `:patch-summary` (the optimistic-rollback trace reservation). Clears
-  `:error` / `:current-work`. Pure `(instance, …) -> instance`. Per EP-0003
-  §Mutations."
+  "`instance` settled `:success` with `result`, its `:affected-keys` and
+  `:patch-summary`; clears `:error` and `:current-work`."
   [instance {:keys [result settled-at affected-keys patch-summary]}]
   (assoc instance
          :status        :success
@@ -184,13 +102,9 @@
          :patch-summary patch-summary))
 
 (defn instance-failed
-  "Transition a mutation instance to `:error` with the failure `error`
-  envelope (the closed `:rf.http/*` shape, the same envelope resource
-  `:error` carries), recording `:settled-at` and any `:affected-keys` an
-  invalidate-on-failure timing produced. Clears `:current-work`. A mutation
-  failure has NO `:refresh-error` analogue — a write has no last-known-good
-  to preserve, so the failure is the terminal state until a causal clear.
-  Pure. Per EP-0003 §Mutations (tag invalidation from failure when useful)."
+  "`instance` settled `:error` with the `:rf.http/*` failure envelope; clears
+  `:current-work`. A write has no last-known-good, so there is no
+  `:refresh-error` analogue."
   [instance {:keys [error settled-at affected-keys]}]
   (assoc instance
          :status        :error
@@ -201,18 +115,10 @@
          :affected-keys affected-keys))
 
 (def dangling-on-restore-error
-  "The structured failure envelope a PENDING mutation instance is terminally
-  settled to on epoch restore (Spec 016 §Restore and replay part 2). A
-  restored `:pending` instance's `:current-work` references an attempt the
-  restored timeline no longer owns — its host handle was never serialized and
-  a late pre-restore reply must be SUPPRESSED. The write's true outcome is
-  unknowable after a timeline rewind (it may have settled server-side, or
-  never been sent), so the instance is settled to a terminal `:error` carrying
-  this `:dangling-on-restore` envelope rather than left stranded `:pending`
-  forever — the app sees an explicit, re-submittable failure (XState-grade:
-  a dangling in-flight identity is surfaced, never silently stuck). Shares the
-  closed `:rf.http/*` failure taxonomy (`:rf.http/aborted` — the in-flight
-  request was effectively abandoned by the rewind)."
+  "The failure envelope a pending instance settles to on epoch restore: its
+  outcome is unknowable after the rewind, so it surfaces as an explicit,
+  re-submittable error rather than staying `:pending` forever.
+  Spec 016 §2. In-flight work does not survive restore as live work."
   {:kind    :rf.http/aborted
    :reason  :dangling-on-restore
    :message (str "the mutation's in-flight request was abandoned by an epoch "
@@ -222,25 +128,15 @@
                  "suppressed (Spec 016 §Restore and replay).")})
 
 (defn pending?
-  "True iff `instance` is a non-terminal `:pending` / `:idle` mutation instance
-  (a write still in flight, or created-not-yet-dispatched) — the restore
-  reconcile target. Terminal (`:success` / `:error`) instances ride through a
-  restore unchanged (they already carry a settled outcome). Per EP-0003
-  §Mutations / Spec 016 §Restore and replay part 2."
+  "True iff `instance` is `:pending` or `:idle`, the restore reconcile target."
   [instance]
   (contains? #{:pending :idle} (:status instance)))
 
 (defn instance-dangled
-  "Terminally settle a restored PENDING mutation `instance` to `:error` with
-  the `dangling-on-restore-error` envelope and CLEAR its `:current-work`
-  pointer (Spec 016 §Restore and replay part 2). Clearing `:current-work` is
-  the load-bearing half: a late pre-restore reply's `live-instance-for-reply`
-  check (`(= work-id (:current-work inst))`) then fails, so the reply is
-  suppressed and CANNOT patch / populate / invalidate post-restore state — the
-  same work-id + generation stale-suppression gate the resource path uses. The
-  terminal `:error` settle is the visible half (no stuck `:pending`). Pure
-  `(instance, settled-at) -> instance`. A non-pending (already-terminal)
-  instance is returned unchanged."
+  "A restored pending `instance` settled `:error` with
+  `dangling-on-restore-error`; other instances unchanged. Clearing
+  `:current-work` is what makes a late pre-restore reply fail the work-id gate
+  and be suppressed. Spec 016 §2. In-flight work does not survive restore as live work."
   [instance settled-at]
   (if (pending? instance)
     (assoc instance
@@ -251,36 +147,19 @@
            :current-work nil)
     instance))
 
-;; ---- controlled resource patch / populate (Spec 016 / EP-0003) ------------
-;;
-;; A mutation response can PATCH an existing resource entry (transform its
-;; last-known-good `:data` in place) or POPULATE one (seed a `:loaded` entry
-;; from the mutation result). These are the "controlled resource patch /
-;; populate APIs for mutation responses" (EP-0003 §Mutations) — controlled
-;; because they go through the SAME durable entry shape + structural sharing
-;; the read path uses, never a raw runtime-db poke. They run on the mutation
-;; SUCCESS path, BEFORE the success-time invalidation (a patch makes an entry
-;; fresh; a subsequent same-tag invalidation would just re-stale it, so the
-;; declarative success path patches first, then invalidates the tags the
-;; patch did NOT already satisfy — the events layer orders them).
+;; ---- controlled resource patch / populate ---------------------------------
+;; These run on the success path before success-time invalidation, so a tag
+;; the patch already satisfied is not re-staled; the events layer orders them.
 
 (defn patch-entry
-  "Pure: apply `patch-fn` to an existing resource entry's last-known-good
-  `:data`, returning the transformed entry (status stays `:loaded`,
-  freshness refreshed: `:invalidated-at` cleared, `:loaded-at` / `:stale-at`
-  re-stamped from `clock-ms` + the resource's stale policy). Applies
-  STRUCTURAL SHARING (keeps the old `:data` value when the patched value is
-  `=`). Returns the entry UNCHANGED when it has no usable data to patch (a
-  patch is a transform of existing data — populate seeds a fresh entry).
-  Per EP-0003 §Mutations (controlled resource patch APIs).
-
-  `patch-fn` is `(fn [old-data mutation-result] -> new-data)` — the mutation
-  author transforms the cached read from the write's result."
+  "`entry` with `(patch-fn old-data mutation-result)` as its `:data`, settled
+  `:loaded` and fresh, with `:revision` bumped (even when the value is `=`,
+  since a patch is an authoritative write). Unchanged when the entry has no
+  data to patch. Spec 016 §Mutations (first public-beta gate)."
   [entry patch-fn mutation-result {:keys [clock-ms stale-at]}]
   (if (rf.resources.state/has-data? entry)
     (let [old      (:data entry)
           patched  (patch-fn old mutation-result)
-          ;; structural sharing — keep the old value when nothing changed
           shared   (if (= old patched) old patched)]
       (-> entry
           (assoc
@@ -290,37 +169,20 @@
             :stale-at       stale-at
             :invalidated-at nil
             :refresh-error  nil
-            ;; A settled entry owns no read: a read in flight
-            ;; is SUPERSEDED by this write (the caller settles its work row),
-            ;; so its late reply fails the work-id gate and cannot revert it.
+            ;; A read in flight is superseded by this write (the caller settles
+            ;; its row), so its late reply fails the work-id gate.
             :current-work   nil)
-          ;; A feed read's pending sweep goes with it, or the next
-          ;; load-more settle would chain its legs over the written pages.
+          ;; Or the next load-more settle would chain its legs over the
+          ;; written pages.
           rf.resources.state/clear-refetch-sweep
-          ;; EP-0019: a patch is an authoritative durable write
-          ;; (re-stamps :loaded-at / :stale-at, clears :invalidated-at), so it
-          ;; bumps the per-entry :revision write identity UNCONDITIONALLY —
-          ;; even on the `=`-shared structural-sharing branch. The no-usable-
-          ;; data no-op branch below makes no write and does not bump.
           rf.resources.state/bump-revision))
     entry))
 
 (defn populate-entry
-  "Pure: SEED a resource entry's `:data` from a populate value, settling it
-  `:loaded` with fresh timestamps (`:loaded-at` / `:stale-at` from
-  `clock-ms` + policy, `:invalidated-at` cleared). Used when a mutation
-  result IS the new value of a resource read (e.g. an article PUT returns
-  the saved article, populating `[:article/by-slug …]` directly without a
-  refetch round-trip). Builds on an empty entry when none exists; structural
-  sharing preserves an `=` existing value. Per EP-0003 §Mutations
-  (controlled resource populate APIs).
-
-  `resource-id` stamps the seeded entry's `:resource/id` when fresh; `tags`
-  is the produced tag set (a populated entry MUST carry its own tags so a
-  later invalidation can reach it). `scoped-key` (opt) stamps the seeded
-  entry's `:resource/key` when fresh (a populate may CREATE an
-  entry, and every entry must carry its own scoped-key vector because
-  `:entries` is keyed on the byte `key-id`); an existing entry keeps its own."
+  "`entry` (or a fresh one) seeded with `populate-value` as its `:data`,
+  settled `:loaded` and fresh, with `:revision` bumped. A fresh entry takes
+  `resource-id`, `scoped-key` and `tags`, so a later invalidation can reach
+  it. Spec 016 §Populate is an authoritative load."
   [entry resource-id populate-value {:keys [clock-ms stale-at tags scoped-key]}]
   (let [base   (or entry (rf.resources.state/empty-entry resource-id scoped-key))
         old    (:data base)
@@ -341,68 +203,30 @@
           :tags           (or tags (:tags base) #{}))
         ;; As `patch-entry`: so is its pending feed sweep.
         rf.resources.state/clear-refetch-sweep
-        ;; EP-0019: a populate is an authoritative durable write (it
-        ;; seeds / re-stamps :loaded-at / :stale-at / :tags), so it bumps the
-        ;; per-entry :revision write identity UNCONDITIONALLY — including the
-        ;; `=`-shared branch and a freshly-seeded entry (base revision 0 -> 1).
         rf.resources.state/bump-revision)))
 
-;; ---- optimistic apply (phase 1.5) — snapshot inverse (EP-0019 D1/D2) -------
-;;
-;; An `:optimistic` / `:optimistic-tags` plan applies a FORWARD patch to the
-;; resource cache BEFORE the request settles (phase 1.5). The runtime records
-;; the truthful INVERSE per touched entry — a SNAPSHOT of the whole entry as it
-;; stood immediately BEFORE the forward patch (`:before`, structural-shared;
-;; `:absent` for a missing entry) plus its `:revision` at apply time — on the
-;; mutation INSTANCE row's `:patch-summary` `:rollback` slot. The author writes
-;; the forward patch only; the runtime owns the inverse (truthful by
-;; construction, no author drift — EP-0019 Decision 1 §Why not a forward+inverse
-;; pair). These are the PURE pieces; the impure phase-1.5 swap lives in
-;; `mutation-events`.
+;; ---- optimistic apply: the snapshot inverse ------------------------------
+;; The author writes the forward patch only; the runtime records the inverse
+;; (the whole pre-apply entry plus its revision), so the inverse cannot drift.
+;; Spec 016 §Optimistic mutations.
 
 (def absent-snapshot
-  "The `:before` sentinel for an optimistic apply against a key with NO entry
-  (EP-0019 Open Issue 6 — an optimistic SEED of an absent key, or the no-op
-  optimistic REMOVE of one). A rollback of an `:absent` snapshot REMOVES the
-  entry (restores the absence). Distinct from a `nil` entry value so the settle
-  protocol can tell \"there was nothing here\" from \"we did not snapshot\".
-
-  It is the ABSENCE OF AN ENTRY that puts this sentinel on a record, never the
-  forward op: an optimistic remove of an entry that EXISTS snapshots that entry
-  like any other apply and tombstones it in place, so the remove
-  form reaches this sentinel only when there was nothing to remove."
+  "The `:before` sentinel for an apply against a key with no entry; rolling it
+  back removes the entry. It marks the absence of an entry, never the forward
+  op: removing an entry that exists snapshots that entry."
   :rf.optimistic/absent)
 
 (defn snapshot-entry
-  "PURE: capture the truthful optimistic INVERSE of a single touched entry — the
-  WHOLE entry as it stood immediately before the forward patch, by reference
-  (structural sharing; the cache already shares structure on `=`). Returns the
-  entry itself for an existing entry (so a rollback restores it verbatim,
-  including its `:status` / `:data` / freshness timers / `:revision`), or the
-  `absent-snapshot` sentinel for a missing entry (a rollback then removes it).
-  Per EP-0019 Decision 2 (inverse = entry snapshot, not value diff)."
+  "The inverse of one touched entry: the entry itself, by reference, or
+  `absent-snapshot` for a missing one."
   [entry]
   (if (some? entry) entry absent-snapshot))
 
 (defn apply-optimistic-patch
-  "PURE: apply a FORWARD optimistic `patch-fn` `(fn [old-data] -> new-data)` to a
-  resource entry's `:data`, settling it `:loaded`/fresh and bumping the per-entry
-  `:revision` (the optimistic apply IS an authoritative durable write a later
-  rollback could clobber — EP-0019 Decision 2 / Open Issue 5). NO mutation
-  result — the reply does not exist yet (phase 1.5).
-
-  Three forms fall out of the snapshot inverse (EP-0019 Open Issue 6):
-  - an EXISTING entry — patch its `old-data` through `patch-fn` (an optimistic
-    PATCH; structural-shared on `=`);
-  - an ABSENT entry — SEED it `:loaded` with `(patch-fn nil)` (an optimistic
-    PUT/seed of an absent key); `resource-id` / `scoped-key` / `tags` stamp the
-    fresh entry exactly as `populate-entry` does;
-  - a `nil` `patch-fn` — an optimistic REMOVE (the caller writes a tombstone via
-    `apply-optimistic-remove`; this fn is not called for that form).
-
-  `clock-ms` / `stale-at` re-stamp freshness; `tags` (opt) stamps a freshly
-  seeded entry's tags (so a later invalidation can reach it). Per EP-0019
-  Decision 1 / §Optimistic mutations."
+  "`entry` with `(patch-fn old-data)` as its `:data`, settled `:loaded` and
+  fresh, `:revision` bumped. An absent entry is seeded, taking
+  `resource-id` / `scoped-key` / `tags` as `populate-entry` does; an existing
+  entry keeps its own tags. Spec 016 §Optimistic mutations."
   [entry patch-fn resource-id {:keys [clock-ms stale-at tags scoped-key]}]
   (let [base   (or entry (rf.resources.state/empty-entry resource-id scoped-key))
         old    (:data base)
@@ -419,50 +243,21 @@
           :loaded-at      clock-ms
           :stale-at       stale-at
           :invalidated-at nil
-          ;; an EXISTING entry KEEPS its own tags (an optimistic patch does not
-          ;; relabel); a freshly SEEDED entry (no prior entry) takes the
-          ;; resource's `tags` so a later invalidation can reach it.
           :tags           (if entry (:tags entry) (or tags #{})))
-        ;; EP-0019 Decision 2: the optimistic apply is an authoritative durable
-        ;; write — it bumps the per-entry `:revision` write identity, so the
-        ;; recorded inverse's post-apply `:applied-revision` (which includes
-        ;; this bump) lets the settle-time conflict check detect a competing
-        ;; write.
+        ;; The settle-time conflict check compares against the revision this
+        ;; bump leaves behind.
         rf.resources.state/bump-revision)))
 
 (defn apply-optimistic-remove
-  "PURE: apply a FORWARD optimistic REMOVE to a resource entry — a TOMBSTONE
-  written IN PLACE (`:data nil`, `:status :idle`), never a dissoc.
-  The payload-clearing twin of `apply-optimistic-patch`, and it bumps the
-  per-entry `:revision` for the same reason: the optimistic apply IS an
-  authoritative durable write a later rollback could clobber.
+  "An optimistic remove: `entry` tombstoned in place (`:data nil`,
+  `:status :idle`, freshness cleared, `:revision` bumped), never dissoc'd.
 
-  WHY IN PLACE. A dissoc would leave the settle protocol with NO ENTRY to reason
-  about, and every owner-liveness guard in this artefact is keyed to an entry
-  existing: `rf.resources.state/detach-owner` is a documented no-op on a nil
-  entry, so an owner that RELEASED between the apply and a failing reply would
-  move no `:revision`, the conflict check would see an UNMOVED entry, and
-  `restore-before` would seat the pre-apply snapshot verbatim — RESURRECTING the
-  departed owner onto the entry. The entry would then never GC (`gc-fired` reads
-  `:has-owner`), would refetch on every focus and reconnect, and would poll for
-  the frame's life. A tombstone keeps the entry, so BOTH ordinary protections
-  apply: the `detach-owner` / `attach-owner` revision bump makes a mid-flight
-  owner change a CONFLICT, and `reconcile-restored-entry` carries the CURRENT
-  `live-work-keys` forward over the snapshot's. This is the same pair that
-  protects the optimistic PATCH form.
-
-  What the tombstone keeps is as load-bearing as what it clears: `:tags`,
-  `:active-owners`, `:current-work` and the rest of the live read-work facts
-  ride through untouched — a remove writes the entry's PAYLOAD and nothing else,
-  exactly as a patch does. The entry is left owner-free-collectable rather than
-  collected: an owner-free `:idle` tombstone is GC-eligible on the ordinary
-  structural gate (owner-free + no in-flight work), and `gc-fired` drops its
-  work-ledger rows and inverse-index bucket with it.
-
-  `clock-ms` is accepted for signature symmetry with `apply-optimistic-patch`
-  and deliberately unused: a tombstone has no data, so it has no freshness to
-  stamp — `:loaded-at` / `:stale-at` / `:invalidated-at` all clear. Per EP-0019
-  Decision 1 / Open Issue 6 / Spec 016 §Optimistic mutations."
+  In place because every owner-liveness guard is keyed to an entry existing:
+  after a dissoc, an owner released mid-flight would move no revision, the
+  rollback would see no conflict, and restoring the snapshot would resurrect
+  the departed owner, leaving an entry that never GCs. The tombstone keeps
+  `:tags`, `:active-owners` and the live read-work facts; an owner-free
+  tombstone is GC-eligible as usual. Spec 016 §Optimistic mutations."
   [entry]
   (-> entry
       (assoc
@@ -473,40 +268,23 @@
         :loaded-at      nil
         :stale-at       nil
         :invalidated-at nil
-        ;; `:previous-key` projects a PRIOR key's data while this one loads
-        ;; (`:keep-previous?`). A tombstone must not project the very row the
-        ;; user just deleted, so the pointer clears with the payload.
+        ;; A tombstone must not project, via `:keep-previous?`, the very row
+        ;; the user just deleted.
         :previous-key   nil)
       rf.resources.state/bump-revision))
 
 (defn record-optimistic-entry
-  "PURE: the recorded INVERSE shape for ONE touched entry on the instance row's
-  `:patch-summary` `:rollback` slot (EP-0019 Decision 2). Carries the canonical
-  `:resource/key` (the EP-0012 canonical-identity scoped key), the `:revision`
-  observed at apply time (the conflict-check trace basis — the entry's revision
-  BEFORE this apply's own bump), the `:applied-revision` (the revision the apply
-  LEFT the entry at — the settle-time conflict baseline; the apply's own +1 bump
-  is NOT a conflict, only a write landing BEYOND it is), the `:before` snapshot
-  (structural-shared entry, or the `absent-snapshot` sentinel), and `:forward` —
-  a small descriptive summary of the applied forward op (`:patch` / `:seed` /
-  `:remove`) for the trace. The settle step replays `:before` (revision-
-  permitting) or invalidates on conflict; it does NOT consume the live entry
-  value here.
-
-  3-arity (`:applied-revision` derived from `before` + forward):
-  the apply bumped the before-revision by one, UNLESS it wrote nothing at all —
-  a remove over an ABSENT key has no entry to tombstone and leaves the cache
-  untouched, so the key is still exactly where it was. Every other
-  form (patch, seed, and a remove that tombstones an existing entry) writes the
-  entry and bumps.
-  4-arity: the caller supplies the observed post-apply `applied-revision`
-  explicitly (the apply already computed it). Per EP-0019 Decision 2 / §Optimistic
-  settle."
+  "The recorded inverse for one touched entry:
+  `{:resource/key :revision :applied-revision :before :forward}`, where
+  `:revision` is the pre-apply revision, `:applied-revision` the revision the
+  apply left (the settle-time conflict baseline), `:before` the snapshot and
+  `:forward` one of `:patch` / `:seed` / `:remove`. The 3-arity derives
+  `:applied-revision`: one past the observed revision, except a remove over an
+  absent key, which wrote nothing.
+  Spec 016 §Optimistic settle — commit / rollback / reconcile."
   ([scoped-key before-entry forward]
    (let [observed  (rf.resources.state/entry-revision
                      (when (not= before-entry absent-snapshot) before-entry))
-         ;; the ONE apply form that writes nothing: a remove with no entry to
-         ;; tombstone. Everything else bumps.
          no-op?    (and (= forward :remove) (= before-entry absent-snapshot))
          applied   (if no-op? observed (inc observed))]
      (record-optimistic-entry scoped-key before-entry forward observed applied)))
@@ -517,105 +295,39 @@
     :before           before-entry
     :forward          forward}))
 
-;; ---- the settle protocol (phase 4) — commit / rollback / reconcile ---------
-;;
-;; The SETTLE step (EP-0019 Decision 3) consumes the recorded inverse +
-;; `optimistic-conflict?` (below — the entry's current `:revision` against the
-;; recorded POST-apply `:applied-revision`, so the apply's own bump is not a
-;; conflict) to decide, per touched entry, the deterministic terminal
-;; disposition of an optimistic apply:
-;;
-;;   - on mutation SUCCESS  -> COMMIT (the optimistic value is overwritten by
-;;     the authoritative `:populates` / `:patches`; the recorded inverse is
-;;     discarded — `:reconciled`);
-;;   - on mutation FAILURE / accepted cancel / restore-DANGLE -> ROLL BACK,
-;;     conflict-aware: if the entry's `:revision` is UNMOVED since the apply,
-;;     restore the recorded `:before` verbatim; if it MOVED, `:on-conflict`
-;;     governs — `:invalidate` (default) marks the entry stale to recover
-;;     authoritative truth via the read path, `:force` restores the (stale)
-;;     inverse anyway (single-writer last-write-wins, with a tooling warning);
-;;   - on a STALE / superseded reply -> NEITHER: the late reply writes nothing.
-;;     The superseded APPLY is disposed of at the moment it is superseded:
-;;     a same-instance re-execute rolls back the keys its
-;;     successor does not re-touch and hands the successor the pre-paint
-;;     `:before` of those it does, and a `:rf.mutation/clear` rolls the apply
-;;     back. A baseline from such an abandoned attempt ends STALE on rollback
-;;     (restore, then mark stale, then refetch when owned) — recovery, not write
-;;     ordering.
-;;
-;; These are the PURE pieces (the per-entry decision + the cache transform); the
-;; impure swap (the `:on-conflict` invalidation dispatch, the trace emit) lives
-;; in `mutation-events`. The settle is keyed on the work-id + generation
-;; acceptance verdict + the per-entry revision — both canonical recorded facts,
-;; so there is NO wall-clock race in the decision (EP-0019 §Determinism summary).
+;; ---- the settle protocol --------------------------------------------------
+;; Success commits (the recorded inverse is discarded); failure, an accepted
+;; cancel or a restore dangle rolls back, conflict-aware; a stale reply writes
+;; nothing. The decision keys on recorded facts only (acceptance verdict and
+;; per-entry revision), so it has no wall-clock race. The impure swap lives in
+;; `mutation-events`. Spec 016 §Optimistic settle — commit / rollback / reconcile.
 
 (def on-conflict-policies
-  "The closed `:on-conflict` rollback-conflict-rule enum (EP-0019 Decision 3).
-  `:invalidate` (the default + recommended) defers a CONTESTED rollback to the
-  read path — it marks the moved entry stale and lets a refetch recover the
-  authoritative value, never resurrecting a stale inverse (the deterministic,
-  always-correct choice, and re-frame2's deliberate divergence from
-  TanStack/SWR's unconditional context restore). `:force` restores the recorded
-  inverse even on conflict (last-write-wins by the rolling-back mutation, for
-  entries the author KNOWS are single-writer) — tooling warns it can clobber a
-  concurrent write."
+  "The closed `:on-conflict` enum. `:invalidate` (default) marks a contested
+  entry stale so the read path recovers the truth; `:force` restores the
+  inverse anyway, for entries the author knows are single-writer."
   #{:invalidate :force})
 
 (defn on-conflict-policy
-  "The resolved `:on-conflict` policy for a mutation `spec`, defaulting to
-  `:invalidate` (EP-0019 Decision 3 — the read path is the recovery authority on
-  a contested rollback). An unknown / nil value falls to the default; the closed
-  enum is enforced at registration. Per Spec 016 §Optimistic settle."
+  "`spec`'s `:on-conflict`, defaulting to `:invalidate` for nil or unknown
+  values (the enum is enforced at registration)."
   [spec]
   (let [p (:on-conflict spec)]
     (if (contains? on-conflict-policies p) p :invalidate)))
 
 (defn optimistic-conflict?
-  "PURE: did an authoritative durable write land on the entry BETWEEN the
-  optimistic apply and the reply settling (EP-0019 Decision 3)? The apply LEFT
-  the entry at `applied-revision`; a CONFLICT is the entry moving AWAY from that
-  baseline — the apply's OWN +1 bump is expected and is NOT a conflict, only a
-  competing write beyond it is. A canonical-identity comparison over the monotone
-  `:revision`, never a value diff.
-
-  ONE RULE, ALL THREE FORWARD FORMS. Every optimistic apply
-  leaves a concrete numeric revision behind, so there is nothing to special-case:
-  a patch and a seed bump the entry they wrote, a remove bumps the TOMBSTONE it
-  wrote in place, and a remove over an ABSENT key wrote nothing and so left the
-  key at the revision it already had. An absent entry reads as revision 0
-  (`rf.resources.state/entry-revision`), which is what makes the no-op case fall
-  out of the same comparison: still-absent is UNMOVED, and a key some competing
-  write RE-CREATED reads ≥ 1 and is correctly a conflict.
-
-  The in-place tombstone is what lets one comparison serve: a remove that
-  DISSOC'd the entry would leave no revision to compare, and would need a
-  separate removed-sentinel and a second branch."
+  "True when the entry's revision has moved from the `applied-revision` the
+  apply left behind, i.e. a competing write landed. An absent entry reads as
+  revision 0, so one rule covers every forward form, including a remove over
+  an absent key; the in-place tombstone is what keeps a revision to compare."
   [current-entry applied-revision]
   (not= (rf.resources.state/entry-revision current-entry) applied-revision))
 
 (defn rollback-entry-disposition
-  "PURE: decide ONE recorded inverse entry's rollback disposition at settle time
-  (EP-0019 Decision 3 conflict rule). `current-entry` is the entry as it stands
-  NOW in the cache (nil for a missing key); `recorded` is the
-  `record-optimistic-entry` inverse (`{:resource/key :revision :applied-revision
-  :before :forward}`); `on-conflict` is the resolved policy
-  (`:invalidate` | `:force`). Returns a disposition map:
-
-    {:resource/key <scoped-key>
-     :disposition  :restore | :invalidate
-     :conflict?    <bool>          ;; whether the entry moved since the apply
-     :before       <entry|:absent> ;; the snapshot to restore (when :restore)
-     :forward      <:patch|:seed|:remove>}
-
-  - no conflict (entry UNMOVED since the apply left it) -> `:restore` the
-    recorded `:before` verbatim (the truthful, conflict-free rollback — `:absent`
-    removes the entry);
-  - conflict (entry MOVED) + `:force` -> `:restore` the (stale) inverse anyway,
-    `:conflict? true` (the caller warns);
-  - conflict + `:invalidate` (default) -> `:invalidate`: do NOT restore; the
-    caller marks the entry stale + refetches the authoritative value.
-
-  Per EP-0019 §Decision 3 / §Optimistic settle."
+  "The rollback disposition of one `recorded` inverse against `current-entry`:
+  `{:resource/key :disposition :conflict? :before :forward}`. `:disposition`
+  is `:restore` when the entry has not moved or `on-conflict` is `:force`,
+  else `:invalidate`. Spec 016 §Optimistic settle — commit / rollback / reconcile."
   [current-entry {:keys [resource/key applied-revision before forward]} on-conflict]
   (let [conflict? (optimistic-conflict? current-entry applied-revision)]
     {:resource/key key
@@ -625,44 +337,20 @@
      :forward      forward}))
 
 (def live-work-keys
-  "The entry keys a rollback NEVER restores from its recorded `:before`
-  snapshot: the entry's LIVE read-work and OWNERSHIP facts.
+  "The entry keys a rollback never restores from `:before`: the live read-work
+  and ownership facts, which an optimistic apply never writes.
 
-  An optimistic apply writes an entry's PAYLOAD and FRESHNESS and nothing else
-  — `apply-optimistic-patch` touches `:data` / `:status` / `:error` /
-  `:refresh-error` / `:loaded-at` / `:stale-at` / `:invalidated-at` / `:tags` /
-  `:revision`. It never starts a read and never attaches an owner. So these
-  five keys are never part of what a rollback undoes; they describe
-  whichever read is in flight NOW and whoever is watching the entry NOW.
-
-  Restoring them wholesale would ORPHAN a refetch started while the mutation was
-  pending. `entry-start-load` deliberately does not bump `:revision` (EP-0019
-  Open Issue 5 — a read START must not false-conflict), so the settle would see
-  an UNMOVED revision, choose `:restore`, and put back the pre-read `:generation`
-  / `:current-work`; `reply-handlers/live-slot-for-reply` would then suppress
-  that read's own valid reply, and the owner the load had attached would be
-  dropped (and reindexed away with it). Keeping them is not a weakening of the conflict
-  rule: no AUTHORITATIVE data landed, so the rollback of the optimistic
-  payload is still exact — only the facts the rollback never owned survive it.
-
-  This is the same intent as `state/attach-owner`'s revision bump,
-  reached structurally rather than through the conflict check: that bump
-  protects a STANDALONE attach, while a load-time attach rides
-  `entry-start-load`, which cannot bump."
+  Restoring them would orphan a refetch started while the mutation was
+  pending: a read start does not bump `:revision`, so the settle would choose
+  `:restore` and put back the pre-read `:generation` / `:current-work`, the
+  read's own valid reply would then be suppressed, and its owner dropped."
   [:generation :current-work :request-id :attempt :active-owners])
 
 (defn reconcile-restored-entry
-  "PURE: the entry a `:restore` disposition seats — the recorded `:before`
-  snapshot carrying the LIVE entry's `live-work-keys`, with a
-  `:status` coherent with them.
-
-  When the preserved `:current-work` is still in flight, the entry's status is
-  that read's (`:fetching` over usable restored data, `:loading` without any),
-  never the snapshot's terminal `:loaded` / `:error` / `:idle` — a status
-  contradicting a live read would render as settled while its reply is still
-  coming. With no live entry, or an entry whose work facts match the snapshot's
-  (the ordinary no-concurrent-work rollback), this is `before` UNCHANGED: the
-  apply never wrote these keys, so copying them back is a no-op."
+  "The entry a `:restore` seats: `before` carrying `current`'s
+  `live-work-keys`, with `:status` following a still-live `:current-work`
+  (`:fetching` / `:loading`) so it never reads settled while a reply is due.
+  `before` unchanged when `current` is nil or holds the same work facts."
   [before current]
   (if (nil? current)
     before
@@ -674,22 +362,11 @@
                          (rf.resources.state/has-data? reconciled)))))))
 
 (defn restore-before
-  "PURE: apply ONE `:restore` rollback disposition to the cache `runtime-db` —
-  restore the recorded `:before` entry at its scoped key (structural-shared; the
-  snapshot was captured by reference), or REMOVE the entry (dissoc by the byte
-  `key-id`) when `:before` is the `absent-snapshot` sentinel (the apply had
-  seeded an absent key — rollback restores the absence). Pure
-  `(runtime-db, disposition) -> runtime-db'`. The caller recomputes the reverse
-  indexes after the whole settle pass (a restore may re-create / drop entries +
-  tags). Per EP-0019 Decision 3 (restore the exact entry that existed).
-
-  \"The exact entry that existed\" is the entry's PAYLOAD, not its
-  live read-work and ownership — `reconcile-restored-entry` carries those
-  forward off the current entry. The `:absent` arm answers the same question
-  from the other side: dropping the entry would orphan a read started on that
-  key just as surely, so a seed rolled back UNDER a live read leaves the empty
-  pre-seed entry carrying that read rather than dissoc'ing it. With no read in
-  flight the absence is restored exactly."
+  "`runtime-db` with one `:restore` disposition applied: the `:before` entry
+  reseated through `reconcile-restored-entry`, or the entry removed for an
+  `absent-snapshot`. An absent snapshot under a live read leaves an empty
+  entry carrying that read instead of orphaning it. The caller recomputes
+  the indexes after the whole pass."
   [runtime-db {scoped-key :resource/key :keys [before]}]
   (let [entry-path (rf.resources.state/entry-path scoped-key)
         current    (get-in runtime-db entry-path)]
@@ -704,30 +381,13 @@
       (assoc-in runtime-db entry-path (reconcile-restored-entry before current)))))
 
 (defn dangle-rollback-optimistic
-  "PURE: roll back a restored PENDING optimistic mutation INSTANCE's recorded
-  apply on epoch restore (EP-0019 Open Issue 3). A `:pending`
-  optimistic write dangles to a terminal `:error` on restore (`instance-dangled`)
-  — the entry shows the optimistic value with no in-flight write to confirm it,
-  which is an accepted-error-shaped terminal, so it triggers the SAME
-  conflict-aware rollback as a failed reply.
-
-  THE LOAD-BEARING ORDERING: this runs INSIDE the restore reconciler's
-  single pure pass over `runtime-db`, NOT as a second post-restore dispatched
-  event — a dispatched `:invalidate` could RACE a fresh load the restored
-  timeline issues. So a CONFLICT (the entry's `:revision` moved) marks the entry
-  durably STALE in place (`rf.resources.state/entry-invalidate` — `:invalidated-at` set, the
-  read path refetches on the next live-owner ensure) rather than dispatching an
-  invalidation; an UNMOVED revision restores the recorded `:before` verbatim
-  (`restore-before`). `:on-conflict :force` restores the (stale) inverse even on
-  conflict. There is no dispatch, no racing event, no second pass.
-
-  `inst` is the (already-dangled) instance row; `runtime-db` is the cache; `spec`
-  the mutation spec (for `:on-conflict`, nil → `:invalidate`); `settled-at` the
-  restore's causal time (the durable stale `:invalidated-at` stamp). Returns
-  `[runtime-db' rolled-back-keys]` (the keys touched by the rollback — for the
-  deferred restore trace). A non-optimistic dangled instance is a no-op
-  (`[runtime-db []]`). Per EP-0019 Decision 3 / Open Issue 3 / Spec 016
-  §Restore and replay."
+  "Rolls back a dangled optimistic instance's recorded apply on restore,
+  returning `[runtime-db' rolled-back-keys]` (`[runtime-db []]` for a
+  non-optimistic instance). It runs inside the restore reconciler's single
+  pure pass, never as a dispatched event, which could race a fresh load: a
+  conflict marks the entry stale in place at `settled-at`, an unmoved entry is
+  restored, and `:on-conflict :force` restores regardless.
+  Spec 016 §Restore and replay."
   [runtime-db inst spec settled-at]
   (let [inverse (-> inst :patch-summary :rollback)]
     (if-not (seq inverse)
@@ -740,71 +400,43 @@
                              (get-in rdb (rf.resources.state/entry-path scoped-key)) recorded on-conflict)]
                        (case disposition
                          :restore    (restore-before rdb recorded)
-                         ;; CONFLICT + :invalidate — mark the moved entry stale
-                         ;; durably IN THE PASS (no dispatch; the read path
-                         ;; recovers on the next ensure — the no-race rule).
                          :invalidate (update-in rdb (rf.resources.state/entry-path scoped-key)
                                                 rf.resources.state/entry-invalidate settled-at))))
                    runtime-db inverse)]
         [rdb' (mapv :resource/key inverse)]))))
 
-;; ---- fail-closed boundary validation (Spec 016 §Resource identity / -------
-;;       EP-0003 §Mutations)
-;;
-;; Mutation runtime state is durable and trace-visible, so the identities it
-;; writes — the mutation INSTANCE id and the patch / populate TARGET scoped
-;; keys — must follow the SAME serializable-EDN discipline the resource cache
-;; key and the resource params already enforce (`rf.resources.state/serializable-edn?` /
-;; `rf.resources.state/reject-non-edn!`). These predicates / validators are PURE so they
-;; sit in the runtime layer (this namespace, the home of the instance shape +
-;; the controlled patch / populate transition); the impure handler boundary
-;; (`mutation-events`) CALLS them before any runtime-db / work-ledger write or
-;; HTTP lowering, so an invalid identity fails CLOSED — before any partial
-;; cache mutation. Resource-registration lookup is injected as a predicate
-;; (`registered-resource?`) so the runtime stays free of a registry require.
+;; ---- fail-closed boundary validation --------------------------------------
+;; Pure, so `mutation-events` runs them before any runtime-db, ledger or HTTP
+;; write. Registry lookup is injected (`registered-resource?`) to keep this
+;; namespace free of a registry require.
 
 (def reserved-scope-ns
-  "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
-  §Reserved namespaces). A BARE keyword in this namespace is a CLOSED reserved
-  enum (`reserved-scope-policies`); any other `:rf.scope/*` bare keyword is a
-  TYPO, not a literal scope (mirrors `registry`'s reserved-scope gate). A
-  non-keyword scope VALUE (`[:rf.scope/session {…}]` tuple, a map, a string)
-  is NOT in the bare-keyword reserved slot."
+  "The framework-reserved scope namespace. Conventions §Reserved namespaces (framework-owned)."
   "rf.scope")
 
 (def reserved-scope-policies
-  "The closed reserved bare-keyword scope-policy enum (mirrors `registry`).
-  A canonicalized scoped key may carry a literal SCOPE that is one of these
-  reserved policies (`:rf.scope/global` is a legitimate literal scope), an
-  app-namespaced keyword, or a data-value (tuple / map / string). Any OTHER
-  bare `:rf.scope/*` keyword is a typo and rejected."
+  "The closed set of reserved bare scope keywords a literal scope may be."
   #{:rf.scope/global})
 
 (defn reserved-scope-typo?
-  "True iff `scope` is a BARE keyword in the framework-reserved `:rf.scope/*`
-  namespace that is NOT one of the closed `reserved-scope-policies` — i.e. a
-  typo (`:rf.scope/glabal`) that must NOT be silently accepted as a literal
-  scope (which would write the cache under a wrong scope). Mirrors the
-  fail-closed reserved-namespace gate `registry/valid-scope-policy?` applies
-  at resource registration. A non-keyword scope value is never a typo."
+  "True iff `scope` is a bare `:rf.scope/*` keyword outside
+  `reserved-scope-policies` (such as `:rf.scope/glabal`), which would
+  otherwise write the cache under a wrong scope."
   [scope]
   (and (keyword? scope)
        (= reserved-scope-ns (namespace scope))
        (not (contains? reserved-scope-policies scope))))
 
 (def same-scope-marker
-  "The `:scope` marker meaning \"the mutation's resolved (execution) scope\" —
-  the DEFAULT when an invalidation descriptor OR a map-form exact target omits
-  `:scope`, and the meaning of the bare tag-set invalidation shorthand (Spec
-  016 §Scoped invalidation descriptors / §Map-form exact resource targets).
-  Resolved to the concrete mutation scope by the events layer at settle time;
-  it is NOT itself a literal cache scope (it never reaches the cache key)."
+  "The `:scope` meaning the mutation's resolved execution scope: the default
+  for invalidation descriptors and exact targets. The events layer resolves
+  it at settle time; it never reaches a cache key.
+  Spec 016 §Scoped invalidation descriptors (per-target)."
   :rf.scope/same)
 
 (defn target-key-error
-  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
-  for an invalid mutation patch / populate TARGET scoped key. `arm`
-  (`:patches` | `:populates`) names the offending mutation-spec arm."
+  "The `:rf.error/mutation-invalid-target` ex-info for a bad patch / populate
+  target; `arm` names the mutation-spec arm."
   [where arm reason target extra]
   (rf.error/thrown-ex-info
     :rf.error/mutation-invalid-target
@@ -815,85 +447,38 @@
                        :target (pr-str target)}
                       extra)}))
 
-;; ---- map-form exact target (EP-0016 Rider 2 / slice 6) --------------------
-;;
-;; The ONLY public input form for an exact `:populates` / `:patches` (and a
-;; future remove) target is the TARGET MAP `{:resource … :params … :scope …}`
-;; (Spec 016 §Map-form exact resource targets / EP-0016 issue 4 — no migration
-;; window; pre-alpha, no external consumers). The hand-built scoped-key tuple
-;; `[scope resource-id params]` is the documented INTERNAL / STORAGE
-;; representation (the `:rf/scoped-resource-key` shape the read path writes
-;; under) — an input-form-vs-storage-form distinction per EP-0007 rule 3, NOT
-;; two public spellings of one fact.
-;;
-;; The map `:scope` is one of: `:rf.scope/same` (the mutation's resolved
-;; scope — the DEFAULT when omitted), `:rf.scope/global`, a concrete canonical
-;; scope value, or a `{:from-db <id>}` named-resolver reference. The DERIVED
-;; scope forms (`:rf.scope/same` / `{:from-db …}`) resolve against the
-;; settle-time app-db, so this PURE runtime validator does NOT resolve scope
-;; itself — the events layer resolves each target's scope first (it owns the
-;; registry + db), then this validator validates + canonicalizes the resulting
-;; CONCRETE key fail-closed before any cache write.
+;; ---- map-form exact targets -----------------------------------------------
+;; `{:resource … :params … :scope …}` is the only public target form; the
+;; `[scope resource-id params]` tuple is the storage form. Derived scopes
+;; resolve against the settle-time app-db, so the events layer resolves each
+;; target's scope before these validators see it.
+;; Spec 016 §Map-form exact resource targets.
 
 (defn target-map?
-  "True iff `target` is the public map-form exact target
-  `{:resource <id> :params <params>}` (a map carrying `:resource`). The
-  `:scope` key is optional (it defaults to `:rf.scope/same`). A 3-element
-  storage tuple is NOT a target map. Per Spec 016 §Map-form exact resource
-  targets / EP-0016 Rider 2."
+  "True iff `target` is a map carrying `:resource`."
   [target]
   (and (map? target) (contains? target :resource)))
 
 (defn- target-summary
-  "An egress-SAFE summary of a target for trace / warning evidence.
-  `pr-str`s the target the same way `target-key-error` does, so
-  no raw host value leaks onto the trace beyond what the thrown-error shape
-  already exposes. Returns a small serializable map `{:resource … :target …}`
-  (the resource id is kept literal when it is a keyword — the recoverable
-  identity the developer must fix; the whole target is pr-str'd)."
+  "An egress-safe `{:target <pr-str> :resource <kw>}` summary of `target` for
+  trace and warning evidence."
   [target]
   (cond-> {:target (pr-str target)}
     (and (map? target) (keyword? (:resource target)))
     (assoc :resource (:resource target))))
 
 (defn classify-target-key
-  "PURE classifier for a SINGLE mutation patch / populate / remove TARGET.
-  Splits the boundary into two dispositions:
-
-  - `[:apply <canonical-storage-key>]` — a VALID target; the canonical
-    `[canonical-scope resource-id canonical-params]` storage key the caller
-    writes under (never a caller's alternate spelling).
-  - `[:skip <reason-kw> <egress-safe-summary>]` — a RECOVERABLE bad target the
-    settle-time `:skip-recoverable` policy DROPS-AND-WARNS rather than throws
-    (a typo on one sibling must not strand a committed write): a non-map
-    target (`:non-map-target`), a missing /
-    non-keyword `:resource` (`:non-keyword-resource`), or an UNREGISTERED
-    resource id (`:unregistered-resource`). These are the same 'thing isn't
-    there / wrong shape' class a patch on a missing entry no-ops on.
-
-  THROWS `:rf.error/mutation-invalid-target` (NEVER classified `:skip`) for
-  CACHE-IDENTITY CORRUPTION — the cases that would silently write the cache
-  under a WRONG identity, which no relaxed policy may swallow:
-
-  - a reserved-scope TYPO (a bare `:rf.scope/*` keyword outside the closed
-    enum — `:rf.scope/glabal`), which would write under a wrong scope;
-  - a non-EDN / host scope or params (the cache key MUST be serializable EDN).
-
-  The corruption checks run BEFORE the recoverable ones for a malformed map so
-  a target that is simultaneously corruption-class (non-EDN scope) and
-  recoverable (unregistered) still THROWS. `resolved-scope` is the CONCRETE
-  scope the events layer already resolved; `registered-resource?` is the
-  injected `(fn [resource-id] -> truthy)` registry predicate; `where` / `arm`
-  name the call-site + offending arm for the thrown-error shape."
+  "Classifies one target against its already-resolved concrete scope:
+  `[:apply <canonical-storage-key>]`, or `[:skip <reason> <summary>]` for a
+  recoverable fault (`:non-map-target`, `:non-keyword-resource`,
+  `:unregistered-resource`). Throws `:rf.error/mutation-invalid-target` for
+  cache-identity corruption (a reserved-scope typo, non-EDN scope or params),
+  checked first so no relaxed policy can swallow a wrong-identity write."
   [target resolved-scope registered-resource? where arm]
   (if-not (target-map? target)
-    ;; a non-map target (e.g. a bare tuple, a keyword) — recoverable: the
-    ;; shape is wrong, but nothing is written under a wrong identity.
     [:skip :non-map-target (target-summary target)]
     (let [{:keys [resource params]} target
           scope resolved-scope]
-      ;; CORRUPTION-class first (a wrong-identity write no relaxed policy may
-      ;; swallow): reserved-scope typo + non-EDN scope / params.
       (when (reserved-scope-typo? scope)
         (throw (target-key-error
                  where arm
@@ -918,8 +503,6 @@
                       "serializable EDN — host / opaque values are rejected at "
                       "the cache-key boundary. Per Spec 016 §Resource identity.")
                  target {:params (pr-str params)})))
-      ;; RECOVERABLE class (settle-time drop-and-warn; pre-write throws via the
-      ;; `validate-target-key!` wrapper): non-keyword :resource, unregistered.
       (cond
         (not (keyword? resource))
         [:skip :non-keyword-resource (target-summary target)]
@@ -931,50 +514,15 @@
         [:apply (rf.resources.state/scoped-resource-key scope resource params)]))))
 
 (defn validate-target-key!
-  "Fail-closed validation of a SINGLE mutation patch / populate TARGET, BEFORE
-  any cache mutation (EP-0003 §Mutations / Spec 016 §Resource identity /
-  §Map-form exact resource targets). The STRICT (throwing) wrapper over the
-  pure `classify-target-key`: it throws on BOTH the
-  cache-identity-corruption cases AND the recoverable cases (so the default /
-  pre-write / optimistic policy is strict — a bad target rejects the whole
-  arm). The settle path relaxes the RECOVERABLE cases via the
-  `:skip-recoverable` policy on `validate-target-map!`; this wrapper does not.
-
-  The public INPUT form is the TARGET MAP
-  `{:resource <id> :params <params> :scope <scope>}` (EP-0016 Rider 2 — the
-  only public input form, no tuple migration window). The map's `:scope` has
-  already been RESOLVED to a CONCRETE scope value by the events layer
-  (`resolved-scope` — the `:rf.scope/same` default and any `{:from-db …}`
-  reference resolve against the settle-time app-db upstream); this PURE
-  validator never resolves scope itself. Rejects, loudly:
-
-  - a non-map target (the tuple is the internal storage form, not a public
-    input — a tuple reaching here is rejected loudly);
-  - a missing / non-keyword `:resource` id;
-  - an UNREGISTERED resource id (`registered-resource?` returns falsey) — a
-    patch / populate must target a resource the read path also knows, or the
-    seeded / patched entry is unreachable by any subscription;
-  - a reserved-scope TYPO (a bare `:rf.scope/*` keyword outside the closed
-    enum — `:rf.scope/glabal`), which would silently write under a wrong
-    scope;
-  - a non-EDN / host scope or params (the cache key MUST be serializable EDN —
-    the same boundary `rf.resources.state/reject-non-edn!` enforces for resource params).
-
-  `registered-resource?` is `(fn [resource-id] -> truthy)` — the injected
-  registry-lookup predicate (so this PURE validator carries no registry
-  require). `where` names the call-site public surface; `arm`
-  (`:patches` | `:populates`) names the offending mutation-spec arm. Returns
-  the CANONICAL STORAGE key `[canonical-scope resource-id canonical-params]`
-  on success (so the caller writes under the canonical identity, never a
-  caller's alternate spelling). Throws `:rf.error/mutation-invalid-target`
-  otherwise."
+  "The strict wrapper over `classify-target-key`: returns the canonical
+  storage key, and throws `:rf.error/mutation-invalid-target` on every bad
+  target, recoverable or not. An unregistered resource is refused because no
+  subscription could reach the written entry."
   [target resolved-scope registered-resource? where arm]
   (let [[disposition a] (classify-target-key target resolved-scope
                                              registered-resource? where arm)]
     (case disposition
       :apply a
-      ;; STRICT policy: a recoverable :skip ALSO throws (the corruption-class
-      ;; already threw inside classify). Reconstruct the precise message.
       :skip
       (case a
         :non-map-target
@@ -1008,52 +556,21 @@
                  target {:resource-id (:resource target)}))))))
 
 (defn target-scope
-  "The DECLARED `:scope` of a map-form exact target, defaulting to
-  `:rf.scope/same` (the mutation's resolved scope) when the target omits
-  `:scope` — the same default the invalidation-descriptor `:scope` carries.
-  Pure; the events layer resolves the returned scope (concrete /
-  `:rf.scope/same` / `{:from-db …}`) against the settle-time app-db. Per Spec
-  016 §Map-form exact resource targets."
+  "`target`'s declared `:scope`, defaulting to `:rf.scope/same`."
   [target]
   (if (contains? target :scope) (:scope target) same-scope-marker))
 
 (defn validate-target-map!
-  "Fail-closed validation + canonicalization of a WHOLE mutation `:patches` /
-  `:populates` / `:removes` target map `{target value}` (EP-0003 §Mutations /
-  Spec 016 §Map-form exact resource targets). Each KEY is a public map-form
-  target `{:resource :params :scope}`; `resolve-target-scope` is
-  `(fn [target] -> [:resolved <concrete-scope>] | [:nil-resolved <from-db-id>])`
-  — injected by the events layer (it owns the registry + settle-time db) and
-  resolves each target's declared `:scope` (`:rf.scope/same` / concrete /
-  `{:from-db …}`). A target whose scope resolves NIL (`:nil-resolved`) is
-  FAIL-CLOSED: it is DROPPED (no cache write under an implicit global, never a
-  silent wrong-scope poke).
+  "Validates and canonicalizes a whole `:patches` / `:populates` / `:removes`
+  map `{target value}`, re-keyed by canonical storage key. `resolve-target-scope`
+  returns `[:resolved <scope>]` or `[:nil-resolved <from-db-id>]`; a
+  nil-resolved target is dropped, never written under an implicit scope.
 
-  `policy` selects how a BAD resolved key is handled:
-
-  - `:strict` (DEFAULT — the pre-write / optimistic / `:execute`-time callers,
-    where no server write has landed): EVERY bad target — recoverable OR
-    corruption-class — REJECTS the whole arm (no partial cache mutation), via
-    the throwing `validate-target-key!`. Returns `[canonical-map nil-ids]` (a
-    2-tuple — the optimistic caller destructures it).
-
-  - `:skip-recoverable` (the POST-WRITE SETTLE arms only): a RECOVERABLE bad
-    target (unregistered resource; non-map / non-keyword `:resource`) is
-    DROPPED-AND-collected rather than thrown — applying the VALID siblings
-    instead of stranding the whole instance AFTER the server write already
-    committed (matching the read path's no-op on a missing entry).
-    CACHE-IDENTITY CORRUPTION (reserved-scope typo; non-EDN scope /
-    params) STILL THROWS the whole arm — no relaxed policy may swallow a
-    wrong-identity write. Returns the 3-tuple
-    `[canonical-map nil-ids skipped]` where `skipped` is a vector of
-    `{:reason <kw> :target <pr-str> :resource <id?>}` egress-safe summaries
-    (the events layer warns + records them on the trace beside the nil-resolved
-    evidence).
-
-  A map re-keyed by the CANONICAL STORAGE key (values preserved). `kind`
-  (`:patches` | `:populates` | `:removes`) names the offending arm in the
-  error. A nil / empty input map returns the policy's empty shape
-  (`[nil []]` / `[nil [] []]`)."
+  `:strict` (default; pre-write callers) throws the whole arm on any bad
+  target and returns `[map nil-ids]`. `:skip-recoverable` (post-write settle
+  only, since the server write has already committed) drops recoverable
+  targets and returns `[map nil-ids skipped]`; corruption still throws.
+  Spec 016 §Map-form exact resource targets."
   ([target-map resolve-target-scope registered-resource? kind where]
    (validate-target-map! target-map resolve-target-scope registered-resource? kind where :strict))
   ([target-map resolve-target-scope registered-resource? kind where policy]
@@ -1082,8 +599,6 @@
              (case outcome
                :nil-resolved [m (conj nils scope-or-id) skipped]
                :resolved
-               ;; classify-target-key THROWS on corruption-class (kept) and
-               ;; returns [:skip …] for the recoverable cases (dropped here).
                (let [[disposition a b]
                      (classify-target-key target scope-or-id registered-resource? where kind)]
                  (case disposition
@@ -1094,11 +609,10 @@
          [{} [] []]
          target-map)))))
 
-;; ---- mutation INSTANCE id validation (Spec 016 §Resource identity) --------
+;; ---- mutation instance id validation --------------------------------------
 
 (defn instance-id-error
-  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
-  for a non-serializable mutation INSTANCE id."
+  "The `:rf.error/mutation-non-serializable-instance-id` ex-info."
   [instance-id where]
   (rf.error/thrown-ex-info
     :rf.error/mutation-non-serializable-instance-id
@@ -1120,52 +634,22 @@
      :extra    {:instance-id (pr-str instance-id)}}))
 
 (defn validate-instance-id!
-  "Fail-closed: reject a non-serializable mutation INSTANCE id BEFORE it is
-  stored in runtime-db / the work-ledger work id / the reply payloads (all
-  durable + trace-visible + epoch-restore-safe), mirroring the resource
-  params / scope EDN discipline. A caller MAY supply nil (the events layer
-  then mints a generated id) — nil passes here; the GENERATED id is itself
-  serializable by construction. Returns `instance-id` unchanged when it
-  conforms; throws `:rf.error/mutation-non-serializable-instance-id`
-  otherwise. Per EP-0003 §Mutations."
+  "Returns `instance-id` when it is nil (a generated id follows) or
+  serializable EDN; otherwise throws, because the id is stored durably and
+  rides traces. Spec 016 §Resource identity."
   [instance-id where]
   (when (and (some? instance-id) (not (rf.resources.state/serializable-edn? instance-id)))
     (throw (instance-id-error instance-id where)))
   instance-id)
 
-;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
-;;
-;; The mutation `:invalidates` arm is `(fn [params result] -> <descriptors>)`.
-;; Two PUBLIC input forms lower to ONE canonical descriptor vector (and from
-;; there into the SINGLE scoped invalidation engine `:rf.resource/invalidate-
-;; tags`, never a second engine — Spec 016 §Scoped invalidation descriptors):
-;;
-;;   - the BARE tag-set shorthand `#{[:article slug] [:article-list]}` — means
-;;     "invalidate those tags in the mutation's resolved (execution) scope"
-;;     (`:rf.scope/same`, the default);
-;;   - the per-target DESCRIPTOR form — a single descriptor map
-;;     `{:scope … :tags #{…}}` or a vector of them, each naming its OWN scope
-;;     so one mutation can precisely invalidate global facts AND viewer-relative
-;;     facts without a blunt `:cross-scope?` blast.
-;;
-;; A descriptor `:scope` is one of: `:rf.scope/same` (default when omitted —
-;; the mutation's resolved scope), `:rf.scope/global`, a concrete canonical
-;; scope value, or a `{:from-db <id>}` named-resolver reference resolved
-;; against db at SETTLE time (phase 4, the single use-time rule). A descriptor
-;; MAY carry `:cross-scope? true` (the audited escape — invalidate the tag in
-;; every scope the cache holds, scopes the call site cannot enumerate) and
-;; `:refetch-populated? true` (the Rider-1 same-mutation refetch opt-in, parsed
-;; here and carried for the slice-6 populate-exempt pass).
-;;
-;; This namespace owns the PURE normalization (raw form -> canonical descriptor
-;; vector); the impure per-descriptor scope resolution + the engine dispatch fx
-;; live in `mutation-events` (it needs the registry + app-db + trace).
+;; ---- scoped invalidation descriptors --------------------------------------
+;; Both public `:invalidates` forms lower to one descriptor vector for the
+;; single invalidation engine; the impure scope resolution and dispatch live
+;; in `mutation-events`. Spec 016 §Scoped invalidation descriptors (per-target).
 
 (defn invalidation-descriptor-error
-  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
-  for a malformed mutation `:invalidates` result. A malformed descriptor fails
-  CLOSED at settle time (before any invalidation dispatch), never a silent
-  no-op — an author who returns garbage from `:invalidates` learns loudly."
+  "The `:rf.error/mutation-invalid-invalidation` ex-info. A malformed
+  `:invalidates` result fails before any dispatch, never as a silent no-op."
   [where reason raw extra]
   (rf.error/thrown-ex-info
     :rf.error/mutation-invalid-invalidation
@@ -1177,22 +661,10 @@
                       extra)}))
 
 (defn- normalize-one-descriptor
-  "Normalize ONE descriptor map into the canonical shape
-  `{:scope <scope-or-same-marker> :tags #{…} :cross-scope? bool
-  :refetch-populated? bool}`, validating fail-closed. `:scope` defaults to
-  `:rf.scope/same` (Spec 016 §Scoped invalidation descriptors). `:tags` must
-  be a non-nil collection of tags; the boolean flags default false. `:tags`
-  is lowered through the shared `rf.resources.state/normalize-tag-set` (the SAME
-  normalizer the bare tag-set shorthand and the direct
-  `:rf.resource/invalidate-tags` `:tags` use), so a LONE vector tag written
-  directly (`{:tags [:article slug]}`) is the ONE tag `#{[:article slug]}`,
-  NOT a scalar set of its elements `#{:article slug}` (a naive `(set tags)`
-  silently matches nothing). The `:scope` VALUE is NOT
-  canonicalized here (a `:rf.scope/same` marker and a `{:from-db …}`
-  reference are not concrete scopes yet) — the events layer resolves +
-  canonicalizes the concrete scope at settle time. Returns the canonical
-  descriptor map; throws `:rf.error/mutation-invalid-invalidation` on a
-  non-map descriptor or a non-collection `:tags`."
+  "One descriptor map as `{:scope :tags :cross-scope? :refetch-populated?}`,
+  `:scope` defaulting to `:rf.scope/same` and left unresolved. `:tags` goes
+  through `state/normalize-tag-set`, so a lone vector tag stays one tag.
+  Throws on a non-map descriptor or non-collection `:tags`."
   [descriptor raw where]
   (when-not (map? descriptor)
     (throw (invalidation-descriptor-error
@@ -1216,52 +688,25 @@
      :refetch-populated? (boolean refetch-populated?)}))
 
 (defn normalize-invalidation-descriptors
-  "PURE: lower the raw `:invalidates` result into the canonical descriptor
-  vector `[{:scope … :tags #{…} :cross-scope? bool :refetch-populated? bool}]`
-  — the one shape the events layer resolves + dispatches into the single
-  scoped invalidation engine (Spec 016 §Scoped invalidation descriptors,
-  EP-0016 D2). Accepts the two PUBLIC input forms:
-
-    - the BARE tag-set shorthand (a set / sequential collection of TAGS, where
-      a tag is itself a vector like `[:article slug]`) — one descriptor at
-      `:rf.scope/same` carrying all the tags;
-    - the per-target DESCRIPTOR form — a single descriptor MAP, or a vector of
-      descriptor maps, each `{:scope … :tags #{…}}`.
-
-  A nil / empty raw result yields an empty vector (the mutation invalidates
-  nothing). The disambiguation: a MAP is a single descriptor; a sequential /
-  set collection whose first element is a MAP is a descriptor vector; any
-  other non-empty collection is the bare tag-set (its elements are tags). The
-  bare tag-set is lowered through `rf.resources.state/normalize-tag-set`, so a LONE vector
-  tag written directly (`[:article slug]` — a vector whose head is a scalar
-  marker, not a collection) is the ONE tag `#{[:article slug]}`, NOT a scalar
-  set of its elements `#{:article slug}` (which would silently match
-  nothing). A malformed result fails CLOSED
-  (`:rf.error/mutation-invalid-invalidation`) rather than silently invalidating
-  nothing. The descriptor `:scope` values
-  are left UNRESOLVED here (the `:rf.scope/same` marker, a `{:from-db …}`
-  reference, a concrete scope) — the events layer resolves each at settle
-  time against the mutation scope / app-db."
+  "The canonical descriptor vector for a raw `:invalidates` result: nil or
+  empty gives `[]`; a map is one descriptor; a collection of maps is a
+  descriptor vector; any other collection is the bare tag-set shorthand, one
+  descriptor at `:rf.scope/same`. Scopes are left for the events layer to
+  resolve at settle time. Throws `:rf.error/mutation-invalid-invalidation`
+  otherwise. Spec 016 §Scoped invalidation descriptors (per-target)."
   [raw where]
   (cond
     (or (nil? raw) (and (coll? raw) (empty? raw)))
     []
 
-    ;; a single descriptor map
     (map? raw)
     [(normalize-one-descriptor raw raw where)]
 
-    ;; a vector / list / set of descriptor maps
     (and (coll? raw) (map? (first raw)))
     (mapv #(normalize-one-descriptor % raw where) raw)
 
-    ;; the bare tag-set shorthand: a collection of TAGS at :rf.scope/same.
-    ;; `rf.resources.state/normalize-tag-set` treats a LONE vector tag
-    ;; (`[:article slug]`) as the ONE tag `#{[:article slug]}` rather than
-    ;; silently splitting it into `#{:article slug}` (a scalar set that matches
-    ;; nothing); a tag-set (`#{[:article slug]}` / `[[:article slug]]`) lowers
-    ;; unchanged. The SAME normalizer the direct `:rf.resource/invalidate-tags`
-    ;; `:tags` uses, so a lone vector tag has one meaning across the cache.
+    ;; `normalize-tag-set` keeps a lone vector tag `[:article slug]` as one
+    ;; tag, not the scalar set `#{:article slug}` that would match nothing.
     (coll? raw)
     [{:scope              same-scope-marker
       :tags               (rf.resources.state/normalize-tag-set raw)
