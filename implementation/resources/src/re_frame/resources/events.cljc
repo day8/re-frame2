@@ -1,71 +1,15 @@
 (ns re-frame.resources.events
-  "The resource event handlers — the causal write surface over the
-  resource cache. Per Spec 016 §Public API §Events.
+  "The resource event handlers: the causal write surface over the resource
+  cache. The public events take map payloads. The `:rf.resource.internal/*`
+  replies carry only the verification payload (`:work/id`, `:generation`,
+  `:rf.frame/id`) and resolve the scoped key through the receiving frame's
+  work-ledger row; user code MUST NOT dispatch them.
 
-  The public resource events take MAP payloads (not positional argument
-  vectors):
-
-    [:rf.resource/ensure          {:resource … :scope … :params … :owner … :cause …}]
-    [:rf.resource/refetch         {:resource … :scope … :params … :owner … :cause …}]
-    [:rf.resource/invalidate-tags {:scope … :tags … :cause …}]
-    [:rf.resource/release-owner   {:owner …}]
-    [:rf.resource/clear-scope     {:scope … :cause …}]
-    [:rf.resource/change-principal {:from [<scope> …] :cause …}]
-    [:rf.resource/remove          {:resource … :scope … :params …}]
-
-  Plus the framework-INTERNAL replies (`:rf.resource.internal/*`) that
-  carry the verification payload (`:work/id` / `:generation` /
-  `:rf.frame/id`) — user code MUST NOT dispatch them. The payload carries no
-  scoped key: a reply handler resolves it through the receiving frame's
-  work-ledger row (`resolve-reply-payload`).
-  The internal replies RECEIVE the canonical uniform reply map (Managed-
-  Effects §The uniform reply envelope) — `re-frame.resources.reply` builds
-  it from the transport's public payload + the verification payload, so a
-  resource completion settles through the SAME one-status reply shape every
-  managed-async family produces (EP-0011 §Resource Reply And Work Ledger).
-
-  Every handler carries framework-write authority
-  (`rf.resources.state/framework-authority-meta`) so a returned `:rf.db/runtime`
-  effect is in-bounds (Spec 016 §Write authority); the registrations live
-  in the `re-frame.resources` façade so a `(require … :reload)` on a
-  fresh registrar re-wires them.
-
-  ## Scope of this namespace
-
-  This namespace implements the CACHE-ENTRY runtime: canonical params /
-  scopes / scoped-key identity, the compact lifecycle status transition
-  function, structural sharing, the durable entries map (facts not derived
-  booleans), per-frame isolation, owner / tag indexes, exact tag
-  invalidation, scope clear, owner release, and remove. Stale suppression
-  is enforced on the ENTRY (the reply handlers verify generation + work-id
-  against the live entry before writing — Spec 016 §Cancellation is
-  opportunistic; stale suppression is mandatory).
-
-  The parallel serializable `:rf.runtime/work-ledger` records, host-side
-  side tables (AbortControllers / timer handles), and opportunistic abort
-  are the WORK-LEDGER SUBSTRATE (below). GC scheduling / timers live in
-  `re-frame.resources.timers`. The HTTP request execution belongs to managed
-  HTTP; this namespace LOWERS into
-  managed HTTP (`transport.http/lower`) after the transport seam's
-  registration-time guard (`rf.resources.transport/assert-managed-transport!`).
-
-  ## Work-ledger substrate
-
-  Each load-causing attempt also writes a SERIALIZABLE work record at
-  `[:rf.runtime/work-ledger <work-id-id>]` — keyed on the CEDN-1 byte
-  `rf.resources.work-ledger/work-id-id` (NOT the work-id vector), via
-  `rf.resources.work-ledger/record-path` (the entry points at it via
-  `:current-work`; the record carries status / owners / causes / deadline /
-  outcome — NO host handles). Host abort handles live in a side table keyed
-  by `[frame-id work-id]` (`rf.resources.work-ledger/handle-table`), recorded via the
-  `:rf.resource/record-work-handle` fx and dropped on terminate / frame
-  destroy. ABORT IS OPPORTUNISTIC (best-effort `:rf.http/managed-abort` on
-  supersession / owner-loss / scope-clear); STALE SUPPRESSION by work-id +
-  generation is the MANDATORY correctness boundary (enforced on the entry by
-  `live-entry-for-reply`). Terminal rows are pruned on the linked entry's
-  next TERMINAL transition — every settle, not only a successful one
-  — retaining a bounded per-key tail for Xray, and are dropped
-  outright when the entry itself leaves the cache."
+  Stale suppression by work-id + generation, enforced on the entry, is the
+  correctness boundary; transport abort is opportunistic. Handlers write
+  `:rf.db/runtime` under framework-write authority, registered by the
+  `re-frame.resources` façade.
+  Spec 016 §Events (map payloads, not positional argument vectors)"
   (:require [clojure.set :as set]
             [re-frame.error :as rf.error]
             [re-frame.reply :as rf.reply]
@@ -83,31 +27,14 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- per-instance classification lowering (EP-0025 §subsystems) -----------
-;;
-;; Every resource handler that writes / evicts `:entries` returns a durable
-;; `{:rf.db/runtime rdb'}` effect. `with-classification-lowering` wraps such a
-;; handler so its returned runtime-db is reconciled through
-;; `rf.resources.classification/reconcile-registry` (passing `rf.resources.registry/resource-meta` as the
-;; `spec-of` resolver) BEFORE it is committed — lowering each current entry's
-;; projection-relative `:sensitive` / `:large` declarations into the per-frame
-;; elision registry under `:source :resource`, and self-dropping an evicted
-;; entry's declarations. This is the resources peer of the routing
-;; navigation-commit fold (`re-frame.routing.events`) and the machines
-;; spawn/destroy lowering. The reconciliation is idempotent + value-independent,
-;; so wrapping every entry-mutating handler keeps the registry's resource-sourced
-;; set exactly in step with `:entries` regardless of which handler ran. A handler
-;; whose effects map carries no `:rf.db/runtime` (a pure dispatch / no-op turn)
-;; rides through unchanged.
+;; ---- per-instance classification lowering ----------------------------------
 
 (defn with-classification-lowering
-  "Wrap a resource event handler `f` so the `:rf.db/runtime` value of its
-  returned effects map is reconciled through `rf.resources.classification/reconcile-registry`
-  (resolver = `rf.resources.registry/resource-meta`) — lowering each live entry's
-  projection-relative classification into the per-frame elision registry under
-  `:source :resource`. A returned map with no `:rf.db/runtime` key
-  rides unchanged. Variadic in the handler arity (coeffects + payload + any
-  extra args)."
+  "Wraps handler `f` so the `:rf.db/runtime` of its returned effects is
+  reconciled through `rf.resources.classification/reconcile-registry` before
+  commit, keeping the frame's elision registry in step with `:entries`. An
+  effects map without `:rf.db/runtime` passes through unchanged. The
+  reconciliation is idempotent, so every entry-mutating handler is wrapped."
   [f]
   (fn [& args]
     (let [effects (apply f args)]
@@ -115,134 +42,68 @@
         (update effects :rf.db/runtime rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta)
         effects))))
 
-;; ---- shared timestamp helpers ---------------------------------------------
-;;
-;; EP-0010 §The World-Input Rule + EP-0017 declared-only delivery:
-;; event handlers in this namespace take their "now" from the
-;; triggering token's causal `:rf/time-ms` — the one host-clock read the router
-;; stamped at the causal boundary — DECLARED via `:rf.cofx/requires [:rf/time-ms]`
-;; and consumed FLAT from the coeffects map (`(:rf/time-ms coeffects)`, NOT
-;; reached through the whole `:rf.cofx` token), NOT an ambient `(.now js/Date)` /
-;; `System/currentTimeMillis` read at the decision site. There is therefore no
-;; private host-clock helper here: a handler reading the live host clock for a
-;; freshness DECISION would be non-replayable (a replay under a later clock
-;; could take a different branch). Passive view / SSR re-derivation reads
-;; (`subs.cljc`, `ssr.cljc`) keep their own ambient clock — those are reads,
-;; not handler decisions (EP §Restore endorses lazy on-read freshness for the
-;; VIEW layer).
-;;
-;; The pure stale / timer helpers this ns reads (`stale-at-for` /
-;; `positive-or-nil` / `server-frame?`) live in `state.cljc` — shared
-;; byte-for-byte with the mutation-success path so a patched / populated entry
-;; ages exactly as a fetched one.
+;; Handlers here take "now" from the triggering token's `:rf/time-ms`
+;; (declared via `:rf.cofx/requires`, read flat from the coeffects), never
+;; from the host clock: a freshness decision made on a live clock would let a
+;; replay take a different branch. EP-0010 §The World-Input Rule
 
-;; ---- infinite-feed page context + reply addressing (EP-0021 R8) -----------
-;;
-;; An infinite resource reuses the WHOLE load-causing path (`ensure-load`):
-;; identity, scope, generation, work-ledger row, dedupe, stale suppression,
-;; transport lowering. It differs in exactly two places (R1/R2/R8 — no new
-;; entry kind, no 6th FSM state):
-;;
-;;   1. the entry it seeds on a first load is `empty-infinite-entry` (the
-;;      `:data` page vector + page-param facts), not the scalar `empty-entry`;
-;;   2. the transport request carries the RESERVED page ctx
-;;      `{:rf.resource/page-param p :rf.resource/page-index i}` (R8 — the
-;;      reserved `ctx` slot, NOT a separate 3-arity), and the reply is
-;;      addressed at the PAGE reply handlers (`:rf.resource.internal/page-*`)
-;;      so a page success APPENDS (`entry-append-page`) rather than overwriting
-;;      the whole value (`entry-succeeded`). The page-param + page-index ride
-;;      the reply `:reply-payload` so the append knows which param to record.
-;;
-;; Page-0 (a first `ensure`, or a `refetch`'s replacement page-0) uses
-;; `page-param-for-spec` (the framework default `nil`, overridable via
-;; `:initial-page-param`) at index 0; a `load-more` uses `next-param-for` over
-;; the accumulated pages at index `page-count`. The single home so the page-0
-;; fetch and the load-more fetch lower identically.
+;; ---- infinite-feed page context and reply addressing -----------------------
+;; An infinite feed reuses the whole load path and differs in two places: a
+;; first load seeds `empty-infinite-entry`, and the request carries the
+;; reserved page ctx with its reply addressed to the page handlers, so a page
+;; success appends rather than overwrites.
 
 (def page-reserved-ctx-param-key
-  "The RESERVED `:request` ctx key carrying the resolved page-param for an
-  infinite feed's THIS page (R8). The `:request` fn reads it via
-  `{:rf.resource/keys [page-param page-index]}`. Per Spec 016 §Registration —
-  :infinite (the reserved ctx is the page extension point)."
+  "The reserved `:request` ctx key carrying this page's page-param.
+  Spec 016 §Registration — `:infinite`"
   :rf.resource/page-param)
 
 (def page-reserved-ctx-index-key
-  "The RESERVED `:request` ctx key carrying the 0-based page index for an
-  infinite feed's THIS page (R8). Per Spec 016 §Registration — :infinite."
+  "The reserved `:request` ctx key carrying this page's 0-based index.
+  Spec 016 §Registration — `:infinite`"
   :rf.resource/page-index)
 
 (defn page-request-ctx
-  "Build the RESERVED `:request` ctx for an infinite feed page fetch (R8):
-  `{:rf.resource/page-param p :rf.resource/page-index i}`. The `:request` fn
-  reads `p` / `i` from this map's reserved keys; a non-infinite resource never
-  reaches here (it lowers with a nil ctx). Per Spec 016
-  §Registration — :infinite / §Causal event — load-more."
+  "The reserved `:request` ctx for an infinite-feed page fetch. A
+  non-infinite resource lowers with a nil ctx.
+  Spec 016 §Registration — `:infinite`"
   [page-param page-index]
   {page-reserved-ctx-param-key page-param
    page-reserved-ctx-index-key page-index})
 
 (def page-succeeded-reply
-  "The framework-internal infinite-feed page-success reply event id
-  (`:rf.resource.internal/page-succeeded`). DISTINCT from
-  `:rf.resource.internal/succeeded` (the scalar whole-value settle): a page
-  success APPENDS the decoded page to the feed's page vector
-  (`entry-append-page`) rather than overwriting `:data`. User code MUST NOT
-  dispatch it. Per Spec 016 §Causal event — load-more."
+  "The internal page-success reply id. Unlike
+  `:rf.resource.internal/succeeded` it appends the page rather than replacing
+  `:data`. Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
   :rf.resource.internal/page-succeeded)
 
 (def page-failed-reply
-  "The framework-internal infinite-feed page-failure reply event id
-  (`:rf.resource.internal/page-failed`). DISTINCT from
-  `:rf.resource.internal/failed`: a page (N>0 load-more) failure is the THIRD
-  error channel (`entry-page-failed` keeps the feed + records `:page-error`),
-  not a first-load `:error` / whole-feed `:refresh-error`. User code MUST NOT
-  dispatch it. Per Spec 016 §Causal event — load-more (the third error
-  channel)."
+  "The internal page-failure reply id. A load-more failure is the third
+  error channel (`:page-error`), which keeps the feed.
+  Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
   :rf.resource.internal/page-failed)
 
 (defn- infinite-page-reply-payload
-  "The verification payload for an infinite-feed page fetch — the SAME
-  stale-suppression identity the scalar reply carries (`:work/id` /
-  `:generation`; the `:rf.frame/id` is merged by `build-managed-args`) PLUS
-  the resolved `:rf.resource/page-param` and `:rf.resource/page-index` so the
-  page-success reply records the right param in `:page-params` (the param is
-  reply state, never re-derived at settle). Like the scalar payload it
-  carries no scoped key — the handler resolves it from the ledger row. Per
-  Spec 016 §Causal event — load-more."
+  "The verification payload for a page fetch: the scalar payload's
+  `:work/id` and `:generation` plus the page param and index, so the settle
+  records the param it fetched rather than re-deriving it."
   [generation work-id page-param page-index]
   {:work/id                  work-id
    :generation               generation
    page-reserved-ctx-param-key page-param
    page-reserved-ctx-index-key page-index})
 
-;; ---- read completion continuations — call-site :reply-to (EP-0016 D1) -----
-;;
-;; The READ counterpart of the mutation `:reply-to` (Spec 016 §Read completion
-;; continuations). An `:rf.resource/ensure` / `:rf.resource/refetch` MAY carry
-;; an optional call-site `:reply-to` event target; when the runtime ACCEPTS a
-;; terminal reply as current (the live-entry gate matched — frame + work-id +
-;; generation), the target is dispatched with ONE canonical reply map appended
-;; (the shared `re-frame.reply/complete` `:append` delivery), exactly-once, with
-;; stale / superseded replies never delivered. Subscriptions stay passive —
-;; this continuation rides the CAUSAL command (the ensure), not the read lane.
-;;
-;; Where the mutation target rides the TRANSPORT PAYLOAD (a mutation mints a
-;; fresh instance and never joins), a read JOINS in flight — N ensures share one
-;; work record and one transport request — so the targets accumulate on the
-;; DURABLE work record's `:reply-targets` (via `rf.resources.work-ledger/add-reply-target`),
-;; and the ONE accepted terminal reply fans out to each recorded target exactly
-;; once. A fresh-skip cache hit has no work record, so it dispatches immediately
-;; (see the `ensure-load` fresh-skip branch, `:cache-hit? true`).
+;; ---- read completion continuations (call-site :reply-to) -------------------
+;; A read joins in flight, so `:reply-to` targets accumulate on the shared work
+;; record's `:reply-targets` and the one accepted terminal reply fans out to
+;; each exactly once; a stale reply delivers nothing. A fresh-skip cache hit
+;; has no record and dispatches immediately.
+;; Spec 016 §Read completion continuations — call-site `:reply-to`
 
 (defn- read-continuation-reply
-  "Augment the canonical resource reply map with the TOP-LEVEL read facts a
-  `:reply-to` workflow continuation reads directly (Spec 016 §Read completion
-  continuations): the resource id, the canonical params, the resolved scope,
-  the `:resource/key`, and `:cache-hit?`. The canonical reply already carries
-  `:status`, `:value` / `:error`, `:rf.reply/work-id`, `:rf.reply/work-kind :resource`,
-  `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`, and `:correlation`; this
-  layers on the resource facts a handler needs without reaching into
-  `:correlation`. Mirrors the mutation `continuation-reply`. Pure."
+  "The canonical `reply` plus the top-level read facts a continuation reads
+  directly: `:resource`, `:params`, `:scope`, `:resource/key`, `:cache-hit?`.
+  Pure."
   [reply {:keys [resource-key cache-hit?]}]
   (let [[scope resource-id params] resource-key]
     (assoc reply
@@ -253,18 +114,9 @@
            :cache-hit?   (boolean cache-hit?))))
 
 (defn- read-reply-continuation-fxs
-  "Build the `[:dispatch <completed-event>]` fx vector delivering an ACCEPTED
-  terminal resource reply to each call-site `:reply-to` target recorded on the
-  settling work `record` (EP-0016 D1). Reads
-  `:reply-targets` off the DURABLE record (populated at ensure/refetch issue +
-  in-flight join), augments the canonical `reply` with the top-level read facts
-  (`:cache-hit? false` — an async settle is never a fresh-skip hit), and appends
-  it to each target via the shared `re-frame.reply/complete` (`:append`
-  delivery). ONE dispatch per target — the work record settles terminal exactly
-  once, so an accepted reply fans out exactly once per target. A stale /
-  superseded reply NEVER reaches here (the nil-entry suppression branch returns
-  before calling this). nil when the record carries no targets (the common
-  case). Pure."
+  "The `[:dispatch …]` fxs delivering an accepted terminal `reply` to each
+  `:reply-to` target on the settling work `record`, one per target, or nil
+  when it has none. Pure."
   [record reply resource-key]
   (when-let [targets (seq (:reply-targets record))]
     (let [enriched (read-continuation-reply reply {:resource-key resource-key
@@ -274,19 +126,10 @@
             targets))))
 
 (defn- infinite-reply-value
-  "The canonical `:reply-to` `:value` for an INFINITE-feed read completion:
-  the MERGED / flattened item list — the headline
-  `:rf.resource/items` read — computed from the feed `entry`'s accumulated
-  pages via `rf.resources.state/merge-pages->items`. BOTH the fresh-skip cache-hit path and
-  the async page-0 settle deliver THIS shape, so a `:reply-to` continuation
-  reads ONE stable `:value` regardless of how the read settled — never the raw
-  page vector (the cache-hit `(:data entry)`) vs a single decoded page (the
-  fetch's `page-succeeded-handler`). Mirrors the `:rf.resource/items` sub's
-  projection (`subs/merged-items`). `where` names the public surface
-  for the loud `:page->items` missing-accessor diagnostic
-  (`:rf.error/infinite-missing-page-accessor`) — the same error the
-  `:rf.resource/items` sub raises for a misconfigured feed. Per Spec 016 §Read
-  completion continuations. Pure."
+  "The `:reply-to` `:value` for an infinite feed: the merged item list over
+  `entry`'s pages, so a continuation sees one shape whether the read settled
+  from cache or from a fetch. `where` names the surface in the
+  `:rf.error/infinite-missing-page-accessor` error. Pure."
   [entry where]
   (let [spec (rf.resources.registry/resource-meta (:resource/id entry))]
     (rf.resources.state/merge-pages->items
@@ -296,21 +139,14 @@
       where)))
 
 (def ^:private reply-to-where
-  "The `where` diagnostic symbol both `:reply-to` continuation value sites pass
-  to `infinite-reply-value` so a misconfigured feed raises the IDENTICAL loud
-  error whether the read settled from cache or from a fetch."
+  "The `where` both continuation value sites pass, so a misconfigured feed
+  raises the same error from cache or from a fetch."
   'rf.resource/reply-to)
 
 (defn- emit-resource-replied!
-  "Emit the `:rf.resource/replied` trace for an accepted read reply
-  that DID continue into app workflow — the READ mirror of
-  `:rf.mutation/replied`. Carries the continuation `:targets`, the work id,
-  the resource id, and `:status`, plus `:cache-hit?` (true only for the
-  fresh-skip immediate dispatch). Attempt-scoped like every reply row: it names
-  the attempt by `:work/id` + `:resource/id`, never by scoped key (the attempt's
-  `:rf.resource/work-started` row states the key). Never fires for a
-  stale/suppressed reply (that path delivers nothing) nor when the read carried
-  no `:reply-to`. Returns nil."
+  "Emits `:rf.resource/replied` for an accepted read reply that continued
+  into `targets`; nothing when `targets` is empty. Names the attempt by
+  `:work/id` and `:resource/id`, never by scoped key. Returns nil."
   [frame-id work-id status targets cache-hit?]
   (when (seq targets)
     (rf.trace/emit! :rf.event :rf.resource/replied
@@ -325,19 +161,13 @@
 
 (defn open-gc-window
   "`runtime-db` with `resource-key`'s entry moved to a new GC window when
-  `gc-delay-ms` arms a GC timer on `frame-id` — a positive delay on a client
-  frame, since a server frame arms none. Every event that arms a GC timer —
-  on the read path, and a mutation settle's populate or patch
-  (`re-frame.resources.mutation-events`) — opens its window here, and the
-  timer stamps its re-check with the window it armed in
-  (`re-frame.resources.timers/schedule!`), so `gc-fired-handler` can tell a
-  superseded window's check from the current one.
+  `gc-delay-ms` arms a GC timer on a client frame. The timer stamps its
+  re-check with that window, so `gc-fired-handler` can tell a superseded
+  check from the current one.
 
-  Window ids come from one counter per frame, not one per entry, because an
-  entry's counter would leave with the entry: an entry removed and written
-  again at the same key would reopen the ids its predecessor's queued check
-  still carries. From the frame's counter, every window the replacement opens
-  is newer than that check."
+  Window ids come from one counter per frame, not per entry: an entry removed
+  and rewritten at the same key would otherwise reopen ids its predecessor's
+  queued check still carries."
   [runtime-db frame-id resource-key gc-delay-ms]
   (if (and gc-delay-ms (not (rf.resources.state/server-frame? frame-id)))
     (let [window (inc (get-in runtime-db last-gc-window-path 0))]
@@ -351,73 +181,30 @@
 (declare revalidation-cause?)
 
 (defn- ensure-load
-  "Shared ensure/refetch core. Resolves the scope + canonical params into a
-  scoped resource key, reads the next monotone generation from the recorded
-  `:rf.resource/generation-allocation` cofx (the generator
-  mints it at processing-start and the runtime records the value on the
-  token, so replay reproduces it), transitions the entry to its in-flight
-  status
-  (`:loading`/`:fetching`), attaches the owner + records the cause, and
-  lowers into the resource's transport. `force-new?` true (refetch) always
-  starts a new generation even when a request is already in flight (Spec
-  016 §Race: refetch may force a new generation). `force-new?` false
-  (ensure) joins an in-flight request for the SAME generation/scoped-key
-  when one exists (dedupe).
-
-  `force-new?` false (ensure) ALSO short-circuits a FRESH-SKIP: an
-  `ensure` of an already-`:loaded` entry that is still fresh-by-policy
-  (`rf.resources.state/entry-stale?` false against the token's causal declared-flat
-  `:rf/time-ms`)
-  neither dedupes (no
-  in-flight work to join) nor starts a fetch — it serves the cached value,
-  attaches the supplied owner, emits `:rf.resource/cache-hit`, and
-  re-projects route readiness (`rf.resources.route/reconcile-readiness`), which resolves
-  the requirement immediately for a route-owned blocking resource. Per Spec 016
-  §Lifecycle is an FSM (a `:loaded` entry transitions to `:fetching` ONLY
-  on `stale/refetch`; a fresh `ensure` has no transition) / §Restore and
-  replay (a settled entry \"refetches only on the next `ensure` from a live
-  owner … gated by the entry's own stale/fresh policy\"). The in-flight
-  dedupe still WINS when work is in flight; fresh-skip applies only to a
-  SETTLED fresh `:loaded` entry.
-
-  Returns the reg-event effects map `{:rf.db/runtime :fx}`."
+  "Shared core of ensure and refetch. Resolves scope and canonical params to
+  the scoped key, then takes one branch:
+    - a revalidation refetch whose entry has gone: no-op;
+    - fresh-skip (ensure only): a settled, fresh `:loaded` entry serves its
+      cached value and attaches the owner, with no fetch;
+    - dedupe (ensure only): join live in-flight work;
+    - otherwise start a new attempt at the recorded generation allocation,
+      superseding any in-flight attempt when `force-new?`.
+  Returns the effects map. Spec 016 §Race and in-flight semantics"
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
    {:keys [resource owner cause keep-previous? reply-to] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (rf.resources.registry/require-resource-spec! resource where)
-        ;; EP-0016 D1 — the OPTIONAL call-site
-        ;; `:reply-to` read-completion continuation. It rides the durable work
-        ;; record (a read JOINS in flight, so N ensures share one record; the
-        ;; targets accumulate there and the ONE accepted terminal reply fans out
-        ;; to each exactly once), so it MUST be data-only. Run it through the
-        ;; shared `re-frame.reply/durable-target` HERE, at issuance — BEFORE any
-        ;; runtime-db / work-ledger write or transport lower — so a malformed
-        ;; target (missing / non-vector `:event`) or a host handle smuggled into
-        ;; a public slot FAILS LOUD now rather than silently mis-delivering (or
-        ;; stranding a non-serializable value on the durable row) at completion.
-        ;; A nil target stays nil (no continuation). Mirrors the mutation
-        ;; execute handler's reply-to hardening.
+        ;; Validated at issue, before any write: the target rides the durable
+        ;; work record, so a malformed or non-serializable one fails now
+        ;; rather than at completion.
         reply-to'  (when (some? reply-to) (rf.reply/durable-target reply-to))
-        ;; EP-0016 D3: a `{:from-db …}` payload-scope OR spec-policy
-        ;; resolves against the handler's app-db coeffect (`app-db`, the
-        ;; causal world input) at use time — fail-closed on nil. Concrete
-        ;; scopes resolve directly.
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
-        ;; Thread `:params` PRESENCE (absent vs explicit nil) to
-        ;; the validation boundary; an absent slot becomes `{}` there, an
-        ;; explicit `{:params nil}` reaches the schema unchanged.
         cparams    (rf.resources.registry/validate+canonicalize-params
                      resource spec (rf.resources.state/params-present? payload) where)
-        ;; scope (resolve-scope-for-event → canonicalize-scope) +
-        ;; cparams (validate+canonicalize-params) are ALREADY canonical.
         scoped-key (rf.resources.state/scoped-resource-key* scope resource cparams)
-        ;; EP-0021 R1: an infinite feed is the SAME durable entry whose `:data`
-        ;; is the ordered page vector — seed `empty-infinite-entry` (the page
-        ;; facts) on a first load, NOT the scalar `empty-entry`. A registered
-        ;; non-infinite resource seeds the scalar entry.
         infinite?  (rf.resources.registry/infinite-resource? spec)
         existing   (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         entry      (or existing
@@ -426,140 +213,48 @@
                          (rf.resources.state/empty-entry resource scoped-key)))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
-        ;; JOINABLE work: an `ensure` may DEDUPE onto the prior
-        ;; attempt ONLY when that attempt is genuinely LIVE — its work record
-        ;; exists and its status is `:queued` / `:running`. A record that has
-        ;; been marked `:abort-requested` (the last owner released it, an
-        ;; opportunistic abort was issued) or that has reached a TERMINAL
-        ;; status (`:cancelled` / `:suppressed` / …) is DOOMED — joining it
-        ;; would leave the new owner attached to dead / dying work that will
-        ;; never produce a usable reply (the only reply it can produce is a
-        ;; suppressed/aborted one). Such a stale `:current-work` pointer can
-        ;; survive a route supersession: release-owner marks the record
-        ;; `:abort-requested` but leaves the entry's `:current-work` set, so
-        ;; the pointer alone is NOT proof of joinable work — the LINKED
-        ;; RECORD'S status is. (An accepted abort SETTLE is not such a path:
-        ;; `entry-abort-settled` clears `:current-work` on the way through.)
-        ;; A non-joinable prior pointer falls through to a fresh load (a new
-        ;; generation), which is the correct re-ensure.
-        ;; `rf.resources.work-ledger/live-work?` is the ONE definition of that liveness
-        ;; question, shared with `load-more`'s page dedupe and the route
-        ;; planner's retained-identity adoption test.
+        ;; Only LIVE prior work is joinable. Release-owner leaves
+        ;; `:current-work` pointing at an `:abort-requested` record, so the
+        ;; pointer alone does not prove there is work to join.
         joinable?  (rf.resources.work-ledger/live-work? runtime-db prior-work)
-        ;; FRESH-SKIP gate (Spec 016 §Lifecycle is an FSM / §Restore and
-        ;; replay): an `ensure` (never a `refetch`) of an already-`:loaded`
-        ;; entry that is NOT in flight and is still fresh-by-policy serves
-        ;; the cached value — no new generation, no fetch, no work record.
-        ;; The in-flight dedupe takes precedence (a fresh-but-in-flight
-        ;; entry can't exist — `:fetching`/`:loading` is the in-flight
-        ;; status — but the explicit `(not in-flight?)` guard keeps the two
-        ;; branches disjoint and order-independent).
-        ;;
-        ;; EP-0010 §The World-Input Rule (clauses 2 + 5): this is
-        ;; a FRESHNESS DECISION that gates a DURABLE runtime-db write — the
-        ;; fresh branch serves cache (no new work-ledger row), the stale
-        ;; branch mints a new generation + work record. The basis MUST be the
-        ;; triggering token's causal declared-flat `:rf/time-ms` (the `time-ms`
-        ;; binding above, also used below for the durable `:started-at`), NOT an
-        ;; ambient `(now-ms)` host read — otherwise a replay under a LATER live
-        ;; clock could take the OPPOSITE branch (refetch vs serve-cache) and
-        ;; produce a divergent work-ledger, breaking the EP's
-        ;; same-tokens→equal-durable-projections property at the decision
-        ;; boundary. The durable `:stale-at`/`:loaded-at` facts the entry carries
-        ;; are the freshness data; `:rf/time-ms` is the causal "now" they
-        ;; are compared against (EP §Restore: "freshness decisions made lazily
-        ;; from that token plus durable timestamps").
+        ;; The freshness basis is the token's `:rf/time-ms`, never the host
+        ;; clock, so a replay takes the same serve-vs-fetch branch.
         fresh-skip? (and (not force-new?)
                          (not in-flight?)
                          (= :loaded (:status entry))
                          (not (rf.resources.state/entry-stale? entry time-ms)))
-        ;; a NEW owner lands on the entry when an owner is supplied and
-        ;; was not already in the active-owner set. `:rf.resource/owner-attached`
-        ;; marks that liveness change distinctly from work — symmetric with the
-        ;; `:rf.resource/owner-released` row so the owner lifecycle
-        ;; is a readable pair in the Xray timeline / AI-Audit (Spec 016 §Xray and
-        ;; AI tooling; §Active owners and causes — owners pin liveness).
         owner-newly-attached? (and (some? owner)
                                    (not (contains? (:active-owners entry) owner)))
-        ;; default the transport (a spec that declares none gets managed
-        ;; HTTP — the only built-in transport; the transport seam
-        ;; defaults identically). The work record + side-table handle +
-        ;; opportunistic-abort fx all key off the concrete transport id.
         transport-id (or (:transport spec) rf.resources.transport/default-transport)
-        ;; `:keep-previous?` (Spec 016 §Paginated and previous data): when a
-        ;; new page/filter key FIRST-loads (no usable data of its own), record
-        ;; a PROJECTION POINTER to the prior loaded sibling key so the sub
-        ;; layer can show old data while the new key loads — WITHOUT inserting
-        ;; that data into this entry or borrowing its tags. Only on a genuine
-        ;; first load (an entry that already has data needs no placeholder).
         prev-key   (when (and keep-previous? (not (rf.resources.state/has-data? entry)))
                      (rf.resources.state/prior-loaded-sibling-key
                        (get-in runtime-db (rf.resources.state/entries-path)) scoped-key))]
     (cond
-      ;; ----- a revalidation refetch whose entry is gone -------------------
-      ;; Focus, reconnect, a poll tick and an invalidation each select an
-      ;; EXISTING entry and dispatch an ownerless refetch for it. When the
-      ;; entry has left the cache before that refetch runs — a clear-scope or
-      ;; change-principal, a remove or a GC landed in between — there is
-      ;; nothing to refresh, and loading it would re-create a key nobody holds,
-      ;; fetched with whatever credentials are current: after an identity
-      ;; switch, the new principal's bytes under the old principal's scope.
-      ;; Spec 016 §Changing principal.
+      ;; A revalidation refetch whose entry left the cache refreshes nothing:
+      ;; loading it would re-create a key nobody holds, and after an identity
+      ;; switch fetch the new principal's bytes under the old scope.
+      ;; Spec 016 §Changing principal
       (and force-new? (nil? existing) (nil? owner) (revalidation-cause? cause))
       (do (rf.trace/emit! :rf.event :rf.resource/refetch-decision
                           {:rf.frame/id frame-id :resource/key scoped-key
                            :scope scope :active? false :decision :no-entry :cause cause})
           {})
-      ;; ----- fresh-skip: serve the cached value (ensure only) -------------
-      ;; A fresh `:loaded` entry needs no work — attach the owner,
-      ;; emit `:rf.resource/cache-hit`, re-project route readiness (the fresh
-      ;; entry's own data resolves any blocking requirement), and return
-      ;; WITHOUT a new generation / fetch / work record. Per Spec 016
-      ;; §Lifecycle is an FSM (a fresh `ensure` from `:loaded` has no
-      ;; transition) / §Restore and replay. No `:previous-key` projection is
-      ;; needed (the entry has its own fresh data); arms no timers; supersedes
-      ;; nothing.
+      ;; fresh-skip
       fresh-skip?
-      ;; Attach the owner via `rf.resources.state/attach-owner`, which bumps the
-      ;; entry's `:revision` when a NEW owner lands (an owner attach is an
-      ;; authoritative durable write a later optimistic rollback could clobber —
-      ;; a blind `restore-before` would otherwise DROP a mid-flight-attached
-      ;; owner, causing premature GC). A re-attach of a present owner / a nil
-      ;; owner is a no-op (no bump), matching `owner-newly-attached?`.
+      ;; `attach-owner` bumps `:revision` on a new owner, so an optimistic
+      ;; rollback cannot drop it.
       (let [hit  (rf.resources.state/attach-owner entry owner)
             rdb' (-> runtime-db
                      (assoc-in (rf.resources.state/entry-path scoped-key) hit)
                      (cond->
                        owner (update-in (rf.resources.state/owner-index-path)
                                         update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key)))
-                     ;; route readiness: a route-owned blocking resource that
-                     ;; is already fresh MUST resolve its nav-token blocking
-                     ;; requirement NOW — no fetch will ever land a reply, so
-                     ;; without this re-projection the route hangs forever
-                     ;; (Spec 016 §Route integration). A no-op for a
-                     ;; non-route-owned / non-blocking resource.
+                     ;; a fresh blocking route resource resolves now: no reply
+                     ;; will ever land to do it
                      (rf.resources.route/reconcile-readiness))
-            ;; A fresh-skip that attaches a NEW owner to a
-            ;; previously OWNER-FREE entry must (re)arm polling. The
-            ;; load may have settled while owner-free (`succeeded-handler` arms
-            ;; NO poll timer for an owner-free settle — a poll never pins an
-            ;; owner-free entry), leaving the entry `:loaded` with no poll
-            ;; armed. A later `ensure` from a live owner serves the cached value
-            ;; via this fresh-skip; without a `:rf.resource/schedule-timers`
-            ;; here the SWR `refetchInterval` analogue would silently never
-            ;; start. The entry now HAS an active
-            ;; owner, so polling MUST arm, mirroring the success-path arming
-            ;; (Spec 016 §Polling — a `:poll` timer is armed after a settle while
-            ;; the entry has at least one active owner). We also re-arm the
-            ;; advisory stale / GC timers (cancel-then-arm) so a fresh-skip that
-            ;; revives an owner-free entry re-establishes the timer set, never
-            ;; double-arming (the fx is cancel-then-arm by construction). The
-            ;; stale timer arms for the window remaining until `:stale-at`, not
-            ;; the full `:stale-after-ms`, because the cancel-then-arm replaces
-            ;; the settle's timer and the wake must still land at the deadline.
-            ;; Gated on a previously-owner-free entry: a fresh-skip onto an
-            ;; already-owned entry adds another owner but its timers are already
-            ;; live, so it re-arms nothing here.
+            ;; Reviving an owner-free entry re-arms its timers, because a
+            ;; settle while owner-free armed no poll. The stale timer arms
+            ;; for the time left until `:stale-at`.
             was-owner-free? (empty? (:active-owners entry))
             arm-timers?    (and owner-newly-attached? was-owner-free?)
             spec           (rf.resources.registry/resource-meta (:resource/id entry))
@@ -569,26 +264,9 @@
                              (rf.resources.state/stale-wake-delay-ms hit time-ms))
             gc-delay-ms    (when arm-timers?
                              (rf.resources.state/positive-or-nil (:gc-after-ms spec)))
-            ;; EP-0016 D1 — a fresh-skip cache hit has NO
-            ;; work record (no fetch, no new generation), so a call-site
-            ;; `:reply-to` continuation dispatches IMMEDIATELY: build the
-            ;; canonical `:status :ok` reply for the cached value and append it.
-            ;; The completion `:work/id` is DERIVED from the resource id +
-            ;; the entry's generation (the load that produced this cached value —
-            ;; a truthful, uniform identity; Spec 016 §Read completion
-            ;; continuations settles the cache-hit `:work/id` wrinkle
-            ;; explicitly), and `:cache-hit?` is true. The ensure handler runs in
-            ;; a drain, so a same-drain `:dispatch` is ordinary.
-            ;; The `:reply-to` `:value` for an INFINITE feed is the
-            ;; MERGED items list (the headline `:rf.resource/items` read), NOT
-            ;; the raw page vector `(:data entry)`. This makes the fresh-skip
-            ;; cache hit deliver the SAME `:value` shape the async page-0 settle
-            ;; (`page-succeeded-handler`) does — a `:reply-to` continuation reads
-            ;; one stable shape regardless of cache-hit vs fetch. A scalar entry
-            ;; delivers its decoded value (`(:data entry)`) unchanged. Computed
-            ;; only when a `:reply-to` continued (a misconfigured feed's loud
-            ;; merge error must not fire for a plain cache hit with no
-            ;; continuation).
+            ;; No work record, so `:reply-to` dispatches now, with a work id
+            ;; derived from the entry's generation. An infinite feed delivers
+            ;; its merged items, the same shape a fetched page-0 delivers.
             hit-reply  (when reply-to'
                          (read-continuation-reply
                            (rf.resources.reply/success-reply
@@ -610,28 +288,20 @@
         (rf.trace/emit! :rf.event :rf.resource/cache-hit
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause})
-        ;; the cache-hit attached a new owner — record that distinct
-        ;; liveness change (symmetric with the dedupe / fresh-load paths).
         (when owner-newly-attached?
           (rf.trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id nil :joined-in-flight? false}))
-        ;; the fresh-skip served a call-site `:reply-to` immediately — record
-        ;; the read-completion continuation (`:cache-hit? true`).
         (when hit-cont-fx
           (emit-resource-replied!
             frame-id (:rf.reply/work-id hit-reply) :ok [reply-to'] true))
-        ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
-        ;; revived by a new owner, mirroring the success-path arming, and
-        ;; append the immediate cache-hit continuation dispatch. Only emitted
-        ;; when the resource declares a timer or a `:reply-to` continued.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key scoped-key
-                             ;; a FULL reconcile names all three kinds — arm the
-                             ;; policied ones, cancel any whose policy is absent
+                             ;; naming all three kinds cancels any whose policy
+                             ;; is absent
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  poll-delay-ms}
@@ -640,31 +310,13 @@
                           hit-cont-fx (conj hit-cont-fx))]
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id scoped-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
-      ;; ----- dedupe: join the in-flight request (ensure only) -------------
-      ;; Attach any supplied owner to the existing entry + record the cause;
-      ;; do NOT start a new generation. Join the SAME work-ledger record
-      ;; (attach owner / append cause). Per Spec 016 §Race (ensure while in
-      ;; flight joins the existing current work record). Gated on `joinable?`:
-      ;; only a LIVE (:queued / :running) prior attempt is
-      ;; joinable — an `:abort-requested` (owner-released, doomed) or terminal
-      ;; (`:cancelled` / suppressed) prior record falls through to a fresh
-      ;; load below, so a route supersession + immediate re-ensure never joins
-      ;; dead work.
+      ;; dedupe: join the live in-flight attempt, no new generation
       (and joinable? (not force-new?))
-      ;; Attach via `rf.resources.state/attach-owner` (bumps `:revision` on a new
-      ;; owner) so a dedupe-join that lands an owner mid optimistic-flight is
-      ;; visible to the settle conflict check (else a blind rollback would drop
-      ;; the joined owner). No-op bump for a re-attach / nil owner.
       (let [joined (rf.resources.state/attach-owner entry owner)
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path scoped-key) joined)
                        (rf.resources.work-ledger/update-record
                          prior-work rf.resources.work-ledger/join-owner+cause owner cause)
-                       ;; EP-0016 D1 — a joining ensure
-                       ;; appends its call-site `:reply-to` to the SHARED work
-                       ;; record's `:reply-targets` (deduped), so the one
-                       ;; accepted terminal reply fans out to every joined
-                       ;; target exactly once. No-op when the join carried none.
                        (cond->
                          reply-to' (rf.resources.work-ledger/update-record
                                      prior-work rf.resources.work-ledger/add-reply-target reply-to'))
@@ -675,100 +327,42 @@
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause
                       :work/id prior-work})
-        ;; the ensure joined the in-flight work (no new generation) but ALSO
-        ;; attached a new owner — record that distinct liveness change.
         (when owner-newly-attached?
           (rf.trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id prior-work :joined-in-flight? true}))
         {:rf.db/runtime rdb'})
-      ;; ----- start a new load attempt (fresh generation) -----------------
+      ;; a new load attempt
       :else
-      ;; The generation is the RECORDED allocation value (the
-      ;; generator-backed `:rf.resource/generation-allocation` cofx mints it
-      ;; at processing-start and the runtime records it on the token), NOT a
-      ;; `(inc snapshot)` re-mint from an ambient read at this write site. So
-      ;; replay reproduces the identical generation (and therefore the
-      ;; identical `:work/id`, which derives from it) — a recorded managed
-      ;; reply keeps its current-vs-stale verdict on replay.
+      ;; The generation is the recorded allocation, not a re-mint, so replay
+      ;; reproduces it and the `:work/id` derived from it.
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id resource generation)
-            ;; The transport correlation token is the
-            ;; frame-QUALIFIED request-id, NOT the bare work-id: two frames
-            ;; can hold the same work-id, and the frame in the token keeps
-            ;; this frame's request distinct wherever request-ids are
-            ;; compared. See `managed-request-id`.
+            ;; frame-qualified: two frames can hold the same work-id
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
-            ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
-            ;; durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
-            ;; `:time-ms` (the causal world input the router stamped once at
-            ;; the dispatch boundary), and `:deadline-at` is computed from it
-            ;; plus the configured timeout policy — NOT an ambient clock read
-            ;; in the reducer. Replay-stable: the same ensure/refetch token
-            ;; mints the same `:started-at` / `:deadline-at`.
+            ;; from the token, so replay mints the same `:started-at` and
+            ;; `:deadline-at`
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            ;; EP-0021 R6 — a forced REFETCH of an infinite feed re-fetches the
-            ;; refresh window per the resource's `:refetch` policy. The
-            ;; DEFAULT is window-preserving — refresh PAGE 0 in place while the
-            ;; accumulated tail stays visible (a focus/reconnect/invalidation
-            ;; refetch never collapses a loaded feed to page 0), and start NO
-            ;; sweep. The opt-ins re-fetch a MULTI-PAGE window IN
-            ;; SEQUENCE (Spec 016 §Refetch): `:refetch-all-pages?`
-            ;; refreshes every accumulated page param, `:refetch-window n` the
-            ;; first n. The issue-time path below ALWAYS re-fetches PAGE 0 (one
-            ;; in-flight fetch); a multi-page opt-in additionally ARMS a durable
-            ;; `:refetch-sweep` cursor (the pages beyond 0), which
-            ;; `page-succeeded-handler` then drives ONE LEG AT A TIME (each its
-            ;; own fresh generation + work-id) — replacing each page in place
-            ;; without ever truncating the accumulation. An ENSURE arms the same
-            ;; sweep when the feed is INVALIDATED: fresh-skip
-            ;; declines a stale feed and dedupe declines when no work is live,
-            ;; so an owner-free feed marked stale by an invalidation reaches this
-            ;; branch on its next ensure, which "refetches per the refetch rule"
-            ;; (Spec 016 §Refetch and invalidation of an infinite feed). A first
-            ;; load has no pages, so its tail is empty and it arms nothing.
+            ;; A refetch, or an ensure of an invalidated feed, refreshes page 0
+            ;; in place; a multi-page `:refetch` policy also arms a sweep cursor
+            ;; that `page-succeeded-handler` drives one leg at a time.
+            ;; Spec 016 §Refetch and invalidation of an infinite feed
             refetch-policy (when infinite? (:refetch spec))
             entry'     (cond-> (rf.resources.state/entry-start-load
                                  entry {:generation generation :work-id work-id
                                         :request-id request-id :owner owner})
-                         ;; `:keep-previous?` projection pointer (a pointer
-                         ;; only — never this key's data / tags).
                          prev-key (assoc :previous-key prev-key)
-                         ;; EP-0021 R6 — arm the multi-page sweep cursor for an
-                         ;; opt-in refetch (empty tail for the window-preserving
-                         ;; default = no cursor, no sweep), and for an ensure of
-                         ;; an invalidated feed.
                          (and infinite? (or force-new? (some? (:invalidated-at entry))))
                          (rf.resources.state/entry-begin-refetch-sweep refetch-policy))
-            ;; EP-0021 R8 — the page context for THIS fetch. A first ensure /
-            ;; a refetch's replacement fetch a page-0 (`page-param-for-spec` —
-            ;; the framework `nil` default, overridable via `:initial-page-param`
-            ;; — at index 0). A non-infinite resource passes a nil ctx (R8 — the
-            ;; reserved ctx is empty for a non-infinite request).
             page-param (when infinite? (rf.resources.state/page-param-for-spec spec))
             page-index 0
             req-ctx    (when infinite? (page-request-ctx page-param page-index))
-            ;; a forced refetch over an in-flight prior attempt SUPERSEDES it:
-            ;; mark the old work record :superseded (terminal) and emit a
-            ;; best-effort abort (opportunistic; stale suppression already
-            ;; protects the late reply by work-id + generation). Per Spec 016
-            ;; §Race (refetch may force a new generation).
             superseding? (and in-flight? force-new?)
-            ;; A SUPERSEDED ATTEMPT HANDS ITS CONTINUATION TO ITS
-            ;; SUCCESSOR. The read was ACTUALLY CAUSED, so its call-site
-            ;; `:reply-to` continuation must still arrive. Left in place, a poll /
-            ;; focus scan / invalidation / manual refetch that supersedes an
-            ;; in-flight attempt would STRAND that attempt's targets on the
-            ;; `:suppressed {:reason :superseded}` row — where no delivery site
-            ;; can ever reach them, because every fan-out sits in the LIVE arm of
-            ;; `live-entry-for-reply` and a superseded work-id can never again
-            ;; equal a live `:current-work` (generations are monotone). A machine
-            ;; that `ensure`d with `:reply-to` would hang, with only a generic
-            ;; `:rf.resource/stale-suppressed` to show for it. Read off the
-            ;; ORIGINAL runtime-db — BEFORE the row is settled terminal below.
-            ;; Per Spec 016 §Read completion continuations (delivery rule).
+            ;; A superseded attempt hands its `:reply-to` targets to its
+            ;; successor: left on the suppressed row, no delivery site could
+            ;; reach them. Read before the row settles below.
             superseded-targets (when superseding?
                                  (:reply-targets
                                    (rf.resources.work-ledger/get-record runtime-db prior-work)))
@@ -778,55 +372,27 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          ;; The new attempt is needed by EVERY
-                          ;; owner holding the entry (`entry'` already carries
-                          ;; any newly attached payload owner), not only by the
-                          ;; payload owner: an ownerless focus / poll /
-                          ;; invalidation refetch must not be abortable by one
-                          ;; of several owners releasing (Spec 016 §Race).
+                          ;; every holder needs the attempt, so one owner
+                          ;; releasing cannot abort an ownerless refetch
                           :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
-                          ;; EP-0021 R2 — an ensure / refetch of an infinite
-                          ;; feed always fetches PAGE 0 (`page-index` 0 above —
-                          ;; a first load or a window-preserving refetch's
-                          ;; replacement page). Recording 0 (not nil) marks this
-                          ;; in-flight work as NOT a load-more, so a whole-feed
-                          ;; `:fetching?` refresh derives `:fetching-next?`
-                          ;; FALSE. A non-infinite resource records no page-index
-                          ;; (nil). Per Spec 016 §Subscription contract (R2).
+                          ;; 0, not nil: not a load-more, so `:fetching-next?`
+                          ;; reads false
                           :page-index   (when infinite? page-index)
-                          ;; EP-0016 D1 — seed the
-                          ;; call-site `:reply-to` continuation on the fresh work
-                          ;; record so the accepted terminal reply fans out to
-                          ;; it (a later joining ensure appends more targets).
-                          ;; Seeded FIRST with the targets handed over
-                          ;; by the attempt this one supersedes, so the fan-out
-                          ;; keeps chronological append order. Omitted entirely
-                          ;; when neither this read nor its predecessor carried
-                          ;; one, so an ordinary read's row has no
-                          ;; `:reply-targets` key.
+                          ;; the predecessor's targets first, for append order
                           :reply-targets superseded-targets})
-            ;; This call's OWN `:reply-to` goes on through
-            ;; `add-reply-target`, the one dedupe definition, rather than being
-            ;; concatenated: a `refetch` that repeats the superseded read's target
-            ;; would otherwise appear twice on the successor and fire TWICE off one
-            ;; settle, breaking the exactly-once the delivery rule promises.
+            ;; through `add-reply-target`, so a target the superseded read
+            ;; already carried is not delivered twice
             record     (cond-> record
                          reply-to' (rf.resources.work-ledger/add-reply-target reply-to'))
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
                            (cond->
                              superseding?
-                             ;; HAND OVER rather than copy: the targets
-                             ;; were seeded onto the successor above, so drop them
-                             ;; from the superseded row before it settles terminal.
-                             ;; One continuation, one owner — a terminal row still
-                             ;; advertising targets it can never deliver would
-                             ;; read as "voided" to anybody querying the
-                             ;; ledger. `update-record` is a no-op on an absent row
-                             ;; and `dissoc` a no-op on a read that carried none.
+                             ;; hand over rather than copy: a terminal row must
+                             ;; not advertise targets it can never deliver
                              (-> (rf.resources.work-ledger/update-record
                                    prior-work dissoc :reply-targets)
                                  (rf.resources.work-ledger/settle-terminal
@@ -836,35 +402,14 @@
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
-            ;; lower into the resource's transport (the transport seam). The
-            ;; runtime owns reply addressing: the internal reply payloads
-            ;; stamp the qualified :rf.frame/id + :work/id + :generation so
-            ;; the reply handlers verify before writing (stale suppression is
-            ;; the correctness boundary); the scoped key stays on the ledger
-            ;; row, where the handler resolves it.
-            ;; EP-0021 R8 — the `:request` fn has the `(params ctx)`
-            ;; shape; an infinite feed's reserved `ctx` carries the resolved
-            ;; page context for THIS page, a non-infinite resource's ctx is
-            ;; nil. There is no separate arity.
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams req-ctx))
-            ;; EP-0021 R1/R2 — an infinite page fetch is addressed at the PAGE
-            ;; reply handlers (`:rf.resource.internal/page-*`) so a page success
-            ;; APPENDS / REPLACES-IN-PLACE rather than overwriting the whole
-            ;; value; the reply payload carries the resolved `:page-param` /
-            ;; `:page-index` so the settle records the right param. A
-            ;; non-infinite resource uses the scalar reply addressing.
             reply-overrides (when infinite?
                               {:on-success-id page-succeeded-reply
                                :on-failure-id page-failed-reply
                                :reply-payload (infinite-page-reply-payload
                                                 generation work-id
                                                 page-param page-index)})
-            ;; Guard the declared transport (registration-time
-            ;; misconfig throw), then lower directly into the only
-            ;; built-in transport. With one transport there is no dispatch
-            ;; table; a second transport would turn the guard into the
-            ;; dispatch.
             lower-fx   (do (rf.resources.transport/assert-managed-transport! transport-id where)
                            (rf.resources.transport.http/lower
                              (merge
@@ -876,10 +421,6 @@
                                 :generation   generation
                                 :where        where}
                                reply-overrides)))
-            ;; Best-effort abort of the superseded prior attempt by
-            ;; the frame-QUALIFIED request-id (the token the prior lower
-            ;; registered); a bare work-id misses it. nil when not superseding or
-            ;; the transport has no abort capability (then no abort fx is added).
             superseding-abort-fx (when superseding?
                                    (rf.resources.work-ledger/abort-fx transport-id frame-id prior-work))]
         (rf.trace/emit! :rf.event :rf.resource/work-started
@@ -891,19 +432,12 @@
                      {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
-        ;; a fresh load that also attaches a NEW owner — record the
-        ;; liveness change distinctly from the work it kicked off (symmetric
-        ;; with `:rf.resource/owner-released`).
         (when owner-newly-attached?
           (rf.trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource/key scoped-key
                         :generation generation :owner owner :cause cause
                         :work/id work-id :joined-in-flight? false}))
         {:rf.db/runtime rdb'
-         ;; WRITE half of the host-side generation seam + the transport fx +
-         ;; the work-handle side-table record + (when superseding) a
-         ;; best-effort abort of the prior in-flight attempt (drop its
-         ;; side-table handle + a transport abort — opportunistic).
          :fx (cond-> [[:rf.resource/commit-generation {:value generation}]
                       [:rf.resource/record-work-handle
                        {:frame-id frame-id :work-id work-id
@@ -915,58 +449,25 @@
                    (cond-> superseding-abort-fx (conj superseding-abort-fx))))}))))
 
 (defn ensure-handler
-  "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
-  if absent; join the in-flight work record if one exists; attach `:owner`
-  to the entry; record `:cause`). Per Spec 016 §Events and §Race and
-  in-flight semantics. Payload: `{:resource :scope :params :owner :cause
-  :keep-previous? :reply-to}` — `:keep-previous?` shows the prior loaded
-  sibling key's data while a first load runs, and `:reply-to` is the
-  optional read-completion continuation."
+  "`:rf.resource/ensure`: load the instance if absent, join in-flight work,
+  attach `:owner`, record `:cause`. Payload `{:resource :scope :params :owner
+  :cause :keep-previous? :reply-to}`.
+  Spec 016 §Events (map payloads, not positional argument vectors)"
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? false :where 'rf.resource/ensure}))
 
 (defn refetch-handler
-  "`:rf.resource/refetch` — force a refresh of a resource instance (forces
-  a new generation; supersede + suppress any in-flight prior request by
-  generation). Per Spec 016 §Events and §Race and in-flight semantics.
-  Payload: `{:resource :scope :params :owner :cause :keep-previous?
-  :reply-to}` — the same keys as `ensure`, because both route through the
-  shared `ensure-load` core: a supplied `:owner` is attached as an owner,
-  and `:keep-previous?` and `:reply-to` mean what they mean there."
+  "`:rf.resource/refetch`: force a new generation, superseding any in-flight
+  attempt. Same payload as ensure. Spec 016 §Race and in-flight semantics"
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 
-;; ---- load-more — the infinite-feed page-extension event (EP-0021 R2) ------
-;;
-;; A causal event that extends an infinite feed by ONE page. It reuses the
-;; WHOLE load-causing substrate — generation, work-ledger row, dedupe, stale
-;; suppression, transport lowering — and differs from `ensure`/`refetch` only
-;; in WHICH page it fetches: the NEXT page param derived from the accumulated
-;; tail (`next-param-for`), at index `page-count` (an APPEND), addressed at the
-;; PAGE reply handlers so the success appends rather than overwrites (R1/R2/R8).
-;;
-;; FSM (R2 — no 6th state): a `load-more` on a `:loaded` feed transitions to
-;; `:fetching` (the refresh-class transition — the feed has data, so
-;; `entry-start-load` chooses `:fetching` and the accumulated pages stay
-;; visible). The two SKIP paths fire no request:
-;;   - TERMINAL (`next-param-for` is nil — no more pages): a no-op that emits
-;;     `:rf.resource/load-more-skipped` `:reason :no-next-page`;
-;;   - IN-FLIGHT (a page fetch is already running): dedupe against the live
-;;     work, emit `:rf.resource/load-more-skipped` `:reason :in-flight`.
-;; A `load-more` on a feed that does not exist / is not yet loaded is also a
-;; no-op (`:reason :no-feed` — there is no tail to derive the next param from;
-;; the first page is `ensure`'s page-0, not a load-more).
+;; ---- load-more — extend an infinite feed by one page -----------------------
 
 (defn- load-more-loaded
-  "Core of `:rf.resource/load-more` (EP-0021 R2). Resolves the feed's scoped
-  key (the FEED identity — the per-page param is NOT in the key, R1), reads the
-  live entry, and either SKIPS (terminal / in-flight / no-feed — no request) or
-  issues the NEXT page fetch (derived param at index `page-count`) through the
-  resource's `:request` with the reserved page ctx, recording a work-ledger row
-  and transitioning the feed to `:fetching` (pages stay visible). Reuses the
-  recorded generation allocation (replay-stable) and the page reply addressing
-  so the success appends via `entry-append-page` and a failure records
-  `:page-error` (`entry-page-failed`). Returns the reg-event effects map."
+  "Core of `:rf.resource/load-more`: fetches the next page (param derived
+  from the tail, at index `page-count`), or skips with `:no-feed`,
+  `:no-next-page` or `:in-flight`. Returns the effects map."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
@@ -978,42 +479,18 @@
         cparams    (rf.resources.registry/validate+canonicalize-params
                      resource spec (rf.resources.state/params-present? payload) where)
         scoped-key (rf.resources.state/scoped-resource-key* scope resource cparams)
-        ;; EP-0021 — `:rf.resource/load-more` is OWNERLESS by
-        ;; contract: the feed's liveness is the ROUTE owner's (the route that
-        ;; ensured page 0), and a load-more is a user-caused page extension
-        ;; during that route's lifetime, NOT a new owner. A supplied `:owner` is
-        ;; a recognised-but-unhonourable input (a plausible mistake — a consumer
-        ;; copying the `ensure`/`refetch` payload shape) that would otherwise
-        ;; attach a SECOND, durable owner to the feed (`:active-owners` +
-        ;; `:owner-index`) and silently extend its liveness / GC lifetime until
-        ;; an explicit `:rf.resource/release-owner` — an owner LEAK.
-        ;; Per Conventions §No silent swallow, this is
-        ;; a WARNING (continuation is safe — the append path needs no owner):
-        ;; emit the loud diagnostic at the point of the mistake, then NORMALIZE
-        ;; the owner to nil so it reaches NEITHER `:active-owners`, the
-        ;; `:owner-index`, NOR the work record. `:cause` is untouched
-        ;; (attribution preserved). The page still fetches + appends — the
-        ;; user's data keeps loading. Bright-line rule (reject ANY owner,
-        ;; not a conflict predicate): a load-more NEVER takes an owner.
+        ;; A load-more is ownerless: the feed's liveness is the route owner's.
+        ;; A supplied owner would leak a durable owner onto the feed, so it is
+        ;; dropped and warned about below; the page still loads.
+        ;; Conventions §No silent swallow — recognised input MUST signal
         owner      nil
         entry      (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         prior-work (:current-work entry)
-        ;; a page fetch (or any fetch) is genuinely in flight when the linked
-        ;; work record is LIVE (`:queued` / `:running`) — the same `joinable?`
-        ;; liveness the `ensure` dedupe uses. A doomed
-        ;; (`:abort-requested`) / terminal pointer is NOT in flight.
         in-flight? (rf.resources.work-ledger/live-work? runtime-db prior-work)
         pages      (:data entry)
         next-param (rf.resources.state/next-param-for (:next-page-param spec) pages)
         terminal?  (rf.resources.state/terminal? next-param)
         page-index (rf.resources.state/page-count entry)]
-    ;; Surface the dropped owner ONCE, at the point of the mistake,
-    ;; for EVERY branch (issue / skip / dedupe / no-feed): the owner is ignored
-    ;; the same way regardless of whether this load-more fetches a page or
-    ;; no-ops, so the diagnostic does not depend on the outcome. The owner is
-    ;; already normalized to nil above, so it cannot reach `:active-owners`, the
-    ;; `:owner-index`, or any in-flight work record on any path. Per Conventions
-    ;; §No silent swallow (`:rf.warning/*` when the cascade continues safely).
     (when (some? supplied-owner)
       (rf.trace/emit! :warning :rf.warning/resource-load-more-owner-ignored
                    {:rf.frame/id  frame-id
@@ -1033,11 +510,7 @@
                                        "load-more payload. Per Spec 016 §Causal event "
                                        "— load-more.")}))
     (cond
-      ;; ----- no feed: load-more before page 0 exists — no-op --------------
-      ;; The first page is `ensure`'s page-0, not a load-more; a load-more with
-      ;; no accumulated tail has no param to derive (`next-param-for` returns
-      ;; nil on an empty/absent page vector, so this also covers a not-yet-
-      ;; loaded feed). Fail-quiet (a trace), never a spurious request.
+      ;; no feed yet: the first page is ensure's page 0, never a load-more
       (or (nil? entry) (not (rf.resources.state/infinite-entry? entry)) (empty? pages))
       (do
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
@@ -1045,7 +518,6 @@
                       :reason :no-feed :owner owner :cause cause})
         {:rf.db/runtime runtime-db})
 
-      ;; ----- terminal: no more pages — no-op (R2) -------------------------
       terminal?
       (do
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
@@ -1054,11 +526,7 @@
                       :owner owner :cause cause})
         {:rf.db/runtime runtime-db})
 
-      ;; ----- dedupe: a page fetch is already in flight — no-op (R2) -------
-      ;; A second load-more while one is running JOINS (no new generation, no
-      ;; second request), exactly as a duplicate `ensure` does. The owner /
-      ;; cause are folded onto the live work record so the in-flight page is
-      ;; attributed to the new caller too.
+      ;; join the live page fetch, attributing it to this cause too
       in-flight?
       (let [rdb' (rf.resources.work-ledger/update-record
                    runtime-db prior-work rf.resources.work-ledger/join-owner+cause owner cause)]
@@ -1068,7 +536,6 @@
                       :page-count page-index :owner owner :cause cause})
         {:rf.db/runtime rdb'})
 
-      ;; ----- issue the next page fetch (fresh generation, APPEND) ---------
       :else
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id resource generation)
@@ -1076,12 +543,6 @@
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             transport-id (or (:transport spec) rf.resources.transport/default-transport)
-            ;; transition the FEED to its in-flight status. The feed has data,
-            ;; so `entry-start-load` chooses `:fetching` (the refresh-class
-            ;; transition — pages stay visible, no skeleton); it bumps the
-            ;; generation/attempt, records `:current-work` + `:request-id`, and
-            ;; attaches the owner. The page vector is UNTOUCHED (a load-more
-            ;; never collapses the feed). Per Spec 016 §Causal event — load-more.
             entry'     (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
@@ -1091,20 +552,13 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          ;; A load-more MINTS no owner, but the
-                          ;; owners holding the feed need its
-                          ;; page: the row starts from `:active-owners`.
+                          ;; mints no owner, but the feed's holders need the page
                           :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
-                          ;; EP-0021 R2 — a load-more is an APPEND at the
-                          ;; positive page index (`page-count` ≥ 1, the tail);
-                          ;; recording it on the durable row is what lets the
-                          ;; `:fetching-next?` sub tell a load-more in flight
-                          ;; apart from a whole-feed `:fetching?` refresh (which
-                          ;; fetches page-0). Per Spec 016 §Causal event —
-                          ;; load-more / §Subscription contract (R2).
+                          ;; a positive index is what tells `:fetching-next?`
+                          ;; apart from a whole-feed refresh
                           :page-index   page-index})
             owner-newly-attached? (and (some? owner)
                                        (not (contains? (:active-owners entry) owner)))
@@ -1114,8 +568,6 @@
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
-            ;; R8 — the reserved page ctx for THIS (next) page: the derived
-            ;; param at index `page-count` (an append).
             req-ctx    (page-request-ctx next-param page-index)
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams req-ctx))
@@ -1128,9 +580,6 @@
                               :frame-id     frame-id
                               :generation   generation
                               :where        where
-                              ;; page reply addressing — a page success APPENDS
-                              ;; at this index; the payload carries the resolved
-                              ;; param so the settle records it in :page-params.
                               :on-success-id page-succeeded-reply
                               :on-failure-id page-failed-reply
                               :reply-payload (infinite-page-reply-payload
@@ -1162,53 +611,21 @@
               lower-fx]}))))
 
 (defn load-more-handler
-  "`:rf.resource/load-more` — extend an infinite feed by one page (EP-0021
-  R2). Computes the next page param from the feed's accumulated tail (via the
-  resource's `:next-page-param`), issues the managed request for that page with
-  the reserved page ctx `{:rf.resource/page-param p :rf.resource/page-index i}`,
-  records a work-ledger row, and transitions the feed to `:fetching` (the
-  refresh-class transition — the accumulated pages stay visible).
-
-  A TERMINAL feed (`:next-page-param` nil) is a no-op (`:reason :no-next-page`);
-  a load-more while a page fetch is already in flight DEDUPES against the live
-  work (`:reason :in-flight`); a load-more before page 0 exists is a no-op
-  (`:reason :no-feed`). On success the page is APPENDED (`entry-append-page`)
-  via the `:rf.resource.internal/page-succeeded` reply; a failure records
-  `:page-error` (`entry-page-failed`) via `:rf.resource.internal/page-failed` —
-  the third error channel (the feed keeps its pages). Generation + work-id
-  stale suppression protect a late page reply exactly as for any fetch.
-
-  A load-more is **OWNERLESS**: the feed's liveness is the ROUTE
-  owner's (the route that ensured page 0), so a load-more carries NO `:owner`.
-  A supplied `:owner` is IGNORED with a `:rf.warning/resource-load-more-owner-ignored`
-  (it is not attached to `:active-owners` / `:owner-index`, so no durable owner
-  leaks) and the page still fetches + appends. Per Spec 016 §Causal event —
-  load-more. Payload: `{:resource :scope :params :cause}`."
+  "`:rf.resource/load-more`: extend an infinite feed by one page, appended on
+  success; a failure records `:page-error` and keeps the feed. A terminal
+  feed, a page fetch already in flight, or no page 0 yet is a no-op.
+  Ownerless: a supplied `:owner` is ignored with
+  `:rf.warning/resource-load-more-owner-ignored`. Payload `{:resource :scope
+  :params :cause}`. Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
   [cofx [_event-id payload]]
   (load-more-loaded cofx payload {:where 'rf.resource/load-more}))
 
-;; ---- refetch-page — a multi-page refetch sweep LEG (EP-0021 R6) -----------
-;;
-;; `:refetch-all-pages?` / `:refetch-window` re-fetch a
-;; multi-page window IN SEQUENCE. The issue-time `:rf.resource/refetch` fetches
-;; page 0 and arms a `:refetch-sweep` cursor (the pages beyond 0);
-;; `page-succeeded-handler` then chains this internal event ONE LEG AT A TIME —
-;; each leg re-fetches a SPECIFIC `(page-param page-index)` and REPLACES that
-;; page in place on success (via the page reply handlers' `entry-replace-page`).
-;; Single in-flight fetch per leg (one work-id, the same substrate); the
-;; chain stops when the cursor empties or a leg fails. User code MUST NOT
-;; dispatch it.
+;; ---- refetch-page — one leg of a multi-page refetch sweep -------------------
 
 (defn- refetch-page-loaded
-  "Core of `:rf.resource.internal/refetch-page` (EP-0021 R6 sweep leg). Re-fetch
-  the page at the payload's `:rf.resource/page-param` / `:rf.resource/page-index`
-  (a SPECIFIC page, not the derived tail), transition the feed to `:fetching`
-  (pages stay visible), and address the PAGE reply handlers so the success
-  REPLACES that page in place (`entry-replace-page`) and chains the next sweep
-  leg. Mints a fresh generation (the recorded allocation, replay-stable) +
-  work-id like `load-more`. A vanished / non-infinite feed, or one with no live
-  sweep cursor, is a structural no-op (a superseded sweep — the feed was cleared
-  or re-loaded). Returns the reg-event effects map."
+  "Core of `:rf.resource.internal/refetch-page`: re-fetches the page at the
+  payload's page param and index, which replaces that page in place on
+  success. A vanished feed, or a page index past the feed's end, is a no-op."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
@@ -1223,7 +640,6 @@
         scoped-key (rf.resources.state/scoped-resource-key* scope resource cparams)
         entry      (get-in runtime-db (rf.resources.state/entry-path scoped-key))]
     (cond
-      ;; ----- the feed vanished / is no longer infinite — no-op -------------
       (or (nil? entry) (not (rf.resources.state/infinite-entry? entry)))
       (do
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
@@ -1231,9 +647,7 @@
                       :reason :no-feed :owner owner :cause cause})
         {:rf.db/runtime runtime-db})
 
-      ;; ----- the page index is past the (current) accumulation — no-op -----
-      ;; A sweep leg only refreshes a page the feed still has; a feed that
-      ;; shrank under the sweep (a clear / re-load) drops the stale leg.
+      ;; a feed that shrank under the sweep drops the stale leg
       (>= page-index (rf.resources.state/page-count entry))
       (do
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
@@ -1242,7 +656,6 @@
                       :owner owner :cause cause})
         {:rf.db/runtime runtime-db})
 
-      ;; ----- issue the replacement fetch for THIS page (fresh generation) --
       :else
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id resource generation)
@@ -1250,9 +663,6 @@
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             transport-id (or (:transport spec) rf.resources.transport/default-transport)
-            ;; the feed has data, so `entry-start-load` chooses `:fetching`
-            ;; (refresh-class — pages stay visible). The page vector is
-            ;; UNTOUCHED (a sweep leg replaces in place on its reply).
             entry'     (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
@@ -1262,14 +672,10 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          ;; A sweep leg is needed by every owner
-                          ;; holding the feed, like the page-0 fetch it follows.
                           :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
-                          ;; record the page index this leg refreshes (a
-                          ;; replacement, not a load-more append).
                           :page-index   page-index})
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
@@ -1310,120 +716,52 @@
               lower-fx]}))))
 
 (defn refetch-page-handler
-  "`:rf.resource.internal/refetch-page` — re-fetch ONE page of a multi-page
-  refetch sweep (EP-0021 R6). Chained by `page-succeeded-handler`
-  off the `:refetch-sweep` cursor; fetches the payload's specific
-  `(:rf.resource/page-param :rf.resource/page-index)` and replaces it in place
-  on success. User code MUST NOT dispatch it. Payload:
-  `{:resource :scope :params :cause :rf.resource/page-param
-    :rf.resource/page-index}`."
+  "`:rf.resource.internal/refetch-page`: one leg of a multi-page refetch
+  sweep, chained by `page-succeeded-handler`. Payload `{:resource :scope
+  :params :cause :rf.resource/page-param :rf.resource/page-index}`.
+  Spec 016 §Refetch and invalidation of an infinite feed"
   [cofx [_event-id payload]]
   (refetch-page-loaded cofx payload {:where 'rf.resource.internal/refetch-page}))
 
 ;; ---- focus / reconnect revalidation ---------------------------------------
-;;
-;; Per Spec 016 §Stale and GC scheduling, focus/reconnect signals are resource
-;; EVENTS, not subscription-driven fetching.
-;;
-;; The host focus / online listeners (`re-frame.resources.revalidate-listeners`,
-;; CLJS-only, registered per-frame, cancelled on frame-destroy via the
-;; `:resources/on-frame-destroyed!` hook) dispatch these events; the algorithm
-;; reuses the ordinary lifecycle primitives:
-;;
-;;   - ACTIVE OWNERS decide WHICH entries are worth refetching — only an entry
-;;     with a live owner (`:active-owners` non-empty) is scanned (an inactive
-;;     entry is GC fodder, not a revalidation target);
-;;   - DURABLE stale/fresh timestamps decide WHETHER — `rf.resources.state/entry-stale?`
-;;     (the single shared freshness derivation the subs / SSR / stale-timer
-;;     re-check all use) against the focus/reconnect token's causal declared-flat
-;;     `:rf/time-ms` (not an ambient host-clock read at
-;;     the scan site, so the SELECTION is replay-stable); a fresh entry is LEFT
-;;     ALONE;
-;;   - GENERATION CHECKS suppress stale replies — the refetch lowers through
-;;     the ordinary `ensure-load` path (force-new generation), so a
-;;     focus-triggered refetch is just another CAUSE; it attaches NO owner, so
-;;     it NEVER creates liveness (Spec 016 §Active owners and causes: `:focus`
-;;     / `:reconnect` are causes, not owners), and the work-id + generation
-;;     stale-suppression boundary protects late replies exactly as for any
-;;     refetch;
-;;   - the TRANSPORT adapter owns retry / abort;
-;;   - TRACE rows explain the decision (one scan summary + the per-entry
-;;     refetch decisions ride the ordinary refetch traces).
-;;
-;; Background, NON-blocking: the scan dispatches `:rf.resource/refetch` per
-;; eligible entry (each a normal background refresh — prior data stays visible
-;; in `:fetching`), never blocking a route transition or the UI.
+;; Owners select which entries are worth refetching, durable timestamps decide
+;; whether, and the refetch carries a cause, never an owner, so revalidation
+;; never creates liveness. Spec 016 §Stale and GC scheduling
 
 (def focus-cause
-  "The revalidation cause recorded on a window-focus-triggered refetch
-  (`:focus`). A CAUSE, never an owner — it explains why the work happened
-  without changing liveness / GC / polling (Spec 016 §Active owners and
-  causes). User code MUST NOT dispatch the focus event directly; the host
-  focus listener does."
+  "The cause on a window-focus refetch: a cause, never an owner.
+  Spec 016 §Causes explain why work happened"
   :focus)
 
 (def reconnect-cause
-  "The revalidation cause recorded on a network-reconnect-triggered refetch
-  (`:reconnect`). A CAUSE, never an owner (Spec 016 §Active owners and
-  causes)."
+  "The cause on a network-reconnect refetch: a cause, never an owner.
+  Spec 016 §Causes explain why work happened"
   :reconnect)
 
 (def poll-cause
-  "The revalidation cause recorded on an interval-poll-triggered refetch
-  (`:poll`, EP-0020). A CAUSE, never an owner — it explains why the work
-  happened without changing liveness / GC / polling (Spec 016 §Active owners
-  and causes). A poll therefore creates no liveness and extends no GC; the
-  entry stops polling the instant its last real owner releases. User code
-  MUST NOT dispatch the poll-fired event directly; the host `:poll` timer
-  does."
+  "The cause on a poll-tick refetch: a cause, never an owner, so polling
+  stops when the last real owner releases. Spec 016 §Polling"
   :poll)
 
 (defn- revalidation-cause?
-  "True iff `cause` is one the framework's automatic refetches carry: focus,
+  "True for the causes of the framework's automatic refetches: focus,
   reconnect, a poll tick, or an invalidation (`[:invalidate …]`). Such a
-  refetch refreshes an entry that existed when its trigger fired, and never
-  re-creates one that has since left the cache (`ensure-load`)."
+  refetch never re-creates an entry that has left the cache (`ensure-load`)."
   [cause]
   (or (contains? #{focus-cause reconnect-cause poll-cause} cause)
       (and (vector? cause) (= :invalidate (first cause)))))
 
 (defn- entry-revalidation-in-flight?
-  "True iff `entry` already has a LIVE refetch in flight — work that will
-  produce a usable reply. Such an entry needs no new revalidation refetch: one
-  is already running. Liveness is `rf.resources.work-ledger/live-work?`, the ONE definition
-  of that question — a `:current-work` POINTER alone is not proof
-  of work, since the linked record may be terminal (a settled attempt whose
-  entry write has not yet cleared the pointer) or `:abort-requested` (a doomed,
-  owner-released attempt); both fall through as NOT in-flight, so revalidation
-  can legitimately start fresh work. The same predicate backs `ensure-load`'s
-  `joinable?` gate, so only a genuinely live attempt blocks a new
-  generation. Per Spec 016 §Race / §Deferred slices (coalesce focus
-  + visibility revalidation for in-flight stale entries)."
+  "True when `entry` has live work in flight. A `:current-work` pointer alone
+  is not proof: the linked record may be terminal or `:abort-requested`."
   [runtime-db entry]
   (rf.resources.work-ledger/live-work? runtime-db (:current-work entry)))
 
 (defn- active-stale-scan
-  "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,
-  return the vector of `{:resource/key :scope :resource :params}` for every
-  cache entry that is active (has at least one `:active-owner` — a live owner
-  worth refetching), stale-by-policy (`rf.resources.state/entry-stale?` against the
-  durable timestamps), AND not already mid-revalidation (no LIVE in-flight
-  refetch — `entry-revalidation-in-flight?`). Fresh entries, owner-free
-  entries, and entries with a live refetch already running are excluded.
-
-  COALESCING: a tab-return commonly fires BOTH `focus` (on
-  `window`) and `visibilitychange` (on `document`), each dispatching
-  `:rf.resource/window-focused`. Without the in-flight gate, the first scan
-  starts a refetch (setting `:current-work` to a `:running` record) and the
-  second scan would force a SECOND new generation over it — superseding +
-  aborting the first (abort churn) for no benefit. Skipping entries with live
-  in-flight work makes back-to-back focus / focus+visibility signals
-  idempotent: one active-stale key yields at most one new generation.
-
-  Per Spec 016 §Stale and GC scheduling / §Deferred slices (focus/reconnect
-  active-stale scan) / §Race (refetch may force a new generation). A pure
-  selection — it never mutates; the caller turns the selection into
-  background `:rf.resource/refetch` dispatches."
+  "The `{:resource/key :scope :resource :params}` of every entry that has an
+  active owner, is stale at `clock-ms`, and has no live work in flight. The
+  in-flight exclusion coalesces a tab return's focus and visibilitychange
+  signals into one refetch. Pure."
   [runtime-db clock-ms]
   (let [entries (get-in runtime-db (rf.resources.state/entries-path))]
     (into []
@@ -1431,8 +769,8 @@
                   (when (and (seq (:active-owners entry))
                              (rf.resources.state/entry-stale? entry clock-ms)
                              (not (entry-revalidation-in-flight? runtime-db entry)))
-                    ;; Read the scoped-key VECTOR from the entry's
-                    ;; `:resource/key` (the map key is the opaque byte id).
+                    ;; the map key is the opaque byte id; the vector lives on
+                    ;; the entry
                     (let [scoped-key (:resource/key entry)
                           [scope resource-id params] scoped-key]
                       {:resource/key scoped-key
@@ -1442,32 +780,11 @@
           entries)))
 
 (defn- revalidate-handler
-  "Shared focus / reconnect active-stale revalidation core (Spec 016
-  §Stale and GC scheduling / §Deferred slices). Scans the frame's
-  active-owner entries that are stale-by-policy and dispatches a background
-  `:rf.resource/refetch` per eligible entry, carrying `cause` (`:focus` /
-  `:reconnect`) — a CAUSE, never an owner (the refetch attaches no owner, so
-  it never creates liveness; generation + stale-suppression protect late
-  replies exactly as for any refetch). Fresh entries and owner-free entries
-  are left untouched. Emits one `:rf.resource/refetch-decision` scan-summary
-  trace (the broad-tab-return storm stays readable) plus the per-entry
-  refetch ride their ordinary refetch traces. Returns the effects map
-  (`:fx` only — the scan itself makes NO durable write; the refetch
-  dispatches do).
-
-  `signal` is the revalidation op (`:rf.resource/window-focused` /
-  `:rf.resource/network-reconnected`) for the trace; `cause` is the cause
-  keyword recorded on each refetch.
-
-  EP-0010 §The World-Input Rule + EP-0017 declared-only delivery:
-  the active-stale SELECTION is a freshness decision — it picks
-  which entries get a `:refetch` dispatched — so its basis is the triggering
-  focus/reconnect token's causal declared-flat `:rf/time-ms` (consumed FLAT, not
-  reached through the `:rf.cofx` token), not an ambient `(now-ms)` host read. The
-  scan writes nothing durable itself (the child refetches do, each stamped with
-  its own fresh world inputs), so this is the softer of the three sites; but a
-  replayed focus/reconnect must still SELECT the same set the recorded
-  `:rf/time-ms` dictated, or the replay diverges from the original run."
+  "Shared core of the focus and reconnect events: dispatches a background
+  `:rf.resource/refetch` with `cause` for every entry `active-stale-scan`
+  selects, and emits one `:rf.resource/revalidate-scan` summary. Writes
+  nothing itself. The selection reads the token's `:rf/time-ms`, so a replay
+  selects the same set."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms} signal cause]
   (let [runtime-db (or rt {})
         eligible   (active-stale-scan runtime-db time-ms)
@@ -1476,9 +793,6 @@
                                        {:resource resource :scope scope
                                         :params   params :cause cause}]])
                          eligible)]
-    ;; ONE scan summary (a tab-return / reconnect can touch many entries — keep
-    ;; the trace readable). The per-entry refetch decisions ride the ordinary
-    ;; `:rf.resource/work-started` / `fetch-started` traces each refetch emits.
     (rf.trace/emit! :rf.event :rf.resource/revalidate-scan
                  {:rf.frame/id frame-id :signal signal :cause cause
                   :scanned    (count (get-in runtime-db (rf.resources.state/entries-path)))
@@ -1487,92 +801,38 @@
     {:fx refetches}))
 
 (defn window-focused-handler
-  "`:rf.resource/window-focused` — the window-focus revalidation signal
-  (Spec 016 §Deferred slices: focus/reconnect revalidation as resource
-  EVENTS, not subscription-driven fetching). Scans the frame's active-owner
-  stale entries and refetches them in the background with cause `:focus`
-  (a cause, never an owner). Dispatched by the host focus / visibilitychange
-  listener (`re-frame.resources.revalidate-listeners`); user code MUST NOT
-  dispatch it directly. Per Spec 016 §Stale and GC scheduling."
+  "`:rf.resource/window-focused`: revalidates active stale entries with cause
+  `:focus`. Dispatched by the host listener, never by user code.
+  Spec 016 §Stale and GC scheduling"
   [cofx [_event-id]]
   (revalidate-handler cofx :rf.resource/window-focused focus-cause))
 
 (defn network-reconnected-handler
-  "`:rf.resource/network-reconnected` — the network-reconnect revalidation
-  signal (Spec 016 §Deferred slices). Scans the frame's active-owner stale
-  entries and refetches them in the background with cause `:reconnect` (a
-  cause, never an owner). Dispatched by the host `online` listener
-  (`re-frame.resources.revalidate-listeners`); user code MUST NOT dispatch
-  it directly. Per Spec 016 §Stale and GC scheduling."
+  "`:rf.resource/network-reconnected`: revalidates active stale entries with
+  cause `:reconnect`. Dispatched by the host `online` listener, never by user
+  code. Spec 016 §Stale and GC scheduling"
   [cofx [_event-id]]
   (revalidate-handler cofx :rf.resource/network-reconnected reconnect-cause))
 
-;; ---- active-owner polling (EP-0020) ----------------------------------------
-;;
-;; A `:poll` timer (armed from the resource's `:poll-interval-ms` while the
-;; entry is actively owned) fires `:rf.resource.internal/poll-fired`. The
-;; timer is ADVISORY — identical discipline to `:stale` / `:gc`: the handler
-;; RE-CHECKS the live durable entry before doing anything. The tick is the
-;; timer-driven counterpart of the focus/reconnect scan, reusing the same
-;; substrate:
-;;
-;;   - ACTIVE OWNER gate — a poll never pins an owner-free entry; the instant
-;;     the last owner releases, polling STOPS (no re-arm). (Owners are
-;;     liveness owners; a poll is a freshness mechanism, never a liveness one
-;;     — Spec 016 §Active owners and causes / §Polling.)
-;;   - DEFAULT-PAUSE-WHEN-HIDDEN — the firing thunk stamps host `:hidden?`
-;;     onto the payload (read at the host boundary, never an ambient cascade
-;;     read); a hidden tab PAUSES the tick (no refetch) but RE-ARMS the next
-;;     poll so it resumes on tab return (which also fires the focus scan).
-;;   - IN-FLIGHT COALESCING — the exact `entry-revalidation-in-flight?` gate
-;;     the focus/reconnect scan uses: a tick that finds a live in-flight
-;;     refetch SKIPS the refetch (no second generation, no overlap on a slow
-;;     endpoint) but RE-ARMS. The interval effectively backs off to the
-;;     response time.
-;;   - UNCONDITIONAL TICK — when it does refetch, it does so
-;;     by the INTERVAL, NOT gated on `:stale?`; the consumer who declared a
-;;     poll interval asked for "re-read every N ms". `:stale-after-ms` stays
-;;     the orthogonal focus/route knob.
-;;   - CAUSE, NEVER OWNER — the refetch dispatches `:rf.resource/refetch` with
-;;     cause `:poll`; generation + stale-reply suppression + dedupe all apply
-;;     (a late poll reply over a superseded entry is suppressed by
-;;     the single stale-suppression boundary).
+;; ---- active-owner polling --------------------------------------------------
 
 (defn poll-fired-handler
-  "`:rf.resource.internal/poll-fired` — an active-owner poll timer fired
-  (EP-0020, Spec 016 §Polling). The timer is ADVISORY: this handler
-  RE-CHECKS the live durable entry before refetching, and RE-ARMS the next
-  poll while polling should continue (cancel-then-arm via the
-  `:rf.resource/schedule-timers` fx). Dispatched by the host `:poll` timer
-  (`re-frame.resources.timers`); user code MUST NOT dispatch it directly.
-
-  The re-check + decision (against the LIVE durable facts):
-    - entry GONE (removed / GC'd / cleared) — STOP, no re-arm (`:no-entry`);
-    - entry has NO active owner (last owner released) — STOP polling, no
-      re-arm (`:no-owner`); a poll never pins an owner-free entry;
-    - document HIDDEN (`:hidden?` stamped by the firing thunk) — PAUSE the
-      tick (no refetch) but RE-ARM so polling resumes on tab return
-      (`:paused-hidden`); default-pause-when-hidden (the SWR / RTK
-      / TanStack `refetchIntervalInBackground:false` default);
-    - a LIVE in-flight refetch is already running (`entry-revalidation-in-flight?`)
-      — SKIP the refetch (coalesce, no double-fetch) but RE-ARM
-      (`:coalesced`); a slow endpoint never stacks overlapping requests;
-    - otherwise — UNCONDITIONALLY dispatch a background `:rf.resource/refetch`
-      with cause `:poll` (the interval IS the cadence, NOT `:stale?`-gated)
-      AND RE-ARM the next poll (`:polled`).
-
-  A failed poll tick is an ordinary background-refresh failure (the entry
-  stays `:loaded`, keeps prior `:data`, records `:refresh-error`) — and the
-  NEXT poll still fires (the re-arm is unconditional on a started/coalesced/
-  paused tick), so a transient endpoint failure never permanently stops a
-  monitor (Spec 016 §Polling — background-refresh failure)."
+  "`:rf.resource.internal/poll-fired`: the timer is advisory, so this
+  re-checks the live entry and decides:
+    - `:no-entry` / `:no-owner`: stop, no re-arm (a poll never pins an
+      owner-free entry);
+    - `:paused-hidden`: hidden document, no refetch, re-arm;
+    - `:coalesced`: live work in flight, no refetch, re-arm;
+    - `:polled`: refetch with cause `:poll` whatever the staleness, re-arm.
+  The re-arm names `:poll` alone, so the stale and GC timers stay armed. A
+  failed tick is an ordinary refresh failure and the next tick still fires.
+  Spec 016 §Polling"
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {resource-key :resource/key :keys [hidden?]}]]
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (rf.resources.state/entry-path resource-key))
         owned?     (seq (:active-owners entry))
         in-flight? (and entry (entry-revalidation-in-flight? runtime-db entry))
-        ;; the resource's declared interval — the re-arm delay (cancel-then-arm)
         interval   (rf.resources.state/positive-or-nil
                      (:poll-interval-ms (rf.resources.registry/resource-meta (:resource/id entry))))
         decision   (cond
@@ -1581,12 +841,6 @@
                      hidden?          :paused-hidden
                      in-flight?       :coalesced
                      :else            :polled)
-        ;; STOP (drop the poll) on a gone / owner-free entry; otherwise RE-ARM
-        ;; the next interval (paused-hidden / coalesced / polled all keep the
-        ;; cadence alive). The re-arm fx names ONLY `:poll` (a PARTIAL re-arm):
-        ;; the sibling stale / GC timers are PRESERVED — they are absent from
-        ;; the `:timers` map, so `schedule-timers-handler` leaves them armed
-        ;; rather than cancelling them.
         re-arm?    (and interval (contains? #{:paused-hidden :coalesced :polled} decision))
         refetch?   (= :polled decision)]
     (rf.trace/emit! :rf.event :rf.resource/poll-fired
@@ -1596,15 +850,12 @@
       (or refetch? re-arm?)
       (assoc :fx
         (cond-> []
-          ;; unconditional active-owner refetch (cause :poll, never an owner)
           refetch?
           (conj [:dispatch [:rf.resource/refetch
                             {:resource (second resource-key)
                              :scope    (first resource-key)
                              :params   (nth resource-key 2)
                              :cause    poll-cause}]])
-          ;; re-arm the next poll — a PARTIAL re-arm naming ONLY `:poll`, so the
-          ;; sibling stale / GC timers are preserved
           re-arm?
           (conj [:rf.resource/schedule-timers
                  {:frame-id     frame-id
@@ -1615,35 +866,20 @@
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
 (defn match-invalidation-keys
-  "The PURE invalidation-match predicate, extracted so BOTH the invalidation
-  engine (`invalidate-tags-handler`) AND the mutation-settlement reply
-  (`re-frame.resources.mutation-events`, which must report the keys an
-  `:invalidates` descriptor WILL mark stale BEFORE the dispatched
-  `:rf.resource/invalidate-tags` runs) agree on the exact same
-  match set.
-
-  `entries` is the cache `:entries` map `{<key-id> <entry>}` (keyed on the
-  CEDN-1 byte `key-id`); `cscope` is the canonical concrete scope
-  (nil iff `cross-scope?`); `tag-set` is the requested tag set; `exempt-ids`
-  is the set of byte `key-id`s a same-mutation `:populates` kept authoritative
-  (Rider 1 — excluded from the match). Returns a map with:
-
-  - `:matched`    — vector of MATCHED scoped-key VECTORS (`:resource/key`),
-                    tags-intersect AND in-scope AND not-exempt;
-  - `:matched-ids`— the matched byte `key-id`s (the stale-mark write set);
-  - `:exempt-hit` — the EXEMPT keys that WOULD have matched (Rider 1 trace);
-  - `:other-scope-hit?` — whether the tags match an entry in ANOTHER scope
-                    (\"no match HERE\" vs \"no resource provides this tag in
-                    any scope\" — only meaningful for a scoped invalidation);
-  - `:in-flight-unmatched-ids` — the byte `key-id`s of in-scope, NOT-exempt
-                    entries the tags did NOT match whose `:current-work` is
-                    set. Their current tags describe their
-                    OLD data, so the reply in flight may still produce a
-                    matching tag: the invalidation engine records the
-                    invalidation against those attempts and resolves it at
-                    their success. Not part of `:affected-keys`.
-
-  Per Spec 016 §Invalidation / §Populate is an authoritative load."
+  "The pure match both the invalidation engine and the mutation settle use,
+  so the keys a mutation reports as affected are exactly the keys
+  invalidation marks. `entries` is keyed by byte `key-id`; `cscope` is nil
+  iff `cross-scope?`; `exempt-ids` are the key-ids a same-mutation
+  `:populates` kept fresh. Returns:
+    - `:matched` / `:matched-ids`: in-scope, not-exempt entries whose tags
+      intersect `tag-set` (scoped-key vectors / key-ids);
+    - `:exempt-hit`: exempt keys that would have matched;
+    - `:other-scope-hit?`: whether the tags match in another scope (scoped
+      invalidation only);
+    - `:in-flight-unmatched-ids`: in-scope, not-exempt, unmatched entries
+      with work in flight. Their tags describe old data, so the reply may
+      still produce a match.
+  Spec 016 §Invalidation"
   [entries cscope cross-scope? tag-set exempt-ids]
   (let [tags-hit? (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
         sk-of     (fn [entry] (:resource/key entry))
@@ -1677,13 +913,11 @@
      :in-flight-unmatched-ids in-flight-unmatched-ids}))
 
 (defn- record-pending-invalidation
-  "Record an invalidation of `tag-set` at `invalidated-at` against an in-flight
-  resource work `record` whose entry the tags did not match.
-  Repeated invalidations UNION their tags and keep the latest
-  event's time. A terminal record is left alone (its attempt can no longer
-  settle a success). The record IS the attempt, so the note dies with it — a
-  failure, abort or supersession drops it — and an optimistic restore landing
-  on the entry mid-attempt cannot erase it."
+  "Records an invalidation of `tag-set` at `invalidated-at` on an in-flight
+  work `record` whose entry the tags did not match; repeats union their tags
+  and keep the latest time. A terminal record is left alone. The note lives
+  on the attempt, so it dies with a failure, abort or supersession, and an
+  optimistic restore on the entry cannot erase it."
   [record tag-set invalidated-at]
   (if (rf.resources.work-ledger/terminal? (:status record))
     record
@@ -1692,25 +926,15 @@
         (assoc-in [:pending-invalidation :invalidated-at] invalidated-at))))
 
 (defn- settle-invalidations
-  "Resolve the invalidations that landed during the attempt a SUCCESS just
-  settled. `entry` is the PRE-settle entry, `settled` the
-  entry the success produced (its `:tags` are the tags the reply produced),
-  `record` the settling work record. Spec 016 §Race and in-flight semantics:
-  the attempt in flight when an invalidation lands never covers it.
-
-  - DEFINITE: a mark written during the attempt, which the settle kept
-    (`rf.resources.state/invalidation-kept-by-settle`, read off the PRE-settle
-    entry — a feed page settle also keeps an OLDER mark its page does not
-    cover, and that one is not this attempt's to follow up).
-  - TENTATIVE: an invalidation recorded on the attempt (its tags did not match
-    the entry's old tags) whose tags intersect the tags just produced marks
-    the entry stale at the recorded time; one that does not intersect is
-    discarded, so an unrelated mutation never stales an unrelated resource.
-
-  Returns `[settled' follow-up-tags]`: `follow-up-tags` is non-nil when an
-  invalidation that landed during the attempt left the entry stale AND it has
-  active owners AT SETTLE — the caller then dispatches ONE
-  `:rf.resource/refetch`. An owner-free entry keeps the stale mark only."
+  "Resolves the invalidations that landed during the attempt a success just
+  settled (`entry` pre-settle, `settled` post-settle, `record` the work
+  record). A mark written during the attempt and kept by the settle stands
+  (read off the pre-settle entry, so an older mark a feed page settle keeps
+  is not this attempt's to follow up). A recorded invalidation whose tags
+  intersect the produced tags marks the entry stale at its recorded time; one
+  that does not is discarded. Returns `[settled' follow-up-tags]`,
+  `follow-up-tags` non-nil when the entry ended stale with active owners: the
+  caller then dispatches one refetch. Spec 016 §Race and in-flight semantics"
   [entry settled record]
   (let [pending       (:pending-invalidation record)
         pending-hit?  (and pending
@@ -1726,10 +950,8 @@
        (if definite? (:tags entry) (:tags pending)))]))
 
 (defn- follow-up-refetch-fx
-  "The ONE follow-up `:rf.resource/refetch` a success that left an owned entry
-  stale dispatches (Spec 016 §Race and in-flight semantics —
-  \"otherwise schedule a follow-up refetch\"). The same fx shape the
-  invalidation engine arms for a matched owned entry."
+  "The one follow-up `:rf.resource/refetch` for an owned entry a success
+  left stale. Spec 016 §Race and in-flight semantics"
   [resource-key tags]
   (let [[s rid p] resource-key]
     [:dispatch [:rf.resource/refetch
@@ -1737,93 +959,18 @@
                  :cause [:invalidate {:tags tags}]}]]))
 
 (defn invalidate-tags-handler
-  "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
-  §Invalidation). Payload is a CLOSED union: a SCOPED invalidation
-  `{:scope <ScopeInput> :tags :cause?}` OR a CROSS-SCOPE sweep
-  `{:cross-scope? true :tags :cause}` (`:scope` ABSENT). A `:cross-scope? true`
-  payload that also carries `:scope` is rejected loudly
-  (`:rf.error/resource-cross-scope-scope-conflict`) — never resolve-then-ignore.
-
-  **`:scope` is a public ScopeInput** (Spec 016 §Resolver
-  references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
-  named-resolver reference, resolved against this handler's app-db coeffect at
-  event-execution time — the same use-time rule `ensure` / `refetch` apply
-  (`rf.resources.scope-registry/resolve-scope-input`). `clear-scope` is not
-  symmetric with it: that handler takes a concrete scope only and refuses a
-  `{:from-db …}` reference. A reference that resolves NIL is
-  FAIL-CLOSED with `:rf.error/resource-scope-unresolved-reference` (invalidate
-  is scope-requiring, like ensure); an
-  unregistered resolver id throws `:rf.error/resource-scope-not-registered`
-  before any mutation. The matcher + cache only ever see the RESOLVED canonical
-  concrete scope (a refetch dispatch carries the concrete scope, never the
-  `{:from-db …}` reference map).
-
-  Algorithm (Spec 016 §Invalidation):
-    1. find entries whose produced `:tags` intersect the invalidated `:tags`;
-    2. mark each matched entry stale (durable `:invalidated-at` fact);
-    3. refetch the matched entries that have ACTIVE OWNERS (a live owner
-       needs fresh data now) — by dispatching `:rf.resource/refetch`;
-    4. leave the matched OWNERLESS entries stale / GC-eligible (their stale?
-       sub derives true from `:invalidated-at`; their GC timer reaps them);
-    5. emit ONE decision summary + per-entry detail (so Xray shows a
-       broad-tag storm without flooding the trace).
-
-  **Scoped by DEFAULT** (Spec 016 §clear-scope is causal / §Invalidation): a
-  match requires the entry's scope to equal `:scope`. A CROSS-SCOPE
-  invalidation (`:cross-scope? true`) opts in explicitly — it ignores the
-  scope filter (matching the tags in every scope) and is loudly Xray-visible
-  (the summary carries `:cross-scope? true` so a broad multi-tenant /
-  multi-user storm is observable + lintable). A cross-scope invalidation with
-  no `:scope` is permitted (it is scope-agnostic by construction).
-
-  **Cross-scope MUST carry `:cause`** (Spec 016 §The cross-scope
-  lattice — three precise rungs): `:cross-scope? true` is the AUDITED escape —
-  it can stale or refetch data across every user / tenant / story frame / SSR
-  request, so it MUST carry `:cause` evidence (the privacy-relevant trace
-  record of WHY the cache reached outside the mutation's own resolved scope —
-  EP-0015). A `:cross-scope? true` invalidation with a nil / absent `:cause` is
-  a loud `:rf.error/resource-cross-scope-cause-required` — never a silent
-  unaudited cross-scope sweep. The mutation engine always stamps `:cause`
-  (`[:mutation <id> <instance>]`); this gate guards the direct public engine
-  entry. Per Spec 016 §The cross-scope lattice.
-
-  **Fail closed without a scope** (Spec 016 §Invalidation): a
-  SCOPED invalidation (the default, `:cross-scope?` false / absent) with NO
-  `:scope` is a loud `:rf.error/resource-invalidate-scope-required` — never
-  a silent `(= nil entry-scope)` match that quietly invalidates nothing (or,
-  worse, only the entries that happen to live in a nil scope). Cross-scope is
-  the ONLY scope-agnostic path; it must be requested explicitly. The concrete
-  `:scope` is routed through the shared `rf.resources.state/canonicalize-scope` validation
-  path so a reserved-namespace typo (`:rf.scope/glabal`) or a
-  host / non-EDN scope value fails closed through the SAME single path every
-  other scope-bearing operation uses.
-
-  **No-match distinction** (Spec 016 §Invalidation): the summary carries
-  `:matched` (the matched keys), `:any-tag-match-other-scope?` (whether the
-  tags match an entry in ANOTHER scope — \"no match HERE\" vs \"no resource
-  provides this tag in any scope\"), so Xray can tell the two apart.
-
-  **Populate exemption** (EP-0016 Rider 1, Spec 016 §Populate is an
-  authoritative load): `:exempt-keys` is an optional set of EXACT scoped keys
-  EXEMPT from this pass — a key a same-mutation `:populates` just seeded
-  AUTHORITATIVELY is fresh for the mutation result, so this same mutation's
-  invalidation pass must NOT re-stale or refetch it (unless the descriptor
-  opted into `:refetch-populated? true`, in which case the mutation passes no
-  exempt set). An exempt key is removed from the matched set BEFORE the
-  stale-mark / refetch decision, so it keeps its fresh populated value and arms
-  no refetch. The summary carries `:exempt` (the exempt keys that actually
-  matched the tags, so Xray can show what the populate spared)."
+  "`:rf.resource/invalidate-tags`: marks the entries whose tags intersect
+  `:tags` stale, refetches the ones with active owners, and leaves ownerless
+  ones stale for GC. The payload is either scoped, `{:scope :tags :cause?}`
+  with `:scope` a concrete scope or a `{:from-db …}` reference resolved
+  against app-db, or a cross-scope sweep, `{:cross-scope? true :tags :cause}`.
+  Throws when a sweep carries `:scope` or lacks `:cause`, when a scoped call
+  lacks `:scope`, and when a reference resolves nil. `:exempt-keys` spares
+  keys a same-mutation `:populates` just seeded. Emits one summary trace plus
+  one decision per matched entry. Spec 016 §Invalidation"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
    [_event-id {:keys [scope tags cause cross-scope? exempt-keys]}]]
   (let [runtime-db (or rt {})
-        ;; CLOSED PAYLOAD UNION: the payload is EITHER a scoped
-        ;; invalidation (`{:scope <ScopeInput> …}`) OR a cross-scope sweep
-        ;; (`{:cross-scope? true, :scope ABSENT}`). A `:cross-scope? true`
-        ;; payload that ALSO carries `:scope` is a contradiction — scope is
-        ;; meaningless on a scope-AGNOSTIC sweep — so REJECT it loudly rather
-        ;; than resolve-then-ignore (silently canonicalizing / resolving a
-        ;; {:from-db …} scope only to discard it). Per Spec 016 §The cross-scope
-        ;; lattice.
         _          (when (and cross-scope? (some? scope))
                      (rf.error/throw-error!
                        :rf.error/resource-cross-scope-scope-conflict
@@ -1838,11 +985,6 @@
                             "scope. Per Spec 016 §The cross-scope lattice.")
                        {:recovery :fix-scope
                         :extra    {:tags tags :scope scope}}))
-        ;; FAIL CLOSED: a scoped (default) invalidation MUST
-        ;; carry an explicit :scope — a missing scope would otherwise match
-        ;; `(= nil (first k))` and silently invalidate nothing (or the wrong
-        ;; set). Cross-scope is the only scope-agnostic path and must be
-        ;; opted into explicitly. Per Spec 016 §Invalidation.
         _          (when (and (not cross-scope?) (nil? scope))
                      (rf.error/throw-error!
                        :rf.error/resource-invalidate-scope-required
@@ -1857,13 +999,6 @@
                             "016 §Invalidation.")
                        {:recovery :fix-scope
                         :extra    {:tags tags}}))
-        ;; AUDITED ESCAPE — cross-scope MUST carry :cause (Spec 016
-        ;; §The cross-scope lattice). :cross-scope? true can stale / refetch
-        ;; data across every user, tenant, story frame, and SSR request, so it
-        ;; is fail-closed without :cause evidence: a nil/absent :cause is a loud
-        ;; :rf.error/resource-cross-scope-cause-required, never a silent
-        ;; unaudited sweep. (The mutation engine always stamps
-        ;; :cause [:mutation id instance]; this guards the direct public entry.)
         _          (when (and cross-scope? (nil? cause))
                      (rf.error/throw-error!
                        :rf.error/resource-cross-scope-cause-required
@@ -1880,32 +1015,10 @@
                             "Spec 016 §The cross-scope lattice.")
                        {:recovery :fix-cause
                         :extra    {:tags tags}}))
-        ;; {:from-db} RESOLUTION: a scoped invalidation's
-        ;; :scope is a public ScopeInput — a CONCRETE scope OR a `{:from-db
-        ;; <id>}` named-resolver reference, resolved against this handler's
-        ;; app-db coeffect at event-execution time, EXACTLY like ensure /
-        ;; refetch (Spec 016 §Resolver references — the single use-time
-        ;; rule). `resolve-scope-input` routes a concrete scope through the
-        ;; SHARED `rf.resources.state/canonicalize-scope` validation path ONCE (rejects
-        ;; reserved-namespace typos + host / non-EDN values + the wrapped
-        ;; [:rf.scope/global] singleton)
-        ;; and resolves a reference (result already canonical; it also emits the
-        ;; causal :rf.resource/scope-resolved evidence). An UNREGISTERED resolver
-        ;; id throws :rf.error/resource-scope-not-registered here, before any
-        ;; mutation. No resource-id (a tag invalidation spans resources); nil
-        ;; when scope-agnostic cross-scope OR a reference resolved nil.
         from-db?   (rf.resources.scope-registry/from-db-reference? scope)
         cscope     (when (some? scope)
                      (rf.resources.scope-registry/resolve-scope-input
                        scope app-db 'rf.resource/invalidate-tags nil))
-        ;; nil-resolution at a scope-REQUIRING site is FAIL-CLOSED like ensure
-        ;; (NOT clear-scope's warn/no-op — invalidate is scope-requiring, so it
-        ;; throws). The causal :rf.resource/scope-resolved (:resolved-nil? true)
-        ;; row has ALREADY emitted; throw the canonical unresolved-reference
-        ;; error naming the resolver id. An absent db input (e.g. no logged-in
-        ;; user) is the unresolved condition — never permission to invalidate
-        ;; global / fall through / silently no-op. Per Spec 016 §Resolver
-        ;; references.
         _          (when (and from-db? (nil? cscope))
                      (rf.error/throw-error!
                        :rf.error/resource-scope-unresolved-reference
@@ -1922,73 +1035,34 @@
                             "references.")
                        {:recovery :fix-scope
                         :extra    {:from-db (:from-db scope) :tags tags}}))
-        ;; The SAME shared tag-input normalizer the mutation
-        ;; `:invalidates` bare shorthand uses: a LONE vector tag written
-        ;; directly (`:tags [:article slug]`) is the ONE tag `#{[:article
-        ;; slug]}`, not the scalar set `#{:article slug}` (which would silently
-        ;; match nothing). A tag-set (`#{[:article slug]}` / `[[:article slug]]`)
-        ;; lowers unchanged.
+        ;; a lone vector tag is one tag, not a set of scalars
         tag-set    (rf.resources.state/normalize-tag-set tags)
-        ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
-        ;; durable `:invalidated-at` written by an invalidation event is that
-        ;; EVENT'S `:time-ms` (the causal world input the router stamped once
-        ;; at the dispatch boundary), NOT an ambient clock read in the
-        ;; reducer. Replay-stable: re-running the same invalidation token
-        ;; rewrites the SAME `:invalidated-at`.
+        ;; from the token, so replay rewrites the same `:invalidated-at`
         invalidated-at time-ms
         entries    (get-in runtime-db (rf.resources.state/entries-path))
-        ;; EP-0016 Rider 1 — keys this same mutation just POPULATED
-        ;; authoritatively are EXEMPT from this pass (kept fresh, never
-        ;; re-staled / refetched). The set is canonicalized at the producer
-        ;; (the populate path re-keys by the canonical scoped key), so a plain
-        ;; set membership test is identity-correct.
-        ;; `entries` is keyed on the byte `key-id`; every
-        ;; scope/identity decision below reads the entry's `:resource/key`
-        ;; VECTOR (`sk`). `exempt` is matched by byte identity (the populate
-        ;; path supplies scoped-key vectors; reduce both to `key-id`) so a
-        ;; list- vs vector-params exempt key matches exactly. The matched MAP
-        ;; is keyed on the byte `key-id` (so `assoc-in (entry-path …)` and the
-        ;; trace's `:resource/key` use the right form: byte for the db write,
-        ;; vector for the trace/refetch).
+        ;; matched by byte identity, so list- and vector-params keys agree
         exempt     (into #{} (map rf.resources.state/key-id) exempt-keys)
-        ;; the SHARED pure match: exactly the set the
-        ;; mutation-settlement reply pre-computes for `:affected-keys`. Keyed
-        ;; on the byte key-id; `:matched` are scoped-key VECTORS.
         {matched-ids :matched-ids
          exempt-hit  :exempt-hit
          other-scope-hit? :other-scope-hit?
          in-flight-unmatched-ids :in-flight-unmatched-ids}
         (match-invalidation-keys entries cscope cross-scope? tag-set exempt)
-        ;; mark each matched entry stale (durable :invalidated-at fact). Keyed
-        ;; on the byte key-id — write straight to the entries-path slot.
-        ;; EP-0019: marking an entry stale is an authoritative durable
-        ;; write a later optimistic rollback could clobber (it moves the entry's
-        ;; freshness), so `rf.resources.state/entry-invalidate` bumps the per-entry :revision
-        ;; write identity in the SAME swap — biasing to over-bump (a false
-        ;; conflict costs one refetch; a missed one is silent corruption). The
-        ;; SHARED durable stale mark the EP-0019 restore-dangle conflict-rollback
-        ;; also uses (one home, identical `:stale?` derivation).
+        ;; `entry-invalidate` bumps `:revision`: a stale mark is a write an
+        ;; optimistic rollback could clobber
         rdb'       (reduce
                      (fn [db k-id]
                        (update-in db (rf.resources.state/entry-path-by-id k-id)
                                   rf.resources.state/entry-invalidate invalidated-at))
                      runtime-db matched-ids)
-        ;; An in-scope entry the tags did NOT match may still
-        ;; be answered by a reply already in flight (its current tags describe
-        ;; its OLD data; a first load has none yet). Record the invalidation
-        ;; against that ATTEMPT — not the entry, so nothing reads stale now —
-        ;; and let its success resolve it against the tags the reply produces
-        ;; (`settle-invalidations`).
+        ;; An unmatched entry with a reply in flight may still be answered by
+        ;; tags that reply produces, so the invalidation is recorded on the
+        ;; attempt (`settle-invalidations`), not the entry.
         rdb'       (reduce
                      (fn [db k-id]
                        (rf.resources.work-ledger/update-record
                          db (:current-work (get entries k-id))
                          record-pending-invalidation tag-set invalidated-at))
                      rdb' in-flight-unmatched-ids)
-        ;; per-entry decision: active-owner entries refetch (Spec 016
-        ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
-        ;; (§Invalidation 4). Collected once for both the dispatches and the
-        ;; per-entry trace detail. `:resource/key` is the scoped-key VECTOR.
         decisions  (mapv (fn [k-id]
                            (let [entry (get entries k-id)]
                              {:resource/key (:resource/key entry)
@@ -2006,22 +1080,14 @@
                                                 {:resource rid :scope s :params p
                                                  :cause [:invalidate {:tags tags}]}]]))))
                          decisions)]
-    ;; ONE decision summary (broad-tag storms stay readable) ...
     (rf.trace/emit! :rf.event :rf.resource/invalidated
                  {:rf.frame/id frame-id :scope cscope :tags tags :cause cause
                   :cross-scope? (boolean cross-scope?)
                   :matched (mapv :resource/key decisions)
                   :refetched (count refetches)
                   :left-stale (count (remove :active? decisions))
-                  ;; EP-0016 Rider 1: keys a same-mutation populate kept
-                  ;; authoritative and spared from this pass (would have matched)
                   :exempt exempt-hit
-                  ;; no-match distinction: no match in this scope vs no resource
-                  ;; provides this tag in any scope (Spec 016 §Invalidation)
                   :any-tag-match-other-scope? other-scope-hit?})
-    ;; ... PLUS one per-entry detail trace (the refetch-vs-leave-stale
-    ;; decision per matched key — Spec 016 §Invalidation 5 / the Xray
-    ;; invalidation graph)
     (doseq [{:keys [active? decision tags] resource-key :resource/key :as _d} decisions]
       (rf.trace/emit! :rf.event :rf.resource/refetch-decision
                    {:rf.frame/id frame-id :resource/key resource-key
@@ -2033,35 +1099,17 @@
 ;; ---- release-owner --------------------------------------------------------
 
 (defn- release-owner-from-identities
-  "The per-identity CORE of an owner release, over an EXPLICIT set of byte
-  `key-id`s: drop `owner` from each named entry's `:active-owners`
-  (via `rf.resources.state/detach-owner`, which bumps the entry's `:revision` when the owner
-  was actually present) and from the owner-index (the owner's
-  index row is dropped outright once it holds nothing); drop the owner from
-  each named entry's in-flight work record, marking `:abort-requested` and
-  collecting the abort fx for any record whose `:owners` are now EMPTY
-  (Spec 016 §Race — a shared request is never cancelled just because ONE owner
-  went away); for each entry this release left owner-free, cancel its poll
-  (EP-0020 §Polling) and re-arm its GC timer for a full `:gc-after-ms`, so
-  the warm window is measured from the final release; and emit the ONE
-  `:rf.resource/owner-released` trace, naming the released entries by their
-  SCOPED KEY (never the reversible key-id). Returns the effects
-  map `{:rf.db/runtime :fx}`.
-
-  Shared by the two callers, which differ ONLY in the set they hand in:
-  `release-owner-handler` (the whole owner — every index member, plus its
-  route-slot clears) and `release-owner-identities-handler` (the same-owner
-  SUBSET the route planner drops on a replan — no slot touch). It clears NO
-  slot itself. `k-ids` should be members of the owner's index (a caller that
-  hands in an identity the owner does not hold gets a no-op for it: the entry
-  is left unwritten and untraced)."
+  "Releases `owner` from the entries at byte `k-ids`: detaches it from each
+  entry and the owner index, drops it from in-flight work records and aborts
+  any left with no owner, cancels polling on entries left owner-free and
+  re-arms their GC for a full `:gc-after-ms`, and emits one
+  `:rf.resource/owner-released`. Clears no route slot. An id the owner does
+  not hold is a no-op. Returns `{:rf.db/runtime :fx}`.
+  Spec 016 §Race and in-flight semantics"
   [runtime-db frame-id owner k-ids]
   (let [k-ids (or k-ids #{})
-        ;; `k-ids` are byte `key-id`s (the owner-index members),
-        ;; resolved via `entry-path-by-id` (NOT `entry-path`, which would
-        ;; re-transform a scoped-key vector). Only an entry that EXISTS is
-        ;; written — `detach-owner` on a nil entry returns nil, and writing
-        ;; that nil back would mint an empty entry slot.
+        ;; only an existing entry is written: detaching from nil would mint
+        ;; an empty slot
         rdb1  (-> (reduce
                     (fn [db k-id]
                       (let [path (rf.resources.state/entry-path-by-id k-id)]
@@ -2075,9 +1123,6 @@
                                  (if (empty? remaining)
                                    (dissoc index owner)
                                    (assoc index owner remaining))))))
-        ;; for each released entry that is still in flight, drop the owner from
-        ;; the work record; collect the work ids whose owners are now empty
-        ;; (orphaned in-flight attempts → opportunistic abort).
         {rdb2 :rdb aborts :aborts}
         (reduce
           (fn [acc k-id]
@@ -2095,14 +1140,8 @@
                 acc)))
           {:rdb rdb1 :aborts []}
           k-ids)
-        ;; Any entry whose `:active-owners` went EMPTY by this release stops
-        ;; polling (EP-0020 §Polling: a poll never pins an owner-free entry;
-        ;; the poll-fired re-check is the belt-and-braces, this makes the stop
-        ;; deterministic + prompt) and re-arms its GC timer for a full
-        ;; `:gc-after-ms`. The settle-time timer may be nearly spent, and the
-        ;; warm window exists so a quick re-attach (a route bounce, a remount)
-        ;; reuses the cached data, so the window runs from the final release.
-        ;; The stale timer is untouched.
+        ;; The GC window restarts at the final release, so a quick re-attach
+        ;; (a route bounce, a remount) reuses the cached data.
         now-owner-free
         (into []
               (keep (fn [k-id]
@@ -2110,8 +1149,7 @@
                         (when (and e (empty? (:active-owners e)))
                           e))))
               k-ids)
-        ;; `[scoped-key gc-delay]` per GC window this release opens; `:never`
-        ;; normalizes to no delay and opens none
+        ;; `:never` normalizes to no delay and opens no window
         gc-rearms
         (into []
               (keep (fn [e]
@@ -2119,20 +1157,9 @@
                                             (:gc-after-ms (rf.resources.registry/resource-meta (:resource/id e))))]
                         [(:resource/key e) gc-delay])))
               now-owner-free)
-        ;; The trace's `:released` names the released entries by
-        ;; their SCOPED KEY, never by their `key-id`. A `key-id` is
-        ;; `identity/canonical-bytes`, a REVERSIBLE PLAINTEXT CEDN-1 encoding
-        ;; (`encode-string` emits `s:"…"`), so emitting one would carry a
-        ;; `:sensitive?` owner's resolved scope + canonical params OFF-BOX in the
-        ;; clear — inside a STRING the off-box trace-egress projector correctly
-        ;; reads as an opaque scalar, and correctly must (tokenizing strings
-        ;; wholesale would destroy `:rf.frame/id` / `:cause` attribution across
-        ;; the family). No shape rule can see a payload hidden inside an encoded
-        ;; scalar; the emit site is the only layer that can carry the right
-        ;; value. As scoped keys these ride the SAME owner classification
-        ;; `:matched` / `:blocking` / the `:aborted` work-ids' embedded keys do,
-        ;; so a sensitive owner's scope + params tokenize and a plain owner's
-        ;; ride verbatim — better attribution than a key-id, not worse.
+        ;; Named by scoped key, never key-id: a key-id is reversible
+        ;; plaintext CEDN inside a string, which egress must treat as opaque,
+        ;; while a scoped key tokenizes by its owner's classification.
         released
         (into []
               (keep (fn [k-id]
@@ -2144,8 +1171,6 @@
     {:rf.db/runtime (reduce (fn [db [rkey gc-delay]]
                               (open-gc-window db frame-id rkey gc-delay))
                             rdb2 gc-rearms)
-     ;; Abort by the frame-QUALIFIED request-id (the registered
-     ;; token); a bare work-id would miss the orphaned in-flight request.
      :fx (-> (into [] (keep (fn [[wid transport]]
                               (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                    aborts)
@@ -2157,44 +1182,22 @@
                           [:rf.resource/schedule-timers
                            {:frame-id     frame-id
                             :resource/key rkey
-                            ;; a PARTIAL re-arm naming ONLY `:gc`, as the GC
-                            ;; skip emits
+                            ;; partial re-arm: `:gc` only
                             :timers       {:gc gc-delay}
                             :server?      (rf.resources.state/server-frame? frame-id)}]))
                    gc-rearms))}))
 
 (defn release-owner-handler
-  "`:rf.resource/release-owner` — release a liveness owner (drop the owner
-  from every entry's `:active-owners` + the owner-index). Per Spec 016
-  §Active owners and causes. Payload: `{:owner …}`.
-
-  Per Spec 016 §Race (owner release while a request is in flight aborts
-  ONLY when no remaining owner needs that work record — a shared request is
-  NOT cancelled just because one route / machine / owner went away). This
-  drops the owner from the durable entry + index AND from the linked work
-  record's `:owners`; for any in-flight attempt whose `:owners` are now
-  EMPTY it emits a best-effort `:rf.http/managed-abort` (opportunistic) and
-  marks the work row `:abort-requested`. Stale suppression by work-id +
-  generation is the correctness boundary — the abort is an
-  optimisation, not relied on. The per-identity work is
-  `release-owner-from-identities` over the WHOLE owner-index set; this handler
-  adds the route-owner slot clears."
+  "`:rf.resource/release-owner`: releases `owner` from everything it holds.
+  In-flight work is aborted only when no other owner needs it, and the abort
+  is opportunistic. Releasing a route owner `[:route route-id nav-token]`
+  also clears its nav-token's blocking and plan slots, which no reply can
+  drain once the owner is gone. Payload `{:owner …}`.
+  Spec 016 §Active owners and causes"
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
   (let [runtime-db (or rt {})
         owned      (get-in runtime-db (conj (rf.resources.state/owner-index-path) owner))
-        ;; Releasing a ROUTE owner ([:route route-id nav-token])
-        ;; happens on every route leave / supersession (route-resource-plan
-        ;; dispatches it) — and on a committed FAILED replan of the token that
-        ;; is staying. Deterministically clear that nav-token's
-        ;; blocking slot here so a superseded token's blocking state cannot
-        ;; accumulate — reply-driven drain misses it (the owner is already gone
-        ;; from the entries, and an orphaned/aborted in-flight resource never
-        ;; replies).
         rdb0       (if (and (vector? owner) (= :route (first owner)))
-                     ;; EP-0037 R2: releasing a route owner also clears the
-                     ;; superseded nav-token's plan-identity slot, symmetric
-                     ;; with the blocking slot — a superseded plan's identity
-                     ;; set must not accumulate once its owner is gone.
                      (-> runtime-db
                          (rf.resources.route/clear-blocking-slot (nth owner 2))
                          (rf.resources.route/clear-plan-slot (nth owner 2)))
@@ -2202,27 +1205,12 @@
     (release-owner-from-identities rdb0 frame-id owner (or owned #{}))))
 
 (defn release-owner-identities-handler
-  "`:rf.resource.internal/release-owner-identities` — release a liveness owner from a
-  SUBSET of the identities it holds: `{:owner … :identities {<key-id>
-  <scoped-key>}}` (the byte-keyed carrier the route planner already computes).
-  The release-side twin of `:rf.resource.internal/adopt-owner`: a framework
-  primitive the route planner dispatches on a same-token REPLAN for exactly the
-  identities the new plan dropped (Spec 016 §Route-plan replan —
-  same-token reconciliation), never an app verb. The whole-owner
-  `:rf.resource/release-owner` cannot express it — it releases the owner from
-  EVERYTHING it holds and clears the token's slots — and the identities the
-  replan KEEPS must stay owned, so a same-owner reconciliation needs this
-  primitive rather than a release-then-re-ensure (which would momentarily
-  orphan, and abort, in-flight work the plan still needs).
-
-  Same per-identity core as the whole-owner release
-  (`release-owner-from-identities`): the entry survives, its OTHER owners
-  survive, its in-flight work is aborted only when this owner was the last,
-  polling stops only when the entry went owner-free, and the ONE
-  `:rf.resource/owner-released` trace names the released scoped keys. It
-  clears NO route slot — the replan commit that dispatched it has already
-  REPLACED the token's blocking / plan slots with the new plan. An identity
-  the owner does not currently hold (not an owner-index member) is a no-op."
+  "`:rf.resource.internal/release-owner-identities`: releases `owner` from
+  the subset `identities` (`{<key-id> <scoped-key>}`) only, keeping its other
+  holds. The route planner dispatches it on a same-token replan for the
+  identities the new plan dropped; a whole-owner release and re-ensure would
+  orphan and abort work the plan still needs. Clears no route slot.
+  Spec 016 §Route-plan replan — same-token reconciliation"
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner identities]}]]
   (let [runtime-db (or rt {})
         owned      (get-in runtime-db (conj (rf.resources.state/owner-index-path) owner))
@@ -2232,41 +1220,14 @@
 ;; ---- adopt-owner — the kept-identity attach-before-release primitive -------
 
 (defn adopt-route-owner-handler
-  "`:rf.resource.internal/adopt-owner` — attach an owner to an EXISTING entry WITHOUT a
-  fetch. The attach-before-release primitive the route planner dispatches for a
-  KEPT branch-plan identity (EP-0037 R2 §Plan diff and owner handoff): a full
-  activation adopts the next route-plan owner `[:route route-id nav-token]` onto
-  an ancestor read shared with the superseded plan, ordered AHEAD of the prior
-  owner's `release-owner`, so the identity is never momentarily ownerless.
-
-  Three effects, no fetch: (1) attach the owner to `:active-owners` + the
-  owner-index (mirroring the `ensure` fresh-skip attach, minus any load); (2)
-  join the owner to any in-flight `:current-work` record, so the prior owner's
-  later release does NOT orphan-and-abort work the next plan still needs (the
-  no-abort-shared-work law); (3) reconcile route readiness from the entry's
-  ACTUAL state through the ONE projector (`rf.resources.route/reconcile-readiness`) — the
-  adopt path has NO private has-data/error/else readiness branch. A kept
-  blocking identity that already has usable data resolves NOW (no reply will
-  ever land to resolve it), a failed first load projects route `:error`, one
-  still in flight stays blocking (its own settle re-projects via the
-  now-adopted owner's nav-token), and one that is settled-but-empty (an
-  aborted first load) un-blocks rather than stranding the route `:loading`
-  forever. The PARTIAL-REVALIDATION law: navigation
-  never revalidates the kept, unchanged ancestor — `adopt-owner` issues no
-  request.
-
-  The planner only ever adopts a GENUINELY REUSABLE identity
-  (`rf.resources.route/adoptable?`: own usable data, or genuinely live work). A retained
-  identity that has been cleared / removed / GC'd, or that cannot progress,
-  takes the ordinary `ensure` path instead, because this event issues no
-  request and so could never drain the blocking slot the same commit wrote. A
-  missing entry therefore never reaches here from a plan; the nil branch
-  is the defensive no-op for a direct dispatch (there is nothing to
-  attach an owner to).
-
-  Payload `{:resource :scope :params :owner :cause}`; scope/params are
-  already canonical (the planner resolved them). Per Spec 016 §Effective
-  parent-chain resource plans."
+  "`:rf.resource.internal/adopt-owner`: attaches an owner to an existing
+  entry without fetching. The route planner dispatches it for a kept
+  identity ahead of the prior owner's release, so the identity is never
+  ownerless. It joins the owner to any in-flight work, so that release cannot
+  orphan and abort it, and re-projects route readiness from the entry's
+  state. A missing entry is a no-op. Payload `{:resource :scope :params :owner
+  :cause}`, scope and params already canonical.
+  Spec 016 §Plan diff and owner handoff"
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [resource scope params owner cause]}]]
   (let [runtime-db (or rt {})
@@ -2296,32 +1257,18 @@
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn- clear-scope-handler*
-  "The clear-scope body once `cscope` is the CANONICAL concrete scope (the
-  payload scope through `rf.resources.state/canonicalize-scope` at the caller,
-  so the concrete-scope validation happens ONCE). Removes the
-  in-scope entries, settles their in-flight work rows `:cancelled`, recomputes
-  indexes, and emits the explaining trace + fx.
-
-  A cancellation is a COMPLETION: each terminal `:cancelled`
-  work row carries the event's causal `:completed-at` (`time-ms`, the declared-
-  flat `:rf/time-ms`), symmetric with every reply-driven cancellation,
-  so epoch / tooling correlation of a logout / tenant-switch
-  cancellation is intact."
+  "Clears the canonical concrete scope `cscope`: removes its entries and
+  their ledger rows, settles their in-flight work `:cancelled` with the
+  token's `:completed-at`, reindexes, aborts the in-flight requests and
+  cancels the entries' timers."
   [runtime-db frame-id cscope cause time-ms]
   (let [entries    (get-in runtime-db (rf.resources.state/entries-path))
-        ;; `entries` is keyed on the byte `key-id`; the scope to
-        ;; match against lives in each entry's `:resource/key` vector
-        ;; (`(first (:resource/key entry))`), not the map key. `in-scope` is
-        ;; the set of byte key-ids to remove + the scoped-key VECTORS for the
-        ;; downstream trace / timer fx (which name resources by their vector).
         in-scope-ids (into #{} (comp (filter (fn [[_k-id e]] (= cscope (first (:resource/key e)))))
                                      (map key))
                            entries)
         in-scope     (into #{} (comp (filter (fn [[_k-id e]] (= cscope (first (:resource/key e)))))
                                      (map (fn [[_k-id e]] (:resource/key e))))
                            entries)
-        ;; collect the in-flight work ids for the cleared entries (best-effort
-        ;; abort + terminal :cancelled work rows)
         in-flight  (into []
                          (keep (fn [k-id]
                                  (let [e (get entries k-id)
@@ -2329,32 +1276,18 @@
                                    (when wid
                                      [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
                          in-scope-ids)
-        ;; remove the entries, settle their in-flight work rows :cancelled,
-        ;; then reconcile the indexes for the removed keys. Only
-        ;; the in-scope keys' index members change, so reconcile that bounded
-        ;; set incrementally rather than full-rebuilding from all entries.
         rdb'       (-> runtime-db
                        (update-in (rf.resources.state/entries-path)
                                   (fn [es] (reduce dissoc es in-scope-ids)))
                        (as-> db (reduce (fn [d [wid _]]
                                           (rf.resources.work-ledger/update-record
                                             d wid rf.resources.work-ledger/mark-terminal
-                                            ;; Carry the causal
-                                            ;; `:completed-at` onto the cancelled
-                                            ;; work row (a cancellation completes).
                                             :cancelled {:reason :clear-scope
                                                         :completed-at time-ms}))
                                         db in-flight))
-                       ;; The cleared entries are LEAVING the cache,
-                       ;; so each one's whole ledger holding goes with it (every
-                       ;; row for the key plus its inverse-index bucket), not just
-                       ;; a bounded terminal tail. A tail is Xray's recent-races
-                       ;; view of a key that still exists; a cleared key has none
-                       ;; to serve. This is the unbounded arm that bites hardest —
-                       ;; a logout / tenant-switch clears a whole scope, and every
-                       ;; key it drops would otherwise leave an orphaned bucket
-                       ;; behind for the frame's life. Spec 016 §Ledger row
-                       ;; retention and identity.
+                       ;; A cleared key has no Xray tail to serve, so its whole
+                       ;; ledger holding goes, not just a bounded tail.
+                       ;; Spec 016 §Ledger row retention and identity
                        (as-> db (reduce rf.resources.work-ledger/drop-rows-for-key
                                         db in-scope))
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
@@ -2364,13 +1297,6 @@
                   :removed (vec in-scope) :reason :clear-scope
                   :aborted (mapv first in-flight) :completed-at time-ms})
     {:rf.db/runtime rdb'
-     ;; best-effort abort of each in-scope in-flight attempt PLUS cancel the
-     ;; cleared entries' advisory stale / GC timers (their durable facts are
-     ;; gone — release the host handles promptly rather than waiting for frame
-     ;; destroy). Stale suppression by work-id + generation is the
-     ;; correctness boundary; the abort + timer-cancel are the optimisation.
-     ;; Abort by the frame-QUALIFIED request-id (the registered
-     ;; token); the bare work-id would miss the in-scope in-flight requests.
      :fx (cond-> (into [] (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                        in-flight)
            (seq in-scope)
@@ -2378,33 +1304,12 @@
                   {:frame-id frame-id :resource/keys (vec in-scope)}]))}))
 
 (defn clear-scope-handler
-  "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
-  is causal). Removes every entry in the scope, releases its owners from
-  the owner-index, marks each in-scope in-flight work record terminal
-  `:cancelled`, best-effort aborts those attempts (opportunistic), and
-  emits an explaining trace. Stale suppression by work-id + generation
-  is the correctness boundary — the entry a late reply would write
-  into is gone, so the reply handler's existence check suppresses it; the
-  abort is the optimisation. Payload: `{:scope :cause}`.
-
-  The concrete `:scope` is routed through the shared
-  `rf.resources.state/canonicalize-scope` validation path so a
-  reserved-namespace typo (`:rf.scope/glabal`) or a host / non-EDN scope
-  value fails closed through the SAME single path every other scope-bearing
-  operation uses — a typo can never silently clear the WRONG scope (a
-  cross-tenant data wipe).
-
-  **The scope is CONCRETE — there is no reference form** (Spec 016
-  §clear-scope takes a concrete scope). `clear-scope` is dispatched from a
-  logout / tenant-switch handler's `:fx`, so it runs in the NEXT event's world:
-  a `{:from-db …}` reference resolved here would resolve against the POST-logout
-  db, where the resolver's declared `:inputs` are already gone. The caller
-  pre-resolves instead, with the pure `rf/resolve-resource-scope` helper over
-  its OWN coeffect db — honest about time, and one fewer payload dialect. A
-  `{:from-db …}` map reaching this handler is REFUSED by the shared
-  concrete-scope guard rather than accepted as a literal map scope, which is a
-  fail-open that would key nothing and clear nothing silently. Per Spec 016
-  §clear-scope takes a concrete scope."
+  "`:rf.resource/clear-scope`: removes every entry in the concrete `:scope`
+  and cancels its in-flight work. Concrete only: dispatched from a logout
+  handler's `:fx`, a `{:from-db …}` reference would resolve against the
+  post-logout db, so the caller pre-resolves with `rf/resolve-resource-scope`.
+  A reference map is refused, as is a malformed scope, so a typo never clears
+  the wrong scope. Payload `{:scope :cause}`. Spec 016 §`clear-scope` is causal"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
@@ -2415,35 +1320,16 @@
 ;; ---- change-principal — the identity switch --------------------------------
 
 (defn change-principal-handler
-  "`:rf.resource/change-principal` — the identity switch (Spec 016 §Changing
-  principal). Payload `{:from [<scope> …] :cause <edn>}`. `:from` is a VECTOR
-  of the CONCRETE scopes the departing principal held, resolved by the caller
-  against its own coeffect db exactly as for `clear-scope`; a nil member (a
-  resolver with nothing to name) is skipped, and an absent `:from` clears
-  nothing. `:cause` is required: it rides the replan verbatim.
+  "`:rf.resource/change-principal`: the identity switch. Payload `{:from
+  [<scope> …] :cause <edn>}`, `:from` the departing principal's concrete
+  scopes (nil members skipped). Every scope is validated before any is
+  cleared; each is then cleared as by `clear-scope`, and a frame with an
+  active route dispatches `[:rf.route/replan-resources {:cause cause}]`.
 
-  The app dispatches it from the handler that commits the new identity, so it
-  runs against the post-transition db, and in that one event it:
-
-    1. validates every `:from` scope through the shared concrete-scope path
-       BEFORE anything changes, so one bad member clears nothing;
-    2. clears each scope (`clear-scope-handler*`): its entries leave the cache,
-       their in-flight work is cancelled and aborted, every owner's hold on
-       them ends, and their timers are cancelled;
-    3. when the frame has an active route, dispatches
-       `[:rf.route/replan-resources {:cause cause}]`, which reruns the route's
-       plan under the identity the app has just committed.
-
-  Clearing first is what makes the switch safe against the automatic
-  refetches: focus, reconnect, a poll tick or an invalidation can only refresh
-  an entry that exists (`ensure-load`), so after this event none of them can
-  load an old-scope key with the new principal's credentials, even one whose
-  trigger was queued ahead of it.
-
-  Explicit rather than automatic: a frame may hold several principals on
-  purpose, and a resolver may read arbitrary app-db, so a change in what a
-  resolver answers is not by itself a principal change. The app says when
-  identity changes."
+  Clearing first means no queued focus, reconnect, poll or invalidation
+  refetch can load an old-scope key with the new credentials. Explicit rather
+  than automatic, because a resolver's answer changing is not by itself a
+  principal change. Spec 016 §Changing principal"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {:keys [from cause]}]]
   (when-not (or (nil? from) (vector? from))
@@ -2480,64 +1366,35 @@
 ;; ---- remove — single-instance cache removal --------------------------------
 
 (defn remove-handler
-  "`:rf.resource/remove` — remove a single resource instance from the cache
-  by its scoped key, and drop its owner/tag-index rows. Per Spec 016
-  §Events. Payload: `{:resource :scope :params}`.
-
-  When the removed instance has an in-flight attempt, its
-  terminal `:cancelled` work row carries the event's causal `:completed-at`
-  (`time-ms`, the declared-flat `:rf/time-ms`), symmetric with clear-scope and
-  every reply-driven cancellation."
+  "`:rf.resource/remove`: removes one instance and its ledger rows,
+  cancelling any in-flight attempt with the token's `:completed-at`. Payload
+  `{:resource :scope :params}`.
+  Spec 016 §Events (map payloads, not positional argument vectors)"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
    [_event-id {:keys [resource] :as payload}]]
   (let [runtime-db (or rt {})
         spec       (rf.resources.registry/require-resource-spec! resource 'rf.resource/remove)
-        ;; EP-0016 D3: resolve a `{:from-db …}` scope against app-db.
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} 'rf.resource/remove)
-        ;; Thread `:params` presence (absent vs explicit nil) to
-        ;; the validation boundary so removal keys on the SAME identity an
-        ;; explicit-nil-params ensure produced.
         cparams    (rf.resources.registry/validate+canonicalize-params
                      resource spec (rf.resources.state/params-present? payload) 'rf.resource/remove)
-        ;; scope (resolve-scope-for-event → canonicalize-scope) +
-        ;; cparams (validate+canonicalize-params) are ALREADY canonical.
         scoped-key (rf.resources.state/scoped-resource-key* scope resource cparams)
         entry      (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         wid        (:current-work entry)
         transport  (when wid (:transport (rf.resources.work-ledger/get-record runtime-db wid)))
-        ;; Removing ONE entry touches ONE key's index members;
-        ;; reconcile incrementally rather than full-rebuilding both indexes.
         old-entries (get-in runtime-db (rf.resources.state/entries-path))
         rdb'       (-> runtime-db
-                       ;; Dissoc by the byte key-id (a dissoc by
-                       ;; the scoped-key vector would no-op and leak the entry).
+                       ;; by byte key-id: a vector dissoc would no-op and leak
+                       ;; the entry
                        (update-in (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
+                       ;; Settle before the drop: a row the inverse index
+                       ;; missed stays terminal rather than surviving as
+                       ;; falsely in-flight into an epoch snapshot.
                        (cond-> wid (rf.resources.work-ledger/update-record
                                      wid rf.resources.work-ledger/mark-terminal
-                                     ;; Carry the causal
-                                     ;; `:completed-at` onto the cancelled work
-                                     ;; row (a cancellation completes). The settle
-                                     ;; stands even though the drop below removes
-                                     ;; the row: settling an attempt and RETAINING
-                                     ;; its row are separate decisions, and the
-                                     ;; order matters — the drop finds rows via the
-                                     ;; inverse index, so a row that index somehow
-                                     ;; missed is left TERMINAL here rather than
-                                     ;; surviving as falsely in-flight, which is
-                                     ;; the one state that would ride the epoch
-                                     ;; snapshot and be dangled on restore.
                                      :cancelled {:reason :remove :completed-at time-ms}))
-                       ;; The entry is LEAVING the cache, so its whole
-                       ;; ledger holding goes with it: every row for the key plus
-                       ;; its inverse-index bucket. A bounded terminal TAIL is
-                       ;; Xray's recent-races view of a key that still exists; a
-                       ;; REMOVED key has no such view to serve (nothing can join
-                       ;; those rows to an entry again), so a retained tail and its
-                       ;; orphaned bucket are pure growth — one per removed key,
-                       ;; for the frame's life. Correctness of a late reply rests
-                       ;; on ENTRY-keyed stale suppression, never on the row
-                       ;; surviving. Spec 016 §Ledger row retention and identity.
+                       ;; A removed key has no Xray tail to serve.
+                       ;; Spec 016 §Ledger row retention and identity
                        (rf.resources.work-ledger/drop-rows-for-key scoped-key)
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                old-entries [(rf.resources.state/key-id scoped-key)]))]
@@ -2545,38 +1402,24 @@
                  {:rf.frame/id frame-id :resource/key scoped-key :reason :remove
                   :aborted (when wid [wid]) :completed-at time-ms})
     {:rf.db/runtime rdb'
-     ;; best-effort abort of the removed instance's in-flight attempt
-     ;; (opportunistic; stale suppression protects correctness) PLUS cancel
-     ;; its advisory stale / GC timers (the entry's durable facts are gone).
-     ;; Abort by the frame-QUALIFIED request-id (the registered
-     ;; token); a bare work-id would miss the removed instance's in-flight request.
      :fx (conj (if-let [fx (and wid (rf.resources.work-ledger/abort-fx transport frame-id wid))] [fx] [])
                [:rf.resource/cancel-timers
                 {:frame-id frame-id :resource/keys [scoped-key]}])}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
-;;
-;; These carry the verification payload and MUST verify frame + work-id +
-;; generation before writing (Spec 016 §Transport — stale suppression is
-;; the correctness boundary). User code MUST NOT dispatch them.
-
-;; The stale-suppression trio (the live-slot verifier, the stale-suppress
-;; reply builder, and the stale-suppressed trace emitter) is the SHARED
-;; substrate `re-frame.resources.reply-handlers` — byte-identical
-;; behaviour to the mutation family, parameterized by the three resource knobs
-;; below (the slot path-fn, the work-kind, and the stale-reason) plus the
-;; resource correlation-fn / trace-id / bespoke trace facts.
+;; They verify frame + work-id + generation before writing, through the shared
+;; `re-frame.resources.reply-handlers` substrate. The transport appends its
+;; public reply as the event's last arg, and the handlers re-lift it with the
+;; verification payload into the canonical reply map. A test may inline
+;; `:data` / `:error` in the verification payload instead.
+;; Managed-Effects §The uniform reply envelope
 
 (defn- resolve-reply-payload
-  "The internal reply `payload` with the attempt's scoped key resolved through
-  the RECEIVING frame's work-ledger row (Spec 016 §Transport): `:resource/key`
-  is the row's, and `:scope` is that key's scope. A resource reply payload
-  carries only `:work/id` / `:generation` / `:rf.frame/id` (plus a feed page's
-  `:rf.resource/page-*`), because the ledger row is the one place that records
-  which key an attempt serves. A key or scope the payload carries itself is
-  discarded, never trusted. A reply with no row to resolve through — a
-  cross-frame reply, or an attempt whose row left with its entry — comes back
-  with no key, and `live-entry-for-reply` then suppresses it as stale."
+  "The reply `payload` with `:resource/key` and `:scope` taken from the
+  receiving frame's ledger row; a key or scope the payload carries is
+  discarded, never trusted. With no row (a cross-frame reply, or the row left
+  with its entry) the payload has no key, and `live-entry-for-reply`
+  suppresses it. Spec 016 §Transport"
   [runtime-db receiving-frame-id payload]
   (let [resource-key (:resource/key (rf.resources.reply-handlers/ledger-row-for-reply
                                       runtime-db receiving-frame-id payload))]
@@ -2585,53 +1428,39 @@
                                   :scope        (first resource-key)))))
 
 (defn- entry-path-for-reply
-  "The resource family's durable-slot path-fn (`(payload) → db-path`): the
-  cache entry at the scoped key `resolve-reply-payload` resolved from the
-  receiving frame's ledger row, or nil when none resolved (no slot — the reply
-  is stale). Used by the shared `reply-handlers` verifier +
-  current-generation reader."
+  "The resource family's slot path-fn: the entry path for the resolved key,
+  or nil when none resolved."
   [{resource-key :resource/key}]
   (when (some? resource-key)
     (rf.resources.state/entry-path resource-key)))
 
 (defn- resource-correlation
-  "The resource family's stale-reply diagnostic correlation keys (beyond the
-  carried/current `:generation` pair): `:resource/key` + `:scope`, each
-  OMITTED when absent (Managed-Effects §The reply map)."
+  "The resource family's stale-reply correlation: `:resource/key` and
+  `:scope`, each omitted when absent."
   [{resource-key :resource/key :keys [scope]}]
   (cond-> {}
     (some? resource-key) (assoc :resource/key resource-key)
     (some? scope)        (assoc :scope scope)))
 
 (def ^:private resource-stale-knobs
-  "The resource family's stale-suppress knobs for
-  `rf.resources.reply-handlers/stale-suppress-reply`: `:work-kind`, `:stale-reason`, and
-  the `:correlation-fn`."
+  "The resource family's knobs for
+  `rf.resources.reply-handlers/stale-suppress-reply`."
   {:work-kind      rf.resources.reply/work-kind-resource
    :stale-reason   :rf.resource/superseded
    :correlation-fn resource-correlation})
 
 (defn- stale-suppress-reply
-  "Build the canonical `:status :stale` reply outcome for a superseded /
-  vanished RESOURCE reply through the SHARED `reply-handlers` substrate (which
-  lowers through `rf.resources.reply/stale-reply`), so the resource family lowers its stale
-  outcome exactly as the mutation family + every other managed-async family
-  does (Managed-Effects §Stale suppression). `extra` threads diagnostic facts
-  (e.g. `:outcome`) onto the stale reply."
+  "The canonical `:status :stale` outcome for a superseded or vanished
+  resource reply, via the shared substrate. `extra` adds diagnostic facts.
+  Managed-Effects §Stale suppression"
   [runtime-db _resource-key payload extra]
   (rf.resources.reply-handlers/stale-suppress-reply
     runtime-db entry-path-for-reply payload resource-stale-knobs extra))
 
 (defn- emit-resource-stale-suppressed!
-  "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
-  resource reply via the SHARED `rf.resources.reply-handlers/emit-stale-suppressed!`,
-  carrying the resource bespoke facts (`:resource/id` / `:generation` /
-  `:outcome`) PLUS the canonical reply-envelope vocabulary alongside them
-  (Managed-Effects §Tracing / EP-0011). Attempt-scoped: it names the attempt,
-  never its scoped key — the resource id is read off the work id, so even a
-  reply whose ledger row is gone is attributed. The work identity rides
-  ONLY as `:rf.reply/work-id` (one name per fact — no bare `:work/id`
-  duplicate of what the reply-envelope vocabulary carries)."
+  "Emits `:rf.resource/stale-suppressed` via the shared emitter. Names the
+  attempt, not its scoped key: the resource id comes from the work id, so a
+  reply whose row is gone is still attributed."
   [frame-id work-id generation outcome stale]
   (rf.resources.reply-handlers/emit-stale-suppressed!
     :rf.resource/stale-suppressed
@@ -2641,78 +1470,19 @@
     stale))
 
 (defn- live-entry-for-reply
-  "Look the live entry up for an internal reply via the SHARED
-  `rf.resources.reply-handlers/live-slot-for-reply` (frame + work-id + generation
-  verification against the resource entry at the scoped key
-  `resolve-reply-payload` resolved from the ledger row).
-  Returns the entry on a match, nil on a cross-frame / stale / superseded /
-  vanished reply (which MUST be suppressed — Spec 016 §Cancellation is
-  opportunistic; stale suppression is mandatory)."
+  "The live entry the reply still owns, else nil (the reply MUST be
+  suppressed). Spec 016 §Cancellation is opportunistic; stale suppression is mandatory"
   [runtime-db receiving-frame-id payload]
   (rf.resources.reply-handlers/live-slot-for-reply
     runtime-db receiving-frame-id entry-path-for-reply payload))
 
-;; ---- transport reply payload extraction → canonical reply map --------------
-;;
-;; Resources lower THROUGH managed HTTP, so the transport (Spec 014 §Reply
-;; addressing) APPENDS its PUBLIC reply payload to the runtime-supplied
-;; `:on-success` / `:on-failure` internal reply event vector as the LAST arg,
-;; so a live reply lands as a 3-element event:
-;;
-;;   [:rf.resource.internal/succeeded <verification-payload> {:status :ok    :value <decoded-data> …}]
-;;   [:rf.resource.internal/failed    <verification-payload> {:status :error :error <:rf.http/* envelope> …}]
-;;
-;; `<verification-payload>` (arg 2) is the `{:work/id :generation
-;; :rf.frame/id}` map resource lowering supplied (the stale-suppression
-;; identity, the boundary the runtime OWNS — EP-0007: the work identity is
-;; `:work/id`). Each handler first resolves the attempt's scoped key through
-;; the receiving frame's ledger row (`resolve-reply-payload`) — the key never
-;; rides the transport. `<http-result>` (arg 3) is the transport's PUBLIC
-;; outcome.
-;;
-;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
-;; map every managed-async family produces — `re-frame.resources.reply`
-;; builds `{:status :value/:error :rf.reply/work-id :rf.reply/work-kind :resource :rf.reply/work-status
-;; :rf.frame/id :completed-at :correlation}` (Managed-Effects §The uniform
-;; reply envelope / EP-0011 §Resource Reply And Work Ledger). The internal
-;; resource reply targets are framework-INTERNAL, so they receive the
-;; canonical reply map DIRECTLY (no public `{:kind …}` reshape — that reshape
-;; is `:rf.http/managed`'s own public sugar). The handlers then branch on the
-;; canonical `:status` and install `(:value reply)` under the durable entry's
-;; `:data` (the entry layer's spelling of the same fact; the reply-map
-;; spelling is `:value` — EP-0007).
-;;
-;; A test that feeds an internal reply directly may inline `:data` / `:error`
-;; in arg 2 (no transport in the loop); the reader below falls back to that
-;; shape so such a test exercises the entry semantics
-;; deterministically.
-
-;; The transport-payload extractors a reply handler lifts from arg 3 live in
-;; `re-frame.resources.reply` (`transport-success-value` /
-;; `transport-failure-envelope`) — shared with the mutation write path, which
-;; differs only by the inline durable-layer fallback key (`:data` here for a
-;; resource entry, `:result` for a mutation instance).
-
 (defn succeeded-handler
-  "`:rf.resource.internal/succeeded` — a transport read succeeded. Re-lifts
-  the transport's PUBLIC reply into the canonical reply map
-  (`rf.resources.reply/success-reply`, `:status :ok` carrying `:value` — Managed-Effects
-  §The uniform reply envelope), verifies frame + `:work/id` + generation
-  against the live entry, and on match installs `(:value reply)` as the
-  durable entry `:data` (`:loaded`), preserving the old `:data` value when
-  the new data is `=` (structural sharing), and records `:loaded-at` /
-  `:stale-at` / produced `:tags`. (`:value` is the reply-map spelling of the
-  decoded result everywhere; `:data` is the durable entry layer's spelling
-  of the same fact — EP-0007.) A stale / superseded reply is
-  SUPPRESSED (it MUST NEVER mutate a newer entry). Per Spec 016 §Transport /
-  §Structural sharing / §Status semantics; EP-0011 §Resource Reply And Work
-  Ledger.
-
-  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends the canonical `{:status :ok :value <decoded-data> …}` as the last arg
-  (Spec 014 §Reply addressing); the decoded data is read from there
-  (`rf.resources.reply/transport-success-value` with the `:data` durable-layer fallback)
-  and re-lifted into the canonical `:value`."
+  "`:rf.resource.internal/succeeded`: on a verified reply, settles the entry
+  `:loaded` with the decoded value as `:data` (the old value kept when `=`),
+  `:loaded-at` from the reply token, `:stale-at` and the produced `:tags`;
+  resolves invalidations that landed meanwhile, arms timers, and fans out to
+  `:reply-to` targets last. A stale reply is suppressed. Event `[_
+  <verification-payload> <http-result>]`. Spec 016 §Status semantics"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db (or rt {})
@@ -2720,45 +1490,18 @@
         (resolve-reply-payload runtime-db frame-id reply-payload)
         resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         value      (rf.resources.reply/transport-success-value payload http-result :data)
-        ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
-        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery:
-        ;; the reply is a CAUSAL TOKEN. The host completion time
-        ;; (`:completed-at`, read ONCE at the transport finalisation boundary)
-        ;; rides the reply event's causal `:rf/time-ms`, DECLARED via
-        ;; `:rf.cofx/requires` and consumed FLAT here — the reply handler MUST
-        ;; NOT re-read the clock NOR reach through the `:rf.cofx` token. It is
-        ;; carried onto the canonical reply map as `:completed-at` (the
-        ;; uniform-reply spelling) and is the source of the durable
-        ;; `:loaded-at`.
+        ;; the completion time is the reply token's `:rf/time-ms`; the
+        ;; handler never reads the clock
         completed-at time-ms
-        ;; the ONE canonical reply map every managed-async family produces
-        ;; (Managed-Effects §The uniform reply envelope). The internal
-        ;; resource reply target receives it DIRECTLY (no public `{:kind …}`
-        ;; reshape). The decoded result is `:value` (EP-0007).
         reply      (rf.resources.reply/success-reply payload value
                                          {:work-kind rf.resources.reply/work-kind-resource
                                           :completed-at completed-at})
         entry      (live-entry-for-reply runtime-db frame-id payload)
-        ;; EP-0016 D1 — the accepted-reply fan-out to any
-        ;; call-site `:reply-to` recorded on the settling work record (read off
-        ;; the ORIGINAL runtime-db, before the row is marked terminal / pruned).
-        ;; Used ONLY on the live (accepted) branch below; the nil-entry stale
-        ;; branch delivers nothing (mandatory stale suppression).
+        ;; read before the row settles; delivered only on the accepted branch
         record     (rf.resources.work-ledger/get-record runtime-db work-id)
         cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (if (nil? entry)
-      ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
-      ;; mutates a newer entry. Per Managed-Effects §Stale suppression the
-      ;; completion is recorded `:status :stale` / `:rf.reply/work-status :suppressed`
-      ;; through the SHARED `re-frame.reply` substrate (via
-      ;; `rf.resources.reply/stale-reply`), exactly as every other managed-async family
-      ;; lowers its stale outcome — the canonical reply built above
-      ;; (`rf.resources.reply/success-reply`) is the SUCCESS reply for the live path; the
-      ;; nil-entry path produces the canonical STALE reply instead. The app
-      ;; reply target MUST NOT run (no live entry to settle), the
-      ;; (already-superseded) work row settles terminal `:suppressed`, and the
-      ;; host handle is cleared. Per Spec 016 §Cancellation is opportunistic;
-      ;; stale suppression is mandatory.
+      ;; stale: the row settles `:suppressed` and no reply target runs
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :success})]
         (emit-resource-stale-suppressed!
@@ -2766,34 +1509,13 @@
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
-            ;; the durable entry stores the canonical reply's `:value` under
-            ;; `:data` (the entry layer's spelling of the same fact — the
-            ;; reply-map spelling is `:value`, EP-0007).
             data      (:value reply)
-            ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
-            ;; resource `:loaded-at` IS the successful reply's completion time
-            ;; (`(:completed-at reply)`, carried on the reply token), and
-            ;; `:stale-at` is computed from it + the resource's
-            ;; `:stale-after-ms` policy — never an ambient clock read here.
             loaded-at (:completed-at reply)
             stale-at  (rf.resources.state/stale-at-for spec loaded-at)
-            ;; arm the advisory stale / GC timers from the resource's policy
-            ;; (Spec 016 §Stale and GC scheduling). The DELAYS are relative
-            ;; from now (the durable absolute :stale-at / :loaded-at are the
-            ;; freshness facts the re-check derives against; the timer is only
-            ;; an advisory nudge). A resource declaring no :stale-after-ms /
-            ;; :gc-after-ms arms neither. nil when this resource arms no timers
-            ;; (no schedule-timers fx emitted).
             stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))
             tags-fn   (:tags spec)
-            ;; tags are produced from the params + decoded data; the canonical
-            ;; params are the third element of the scoped key
             tags      (when tags-fn (set (tags-fn (nth resource-key 2) data)))
-            ;; An invalidation that landed during THIS attempt
-            ;; survives its success (definite mark kept, or a recorded one the
-            ;; produced tags intersect); an owned entry left stale gets ONE
-            ;; follow-up refetch.
             [entry' follow-up-tags]
             (settle-invalidations
               entry
@@ -2801,23 +1523,9 @@
                 entry {:data data :loaded-at loaded-at
                        :stale-at stale-at :tags tags})
               record)
-            ;; EP-0020 §Polling: arm the active-owner POLL timer from the
-            ;; resource's `:poll-interval-ms` — but ONLY while the freshly-
-            ;; loaded entry has at least one active owner (a poll never pins an
-            ;; owner-free entry alive; an owner-free entry is GC fodder, not a
-            ;; poll target). On fire the `:poll` re-check unconditionally
-            ;; refetches (the interval IS the cadence) and re-arms the next
-            ;; tick. A resource declaring no `:poll-interval-ms` (or one whose
-            ;; entry is owner-free at settle) arms no poll timer.
+            ;; a poll never pins an owner-free entry
             poll-delay-ms (when (seq (:active-owners entry'))
                             (rf.resources.state/positive-or-nil (:poll-interval-ms spec)))
-            ;; on a successful load the tag index for this key is REPLACED
-            ;; with the new tags (old tags removed). This settle touches ONE
-            ;; entry, so reconcile only that key's index members incrementally
-            ;; rather than full-rebuilding both indexes. The work
-            ;; row settles :completed; terminal rows for this key are then
-            ;; PRUNED (bounded per-key tail kept for Xray) — Spec 016 §Ledger
-            ;; row retention. The host handle is cleared (the attempt settled).
             old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'      (-> runtime-db
                           (assoc-in (rf.resources.state/entry-path resource-key) entry')
@@ -2826,11 +1534,6 @@
                             :completed {:loaded-at loaded-at})
                           (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                   old-entries [(rf.resources.state/key-id resource-key)])
-                          ;; route blocking: a route-owned blocking resource
-                          ;; settling drops it from the nav-token blocking
-                          ;; slot + lands the route transition when the slot
-                          ;; empties (Spec 016 §Route integration). No-op for
-                          ;; a non-route-owned / non-blocking resource.
                           (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
@@ -2840,30 +1543,17 @@
                      {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
-        ;; EP-0016 D1 — record the read-completion
-        ;; continuation dispatch (the read mirror of `:rf.mutation/replied`),
-        ;; AFTER `:rf.resource/succeeded` so the trace row follows settlement.
-        ;; No-op when the read carried no `:reply-to`.
+        ;; after `:rf.resource/succeeded`, so the trace follows settlement
         (emit-resource-replied!
           frame-id work-id (:status reply) (:reply-targets record) false)
-        ;; arm the advisory stale / GC / poll timers (host-side side table) for
-        ;; this freshly-loaded entry — the WRITE rides an fx exactly as the
-        ;; generation high-water bump + work-handle side-table writes do.
-        ;; Cancel-then-arm so a re-load reschedules a single live timer per
-        ;; [key kind]. Skipped under SSR by the fx's `:platforms #{:client}`
-        ;; gate (the re-check handler re-derives freshness from the durable
-        ;; :stale-at, so a never-fired server timer is harmless). Only emitted
-        ;; when the resource declares at least one policy (stale / GC / poll).
-        ;; The accepted-reply `:reply-to` fan-out (`cont-fxs`) is appended LAST
-        ;; so a continuation runs after cache settlement (Spec 016 §Read
-        ;; completion continuations / §Phase order). Per Spec 016 §Stale and GC
-        ;; scheduling / §Polling.
+        ;; The `:reply-to` fan-out goes last, after cache settlement.
+        ;; Spec 016 §Read completion continuations — call-site `:reply-to`
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key resource-key
-                             ;; a FULL reconcile names all three kinds — arm the
-                             ;; policied ones, cancel any whose policy is absent
+                             ;; naming all three kinds cancels any whose policy
+                             ;; is absent
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  poll-delay-ms}
@@ -2875,29 +1565,11 @@
             (seq fx) (assoc :fx fx)))))))
 
 (defn- entry-abort-settled
-  "Settle a LIVE entry whose current attempt was ABORTED (a cancellation, NOT
-  a failure). An abort must NEVER populate `:error` /
-  `:refresh-error` or leave the entry stranded mid-flight:
-
-    - a REFRESH abort (the entry was `:fetching` — it has prior data) returns
-      to `:loaded` and KEEPS the prior `:data` (the cancelled background
-      refresh leaves the last-known-good value intact, no `:refresh-error`);
-    - a FIRST-load abort (the entry was `:loading` — no usable data) settles
-      to a non-error stable `:idle` state (the load was cancelled, not
-      failed; a subsequent live cause re-ensures it cleanly).
-
-  Either way `:current-work` is cleared (the attempt settled) and no error
-  facts are written. Per Spec 016 §Cancellation is opportunistic / §Status
-  semantics. (Distinct from `rf.resources.state/entry-failed`, which records the failure
-  envelope; an abort is the no-error settlement.)
-
-  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019):
-  an accepted cancellation SETTLE clears `:current-work` and stabilises the
-  status — an authoritative durable write a later optimistic rollback could
-  clobber. A snapshot taken while the attempt was in-flight is now a STALE
-  `:before`; without the bump the settle-time conflict check would miss this
-  move and a rollback could RESURRECT the cancelled in-flight `:current-work`
-  pointer. Symmetric with `rf.resources.state/entry-failed` / `entry-succeeded`."
+  "Settles a live entry whose attempt was aborted, a cancellation rather
+  than a failure: a refresh returns to `:loaded` keeping `:data`, a first
+  load settles `:idle`. No error facts; `:current-work` is cleared and
+  `:revision` bumped, so an optimistic rollback cannot resurrect the
+  cancelled pointer. Spec 016 §Status semantics"
   [entry]
   (rf.resources.state/bump-revision
     (if (rf.resources.state/has-data? entry)
@@ -2905,33 +1577,15 @@
       (assoc entry :status :idle  :current-work nil))))
 
 (defn failed-handler
-  "`:rf.resource.internal/failed` — a transport read failed. Verifies frame
-  + work-id + generation; a first-load failure settles `:error` (no usable
-  data); a background-refresh failure returns to `:loaded`, keeps prior
-  `:data`, and records `:refresh-error`. A stale / superseded reply is
-  suppressed. Per Spec 016 §Status semantics.
-
-  An ABORT reply (`{:kind :rf.http/aborted}`) is NOT a failure:
-  the managed-HTTP transport routes an intentional cancellation (owner-loss
-  orphan abort, actor-destroy, timeout teardown) through this same
-  `:on-failure` reply, but it must NOT become a user-visible resource error
-  or a `:failed` ledger row. It is branched into CANCELLATION semantics —
-  the live attempt settles to a non-error stable state (`entry-abort-settled`)
-  WITHOUT `:error` / `:refresh-error`, the work row settles terminal
-  `:cancelled`, and route readiness re-projects: the aborted entry settles
-  with no usable data and nothing left to settle it, so the route un-blocks
-  rather than flipping to `:error`.
-  A stale / superseded abort reply is suppressed by the same
-  `live-entry-for-reply` boundary (it can never mutate a newer entry).
-
-  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the
-  last arg (Spec 014 §Reply addressing); the failure envelope is read from
-  there (`rf.resources.reply/transport-failure-envelope`) and re-lifted into the canonical
-  reply map (`rf.resources.reply/failure-reply` — `:status :error` with the envelope under
-  `:error`, or `:status :cancelled` for an `:rf.http/aborted` envelope; per
-  Managed-Effects §Status taxonomy / EP-0011 §Resource Reply And Work
-  Ledger)."
+  "`:rf.resource.internal/failed`: on a verified reply, a first-load failure
+  settles `:error`, and a refresh failure returns to `:loaded` keeping
+  `:data` and recording `:refresh-error`. An abort (`:rf.http/aborted`) is a
+  cancellation instead: `entry-abort-settled`, the work row `:cancelled`, no
+  error facts. A first-load settle arms the stale and GC timers, since no
+  success will arm them, so an owner-free entry is still reaped; a refresh
+  keeps the timers its prior success armed. A stale reply, abort or not, is
+  suppressed. Event `[_ <verification-payload> <http-result>]`.
+  Spec 016 §Status semantics"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db (or rt {})
@@ -2939,48 +1593,18 @@
         (resolve-reply-payload runtime-db frame-id reply-payload)
         resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         error      (rf.resources.reply/transport-failure-envelope payload http-result)
-        ;; EP-0017 declared-only delivery + EP-0010 §Managed Effects And Reply
-        ;; Tokens: a FAILED / CANCELLED completion is still a
-        ;; managed-async completion with a reply token, so its causal completion
-        ;; time is supplied as data — DECLARED `:rf/time-ms`, consumed FLAT — and
-        ;; carried onto the canonical reply as `:completed-at`, symmetric with
-        ;; the success reply + with mutation replies (which carry it too).
-        ;; The handler MUST NOT re-read the clock. Dropping it would make the
-        ;; resource family asymmetric and weaken replay / tooling evidence for a
-        ;; failed or cancelled load.
+        ;; the completion time is the reply token's `:rf/time-ms`, as on success
         completed-at time-ms
-        ;; the ONE canonical reply map (Managed-Effects §The uniform reply
-        ;; envelope) — `:status :error` (or `:cancelled` for an abort),
-        ;; carrying `:completed-at`. The internal reply target
-        ;; receives it directly. The abort classification is `rf.resources.reply/failure-
-        ;; reply`'s (`re-frame.resources.reply/abort-failure?` — the family's
-        ;; ONE classifier); the canonical reply's `:status` then drives the
-        ;; branch below.
         reply      (rf.resources.reply/failure-reply payload error
                                          {:work-kind rf.resources.reply/work-kind-resource
                                           :completed-at completed-at})
         aborted?   (= :cancelled (:status reply))
         entry      (live-entry-for-reply runtime-db frame-id payload)
-        ;; EP-0016 D1 — the accepted-reply fan-out to any
-        ;; call-site `:reply-to` recorded on the settling work record. An
-        ;; accepted terminal FAILURE (`:status :error`) OR terminal cancellation
-        ;; (accepted `:status :cancelled`) both continue; only the nil-entry
-        ;; stale branch delivers nothing. Read off the ORIGINAL runtime-db.
         record     (rf.resources.work-ledger/get-record runtime-db work-id)
         cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (cond
-      ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
-      ;; OR abort) never mutates a newer entry. Per Managed-Effects §Stale
-      ;; suppression the completion is recorded `:status :stale` /
-      ;; `:rf.reply/work-status :suppressed` through the SHARED `re-frame.reply`
-      ;; substrate (via `stale-suppress-reply`), and the canonical reply-
-      ;; envelope vocabulary rides on the `:rf.resource/stale-suppressed`
-      ;; trace alongside the bespoke facts. STALE VALIDATION WINS OVER NATURAL
-      ;; STATUS: once the reply no longer correlates with a live target
-      ;; the ledger row is ALWAYS `:suppressed` — never an accepted
-      ;; `:cancelled`. A stale abort can never be an accepted cancellation:
-      ;; there is no live target to cancel. The `:outcome` diagnostic still
-      ;; distinguishes `:aborted` from `:failure` for tooling.
+      ;; Stale wins over natural status: a stale abort settles `:suppressed`,
+      ;; never an accepted `:cancelled`.
       (nil? entry)
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome (if aborted? :aborted :failure)})]
@@ -2989,53 +1613,20 @@
           (if aborted? :aborted :failure) stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload
-          ;; The terminal outcome summary records
-          ;; the causal completion time (the reply token's
-          ;; `:completed-at`) for a failed / cancelled completion.
           {:reason :stale-reply
            :outcome (if aborted? :aborted :failure)
            :completed-at completed-at}))
 
-      ;; ABORT: an intentional cancellation reached the failure
-      ;; reply seam. Settle the LIVE attempt to a non-error stable state, mark
-      ;; the work row terminal :cancelled, and re-project route readiness (the
-      ;; settled-but-empty entry reads `:inert`, so a cancelled blocking
-      ;; first-load un-blocks the route rather than surfacing a spurious
-      ;; error). NO :error / :refresh-error write. The host handle is cleared.
       aborted?
       (let [entry'    (entry-abort-settled entry)
-            ;; Mirrors `first-load-error?` in the sibling :else
-            ;; (failure) branch below: a FIRST-load abort has no usable data,
-            ;; so `entry-abort-settled` settles it to a non-error stable
-            ;; `:idle` (never `:loaded`, which only a REFRESH abort reaches).
             first-load-abort? (= :idle (:status entry'))
             spec      (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
                        (rf.resources.work-ledger/settle-terminal
                          work-id
-                         ;; A cancellation is a completion — its
-                         ;; terminal outcome carries the reply token's causal
-                         ;; `:completed-at`.
                          :cancelled {:reason :aborted :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))
-            ;; A FIRST-LOAD abort settle MUST arm the GC timer
-            ;; (and the stale timer, if declared), mirroring the first-load
-            ;; :error settle. GC timers are otherwise armed only on a
-            ;; SUCCESSFUL settle (`succeeded-handler`) or a first-load
-            ;; `:error` settle; a first-load ABORT settles to
-            ;; `:idle` with `:current-work nil`, so without a
-            ;; `:rf.resource/schedule-timers` here an owner-free `:idle` entry
-            ;; from a cancelled first load would never be reaped (an
-            ;; unbounded per-frame cache leak). A REFRESH abort (entry returns to `:loaded`, prior
-            ;; data kept) is NOT re-armed here — its stale/GC timers were
-            ;; armed on the prior success and this settle makes no freshness
-            ;; change; re-arming would double-arm (symmetric with the
-            ;; background-refresh-failure guard). No poll timer: an aborted
-            ;; entry is GC fodder, never a poll target (symmetric with the
-            ;; owner-free / no-owner gate the success + release-owner paths
-            ;; enforce). Per Spec 016 §Stale and GC scheduling /
-            ;; §Cancellation is opportunistic.
             stale-delay-ms (when first-load-abort?
                              (rf.resources.state/positive-or-nil (:stale-after-ms spec)))
             gc-delay-ms    (when first-load-abort?
@@ -3045,19 +1636,14 @@
                      {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        ;; EP-0016 D1 — an accepted terminal cancellation
-        ;; continues a call-site `:reply-to` (`:status :cancelled`), Spec 016
-        ;; §Read completion continuations (the cancellation delivery rule).
         (emit-resource-replied!
           frame-id work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key resource-key
-                             ;; a first-load abort/error settle reconciles all
-                             ;; three kinds — arm stale/GC and CANCEL poll (an
-                             ;; errored/aborted entry is GC fodder, never a poll
-                             ;; target; a first load never armed one)
+                             ;; a first-load settle arms stale/GC and cancels
+                             ;; poll
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  nil}
@@ -3072,39 +1658,12 @@
             op     (if first-load-error?
                      :rf.resource/failed :rf.resource/refresh-failed)
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
-            ;; the work row settles :failed (terminal) with the error
-            ;; envelope as its outcome summary (Xray gets the summary). The
-            ;; host handle is cleared (the attempt settled).
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
                        (rf.resources.work-ledger/settle-terminal
                          work-id
-                         ;; The failed terminal outcome carries the
-                         ;; reply token's causal `:completed-at` alongside the
-                         ;; error envelope (the summary represents the completion).
                          :failed {:error error :completed-at completed-at})
-                       ;; route readiness: a blocking FIRST-load failure
-                       ;; projects :transition :error + populates
-                       ;; :rf.route/error; a background-refresh failure (data
-                       ;; kept, status back to :loaded) reads as data-ready and
-                       ;; resolves the requirement. The projector reads the
-                       ;; entry's facts, not a settle signal.
-                       ;; (Spec 016 §Route integration.)
                        (rf.resources.route/reconcile-readiness))
-            ;; A FIRST-LOAD `:error` settle MUST arm the GC timer
-            ;; (and the stale timer, if declared). GC timers are otherwise armed
-            ;; only on a SUCCESSFUL settle (`succeeded-handler`); a first load
-            ;; that fails goes to `:error` with `:current-work nil`, so without
-            ;; a `:rf.resource/schedule-timers` here an owner-free errored entry
-            ;; would never be reaped (an unbounded cache leak
-            ;; for the frame's life). Arming GC here mirrors the success-path
-            ;; arming; an errored entry is GC fodder, never a poll target, so no
-            ;; poll timer (symmetric with the owner-free / no-owner gate the
-            ;; success + release-owner paths enforce). A BACKGROUND-
-            ;; refresh failure (entry returns to `:loaded`, prior data kept) is
-            ;; NOT re-armed here — its stale/GC timers were armed on the prior
-            ;; success and `entry-failed` makes no freshness change; re-arming
-            ;; would double-arm. Per Spec 016 §Stale and GC scheduling.
             stale-delay-ms (when first-load-error?
                              (rf.resources.state/positive-or-nil (:stale-after-ms spec)))
             gc-delay-ms    (when first-load-error?
@@ -3117,28 +1676,14 @@
                      {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        ;; EP-0016 D1 — an accepted terminal failure
-        ;; continues a call-site `:reply-to` (`:status :error`), so a workflow
-        ;; handler learns the read it caused failed (Spec 016 §Read completion
-        ;; continuations). A background-refresh failure that KEEPS prior data
-        ;; (`:refresh-failed`) is still an accepted terminal reply for this
-        ;; attempt and fans out too.
         (emit-resource-replied!
           frame-id work-id (:status reply) (:reply-targets record) false)
-        ;; arm the GC (+ stale) timer on a first-load `:error` settle so an
-        ;; owner-free errored entry is reaped (cancel-then-arm via the fx; the
-        ;; re-check derives freshness/idle/owner-free from the durable facts).
-        ;; The accepted-reply `:reply-to` fan-out is appended last. Only emitted
-        ;; when the resource declares a GC / stale policy or a `:reply-to`
-        ;; continued.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key resource-key
-                             ;; a first-load abort/error settle reconciles all
-                             ;; three kinds — arm stale/GC and CANCEL poll (an
-                             ;; errored/aborted entry is GC fodder, never a poll
-                             ;; target; a first load never armed one)
+                             ;; a first-load settle arms stale/GC and cancels
+                             ;; poll
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  nil}
@@ -3147,39 +1692,17 @@
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
 
-;; ---- infinite-feed page reply handlers (EP-0021 R1/R2) --------------------
-;;
-;; A page fetch (a first ensure's page-0, a refetch's replacement page-0, or a
-;; load-more's next page) settles through these reply handlers — DISTINCT from
-;; the scalar `succeeded-handler` / `failed-handler` because a page success
-;; APPENDS / REPLACES-IN-PLACE a single page (`entry-replace-page`, which
-;; delegates to `entry-append-page` when the index is at the tail) rather than
-;; overwriting the whole `:data`, and a page failure is the THIRD error channel
-;; (`entry-page-failed` keeps the feed + records `:page-error`). They reuse the
-;; SAME verification + stale-suppression substrate (`live-entry-for-reply` /
-;; `stale-suppress-reply`) so a superseded / cross-frame / restored-dangling
-;; page reply can NEVER append to a newer (or another frame's) feed — the
-;; monotonic generation allocator guarantees a pre-supersession page reply's
-;; generation never matches the live feed.
+;; ---- infinite-feed page reply handlers -------------------------------------
+;; Distinct from the scalar handlers: a page success writes one page, and a
+;; load-more failure is the third error channel (`:page-error`). Verification
+;; is the same, so a stale page reply never touches a newer feed.
 
 (defn page-succeeded-handler
-  "`:rf.resource.internal/page-succeeded` — an infinite-feed page fetch
-  succeeded (EP-0021 R1/R2). Re-lifts the transport's PUBLIC reply into the
-  canonical reply map, verifies frame + `:work/id` + generation against the
-  live feed entry, and on match APPENDS / REPLACES-IN-PLACE the decoded page at
-  the reply's `:rf.resource/page-index` (`entry-replace-page` — an append when
-  the index is at the tail, the load-more / page-0 case; an in-place replace for
-  a window-preserving refetch's page-0), recording the resolved
-  `:rf.resource/page-param` in `:page-params`, recomputing `:next-page-param` /
-  `:prev-page-param`, clearing `:page-error`, and returning the feed to
-  `:loaded` (structural sharing preserves every unchanged page). A stale /
-  superseded / cross-frame page reply is SUPPRESSED — it MUST NEVER mutate a
-  newer feed. Per Spec 016 §Causal event — load-more.
-
-  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends the canonical `{:status :ok :value <decoded-page> …}` as the last arg;
-  the decoded page is read from there (with the `:data` durable-layer fallback
-  for direct-dispatch tests) and appended."
+  "`:rf.resource.internal/page-succeeded`: on a verified reply, writes the
+  page at its index (an append at the tail, otherwise an in-place replace),
+  records its page param, and returns the feed to `:loaded`; chains the next
+  refetch-sweep leg when one is armed. A stale reply is suppressed.
+  Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db   (or rt {})
@@ -3195,21 +1718,10 @@
                                            {:work-kind rf.resources.reply/work-kind-resource
                                             :completed-at completed-at})
         entry        (live-entry-for-reply runtime-db frame-id payload)
-        ;; EP-0016 D1 — an `:rf.resource/ensure` /
-        ;; `:rf.resource/refetch` of an INFINITE feed lowers through the page
-        ;; reply, so its call-site `:reply-to` settles here at the page-0
-        ;; completion (a `:rf.resource/load-more` carries no `:reply-to`, so its
-        ;; record has none). The continuation fan-out (`cont-fxs`) is built in
-        ;; the accepted branch below, AFTER the page settles into `entry'`:
-        ;; an infinite `:reply-to` `:value` is the MERGED items
-        ;; list over the post-settle feed (the same shape the fresh-skip
-        ;; cache-hit path delivers), NOT this single decoded `page`.
+        ;; An infinite ensure/refetch settles its `:reply-to` here, with the
+        ;; merged items over the post-settle feed as `:value`.
         record       (rf.resources.work-ledger/get-record runtime-db work-id)]
     (if (nil? entry)
-      ;; STALE SUPPRESSION (mandatory) — a superseded / vanished / cross-frame
-      ;; page reply never appends to a newer feed. Recorded `:status :stale` /
-      ;; `:rf.reply/work-status :suppressed` through the shared reply substrate, exactly
-      ;; as the scalar success path does.
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :page-success})]
         (emit-resource-stale-suppressed!
@@ -3228,37 +1740,21 @@
                                :next-page-param-fn (:next-page-param spec)
                                :prev-page-param-fn (:prev-page-param spec)
                                :loaded-at loaded-at :stale-at stale-at})
-            ;; EP-0021 R6 sweep: if a multi-page refetch sweep
-            ;; is armed, chain the NEXT leg — pop its `[page-param page-index]`
-            ;; off the `:refetch-sweep` cursor and re-fetch it (one in-flight
-            ;; leg at a time, "in sequence"). `entry-replace-page` preserves the
-            ;; cursor, so it rides through to here.
             sweep-leg (rf.resources.state/next-refetch-sweep-leg replaced)
             swept     (if sweep-leg
                         (rf.resources.state/entry-advance-refetch-sweep replaced)
                         replaced)
-            ;; Produce the feed's `:tags` over the ACCUMULATED
-            ;; page vector this page just settled into (the entry's `:data`),
-            ;; the infinite twin of the scalar success's produce-and-install, so
-            ;; tag invalidation — and a mutation's `:invalidates` — can find the
-            ;; feed. A resource declaring no `:tags` keeps what it has.
+            ;; tags over the accumulated pages, so invalidation can find the
+            ;; feed
             tags-fn   (:tags spec)
-            ;; Resolve invalidations that landed during this
-            ;; attempt against the tags just produced (the scalar success's twin).
             [entry' follow-up-tags]
             (settle-invalidations
               entry
               (cond-> swept
                 tags-fn (assoc :tags (set (tags-fn (nth resource-key 2) (:data swept)))))
               record)
-            ;; The accepted `:reply-to` continuation carries the
-            ;; MERGED items list over the POST-settle feed (`entry'`), the SAME
-            ;; `:value` shape the fresh-skip cache-hit path delivers, NOT the
-            ;; single decoded `page` the transport reply carries. `assoc :value`
-            ;; onto the canonical `reply` preserves every identity / correlation
-            ;; fact and swaps only the read-completion value. Guarded on
-            ;; reply-targets so the merge (and its loud misconfiguration error)
-            ;; never runs for a load-more / continuation-free page settle.
+            ;; guarded on targets, so the merge and its loud error never run
+            ;; for a load-more
             cont-fxs  (when (seq (:reply-targets record))
                         (read-reply-continuation-fxs
                           record
@@ -3271,20 +1767,12 @@
                           (rf.resources.work-ledger/settle-terminal
                             work-id
                             :completed {:loaded-at loaded-at :page-index page-index})
-                          ;; Replace this key's tag-index members
-                          ;; with the tags just produced (old ones removed),
-                          ;; incrementally, as the scalar success does.
                           (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                   (get-in runtime-db (rf.resources.state/entries-path))
                                   [(rf.resources.state/key-id resource-key)])
-                          ;; route readiness: a route-owned blocking infinite
-                          ;; feed blocks on page 0 — the accumulated page makes
-                          ;; the requirement data-ready.
                           (rf.resources.route/reconcile-readiness))
-            ;; the chained sweep leg is a self-dispatched internal event so it
-            ;; re-enters the router and mints its own replay-stable generation
-            ;; (the generation-allocation cofx) — the framework's follow-up-fetch
-            ;; pattern (cf. poll-fired / focus-reconnect refetch dispatch).
+            ;; self-dispatched, so the leg mints its own replay-stable
+            ;; generation
             sweep-fx  (when sweep-leg
                         (let [[leg-param leg-index] sweep-leg]
                           [:dispatch [:rf.resource.internal/refetch-page
@@ -3310,8 +1798,8 @@
                           [:rf.resource/schedule-timers
                            {:frame-id     frame-id
                             :resource/key resource-key
-                            ;; a FULL reconcile names all three kinds — arm the
-                            ;; policied ones, cancel any whose policy is absent
+                            ;; naming all three kinds cancels any whose policy
+                            ;; is absent
                             :timers       {:stale stale-delay-ms
                                            :gc    gc-delay-ms
                                            :poll  poll-delay-ms}
@@ -3320,65 +1808,24 @@
                           timers-fx (conj timers-fx)
                           sweep-fx  (conj sweep-fx)
                           follow-up-tags (conj (follow-up-refetch-fx resource-key follow-up-tags)))
-              ;; append the accepted-reply `:reply-to` fan-out last
               fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
 
 (defn page-failed-handler
-  "`:rf.resource.internal/page-failed` — an infinite-feed page fetch failed.
-  Verifies frame + work-id + generation; on match SPLITS the settlement by
-  page identity (Spec 016 §Status semantics / §Infinite):
-
-    - a FIRST-LOAD (page 0) ABORT with NO accumulated pages is
-      checked BEFORE the generic abort branch below: there is no usable data,
-      so it settles like the scalar first-load abort (`entry-abort-settled`'s
-      `:idle` branch) — `:status :idle`, no error, `:current-work nil` — NEVER
-      `:loaded`. Settling `:loaded` on an empty feed would
-      lie about freshness and let a later `:rf.resource/ensure` fresh-skip a
-      feed that never actually loaded page 0. Un-blocks the route (the
-      settled-but-empty feed reads `:inert`, never a failure) and marks the
-      work row terminal `:cancelled` (an abort is not an
-      error), and ARMS the stale/GC timers — mirroring the scalar first-load
-      abort in `failed-handler` — so an owner-free `:idle`
-      entry from a cancelled first load is reaped;
-
-    - a FIRST-LOAD (page 0) failure with NO accumulated pages is NOT a
-      load-more failure — it is a first load with no usable data. It settles
-      the FIRST-load `:error` channel (`entry-failed` → `:status :error`,
-      `:error` envelope, `:data nil`), so the readiness projection reads it as
-      a failed blocking first load and flips the route to `:error` exactly
-      like a blocking SCALAR resource (the projector reads the entry's facts —
-      no infinite-specific branch), and ARMS the
-      stale/GC timers (mirroring the scalar `:error`
-      arming) so an owner-free errored empty feed is reaped. Spec 016
-      reserves `:error` / `:status :error` for first-load (page 0) failure;
-
-    - a page-0 FAILURE when the feed ALREADY has accumulated pages (an R6
-      window-preserving refetch whose replacement page 0 fails is NOT a first
-      load — there is a feed to keep) is a whole-feed REFRESH failure:
-      `entry-failed` returns it to `:loaded`, keeps every page
-      and records `:refresh-error`, exactly as a scalar background refresh
-      does, and stops any sweep;
-
-    - a LOAD-MORE (page N>0) abort/failure — OR a page-0 ABORT when the feed
-      already has accumulated pages — settles to `:loaded` (data kept, no
-      timer re-arming: the timers were already armed on the feed's prior
-      success). A FAILURE
-      here is the THIRD error channel: KEEPS ALL accumulated pages and records
-      `:page-error` (`entry-page-failed`), so a view shows \"couldn't load
-      more — retry\" without losing the feed. The blocking requirement stays
-      resolved (the route blocks on page 0 only, which already landed).
-      Spec 016 reserves `:page-error` for load-more (page N>0) failure only.
-
-  A stale / superseded / cross-frame reply is SUPPRESSED. An ABORT
-  (`:rf.http/aborted`) is a cancellation, not a page error: the feed settles
-  to `:loaded` (data kept) with NO `:page-error` written, and the work row
-  settles `:cancelled` — UNLESS it is a first-load abort (see above), which
-  settles `:idle` (no data to keep).
-
-  Event shape: `[_ <verification-payload> <http-result>]` — the transport
-  appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the last arg."
+  "`:rf.resource.internal/page-failed`: on a verified reply, the settlement
+  splits on page identity:
+    - first-load abort (page 0, no pages yet): `:idle`, no error, stale/GC
+      timers armed;
+    - first-load failure (page 0, no pages yet): the first-load `:error`
+      channel, stale/GC timers armed;
+    - any other abort: `:loaded`, pages kept, no `:page-error`;
+    - page-0 failure over existing pages: a whole-feed refresh failure
+      (`:refresh-error`);
+    - page N>0 failure: `:page-error`, pages kept.
+  Any abort or failure stops a refetch sweep. An aborted empty feed settles
+  `:idle`, never `:loaded`, which would let a later ensure fresh-skip a feed
+  that never loaded. A stale reply is suppressed. Spec 016 §Status semantics"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db   (or rt {})
@@ -3393,22 +1840,14 @@
                                             :completed-at completed-at})
         aborted?     (= :cancelled (:status reply))
         entry        (live-entry-for-reply runtime-db frame-id payload)
-        ;; A FIRST-load failure is a page-0 fetch (`page-index`
-        ;; 0) that has NO accumulated pages to keep. A page-0 refetch over a
-        ;; feed that already has pages (R6 window-preserving) is NOT a first
-        ;; load — its failure is a whole-feed refresh (`:refresh-error`).
+        ;; page 0 over pages already loaded is a refresh, not a first load
         first-load?  (and (some? entry)
                           (= 0 page-index)
                           (zero? (rf.resources.state/page-count entry)))
-        ;; EP-0016 D1 — a page-0 ensure/refetch reply-to
-        ;; settles here on failure/abort; a load-more (page N>0) carries no
-        ;; `:reply-to` (its record has none, so the fan-out is a no-op). Read off
-        ;; the ORIGINAL runtime-db; only the live branches fan out.
         record       (rf.resources.work-ledger/get-record runtime-db work-id)
         cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
     (cond
-      ;; STALE SUPPRESSION (mandatory) — stale wins over the natural status
-      ;; (a stale abort settles :suppressed, never an accepted :cancelled).
+      ;; stale wins over natural status
       (nil? entry)
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome (if aborted? :aborted :page-failure)})]
@@ -3420,21 +1859,7 @@
                                        :outcome (if aborted? :aborted :page-failure)
                                        :completed-at completed-at}))
 
-      ;; FIRST-LOAD ABORT — a page-0 fetch with NO accumulated
-      ;; pages was aborted: there is no usable data, so this is a first load
-      ;; with no data, NOT the generic infinite-abort settle below, which
-      ;; settles `:loaded` — on an EMPTY feed that would lie about freshness
-      ;; and let a later `:rf.resource/ensure` fresh-skip a feed that never
-      ;; actually loaded page 0. Settle instead like the scalar first-load abort
-      ;; (`entry-abort-settled`'s `:idle` branch): `:status :idle`, no error,
-      ;; `:current-work nil`. Re-project readiness (an aborted first load
-      ;; un-blocks the route rather than surfacing a spurious error,
-      ;; symmetric with the scalar path) and mark the work row terminal
-      ;; `:cancelled`. Arms the stale/GC timers — mirroring the scalar
-      ;; first-load abort in `failed-handler` — so an owner-free
-      ;; `:idle` entry from a cancelled first load is reaped (GC timers are
-      ;; otherwise armed only on a successful settle or a first-load `:error`
-      ;; settle).
+      ;; first-load abort
       (and aborted? first-load?)
       (let [entry' (-> (assoc entry :status :idle :current-work nil)
                        rf.resources.state/clear-refetch-sweep
@@ -3459,10 +1884,8 @@
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key resource-key
-                             ;; a first-load abort/error settle reconciles all
-                             ;; three kinds — arm stale/GC and CANCEL poll (an
-                             ;; errored/aborted entry is GC fodder, never a poll
-                             ;; target; a first load never armed one)
+                             ;; a first-load settle arms stale/GC and cancels
+                             ;; poll
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  nil}
@@ -3471,22 +1894,9 @@
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
 
-      ;; ABORT (non-first-load) — an intentional cancellation of a load-more,
-      ;; or a page-0 REFETCH abort over a feed that already has accumulated
-      ;; pages (R6 window-preserving — there is a feed to keep, so it is not a
-      ;; first load; the `first-load?` branch above handles the empty-feed
-      ;; case). The feed keeps its pages and returns to :loaded WITHOUT a
-      ;; :page-error (a cancellation is not a load-more failure). The work row
-      ;; settles terminal :cancelled. No timer re-arming here — the stale/GC
-      ;; timers were already armed on the feed's prior success (symmetric with
-      ;; the background-refresh-abort guard).
+      ;; any other abort: the feed keeps its pages, and the timers its prior
+      ;; success armed
       aborted?
-      ;; an abort during a multi-page refetch sweep STOPS the sweep (clear the
-      ;; cursor — a cancelled leg does not chain the next). The
-      ;; settle bumps :revision: clearing `:current-work` + settling
-      ;; the feed is an authoritative durable write a later optimistic rollback
-      ;; could clobber — symmetric with the scalar abort (`entry-abort-settled`)
-      ;; and the page failure (`entry-page-failed`).
       (let [entry' (-> (assoc entry :status :loaded :current-work nil)
                        rf.resources.state/clear-refetch-sweep
                        rf.resources.state/bump-revision)
@@ -3506,15 +1916,8 @@
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs))))
 
-      ;; FIRST-LOAD FAILURE — a page-0 fetch with no
-      ;; accumulated pages failed: there is no feed to keep, so this is a first
-      ;; load with no usable data, NOT a load-more. Settle the FIRST-load
-      ;; `:error` channel (`entry-failed` → `:status :error`, `:error`
-      ;; envelope, `:data nil`) — the readiness projection then reads a failed
-      ;; blocking first load and flips the route to `:error` (parity with a
-      ;; blocking scalar resource; no infinite-specific readiness branch).
-      ;; Trace the first-load `:rf.resource/failed` op (not
-      ;; `:rf.resource/page-failed`) so the channel and the trace agree.
+      ;; first-load failure, traced as `:rf.resource/failed` so the channel
+      ;; and the trace agree
       first-load?
       (let [entry' (rf.resources.state/entry-failed entry {:error error})
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
@@ -3524,13 +1927,6 @@
                          work-id
                          :failed {:error error :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))
-            ;; Mirrors the scalar first-load `:error`
-            ;; arming (`failed-handler`'s `:else` branch): a first-load
-            ;; infinite-feed failure settles `:error` with `:current-work nil`
-            ;; the same as the scalar path, so it must arm the GC (+ stale)
-            ;; timer the same way — otherwise an owner-free errored empty feed
-            ;; would never be reaped (the same unbounded per-frame cache leak
-            ;; this handler's abort twin, above, guards against).
             stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
@@ -3548,10 +1944,8 @@
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
                              :resource/key resource-key
-                             ;; a first-load abort/error settle reconciles all
-                             ;; three kinds — arm stale/GC and CANCEL poll (an
-                             ;; errored/aborted entry is GC fodder, never a poll
-                             ;; target; a first load never armed one)
+                             ;; a first-load settle arms stale/GC and cancels
+                             ;; poll
                              :timers       {:stale stale-delay-ms
                                             :gc    gc-delay-ms
                                             :poll  nil}
@@ -3560,17 +1954,8 @@
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
 
-      ;; WHOLE-FEED REFRESH FAILURE — a page-0 fetch over a feed
-      ;; that already has pages is a background refresh (a focus / poll /
-      ;; invalidation / manual refetch replacing page 0 in place), NOT a
-      ;; load-more. It settles through the SAME transition the scalar refresh
-      ;; failure uses (`entry-failed`: `:fetching` with data returns to
-      ;; `:loaded`, keeps every page, records `:refresh-error`) and traces
-      ;; `:rf.resource/refresh-failed`, so a view warns "refresh failed" rather
-      ;; than offering a load-more retry. Page 0 is a multi-page sweep's first
-      ;; leg, so a failure here stops the sweep (clear the cursor). No timer
-      ;; re-arming — the feed's timers were armed on its prior success
-      ;; (symmetric with `failed-handler`'s refresh branch).
+      ;; whole-feed refresh failure: page 0 over existing pages, so a view
+      ;; warns "refresh failed" rather than offering a load-more retry
       (= 0 page-index)
       (let [entry' (-> (rf.resources.state/entry-failed entry {:error error})
                        rf.resources.state/clear-refetch-sweep)
@@ -3593,16 +1978,8 @@
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs))))
 
-      ;; LOAD-MORE PAGE FAILURE — the third error channel: keep the feed,
-      ;; record :page-error, return to :loaded. This is a page N>0 failure — a
-      ;; load-more, or a later leg of a multi-page refetch sweep (page 0 is
-      ;; handled above). The blocking requirement stays resolved (the route
-      ;; blocks on page 0, which already landed for any feed that has
-      ;; accumulated pages). Spec 016 reserves :page-error for load-more only.
+      ;; load-more (page N>0) failure: the third error channel
       :else
-      ;; a failed leg STOPS any in-progress refetch sweep (clear the cursor —
-      ;; don't chain past a failure). The kept-feed +
-      ;; :page-error settle is unaffected.
       (let [entry' (-> (rf.resources.state/entry-page-failed entry {:error error})
                        rf.resources.state/clear-refetch-sweep)
             rdb'   (-> runtime-db
@@ -3620,47 +1997,26 @@
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :page-error error})
-        ;; a load-more / later sweep leg (page N>0) carries no `:reply-to`, so
-        ;; this fan-out is a no-op; a page-0 refresh fans out in the branch
-        ;; above.
         (emit-resource-replied!
           frame-id work-id (:status reply) (:reply-targets record) false)
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs)))))))
 
 (defn stale-fired-handler
-  "`:rf.resource.internal/stale-fired` — a stale timer fired: the freshness
-  wake. The `:stale?` subs compare the durable `:stale-at` against the live
-  clock, but a sub re-runs only on a frame commit, so this handler supplies
-  the commit at the deadline. Per Spec 016 §Freshness clock contract and
-  §Stale and GC scheduling (\"a stale timer may enqueue a resource event, but
-  the handler MUST re-check the current entry before writing\").
-
-  The re-check reads the LIVE entry, never the timer's arm-time assumptions:
-    - no entry (removed / GC'd / cleared) — a superseded timer; nothing to do;
-    - the entry has crossed `:stale-at` — record the crossed deadline as
-      `:stale-wake-at`, so held and newly mounted freshness reads re-run and
-      flip. A second wake for the same deadline finds the marker and writes
-      nothing;
-    - the entry is still fresh (re-loaded since the timer armed, or its
-      deadline moved later without a re-arm, as an optimistic patch moves it)
-      — re-arm the stale timer alone for the window remaining until
-      `:stale-at`.
-  It never fetches and never changes `:status`: staleness is orthogonal to
-  refetch, and a stale entry refreshes on its next live cause (route
-  re-entry, an explicit event, or the focus/reconnect active-stale scan
-  `revalidate-handler`)."
+  "`:rf.resource.internal/stale-fired`: the freshness wake. Subs compare
+  `:stale-at` with the live clock but only re-run on a commit, so this
+  supplies one at the deadline. It re-checks the live entry: gone, nothing to
+  do; past `:stale-at`, records it as `:stale-wake-at`, once per deadline;
+  still fresh, re-arms `:stale` for the time remaining. Never fetches and
+  never changes `:status`. Spec 016 §Freshness clock contract"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {resource-key :resource/key}]]
   (let [runtime-db (or rt {})
         path       (rf.resources.state/entry-path resource-key)
         entry      (get-in runtime-db path)
         stale-at   (:stale-at entry)
-        ;; The shared derivation the subs and the SSR projection read, so the
-        ;; three never drift. It reads the event's causal `:rf/time-ms`
-        ;; (declared via `:rf.cofx/requires`, consumed flat), never an ambient
-        ;; clock, so a replayed wake classifies the entry as the recorded one
-        ;; did (EP-0010 §The World-Input Rule).
+        ;; the shared derivation, on the token's `:rf/time-ms`, so a replayed
+        ;; wake classifies the entry as the recorded one did
         stale?     (rf.resources.state/entry-stale? entry time-ms)
         decision   (cond (nil? entry) :no-entry
                          stale?       :now-stale
@@ -3669,25 +2025,18 @@
                  {:rf.frame/id frame-id :resource/key resource-key
                   :decision decision})
     (case decision
-      ;; Guarded on the time clause: an entry stale only by `:invalidated-at`
-      ;; already committed its invalidation, and a repeat wake for the same
-      ;; deadline finds its marker, so both return runtime-db unchanged and the
-      ;; commit installs nothing.
-      ;;
-      ;; The marker restates the unchanged `:stale-at`, so it is not an
-      ;; authoritative write and does not bump `:revision` — a bump would turn
-      ;; every optimistic mutation in flight across a deadline into a false
-      ;; conflict and a refetch. A rollback that restores a snapshot without
-      ;; the marker loses nothing, because its own commit re-derives `:stale?`.
+      ;; The marker restates `:stale-at`, so it bumps no `:revision`: a bump
+      ;; would turn every optimistic mutation in flight across a deadline into
+      ;; a false conflict. An entry stale only by `:invalidated-at` already
+      ;; committed, so it writes nothing.
       :now-stale
       (if (and (some? stale-at) (>= time-ms stale-at)
                (not= stale-at (:stale-wake-at entry)))
         {:rf.db/runtime (assoc-in runtime-db path (assoc entry :stale-wake-at stale-at))}
         {:rf.db/runtime runtime-db})
 
-      ;; A partial re-arm naming `:stale` alone leaves the GC and poll timers
-      ;; as they are. A deadline-free entry arms nothing, because a `:stale nil`
-      ;; would cancel rather than skip.
+      ;; `:stale` alone, and nothing for a deadline-free entry: a `:stale nil`
+      ;; would cancel rather than skip
       :still-fresh
       (if-let [delay-ms (rf.resources.state/stale-wake-delay-ms entry time-ms)]
         {:rf.db/runtime runtime-db
@@ -3702,54 +2051,18 @@
       {:rf.db/runtime runtime-db})))
 
 (defn gc-fired-handler
-  "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check
-  GC-eligibility after wake (timers are advisory); remove the entry only if
-  still eligible. Per Spec 016 §Stale and GC scheduling (\"inactive GC may
-  use host timers, but GC MUST re-check owner sets and entry generation
-  after wake\").
+  "`:rf.resource.internal/gc-fired`: re-checks the live entry and removes it,
+  with its ledger rows, only when it is owner-free, has no work in flight,
+  and the check's `:gc-window` is current. GC has no durable deadline, so the
+  window stands in for the spec's generation re-check: every event that arms
+  GC opens a new window, and a check queued before a newer window opened (on
+  this entry, or on one rewritten at the same key) never collects. A check
+  with no window counts as current.
 
-  How the spec's generation re-check is satisfied: unlike
-  staleness — which carries a durable `:stale-at` deadline the
-  `stale-fired-handler` re-derives against the causal `:rf/time-ms` — GC has
-  NO durable time-based deadline to re-derive (this handler takes no
-  `:rf/time-ms`; the entry carries no `:gc-at`). GC-eligibility is
-  STRUCTURAL — owner-free + idle — and only the check of the entry's CURRENT
-  GC window may act on it. Every event that arms a GC timer (a settle, a
-  fresh-skip owner revival, the final owner release, a mutation's populate or
-  patch, the in-flight skip below) opens a new window on the entry
-  (`:gc-window`, via `open-gc-window`), and the timer stamps its re-check
-  with the window it armed in. Cancel-then-arm replaces a timer that has not
-  fired; one that has fired is already a check in the router queue, behind
-  anything queued before it, so a newer window can open before it lands —
-  on the same entry, or on one written at the same key after a removal,
-  since window ids are unique across the frame. Its stamp is then older than
-  the entry's window, and it never collects: the newer window's own check
-  decides. A check that names no window (a direct dispatch) is judged as
-  current.
-
-  GC-eligibility re-check (against the LIVE durable facts):
-    - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
-    - the entry has an active owner — pinned alive, no GC (`:has-owner`);
-    - the check's window is older than the entry's — a newer window opened
-      after its timer armed, on this entry or on a replacement written at
-      the same key, so no GC (`:superseded`);
-    - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
-    - otherwise the entry is owner-free + idle — REMOVE it (recompute the
-      reverse indexes) and cancel its advisory timers.
-
-  Only an `:in-flight` skip RE-ARMS. An owner-free entry whose work is in
-  flight has no later event that is sure to arm GC — a failed or aborted
-  refresh settles without arming one — so the skip re-arms a fresh GC timer
-  (via `schedule-timers`, which cancel-then-arms) whose re-check, once the
-  work has settled, collects the entry. A `:has-owner` skip arms nothing: an
-  owned entry becomes collectable only when its last owner is released, and
-  that release re-arms a full window itself (`release-owner-from-identities`),
-  so a check while the entry is held would only repeat this no-op. The owner
-  test comes first, so an entry that is both owned and in flight waits for
-  that release too. A `:superseded` skip arms nothing: the window that
-  superseded it armed its own timer, whose re-check sees any work still in
-  flight. A `:no-entry` skip has nothing left to collect. The re-arm is gated
-  on a positive `:gc-after-ms`; `:never` armed no timer to fire here."
+  Skips are `:no-entry`, `:has-owner`, `:superseded` and `:in-flight`. Only
+  `:in-flight` re-arms, because a failed or aborted settle arms no GC; an
+  owned entry's final release re-arms GC itself.
+  Spec 016 §Stale and GC scheduling"
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {resource-key :resource/key gc-window :gc-window}]]
   (let [runtime-db  (or rt {})
@@ -3757,42 +2070,26 @@
         superseded? (and gc-window (< gc-window (:gc-window entry 0)))]
     (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry))
              (not superseded?))
-      ;; `:entries` is keyed on the byte `key-id`; dissoc by it
-      ;; (a dissoc by the scoped-key VECTOR would be a no-op and the GC removal
-      ;; would silently leak the entry). GC removes ONE entry, so
-      ;; reconcile only that key's index members incrementally.
+      ;; by byte key-id: a vector dissoc would no-op and leak the entry
       (let [old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb' (-> runtime-db
                      (update-in (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id resource-key))
-                     ;; GC collected the entry, so its whole ledger
-                     ;; holding goes with it (every row for the key plus its
-                     ;; inverse-index bucket). This is the arm that would
-                     ;; otherwise defeat GC's own purpose: the collector exists to
-                     ;; stop an owner-free entry lingering for the frame's life,
-                     ;; and leaving that entry's terminal tail + bucket behind
-                     ;; would keep a per-key residue in every epoch snapshot for
-                     ;; exactly as long. The row is terminal by construction here —
-                     ;; the gate above requires `:current-work` nil — so nothing
-                     ;; in flight is discarded. Spec 016 §Ledger row retention and
-                     ;; identity.
+                     ;; Nothing is in flight here, so the whole ledger holding
+                     ;; goes; a retained tail would outlive the collected entry.
+                     ;; Spec 016 §Ledger row retention and identity
                      (rf.resources.work-ledger/drop-rows-for-key resource-key)
                      (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                              old-entries [(rf.resources.state/key-id resource-key)]))]
         (rf.trace/emit! :rf.event :rf.resource/gc-fired
                      {:rf.frame/id frame-id :resource/key resource-key})
         {:rf.db/runtime rdb'
-         ;; the entry is gone — cancel its (now orphaned) stale / GC timer
-         ;; handles so they don't leak (the GC timer that fired is already
-         ;; one-shot, but the paired stale timer may still be armed).
+         ;; the paired stale timer may still be armed
          :fx [[:rf.resource/cancel-timers
                {:frame-id frame-id :resource/keys [resource-key]}]]})
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
                            superseded?                   :superseded
                            :else                         :in-flight)
-            ;; Only an in-flight skip re-arms, at the resource's own
-            ;; :gc-after-ms, so the settle is followed by another re-check.
-            ;; An owned skip waits for the release, which re-arms GC itself.
             gc-delay (when (= :in-flight reason)
                        (rf.resources.state/positive-or-nil (:gc-after-ms (rf.resources.registry/resource-meta (:resource/id entry)))))]
         (rf.trace/emit! :rf.event :rf.resource/gc-skipped
@@ -3804,19 +2101,14 @@
           (assoc :fx [[:rf.resource/schedule-timers
                        {:frame-id     frame-id
                         :resource/key resource-key
-                        ;; a PARTIAL re-arm naming ONLY `:gc`: the sibling stale
-                        ;; / poll timers are PRESERVED (absent from `:timers`),
-                        ;; not cancelled
+                        ;; partial re-arm: `:gc` only
                         :timers       {:gc gc-delay}
                         :server?      (rf.resources.state/server-frame? frame-id)}]]))))))
 
 (defn stale-suppressed-handler
-  "`:rf.resource.internal/stale-suppressed` — a late reply carrying a
-  superseded work-id / generation was suppressed (it MUST NEVER mutate a
-  newer entry). This is an internal NOTIFICATION the reply handlers already
-  enforce inline (`live-entry-for-reply`); the standalone handler records
-  the suppression in trace for tools. Per Spec 016 §Cancellation is
-  opportunistic; stale suppression is mandatory."
+  "`:rf.resource.internal/stale-suppressed`: records a suppressed late reply
+  in trace for tools; the reply handlers already suppress inline.
+  Spec 016 §Cancellation is opportunistic; stale suppression is mandatory"
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id reply-payload]]
   (let [runtime-db (or rt {})
