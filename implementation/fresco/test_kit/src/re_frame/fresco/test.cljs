@@ -63,46 +63,34 @@
   contract, stated so a worker knows what L0 officially is, and the
   reason [[ladder]]'s L0 row names no mechanism of this namespace's own.
 
-  ## The tree is Spec 004B version 1, not a second schema
+  ## The tree is normalised Hiccup
 
-  [[tree]] answers the **versioned structural tree** that
+  [[tree]] answers the hiccup the body returned, in the one canonical
+  spelling
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../../spec/004B-UI-Tree-and-Conversion.md)
-  §The node schema already pins — the same closed node set, the same
-  discrimination order, the same `:rf.ui/tree-version` root gate, the
-  same `{:rf.ui/opaque :fn}` sentinel — so the tree a Fresco body answers
-  is 004B's own VALUE KIND, read with 004B's vocabulary rather than one
-  invented here.
+  §The tree pins: every node is `[head attrs & children]` with `attrs`
+  always a map — a native element's head is its tag keyword, a
+  fragment's is `:<>`, and a call to a child view is
+  `[:rf.ui/view {:view-id …} …]` — and text is strings. So a test asserts
+  in the language the view is written in, and needs no second vocabulary:
 
-  Two consequences are stated rather than left to be
-  discovered:
+      (is (= [:li {:on-click [:todo/toggle 1]} \"milk\"]
+             (ht/tree [todo-row-body {:id 1}]
+                      {:subs {[:todo/by-id 1] {:text \"milk\"}}})))
 
-  - **[[attrs]] values are author-space and unnormalized.** 004B §Attr
-    value normalization is the SSR fingerprint's input — the px rule, the
-    canonical style map — and a fingerprint is not what L2 claims. Only
-    the `.class#id` sugar is folded, because the author cannot see it
-    otherwise. Assert the authored value.
+  Two consequences are stated rather than left to be discovered:
+
+  - **Attribute values are author-space.** Only the `.class#id` sugar is
+    folded into `:class` and `:id`, because the author cannot see it
+    otherwise; there is no px rule and no canonical style map. Assert the
+    authored value.
   - **A view-boundary node records the CALL, never the child's
     rendering.** See §Children below.
 
-  ### The scope of the claim: TREES EMITTED, not forms accepted
-
-  004B version 1 governs the tree this namespace **emits**. It does not
-  govern which author forms Fresco accepts, and the two are different
-  questions with different owners: the grammar is Fresco's (spec SN, the
-  HD rulings), the tree schema is 004B's, and this walk is both stages in
-  one pass because it takes author hiccup and answers a node.
-
-  The distinction is load-bearing at exactly one row. 004B §Child
-  normalization says `nil`/`false`/`true` children are dropped **at tree
-  build**; Fresco raises `:rf.error/fresco-true-child` for a `true`
-  child (HD-016). There is no contradiction: Fresco's grammar refuses
-  the value upstream of tree build, so a `true` never reaches the rule
-  that would drop it, and every tree this namespace emits satisfies 004B
-  as written. What a reader must not conclude from *\"the tree is 004B
-  version 1\"* is that a form 004B tolerates is a form Fresco accepts —
-  the schema describes the output, and the refusals are the substrate's.
-  `re-frame.fresco.test-kit-runtime-parity-cljs-test` drives both sides
-  of that row so the two never drift apart quietly.
+  The grammar is Fresco's own: a form the runtime refuses — a `true`
+  child, an empty vector, a malformed escape — is refused here with the
+  runtime's id, and `re-frame.fresco.test-kit-runtime-parity-cljs-test`
+  drives both sides so the two never drift apart quietly.
 
   ## What L2 runs, and what it refuses
 
@@ -117,11 +105,9 @@
       (h/defview todo-row [props] (todo-row-body props))
 
       (deftest the-row-carries-its-toggle-intent
-        (let [tree (ht/tree [todo-row-body {:id 1}]
-                            {:subs {[:todo/by-id 1] {:text \"milk\"}}})
-              li   (ht/find tree #(= :li (:tag %)))]
-          (is (= \"milk\" (ht/text li)))
-          (is (= [:todo/toggle 1] (:on-click (ht/attrs li))))))
+        (is (= [:li {:on-click [:todo/toggle 1]} \"milk\"]
+               (ht/tree [todo-row-body {:id 1}]
+                        {:subs {[:todo/by-id 1] {:text \"milk\"}}}))))
 
   **The minted `h/defview` head is accepted too, at the ROOT of the
   form**, and either spelling runs the body AS WRITTEN.
@@ -163,11 +149,12 @@
   - A **nested body function** is refused: a plain function in head
     position is a loud error in Fresco itself (HD-016), and a kit that
     accepted one would teach a spelling the runtime rejects.
-  - A **minted boundary head** records a **view-boundary node** — its
-    `:view-id`, the props the call site passed, and the call site's own
-    children. Its body does NOT run, and the node claims nothing about
-    what it would render. Assert its props here; render its body to
-    assert its contents.
+  - A **minted boundary head** records a **view-boundary node** —
+    `[:rf.ui/view {:view-id \"ns/name\" …props} & children]`: its name,
+    the props the call site passed (`:key` among them), and the call
+    site's own children. Its body does NOT run, and the node claims
+    nothing about what it would render. Assert its props here; render its
+    body to assert its contents.
   - A **`defhost` crossing**, a **well-formed raw escape `[:> …]`**, a
     **raw React element** and anything else the codec hands to React
     untouched are **opaque** and refuse with a pointer to L3. An
@@ -727,16 +714,8 @@
          :prevented? @!prevented}))))
 
 ;; ---------------------------------------------------------------------------
-;; L2 — the tree, per Spec 004B version 1
+;; L2 — the tree, as normalised Hiccup (Spec 004B)
 ;; ---------------------------------------------------------------------------
-
-(def tree-version
-  "The structural-tree schema version [[tree]] stamps on its root —
-  Spec 004B version 1. Validated first by every consumer, which is what
-  makes a tree from a future emitter fail loud rather than read wrong."
-  1)
-
-(def ^:private tree-version-key :rf.ui/tree-version)
 
 ;; 004B §The opaque marker pins DATA as the EDN value grammar exactly —
 ;; the grammar the tree's print/read promise is stated in — rather than as
@@ -927,52 +906,17 @@
 
 (defn- walk-props
   "The props map a boundary call site passed, recorded verbatim with
-  004B's opaque rule applied at each key. `:key` and `:children` are
-  fields of the node rather than props, so they are not recorded here."
+  004B's opaque rule applied at each key, `:key` included as the author
+  wrote it. `:children` is the call site's trailing children rather than
+  a prop, so it is not recorded here."
   [props]
   (persistent!
     (reduce-kv (fn [m k v]
-                 (if (or (= :key k) (= :children k))
+                 (if (= :children k)
                    m
                    (assoc! m k (opaque-prop :crossing k v))))
                (transient {})
                props)))
-
-;; ---------------------------------------------------------------------------
-;; L2 — the namespace context (004B §Namespaces)
-;; ---------------------------------------------------------------------------
-;;
-;; A body is written without knowing where it will be mounted, so `<svg>`-ness
-;; is not a fact about a subtree — it is established by the element that opens
-;; the namespace and read by the elements built underneath it. React infers it
-;; from the tag at commit time and stores nothing; the TREE has to carry it,
-;; because `:ns` is a pinned field of the element variant and two nodes that
-;; differ only by namespace are two different nodes.
-
-(def ^:private html-encodings
-  "The `:annotation-xml` encodings that make its children HTML — the
-  HTML specification's own integration point."
-  #{"text/html" "application/xhtml+xml"})
-
-(defn- element-ns
-  "The namespace an element IS in. `:svg` and `:math` open one; every
-  other element inherits the context it was built in. `nil` is HTML, and
-  004B requires `:ns` to be ABSENT there — one representation per node."
-  [tag inherited]
-  (case tag
-    :svg  :svg
-    :math :mathml
-    inherited))
-
-(defn- children-ns
-  "The namespace an element's CHILDREN are built in. Two integration
-  points revert to HTML: `:foreignObject` always, and `:annotation-xml`
-  when its `:encoding` says its content is HTML."
-  [tag own attrs]
-  (case tag
-    :foreignObject  nil
-    :annotation-xml (when-not (html-encodings (:encoding attrs)) own)
-    own))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the walk
@@ -988,7 +932,7 @@
 
 (defn- coalesce
   "Append one child to the canonical run, MERGING it into the text run it
-  continues. 004B §Children — adjacent text runs are one string."
+  continues. 004B §The tree — adjacent text runs are one string."
   [out x]
   (let [n (count out)]
     (if (and (string? x) (pos? n) (string? (nth out (dec n))))
@@ -996,15 +940,15 @@
       (conj out x))))
 
 (defn- canonical-children
-  "The canonical `:children` vector for a run of hiccup values — 004B
-  §Children, in ONE place.
+  "The canonical children of a run of hiccup values — 004B §The tree, in
+  ONE place.
 
   `codec/child-kind` decides what each value IS, so the grammar here is
   the runtime's own and cannot drift from it. Seqs splice in document
   order; adjacent text coalesces; empty strings drop AFTER coalescing,
   which is the order the rule is stated in and the only order under which
   a `\"\"` between two strings joins them rather than breaking the run."
-  [xs ns-ctx]
+  [xs]
   (into []
         (remove #(= "" %))
         (reduce (fn add [out x]
@@ -1012,12 +956,15 @@
                     (case kind
                       :nothing out
                       :splice  (reduce add out x)
-                      (coalesce out (walk kind x ns-ctx)))))
+                      (coalesce out (walk kind x)))))
                 []
                 xs)))
 
 (defn- element-node
-  [form ns-ctx]
+  "`[tag attrs & children]`. The attribute map is the author's, with the
+  `.class#id` sugar folded in, `nil` entries dropped and each value under
+  the opaque rule — `:on-*` intents included, as the data they are."
+  [form]
   (let [parsed  (rf.fresco.impl.codec/cached-parse (nth form 0))
         tag     (keyword (.-tag parsed))
         props   (form-props form)
@@ -1027,56 +974,39 @@
         ;; (`codec/fold-shorthand!`).
         classes (rf.fresco.impl.codec/class-names (.-className parsed) (:class props))
         id      (or (:id props) (.-id parsed))
-        events  (persistent!
-                  (reduce-kv (fn [m k v]
-                               (if (rf.fresco.impl.intent/event-prop? k)
-                                 (assoc! m k (opaque-prop :attr k v))
-                                 m))
-                             (transient {})
-                             props))
         attrs   (persistent!
                   (reduce-kv (fn [m k v]
-                               (cond
-                                 (rf.fresco.impl.intent/event-prop? k) m
-                                 (= :key k)             m
-                                 (= :class k)           m
-                                 (= :id k)              m
-                                 (nil? v)               m
-                                 :else (assoc! m k (opaque-prop :attr k v))))
+                               (if (or (= :class k) (= :id k) (nil? v))
+                                 m
+                                 (assoc! m k (opaque-prop :attr k v))))
                              (transient {})
-                             props))
-        attrs   (cond-> attrs
-                  (some? classes) (assoc :class classes)
-                  (some? id)      (assoc :id id))
-        own-ns   (element-ns tag ns-ctx)
-        children (canonical-children (child-forms form)
-                                     (children-ns tag own-ns attrs))]
-    (cond-> {:tag tag}
-      (some? own-ns)         (assoc :ns own-ns)
-      (seq attrs)            (assoc :attrs attrs)
-      (seq events)           (assoc :events events)
-      (contains? props :key) (assoc :key (:key props))
-      (seq children)         (assoc :children children))))
+                             props))]
+    (into [tag (cond-> attrs
+                 (some? classes) (assoc :class classes)
+                 (some? id)      (assoc :id id))]
+          (canonical-children (child-forms form)))))
 
 (defn- fragment-node
-  "`[:<> …]` — the variant whose job is to hold a run of children.
-
-  Its `:children` are retained WHEN EMPTY, alone among the variants: they
-  are its required discriminator, so `{}` would be a malformed node
-  rather than an empty fragment (004B §Canonical uniqueness). Only `:key`
-  is read off its attribute map, exactly as `codec/fragment-element`
-  reads it — a fragment has no attributes to emit."
-  [form ns-ctx]
+  "`[:<> attrs & children]`. Only `:key` is read off its attribute map,
+  exactly as `codec/fragment-element` reads it — a fragment has no
+  attributes to emit."
+  [form]
   (let [props (when (map? (nth form 1 nil)) (nth form 1))]
-    (cond-> {:children (canonical-children (child-forms form) ns-ctx)}
-      (contains? props :key) (assoc :key (:key props)))))
+    (into [:<> (if (contains? props :key) {:key (:key props)} {})]
+          (canonical-children (child-forms form)))))
+
+(def ^:private view-head
+  "The head of a view-boundary node — the reserved `:rf.ui/*` namespace,
+  so no tag an author writes can collide with it."
+  :rf.ui/view)
 
 (defn- boundary-node
-  "A child boundary, recorded as the CALL it is: its view id, the props
-  the call site passed and the children the call site wrote. Its body
-  does not run, so this node claims nothing about what the child would
-  render, and [[text]] over it answers the call site's own children and
-  no more.
+  "A child boundary, recorded as the CALL it is:
+  `[:rf.ui/view {:view-id \"ns/name\" …props} & children]` — its view
+  name, the props the call site passed and the children the call site
+  wrote. Its body does not run, so this node claims nothing about what
+  the child would render, and [[text]] over it answers the call site's
+  own children and no more.
 
   A CHOICE, and the ladder's own definition of the tier rather than a
   reach that failed: L2 is ONE body, run for its semantic tree, and it
@@ -1086,11 +1016,15 @@
   so expanding it here would be L2 quietly becoming a renderer, and a
   tree spanning two views cannot say which of them a red belongs to.
   Render the child's own form to assert its contents."
-  [form ns-ctx]
-  (let [head     (nth form 0)
-        props    (form-props form)
-        recorded (walk-props props)
-        children (canonical-children (child-forms form) ns-ctx)]
+  [form]
+  (let [head  (nth form 0)
+        props (form-props form)]
+    (when (contains? props :view-id)
+      (refuse! :rf.error/ui-tree-malformed
+               (str "a prop named :view-id reached a boundary call. The tree "
+                    "records the view's name under that key beside the props, "
+                    "so this prop has no place of its own there; rename it.")
+               {:value form}))
     ;; `mint-view!` stamps `displayName` on the component unconditionally
     ;; — not behind `goog.DEBUG` — so a head minted through `h/defview`
     ;; always names itself and the fallback is unreachable through the
@@ -1099,13 +1033,12 @@
     ;; framework keyword: the tree is data a consumer reads, and minting
     ;; a reserved id for an unreachable case would be vocabulary nobody
     ;; can encounter.
-    (cond-> {:view-id (or (view-name head) "<unnamed boundary>")}
-      (seq recorded)         (assoc :props recorded)
-      (contains? props :key) (assoc :key (:key props))
-      (seq children)         (assoc :children children))))
+    (into [view-head (assoc (walk-props props)
+                            :view-id (or (view-name head) "<unnamed boundary>"))]
+          (canonical-children (child-forms form)))))
 
 (defn- walk-vector
-  "One hiccup VECTOR to its 004B node. `codec/vector-kind` is the
+  "One hiccup VECTOR to its normalised node. `codec/vector-kind` is the
   runtime's own vector preflight, so `:<>` is a fragment here because it
   is a fragment there, and the two escapes React interprets for itself
   refuse to L3 rather than being recorded as elements named `:<>` and
@@ -1121,11 +1054,11 @@
   answer `[]` with a generic malformed HEAD, and `[:> :div]` with a
   pointer to L3: an instruction to go mount, in a browser, a form that
   cannot mount anywhere."
-  [form ns-ctx]
+  [form]
   (case (rf.fresco.impl.codec/vector-kind form)
-    :tag      (element-node form ns-ctx)
-    :fragment (fragment-node form ns-ctx)
-    :boundary (boundary-node form ns-ctx)
+    :tag      (element-node form)
+    :fragment (fragment-node form)
+    :boundary (boundary-node form)
 
     ;; `[h/frame-root {:id …} …]` / `[h/frame-provider {:frame …} …]` —
     ;; the SAME node a fragment records, and for the same reason: a frame
@@ -1138,7 +1071,7 @@
     ;; lifecycle. What a frame boundary CHANGES — which frame the reads
     ;; underneath resolve to — is an L3 claim, and mounting is where it
     ;; is asked.
-    :frame-boundary (fragment-node form ns-ctx)
+    :frame-boundary (fragment-node form)
 
     :host
     (let [head (nth form 0)]
@@ -1178,24 +1111,24 @@
                  {:value form})))))
 
 (defn- walk
-  "One hiccup value that CONTRIBUTES A CHILD, as its 004B node or as
-  text. `kind` is `codec/child-kind`'s answer, computed by the caller:
+  "One hiccup value that CONTRIBUTES A CHILD, as its normalised node or
+  as text. `kind` is `codec/child-kind`'s answer, computed by the caller:
   `:nothing` and `:splice` are the RUN's business (see
   [[canonical-children]]) rather than a node's, so they never arrive
   here and this function is total over what does.
 
   Every arm is the runtime's own answer for that kind, or an honest
   refusal where L2 cannot give one."
-  [kind x ns-ctx]
+  [kind x]
   (case kind
-    ;; 004B §Children: a number is text via JS `ToString`.
+    ;; 004B §The tree: a number is text via JS `ToString`.
     :text   (str x)
     ;; The runtime renders a keyword or symbol child as its `name`
     ;; (`codec/as-element`), so the tree records the text it renders.
     ;; Refusing here would teach that a legal spelling is a mistake — the
     ;; sharpest way an instrument can be wrong.
     :named  (name x)
-    :markup (walk-vector x ns-ctx)
+    :markup (walk-vector x)
 
     :true-child
     (refuse! :rf.error/fresco-true-child
@@ -1296,14 +1229,11 @@
 
 (defn tree
   "Run one hook-free Fresco **body** under injected read fixtures, and
-  answer its versioned semantic tree.
+  answer the hiccup it returned, normalised (Spec 004B §The tree).
 
       (ht/tree [todo-row-body {:id 1}]
                {:subs {[:todo/by-id 1] {:text \"milk\"}}})
-      ;; => {:rf.ui/tree-version 1
-      ;;     :tag :li
-      ;;     :events {:on-click [:todo/toggle 1]}
-      ;;     :children [\"milk\"]}
+      ;; => [:li {:on-click [:todo/toggle 1]} \"milk\"]
 
   `form` is `[body-fn props & children]` — the ordinary hiccup call
   spelling, with the **body function** in head position. `opts` is a map
@@ -1327,7 +1257,7 @@
   fence, the ambient-read extent (I7) and the read-set accounting are the
   real ones — a read escaping into a callback or a timer refuses here
   exactly as it refuses in a browser. The hiccup that body returned is
-  then walked into the Spec 004B tree, INSIDE the same render window, so
+  then walked into its normalised form, INSIDE the same render window, so
   a `for` inside the body realises where the runtime realises it and a
   read inside that `for` is legal for the same reason it is legal on a
   page.
@@ -1452,22 +1382,20 @@
          (rf.fresco.impl.collector/render-body
            frame-kw
            (fn fresco-test-body [p]
-             (vreset! !tree (canonical-children [(head p)] nil))
+             (vreset! !tree (canonical-children [(head p)]))
              nil)
            props)
          (verify-fixtures! frame-kw fixtures (rf.fresco.impl.collector/last-reads))
-         ;; 004B §Versioning — the emitter returns the ROOT NODE, always a
-         ;; map, carrying the version. A body that answered ONE node roots
-         ;; in it; a body that answered text, several nodes, or NOTHING
-         ;; roots in a fragment, which is the variant whose job is to hold
-         ;; a run. The empty case is `{:children []}` and not `{}`:
-         ;; `:children` is the fragment's required discriminator, so a
-         ;; bare version map would be a malformed node every projection
-         ;; had to special-case.
+         ;; 004B §The tree — the emitter returns ONE NODE. A body that
+         ;; answered one node roots in it; a body that answered text,
+         ;; several nodes, or NOTHING roots in a fragment, which is the
+         ;; node whose job is to hold a run, so nothing renders as
+         ;; `[:<> {}]` rather than a nil every projection would have to
+         ;; special-case.
          (let [children @!tree]
-           (if (and (= 1 (count children)) (map? (nth children 0)))
-             (assoc (nth children 0) tree-version-key tree-version)
-             {tree-version-key tree-version :children children}))
+           (if (and (= 1 (count children)) (vector? (nth children 0)))
+             (nth children 0)
+             (into [:<> {}] children)))
          (finally
            (swap! rf.fresco.impl.collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
 
@@ -1476,50 +1404,47 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- node-kind
-  "Discriminate a MAP node per 004B's pinned order: `:tag` → element,
-  else `:view-id` → view boundary, else `:children` → fragment. More than
-  one primary, or none of them, is malformed — a projection over a
-  malformed node fails loud rather than reading a plausible answer off a
-  broken tree."
-  [m]
-  (let [primaries (cond-> 0
-                    (contains? m :tag)     inc
-                    (contains? m :view-id) inc)]
-    (when (> primaries 1)
+  "Discriminate a NODE by its head: `:<>` → fragment, `:rf.ui/view` → a
+  view-boundary call, any other keyword → element. A node is
+  `[head attrs & children]` — a keyword head and an attribute map — and
+  anything else is malformed: a projection over a malformed node fails
+  loud rather than reading a plausible answer off a broken tree."
+  [n]
+  (let [head (nth n 0 nil)]
+    (when-not (and (keyword? head) (map? (nth n 1 nil)))
       (refuse! :rf.error/ui-tree-malformed
-               (str "a tree node may carry only ONE of :tag / :view-id (the "
-                    "closed node set); got "
-                    (pr-str (select-keys m [:tag :view-id])))
-               {:value m}))
-    (cond
-      (contains? m :tag)      :element
-      (contains? m :view-id)  :view-boundary
-      (contains? m :children) :fragment
-      :else
-      (refuse! :rf.error/ui-tree-malformed
-               (str "a map node needs a discriminating field (:tag / :view-id "
-                    "/ :children); got " (pr-str m))
-               {:value m}))))
+               (str "a tree node is `[head attrs & children]` — a keyword "
+                    "head and an attribute map; got " (pr-str n))
+               {:value n}))
+    (case head
+      :<>        :fragment
+      :rf.ui/view :view-boundary
+      :element)))
+
+(defn- children-of
+  "A node's children — everything after its head and attribute map."
+  [n]
+  (subvec n 2))
 
 (defn- not-a-node!
   [got]
   (refuse! :rf.error/ui-tree-malformed
            (str "not a structural tree node — a projection takes a node (the "
-                "value ht/tree returns, or any node reached by traversing it "
-                "with (tree-seq map? :children tree)); got " (pr-str got) ".")
+                "value ht/tree returns, or any node ht/find-all reaches in "
+                "it); got " (pr-str got) ".")
            {:value got}))
 
 (defn find-all
   "Every node under `tree` (the root included) for which `pred` is truthy,
   in document order; an empty vector when nothing matches.
 
-  `pred`'s domain is **node maps only** — a raw
-  `(tree-seq map? :children tree)` walk yields text as host strings, and
-  those are dropped before the predicate runs, so a membership test reads
-  the same on a tree with text and one without. Read fields:
-  `(:tag %)` for an element, `(:view-id %)` for a boundary call."
+  `pred`'s domain is **nodes only** — the hiccup vectors. Text is a
+  string, and strings are dropped before the predicate runs, so a
+  membership test reads the same on a tree with text and one without.
+  Read the head with `(first %)` — a tag keyword, `:<>` or `:rf.ui/view`
+  — and the attributes with [[attrs]]."
   [tree pred]
-  (filterv pred (filter map? (tree-seq map? :children tree))))
+  (filterv pred (filter vector? (tree-seq vector? children-of tree))))
 
 (defn find
   "The FIRST node under `tree` (the root included, document order) for
@@ -1529,30 +1454,25 @@
   (first (find-all tree pred)))
 
 (defn attrs
-  "The MERGED attribute projection of a node — the ONE attribute read:
+  "The attribute map of a node — its second slot, read through the node
+  check, so a missed [[find]] nil-puns and a malformed node refuses:
 
-    element        → `:attrs` merged with `:events` (collision-free by
-                     construction: every `:on-*` name is routed to
-                     `:events`, so the domains are disjoint)
-    view-boundary  → the `:props` the call site passed
-    fragment       → `{}` (no attributes exist; total, not an error)
+    element        → its attributes, `:on-*` intents among them
+    view-boundary  → the props the call site passed, with `:view-id`
+    fragment       → `{}`, or `{:key k}` for a keyed one
     nil            → nil
 
-  A keyword lookup on a node reads its FIELDS, never its attributes:
-  `(:on-click node)` is a field miss. An intent assertion is an equality
-  check — `(is (= [:cart/add 42] (:on-click (ht/attrs node))))`."
+  An intent assertion is an equality check —
+  `(is (= [:cart/add 42] (:on-click (ht/attrs node))))`."
   [node]
   (cond
     (nil? node)    nil
     (string? node) (refuse! :rf.error/ui-tree-malformed
                             (str "text content is not a node — attrs projects "
-                                 "map nodes; read text with ht/text on the "
+                                 "nodes; read text with ht/text on the "
                                  "PARENT node.")
                             {:value node})
-    (map? node)    (case (node-kind node)
-                     :element       (merge {} (:attrs node) (:events node))
-                     :view-boundary (or (:props node) {})
-                     :fragment      {})
+    (vector? node) (do (node-kind node) (nth node 1))
     :else          (not-a-node! node)))
 
 (defn- text*
@@ -1561,13 +1481,12 @@
          (map (fn [c]
                 (cond
                   (string? c) c
-                  (map? c)    (text* c)
+                  (vector? c) (do (node-kind c) (text* c))
                   :else (refuse! :rf.error/ui-tree-malformed
-                                 (str "a :children entry must be a node map or "
-                                      "text content (a string); got "
-                                      (pr-str c) ".")
+                                 (str "a child must be a node or text content "
+                                      "(a string); got " (pr-str c) ".")
                                  {:value c})))
-              (:children n))))
+              (children-of n))))
 
 (defn text
   "The concatenation of `node`'s text descendants in document order,
@@ -1584,7 +1503,7 @@
                             (str "text content is not a node — it IS the text; "
                                  "call ht/text on the node that contains it.")
                             {:value node})
-    (map? node)    (do (node-kind node) (text* node))
+    (vector? node) (do (node-kind node) (text* node))
     :else          (not-a-node! node)))
 
 (defn intents
@@ -1598,18 +1517,22 @@
   the other, because a site can exist and never fire and a fired intent
   can carry a materialized value no tree can hold.
 
-  Only handler sites holding a literal intent VECTOR are answered.
-  A key-map site contributes each of its branches' vectors; a site
+  Only an element's `:on-*` sites holding a literal intent VECTOR are
+  answered — a view call's props are the child's inputs, not handler
+  sites. A key-map site contributes each of its branches' vectors; a site
   carrying `{:rf.ui/opaque :fn}` contributes nothing, because a function
   is exactly the site whose intent is not data."
   [tree]
   (into []
-        (comp (filter map?)
-              (mapcat (fn [n] (vals (:events n))))
+        (comp (filter vector?)
+              (filter #(= :element (node-kind %)))
+              (mapcat (fn [n] (keep (fn [[k v]]
+                                      (when (rf.fresco.impl.intent/event-prop? k) v))
+                                    (nth n 1))))
               (mapcat (fn [v] (cond (vector? v) [v]
                                     (map? v)    (filterv vector? (vals v))
                                     :else       nil))))
-        (tree-seq map? :children tree)))
+        (tree-seq vector? children-of tree)))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — what the MARKUP says about a role and a name
@@ -1720,7 +1643,8 @@
 (defn- attr
   "One attribute off an ELEMENT node, or nil for any other node kind."
   [node k]
-  (get (:attrs node) k))
+  (when (= :element (node-kind node))
+    (get (nth node 1) k)))
 
 (defn- token
   "An attribute whose value is a string or a keyword, as a lower-case
@@ -1748,7 +1672,7 @@
   the role the tag carries implicitly — as a keyword, or `nil` when it
   gives none.
 
-      (ht/markup-role (ht/find tree #(= :button (:tag %))))   ;=> :button
+      (ht/markup-role (ht/find tree #(= :button (first %))))   ;=> :button
       (ht/markup-role (ht/find tree #(= \"alert\" (:role (ht/attrs %)))))
       ;=> :alert
 
@@ -1764,13 +1688,13 @@
     (nil? node)    nil
     (string? node) (refuse! :rf.error/ui-tree-malformed
                             (str "text content is not a node — markup-role "
-                                 "projects map nodes; text carries no role.")
+                                 "projects nodes; text carries no role.")
                             {:value node})
-    (map? node)
+    (vector? node)
     (case (node-kind node)
       :element
       (or (explicit-role node)
-          (case (:tag node)
+          (case (nth node 0)
             :a      (when (some? (attr node :href)) :link)
             :input  (get input-roles (or (token (attr node :type)) "text"))
             :select (if (or (attr node :multiple)
@@ -1779,7 +1703,7 @@
                       :listbox
                       :combobox)
             :img    (if (= "" (attr node :alt)) :presentation :img)
-            (get implicit-roles (:tag node))))
+            (get implicit-roles (nth node 0))))
 
       (:view-boundary :fragment) nil)
 
@@ -1792,13 +1716,13 @@
   [n target]
   (boolean (some (fn [c]
                    (or (identical? c target)
-                       (and (map? c) (contains-node? c target))))
-                 (:children n))))
+                       (and (vector? c) (contains-node? c target))))
+                 (children-of n))))
 
 (defn- in-tree?
   [tree node]
   (or (identical? tree node)
-      (and (map? tree) (contains-node? tree node))))
+      (and (vector? tree) (contains-node? tree node))))
 
 (defn- labels-for
   "Every `<label>` in `tree` that labels `node`, in document order —
@@ -1808,7 +1732,7 @@
   (let [id (attr node :id)]
     (find-all tree
               (fn [n]
-                (and (= :label (:tag n))
+                (and (= :label (nth n 0))
                      (or (and (some? id) (= id (attr n :for)))
                          (contains-node? n node)))))))
 
@@ -1821,7 +1745,7 @@
   `nil` when it gives none — the decidable part of an accessible name,
   not the name a screen reader is guaranteed to announce.
 
-      (ht/markup-name tree (ht/find tree #(= :select (:tag %))))
+      (ht/markup-name tree (ht/find tree #(= :select (first %))))
       ;=> \"Language\"          ;; from the <label for=…> beside it
 
   `tree` is needed and is not decoration: `aria-labelledby` points at
@@ -1868,10 +1792,10 @@
     (nil? node)    nil
     (string? node) (refuse! :rf.error/ui-tree-malformed
                             (str "text content is not a node — markup-name "
-                                 "projects map nodes; read text with ht/text on "
+                                 "projects nodes; read text with ht/text on "
                                  "the node that contains it.")
                             {:value node})
-    (not (map? node)) (not-a-node! node)
+    (not (vector? node)) (not-a-node! node)
 
     :else
     (do
@@ -1890,12 +1814,12 @@
                                         (str/split ids #"\s+"))))]
         (or labelled-by
             (flat (attr node :aria-label))
-            (case (:tag node)
+            (case (nth node 0)
               :img      (flat (attr node :alt))
               ;; HTML: the FIRST `<legend>` CHILD, so a nested fieldset's
               ;; legend cannot be borrowed by the one above it.
-              :fieldset (some-> (first (filter #(and (map? %) (= :legend (:tag %)))
-                                               (:children node)))
+              :fieldset (some-> (first (filter #(and (vector? %) (= :legend (nth % 0)))
+                                               (children-of node)))
                                 text
                                 flat)
               (:input :select :textarea)

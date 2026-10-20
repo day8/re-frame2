@@ -271,7 +271,7 @@
 
     (testing "the read values reached the markup"
       (is (= "todo 1×" (rf.fresco.test/text tree)))
-      (is (false? (:checked (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "toggle" (:class (:attrs %)))))))))))
+      (is (false? (:checked (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "toggle" (:class (rf.fresco.test/attrs %)))))))))))
 
 (deftest l2-a-dynamic-child-list-renders-inside-the-body-s-own-window
   (let [tree (rf.fresco.test/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
@@ -282,14 +282,14 @@
 
     (testing "each member keeps the key it was written with"
       (is (= [:all :active :done]
-             (mapv :key (rf.fresco.test/find-all tree #(= :button (:tag %)))))))
+             (mapv #(:key (rf.fresco.test/attrs %)) (rf.fresco.test/find-all tree #(= :button (first %)))))))
 
     (testing "and the read taken INSIDE the loop is the read the fixture
               answered — which is what says the walk happened inside the
               body's own render window rather than after it"
       (is (= "filter on"
-             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :active (:data-filter (:attrs %))))))))
+             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :active (:data-filter (rf.fresco.test/attrs %))))))))
       (is (= "filter"
-             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :all (:data-filter (:attrs %))))))))
+             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :all (:data-filter (rf.fresco.test/attrs %))))))))
       (is (= [[:dg/set-filter :all] [:dg/set-filter :active] [:dg/set-filter :done]]
              (rf.fresco.test/intents tree))))))

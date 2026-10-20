@@ -82,7 +82,7 @@
   [_]
   [:p "child"])
 
-(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (first %))))
 
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
@@ -163,7 +163,7 @@
     (is (nil? (rf.fresco.test/markup-role t)) "a fragment is not an element")
     (is (nil? (rf.fresco.test/markup-role (tagged t :div))) "and a div has no role of its own"))
   (let [t (markup [:div [a-child {}]])]
-    (is (nil? (rf.fresco.test/markup-role (rf.fresco.test/find t #(some? (:view-id %)))))
+    (is (nil? (rf.fresco.test/markup-role (rf.fresco.test/find t #(= :rf.ui/view (first %)))))
         "a boundary node has no role and that is not an error: L2 records a
          child boundary as the CALL it is; what it renders — and therefore
          what role it presents — is the child's own tree to answer"))
@@ -288,7 +288,7 @@
       (is (= "Outer" (rf.fresco.test/markup-name t t)))
       (is (= "Inner" (rf.fresco.test/markup-name
                        t
-                       (rf.fresco.test/find t #(and (= :fieldset (:tag %))
+                       (rf.fresco.test/find t #(and (= :fieldset (first %))
                                         (not (identical? % t))))))
           "read off the outer tree, so the two fieldsets are one
            document and the inner one still answers its own legend"))))
@@ -370,7 +370,7 @@
             node  (first found)]
         (is (= 1 (count found)))
         (is (= expected (if (= :tag pick)
-                          (:tag node)
+                          (first node)
                           (get (rf.fresco.test/attrs node) pick))))))))
 
 (deftest what-the-auditor-must-not-report
