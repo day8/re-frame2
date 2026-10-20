@@ -37,10 +37,12 @@ The machine's live value.
 ```
 
 It lives in [runtime-db](../core/glossary.md#runtime-db). Read it with
-`[:rf/machine id]`:
+`[:rf/machine id]`, subscribed in a view and computed against the handler's
+runtime-db in an event handler:
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/subscribe [:rf/machine :auth.login/flow])                  ;; a view
+(rf/compute-sub [:rf/machine :auth.login/flow] (:rf.db/runtime cofx)) ;; a handler
 ```
 
 `nil` until the first event on a **singleton**. A spawned actor has a

@@ -480,8 +480,10 @@ The value is a map `{interceptor-ref replacement}`:
   ```clojure
   (compute-sub query-v db) → value
   ```
-- **Description**: Computes a subscription against an `app-db` value and returns the result, with no cache, no reactivity and no frame. Use it to test subscriptions ([Test a subscription](../core/testing/subscriptions.md)). The query vector comes first, the db second.
-    - `db` is a plain `app-db` map, or a full frame-state value (`{:rf.db/app … :rf.db/runtime …}`) when the graph mixes `app-db` and `runtime-db` subscriptions.
+- **Description**: Computes a subscription against a db value and returns the result, with no cache, no reactivity and no frame. The query vector comes first, the db second.
+    - An event handler reads framework state with it: it computes the vector a view subscribes to against the `runtime-db` it receives as `:rf.db/runtime`, such as `(rf/compute-sub [:rf/machine id] rt)` or `(:nav-token (rf/compute-sub [:rf/route] rt))`, rather than spelling where the framework stores that state.
+    - A test uses it to check what a subscription computes ([Test a subscription](../core/testing/subscriptions.md)).
+    - `db` is a plain `app-db` map, a `runtime-db` map for a framework subscription such as `[:rf/machine id]` or `[:rf/route]`, or a full frame-state value (`{:rf.db/app … :rf.db/runtime …}`) when the graph mixes `app-db` and `runtime-db` subscriptions.
     - Runs on the JVM.
     - An unregistered query id computes to `nil`, and an unregistered input delivers `nil` to the computation fn, both with no error, so check the ids when a test reads an unexpected `nil`.
     - A computation fn that throws emits `:rf.error/sub-exception` and computes `nil`. A subscription that depends on itself emits `:rf.error/sub-cycle`, and the cyclic input delivers `nil` to the computation fn.
@@ -489,6 +491,12 @@ The value is a map `{interceptor-ref replacement}`:
   ```clojure
   ;; Evaluate :counter/doubled against a literal app-db value (no frame, no cache).
   (rf/compute-sub [:counter/doubled] {:counter/value 21})   ;; => 42
+
+  ;; In an event handler, read a machine's state from the runtime-db it receives.
+  (rf/reg-event :editor/save
+    (fn [{:keys [db] rt :rf.db/runtime} _]
+      (when (= :editing (:state (rf/compute-sub [:rf/machine :editor/flow] rt)))
+        {:db (assoc db :editor/saving? true)})))
   ```
 
 ## Standard events

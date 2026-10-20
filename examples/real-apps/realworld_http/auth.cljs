@@ -12,9 +12,9 @@
      (rf/dispatch [:auth/flow [:auth/login]])
 
    The login and register draft forms live in app-db under [:auth ...]; the
-   machine's own snapshot lives over in runtime-db at
-   [:rf.runtime/machines :snapshots :auth/flow]. See the AUTH STATE MACHINE
-   section below for why the machine stays credential-free."
+   machine's own snapshot lives over in runtime-db, read with
+   [:rf/machine :auth/flow]. See the AUTH STATE MACHINE section below for why
+   the machine stays credential-free."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; State machines live in their own artefact. We require it purely
@@ -371,10 +371,10 @@
   ;; No :id in the spec map — the id is just the `reg-machine` id above.
   {:initial :idle
    :data    {:error nil}
-   ;; The snapshot lives in runtime-db (at
-   ;; [:rf.runtime/machines :snapshots :auth/flow]), not app-db. App-schemas
-   ;; only police the app-db partition, so the snapshot's :data shape is
-   ;; validated right here via [:schemas :data] instead.
+   ;; The snapshot lives in runtime-db (read it with [:rf/machine
+   ;; :auth/flow]), not app-db. App-schemas only police the app-db partition,
+   ;; so the snapshot's :data shape is validated right here via
+   ;; [:schemas :data] instead.
    :schemas {:data app-schema/AuthFlowData}
    :guards
    ;; `:auth/session-read` below passes a plain boolean, not the JWT itself

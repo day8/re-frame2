@@ -47,8 +47,9 @@ the machine id and an inner **trigger** vector. At the REPL, use the
 
 The live snapshot belongs to that frame. It stores the active state
 and private data in [runtime-db](../core/glossary.md#runtime-db). Views read
-it through subscriptions; actions send application changes through ordinary
-events and effects.
+it through subscriptions, and event handlers compute the same `[:rf/machine id]`
+vector against their runtime-db with `compute-sub`; actions send application
+changes through ordinary events and effects.
 
 <a id="why-nest-states"></a>
 

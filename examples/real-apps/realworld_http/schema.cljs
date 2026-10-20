@@ -86,7 +86,7 @@
    (or nil). Validating :user against the wire `ws/User` here would demand the
    very :token the durable copy deliberately drops, and post-commit validation
    would roll the login back. The auth machine's own snapshot lives elsewhere —
-   over in runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
+   over in runtime-db, read with [:rf/machine :auth/flow].
 
    :return-to is the breadcrumb: the post-login return target the routing
    `:rf.route/entry-denied` handler drops here (routing.cljs) when the
@@ -122,8 +122,8 @@
       [:url      :string]
       [:fragment {:optional true} [:maybe :string]]]]]])
 
-;; Machine snapshots aren't app-db — they live in the runtime-db partition at
-;; [:rf.runtime/machines :snapshots <id>]. And `reg-app-schema` only polices
+;; Machine snapshots aren't app-db — they live in the runtime-db partition,
+;; read with [:rf/machine <id>]. And `reg-app-schema` only polices
 ;; app-db, so you don't validate a snapshot with an app-schema on a runtime
 ;; path. Instead each machine carries its own `[:schemas :data]` slot
 ;; describing its snapshot's `:data` map, and the `*Data` schemas below are
