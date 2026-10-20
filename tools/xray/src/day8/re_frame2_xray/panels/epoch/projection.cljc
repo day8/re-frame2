@@ -3952,29 +3952,22 @@
     :else                                         :ok))
 
 (defn cascade-rolled-back?
-  "True iff any STATE-partition schema violation in `rows` carries
-  `:rollback? true` — `:where :app-db` (the app-db partition) OR
-  `:where :machine-data` (the runtime-db partition, EP-0001).
-  Either partition's post-commit boundary failing unwinds the WHOLE
-  transition (Spec 010 §Per-step recovery rows 4 + 7), so both signal a
-  rolled-back cascade. The view layer reads this off the cascade context
-  to visually mute every step DOWNSTREAM of the rollback point (FX /
-  SUBSCRIPTIONS / VIEWS) so the operator reads 'the rest of this cascade
-  didn't really run' at a glance."
-  [rows]
-  (boolean
-    (some (fn [r]
-            (and (contains? #{:app-db :machine-data} (:where r))
-                 (true? (:rollback? r))))
-          rows)))
+  "True iff validation rejected the event's own candidate at either STATE
+  partition's boundary — `db-rolled-back?` (`:where :app-db`) or
+  `runtime-db-rolled-back?` (`:where :machine-data`, EP-0001). Either
+  refuses the WHOLE transition before install (Spec 010 §Per-step recovery
+  rows 4 + 7), so nothing downstream ran on it. A post-walk flow settle's
+  rejection is not one: the event's install stood and its subscriptions
+  and views ran on it (Spec 013 §Sequencing)."
+  [events]
+  (or (db-rolled-back? events) (runtime-db-rolled-back? events)))
 
 (defn mark-rolled-back-downstream
-  "When the cascade carries a state-partition rollback violation — the
-  `:app-db` or the `:machine-data` partition, per
-  `cascade-rolled-back?` — mark every step downstream of the SIDE
-  EFFECTS step (SUBSCRIPTIONS / VIEWS) with `:rolled-back? true`.
-  The view paints those steps with mute chrome. Pure fn over the step
-  vector.
+  "When `cascade-rolled-back?` holds for the cascade's `events`, mark every
+  step downstream of the SIDE EFFECTS step (SUBSCRIPTIONS / VIEWS) with
+  `:rolled-back? true`, so the operator reads at a glance that the rest of
+  this cascade did not run. The view paints those steps with mute chrome.
+  Pure fn over the step vector.
 
   The SIDE EFFECTS step itself is
   NOT marked rolled-back — its `:db` row carries the red ✗ + violation
@@ -3983,8 +3976,8 @@
   exist in a rollback cascade (per Spec 010, `:fx` doesn't walk when the
   commit rolls back) — so the flat ledger in a rollback carries only the
   `:db` CROSS row, visibly red."
-  [steps rows]
-  (if (cascade-rolled-back? rows)
+  [steps events]
+  (if (cascade-rolled-back? events)
     (let [fx-idx (index-of #(= :side-effects (:step %)) steps)]
       (if (number? fx-idx)
         (vec
@@ -4400,7 +4393,7 @@
             ;; `:outcome` / `:halt-reason` say so. A `:halted-depth`
             ;; record reads `:error`, a `:halted-destroy` one `:blocked`.
             skipped    (mark-halted skipped epoch-record)
-            steps      (mark-rolled-back-downstream skipped violations)]
+            steps      (mark-rolled-back-downstream skipped events)]
         steps)))))
 
 (defn number-steps

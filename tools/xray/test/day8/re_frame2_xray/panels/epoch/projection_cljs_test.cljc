@@ -1324,8 +1324,17 @@
 (deftest cascade-rolled-back?-test
   (testing "a state-partition violation rolls the cascade back only when it
             carries `:rollback? true`, and :machine-data counts like :app-db"
-    (is (false? (proj/cascade-rolled-back? [{:where :app-db :rollback? false}])))
-    (is (true? (proj/cascade-rolled-back? [{:where :machine-data :rollback? true}])))))
+    (is (false? (proj/cascade-rolled-back?
+                  [(schema-violation-ev :app-db :e [:n] "x" false)])))
+    (is (true? (proj/cascade-rolled-back?
+                 [(schema-violation-ev :machine-data :m [:machines] {} true)]))))
+  (testing "a rejection after the event's install is a post-walk flow
+            settle's, and the event's own transition stood"
+    (is (false? (proj/cascade-rolled-back?
+                  [(db-changed-ev [])
+                   (fx-handled-ev :p/set-n "bad" 0.1)
+                   (do-fx-ev [[:p/set-n "bad"]])
+                   (schema-violation-ev :app-db :p/go [:derived] "bad" true)])))))
 
 (deftest mark-rolled-back-downstream-test
   (testing "a rollback mutes every step AFTER SIDE EFFECTS; SIDE EFFECTS keeps
@@ -1336,11 +1345,11 @@
                  (proj/mark-rolled-back-downstream
                    [{:step :dispatch} {:step :handler} {:step :side-effects}
                     {:step :subscriptions} {:step :views}]
-                   [{:where :app-db :rollback? true}])))))
+                   [(schema-violation-ev :app-db :e [:n] "x" true)])))))
   (testing "a rollback outside the state partitions mutes nothing"
     (let [steps [{:step :dispatch} {:step :handler} {:step :side-effects} {:step :views}]]
       (is (= steps (proj/mark-rolled-back-downstream
-                     steps [{:where :sub-return :rollback? true}]))))))
+                     steps [(schema-violation-ev :sub-return :s [] 1 true)]))))))
 
 ;; ---- parent-epoch correlation ------------------------------------------
 

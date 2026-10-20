@@ -13,6 +13,7 @@
   an `:int` slot; `:p/go` writes app-db and sets `:probe/n` mid-walk."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
             [re-frame.event-emit :as rf.event-emit]
@@ -62,6 +63,17 @@
 (defn- count-op [record op]
   (count (filter #{op} (ops record))))
 
+(defn- muted
+  "The steps `project` mutes as never having run. A JVM run records no
+  subscription run or view render, so one of each is appended where a
+  browser records them, after the install."
+  [record]
+  (->> (proj/project (update record :trace-events into
+                             [(teb/sub-run-ev [:p/derived] true 0 2)
+                              (teb/view-rendered-ev :p/view [[:p/derived]])]))
+       (filter :rolled-back?)
+       (mapv :step)))
+
 (deftest a-valid-post-walk-settle-leaves-the-db-row-applied
   (reg-settling-frame!)
   (let [{:keys [outcomes record db]} (dispatch-and-record! [:p/go 2])
@@ -71,7 +83,8 @@
       (is (= {:handler-installed true :derived 2} (select-keys db [:handler-installed :derived])))
       (is (= 2 (count-op record :rf.event/db-changed))))
     (is (= {:fx-id :db :status :ok} (proj/db-effect-row events)))
-    (is (false? (proj/db-rolled-back? events)))))
+    (is (false? (proj/db-rolled-back? events)))
+    (is (= [] (muted record)))))
 
 (deftest a-rejected-post-walk-settle-leaves-the-db-row-applied
   (reg-settling-frame!)
@@ -90,7 +103,9 @@
       (let [se (some #(when (= :side-effects (:step %)) %) (proj/project record))]
         (is (= :error (proj/step-status se)))
         (is (= [:app-db]
-               (mapv :where (concat (:violations se) (mapcat :violations (:rows se))))))))))
+               (mapv :where (concat (:violations se) (mapcat :violations (:rows se))))))))
+    (testing "SUBSCRIPTIONS and VIEWS ran on the installed db, so nothing is muted"
+      (is (= [] (muted record))))))
 
 (deftest a-rejection-before-install-rolls-the-db-row-back
   (reg-settling-frame!)
@@ -104,7 +119,8 @@
       (is (not (contains? db :handler-installed)))
       (is (= 0 (count-op record :rf.event/db-changed))))
     (is (= {:fx-id :db :status :error} (proj/db-effect-row events)))
-    (is (true? (proj/db-rolled-back? events)))))
+    (is (true? (proj/db-rolled-back? events)))
+    (is (= [:subscriptions :views] (muted record)))))
 
 (deftest a-malformed-app-schema-rolls-the-db-row-back
   ;; A schema whose check throws cannot prove the candidate conforms, so the
@@ -119,4 +135,5 @@
       (is (= [:rolled-back] outcomes))
       (is (= 1 (count-op record :rf.error/malformed-schema)))
       (is (= 0 (count-op record :rf.error/schema-validation-failure))))
-    (is (= {:fx-id :db :status :error} (proj/db-effect-row events)))))
+    (is (= {:fx-id :db :status :error} (proj/db-effect-row events)))
+    (is (= [:subscriptions :views] (muted record)))))
