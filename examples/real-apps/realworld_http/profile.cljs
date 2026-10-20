@@ -773,14 +773,14 @@
     (rh/page-count total)))
 
 (rf/reg-event :profile/show-page
-  {:doc "Jump to a 1-indexed page within the active profile tab. It stays on
-         the same route (authored vs favorited) and the same username — only
-         `?page=` changes. That's enough to re-fire the route `:on-match`,
-         which re-runs the tab's load with the new limit/offset window. The URL
-         is the input; the data follows."}
-  (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [route-id params]} (rf/compute-sub [:rf/route] rt)]
-      {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query {:page page}}]]]})))
+  {:doc "Jump to a 1-indexed page within the active profile tab. It navigates
+         in place — no `:to` — so it stays on the same route (authored vs
+         favorited) and the same username, and its `:query` merges into the
+         current one: only `?page=` changes. That's enough to re-fire the route
+         `:on-match`, which re-runs the tab's load with the new limit/offset
+         window. The URL is the input; the data follows."}
+  (fn [_ [_ page]]
+    {:fx [[:dispatch [:rf.route/navigate {:query {:page page}}]]]}))
 
 ;; ============================================================================
 ;; VIEWS

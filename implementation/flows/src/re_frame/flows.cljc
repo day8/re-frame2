@@ -122,21 +122,22 @@
       (if (= :derive phase)
         (str "a flow's :derive fn threw while recomputing flow "
              (pr-str flow-id)
-             " during the drain; the event aborts before the :db install "
-             "(no partial commit, app-db unchanged) and the flow re-attempts "
-             "on the next drain. Fix the :derive fn so it does not throw on "
-             "the inputs it is given.")
+             " during the drain; the flow pass installs nothing (no partial "
+             "commit, app-db keeps the value it held before the pass) and the "
+             "flow re-attempts on the next drain. Fix the :derive fn so it "
+             "does not throw on the inputs it is given.")
         (str "flow " (pr-str flow-id)
              "'s :derive fn RETURNED normally, but re-frame could not "
              "install that value at the flow's declared :output-path "
              (pr-str output-path)
              " — the pending app-db holds a container at that path which "
              "cannot accept it. The :derive fn did not throw; the failure "
-             "is the framework's output write, during the drain; the event "
-             "aborts before the :db install (no partial commit, app-db "
-             "unchanged) and the flow re-attempts on the next drain. Fix "
-             "the :output-path, or the shape the pending app-db holds at "
-             "its parent path — do not go looking in the :derive fn."))
+             "is the framework's output write, during the drain; the flow "
+             "pass installs nothing (no partial commit, app-db keeps the "
+             "value it held before the pass) and the flow re-attempts on the "
+             "next drain. Fix the :output-path, or the shape the pending "
+             "app-db holds at its parent path — do not go looking in the "
+             ":derive fn."))
       {:recovery :no-recovery
        :extra    {:rf.flow/failed-id    flow-id
                   :rf.flow/failed-phase phase
@@ -236,21 +237,22 @@
   "Vacate what the memo `rows` record for flows that no longer run as they did:
   a row whose flow left the active set has its output path removed from `db`
   and the row dropped, and a row whose flow now writes a different
-  `:output-path` has the old path removed. Returns `[db rows]`.
+  `:output-path` has the old path removed. Returns `[db rows claims]`, where
+  `claims` maps each departed flow that declared output marks to nil, so its
+  claims go with the install.
 
   A row whose id the frame still names but which no longer resolves — its
-  registration cleared or swept — warns `:rf.warning/unregistered-flow`. Its
-  claims in the frame's elision registry go with it."
+  registration cleared or swept — warns `:rf.warning/unregistered-flow`."
   [frame-id ids active db rows]
   (let [named (set ids)]
     (reduce-kv
-      (fn [[db rows] id row]
+      (fn [[db rows claims] id row]
         (let [old-flow (:flow row)
               old-path (:output-path old-flow)]
           (if-let [flow (get active id)]
             (if (= old-path (:output-path flow))
-              [db rows]
-              [(rf.flows.registry/vacate-path-in-db db old-path) rows])
+              [db rows claims]
+              [(rf.flows.registry/vacate-path-in-db db old-path) rows claims])
             (do
               (when (and rf.interop/debug-enabled? (contains? named id))
                 (rf.trace/emit! :warning :rf.warning/unregistered-flow
@@ -264,78 +266,82 @@
                                                " at " (pr-str old-path)
                                                " is vacated, and re-registering"
                                                " the id resumes it.")}))
-              (when (rf.flows.registry/flow-declares-marks? old-flow)
-                (rf.flows.registry/drop-output-marks! frame-id id))
               [(rf.flows.registry/vacate-path-in-db db old-path)
-               (dissoc rows id)]))))
-      [db rows]
+               (dissoc rows id)
+               (cond-> claims
+                 (rf.flows.registry/flow-declares-marks? old-flow) (assoc id nil))]))))
+      [db rows {}]
       rows)))
 
 (defn run-flows-on-db
-  "Transform a frame's pending app-db by evaluating the flows its `:flows`
-  config names, in dependency order. Runtime-db is a read-only input; flow
-  outputs always target app-db.
+  "Evaluate the flows a frame's `:flows` config names over its pending app-db,
+  in dependency order, and return the candidate as `{:db app-db}` plus what the
+  router publishes with it. Runtime-db is a read-only input; flow outputs
+  always target app-db.
 
   The router calls this from its outermost `:after` interceptor, after other
-  interceptors have shaped the pending db and before commit, with the frame's
-  own registration view bound — so the ids resolve live for a frame made
-  without `:images`, and through its sealed generation for one made with them.
+  interceptors have shaped the pending db and before commit, and again after an
+  `:fx` walk that wrote the frame's state, with the frame's own registration
+  view bound — so the ids resolve live for a frame made without `:images`, and
+  through its sealed generation for one made with them.
 
   The memo decides what runs. A flow with no row, a row computed with a
-  different definition, or a row a rewind left without inputs, claims its
+  different definition, or a row a tool write left without inputs, claims its
   output paths and recomputes; otherwise `=`-equal inputs skip `:derive` and
   re-assert the remembered output. A row whose flow left the frame, or
   moved its `:output-path`, has the old path vacated in this same pending db.
   The activation checks run over the active set on every pass, so a
   re-registration that completes a cycle or an output overlap aborts the event.
 
-  The memo advances only when the whole pass succeeds. A throw leaves it as it
-  was, hands the output claims the pass rewrote back to the outputs the frame
-  still holds, and propagates; the router discards the pending db, so the
-  event commits in full or not at all."
+  The pass proposes; the install publishes. When the memo changes the result
+  carries `:publish!`, a thunk the router calls once the candidate has
+  installed, and when output claims change it carries `:claims`, a fn of
+  runtime-db the router applies to the candidate it installs. A throw, a
+  rejected candidate or an aborted event never publishes, so there is nothing
+  to undo: the only live write ahead of the install adds claims
+  (`add-output-marks!`), and an extra claim redacts more, never less."
   [frame-id db runtime-db]
   (let [ids   (:flows (rf.frame/frame-config frame-id))
         prior (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
     (if (and (empty? ids) (empty? prior))
-      db
-      (let [active (active-flows ids)]
-        (try
-          (let [[db rows] (reconcile-departures frame-id ids active db prior)
-                _         (rf.flows.topo/detect-output-path-overlap!
-                            active 're-frame.flows/run-flows-on-db)
-                order     (rf.flows.topo/topo-sort
-                            active 're-frame.flows/run-flows-on-db)
-                [db rows] (reduce
-                            (fn [[db rows] id]
-                              (let [flow       (get active id)
-                                    row        (get rows id)
-                                    ;; A row a rewind left without inputs no
-                                    ;; longer vouches for its evaluation.
-                                    evaluated? (and (identical? flow (:flow row))
-                                                    (contains? row :inputs))
-                                    new-inputs (read-inputs db runtime-db flow)]
-                                (if (and evaluated? (= new-inputs (:inputs row)))
-                                  [(reassert-output frame-id db flow new-inputs row) rows]
-                                  (do
-                                    ;; A definition the memo does not vouch for
-                                    ;; claims its output paths before it emits.
-                                    (when (and (not evaluated?)
-                                               (or (rf.flows.registry/flow-declares-marks? flow)
-                                                   (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))
-                                      (rf.flows.registry/claim-output-marks! frame-id flow))
-                                    (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
-                                      [db (assoc rows id {:flow   flow
-                                                          :inputs new-inputs
-                                                          :output output})])))))
-                            [db rows]
-                            order)]
-            (reset! (rf.flows.registry/ensure-frame-memo-atom! frame-id) rows)
-            db)
-          (catch #?(:clj Throwable :cljs :default) e
-            ;; The claims went into the live registry ahead of the commit, and
-            ;; the committed outputs are still `prior`'s.
-            (rf.flows.registry/restore-output-claims! frame-id prior active)
-            (throw e)))))))
+      {:db db}
+      (let [active (active-flows ids)
+            [db rows claims] (reconcile-departures frame-id ids active db prior)
+            _     (rf.flows.topo/detect-output-path-overlap!
+                    active 're-frame.flows/run-flows-on-db)
+            order (rf.flows.topo/topo-sort
+                    active 're-frame.flows/run-flows-on-db)
+            [db rows claims]
+            (reduce
+              (fn [[db rows claims] id]
+                (let [flow       (get active id)
+                      row        (get rows id)
+                      ;; A row a tool write left without inputs no longer
+                      ;; vouches for its evaluation.
+                      evaluated? (and (identical? flow (:flow row))
+                                      (contains? row :inputs))
+                      new-inputs (read-inputs db runtime-db flow)]
+                  (if (and evaluated? (= new-inputs (:inputs row)))
+                    [(reassert-output frame-id db flow new-inputs row) rows claims]
+                    (let [claim? (and (not evaluated?)
+                                      (or (rf.flows.registry/flow-declares-marks? flow)
+                                          (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))]
+                      ;; A definition the memo does not vouch for claims its
+                      ;; output paths before it emits.
+                      (when claim?
+                        (rf.flows.registry/add-output-marks! frame-id flow))
+                      (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
+                        [db
+                         (assoc rows id {:flow flow :inputs new-inputs :output output})
+                         (cond-> claims claim? (assoc id flow))])))))
+              [db rows claims]
+              order)]
+        (cond-> {:db db}
+          (not (identical? rows prior))
+          (assoc :publish! #(rf.flows.registry/publish-memo! frame-id rows))
+
+          (seq claims)
+          (assoc :claims (rf.flows.registry/exact-output-marks claims)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
@@ -348,13 +354,9 @@
 (rf.late-bind/set-fn! :flows/check-activation!  rf.flows.registry/check-activation!)
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
-;; The router owns post-transform commit rollback: it snapshots a frame's memo
-;; before the flow pass and puts it back when the event does not commit.
-(rf.late-bind/set-fn! :flows/snapshot-last-inputs rf.flows.registry/frame-last-inputs-snapshot)
-(rf.late-bind/set-fn! :flows/restore-last-inputs!  rf.flows.registry/reset-frame-last-inputs-to!)
+;; Epoch's tool writes install frame-state outside any event, so the memo stops
+;; vouching for what it cached.
+(rf.late-bind/set-fn! :flows/distrust-memo!     rf.flows.registry/distrust-memo!)
 ;; Frame destruction drops the frame's memo.
 (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
                       rf.flows.registry/teardown-on-frame-destroy!)
-;; Core's `:fx` walk settles a frame whose state it changed only when the frame
-;; runs a flow.
-(rf.late-bind/set-fn! :flows/frame-has-flows? rf.flows.registry/frame-runs-flows?)

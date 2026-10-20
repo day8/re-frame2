@@ -2430,10 +2430,12 @@
   going through the per-frame cache. Supports the same declared-input chain
   shape as subscribe.
 
-  Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6:
-  the return value is validated against any :schema on the
-  sub's meta — failures emit :rf.error/schema-validation-failure and
-  yield nil (default :replaced-with-default recovery).
+  Per Spec 008 §Testing — pure compute-sub form. A value that fails the
+  sub's `:schema` is still returned — dev builds report it with
+  `:recovery :no-recovery` — so `nil` never signals a schema failure. A
+  sub body that throws is different: it computes `nil` and reports
+  `:rf.error/sub-exception` (Spec 010 §Per-step recovery, step 6; Spec 009
+  §Error contract).
 
   EP-0001: `db` may be a bare app-db map
   OR a full frame-state value (`{:rf.db/app … :rf.db/runtime …}`). When a

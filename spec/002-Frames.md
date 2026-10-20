@@ -2004,13 +2004,11 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; external lane. `in-event-here?` is true while `process-event!` runs on THIS
 ;; host thread — the router records the thread around each event, because a
 ;; dynamic binding cannot answer the question (futures and bound-fns carry it
-;; to other threads and past the event's return). The framework-private flow
-;; settle goes to the head of the internal lane (Spec 013 §Sequencing).
+;; to other threads and past the event's return).
 (defn- enqueue [router envelope]
-  (cond
-    (:rf.flow/settle? envelope) (update router :internal #(into empty-queue (cons envelope %)))
-    (in-event-here? router)     (update router :internal conj envelope)
-    :else                       (update router :queue conj envelope)))
+  (if (in-event-here? router)
+    (update router :internal conj envelope)
+    (update router :queue conj envelope)))
 
 (defn dispatch [frame envelope]
   (let [router (:router frame)]
@@ -2207,7 +2205,8 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    `:db` nor `:rf.db/runtime`) installs nothing. By this point the
       ;;    flow-transform :after has already rewritten `(:db effects)`
       ;;    (step 1), so the app-db value installed here is the flow-derived
-      ;;    db.
+      ;;    db, and the flow pass's proposed memo rows publish only once this
+      ;;    install succeeds ([013 §Failure semantics](013-Flows.md#failure-semantics)).
       ;;
       ;;    VALIDATE BEFORE INSTALL: the
       ;;    complete CANDIDATE transition — the nil-coerced flow-augmented
@@ -2286,16 +2285,31 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    `(:rf/interceptor-error final-ctx)` / `(:rf/flow-error final-ctx)`.
       ;;    A literal port MUST read these off the chain context, not effects.
       (when-not (or (:rf/interceptor-error effects) (:rf/flow-error effects))
-       (let [m (fx-handler-context frame envelope)]   ;; the SMALL fx ctx: {:frame <id> :event <ev> :envelope <envelope>}
+       (let [m                 (fx-handler-context frame envelope)   ;; the SMALL fx ctx: {:frame <id> :event <ev> :envelope <envelope>}
                                                       ;; — NOT the event handler's coeffects map; `:frame` is the id, resolved
                                                       ;; from `(:id frame)`, never the record (Spec-Schemas §`:rf/handler-context`)
+             state-before-walk (frame-state-value frame)]
         (doseq [[fx-id args] (:fx effects)]
           (try
             (let [fx-handler (lookup-fx frame fx-id)]  ;; honors :fx-overrides
               (fx-handler m args))                     ;; binary contract: (m, args)
             (catch :default e
               (raise! :rf.error/fx-handler-exception
-                      {:fx-id fx-id :event event :frame (:id frame) :ex e}))))))
+                      {:fx-id fx-id :event event :frame (:id frame) :ex e}))))
+
+        ;; 4. Settle the flows over the walk's writes ([013 §Sequencing]
+        ;;    (013-Flows.md#sequencing--settling-on-the-dispatching-frame)).
+        ;;    An effect that writes frame state during the walk lands after
+        ;;    step 1's flow pass, so when the walk left the frame-state
+        ;;    container changed, the event runs the flow pass again over the
+        ;;    post-walk state and installs its outputs through step 2's
+        ;;    candidate validation and atomic install — inside this event and
+        ;;    its epoch, before any continuation the walk queued. A frame
+        ;;    running no flows has nothing to install. A throw in this pass
+        ;;    installs nothing of it and raises `:rf.error/flow-eval-exception`;
+        ;;    the event's own install and the walk's writes stand.
+        (when-not (identical? state-before-walk (frame-state-value frame))
+          (settle-flows! frame event))))
 
       (trace! :event/run-end {:event event :frame (:id frame)}))))
 
@@ -2373,6 +2387,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 | `process-event!` step 1 | [Registrar](Runtime-Architecture.md#1-registrar) — handler resolution; [001-Registration §Registry kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set) |
 | `process-event!` step 2 | [Substrate adapter §replace-container!](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value--nil); [Sub-cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
+| `process-event!` step 4 | The flow pass and step 2's install, over the state the walk wrote ([013 §Sequencing](013-Flows.md#sequencing--settling-on-the-dispatching-frame)) |
 | Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
 | Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); errors fan out through the always-on error-emit substrate the `:observability :errors` sink rides ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production) #2) |
 | Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` is routed by the machine handler *before* `:fx` reaches `do-fx`; `:rf.machine/spawn` / `:rf.machine/destroy` reach `do-fx` like any other fx (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
