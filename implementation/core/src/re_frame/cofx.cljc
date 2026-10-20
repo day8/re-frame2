@@ -1006,7 +1006,7 @@
   re-present verbatim. Absent + the mint policy generates (`:live`) →
   evaluate `query-v` against the committed pre-cascade
   frame-state via the `:cofx/eval-recordable-sub` hook, structural-EDN-check the
-  value, write it back into `:rf.cofx` under `fact-id` (epoch captures it),
+  value, write it back into `:rf.cofx` under `fact-id`, emit `:rf.cofx/generated`,
   deliver. Absent + `:strict` (replay / the `:test` preset) →
   `:rf.error/missing-required-cofx` (loud, never re-derived).
 
@@ -1026,6 +1026,16 @@
       ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
       ;; generated-value floor.
       (validate-generated-recordable-value! fact-id value failing-id frame-id)
+      ;; The ensure runs inside the machine's handler, after run-start pinned
+      ;; the record's token, so the write-back alone never reaches the epoch
+      ;; record. Epoch capture folds `:rf.cofx/generated` into that token — the
+      ;; same route a generator's mid-run mint takes — so strict replay from
+      ;; the record re-presents the fact (Spec 005 §Consumer attachment).
+      (when rf.interop/debug-enabled?
+        (rf.trace/emit! :rf.cofx :rf.cofx/generated
+                        {:rf.cofx/id    fact-id
+                         :frame         frame-id
+                         :rf.cofx/value value}))
       (-> acc
           (assoc-in [:coeffects fact-id] value)
           (assoc-in [:rf.cofx fact-id] value)))

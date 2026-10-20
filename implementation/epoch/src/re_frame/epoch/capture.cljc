@@ -109,7 +109,7 @@
 ;; `:rf.sub/run` into the causing epoch through the same hook, riding only
 ;; `:trace-events` (`sub-run-row` projects no row for it). Without that it
 ;; would be orphan-dropped while its run was kept, and Xray would show the
-;; replaced `nil` as a clean SUBSCRIPTIONS row (Spec 010 §Per-step recovery).
+;; failing value as a clean SUBSCRIPTIONS row (Spec 010 §Per-step recovery).
 (def ^:private sub-schema-failure-surfaces
   #{:sub-return
     :sub-override})
@@ -670,7 +670,8 @@
   run-start it resolves nothing; the caller pins a trigger of its own.
 
   The same walk collects `:rf.cofx/generated` traces that occur after
-  run-start, notably generator facts minted inside machine guards/actions.
+  run-start, notably generator facts minted inside machine guards/actions and
+  the values of a machine's sub-valued `{:rf/sub query-v :as fact-id}` sources.
   Merging those projected values into the initial token makes strict replay
   re-present every fact the run consumed. Pre-handler mints merge
   idempotently; later same-id mints win in event order."
