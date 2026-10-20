@@ -273,28 +273,26 @@
      [:span.text (:text todo)]
      (when (:done todo) [:span.done "✓"])]))
 
-(deftest render-answers-the-versioned-004b-tree
+(deftest render-answers-normalised-hiccup
   (let [tree (rf.fresco.test/tree [todo-row-body {:id 1}]
                         {:subs {[:tk/todo 1] {:text "milk" :done false}}})]
 
 
-    (testing "the whole tree is plain serialisable data — no wrapper types,
-              no metadata-carried contract"
-      (is (= {:rf.ui/tree-version 1
-              :tag      :li
-              :attrs    {:data-id 1 :class "row"}
-              :events   {:on-click [:tk/toggle 1]}
-              :children [{:tag :span :attrs {:class "text"} :children ["milk"]}]}
+    (testing "the whole tree is the hiccup the body wrote, normalised — the
+              `.class` sugar folded, the branch not taken gone — and it is
+              plain serialisable data"
+      (is (= [:li {:class "row" :data-id 1 :on-click [:tk/toggle 1]}
+              [:span {:class "text"} "milk"]]
              tree))
       (is (= tree (reader/read-string (pr-str tree)))))
 
     (testing "the projections read it"
       (is (= "milk" (rf.fresco.test/text tree)))
-      (is (= :span (:tag (rf.fresco.test/find tree #(= "text" (:class (:attrs %)))))))
-      (is (= 2 (count (rf.fresco.test/find-all tree map?)))))
+      (is (= :span (first (rf.fresco.test/find tree #(= "text" (:class (rf.fresco.test/attrs %)))))))
+      (is (= 2 (count (rf.fresco.test/find-all tree vector?)))))
 
-    (testing "and `attrs` MERGES events with attributes, which is the one
-              attribute read — a keyword lookup on the node is a field miss"
+    (testing "and `attrs` is the node's attribute map, its intents among
+              them as data"
       (is (= {:data-id 1 :class "row" :on-click [:tk/toggle 1]} (rf.fresco.test/attrs tree)))))
 
   (testing "the branch not taken contributes no node, and the branch taken
@@ -331,16 +329,21 @@
   (let [tree (rf.fresco.test/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])]
     (testing "the node is the CALL: the view id, the props the call site
               passed, and the children it wrote — the child's body did not run"
-      (is (= {:rf.ui/tree-version 1
-              :tag      :div
-              :children [{:view-id  "re-frame.fresco.test-kit-cljs-test/greeting"
-                          :key      9
-                          :props    {:who "ada"}
-                          :children ["extra"]}]}
+      (is (= [:div {}
+              [:rf.ui/view {:view-id "re-frame.fresco.test-kit-cljs-test/greeting"
+                            :key     9
+                            :who     "ada"}
+               "extra"]]
              tree)))
 
     (testing "and `text` answers the call site's children, never the child's rendering"
-      (is (= "extra" (rf.fresco.test/text tree))))))
+      (is (= "extra" (rf.fresco.test/text tree)))))
+
+  (testing "a prop spelled `:view-id` would collide with the name the call
+            records, so it refuses rather than being overwritten"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id
+            (:refused (outcome #(rf.fresco.test/tree [(fn [_] [:div [greeting {:view-id "x"}]]) {}]))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — honest opacity. Every refusal, with its legal twin.
@@ -351,7 +354,7 @@
   ;; L2 renders `[some-view …]`. The not-retained refusal is the last row
   ;; below, reached the one way it can be reached.
   (testing "a minted `h/defview` head renders the body AS WRITTEN"
-    (is (= {:rf.ui/tree-version 1 :tag :p :children ["bye ada"]}
+    (is (= [:p {} "bye ada"]
            (rf.fresco.test/tree [farewell {:who "ada"}]))))
 
   (testing "the retention is DEV-ONLY, so the refusal is live and named: a
@@ -371,7 +374,7 @@
   ;; naming no view, no id and no macro.
   (testing "the helper the body calls is the author's, so a view whose helper
             is named after it renders rather than recursing"
-    (is (= {:rf.ui/tree-version 1 :tag :p :children ["hi ada"]}
+    (is (= [:p {} "hi ada"]
            (rf.fresco.test/tree [greeting {:who "ada"}])))))
 
 (deftest a-host-crossing-is-opaque-at-l2
@@ -510,11 +513,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-projections-fail-loud-on-a-broken-tree
-  (testing "a map carrying two primaries is malformed rather than read as
-            whichever the discrimination order reaches first"
+  (testing "a vector that is not `[head attrs & children]` is malformed
+            rather than read as whatever its slots happen to hold"
     (is (= :rf.error/ui-tree-malformed
            (:rf.error/id
-            (:refused (outcome #(rf.fresco.test/attrs {:tag :p :view-id "x"})))))))
+            (:refused (outcome #(rf.fresco.test/attrs [:p "no attribute map"])))))))
+
+  (testing "and so is anything that is not a vector at all"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id
+            (:refused (outcome #(rf.fresco.test/attrs {:tag :p})))))))
 
   (testing "text content is not a node, at either projection"
     (is (= :rf.error/ui-tree-malformed

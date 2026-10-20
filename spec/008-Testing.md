@@ -440,6 +440,8 @@ After running a test sequence, `@recorded` contains the events that fired, in or
 
 `(rf/compute-sub query-v db)` runs the sub's body against the given `app-db` value and returns the computed value. No reactive cache, no Reagent, no JS runtime needed. JVM-runnable.
 
+The same call is how an event handler reads framework state: it computes the vector a view subscribes to against the handler's `:rf.db/runtime` coeffect — `(rf/compute-sub [:rf/machine id] (:rf.db/runtime cofx))`, `(:nav-token (rf/compute-sub [:rf/route] rt))` — so a handler never spells a framework storage path ([Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)).
+
 `query-v` is a vector — exactly the shape `subscribe` takes (`[:sub-id arg1 arg2]`).
 
 The recommended pattern is to drive `db` state via dispatches against a fixture frame, then compute the sub against the resulting `app-db`. This tests the sub against state produced by the same code paths the application uses, and survives `app-db` schema changes — if `:items` becomes `:todos`, the events update, the sub updates, the test keeps working unmodified.

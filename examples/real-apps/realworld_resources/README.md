@@ -136,7 +136,7 @@ So `:invalidates` is a vector of per-target descriptors, each naming its own sco
     :tags  #{[:feed]}}])
 ```
 
-One mutation reaches both scopes, each resolved at settle time against the frame's db. There is no app-level cross-scope patch and no home-page watcher keeping the feed in sync by hand. The same viewer / session descriptors carry the optimistic patch, the populate targets, and the follow-author detail continuation; save-article and delete-article use the identical shape.
+One mutation reaches both scopes, each resolved against the app-db the mutation was issued in ([Spec 016 §Resolver references](../../../spec/016-Resources.md#mutation-issuance-context)). There is no app-level cross-scope patch and no home-page watcher keeping the feed in sync by hand. The same viewer / session descriptors carry the optimistic patch, the populate targets, and the follow-author detail continuation; save-article and delete-article use the identical shape.
 
 ## Pagination, the cheapest kind
 

@@ -1,8 +1,9 @@
 (ns re-frame.fresco.examples.forms.l2-cljs-test
-  "L2 — THE FORM'S BODIES, AS SEMANTIC TREES.
+  "L2 — THE FORM'S BODIES, AS NORMALISED HICCUP.
 
   `re-frame.fresco.test/tree` runs one hook-free body under injected
-  read fixtures and answers the Spec 004B structural tree it returned.
+  read fixtures and answers the hiccup it returned, normalised — so every
+  assertion below is written in the language the views are.
   No React, no element, no hook, no DOM — so a row here proves what a
   body MEANS. The mounted suite is the other half and says so.
 
@@ -43,7 +44,7 @@
 
 (def ^:private ticket 7)
 
-(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (first %))))
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
 (def ^:private idle
@@ -82,8 +83,10 @@
   (is (some? (classed (hint-tree true) "subject-hint")))
   (testing "and the FIELD does not read it — an empty fixture entry here
             would red, because `tree` refuses a read it was not given"
-    (is (= "re-frame.fresco.examples.forms.views/subject-hint"
-           (:view-id (rf.fresco.test/find (subject-tree {:shown "s" :revision 0}) :view-id)))
+    (is (= [:rf.ui/view {:view-id "re-frame.fresco.examples.forms.views/subject-hint"
+                         :ikey    ticket}]
+           (rf.fresco.test/find (subject-tree {:shown "s" :revision 0})
+                                #(= :rf.ui/view (first %))))
         "the hint is a CALL from inside the field's markup, so its read
          belongs to its own body and not to the field's")))
 
@@ -129,15 +132,18 @@
                                              :input)))))))
 
 (deftest the-failure-region-is-present-only-while-the-instance-says-so
-  (is (nil? (classed (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-failure {}]
-                              {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}] idle}})
-                     "save-failure"))
-      "no write has failed, so the region is not in the tree at all")
+  (is (= [:<> {}]
+         (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-failure {}]
+                              {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}] idle}}))
+      "no write has failed, so the body renders nothing at all")
   (let [tree (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-failure {}]
                       {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]
                               (assoc idle :error? true :settled? true)}})]
-    (is (= :alert (rf.fresco.test/markup-role tree)))
-    (is (= "Saving failed. Nothing was lost — try again." (rf.fresco.test/text tree)))))
+    (is (= [:p {:class "save-failure" :role "alert"}
+            "Saving failed. Nothing was lost — try again."]
+           tree)
+        "and once one has, the region is the markup the view writes")
+    (is (= :alert (rf.fresco.test/markup-role tree)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two structural trap witnesses
@@ -164,14 +170,14 @@
 
 (deftest every-handler-site-is-data
   ;; TRAP: the arity-sniffed done-fn, and the `onChange` closure a
-  ;; twin-atom stack needs. Spec 004B records a function-valued handler as
+  ;; twin-atom stack needs. The tree records a function-valued handler as
   ;; the opaque marker, so one anywhere in the application would show up
   ;; here by name.
   (let [opaque (for [tree (every-tree)
-                     node (rf.fresco.test/find-all tree map?)
+                     node (rf.fresco.test/find-all tree vector?)
                      [k v] (rf.fresco.test/attrs node)
                      :when (= {:rf.ui/opaque :fn} v)]
-                 [(:tag node) k])]
+                 [(first node) k])]
     (is (= [] (vec opaque))
         "not one function-valued prop in the whole rendering. Give any
          handler a `(h/event …)` or a plain `fn` and this row names the tag
@@ -205,13 +211,13 @@
 (deftest the-two-structural-rows-catch-what-they-claim-to-and-no-more
   (let [tree (rf.fresco.test/tree [counter-example {}] {})]
     (is (= [[:input :on-input]]
-           (vec (for [node  (rf.fresco.test/find-all tree map?)
+           (vec (for [node  (rf.fresco.test/find-all tree vector?)
                       [k v] (rf.fresco.test/attrs node)
                       :when (= {:rf.ui/opaque :fn} v)]
-                  [(:tag node) k])))
+                  [(first node) k])))
         "the opaque-marker walk finds the hand-rolled callback, and finds
          the ordinary `[::events/submit]` beside it acceptable")
-    (is (= [:button] (mapv :tag (rf.fresco.test/markup-unnamed-controls tree)))
+    (is (= [:button] (mapv first (rf.fresco.test/markup-unnamed-controls tree)))
         "and the a11y projection reports the unnamed button and NOT the
          labelled field — the direction an over-eager guard gets wrong,
          and the one nothing else here would catch")))

@@ -4,7 +4,7 @@
 
   `re-frame.fresco.test` publishes a semantic tree and claims two things
   about it: that its child discrimination is *Fresco's*, and that its
-  node schema is *Spec 004B version 1*. Either can fail with no kit-only
+  shape is *Spec 004B's normalised Hiccup*. Either can fail with no kit-only
   suite noticing — a keyword child the runtime renders as text and the
   kit refuses, a `true` child the runtime makes a loud error and the kit
   drops, a `:<>` the runtime makes a fragment and the kit makes an
@@ -18,7 +18,7 @@
                 child of `:form` rather than `:form` itself
       :runtime  what `codec/as-element` — the runtime's own door — MAKES
                 of the subject, as a comparable token
-      :tree     the Spec 004B tree `ht/tree` must answer for `:form`, or
+      :tree     the normalised hiccup `ht/tree` must answer for `:form`, or
       :refuses  the refusal identity it must raise instead
       :why      the clause that says so
 
@@ -121,7 +121,7 @@
           :else [:foreign (pr-str v)])))))
 
 (defn- kit-outcome
-  "What the KIT makes of the same value: the 004B tree `ht/tree`
+  "What the KIT makes of the same value: the normalised hiccup `ht/tree`
   answers for a body that returns it, or the identity of the refusal it
   raised instead.
 
@@ -144,44 +144,40 @@
 
 (defn- raw-component [] nil)
 
-(def ^:private v rf.fresco.test/tree-version)
-
 (def ^:private rows
   [{:case    "a body that renders nothing roots in an EMPTY FRAGMENT"
     :form    nil
     :runtime [:nothing]
-    :tree    {:rf.ui/tree-version v :children []}
-    :why     (str "004B §Versioning — a form that denotes nothing roots in a "
-                  "fragment; §Canonical uniqueness — an empty fragment is "
-                  "{:children []}, never {} (which is malformed).")}
+    :tree    [:<> {}]
+    :why     (str "004B §The tree — a form that denotes nothing roots in a "
+                  "fragment, so the empty rendering is `[:<> {}]` rather than "
+                  "a nil every projection would have to special-case.")}
 
    {:case    "`:<>` is a FRAGMENT node, not an element named `:<>`"
     :form    [:<> [:span "a"] [:i "b"]]
     :runtime [:fragment]
-    :tree    {:rf.ui/tree-version v
-              :children [{:tag :span :children ["a"]}
-                         {:tag :i :children ["b"]}]}
+    :tree    [:<> {} [:span {} "a"] [:i {} "b"]]
     :why     "codec/fragment-head? — `:<>` is React's Fragment, not a tag."}
 
    {:case    "adjacent text is COALESCED into one string"
     :form    [:div "a" "b" 1 "" "c"]
     :runtime [:element "div"]
-    :tree    {:rf.ui/tree-version v :tag :div :children ["ab1c"]}
-    :why     (str "004B §Children — numeric children stringify, adjacent text "
+    :tree    [:div {} "ab1c"]
+    :why     (str "004B §The tree — numeric children stringify, adjacent text "
                   "runs coalesce, empty strings drop AFTER coalescing.")}
 
    {:case    "a KEYWORD child is text, because the runtime renders it as text"
     :form    [:div :done]
     :subject :done
     :runtime [:text "done"]
-    :tree    {:rf.ui/tree-version v :tag :div :children ["done"]}
+    :tree    [:div {} "done"]
     :why     "codec/as-element — `(keyword? x) (name x)`."}
 
    {:case    "a SYMBOL child is text, for the same reason"
     :form    [:div 'done]
     :subject 'done
     :runtime [:text "done"]
-    :tree    {:rf.ui/tree-version v :tag :div :children ["done"]}
+    :tree    [:div {} "done"]
     :why     "codec/as-element — `(symbol? x) (name x)`."}
 
    {:case    "a `true` child RAISES, and raises the runtime's own id"
@@ -190,15 +186,12 @@
     :refuses {:rf.error/id :rf.error/fresco-true-child}
     :why     (str "codec/as-element — nil and false render nothing; true is an "
                   "error (HD-016). Dropping it silently teaches a spelling the "
-                  "runtime rejects. 004B §Child normalization drops a `true` "
-                  "that reaches TREE BUILD; Fresco's grammar refuses it "
-                  "upstream of that, so one never arrives — see the namespace "
-                  "docstring's §Scope of the 004B claim.")}
+                  "runtime rejects, so 004B §The tree refuses it too.")}
 
    {:case    "a `false` child renders nothing — the true child's legal twin"
     :form    [:div false "x"]
     :runtime [:element "div"]
-    :tree    {:rf.ui/tree-version v :tag :div :children ["x"]}
+    :tree    [:div {} "x"]
     :why     "codec/as-element — `(false? x) nil`."}
 
    {:case    "a VALID `[:> …]` is the raw-React escape, and refuses to L3"
@@ -323,26 +316,17 @@
                   "written — advice with no exit. The reason "
                   "names the two exits that work: a data value, or L3.")}
 
-   {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
+   {:case    "an SVG subtree is recorded as written — its namespace is its tags'"
     :form    [:svg {:view-box "0 0 1 1"}
               [:path {:d "M0"}]
               [:foreignObject [:div "x"]]]
     :runtime [:element "svg"]
-    :tree    {:rf.ui/tree-version v :tag :svg :ns :svg
-              :attrs {:view-box "0 0 1 1"}
-              :children [{:tag :path :ns :svg :attrs {:d "M0"}}
-                         {:tag :foreignObject :ns :svg
-                          :children [{:tag :div :children ["x"]}]}]}
-    :why     (str "004B §Namespaces — an `:svg` element enters `:svg` and "
-                  "descendants inherit; `:foreignObject`'s CHILDREN revert to "
-                  "HTML; `:ns` is absent for HTML.")}
-
-   {:case    "an HTML element omits `:ns` — the SVG row's control"
-    :form    [:div [:span "x"]]
-    :runtime [:element "div"]
-    :tree    {:rf.ui/tree-version v :tag :div
-              :children [{:tag :span :children ["x"]}]}
-    :why     "004B §Element fields — `:ns` MUST be absent for HTML."}
+    :tree    [:svg {:view-box "0 0 1 1"}
+              [:path {:d "M0"}]
+              [:foreignObject {} [:div {} "x"]]]
+    :why     (str "004B §The tree — the tree carries no namespace field: "
+                  "`[:svg …]` is SVG to every reader, as it is to React, and "
+                  "`:foreignObject`'s children are HTML for the same reason.")}
 
    {:case    "a function in a map KEY may not be recorded, and CAN be hoisted"
     :form    [:div {:data-x {(fn [] 1) :v}}]
@@ -381,9 +365,9 @@
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
               :where       're-frame.fresco.test}
-    :why     (str "004B §The node schema — the tree is plain, serialisable "
-                  "Clojure data that EDN print/read round-trips; §Attr value "
-                  "normalization — a host object is rejected. THE POINT OF THE "
+    :why     (str "004B §The tree — the tree is plain, serialisable "
+                  "Clojure data that EDN print/read round-trips, so a host "
+                  "object is rejected. THE POINT OF THE "
                   "ROW: this object is already the whole value of "
                   "`:data-x`, so hoist advice would name the site it "
                   "is written at and an author following it could only write "
@@ -408,8 +392,7 @@
    {:case    "ordinary nested EDN is untouched — the four rows above's control"
     :form    [:div {:data-x {:a [1 #{:b}] "k" 'sym}}]
     :runtime [:element "div"]
-    :tree    {:rf.ui/tree-version v :tag :div
-              :attrs {:data-x {:a [1 #{:b}] "k" 'sym}}}
+    :tree    [:div {:data-x {:a [1 #{:b}] "k" 'sym}}]
     :why     "004B §The opaque marker — the check is read-only; EDN passes."}])
 
 ;; ---------------------------------------------------------------------------
