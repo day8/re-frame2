@@ -111,17 +111,17 @@ const DEV_ONLY_SENTINELS = [
   // validators both sit inside `(when interop/debug-enabled? ...)`
   // gates; the distinctive substring " :data failed schema at boundary
   // :where :machine-data " must elide under :advanced + goog.DEBUG=false.
-  { source: 're-frame.machines.data-validation/emit-failure!',
+  { source: 're-frame.machines.data-validation/validate-snapshot-data!',
     sentinel: ' :data failed schema at boundary :where :machine-data ' },
   // re-frame.machines.data-validation — the `:where :machine-data`
   // candidate-REJECTION record's reason string. Distinct from the trace
   // reason above: this sentence rides the always-on `:errors` stream (through
   // the `:error-emit/dispatch-error-record` hook) so a rejected machine
   // transaction is not silent in an untooled dev build. Emitted from inside
-  // `emit-failure!`, whose every caller sits behind a
+  // `report-failure!`, whose every caller sits behind a
   // `(when interop/debug-enabled? ...)` gate, so the whole call and this
   // literal must DCE with them.
-  { source: 're-frame.machines.data-validation/emit-failure! (:errors rejection record)',
+  { source: 're-frame.machines.data-validation/report-failure! (:errors rejection record)',
     sentinel: '; the candidate transition was rejected and no machine snapshot installed.' },
   // re-frame.registrar — handler-replaced trace op (only emitted from a
   // gated branch in registrar/register!).  Keywords survive :advanced

@@ -315,7 +315,7 @@
   ;;
   ;; The `[:schemas :data]` key on `reg-machine` adds a second
   ;; gated surface: the `re-frame.machines.data-validation` ns's
-  ;; emit-failure! body sits inside `(if interop/debug-enabled? ...)`
+  ;; validate-snapshot-data! callers sit inside `(if interop/debug-enabled? ...)`
   ;; and its " :data failed schema at boundary :where :machine-data "
   ;; reason-string fragment must also elide under :advanced.
   ;;
@@ -327,7 +327,7 @@
   ;;      gated co-location dev arm is in reachable code, not just
   ;;      declared-but-dead.
   ;;   3. registering a machine WITH `[:schemas :data]` and forcing a violation
-  ;;      so the emit-failure! call site is reached in the control build
+  ;;      so the report-failure! call site is reached in the control build
   ;;      (DEBUG=true) and its sentinel string lands in the bundle.
   ;;
   ;; The sentinel strings are the distinctive co-located `:source-code`
