@@ -230,7 +230,8 @@
                            [(rf/subscribe-once [invalid-q] {:frame :inline/schema-frame})
                             (rf/subscribe-once [valid-q] {:frame :inline/schema-frame})]))))
           failure (first (filter #(= :rf.error/schema-validation-failure (:operation %)) errors))]
-      (is (= [nil 7] @result) "an invalid image return recovers to nil; a valid one survives")
+      (is (= ["accepted-only-by-global" 7] @result)
+          "an invalid image return is reported and passes through; a valid one survives")
       (is (= [[:image/int "accepted-only-by-global"] [:image/int 7]] @calls)
           "both reads consult the image schema, never the global one")
       (is (= {:where :sub-return :frame :inline/schema-frame :rf.sub/id invalid-q

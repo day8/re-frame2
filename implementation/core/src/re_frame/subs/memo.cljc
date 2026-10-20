@@ -90,9 +90,11 @@
 (defn maybe-validate-sub!
   "Per Spec 010 §Validation order step 6 — after a sub
   recomputes, validate its return value against any :schema on the sub
-  meta. On failure, emit :rf.error/schema-validation-failure and
-  return nil per :replaced-with-default recovery; otherwise return
-  the value unchanged.
+  meta. On failure, emit :rf.error/schema-validation-failure
+  (`:recovery :no-recovery`). Always returns the value unchanged: the
+  check reports and the consumer still sees what the sub computed,
+  because a substituted nil would crash the view somewhere far from the
+  schema report.
 
   Looked up lazily through the late-bind registry so this namespace
   stays free of a hard re-frame.schemas dep (avoids load-order
@@ -107,15 +109,13 @@
   ;; KEY-presence, not value truthiness: a present nil / false
   ;; `:schema` is a declaration — consult the validator seam, which
   ;; delegates the exact token. Only an ABSENT key skips the consult.
-  (if (and sub-meta (contains? sub-meta :schema))
-    ;; Sticky hook — fires per-sub recompute.
-    (if-let [validate (rf.late-bind/get-fn :schemas/validate-sub!)]
-      (if (try (validate sub-id query-v value sub-meta frame-id)
-               (catch #?(:clj Throwable :cljs :default) _ true))
-        value
-        nil)
-      value)
-    value))
+  (when (and sub-meta (contains? sub-meta :schema))
+    ;; Sticky hook — fires per-sub recompute. The verdict is reported by
+    ;; the hook itself; a throwing hook never crashes the recompute.
+    (when-let [validate (rf.late-bind/get-fn :schemas/validate-sub!)]
+      (try (validate sub-id query-v value sub-meta frame-id)
+           (catch #?(:clj Throwable :cljs :default) _ nil))))
+  value)
 
 (defn validate-and-trace
   "Run the user's sub body fn once and project the result through the
@@ -134,8 +134,8 @@
      bracket DCEs.
   2. Spec 010 §Validation order step 6 — validate the body's
      return value against the sub's `:schema` meta. Failures emit
-     :rf.error/schema-validation-failure and yield nil (recovery
-     :replaced-with-default).
+     :rf.error/schema-validation-failure (recovery :no-recovery) and
+     the computed value is still returned.
   3. Spec 009 §:op-type vocabulary — emit :rf.sub/run for the recompute.
      The memo-hit path does NOT emit (per Spec 006 §No-op via value
      equality). The emit fires AFTER (1)+(2) so the trace can carry the

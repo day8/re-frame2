@@ -787,10 +787,10 @@ targets a sub that declares an output `:schema`, the pinned value is
 validated against that schema (dev-only, through the same registered
 validator [010 §`:sub-return`](../../../spec/010-Schemas.md#validation-order-on-event-processing)
 uses). A violating override emits `:rf.error/schema-validation-failure
-:where :sub-override` and surfaces `nil` (mirroring `:sub-return`'s
-`:replaced-with-default`). This closes the "pin a state the real
-derivation could never produce" gap: an override that violates the sub's
-own output contract is reported, not silently shown. A sub with no
+:where :sub-override` and still renders as pinned (`:recovery
+:no-recovery`, as `:sub-return` does). This closes the "pin a state the
+real derivation could never produce" gap: an override that violates the
+sub's own output contract is reported rather than silently shown. A sub with no
 `:schema`, or an override that conforms, surfaces unchanged.
 
 The pure data → data resolver fns (`resolve` / `miss?`) are

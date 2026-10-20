@@ -266,6 +266,48 @@
                               (assoc :sensitive? true))
       narrowed-sensitive? (scrub-slots narrowed-slots))))
 
+(def ^:private app-db-whole-slots
+  "The `:app-db` failure slots that re-ship the whole registered value."
+  [:explain :explain-humanized])
+
+(defn- project-through-registry
+  "Project an `:app-db` failure's value-bearing slots through `frame-id`'s
+  elision registry — the one classification `:rf.sub/run` and
+  `:rf.flow/computed` apply at emit — so a path classified there (a
+  commit-plane effect, a flow's own output marks, a subsystem declaration)
+  needs no second `:sensitive?` on its schema. Runs after the schema-driven
+  redaction, which stays an additional way to mark a slot.
+
+    - `:value`, narrowed to the failing leaf, is walked at the leaf's own
+      path (`leaf-path`), so it is path-precise like every wire slot. A slot
+      the schema already redacted or size-elided is left alone.
+    - `:explain` / `:explain-humanized` re-ship the whole registered value
+      and are not path-anchored, so they cannot be walked like `:value`.
+      When the registry classifies anything in that value sensitive they are
+      redacted whole and the trace is stamped `:sensitive? true`; otherwise,
+      when it classifies anything large, a size marker stands in for them.
+
+  The walker fails closed: a frame it cannot resolve redacts the whole value,
+  which reads here as sensitive."
+  [tags frame-id registered-path registered-value leaf-path leaf-value]
+  (let [walk       (fn [v path extra]
+                     (rf.elision/elide-wire-value v (merge {:frame frame-id :path path} extra)))
+        sensitive? (not= registered-value
+                         (walk registered-value registered-path {:rf.egress/include-large? true}))
+        large?     (and (not sensitive?)
+                        (boolean (some rf.elision/marker?
+                                       (tree-seq coll? seq (walk registered-value registered-path nil)))))]
+    (cond-> tags
+      (and (contains? tags :value) (= leaf-value (:value tags)))
+      (assoc :value (walk leaf-value leaf-path nil))
+
+      sensitive?
+      (-> (scrub-slots app-db-whole-slots) (assoc :sensitive? true))
+
+      large?
+      (elide-large-slots registered-value
+                         (remove #(= redacted-sentinel (get tags %)) app-db-whole-slots)))))
+
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
   vector). Element-wise comparison via `=`. Helper for narrowing
@@ -1144,17 +1186,25 @@
                        ;; (whole registered value) under the root decisions.
                        ;; Each slot is size-elided only when its own sensitive
                        ;; decision left it alone — sensitive wins per slot.
-                              tags        (cond-> (redact-tags-per-slot base-tags
-                                                                        whole-sensitive?
-                                                                        leaf-sensitive?
-                                                                        app-db-narrowed-slots)
-                                            whole-large? (elide-large-slots
-                                                           registered-value
-                                                           (remove app-db-narrowed-slots
-                                                                   size-elided-slots))
-                                            leaf-large?  (elide-large-slots
-                                                           leaf-value
-                                                           app-db-narrowed-slots))]
+                              tags        (-> (cond-> (redact-tags-per-slot base-tags
+                                                                            whole-sensitive?
+                                                                            leaf-sensitive?
+                                                                            app-db-narrowed-slots)
+                                                whole-large? (elide-large-slots
+                                                               registered-value
+                                                               (remove app-db-narrowed-slots
+                                                                       size-elided-slots))
+                                                leaf-large?  (elide-large-slots
+                                                               leaf-value
+                                                               app-db-narrowed-slots))
+                                              ;; Then the frame's elision registry,
+                                              ;; at the unsanitized leaf path.
+                                              (project-through-registry
+                                                frame-id registered-path registered-value
+                                                (if in-path
+                                                  (into (vec registered-path) in-path)
+                                                  registered-path)
+                                                leaf-value))]
                           ;; The always-on `:errors` record
                           ;; FIRST, then the dev trace — mirroring
                           ;; `emit-error-both!`'s axis-1-then-axis-2
@@ -1214,9 +1264,9 @@
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
   validate its return value against any :schema on the sub's metadata.
   Failures emit `:rf.error/schema-validation-failure :where
-  :sub-return`; the caller replaces the value with the default (nil)
-  per the `:replaced-with-default` recovery. Returns true/false per
-  the `run-validation` contract.
+  :sub-return` with `:recovery :no-recovery`; the caller still delivers
+  the computed value. Returns true/false per the `run-validation`
+  contract.
 
   The optional frame is stamped on the trace so runtime calls join the
   in-flight epoch. Direct callers may omit it."
@@ -1239,7 +1289,7 @@
                   :reason     (reason-string "Subscription " sub-id
                                              " return value failed schema "
                                              schema value)
-                  :recovery   :replaced-with-default}
+                  :recovery   :no-recovery}
             frame (assoc :frame frame))))
      true)))
 
@@ -1364,8 +1414,7 @@
   off-namespace emit sites — the production boundary interceptor
   (`re-frame.spec`), machine `:data` validation
   (`re-frame.machines.data-validation`), the `:sub-override` validation
-  path (`re-frame.subs`), flow-output validation (`re-frame.flows`), and
-  the recordable-coeffect `:rf.error/cofx-value-invalid` emit
+  path (`re-frame.subs`), and the recordable-coeffect `:rf.error/cofx-value-invalid` emit
   (`re-frame.cofx`)
   — reach it through the `:schemas/redact-validation-tags` late-bind
   hook and fall through verbatim when the hook is unbound (schemas

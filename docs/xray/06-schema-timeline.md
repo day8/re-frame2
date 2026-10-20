@@ -50,7 +50,7 @@ shows this pattern.
 | --- | --- | --- |
 | The handler appears never to run | `:where :event` and rejected chip | Fix the event arguments |
 | State looks unchanged after a handler ran | App-db or machine-data validation rejected a candidate | Read the invalid candidate in Epoch, not just the installed state |
-| A subscription unexpectedly returns `nil` | `:sub-return` or `:sub-override` failure | Fix the returned value or the test override |
+| A view breaks on a subscription's value | `:sub-return` or `:sub-override` failure | Fix the returned value or the test override |
 | A violation disappears in a release build | Most schema checks are development checks | Keep assertions in tests; use `:boundary? true` where event validation must remain in production |
 | A recorded coeffect stops an event | `:rf.error/cofx-value-invalid` | Supply a value matching the coeffect's schema; this check runs in every build |
 

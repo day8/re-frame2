@@ -171,12 +171,13 @@ The **metadata map** holds the rest; `:inputs` and `:output-path` are required:
 | `:inputs` | yes | A vector of paths to watch. A plain path reads app-db; a path starting with `:rf.db/runtime` reads [runtime-db](glossary.md#runtime-db) ([below](#deriving-from-route-or-machine-state)). Values reach the derive fn in this order. |
 | `:output-path` | yes | The app-db path the result is written to. A flow never writes runtime-db. |
 | `:doc` | no | One sentence on what and why. Shown in Xray and other tools. |
-| `:schema` | no | A Malli [schema](glossary.md#schema) for the output, checked in dev on every recompute ([Validating a flow's output](#validating-a-flows-output)). |
 | `:sensitive` | no | Output subpaths to redact in traces ([Classifying a flow's output](#classifying-a-flows-output)). |
 | `:large` / `:large?` | no | Output subpaths, or with `:large? true` the whole output, too big to send to off-box tools. |
 
 A `:frame` key is a registration error too: which frames run a flow is each
-frame's own `:flows`, never the registration's. The `reg-flow` macro records the
+frame's own `:flows`, never the registration's. So is a `:schema` key: the
+output's shape is declared with `reg-app-schema` ([Validating a flow's
+output](#validating-a-flows-output)). The `reg-flow` macro records the
 source location for you. It returns the flow id, like the rest of the `reg-*`
 family.
 
@@ -298,24 +299,24 @@ navigation that changes only runtime-db still updates it. There is no
 
 ### Validating a flow's output
 
-`:schema` declares a Malli schema for the output. In dev, every recompute is checked
-against it:
+Declare the output's shape with `reg-app-schema` at the flow's `:output-path`, like
+any other app-db slice:
 
 ```clojure
+(rf/reg-app-schema [:remaining-count] [:int {:min 0}])   ;; a non-negative integer
+
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
-   :output-path [:remaining-count]
-   :schema      [:int {:min 0}]}        ;; a non-negative integer
+   :output-path [:remaining-count]}
   (fn [todos] (count (remove :done? (vals todos)))))
 ```
 
-A violation does not throw and does not undo the write. The value is written, the
-commit proceeds, and the failure is reported as a
+The flow's output is part of the `app-db` the event commits, so an output that
+violates the schema rejects the whole event: neither the handler's write nor the
+flow's installs, and the failure is reported as a
 `:rf.error/schema-validation-failure` [error record](glossary.md#error-record) with
-the flow id, the output path, the value, and Malli's explanation. A later flow in the
-same pass may already have used the value, so undoing one write would leave the rest
-inconsistent. (A derive fn that *throws* is different; it aborts the event,
-[below](#what-happens-when-a-derive-throws).)
+`:where :app-db`. A flow has no `:schema` key of its own; `reg-flow` refuses one, so
+the shape is declared in one place.
 
 The check is dev-only and is [elided](glossary.md#elide) from production builds
 ([what goes and what stays](how-to/validate-with-schemas.md#in-production-what-goes-what-stays)).

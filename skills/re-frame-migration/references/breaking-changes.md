@@ -201,6 +201,7 @@ Every numbered rule in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/m
 | M-16a, M-16b | Sub-cases of **M-16**, whose row carries both under its one `^:flush-dom` grep. |
 | M-31a, M-31b, M-55, M-56, M-57, M-58, M-60, M-61, M-63, M-64, M-65, M-67, M-68, M-69, M-74, M-76 | v2-pre-rename-only: each changes a surface that shipped only in pre-release v2 builds. See [`pre-rename-upgrades.md`](pre-rename-upgrades.md). |
 | M-66 | Additive: first-class `:type :history` pseudo-states. No v1 surface changes. |
+| M-78 | v1's alpha flows carry no `:schema` key, so a v1 codebase has no trigger. A `reg-flow` that declares one fails at registration with `:rf.error/invalid-flow-metadata`, naming `reg-app-schema` at the flow's `:output-path`. |
 | O-14 | Retired: the slot is kept so later O-ids stay stable, and the substrate move it covered is O-13. |
 
 ---

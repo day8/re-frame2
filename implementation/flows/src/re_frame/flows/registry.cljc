@@ -379,8 +379,8 @@
 
 (defn- reconstruct-flow
   "Build the stored definition from `(reg-flow id metadata derive-fn)`,
-  refusing a non-map metadata slot, a `:derive` left in the metadata map and a
-  `:frame` in it before any map operation runs."
+  refusing a non-map metadata slot, a `:derive` left in the metadata map, and a
+  `:frame` or a `:schema` in it, before any map operation runs."
   [flow-id metadata derive-fn]
   (when-not (map? metadata)
     (invalid-metadata!
@@ -388,7 +388,7 @@
       (str "flow " flow-id "'s metadata (the MIDDLE slot) must be a map, "
            "got " (pr-str (type metadata)) ". The grammar "
            "is (reg-flow " flow-id " {…} derive-fn): the :inputs / "
-           ":output-path / :doc / :schema reflection-config metadata map "
+           ":output-path / :doc reflection-config metadata map "
            "is the SECOND slot, the pure :derive fn is the THIRD.")
       metadata))
   (when (contains? metadata :derive)
@@ -408,6 +408,16 @@
            "frame that runs it, e.g. (rf/make-frame {:id :my/app :flows ["
            flow-id "]}).")
       (:frame metadata)))
+  ;; A flow's output shape has one declaration: the app-db schema at its
+  ;; `:output-path`, which the commit boundary checks with the event.
+  (when (contains? metadata :schema)
+    (invalid-metadata!
+      flow-id
+      (str "flow " flow-id " declares :schema, but a flow carries no schema of "
+           "its own. Declare the output's shape once, with reg-app-schema at "
+           "the flow's :output-path, e.g. (rf/reg-app-schema "
+           (pr-str (:output-path metadata)) " " (pr-str (:schema metadata)) ").")
+      (:schema metadata)))
   ;; `:executable-key` names `:derive` as the definition's executable identity,
   ;; so a re-registration's `:rf.registry/handler-replaced` reports
   ;; `:different-fn?` from the derive rather than from an absent `:handler-fn`.

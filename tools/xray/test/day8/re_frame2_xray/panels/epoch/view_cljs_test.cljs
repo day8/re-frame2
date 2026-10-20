@@ -13,9 +13,8 @@
             ;; `:epoch` listener, which this artefact backs.
             [re-frame.epoch]
             ;; The producer-driven schema-violation rows below
-            ;; drive a real flow, a real machine and the `:sub-overrides`
-            ;; seam, and read each registration back through its own door.
-            [re-frame.flows]
+            ;; drive a real machine and the `:sub-overrides` seam, and read
+            ;; each registration back through its own door.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
@@ -968,14 +967,6 @@
     (fn [_db _] "not-an-int"))
   (rf/reg-sub :rf2-1t8fn/overridden-sub {:schema :int}
     (fn [_db _] 0))
-  (rf/reg-flow :rf2-1t8fn/typed-flow
-    {:inputs      [[:rf2-1t8fn/flow-in]]
-     :output-path [:rf2-1t8fn/flow-out]
-     :schema      :int}
-    (fn [in] (str "not-an-int-" in)))
-  (rf/make-frame {:id :rf/default :flows [:rf2-1t8fn/typed-flow]})
-  (rf/reg-event :rf2-1t8fn/seed-flow
-    (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/flow-in 1)}))
   (rf/reg-machine :rf2-1t8fn/machine
     {:initial :running
      :data    {:n 1}
@@ -1015,7 +1006,6 @@
         (rf/dispatch-sync [:rf2-1t8fn/fire-fx])
         @(rf/subscribe [:rf2-1t8fn/typed-sub])
         @(rf/subscribe [:rf2-1t8fn/overridden-sub])
-        (rf/dispatch-sync [:rf2-1t8fn/seed-flow])
         (rf/dispatch-sync [:rf2-1t8fn/machine [:break]])
         (rf/dispatch-sync [:rf2-1t8fn/machine [:fin]])
         (rf/dispatch-sync [:rf2-1t8fn/write-db])
@@ -1057,7 +1047,6 @@
                     ;; `:rf/machine? true`; its `[:schemas …]` ride on it.
                     :machine-data   (store :event :rf2-1t8fn/machine)
                     :machine-output (store :event :rf2-1t8fn/machine)
-                    :flow-output    (store :flow :rf2-1t8fn/typed-flow)
                     ;; An app-db schema is registered at a PATH. The row's
                     ;; `:failing-id` names the HANDLER whose write failed, so
                     ;; a link resolving through it would open the wrong form.

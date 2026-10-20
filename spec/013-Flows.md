@@ -70,11 +70,10 @@ Optional metadata keys (per the [001-Registration §Registration grammar](001-Re
 | Key | Meaning |
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
-| `:schema` | Malli schema for the output value, validated on every recompute in dev (see [§Flow output validation](#flow-output-validation)). |
 | `:sensitive` / `:large` / `:large?` | EP-0025 output data-classification declarations (see [§Flow output data classification](#flow-output-data-classification-ep-0025) and [015-Data-Classification](015-Data-Classification.md)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
-The `derive-fn` sits in the third (value) slot and the middle slot is a pure metadata map — documentation-DCE stays clean, and flows align with `reg-resource` / `reg-mutation` / `reg-route`. A `:derive` left INSIDE the metadata map is rejected loudly as a mislocated key (`:rf.error/invalid-flow-metadata`) — the third slot is `:derive`'s one home. Likewise a non-map metadata slot throws the same error before any reconstruction runs.
+The `derive-fn` sits in the third (value) slot and the middle slot is a pure metadata map — documentation-DCE stays clean, and flows align with `reg-resource` / `reg-mutation` / `reg-route`. A `:derive` left INSIDE the metadata map is rejected loudly as a mislocated key (`:rf.error/invalid-flow-metadata`) — the third slot is `:derive`'s one home. Likewise a non-map metadata slot throws the same error before any reconstruction runs. A `:schema` key is refused the same way: a flow's output shape is declared once, with `reg-app-schema` at its `:output-path` ([§Flow output validation](#flow-output-validation)).
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. Each path is read against the pending frame-state, whose two partitions select on the path's leading element — see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db). (For the map-keyed alternative, see [§Open questions](#open-questions).)
 
@@ -355,19 +354,18 @@ The whole flow trace surface, like the rest of trace, is compile-time eliminated
 
 ## Flow output validation
 
-A flow's optional `:schema` key (per [§The registration shape](#the-registration-shape)) declares a Malli schema for the **output value**. When present, the runtime validates the flow's computed `:derive` output against it on every recompute, during the flow-transform `:after` (after the handler body, before the `:db` install — per [§Drain integration](#drain-integration)). This is the same dev-time, pluggable-validator mechanism the rest of [010 §Schemas](010-Schemas.md) uses; the flows artefact reaches the registered validator/explainer through the `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn` late-bind hooks, so an app that omits the schemas artefact (or registers no validator) pays nothing and the check soft-passes.
-
-**Observational, not a rollback.** A flow `:schema` violation does **not** throw and does **not** unwind the write. This is distinct from a flow `:derive` *throw* (which aborts the whole event — [§Failure semantics](#failure-semantics)): a schema violation is a soft, dev-time diagnostic. The flow computed a value successfully; the value simply fails its declared shape. By the time a violation could be observed, downstream flows in the same drain may already have read the value as their input, so retroactively unwinding one flow's write mid-walk would leave an inconsistent pending `:db` effect. So the output **is** written into the pending effect and the run proceeds normally (the event still commits if no flow throws); the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:output-path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output — redacted whole to `:rf/redacted`, with the trace stamped `:sensitive? true`, when the frame's elision registry classifies anything in the output sensitive, since an explanation re-ships the checked value and is not path-anchored. Otherwise, when the registry classifies anything in the output large, `:explain` is replaced whole by a `:rf.size/large-elided` marker for the output at its `:output-path` and the trace is stamped `:large? true` — the [010 size-safety arm](010-Schemas.md#large--schema-driven-size-elision-nomination) with the registry as the classifier. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
+A flow carries no `:schema` of its own: `reg-flow` refuses the key with `:rf.error/invalid-flow-metadata`. Declare the output's shape once, with `reg-app-schema` at the flow's `:output-path`, like any other `app-db` slice:
 
 ```clojure
+(rf/reg-app-schema [:cart :total] [:int {:min 0}])   ;; output must be a non-negative integer
+
 (rf/reg-flow :cart/total
   {:inputs      [[:cart :subtotal] [:cart :discount-rate]]
-   :output-path [:cart :total]
-   :schema      [:int {:min 0}]}     ;; output must be a non-negative integer
+   :output-path [:cart :total]}
   (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0))))))
 ```
 
-Flow output validation is dev-only: it sits behind `re-frame.interop/debug-enabled?` and is compile-time eliminated in production builds. That is a fact about this surface, not about the validation surface at large. [C-000.35](000-Vision.md#contract--pattern-obligations) settles what may be elided by what the check is for rather than by who declared the schema it reads, and a `reg-flow` `:schema` is an ordinary registration diagnostic over the programmer's own flow — so it goes, while the checks the framework relies on to keep its own promises stay ([010 §Production builds](010-Schemas.md#production-builds) names them).
+The flow walk writes its outputs into the pending `:db` effect before the single deferred install ([§Drain integration](#drain-integration)), so the commit boundary validates the flow-augmented candidate ([010 §Per-step recovery](010-Schemas.md#per-step-recovery) row 4). An output that violates its schema therefore rejects the whole event — neither the handler's write nor the flow's installs — and reports `:rf.error/schema-validation-failure` with `:where :app-db` ([§Failure semantics](#failure-semantics)). The check is dev-only, like every `reg-app-schema` check ([010 §Production builds](010-Schemas.md#production-builds)).
 
 ## Sub integration
 

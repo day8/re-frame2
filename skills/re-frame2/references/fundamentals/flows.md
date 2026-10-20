@@ -39,8 +39,7 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 (rf/reg-flow :rectangle/area            ;; flow-id first; feature-prefixed (never :rf/*)
   {:inputs [[:width] [:height]]         ;; REQUIRED: vector of frame-state paths (bare = app-db)
    :output-path [:area]                 ;; REQUIRED: where the output is written — always app-db
-   :doc    "Rectangle area from :width and :height."   ;; optional
-   :schema [:int]}                      ;; optional Malli schema for the output
+   :doc    "Rectangle area from :width and :height."}  ;; optional
   (fn [w h] (* w h)))                   ;; pure derive fn: (in-1, in-2, ...) → output value
 
 (rf/make-frame {:id :scratch :flows [:rectangle/area]})
@@ -48,7 +47,7 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 (rf/clear :flow :rectangle/area)         ;; each frame running it vacates :output-path on its next event
 ```
 
-The 3-slot grammar is `(reg-flow flow-id metadata derive-fn)` — id first, the pure derive fn last, `metadata` carrying `:inputs` / `:output-path` (both required) plus optional `:doc` / `:schema`. A `:derive` or `:frame` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`). `:inputs` order matches the positional args to the derive fn. `reg-flow` returns the flow-id (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`), and so does clearing — as the one kind-keyed `(rf/clear :flow id)`, not a flows-specific name, and it takes no opts. There is no `flows/clear-flow` public var.
+The 3-slot grammar is `(reg-flow flow-id metadata derive-fn)` — id first, the pure derive fn last, `metadata` carrying `:inputs` / `:output-path` (both required) plus optional `:doc` and the classification keys. A `:derive`, `:frame` or `:schema` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`); the output's shape is declared with `reg-app-schema` at `:output-path`. `:inputs` order matches the positional args to the derive fn. `reg-flow` returns the flow-id (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`), and so does clearing — as the one kind-keyed `(rf/clear :flow id)`, not a flows-specific name, and it takes no opts. There is no `flows/clear-flow` public var.
 
 ## Activation — a frame runs the flows it names
 

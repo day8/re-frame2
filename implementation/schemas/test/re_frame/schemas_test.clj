@@ -71,9 +71,10 @@
       (rf/dispatch-sync [:user/probe "not-an-int"])
       (is (= [:before :after] @calls)))))
 
-(deftest sub-return-validation-fires-and-replaces-with-default
-  (testing "a sub return failing its :schema reads as nil on the reactive and
-            the pure path; the reactive trace carries the reaction's frame"
+(deftest sub-return-validation-fires-and-passes-the-value-through
+  (testing "a sub return failing its :schema is reported once and still reaches
+            its caller on the reactive and the pure path; the reactive trace
+            carries the reaction's frame"
     (rf/make-frame {:id :test/sub-frame})
     (rf/reg-event :items/init (fn [_ _] {:db {:items ["a" "b" "c"]}}))
     (rf/reg-event :items/break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])}))
@@ -84,9 +85,10 @@
     (is (= ["a" "b" "c"] (rf/subscribe-once [:items] {:frame :test/sub-frame})))
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:items/break] {:frame :test/sub-frame})
-      (is (nil? (rf/subscribe-once [:items] {:frame :test/sub-frame})))
-      (is (= #{:test/sub-frame} (set (map (comp :frame :tags) (failures traces))))))
-    (is (= [["a"] nil] [(rf/compute-sub [:items] {:items ["a"]})
+      (is (= [1 2 3] (rf/subscribe-once [:items] {:frame :test/sub-frame})))
+      (is (= [[:test/sub-frame :sub-return :no-recovery]]
+             (mapv (juxt (comp :frame :tags) (comp :where :tags) :recovery) (failures traces)))))
+    (is (= [["a"] [1]] [(rf/compute-sub [:items] {:items ["a"]})
                         (rf/compute-sub [:items] {:items [1]})]))))
 
 (deftest fx-args-validation-fires-and-skips-only-the-offending-fx
@@ -149,7 +151,7 @@
                :schema-id :user/strict
                :value [:user/strict "bad"] :received [:user/strict "bad"]}]
              [#(rf.schemas/validate-sub! :items [:items] [1 2] {:schema [:vector :string]})
-              :replaced-with-default
+              :no-recovery
               {:where :sub-return :rf.sub/id :items :failing-id :items :schema-id :items
                :rf.sub/query-v [:items] :value [1 2] :received [1 2]}]
              [#(rf.schemas/validate-fx! :my/fx :ev/origin {:x "bad"} {:schema [:map [:x :int]]})

@@ -3133,6 +3133,14 @@ That catches every alias form (`rf/`, `re-frame/`, `re-frame.core/`, and a bare 
 
 **Why:** one verb in the registrar's own `(kind, id)` grammar, instead of a per-kind name that had to be minted for each new registrar kind and was missing for five of them. The kind set is closed and an unknown kind fails closed with a message naming it, so a typo is caught at the call rather than silently clearing nothing.
 
+### M-78. A flow's `:schema` moves to `reg-app-schema` at its `:output-path`
+
+**Type A** (mechanical). `reg-flow` refuses a `:schema` key in its metadata map with `:rf.error/invalid-flow-metadata`. Declare the output's shape once, with `reg-app-schema` at the flow's `:output-path`: `(rf/reg-flow :cart/total {:inputs [[:cart :subtotal]] :output-path [:cart :total] :schema [:int {:min 0}]} derive-total)` becomes `(rf/reg-app-schema [:cart :total] [:int {:min 0}])` beside `(rf/reg-flow :cart/total {:inputs [[:cart :subtotal]] :output-path [:cart :total]} derive-total)`.
+
+**The semantics change.** The flow `:schema` only warned: the output was written and the event committed. The `reg-app-schema` check validates the flow-augmented candidate at the commit boundary, so an output that violates it now rejects the whole event, and neither the handler's write nor the flow's installs. The report is `:where :app-db`; `:where :flow-output` no longer exists. Both checks are dev-only.
+
+**What to look for.** A `:schema` key in a `reg-flow` metadata map. Each one fails registration with a message naming the flow's `:output-path`.
+
 ---
 
 ## Opt-in modernisation (only if asked)

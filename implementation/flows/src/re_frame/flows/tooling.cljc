@@ -45,7 +45,6 @@
   (let [source (flow-source-coords flow)]
     (cond-> node
       (some? source)           (assoc :source source)
-      (contains? flow :schema) (assoc :schema (:schema flow))
       (contains? flow :doc)    (assoc :doc (:doc flow))
       (contains? flow :derive) (assoc :derive (:derive flow)))))
 

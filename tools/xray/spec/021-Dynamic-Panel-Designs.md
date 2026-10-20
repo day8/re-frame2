@@ -3361,7 +3361,7 @@ carrying, top to bottom:
    the door that registration lives behind (rf2-1t8fn): `:app-db` reads
    `(re-frame.schemas/app-schema-meta {:frame f :path registered-path})`, at the
    registration ROOT rather than the failing leaf (per rf2-mg6ya and rf2-tspmp);
-   `:flow-output` reads `rf/handler-meta` for the `:flow` kind; every other emitted `:where`
+   every other emitted `:where`
    reads `rf/handler-meta` under the failing registration's own kind (see
    **Inline link → coord resolution** below for the full mapping). Missing coord →
    the link degrades to plain inline text inside the sentence
@@ -3440,8 +3440,8 @@ recovery row 3). The rollback-mute pass (§Rollback blast-radius
 mute below) handles the downstream-step opacity overlay.
 
 The emitted `:where` values with no template of their own —
-`:sub-override`, `:flow-output`, `:machine-data` and
-`:machine-output` — render the (fallback) row. The `:cofx` row is
+`:sub-override`, `:machine-data` and `:machine-output` —
+render the (fallback) row. The `:cofx` row is
 a template the producer no longer reaches (see **Inline link →
 coord resolution** below).
 
@@ -3464,8 +3464,6 @@ behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
   names a registration (rf2-tspmp). At the root the two are equal. A row
   without `:registered-path` falls back to `:path`. The row's `:failing-id`
   names the HANDLER whose write failed, so it is never consulted here.
-- `:flow-output` → `(rf/handler-meta {:frame f :kind :flow :id failing-id})` under
-  the violation's frame.
 - Every other emitted `:where` →
   `(rf/handler-meta {:source :store :kind <kind> :id failing-id})` under the kind of the
   registration the violation names: `:event` → `:event`; `:fx-args` → `:fx`;

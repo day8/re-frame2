@@ -320,9 +320,9 @@
 ;; point: an override HIT against a sub with an output `:schema` whose
 ;; pinned value violates it emits `:rf.error/schema-validation-failure`
 ;; with `:where :sub-override`, lands in the variant's per-frame trace
-;; buffer, and surfaces nil (spec/010 §Sub override). This section surfaces
-;; those failures honestly — an override the real derivation could never
-;; produce is reported, not silently shown. We reuse the schema-validation
+;; buffer, and still renders as pinned (spec/010 §Sub override). This section
+;; surfaces those failures honestly — an override the real derivation could
+;; never produce is reported rather than silently shown. We reuse the schema-validation
 ;; panel's projection so there is ONE failure-projection path.
 
 (defn sub-override-failures

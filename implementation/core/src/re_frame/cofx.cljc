@@ -616,7 +616,7 @@
   egress (the trace to every listener → MCP / log / story; the throw's ex-data
   is public error data). Route them through THE shared schema-aware redaction
   seam (`:schemas/redact-validation-tags`, the same one the boundary
-  interceptor / machine-`:data` / sub-override / flow-output emit sites use):
+  interceptor / machine-`:data` / sub-override emit sites use):
   when the `schema` declares any `:sensitive?` slot the value-bearing slots
   scrub to `:rf/redacted` and `:sensitive? true` is stamped; otherwise the
   slots ride verbatim. FAILS CLOSED — a recordable-value failure with a

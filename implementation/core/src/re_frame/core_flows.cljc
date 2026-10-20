@@ -31,7 +31,7 @@
   Per the canonical Spec 001 3-slot grammar: `(reg-flow
   flow-id metadata derive-fn)` — the pure `:derive` fn is the THIRD slot,
   the middle slot is the reflection-config metadata map (`:inputs`,
-  `:output-path`, `:doc`, `:schema`, EP-0025 classification keys). A
+  `:output-path`, `:doc`, EP-0025 classification keys). A
   single 3-slot arity only — `:inputs` /
   `:output-path` are mandatory, so (like `reg-route` / `reg-resource`)
   there is no 2-arity."
