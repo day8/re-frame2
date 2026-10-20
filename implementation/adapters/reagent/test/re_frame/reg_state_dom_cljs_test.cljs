@@ -56,7 +56,8 @@
       (is (re-find #"class=\"open\">Billing" html) "the written instance reads its value")
       (is (re-find #"class=\"shut\">Shipping" html)
           "its sibling reads the default — one concern, two keys, two values")
-      (is (re-find #"body of Billing" html)))))
+      (is (= 1 (count (re-seq #"class=\"body\"" html)))
+          "only the open instance renders its body"))))
 
 (deftest a-mounted-view-follows-writes-and-clears
   (if-not (browser?)
