@@ -726,6 +726,34 @@ Frames, subscriptions, dispatch, source metadata and registry ids work the same 
     (is (= 1 (count (:todos (rf/app-db-value f))))))
   ```
 
+### `reg-state`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-state concern) → concern
+  (reg-state concern opts) → concern
+  ```
+- **Description**: Registers per-instance view state for `concern`: one subscription and one setter event, both under `concern`, stored in `app-db` at `[:ui concern instance-key]`, plus the shared `:rf.state/clear` event that returns an instance to its default. It works the same under every view substrate. Use it for a value that means nothing beyond itself, such as a disclosure's open flag or a tab strip's selection; when a change must trigger something else or be recorded, write a named event instead.
+    - Read with `[concern instance-key]`, write with `[concern instance-key value]`, and clear with `[:rf.state/clear concern instance-key]`. An absent entry reads as `:default`.
+    - `concern` must be a namespace-qualified keyword, since it is a subscription id, an event id and an `app-db` key at once. `opts` takes only `:default`.
+    - The instance key is a keyword, string, number, UUID, or a vector of those; derive it from data, the way you would a React `:key`. `nil` is refused, because it is what a missing prop evaluates to and would make every instance share one value.
+    - Registering the same concern again replaces all three registrations, so the last `:default` wins.
+    - See [A widget's own state](../core/views.md#a-widgets-own-state), and for Fresco views [Application-visible state](../core/fresco/11-ephemeral-state.md#1-application-visible-state-app-db).
+- **Errors**:
+    - `:rf.error/state-bad-argument`, thrown by `reg-state`, for an unqualified concern, or options that are not a map or carry a key other than `:default`. The message names the fault.
+    - A bad instance key raises the same id inside the subscription or event, where the runtime catches it: a read emits `:rf.error/sub-exception` and reads `nil`, and a write or clear emits `:rf.error/handler-exception` and changes nothing.
+- **Example**:
+  ```clojure
+  (rf/reg-state :faq.ui/open? {:default false})
+
+  (rf/reg-view faq-entry [{:keys [id question answer]}]
+    (let [open? @(subscribe [:faq.ui/open? id])]
+      [:section
+       [:button {:on-click #(dispatch [:faq.ui/open? id (not open?)])} question]
+       (when open? [:p answer])]))
+  ```
+
 ## Effects and interceptors
 
 An event handler returns an effect map describing what should happen; the runtime applies it after the handler returns, so the handler stays pure. The interceptor chain runs before and after the handler.

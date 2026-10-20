@@ -456,7 +456,7 @@ underneath: `reg-state` for a bad `:control`, and
 | The button enables but the handler rejects, or the reverse | The two sites recompute validity independently | Materialise one gate; subscribe in the view and read the same db value in the handler |
 | Escape clears the field and the old draft returns on blur | A second draft copy exists outside the module | Keep one addressed draft. The module's trailing blur already no-ops after cancel |
 | Two fields overwrite one another's drafts | Their `:control` addresses collide | Include form instance and field identity, for example `[:todo id :title]` |
-| A buffered field reports `:rf.error/sub-exception` at its first render, with cause `:rf.error/fresco-state-bad-argument` | `:control` is missing or `nil` | Pass a stable address such as `[:todo id :title]` |
+| A buffered field reports `:rf.error/sub-exception` at its first render, with cause `:rf.error/state-bad-argument` | `:control` is missing or `nil` | Pass a stable address such as `[:todo id :title]` |
 | A buffered field shows text the application never wrote, such as autofill | A write from outside the application changed the input, and nothing the field reads moved | Advance `::h/revision` to reassert `:value` |
 | An external value update does not replace the active edit | Value changed under an equal revision | Advance the revision only when the application intends to replace the draft |
 | A late async acceptance overwrites newer work | An older reply settled after a newer commit, or the settle advanced the revision and discarded a draft begun while the request was pending | Execute the save under one mutation instance per field, so a newer commit supersedes the older reply; settle the value alone, and advance the revision only when the settled value should replace the draft |
@@ -493,7 +493,7 @@ successful save reply. Drafts live under the `forms/drafts`
 [state concern](11-ephemeral-state.md), keyed by `:control`; end one by clearing that address:
 
 ```clojure
-{:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}
+{:fx [[:dispatch [:rf.state/clear forms/drafts [:todo id :title]]]]}
 ```
 
 A form that may block navigation should derive `dirty?` from the same draft and

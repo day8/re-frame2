@@ -1,7 +1,7 @@
 (ns re-frame.fresco.state-dom-cljs-test
-  "`h/reg-state`, MOUNTED — two disclosures on one page.
+  "`rf/reg-state`, MOUNTED — two disclosures on one page.
 
-  [[re-frame.fresco.state-cljs-test]] proves the sugar against a real
+  [[re-frame.core-state-cljs-test]] proves the sugar against a real
   frame with no React at all, and says so: the DOM half is this file.
 
   1. **HD-028's memo bail-out still bails.** A parent re-render rebuilds
@@ -23,7 +23,7 @@
   Because a bad instance key is *recovered* rather than thrown (the
   sub body's throw is caught, fanned on the always-on error channel, and
   the read answers `nil`), the refusal row reads that channel — the same
-  reasoning [[re-frame.fresco.state-cljs-test]] sets out at length.
+  reasoning [[re-frame.core-state-cljs-test]] sets out at length.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
@@ -31,12 +31,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
+            [re-frame.core-state :as rf.core-state]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
-            [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
@@ -80,8 +80,8 @@
   (swap! !page-runs inc)
   [:div.page
    [:h1.chrome (str (rf.fresco.impl.collector/sub [label :page]))]
-   [disclosure {:key "billing"  :ikey (rf.fresco.impl.state/child-key :panel :billing)  :title "Billing"}]
-   [disclosure {:key "shipping" :ikey (rf.fresco.impl.state/child-key :panel :shipping) :title "Shipping"}]])
+   [disclosure {:key "billing"  :ikey (rf.core-state/child-key :panel :billing)  :title "Billing"}]
+   [disclosure {:key "shipping" :ikey (rf.core-state/child-key :panel :shipping) :title "Shipping"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -91,8 +91,8 @@
 
 (defn- fresh! []
   (rf.fresco.checkpoint-support/leave-act-environment!)
-  (rf.fresco.impl.state/reg-state open? {:default false})
-  (rf.fresco.impl.state/reg-state label {:default ""})
+  (rf/reg-state open? {:default false})
+  (rf/reg-state label {:default ""})
   (rf/make-frame {:id frame-id})
   (reset-runs!)
   (rf.fresco.test.runtime/reset-body-runs!)
@@ -167,7 +167,7 @@
             (let [refusals (->> @records
                                 (mapcat (juxt (comp ex-data :exception)
                                               (comp ex-data ex-cause :exception)))
-                                (filter #(= :rf.error/fresco-state-bad-argument
+                                (filter #(= :rf.error/state-bad-argument
                                             (:rf.error/id %))))]
               (is (seq refusals)
                   "a nil instance key refused — this is the guide's silent

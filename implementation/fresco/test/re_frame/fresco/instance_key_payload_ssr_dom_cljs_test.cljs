@@ -3,7 +3,7 @@
   [[re-frame.fresco.server]] — the package's counterpart of the bench
   prototype's `ssr/instance_key_payload_dom_cljs_test`.
 
-  [[re-frame.fresco/reg-state]] puts a widget's own state at
+  [[re-frame.core/reg-state]] puts a widget's own state at
   `[:ui ::concern ikey]`, which is APP-SPACE data — so whether it reaches
   the client is decided by the hydration payload policy and by nothing
   else. The obligation that follows:
@@ -88,10 +88,10 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
+            [re-frame.core-state :as rf.core-state]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
-            [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.fresco.server :as rf.fresco.server]
             [re-frame.test-support :as rf.test-support]))
@@ -122,7 +122,7 @@
 
 (def ^:private panels
   "The roster, as authored data. Instance keys are the `:id` values —
-  domain ids, per `impl.state`'s first taught rule, and stable across a
+  domain ids, per the first instance-key rule in Spec 002 §Per-instance view state, and stable across a
   server render and its client hydration because both read them from this
   same seeded value. Never a render-order index, never a counter, never
   `random-uuid`, never `useId`."
@@ -137,17 +137,17 @@
 
 (def ^:private state-path
   "Where the opened panel's flag sits — `[:ui ::open? \"billing\"]`, the
-  documented tier. Spelled through `impl-state/ui-root` so the witness
+  documented tier. Spelled through `rf.core-state/ui-root` so the witness
   asserts on the same vector the sugar writes rather than on a
   hand-spelled copy of it."
-  [rf.fresco.impl.state/ui-root open? open-key])
+  [rf.core-state/ui-root open? open-key])
 
 (rf/reg-sub ::panel-ids (fn [db _] (mapv :id (:panels db))))
 
 (rf/reg-sub ::panel-title
   (fn [db [_ id]] (some (fn [p] (when (= id (:id p)) (:title p))) (:panels db))))
 
-(rf.fresco/reg-state open? {:default false})
+(rf/reg-state open? {:default false})
 
 (rf.fresco/defview panel
   "A disclosure. It holds its own open flag under the instance key it was

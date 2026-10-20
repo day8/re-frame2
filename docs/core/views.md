@@ -242,6 +242,34 @@ registered parent builds with the injected `dispatch`, as the inputs above take
     `reg-view*` (API: [Views](../api/re-frame.core.md#views)).
     Full delta: [From re-frame v1](25-from-re-frame-v1.md).
 
+## A widget's own state
+
+A disclosure's open flag or a tab strip's selection belongs to one *instance* of a
+widget. Kept in an `r/atom` it is invisible to tools, tests and replay; kept at a
+hand-picked app-db path it is shared by every instance, so two disclosures open
+together. `rf/reg-state` gives each instance its own app-db address,
+`[:ui concern instance-key]`, through one ordinary subscription and one setter event:
+
+```clojure
+(rf/reg-state :faq.ui/open? {:default false})
+
+(rf/reg-view faq-entry [{:keys [id question answer]}]
+  (let [open? @(subscribe [:faq.ui/open? id])]
+    [:section
+     [:button {:on-click #(dispatch [:faq.ui/open? id (not open?)])} question]
+     (when open? [:p answer])]))
+```
+
+Each entry is keyed by its own `id`, so opening one opens one. To put an instance back
+to its default, dispatch `[:rf.state/clear :faq.ui/open? id]`. The concern is a
+namespace-qualified keyword, and the instance key is a keyword, string, number, UUID or
+a vector of those: derive it from data, the way you would a React `:key`. A `nil` key
+is refused, because it would make every instance share one value.
+
+`reg-state` is for a value that means nothing beyond itself. When a change must
+trigger something else or be recorded, write a named event instead. It works the same
+under UIx and Fresco (API: [`reg-state`](../api/re-frame.core.md#reg-state)).
+
 ## Views compute hiccup only
 
 Sorting, filtering, formatting, deriving and joining belong in a subscription. A view

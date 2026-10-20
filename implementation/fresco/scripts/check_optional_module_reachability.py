@@ -293,7 +293,7 @@ MODULES = [
         # NO ENGINE, for the `native` row's reason and not for a
         # different one.  This module owns exactly one file; everything
         # it reaches — `re-frame.events`, `re-frame.fx`, the public door
-        # and `impl.state` — is either core's or the SHARED runtime the
+        # and `re-frame.core-state` — is either core's or the SHARED runtime the
         # public door already leads to, so naming any of them here would
         # forbid the rest of the package its own machinery.
         #
@@ -937,13 +937,13 @@ def self_test():
     assert "`forms` module" in flagged[0], flagged
 
     # And the direction that must stay clean: the module reaching the
-    # public door and the shared `impl.state` is exactly how it is
+    # public door and core's `re-frame.core-state` is exactly how it is
     # written, and neither is an import OF the module.
     clean = scan(
         {
             "src/g.cljs": "(ns re-frame.fresco.forms\n"
             "  (:require [re-frame.fresco :as h]\n"
-            "            [re-frame.fresco.impl.state :as impl-state]))"
+            "            [re-frame.core-state :as rf.core-state]))"
         }
     )
     assert clean == [], clean

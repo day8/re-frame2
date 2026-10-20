@@ -65,7 +65,7 @@ what each one holds constant.
 
 - **No view-local state.** Each input's `:value` reads the draft from
   `:auth.login/draft`; the draft lives in app-db. There is no
-  `rf.fresco/reg-state` anywhere in this file, and nothing to keep in step.
+  `rf/reg-state` anywhere in this file, and nothing to keep in step.
 
 ## The boot, and the one place the frame is named
 

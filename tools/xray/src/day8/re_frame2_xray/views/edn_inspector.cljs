@@ -5256,7 +5256,7 @@
   this body would mint a fresh id per render and the widget would lose
   its expansion state on every pass.
 
-  `rf.fresco/reg-state` is the runtime's own answer to per-instance
+  `rf/reg-state` is the runtime's own answer to per-instance
   state, and reading it settles the question rather than leaving it open:
   it CONSUMES an instance key, it does not mint one. So the identity has
   to come from the caller. That is not a workaround — a React component's
@@ -5288,7 +5288,7 @@
   What this does NOT reach is two panels in ONE frame presenting one
   mount-id. A React function component has no per-instance storage a
   Fresco body may use — hooks do not belong in a body, and
-  `rf.fresco/reg-state` consumes an instance key rather than minting one —
+  `rf/reg-state` consumes an instance key rather than minting one —
   so nothing here can tell two structurally identical siblings apart. That
   case is the caller's to name, which is what the refusal below asks for.
 

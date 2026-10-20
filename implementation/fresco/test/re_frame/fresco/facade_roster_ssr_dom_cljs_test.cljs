@@ -1,16 +1,17 @@
 (ns re-frame.fresco.facade-roster-ssr-dom-cljs-test
-  "**Two facade names and their inventory rows** — dispositions.md
-  §2.1 row HS-40 (`h/route-link`) and §2.2 row HS-42 (`h/reg-state`).
+  "**Two public names and their inventory rows** — dispositions.md
+  §2.1 row HS-40 (`h/route-link`) and §2.2 row HS-42 (`rf/reg-state`).
 
   §3's second constraint says *a surface that reaches the facade without
   a row has escaped the inventory, and the Phase 4 exit silently stops
-  meaning anything*. Read against `re-frame.fresco`'s own alias block,
-  these two public names owe rows, and this file is the witness those
+  meaning anything*. Both names reach a Fresco page — `h/route-link`
+  through `re-frame.fresco`'s own alias block, `rf/reg-state` through
+  `re-frame.core` — so both owe rows, and this file is the witness those
   rows point at.
 
   ## The roster, derived MECHANICALLY
 
-  The facade's public roster is its three macros plus its alias block,
+  The facade's public roster is its four macros plus its alias block,
   and both are greppable, so no future re-run needs to read the file by
   eye. From the repository root:
 
@@ -19,7 +20,7 @@
       grep -nE '^ +[a-z][a-zA-Z0-9!?*<>=-]* +rf\\.fresco\\.impl\\.[a-z-]+/[a-zA-Z0-9!?*<>=-]+\\)+$' \\
         implementation/fresco/src/re_frame/fresco.cljc
 
-  That is 3 + 12 = 15 names. A name added tomorrow shows
+  That is 4 + 11 = 15 names. A name added tomorrow shows
   up in the second grep the day it lands, and §3's constraint says it
   owes a row.
 
@@ -31,7 +32,7 @@
   106 sites and licenses them to stay href-real and visible to the server
   renderer, and this file server-renders one.
 
-  **`h/reg-state` (HS-42)** is §2.2's, not §2.1's: the sugar mints no
+  **`rf/reg-state` (HS-42)** is §2.2's, not §2.1's: the sugar mints no
   node, and the value it puts on a page arrives through `h/sub` — so what
   a server render measures about it is HS-02's behaviour, not a
   behaviour of its own.
@@ -67,7 +68,6 @@
 
 (def ^:private panel-concern
   "`reg-state`'s concern for this file. Namespaced to this suite, because
-  `reg-state` refuses a re-registration under a DIFFERENT `:default` and
   the concern is a process-wide key in three registries at once."
   :fresco.facade-roster/panel-open?)
 
@@ -96,13 +96,13 @@
 
   Both registrations sit HERE rather than at the top level because the
   runtime reset between rows clears the routing artefact's own table.
-  Re-registering the concern under the SAME `:default` is the no-op
-  refresh `reg-state` documents, so the repetition is free."
+  Re-registering the concern replaces it with an identical registration,
+  so the repetition is free."
   ([] (fresh! frame-id "jane"))
   ([kw author]
    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
    (rf.routing/reg-route route-id {} "/profile/:username")
-   (rf.fresco/reg-state panel-concern {:default false})
+   (rf/reg-state panel-concern {:default false})
    (rf/make-frame {:id kw})
    (rf/with-frame kw (rf/dispatch-sync [:fresco.facade-roster/seed author]))
    kw))

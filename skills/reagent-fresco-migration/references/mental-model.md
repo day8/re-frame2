@@ -167,7 +167,7 @@ than spelling:
 
 | Reagent held it in | Fresco puts it |
 |---|---|
-| `(r/atom false)` for a toggle | app-db — `h/reg-state` mints the sub and the setter event for you |
+| `(r/atom false)` for a toggle | app-db — `rf/reg-state` mints the sub and the setter event for you |
 | Form-2 closure over a draft that commits on blur-or-Enter | `re-frame.fresco.forms/buffered-field`, whose draft lives in app-db in front of the committed value |
 | `component-did-mount` DOM work | a **callback ref** — React's own contract, a function at `:ref`, node as the argument |
 | `component-will-unmount` DOM cleanup | the **return value** of that same callback ref |

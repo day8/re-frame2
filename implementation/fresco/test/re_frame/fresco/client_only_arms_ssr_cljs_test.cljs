@@ -136,11 +136,10 @@
 
   `forms/drafts` is re-registered here rather than at the top level
   because the runtime reset between rows clears the state registry; a
-  repeat under the SAME `:default` is the no-op refresh `reg-state`
-  documents."
+  repeat replaces the registration with an identical one."
   [open?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.fresco/reg-state :re-frame.fresco.forms/drafts {:default nil})
+  (rf/reg-state :re-frame.fresco.forms/drafts {:default nil})
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:fresco.arms/seed open?]))
   frame-id)

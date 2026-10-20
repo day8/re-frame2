@@ -69,9 +69,9 @@
      "expectations": [
        "Recognises Form-2 / with-let view-held state (MIG-16) and does NOT silently rewrite the view.",
        "States that Fresco has NO view-local state tier at all — no local, no use-state, no cell — and that an atom in a defview body is re-allocated every render because the body is an anonymous fn React re-invokes; does not emit one.",
-       "Reasons about the real decision: product state or a UI flag → app-db, with h/reg-state as the sugar; a draft-and-commit control → re-frame.fresco.forms/buffered-field; state genuinely the DOM's → a callback ref or a React island.",
-       "For a simple open/closed flag, lands on app-db via h/reg-state rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
-       "If it shows h/reg-state, gets the shape right: a namespace-qualified concern, an optional {:default ...}, a parametric sub read as (h/sub [concern ikey]) and a setter event dispatched as [concern ikey v], stored under [:ui ::concern ikey].",
+       "Reasons about the real decision: product state or a UI flag → app-db, with rf/reg-state as the sugar; a draft-and-commit control → re-frame.fresco.forms/buffered-field; state genuinely the DOM's → a callback ref or a React island.",
+       "For a simple open/closed flag, lands on app-db via rf/reg-state rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
+       "If it shows rf/reg-state, gets the shape right: a namespace-qualified concern, an optional {:default ...}, a parametric sub read as (h/sub [concern ikey]) and a setter event dispatched as [concern ikey v], stored under [:ui ::concern ikey].",
        "Holds the WHOLE view until the decision is made (cardinal rule 2).",
        "Does not reach into the dataflow layer itself; it names what the author must write."
      ]},

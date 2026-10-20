@@ -686,48 +686,10 @@ stays.
 
 ## Local state
 
-### `reg-state`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (h/reg-state concern opts?) → concern
-  ```
-- **Description**: Registers per-instance UI state for `concern`: one parametric
-  subscription and one setter event, stored in `app-db` at
-  `[:ui concern instance-key]`, plus the shared `::h/clear` event that returns an
-  instance to its default. Returns `concern`. Use it for a value that means nothing
-  beyond itself, such as a disclosure's open flag or a tab strip's selection; when a
-  change must trigger something else or be recorded, write a named event instead.
-    - Read with `[concern instance-key]`, write with `[concern instance-key value]`,
-      and clear with `[::h/clear concern instance-key]`. An absent entry reads as
-      `:default`.
-    - `concern` must be a namespace-qualified keyword, since it is a subscription
-      id, an event id and an `app-db` key at once. `opts` takes only `:default`.
-    - The instance key is a keyword, string, number, or a vector of those; derive it
-      from data, the way you would a React `:key`. `nil` is refused, because it is
-      what a missing prop evaluates to and would make every instance share one
-      value.
-    - Registering the same concern again replaces all three registrations, so the
-      last `:default` wins.
-    - See [Application-visible state](../core/fresco/11-ephemeral-state.md#1-application-visible-state-app-db).
-- **Errors**:
-    - `:rf.error/fresco-state-bad-argument`, thrown by `reg-state`, for an
-      unqualified concern, or options that are not a map or carry a key other than
-      `:default`. The message names the fault.
-    - A bad instance key raises the same id inside the subscription or event, where
-      the runtime catches it: a read emits `:rf.error/sub-exception` and reads `nil`,
-      and a write or clear emits `:rf.error/handler-exception` and changes nothing.
-- **Example**:
-  ```clojure
-  (h/reg-state ::open? {:default false})
-
-  (h/defview panel [{:keys [id title]}]
-    (let [open? (h/sub [::open? id])]
-      [:section
-       [:button {:on-click [::open? id (not open?)]} title]
-       (when open? [panel-body {:id id}])]))
-  ```
+Per-instance view state is core's [`reg-state`](re-frame.core.md#reg-state), the
+same under Fresco as under every view substrate: a Fresco view reads a concern
+with `h/sub` and writes or clears it with an event vector. See [Application-visible
+state](../core/fresco/11-ephemeral-state.md#1-application-visible-state-app-db).
 
 ## Optional modules
 
@@ -847,7 +809,7 @@ because React calls it with no frame in scope.
 
 ## Marker keywords
 
-`::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and `::h/clear` are
+`::h/value`, `::h/prevent`, `::h/revision` and `::h/checked` are
 keywords in the `re-frame.fresco` namespace; with this namespace aliased as `h`,
 write them as shown. See [Read values from the browser
 event](../core/fresco/03-events-as-data.md#read-values-from-the-browser-event),
@@ -861,7 +823,6 @@ and [Reset with `::h/revision`](../core/fresco/04-controlled-inputs.md#reset-wit
 | `::h/checked` | inside an event vector | replaced by the target's checked flag |
 | `::h/prevent` | as an event vector's head, wrapping another vector | calls `preventDefault`, then dispatches the wrapped vector: `[::h/prevent [:filter/show-done]]`. It wraps exactly one non-empty event vector and does not nest; anything else raises [`:rf.error/fresco-malformed-prevent`](../core/fresco/troubleshooting.md#fresco-malformed-prevent) |
 | `::h/revision` | a prop on a controlled `<input>` or `<textarea>` | a change resets the field to its `:value`, even when `:value` itself did not change. On any other native element it raises `:rf.error/fresco-revision-not-controlled`; at a view it is an ordinary prop |
-| `::h/clear` | as an event id | `[::h/clear concern instance-key]` removes a `reg-state` instance, back to its default |
 
 Substitution looks only at the top level of the vector: `[:todo/edit id ::h/value]`
 works, and a marker nested in a map or an inner vector is left as it is.

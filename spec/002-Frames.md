@@ -593,6 +593,24 @@ Host handles remain **outside** frame-state. Timers, AbortControllers, listeners
 - Framework subscriptions read **runtime-db** through framework helpers: `[:rf/machine :door/main]`, `[:rf.route/id]`, `[:rf.route/params]`. App code uses these public subs; it does not reach into runtime-db paths directly.
 - A sub composed from both partitions reruns when either input changes; the projection-equality model (above) makes runtime-only changes visible to framework subs and invisible to app subs, and vice versa.
 
+#### Per-instance view state
+
+A widget instance's own state — a disclosure's open flag, a tab strip's selection, a row's draft text — is ordinary app-db data at a per-instance address, registered with `rf/reg-state`. It is a registration convention with refusals, not a mechanism: it adds no frame state, no hook and no view-substrate dependency, so it behaves the same under every view substrate and on both hosts.
+
+```clojure
+(rf/reg-state :todo.ui/expanded? {:default false})
+@(rf/subscribe [:todo.ui/expanded? id])                ;; read
+(rf/dispatch [:todo.ui/expanded? id true])             ;; write
+(rf/dispatch [:rf.state/clear :todo.ui/expanded? id])  ;; back to the default
+```
+
+- **The address law.** A concern's value for one instance lives in app-db at `[:ui concern instance-key]`. `:ui` is an app-space root, never `:rf/*`: the state is the application's own data, which an ordinary handler MAY read and write. Concern first, so `[:ui concern]` is one inspectable map of every instance; app-db is per-frame, so one concern and key in two frames are two values.
+- **The registration.** `(reg-state concern)` / `(reg-state concern opts)` registers a sub under `concern` — `[concern instance-key]` reads the address, or `:default` when the entry is absent — and a setter event under `concern` — `[concern instance-key value]` writes it — through the ordinary `reg-sub` / `reg-event` doors, and returns `concern`. `concern` MUST be a namespace-qualified keyword, because it is a sub id, an event id and an app-db key at once. `opts` MAY carry `:default` and nothing else. Re-registering replaces both registrations, so the last `:default` wins.
+- **Instance keys.** An instance key MUST be a keyword, string, number, UUID, or a vector of those (recursively); `nil` is refused, because it is what a missing prop or a forgotten argument evaluates to, and as a key it makes every instance share one value. The key is checked at read, write and clear alike. Derive it from data, never from render order, a counter or `random-uuid`, so a server render and its hydration agree on it: a domain id first; an entity-qualified id value (`[:order/id 42]`) when one widget serves several entity types; a placement for a placement-like concern ("is this panel open?") and an entity for a value-like one ("this order's draft"). A nested widget extends its parent's vector key by one element.
+- **Clear is explicit, and an event.** `[:rf.state/clear concern instance-key]`, registered once and shared by every concern, removes the entry — pruning an emptied concern map — so the instance reads its `:default` again. There is no sentinel value: any value, a keyword included, is an ordinary value the setter stores. Nothing clears an entry implicitly (not an unmount, not a navigation), so an entry that should end has an owner that dispatches the clear.
+- **Refusals.** An unqualified concern, options that are not a map or carry another key, and a bad instance key raise `:rf.error/state-bad-argument` ([009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). A registration refusal throws to the caller; a bad key inside a read or a write is caught by the runtime as that sub's or handler's exception.
+- **When to write the event instead.** A change that means more than "this slot now holds that value" — one that must trigger something else, or be recorded as what happened — is a named domain event and its subscription, written by hand.
+
 #### Frame-state value accessors and mutators
 
 | Surface | Returns / does |

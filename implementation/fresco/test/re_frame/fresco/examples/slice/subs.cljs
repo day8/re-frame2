@@ -9,20 +9,19 @@
   the tree and no adapter subsystem — [[t]] and [[token]] are two
   layer-2 subs over one layer-1 read each.
 
-  ## Why `h/reg-state` is here rather than in `events`
+  ## Why `rf/reg-state` is here rather than in `events`
 
-  [[re-frame.fresco/reg-state]] registers a sub AND an event under one
+  [[re-frame.core/reg-state]] registers a sub AND an event under one
   concern keyword; it is a naming convention with refusals, not a
   feature. It lives beside the hand-written subs because that is where a
   reader looks for *what can this page read* — and because the pair it
   mints is exactly the pair the two files below would otherwise both
   hold half of.
 
-  It is the ONE place this namespace touches the Fresco door. The
-  `re-frame.core` subs above it know nothing about a view substrate."
+  Like every sub above it, it knows nothing about a view substrate: this
+  namespace never touches the Fresco door."
   (:refer-clojure :exclude [t])
   (:require [re-frame.core :as rf]
-            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
             [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]))
 
@@ -154,10 +153,10 @@
 (def tags-open?
   "Whether one feed row has its tags revealed.
 
-  `h/reg-state` mints the sub and the setter together under `[:ui
+  `rf/reg-state` mints the sub and the setter together under `[:ui
   ::tags-open? slug]`, which is the whole reason to reach for it: the
   bug it deletes is the one where every row on the page shares a single
   `[:ui :tags-open?]` flag and they all open at once. The instance key
   is the article's slug — a domain id, which is the rule the sugar
   teaches and does not police."
-  (rf.fresco/reg-state ::tags-open? {:default false}))
+  (rf/reg-state ::tags-open? {:default false}))
