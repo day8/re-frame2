@@ -211,6 +211,7 @@ Node's `react-dom/server`.
 
 (server/render opts)
 (server/render-body opts)
+(server/node-module opts)
 (server/payload-script payload-edn)
 (server/document {:html h :payload-script s :app-element-id id
                   :script-src src :title t})
@@ -253,6 +254,16 @@ and its boot events. `opts` takes `:hiccup` and `:render-state` (both required;
 plus `:identifier-prefix` and `:frame-opts` as above. It runs no
 `:initial-events`, seeds no `:snapshot`, and returns the HTML string. A render
 that recorded an error raises as `render` does.
+
+`server/node-module` returns the render module a Node render sidecar loads, to
+name as the server build's `:exports-var`. Its `render` reads the request's
+state back and answers `server/render-body`'s markup. `opts` takes `:build-id`
+and `:entries` (both required: the bundle's identity string and the entry ids a
+host may name), `:hiccup`, `:identifier-prefix` and `:frame-opts` as
+`render-body` takes them, and `:boot`, a zero-arg fn run once per isolate that
+seats the substrate, such as `#(rf/init! rf.fresco.substrate/adapter)`. There
+is no default `:boot`. [Render on Node](../../ssr/concepts.md#2-write-the-render-module)
+shows a whole bundle.
 
 The other two help a host that post-processes `server/render`'s result.
 `server/payload-script` takes an **EDN string**, such as `(pr-str payload)`,
