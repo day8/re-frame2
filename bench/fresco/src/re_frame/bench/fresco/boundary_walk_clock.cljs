@@ -9,7 +9,7 @@
 
   ## What a row is
 
-  One PARENT RENDER's element build: `codec/as-element` over the hiccup a
+  One PARENT RENDER's element build: `rf.fresco.impl.codec/as-element` over the hiccup a
   parent body returns, with every boundary head memoised the way
   `defview` memoises one. Nothing is mounted, so no child body runs —
   which is exactly a child whose memo bails out, the case where the
@@ -23,7 +23,7 @@
   - **dogfood row** — `{:id :title :done?}`, the small-props shape, so a
     change that saves on collections is seen not to cost on the common
     small call.
-  - **walk only** — `codec/realize-deep` over the collection, for
+  - **walk only** — `rf.fresco.impl.codec/realize-deep` over the collection, for
     attribution: the share of a forward row that is the walk.
 
   Rows are vectors of `{:id :title :done?}` maps — a collection read out
@@ -37,7 +37,7 @@
   after one discarded warm-up round. Microseconds per parent render,
   median and best of the rounds. A diagnostic, not a gate row: nothing
   here is a threshold."
-  (:require [re-frame.fresco.impl.codec :as codec]))
+  (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]))
 
 (def ^:private reps 400)
 (def ^:private rounds 15)
@@ -48,7 +48,7 @@
   [nm]
   (let [f (fn [_js-props] nil)]
     (unchecked-set f "displayName" nm)
-    (codec/memoize-boundary! (codec/mark-boundary! f))))
+    (rf.fresco.impl.codec/memoize-boundary! (rf.fresco.impl.codec/mark-boundary! f))))
 
 (def ^:private a (mint "boundary-walk-clock/a"))
 (def ^:private b (mint "boundary-walk-clock/b"))
@@ -67,17 +67,17 @@
   [n]
   (let [rs (rows n)]
     [[(str "forward, " n " rows")
-      (fn [] (codec/as-element [a {:rows rs}]))]
+      (fn [] (rf.fresco.impl.codec/as-element [a {:rows rs}]))]
      [(str "forward x3, " n " rows")
-      (fn [] (codec/as-element [:div [a {:rows rs}] [b {:rows rs}] [c {:rows rs}]]))]
+      (fn [] (rf.fresco.impl.codec/as-element [:div [a {:rows rs}] [b {:rows rs}] [c {:rows rs}]]))]
      [(str "forward + children, " n " rows")
-      (fn [] (codec/as-element [a {:rows rs} [:span "one"] [:span "two"]]))]
+      (fn [] (rf.fresco.impl.codec/as-element [a {:rows rs} [:span "one"] [:span "two"]]))]
      [(str "walk only, " n " rows")
-      (fn [] (codec/realize-deep rs))]]))
+      (fn [] (rf.fresco.impl.codec/realize-deep rs))]]))
 
 (def ^:private dogfood
   ["dogfood row {:id :title :done?}"
-   (fn [] (codec/as-element [a {:id 7 :title "milk" :done? false}]))])
+   (fn [] (rf.fresco.impl.codec/as-element [a {:id 7 :title "milk" :done? false}]))])
 
 (defn- now [] (.now js/performance))
 
