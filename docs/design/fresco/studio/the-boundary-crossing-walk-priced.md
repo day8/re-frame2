@@ -83,3 +83,40 @@ inside it costs, which is why both tables are quoted as ratios. Pinned by
 `realize-deep-walks-map-keys-without-disturbing-the-map`,
 `realize-deep-reaches-a-lazy-seq-at-a-key-position-too` and
 `the-keyword-key-short-circuit-skips-only-a-provable-no-op`.
+
+## 3. Every prop, or `:children` alone
+
+The walk runs in the parent's render, before the child's memo is consulted, so a
+forwarded collection pays for it on every parent render even when the child bails
+out. Bead `rf2-ifu4i` priced the narrower contract — deep-realise `:children`
+only, pass every other prop as given — on the SHIPPING codec, with the committed
+clock `bench/fresco/src/re_frame/bench/fresco/boundary_walk_clock.cljs` (driver
+`boundary_walk_clock_run.cjs` beside it): a release build (`:simple`,
+`goog.DEBUG` false) under Node 24, 400 builds per round, 15 interleaved rounds,
+medians in microseconds per parent render. Rows are vectors of
+`{:id :title :done?}` maps. Arm A is the walk as it ships, arm B the
+children-only prototype, arm C the shipping walk behind a `WeakSet` of
+collections already walked. Run-to-run spread on the measuring machine was about
+±15%; a repeat of arm A read 167 µs and 556 µs for the two 1,000-row forwards.
+
+| shape | A: every prop | B: `:children` only | C: identity cache |
+|---|---|---|---|
+| `{:id :title :done?}` — the dogfood row | 1.40 | 1.00 | 2.23 |
+| forward 100 rows, one hand-off | 18.95 | 0.96 | 2.01 |
+| forward 100 rows, three hand-offs | 50.06 | 4.44 | 10.77 |
+| forward 1,000 rows, one hand-off | 152.77 | 0.89 | 1.91 |
+| forward 1,000 rows, three hand-offs | 462.93 | 3.94 | 9.49 |
+| the walk alone over 1,000 rows | 144.33 | — | — |
+
+The walk is over 90% of a forwarded collection's hand-off, and B removes it.
+**B was not adopted.** Its saving is about 0.15 µs per row per hand-off, which
+reaches half a millisecond only at a thousand rows crossing three boundaries in
+one render. Its cost is a silent fault in the commonest idiom: a `for` over reads,
+or a `delay`, handed under any prop other than `:children` would be forced in the
+child, filed under the child's edges and frozen by its cache, and the one loud
+refusal (`:rf.error/fresco-deferred-read-at-boundary`) would no longer reach it.
+C keeps the contract and recovers most of B's saving on a collection that crosses
+unchanged, but adds a `WeakSet` insertion for every fresh props map, so the
+dogfood row — the commonest call — pays about 60% more. Pinned by
+`a-lazy-seq-under-any-prop-is-forced-in-the-body-that-wrote-it` in
+`re-frame.fresco.read-extent-cljs-test`.

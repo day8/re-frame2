@@ -1270,16 +1270,23 @@
   diverges here rather than in the child, as `clj->js` already makes one
   do at a native prop position.
 
-  Run once at the boundary hand-off (`boundary-element`), the one
-  position the eager codec's walk does not otherwise reach: a lazy seq that
-  crossed unrealised would be forced inside the child's render,
-  attributed to the child, and — because a `LazySeq` caches — frozen
-  after the child's first re-render. A lazy seq is structure and may be
-  forced; a `delay` is an explicit deferral and may not. Cost: 6% of the
-  dogfood row's element build, 89% at a 100-row collection prop and
-  still 4.7x cheaper than that collection's `clj->js` at a native prop;
-  walking keys unconditionally would add 51–67% to the walk, the `keyword?`
-  short-circuit adds 0.2–2.8% of the element build
+  Run once at the boundary hand-off (`boundary-element`), over EVERY prop
+  and not `:children` alone — the one position the eager codec's walk
+  does not otherwise reach: a lazy seq that crossed unrealised would be
+  forced inside the child's render, attributed to the child, and —
+  because a `LazySeq` caches — frozen after the child's first re-render.
+  A lazy seq is structure and may be forced; a `delay` is an explicit
+  deferral and may not.
+
+  Cost, on this codec in a release build
+  (bench/fresco/src/re_frame/bench/fresco/boundary_walk_clock.cljs): a
+  forwarded vector of 100 small maps is ~17 µs of a ~19 µs hand-off, and
+  1,000 of them ~145 µs of ~155 µs, paid in the parent's render even when
+  the child's memo bails out. Walking `:children` alone would make either
+  hand-off ~1 µs, and is not done because a lazy seq or `delay` carrying
+  reads under any other prop would then be forced in the child and frozen
+  there, silently. Walking keys unconditionally would add 51–67% to the
+  walk; the `keyword?` short-circuit adds 0.2–2.8% of the element build
   (docs/design/fresco/studio/the-boundary-crossing-walk-priced.md).
   Argument: docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md."
   [v]
