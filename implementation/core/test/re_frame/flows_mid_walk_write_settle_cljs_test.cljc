@@ -1,22 +1,24 @@
 (ns re-frame.flows-mid-walk-write-settle-cljs-test
   "Spec 013 §Sequencing — a `:fx` walk that writes frame state settles the
-  frame's flows.
+  frame's flows inside the same event.
 
   The flow pass runs before the `:fx` walk, so an effect that writes
   runtime-db — the machine lifecycle effects `:rf.machine/destroy` and
   `:rf.machine/spawn`, or any fx calling `re-frame.frame/swap-runtime-db!` —
   writes after it. When the walk leaves the frame's state container
-  non-`identical?` and the frame runs a flow, the walk enqueues one
-  head-inserted settle; otherwise it enqueues none. The settle is keyed on the
-  container, not on a list of writers, so the test-local `:p/write-snapshot`
-  effect stands for every writer.
+  non-`identical?` and the frame runs a flow, the event runs the flow pass
+  again over the post-walk state and installs its outputs before it ends: one
+  event, one epoch, and every flow fresh before any queued continuation runs.
+  The settle is keyed on the container, not on a list of writers, so the
+  test-local `:p/write-snapshot` effect stands for every writer.
 
-  Lives in core's test tree because only core's `:test` classpath carries both
-  the machines and the flows artefacts."
+  Lives in core's test tree because only core's `:test` classpath carries the
+  machines, flows and epoch artefacts together."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.epoch :as rf.epoch]
    [re-frame.event-emit :as rf.event-emit]
    ;; Loaded for their late-bind hooks: without them no flow registers or
    ;; runs, and `reg-machine` and the lifecycle effects do not resolve.
@@ -37,6 +39,8 @@
 
 (defn- db [] (rf/app-db-value :rf/default))
 
+(defn- epochs [] (count (rf.epoch/epoch-history :rf/default)))
+
 (defn- call-counting-runs
   "Run `(f runs)` with `runs` recording the id of every processed event. It
   listens on the always-on event-emit stream because traces are compiled out
@@ -51,8 +55,6 @@
       (f runs)
       (finally
         (rf.event-emit/unregister-event-listener! ::run-recorder)))))
-
-(defn- settles [runs] (count (filter #{:rf/settle-flows} @runs)))
 
 (defn- reg-write-snapshot-fx!
   "`[:p/write-snapshot [path value]]` writes `value` at `path` inside machine
@@ -86,9 +88,9 @@
   (rf/dispatch-sync [:pm/m [:go]])
   (rf/dispatch-sync [:pm/m [:go]]))
 
-(deftest a-write-on-a-frame-with-flows-settles-exactly-once
+(deftest a-write-on-a-frame-with-flows-settles-inside-its-event
   (testing "one walk with two snapshot writes leaves both flows fresh after the
-            one dispatch, through exactly one settle"
+            one dispatch, as one event and one epoch"
     (reg-machine-and-flows!)
     (reg-write-snapshot-fx!)
     (rf/reg-event :p/two-writes
@@ -97,14 +99,15 @@
               [:p/write-snapshot [[:data :note] "x"]]]}))
     (call-counting-runs
       (fn [runs]
-        (rf/dispatch-sync [:p/two-writes])
-        (is (= {:mstate :busy :mnote "x"} (select-keys (db) [:mstate :mnote])))
-        (is (= [:p/two-writes :rf/settle-flows] @runs))))))
+        (let [before (epochs)]
+          (rf/dispatch-sync [:p/two-writes])
+          (is (= {:mstate :busy :mnote "x"} (select-keys (db) [:mstate :mnote])))
+          (is (= [:p/two-writes] @runs))
+          (is (= 1 (- (epochs) before))))))))
 
 (deftest a-continuation-queued-before-spawn-sees-the-newborn
   (testing "a `:dispatch` placed before `:rf.machine/spawn` reads the newborn's
-            flow: the spawn's bootstrap dispatch is FIFO behind it, so only the
-            head-inserted settle can refresh the flow first"
+            flow, and the spawn adds no event and no epoch of its own"
     (rf/reg-machine :m/child {:initial :born :states {:born {}}})
     (rf/reg-flow :pf/child
       {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :c/one :state]]
@@ -117,10 +120,20 @@
       (fn [_ _]
         {:fx [[:dispatch [:p/record-child]]
               [:rf.machine/spawn {:machine-id :m/child :fixed-actor-id :c/one}]]}))
-    (rf/dispatch-sync [:p/spawn])
-    (is (= :born (:child-seen (db))))))
+    (call-counting-runs
+      (fn [runs]
+        (let [before (epochs)]
+          (rf/dispatch-sync [:p/spawn])
+          (is (= :born (->> (rf.epoch/epoch-history :rf/default)
+                            (filter #(= :p/spawn (:event-id %)))
+                            first :db-after :cstate))
+              "the spawning event's own epoch holds the fresh flow, so a restore to it is consistent")
+          (is (= :born (:child-seen (db))))
+          ;; The spawn's bootstrap event is the machine's own dispatch.
+          (is (= [:p/spawn :p/record-child :c/one] @runs))
+          (is (= (count @runs) (- (epochs) before)) "one epoch per event"))))))
 
-(deftest walks-that-write-no-frame-state-enqueue-no-settle
+(deftest walks-that-write-no-frame-state-run-no-second-pass
   (testing "a `{:fx [[:dispatch ...]]}` walk on a frame with flows"
     (reg-machine-and-flows!)
     (rf/reg-event :p/noop (fn [_ _] {}))
@@ -144,15 +157,24 @@
     (rf/make-frame {:id :rf/default :flows [:pf/state :pf/note :pf/timed]})
     (rf/dispatch-sync [:pm/timed [:go]])
     (rf/dispatch-sync [:pm/timed [:go]])
-    (call-counting-runs
-      (fn [runs]
-        (rf/dispatch-sync [:pm/timed [:go]])
-        (is (= :busy (:tstate (db))) "fresh after the transition")
-        (is (pos? (count @runs)) "control — the recorder saw the transition")
-        (is (zero? (settles runs)))))))
+    (let [visits (atom 0)]
+      (rf/register-listener! :trace ::visits
+        (fn [ev]
+          (when (and (= :pf/timed (get-in ev [:tags :flow-id]))
+                     (#{:rf.flow/computed :rf.flow/skip} (:operation ev)))
+            (swap! visits inc))))
+      (try
+        (call-counting-runs
+          (fn [runs]
+            (rf/dispatch-sync [:pm/timed [:go]])
+            (is (= :busy (:tstate (db))) "fresh after the transition")
+            (is (pos? (count @runs)) "control — the recorder saw the transition")
+            (is (= (count @runs) @visits) "one flow pass per event")))
+        (finally
+          (rf/unregister-listener! :trace ::visits))))))
 
 (deftest a-frame-with-no-flows-pays-nothing
-  (testing "a mid-walk write on a frame running no flows enqueues no settle"
+  (testing "a mid-walk write on a frame running no flows runs no flow pass"
     (rf/reg-machine :pm/m
       {:initial :idle :states {:idle {:on {:go :busy}} :busy {:on {:go :idle}}}})
     (reg-write-snapshot-fx!)
