@@ -3343,7 +3343,7 @@ carrying, top to bottom:
    below for the full per-`:where` table):
    - `:app-db` with `:rollback? true` → `Aborted`
    - `:fx-args` → `Skipped`
-   - `:sub-return` → `Returned nil`
+   - `:sub-return` → `Passed through`
    - `:event` → `Rejected`
    - `:cofx` → `Skipped`
    - `:hot-reload` → `logged + skipped` (the chip text is still
@@ -3427,7 +3427,7 @@ degrade keeps the sentence readable):
 |---------------|-----------------|------------------------------------------------------------------------------------------------------|
 | `:app-db`     | `Aborted`*      | "This value failed a `schema check` and can't be committed to app-db."                              |
 | `:fx-args`    | `Skipped`       | "fx aborted because args failed the `schema check`."                                                |
-| `:sub-return` | `Returned nil`  | "This sub returned nil because its value failed the `schema check`."                                |
+| `:sub-return` | `Passed through` | "This sub's value failed the `schema check` and was passed through to its consumers."               |
 | `:event`      | `Rejected`      | "This event was rejected because its payload failed the `schema check`."                            |
 | `:cofx`       | `Skipped`       | "This handler was skipped because the coeffect failed the `schema check`."                          |
 | `:hot-reload` | `logged + skipped` | "A schema re-registration invalidated existing app-db state. See `schema check` for the new shape." |
@@ -3438,6 +3438,12 @@ carries `:rollback? true` (the runtime aborted the cascade and
 rolled `:db` back to its pre-handler value — Spec 010 §Per-step
 recovery row 3). The rollback-mute pass (§Rollback blast-radius
 mute below) handles the downstream-step opacity overlay.
+
+The `:sub-return` chip reads `Passed through` because a sub whose
+value fails its schema is reported and still delivers that value to
+its consumers ([Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery)
+row 6). A sub yields nil only when its body throws, and that is
+`:rf.error/sub-exception`, not a schema violation.
 
 The emitted `:where` values with no template of their own —
 `:sub-override`, `:machine-data` and `:machine-output` —
