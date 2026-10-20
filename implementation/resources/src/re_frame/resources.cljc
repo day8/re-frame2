@@ -1,51 +1,20 @@
 (ns re-frame.resources
-  "Resources — declarative server-state as a runtime-managed read model
-  over a frame work ledger. Per Spec 016.
-
-  A resource is a named, cached read of remote or external state.
-  `reg-resource` registers it; views read it through PASSIVE subscriptions
-  (`[:rf/resource …]`); route entry, events, and machines CAUSE it
-  to fetch. The resource runtime owns identity, cache scope, staleness,
-  dedupe, invalidation, GC, in-flight ownership, SSR hydration, and tool
-  metadata, so an app stops re-implementing that bookkeeping per feature.
+  "Resources: declarative server-state as a runtime-managed read model over a
+  frame work ledger. Spec 016 §Abstract.
 
   This namespace is the **public boot point and façade** for the
   resources artefact: apps boot it with `(:require [re-frame.resources])`.
   Doing so transitively loads every concern sibling under
   `re-frame.resources.*` and runs the registrations at the bottom of this
-  file:
+  file. They live here, not in the siblings, so a
+  `(require 're-frame.resources :reload)` on a fresh registrar re-wires every
+  handler.
 
-  - `re-frame.resources.state`           — reserved runtime-db paths, durable shapes, the host-side generation allocator, framework-write-authority stamp
-  - `re-frame.resources.registry`        — `reg-resource` / `clear-resource` + the `:resource` registrar kind + registry introspection
-  - `re-frame.resources.transport`       — the transport-neutral lower seam
-  - `re-frame.resources.transport.http`  — the `:rf.http/managed` lowering
-  - `re-frame.resources.events`          — the `:rf.resource/*` causal event handlers (+ internal replies)
-  - `re-frame.resources.subs`            — the `:rf.resource/*` passive subs
-  - `re-frame.resources.route`           — LATE-BOUND routing integration (`:resources` route-metadata key)
-  - `re-frame.resources.ssr`             — LATE-BOUND SSR/hydration projection
-
-  The registrations live HERE (not in the siblings) so a
-  `(require 're-frame.resources :reload)` on a fresh registrar
-  (`clear-all!` test fixture) re-wires every handler — the consumer-test
-  pattern, mirroring `re-frame.routing` /
-  `re-frame.machines`.
-
-  ## Optionality + bundle isolation
-
-  This is an optional artefact
-  (`day8/re-frame2-resources`). `re-frame.core` MUST NOT `:require` it; the
-  public-API surface is published through the late-bind table, so an app
-  that omits the artefact sees the wrappers throw a clean
-  `:rf.error/resources-artefact-missing`. Managed HTTP is the one read
-  transport, so this namespace requires `re-frame.http.managed` (the artefact
-  depends on `day8/re-frame2-http`) and loading it registers
-  `:rf.http/managed`. The routing + SSR integrations are LATE-BOUND
-  (resources never statically `:require`s routing / ssr), so an app that
-  loads resources but not those optional artefacts carries none of their
-  code. Nothing here `:require`s from `tools/`.
-
-  Loading this namespace registers the complete resource and mutation event,
-  subscription, effect, and integration surface."
+  The artefact is optional: `re-frame.core` must not `:require` it and reaches
+  it through the late-bind table, so an app without it gets
+  `:rf.error/resources-artefact-missing`. Routing and SSR integrations are
+  late-bound too, so an app that omits those artefacts carries none of their
+  code."
   (:require [re-frame.cofx :as rf.cofx]
             [re-frame.error :as rf.error]
             [re-frame.events :as rf.events]
@@ -69,102 +38,43 @@
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.subs :as rf.resources.subs]
             [re-frame.resources.timers :as rf.resources.timers]
-            ;; The OFF-BOX trace-row egress projector for
-            ;; the resource/mutation trace family's scoped-key slots. A
-            ;; production-reachable ns (NOT the bundle-isolated tooling sibling)
-            ;; so the `:resources/project-resource-trace-egress` hook below is
-            ;; published on BOTH runtimes whenever resources is loaded — the
-            ;; epoch tool-pair consults it on every off-box record projection.
+            ;; Production-reachable (unlike `tooling`), so the off-box trace
+            ;; egress hooks below are published on both runtimes.
             [re-frame.resources.trace-egress :as rf.resources.trace-egress]
-            ;; No require of `re-frame.resources.tooling` on EITHER runtime:
-            ;; the facade reaches the bundle-isolated tooling sibling on
-            ;; neither runtime. JVM tools, CLJS consumers and conformance
-            ;; fixtures name `re-frame.resources.tooling/<name>` directly.
+            ;; `re-frame.resources.tooling` is deliberately not required: it
+            ;; is bundle-isolated, and its consumers name it directly.
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- public-surface re-exports --------------------------------------------
-;; These `def`s make the sibling fns reachable as
-;; `re-frame.resources/<name>` so consumers (the `re-frame.core` late-bind
-;; bridge, conformance, tests, examples) see one surface.
+;; There are no `clear-*`, `*-meta` or `*-ids` re-exports: the inverse is the
+;; kind-keyed `(rf/clear <kind> id)` and introspection is the generic
+;; registrar read, e.g.
+;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;; The algebra views live only in the bundle-isolated `tooling` sibling.
+;; Derivations §Resources expose process nodes.
 
 (def reg-resource    rf.resources.registry/reg-resource)
-;; No public `clear-resource` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :resource id)`. The registry fn below is
-;; the late-bind hook target.
-;; No `resource-meta` / `resource-ids` re-exports here. The
-;; registrar grammar every tool speaks IS the introspection surface:
-;;   (keys (rf/registrations {:source :store :kind :resource}))
-;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
-;; `rf.resources.registry/resource-meta` is the artefact's own
-;; shorthand for that projection; it is not a public name.
 
-;; No `resource-algebra-view` / `resource-cache-algebra-view`
-;; facade aliases. The derivation/process algebra views of registered
-;; resources (static) and of a frame's live cache entries (live) — a resource
-;; being the canonical PROCESS member of the algebra (Derivations §Process) —
-;; ship NO public accessor (Derivations §Resources expose process nodes). The
-;; bodies live in the bundle-isolated `re-frame.resources.tooling`, which every
-;; consumer requires directly: Xray and the conformance fixtures statically,
-;; `re-frame.derivation.graph` through `requiring-resolve` on the JVM. No
-;; `re-frame.core` facade export either.
-
-;; Mutations (Spec 016 §Mutations). `reg-mutation` registers a causal-write
-;; mutation; `:rf.mutation/execute` runs it over the SAME managed-HTTP
-;; transport the resources use, with success-time resource invalidation /
-;; patch / populate; `clear-mutation` is the registration-lifecycle removal.
 (def reg-mutation    rf.resources.mutation-registry/reg-mutation)
-;; No public `clear-mutation` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :mutation id)`. The registry fn below is
-;; the late-bind hook target.
-;; No `mutation-meta` / `mutation-ids` re-exports here — the
-;; generic registrar read plus the `:rf/mutation` inner-key projection:
-;;   (keys (rf/registrations {:source :store :kind :mutation}))
-;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
 
-;; Named resource-scope resolvers (Spec 016 §Named resource-scope resolvers).
-;; `reg-resource-scope`
-;; registers a PURE named scope resolver under the `:resource-scope`
-;; registrar kind; `clear-resource-scope` is the registration-lifecycle
-;; removal; `resolve-resource-scope` is a resolver helper that resolves a
-;; named scope against a supplied db value (the logout coeffect-db idiom) —
-;; a PURE function over the resolver registry: not an effect (no app-state /
-;; dispatch side effects) and has NO observability side effect, so it does NOT
-;; emit `:rf.resource/scope-resolved` trace. The
-;; `:rf.resource/scope-resolved` evidence is emitted only at the CAUSAL
-;; resolution boundaries (`{:from-db ...}` scope, route entry, mutation
-;; settle), per Spec 016 §Named resource-scope resolvers.
+;; `resolve-resource-scope` is pure: it emits no `:rf.resource/scope-resolved`
+;; trace, which only the causal resolution boundaries emit.
+;; Spec 016 §Named resource-scope resolvers (`reg-resource-scope`)
 (def reg-resource-scope     rf.resources.scope-registry/reg-resource-scope)
-;; No public `clear-resource-scope` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :resource-scope id)`. The registry fn below is
-;; the late-bind hook target.
 (def resolve-resource-scope rf.resources.scope-registry/resolve-resource-scope)
-;; No `scope-resolver-meta` / `scope-resolver-ids` re-exports —
-;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
-;;   (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id}))
 
 (defn resource-state
-  "Return a resource instance's durable runtime ENTRY for an explicit
-  `:frame` introspection target `{:resource :scope :params :frame}` (Spec
-  016 §Introspection), or nil when no entry exists for that scoped key in
-  that frame. The frame target is explicit; a frameless call FAILS CLOSED:
-  an absent / nil `:frame` raises
-  the structured `:rf.error/no-frame-context` rather than passing nil through
-  to a runtime-db lookup that returns nil — a nil that is INDISTINGUISHABLE
-  from a genuinely absent entry. Resolves the scoped key the same way a
-  subscription does (canonical scope + params, sub-side scope precedence,
-  fail-closed). `:frame` is a frame id or a live frame value.
+  "The durable runtime entry for the introspection target
+  `{:resource :scope :params :frame}`, or nil when that frame holds none.
+  `:frame` is a frame id or a live frame value; the scoped key resolves as a
+  subscription would.
 
-  Frame existence is NOT a precondition: an explicit but unknown / destroyed
-  `:frame` reads as `nil` runtime-db and returns `nil` (no entry) — the same
-  result as a live frame with no entry for the key. The fail-closed boundary
-  is the MISSING explicit target, not a vanished one; a valid explicit frame
-  lookup returns `nil` for a genuinely absent entry, and for a target with no
-  identity: a `{:from-db …}` scope resolves against that frame's app-db (which
-  reads as `nil` for an unknown frame too), and a resolver that returns `nil`
-  leaves no key to look up. The result is a durable entry or `nil`, never an
-  invented unresolved entry."
+  A missing `:frame` throws `:rf.error/no-frame-context`, because a nil
+  lookup would be indistinguishable from an absent entry. An unknown or
+  destroyed frame is not an error: it reads as nil.
+  Spec 016 §Introspection and projection (tool/test only)"
   [{:keys [frame] :as opts}]
   (when (nil? frame)
     (rf.error/throw-error!
@@ -179,14 +89,11 @@
            "§Introspection.")
       {:recovery :pass-frame
        :extra    {:opts (dissoc opts :frame)}}))
-  (let [;; A live frame VALUE is accepted wherever its id is (Spec 002):
-        ;; normalize it to the id both frame readers below are keyed by, or a
-        ;; value would read a live entry as a silent nil.
+  (let [;; Normalise a frame value to its id, or a value would read a live
+        ;; entry as a silent nil.
         frame      (rf.frame/frame-value->id frame)
-        ;; A `{:from-db <id>}` scope on the introspection target resolves
-        ;; against the frame's app-db value (the same db the
-        ;; reactive sub resolves against), so `resource-state` and a live
-        ;; `[:rf/resource …]` sub resolve the SAME scoped key.
+        ;; Resolve `{:from-db …}` against the frame's app-db, as the live
+        ;; `[:rf/resource …]` sub does, so both find the same scoped key.
         scoped-key (rf.resources.subs/resolve-scoped-key
                      opts (rf.frame/frame-app-db-value frame))
         runtime-db (rf.frame/frame-runtime-db-value frame)]
@@ -194,21 +101,10 @@
       (get-in runtime-db (rf.resources.state/entry-path scoped-key)))))
 
 (defn mutation-state
-  "Return a mutation INSTANCE's durable runtime row for an explicit
-  `:frame` introspection target `{:instance :frame}` (Spec 016 §Mutations),
-  or nil when no instance exists under that instance id in that frame. The
-  frame target is explicit; a frameless call FAILS CLOSED: an absent / nil
-  `:frame` raises the structured
-  `:rf.error/no-frame-context` rather than passing nil through to a
-  runtime-db lookup that returns nil — a nil that is INDISTINGUISHABLE from
-  a genuinely absent instance. This mirrors `resource-state`'s explicit-frame
-  contract; the two introspection halves fail closed symmetrically.
-
-  Frame existence is NOT a precondition: an explicit but unknown / destroyed
-  `:frame` reads as `nil` runtime-db and returns `nil` (no instance) — the
-  same result as a live frame with no instance under that id. The fail-closed
-  boundary is the MISSING explicit target, not a vanished one; a valid
-  explicit frame lookup returns `nil` only for a genuinely absent instance."
+  "The durable runtime row for the mutation instance target
+  `{:instance :frame}`, or nil when that frame holds none. Fails closed on a
+  missing `:frame` exactly as `resource-state` does.
+  Spec 016 §Mutations (first public-beta gate)"
   [{:keys [instance frame] :as opts}]
   (when (nil? frame)
     (rf.error/throw-error!
@@ -222,47 +118,20 @@
            ":frame <frame-id>}. Per Spec 016 §Mutations.")
       {:recovery :pass-frame
        :extra    {:opts (dissoc opts :frame)}}))
-  (let [;; A live frame VALUE reads the same row as its id, exactly
-        ;; as in `resource-state` above.
-        runtime-db (rf.frame/frame-runtime-db-value (rf.frame/frame-value->id frame))]
+  (let [runtime-db (rf.frame/frame-runtime-db-value (rf.frame/frame-value->id frame))]
     (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance))))
 
-;; A resource / mutation state read is a subscription VECTOR —
-;; `(subscribe [:rf/resource
-;; <query>])` / `(subscribe [:rf/mutation {:instance <instance>}])` —
-;; one read grammar; `subscribe`'s opts arity, `(subscribe query-v {:frame
-;; …})`, carries the target for an explicit frame.
-
 ;; ---- event / sub / hook registrations -------------------------------------
-;; Keeping the registrations in this façade means a `(require
-;; 're-frame.resources :reload)` re-wires every handler on a fresh
-;; registrar (the `clear-all!` test-fixture recovery pattern).
 
-;; Every resource event handler stamps the reserved
-;; `:rf/framework-authority? true` registration-meta (Spec 016 §Write
-;; authority) so a returned `:rf.db/runtime` effect is recognised as a
-;; framework write — the runtime's `:rf.warning/app-handler-runtime-effect`
-;; ownership diagnostic treats these as in-bounds. Applied uniformly so a
-;; new resource handler that touches the slice inherits authority by
-;; sitting in this façade. (Mirrors routing's framework-authority-meta.)
+;; Every resource handler carries `:rf/framework-authority? true`, so its
+;; `:rf.db/runtime` effect is an in-bounds framework write.
+;; Spec 016 §Write authority
 (def ^:private framework-authority-meta rf.resources.state/framework-authority-meta)
 
-;; :rf.resource/generation-allocation cofx + :rf.resource/commit-generation
-;; fx — Spec 016 §Restore and replay part 1 + 002 §Durable join keys are
-;; recordable. The host-side generation allocator is a monotone
-;; high-water mark that never rewinds across epoch restore (so a pre-restore
-;; in-flight reply's generation can never match a post-restore live entry).
-;; The generation is also a DURABLE JOIN KEY (written onto the entry/instance
-;; and stamped on the reply token for stale suppression), so the minted VALUE
-;; must be RECORDABLE even though the allocator stays host-transient: the
-;; `:rf.resource/generation-allocation` cofx is GENERATOR-BACKED + recordable
-;; — its generator mints the next allocation at processing-start and the
-;; runtime records the value on the token (replay re-presents it; strict
-;; replay fails loud on a missing allocation rather than re-minting a
-;; divergent generation). The ensure/refetch/execute handlers read the
-;; recorded `:generation` flat and write only it durably; the fx advances the
-;; host high-water with `max`. Registered in the façade so a `:reload`
-;; re-wires them.
+;; The generation is a durable join key, so the allocation is a recordable
+;; cofx (replay re-presents it) while the allocator stays host-transient and
+;; never rewinds; the fx advances the high-water mark with `max`.
+;; Spec 016 §1. The generation allocator is monotonic and host-side; it does not rewind
 (rf.cofx/reg-cofx :rf.resource/generation-allocation
                rf.resources.state/generation-allocation-cofx-meta
                rf.resources.state/generation-allocation-cofx)
@@ -270,13 +139,8 @@
            rf.resources.state/commit-generation-meta
            rf.resources.state/commit-generation-handler)
 
-;; Work-ledger host-handle side-table write fx. The work-handle
-;; side table is host-side transient state (NOT runtime-db), so its writes
-;; ride fx exactly as the host-side generation high-water bump does. The
-;; runtime emits :rf.resource/record-work-handle alongside the transport
-;; lower and :rf.resource/clear-work-handle when an attempt is superseded /
-;; settled. Per Spec 016 §Frame work ledger. Registered in the façade so a
-;; `:reload` re-wires them.
+;; Host side-table writes (work handles, timers) ride fx because the tables
+;; are host-transient, not runtime-db. Spec 016 §Frame work ledger
 (rf.fx/reg-fx :rf.resource/record-work-handle
            rf.resources.work-ledger/record-work-handle-meta
            rf.resources.work-ledger/record-work-handle-handler)
@@ -284,92 +148,47 @@
            rf.resources.work-ledger/clear-work-handle-meta
            rf.resources.work-ledger/clear-work-handle-handler)
 
-;; Stale / GC timer side-table write fx. The stale / GC timer
-;; handles are host-side transient state (NOT runtime-db), so their writes
-;; ride fx exactly as the generation high-water bump + work-handle side-table
-;; writes do. The success reply handler emits :rf.resource/schedule-timers
-;; once an entry settles :loaded (arming the advisory stale / GC timers from
-;; the durable :loaded-at + policy); remove / clear-scope / a fired GC emit
-;; :rf.resource/cancel-timers. Neither declares `:platforms`:
-;; schedule-timers skips arming under SSR through its carried `:server?` flag
-;; (SSR uses the blocking-drain wait point + lazy client revalidation, never
-;; wall-clock background timers, while a JVM client-mode runtime still arms
-;; them), and cancel-timers runs on every platform, because cancellation is
-;; never platform-gated. Per Spec 016 §Stale and GC scheduling. Registered in
-;; the façade so a `:reload` re-wires them.
+;; Neither timer fx declares `:platforms`: schedule-timers skips arming under
+;; SSR through its carried `:server?` flag (a JVM client still arms), and
+;; cancellation is never platform-gated. Spec 016 §Stale and GC scheduling
 (rf.fx/reg-fx :rf.resource/schedule-timers
            rf.resources.timers/schedule-timers-meta
            rf.resources.timers/schedule-timers-handler)
 (rf.fx/reg-fx :rf.resource/cancel-timers
            rf.resources.timers/cancel-timers-meta
            rf.resources.timers/cancel-timers-handler)
-;; The poll-only cancel fx. `:rf.resource/release-owner`
-;; emits it for each entry that became owner-free (polling stops the instant
-;; the last owner releases — a poll never pins an owner-free entry; the stale
-;; / GC timers stay armed because an owner-free entry still GCs).
+;; Poll-only: an owner-free entry stops polling but keeps its stale / GC
+;; timers, because it still GCs. Spec 016 §Polling
 (rf.fx/reg-fx :rf.resource/cancel-poll-timers
            rf.resources.timers/cancel-poll-timers-meta
            rf.resources.timers/cancel-poll-timers-handler)
-;; Client hydration timer rearm. Emitted by the
-;; `:rf/hydrate` handler, gated on the `:resources/rearm-after-hydration!` hook's
-;; presence, so it runs AFTER the payload's runtime-db has committed:
-;; `commit-frame-effects!` installs both partitions before `run-fx-effects!`
-;; walks `:fx`. The resources mirror of `:rf.machine/hydrate-rearm`.
+;; Runs after the hydrated runtime-db has committed: `commit-frame-effects!`
+;; installs both partitions before `run-fx-effects!` walks `:fx`.
 (rf.fx/reg-fx :rf.resource/hydrate-rearm
   {:doc "Resource-internal: arm the GC timer of every resource entry the frame's runtime-db holds, and the poll timer of each owned entry whose resource declares `:poll-interval-ms`, right after a client `:rf/hydrate` committed it, so a hydrated entry whose owner rode the wire is still collected once it is owner-free and idle, and polls while it is owned. No stale timer. Refuses a `:server` frame. Per Spec 016 §Freshness clock contract and §Polling. Not for direct application use."}
   (fn [{frame-id :frame} _args]
-    (let [;; The cascade envelope frame is the fx-context `:frame`; a nil stamp
-          ;; is an invariant failure, never a synthesised `:rf/default`.
+    (let [;; A nil frame stamp is an invariant failure, never `:rf/default`.
           frame-id (rf.frame/require-frame-stamp!
                      frame-id :rf.resource/hydrate-rearm
                      {:where 'rf.resource/hydrate-rearm})]
       (rf.resources.ssr/rearm-timers-after-hydration! frame-id))
     nil))
 
-;; A time-consuming resource / mutation handler DECLARES the
-;; framework-stamped causal-time fact `:rf/time-ms` via `:rf.cofx/requires`.
-;; Under declared-only delivery the runtime stages
-;; EXACTLY the facts a handler declares, FLAT in the coeffects map — nothing
-;; implicit, including `:rf/time-ms` (re-frame.cofx ns docstring; the router
-;; stamps it on the dispatch envelope's `:rf.cofx`, but the handler only
-;; SEES it if it declares it). The handlers read the delivered flat
-;; `(:rf/time-ms coeffects)` for their replay-relevant freshness decisions and
-;; durable timestamps (fresh-skip / `:started-at` / `:invalidated-at` /
-;; `:completed-at` → `:loaded-at` / `:settled-at` / stale-timer re-check) — NOT
-;; through the whole `:rf.cofx` token. Declaring it also makes `handler-meta`
-;; expose the time requirement so strict replay + tooling can see the
-;; dependency. `:rf/time-ms` is the framework's ONE built-in recordable+provided
-;; cofx (re-frame.cofx); it is registered, so a declaration is never the
-;; `:rf.error/unregistered-cofx` typo case.
+;; Cofx delivery is declared-only, so a handler sees `:rf/time-ms` flat in its
+;; coeffects only if it declares it; declaring it also exposes the time
+;; dependency to strict replay and tooling.
 (def ^:private time-meta
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf/time-ms]))
 
-;; Load-causing events (ensure / refetch / mutation execute) DECLARE the
-;; RECORDABLE generation-allocation cofx AND the framework-stamped
-;; `:rf/time-ms` via `:rf.cofx/requires`. Their
-;; handlers read the recorded allocation FLAT under `:coeffects
-;; :rf.resource/generation-allocation` (`{:generation N :counter N}`) and the
-;; causal time FLAT under `:coeffects :rf/time-ms` — the generation comes
-;; from the recorded allocation rather than an ambient `(inc snapshot)`, and
-;; the time fact is read directly from the coeffects, not through the whole
-;; `:rf.cofx` token. The allocation is recorded on the token
-;; (generator-backed recordable cofx) so replay reproduces an identical
-;; generation; the host high-water advances via the
-;; `:rf.resource/commit-generation` fx (`max`).
+;; Load-causing events read the recorded allocation and the causal time flat.
 (def ^:private generation-meta
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.resource/generation-allocation :rf/time-ms]))
 
-;; Public resource events (map payloads). Per Spec 016 §Events.
-;; Every entry-mutating handler is wrapped with
-;; `rf.resources.events/with-classification-lowering` so its durable `:rf.db/runtime`
-;; transition LOWERS each live entry's projection-relative `:sensitive` /
-;; `:large` classification into the per-frame elision registry under `:source
-;; :resource` (the routing/machines lowering peer),
-;; instead of re-deriving it only at the family-private projectors. The
-;; reconciliation is idempotent + self-dropping, so the registry's resource-
-;; sourced set stays in step with `:entries` no matter which handler ran.
+;; Every entry-mutating handler is wrapped in `with-classification-lowering`,
+;; which keeps the per-frame elision registry in step with `:entries`
+;; whichever handler ran. Spec 016 §Events (map payloads, not positional argument vectors)
 (rf.events/reg-event :rf.resource/ensure
                      generation-meta
                      (rf.resources.events/with-classification-lowering
@@ -378,28 +197,16 @@
                      generation-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/refetch-handler))
-;; `:rf.resource/load-more` extends an infinite feed by one page.
-;; It mints a generation (the same host-side monotone allocator, for stale
-;; suppression — the work-id derives from it) and records the work-ledger
-;; `:started-at` from the causal `:rf/time-ms`, so it declares the recordable
-;; generation-allocation cofx + the time cofx exactly like ensure / refetch.
 (rf.events/reg-event :rf.resource/load-more
                      generation-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/load-more-handler))
-;; `:rf.resource.internal/refetch-page` re-fetches
-;; ONE page of a multi-page refetch sweep (`:refetch-all-pages?` /
-;; `:refetch-window`). Chained by `page-succeeded-handler` one leg at a time; it
-;; mints a fresh generation (the work-id derives from it, for per-leg stale
-;; suppression) and records the work `:started-at` from the causal `:rf/time-ms`,
-;; so it declares the recordable generation-allocation + time cofx exactly like
-;; load-more. User code MUST NOT dispatch it.
+;; One leg of a multi-page refetch sweep, chained by `page-succeeded-handler`.
+;; Each leg mints its own generation for per-leg stale suppression.
 (rf.events/reg-event :rf.resource.internal/refetch-page
                      generation-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/refetch-page-handler))
-;; `invalidate-tags` writes the durable `:invalidated-at`
-;; fact from the event's causal `:rf/time-ms`, so it declares the time cofx.
 (rf.events/reg-event :rf.resource/invalidate-tags
                      time-meta
                      (rf.resources.events/with-classification-lowering
@@ -408,38 +215,27 @@
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/release-owner-handler))
-;; EP-0037 R2 — the attach-before-release primitive for a KEPT branch-plan
-;; identity: attach the next route-plan owner onto a shared ancestor read
-;; WITHOUT a fetch (the partial-revalidation law), dispatched ahead of the
-;; prior owner's release. See resources.route/route-resource-plan.
+;; Attach-before-release for a kept branch-plan identity: dispatched ahead of
+;; the prior owner's release, with no fetch. Spec 016 §Plan diff and owner handoff
 (rf.events/reg-event :rf.resource.internal/adopt-owner
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/adopt-route-owner-handler))
-;; The release-side twin of `adopt-owner`: release an owner from a
-;; SUBSET of the identities it holds. Dispatched by the route planner on a
-;; same-token REPLAN (`:rf.route/replan-resources`) for exactly the identities
-;; the new plan dropped, ordered AFTER the attach fx; clears no route slot (the
-;; replan commit owns them). A framework primitive, not an app verb. See
-;; resources.route/route-resource-plan (plan mode `:replan`).
+;; The release-side twin, ordered after the attach fx on a same-token replan;
+;; the replan commit owns the route slots, so it clears none.
+;; Spec 016 §Route-plan replan — same-token reconciliation
 (rf.events/reg-event :rf.resource.internal/release-owner-identities
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/release-owner-identities-handler))
-;; Clear-scope / remove settle in-flight work rows terminal
-;; `:cancelled`, and a cancellation is a COMPLETION: its terminal outcome carries
-;; the event's causal `:completed-at` (from the declared-flat `:rf/time-ms`),
-;; symmetric with every reply-driven cancellation. Declare
-;; `time-meta` (framework-authority + the `:rf/time-ms` cofx) so the causal time
-;; is delivered flat and the handler can stamp it onto the cancelled work row.
+;; Cancelling in-flight work is a completion, so these stamp the causal
+;; `:completed-at` and declare the time cofx.
 (rf.events/reg-event :rf.resource/clear-scope
                      time-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/clear-scope-handler))
-;; The identity switch: clear every departing scope, then replan the active
-;; route. It cancels in-flight work exactly as clear-scope does, so it declares
-;; the same time cofx. The `:schema` is the payload shape; the handler
-;; validates each scope itself.
+;; The `:schema` is the payload shape; the handler validates each scope.
+;; Spec 016 §Changing principal
 (rf.events/reg-event :rf.resource/change-principal
                      (assoc time-meta
                             :schema [:cat [:= :rf.resource/change-principal]
@@ -453,20 +249,9 @@
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/remove-handler))
 
-;; Focus / reconnect revalidation events (Spec 016 §Stale and GC scheduling).
-;; The host focus / online listeners
-;; (`re-frame.resources.revalidate-listeners`) dispatch these; each scans the
-;; frame's active-owner STALE entries and refetches them in the background
-;; with cause `:focus` / `:reconnect` (a CAUSE, never an owner — the refetch
-;; attaches no owner, so it never creates liveness; generation +
-;; stale-suppression protect late replies). They make no durable write
-;; themselves (only `:rf.resource/refetch` dispatches), but carry the
-;; framework-authority stamp for family uniformity. User code MUST NOT
-;; dispatch them directly.
-;; The focus / reconnect scans make a replay-relevant
-;; active-stale SELECTION against the token's causal `:rf/time-ms`, so they
-;; declare the time cofx (the scan writes nothing durable itself, but a
-;; replayed signal must SELECT the same set the recorded time dictated).
+;; The scans write nothing durable but declare the time cofx, because a
+;; replayed signal must select the same active-stale set.
+;; Spec 016 §Revalidation is a frame property (`:revalidate-on`)
 (rf.events/reg-event :rf.resource/window-focused
                      time-meta
                      rf.resources.events/window-focused-handler)
@@ -474,15 +259,8 @@
                      time-meta
                      rf.resources.events/network-reconnected-handler)
 
-;; Framework-internal reply handlers. Per Spec 016 §Events / §Transport.
-;; User code MUST NOT dispatch these.
-;; The reply + stale-timer handlers consume
-;; the reply / timer token's causal `:rf/time-ms` — succeeded → durable
-;; `:loaded-at` / `:stale-at`; failed → the canonical reply's `:completed-at`
-;; (an ordinary failure and the `:rf.http/aborted` cancellation branch both
-;; carry it, symmetrically with success + mutation); stale-fired → a
-;; replay-stable freshness re-check. Each declares the time cofx so the fact
-;; is delivered flat.
+;; Framework-internal replies; user code must not dispatch them.
+;; Spec 016 §Race and in-flight semantics
 (rf.events/reg-event :rf.resource.internal/succeeded
                      time-meta
                      (rf.resources.events/with-classification-lowering
@@ -491,13 +269,6 @@
                      time-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/failed-handler))
-;; The infinite-feed PAGE reply handlers are DISTINCT from the
-;; scalar succeeded / failed replies: a page success APPENDS / replaces-in-place
-;; one page (`entry-replace-page`); a page failure is the THIRD error channel
-;; (`entry-page-failed` keeps the feed + records `:page-error`). They reuse the
-;; same `live-entry-for-reply` verification + stale suppression and consume the
-;; reply token's causal `:rf/time-ms` (→ `:loaded-at` / `:completed-at`), so
-;; each declares the time cofx. User code MUST NOT dispatch them.
 (rf.events/reg-event :rf.resource.internal/page-succeeded
                      time-meta
                      (rf.resources.events/with-classification-lowering
@@ -514,11 +285,6 @@
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/gc-fired-handler))
-;; An active-owner `:poll` timer fired. The handler
-;; re-checks the live entry (present? owned? not hidden? not in-flight?) and
-;; unconditionally refetches (cause `:poll`, never an owner) when polling
-;; should continue, re-arming the next interval. The host `:poll` timer
-;; dispatches this; user code MUST NOT dispatch it directly.
 (rf.events/reg-event :rf.resource.internal/poll-fired
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
@@ -527,52 +293,18 @@
                      framework-authority-meta
                      rf.resources.events/stale-suppressed-handler)
 
-;; Passive resource subs. Per Spec 016 §Subscriptions.
 (rf.resources.subs/register-subs!)
 
-;; Mutations (Spec 016 §Mutations). The causal-write counterpart of the resource
-;; events: `:rf.mutation/execute` mints an instance + work-ledger record and
-;; lowers the write through the SAME managed-HTTP transport; on success it
-;; patches / populates resource entries then invalidates tags;
-;; `:rf.mutation/clear` is the
-;; causal instance reset. `:rf.mutation/execute` mints a generation (the same
-;; host-side monotone allocator the resources use, for stale suppression), so
-;; it declares the recordable `:rf.resource/generation-allocation` cofx
-;; and reads the recorded `:generation` flat — the instance-id /
-;; work-id derive from it, so recording the generation makes them reproduce on
-;; replay for free. The internal replies carry the verification payload
-;; (instance id + work-id + generation). User code MUST NOT dispatch the
-;; internal replies.
-;;
-;; The ENTRY-mutating mutation handlers (`execute` optimistic apply / seed;
-;; `succeeded` `:patches` / `:populates` / `:removes`; `failed` conflict-aware
-;; rollback restore / remove / invalidate) are wrapped in
-;; `rf.resources.events/with-classification-lowering` exactly like the resource
-;; reply/lifecycle handlers — a `:populates` can CREATE a brand-new registered-
-;; resource entry the elision registry never lowered a declaration for, so
-;; without the reconcile the per-frame registry drifts out of step with
-;; `:entries` and a fine-grained-classified field would ride egress verbatim.
-;; The reconcile is idempotent + value-independent, so it is
-;; safe on every handler and rides unchanged when a handler makes no durable write.
-;; The mutation INSTANCE-mutating handlers ALSO lower each live
-;; instance's owner-declared projection-relative `:sensitive` / `:large`
-;; classification into the per-frame elision registry (under `:source :mutation`,
-;; via `with-mutation-classification-lowering`), so a `:sensitive [[:params
-;; :password]]` mutation's durable instance `:params` redacts at every registry-
-;; reading egress boundary (epoch export, off-box tool, MCP) while the raw value
-;; stays on the instance for the success-path `:invalidates` / `:patches`. This
-;; is the mutation peer of the resource-entry `with-classification-lowering`
-;; fold. `:rf.mutation/clear` DROPS an instance, so it is wrapped too (the
-;; self-dropping reconcile removes the cleared instance's lowered declaration).
+;; Mutation handlers that touch entries get the entry reconcile too, because
+;; a `:populates` can create an entry the registry never lowered; instance
+;; handlers also get the `:source :mutation` reconcile.
+;; Spec 016 §Mutations (first public-beta gate)
 (defn- with-mutation-classification-lowering
-  "Wrap a mutation event handler `f` so the `:rf.db/runtime` value of its returned
-  effects map is reconciled through `rf.resources.classification/reconcile-mutation-registry`
-  (resolver = `rf.resources.mutation-registry/mutation-meta`) — lowering each live mutation
-  instance's projection-relative classification into the per-frame elision
-  registry under `:source :mutation`. Composes with the resource-entry
-  `rf.resources.events/with-classification-lowering` (each reconcile touches only its
-  own registry owner, so order is immaterial). A returned map with no
-  `:rf.db/runtime` key rides unchanged."
+  "Wraps mutation handler `f` so the `:rf.db/runtime` of its returned effects
+  is reconciled into the per-frame elision registry under `:source :mutation`.
+  Each reconcile touches only its own owner, so composition order with
+  `with-classification-lowering` is immaterial. A result without
+  `:rf.db/runtime` passes through."
   [f]
   (fn [& args]
     (let [effects (apply f args)]
@@ -585,20 +317,10 @@
                      (rf.resources.events/with-classification-lowering
                        (with-mutation-classification-lowering
                          rf.resources.mutation-events/execute-handler)))
-;; `:rf.mutation/clear` settles the cleared instances' in-flight
-;; work rows terminal `:cancelled`, and a cancellation is a COMPLETION, so it
-;; declares the causal `:rf/time-ms` for their `:completed-at` exactly as the
-;; resource-side `:rf.resource/clear-scope` / `:rf.resource/remove` siblings
-;; do. Declared-only delivery: without this the handler would not
-;; SEE the framework-stamped fact at all.
 (rf.events/reg-event :rf.mutation/clear
                      time-meta
                      (with-mutation-classification-lowering
                        rf.resources.mutation-events/clear-handler))
-;; The mutation reply handlers consume the reply token's
-;; causal `:rf/time-ms` for the canonical reply's `:completed-at` → the durable
-;; instance `:settled-at` + any patch / populate `:loaded-at`, so they declare
-;; the time cofx (success + failure both, symmetric).
 (rf.events/reg-event :rf.mutation.internal/succeeded
                      time-meta
                      (rf.resources.events/with-classification-lowering
@@ -610,53 +332,27 @@
                        (with-mutation-classification-lowering
                          rf.resources.mutation-events/failed-handler)))
 
-;; Passive mutation subs. Per Spec 016 §Mutations.
 (rf.resources.mutation-subs/register-subs!)
 
-;; The dispatched-event trace projection for
-;; `[:rf.mutation/execute …]`. The execute payload's classification lives on
-;; the MUTATION spec named INSIDE the args (per-owner, the SAME
-;; declaration surface the durable instance + continuation reply read), not on
-;; the `:rf.mutation/execute` event registration, so the core event-vector
-;; projection chokepoint (`re-frame.classification/redact-event-by-registration`)
-;; defers to this resources-owned hook — the event peer of
-;; `:http/project-managed-fx-args`. Published from the facade (not the
-;; classification ns) because the resolver is `rf.resources.mutation-registry/mutation-meta`
-;; and the registry requires the classification ns (a back-require would cycle).
+;; The execute payload's classification lives on the mutation named inside the
+;; args, so core's event-vector redaction defers to this hook. It is published
+;; here because the registry requires the classification ns.
 (rf.late-bind/set-fn! :resources/project-execute-event-args
                    (fn project-execute-event-args-hook [args]
                      (rf.resources.classification/project-execute-event-args
                        args rf.resources.mutation-registry/mutation-meta)))
 
-;; LATE-BOUND cross-feature integrations (Spec 016 §Route integration /
-;; §SSR and hydration). Wired here so they re-install on a `:reload`. Each
-;; publishes a late-bind hook the host artefact (routing / ssr) CONSULTS;
-;; both are no-op-effect on an app that never loads the host artefact.
+;; Wired here so they re-install on a `:reload`.
+;; Spec 016 §Route integration and Spec 016 §SSR and hydration
 (rf.resources.route/install-routing-integration!)
 (rf.resources.ssr/install-ssr-integration!)
 
-;; Release the destroyed frame's host-side TRANSIENT
-;; resource caches — the work-ledger host handles (AbortControllers,
-;; `re-frame.resources.work-ledger/handle-table`), the stale / GC timer
-;; handles (`re-frame.resources.timers/timer-table`) and the focus/reconnect
-;; revalidation listeners. None is runtime-db state — all live in
-;; module-level atoms (host-derived, ephemeral, off the epoch / SSR egress
-;; wire). The generation high-water mark
-;; (`re-frame.resources.state/generation-cache`) is host-side too but
-;; process-global, so destroy leaves it alone and a same-id successor frame
-;; never re-mints a predecessor's generation. `rf.frame/destroy-frame!`
-;; invokes this SINGLE hook by key (no static dep on resources — the artefact
-;; is optional; ONE teardown path, not three). The durable serializable work
-;; records + cache entries ride the frame value and are released atomically
-;; when the frame is dropped; this hook touches ONLY the host side tables. Per
-;; Spec 016 [Runtime-Subsystems] clause 5 / §Stale and GC scheduling (frame
-;; destroy cancels all resource timers for that frame). Composed here (one
-;; late-bind key → one fn) mirroring routing's `:routing/on-frame-destroyed!`.
+;; The generation high-water mark is process-global, so destroy leaves it and
+;; a same-id successor never re-mints a predecessor's generation.
 (defn- release-resources-host-caches!
-  "Release ALL of the destroyed frame's host-side transient resource caches
-  (work-ledger host handles + stale / GC timer handles + focus/reconnect
-  revalidation listeners). The `:resources/on-frame-destroyed!` teardown
-  body — one composed hook, no second teardown path."
+  "Releases the destroyed frame's host-transient caches: work-ledger handles,
+  timer handles and revalidation listeners. Durable records leave with the
+  frame value. Runtime-Subsystems §5. Teardown"
   [frame-id]
   (rf.resources.work-ledger/on-frame-destroyed! frame-id)
   (rf.resources.timers/on-frame-destroyed! frame-id)
@@ -665,22 +361,12 @@
 
 (rf.late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)
 
-;; Revalidation is a FRAME PROPERTY, like routing's `:url-bound?` URL
-;; ownership. The frame's `:revalidate-on` config key — a set drawn from the closed enum
-;; `#{:focus :reconnect}` — is honoured by the frame (re-)registration
-;; lifecycle: this hook fires at the END of BOTH `upsert-frame!` branches,
-;; AFTER the container is live and `:initial-events` ran, so the listeners a
-;; frame declares are installed without the app sequencing anything. There is
-;; no install/remove fn. Re-registration RECONCILES (replace-don't-stack, and a
-;; re-registration that drops the key relinquishes the listeners); destroy
-;; removes through the composed `:resources/on-frame-destroyed!` hook above.
-;; Per Spec 016 §Stale and GC scheduling.
+;; Fires at the end of both `upsert-frame!` branches, after `:initial-events`
+;; ran; re-registration reconciles rather than stacking listeners.
 (defn- on-frame-registered!
-  "The `:resources/on-frame-registered!` lifecycle body: reconcile the
-  (re-)registered frame's host focus/reconnect listeners against its
-  COMMITTED `:revalidate-on` config value. Reads the frame's own metadata
-  rather than a passed config, so it always sees what the registry actually
-  holds. Returns nil."
+  "Reconciles the frame's focus / reconnect listeners against its committed
+  `:revalidate-on`, read from the registry rather than a passed config.
+  Returns nil. Spec 016 §Revalidation is a frame property (`:revalidate-on`)"
   [frame-id]
   (rf.resources.revalidate-listeners/reconcile-listeners!
     frame-id
@@ -691,75 +377,26 @@
 (rf.frame/add-config-keys! #{:revalidate-on})
 
 ;; ---- late-bind hook registration ------------------------------------------
-;; `re-frame.core` MUST NOT `:require [re-frame.resources]` — the artefact
-;; is optional. Public-API re-exports are published through the late-bind
-;; table; consumers without the artefact see the hooks unregistered and the
-;; wrappers throw `:rf.error/resources-artefact-missing`. The
-;; `:resources/reg-resource` key doubles as the feature-inspection PROBE
-;; (re-frame.features) — its presence in the late-bind table is the
-;; loaded?-signal for the `:resources` feature.
-
-;; The test-isolation reset hook (`:resources/reset-resources!`) is NOT
-;; published here — it lives behind an explicit
-;; `re-frame.resources.test-support` require to keep test fixtures out of the
-;; always-on production façade; that namespace publishes
-;; it from its own ns-load. The shared CLJS make-reset-runtime-fixture
-;; reset-hooks table consults it by key and no-ops when test-support is
-;; absent.
+;; `:resources/reg-resource` doubles as the `:resources` feature probe.
+;; The test reset hook is published by `re-frame.resources.test-support`, to
+;; keep fixtures out of the production façade.
 (rf.late-bind/set-fns!
   {:resources/reg-resource   reg-resource
    :resources/clear-resource rf.resources.registry/clear-resource
-   ;; Mutation registration, published through the same late-bind table so
-   ;; `re-frame.core`'s `reg-mutation` / `clear-mutation` wrappers reach the
-   ;; producing impl without a static :require. `resource-state` /
-   ;; `mutation-state` publish no hook: introspection is called here, at
-   ;; home. There are no `:resources/resource-meta` /
-   ;; `:resources/mutation-meta` hooks: the registered spec is
-   ;; read through the generic `rf/handler-meta` plus the `:rf/resource` /
-   ;; `:rf/mutation` inner-key projection, which needs no artefact at all.
    :resources/reg-mutation   reg-mutation
    :resources/clear-mutation rf.resources.mutation-registry/clear-mutation
-   ;; Named resource-scope resolvers, published through the same late-bind
-   ;; table so
-   ;; `re-frame.core`'s `reg-resource-scope` / `clear-resource-scope` /
-   ;; `resolve-resource-scope` wrappers reach the producing impl without a
-   ;; static :require.
    :resources/reg-resource-scope     reg-resource-scope
    :resources/clear-resource-scope   rf.resources.scope-registry/clear-resource-scope
    :resources/resolve-resource-scope resolve-resource-scope
-   ;; OFF-BOX trace egress projector for a
-   ;; `:rf.resource/scope-resolved` row — the central trace egress pipeline
-   ;; (epoch tool-pair) consults it to redact the resolver's resolved
-   ;; `:input-values` / `:scope` (a value-path walk is structurally blind to
-   ;; resolver-owned values once copied into trace tags). Published so the
-   ;; epoch artefact reaches it without a static :require on resources.
+   ;; Off-box trace egress projectors. A value-path walk cannot see
+   ;; owner-local values once they are copied into trace tags or fx args, so
+   ;; the epoch tool-pair consults these.
    :resources/project-scope-resolved-egress
    rf.resources.scope-registry/project-scope-resolved-egress
-   ;; Family-level OFF-BOX trace egress projector for
-   ;; the rest of the resource/mutation trace family — projects the scoped-key
-   ;; slots (`:resource/key` / `:resource/keys` / `:matched` / `:removed` /
-   ;; `:keys` / `:exempt` / `:committed` / the rollback `:dispositions` + the
-   ;; `:restored` / `:conflicted` / `:refetched` key vectors) through the
-   ;; resource OWNER classification, fail-closed on an unregistered owner. The
-   ;; broader-family analogue of `:resources/project-scope-resolved-egress`;
-   ;; the epoch tool-pair consults it over `:rf.resource/*` + `:rf.mutation/*`
-   ;; rows (a generic value-path walk is structurally blind to owner-local
-   ;; scoped keys once copied into trace tags). Published so the epoch artefact
-   ;; reaches it without a static :require on resources.
    :resources/project-resource-trace-egress
    rf.resources.trace-egress/project-resource-trace-egress
-   ;; The same owner classification, reached by SLOT rather than by op.
-   ;; An `ensure` lowers into effects that address the work BY its
-   ;; scoped key, so the family's keys ride `:rf.fx/args` / `:rf.event/fx` on
-   ;; `:rf.fx/*` / `:rf.error/*` rows — which the namespace routing above never
-   ;; reaches, and which the app-db-rooted walk cannot classify. The epoch
-   ;; tool-pair applies this to EVERY row (it no-ops on a row carrying neither
-   ;; slot), so no row predicate has to be kept in step with the emit sites.
+   ;; Applied to every row; it no-ops on a row with neither slot.
    :resources/project-fx-args-egress
    rf.resources.trace-egress/project-fx-args-egress
-   ;; The resource and mutation READ SUBS' values on the `:rf.sub/run` trace:
-   ;; core's sub-trace chokepoint consults it, so the slots the owner
-   ;; declares are redacted in `:rf.sub/value` / `:rf.sub/prev-value` the way
-   ;; they are in the durable entry.
    :resources/project-resource-sub-egress
    rf.resources.trace-egress/project-read-sub-egress})
