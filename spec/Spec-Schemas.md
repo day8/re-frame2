@@ -3016,11 +3016,14 @@ The EP-0016 **public input forms** — named scope resolvers (D3), per-target sc
   ;; resource entry :scope. NOT the resource-registration :scope POLICY enum,
   ;; which is EXACTLY :rf.scope/global | {:from-db <id>} (per [016 §Every
   ;; resource declares a scope policy]) — this is the per-target /
-  ;; per-descriptor scope slot, which is wider.
+  ;; per-descriptor scope slot, which is wider. A {:from-db <id>} in a
+  ;; mutation's descriptor or target resolves against the app-db the mutation
+  ;; was issued in; in a route resource entry, against the navigation app-db
+  ;; (per [016 §Resolver references]).
   [:or
    [:= :rf.scope/same]                  ;; the mutation's resolved execution scope (DEFAULT when omitted)
    [:= :rf.scope/global]
-   [:map [:from-db :keyword]]           ;; named-resolver reference, resolved at use time against frame db
+   [:map [:from-db :keyword]]           ;; named-resolver reference
    :any])                               ;; a concrete canonical scope value, e.g. [:rf.scope/session {…}]
 
 (def ScopeInput

@@ -183,6 +183,31 @@
                        (mapv (juxt #(some? (get-in % [:tags :next-backoff-ms])) :recovery)
                              (ops traces :rf.http/retry-attempt))))))))))))
 
+(defn- statuses-in-turn
+  "A handler answering the nth hit with the nth of `statuses`, the last one
+  repeating, and counting hits in the atom `hits`."
+  [hits statuses]
+  (fn [ex]
+    (let [status (nth statuses (min (dec (swap! hits inc)) (dec (count statuses))))]
+      (write-response! ex status "application/json" (if (< status 300) "{\"ok\":true}" "{\"err\":true}")))))
+
+(deftest jvm-retry-on-names-statuses
+  (testing "an integer in :retry :on retries a failure whose :http-status it
+            names, alone or beside the category keywords: a 429 retries under
+            #{429} and a 404 does not"
+    (are [on statuses expected]
+         (= expected
+            (let [hits (atom 0)]
+              (with-server (statuses-in-turn hits statuses)
+                (fn [base]
+                  (let [reply (request! {:request {:url (str base "/s")}
+                                         :decode  :json
+                                         :retry   (assoc retry-on-5xx :on on)})]
+                    [(:status reply) (get-in reply [:error :http-status]) @hits])))))
+      #{429}                   [429 200]     [:ok nil 2]
+      #{429}                   [404 200]     [:error 404 1]
+      #{:rf.http/http-5xx 429} [503 429 200] [:ok nil 3])))
+
 (deftest jvm-transport-failure
   (testing "connection refused classifies as :rf.http/transport and emits one
             :error trace row (only an abort is :info)"

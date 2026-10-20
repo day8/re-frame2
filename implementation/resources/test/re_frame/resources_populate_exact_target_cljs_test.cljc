@@ -1,9 +1,10 @@
 (ns re-frame.resources-populate-exact-target-cljs-test
   "Populate is an authoritative load, and `:populates` / `:patches` take
   map-form exact targets (Spec 016 §Populate is an authoritative load,
-  §Map-form exact resource targets). A `{:from-db …}` target scope resolves at
-  settle time and fails closed on nil; a populated key is exempt from the same
-  mutation's invalidation refetch unless a descriptor sets
+  §Map-form exact resource targets). A `{:from-db …}` target scope resolves
+  against the app-db the mutation was issued in, so a reply never lands in
+  another viewer's cache, and fails closed on nil; a populated key is exempt
+  from the same mutation's invalidation refetch unless a descriptor sets
   `:refetch-populated? true`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -98,17 +99,49 @@
   (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:slug "w"} :instance instance-id}])
   (reply-success! @last-managed-args result))
 
-(deftest map-form-from-db-targets-resolve-at-settle
-  ;; The session switches between execute (zed) and settle (yan), so both
-  ;; writes land under yan's session.
-  (reg-feed-resource!)
+;; ---- the issuance context ---------------------------------------------------
+;; zed issues each write and yan logs in before its reply settles. Every write
+;; the mutation causes resolves {:from-db …} against the app-db zed issued it
+;; in, so the reply lands in zed's cache and never in yan's.
+
+(defn- session-scope [u] [:rf.scope/session {:username u}])
+
+(defn- profile-key [u]
+  (rf.resources.state/scoped-resource-key (session-scope u) :r/profile {}))
+
+(defn- reg-profile-resource-owned-by-zed-and-yan! []
   (rf/reg-resource :r/profile
     {:scope {:from-db :t/session}
      :params-schema [:map]}
     (fn [_p _] {:request {:method :get :url "/profile"}}))
   (doseq [u ["zed" "yan"]]
-    (own-loaded! {:resource :r/profile :scope [:rf.scope/session {:username u}]
-                  :params {} :owner [:v :profile u]}))
+    (own-loaded! {:resource :r/profile :scope (session-scope u)
+                  :params {} :owner [:v :profile u]})))
+
+(defn- issue-as-zed-settle-as-yan!
+  "Execute `mutation-id` while zed is logged in, log yan in, then settle the
+  reply with `result`. Returns the managed-HTTP args the execute lowered."
+  [mutation-id instance-id result]
+  (rf/dispatch-sync [:t/login "zed"])
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {} :instance instance-id}])
+  (let [reply-args @last-managed-args]
+    (rf/dispatch-sync [:t/login "yan"])
+    (reply-success! reply-args result)
+    reply-args))
+
+(defn- scope-resolved-rows
+  "Run `body-fn`; return the tags of every `:rf.resource/scope-resolved` trace."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::scope-resolved-recorder]
+    (rf.trace.tooling/register-listener!
+      k (fn [ev] (when (= :rf.resource/scope-resolved (:operation ev)) (swap! seen conj (:tags ev)))))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
+    @seen))
+
+(deftest map-form-from-db-targets-resolve-at-issuance
+  (reg-feed-resource!)
+  (reg-profile-resource-owned-by-zed-and-yan!)
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
      :params-schema [:map]
@@ -118,18 +151,49 @@
      :populates (fn [_p result]
                   {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
     (fn [_p _] {:request {:method :put :url "/feed"}}))
+  (let [reply-args (issue-as-zed-settle-as-yan! :m/save-feed :pf1 {:articles [:x]})]
+    (is (= {:t/session (session-scope "zed")}
+           (:from-db-scopes (second (:on-success reply-args))))
+        "the reply payload carries what each resolver resolved to at issuance"))
+  (is (= {:status :loaded :data {:articles [:x]}}
+         (select-keys (entry (session-feed-key "zed")) [:status :data])))
+  (is (nil? (entry (session-feed-key "yan"))))
+  (is (= [{:seed true :saved true} {:seed true}]
+         [(:data (entry (profile-key "zed"))) (:data (entry (profile-key "yan")))])))
+
+(deftest map-form-from-db-removes-resolve-at-issuance
+  (reg-profile-resource-owned-by-zed-and-yan!)
+  (rf/reg-mutation :m/delete-profile
+    {:scope :rf.scope/global
+     :params-schema [:map]
+     :removes (fn [_p _result] {:resource :r/profile :params {} :scope {:from-db :t/session}})}
+    (fn [_p _] {:request {:method :delete :url "/profile"}}))
+  (issue-as-zed-settle-as-yan! :m/delete-profile :rm1 {:deleted true})
+  (is (= [nil {:seed true}] [(entry (profile-key "zed")) (:data (entry (profile-key "yan")))]))
+  (is (= [(profile-key "zed")] (:removed (:patch-summary (instance :rm1))))))
+
+(deftest settle-traces-only-the-resolvers-its-consequences-name
+  ;; Issuance resolves every registered resolver without a trace row; the
+  ;; settle emits one row per resolution a consequence used, carrying the
+  ;; issuance scope.
+  (reg-feed-resource!)
+  (rf/reg-resource-scope :t/tenant
+    {:inputs {:tenant [:db [:tenant]]}}
+    (fn [{:keys [tenant]} _ctx] (when tenant [:rf.scope/tenant {:id tenant}])))
+  (rf/reg-mutation :m/save-feed
+    {:scope :rf.scope/global
+     :params-schema [:map]
+     :populates (fn [_p result]
+                  {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
+    (fn [_p _] {:request {:method :put :url "/feed"}}))
   (rf/dispatch-sync [:t/login "zed"])
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-feed :params {} :instance :pf1}])
+  (is (= [] (scope-resolved-rows
+              #(rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-feed :params {} :instance :tr1}]))))
   (let [reply-args @last-managed-args]
     (rf/dispatch-sync [:t/login "yan"])
-    (reply-success! reply-args {:articles [:x]}))
-  (let [profile-key (fn [u] (rf.resources.state/scoped-resource-key
-                              [:rf.scope/session {:username u}] :r/profile {}))]
-    (is (= {:status :loaded :data {:articles [:x]}}
-           (select-keys (entry (session-feed-key "yan")) [:status :data])))
-    (is (nil? (entry (session-feed-key "zed"))))
-    (is (= [{:seed true :saved true} {:seed true}]
-           [(:data (entry (profile-key "yan"))) (:data (entry (profile-key "zed")))]))))
+    (is (= [{:resource-id :t/session :scope (session-scope "zed") :resolved-nil? false}]
+           (mapv #(select-keys % [:resource-id :scope :resolved-nil?])
+                 (scope-resolved-rows #(reply-success! reply-args {:articles [:x]})))))))
 
 (deftest populated-key-exempt-from-same-mutation-refetch
   ;; The mutation populates the detail key, then invalidates a tag that matches
