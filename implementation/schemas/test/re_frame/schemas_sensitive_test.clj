@@ -170,19 +170,38 @@
       (is (not (str/includes? (pr-str trace) "flow-SECRET")))
       (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace))))))
 
+(defn- installed-registry []
+  [(rf.elision/sensitive-declarations :rf/default) (rf.elision/declarations :rf/default)])
+
 (deftest app-db-validation-redacts-a-path-the-same-event-classifies
   (testing "a :sensitive returned by the event that writes the failing value
-            governs its failure trace, though the rejection installs nothing"
+            governs its failure trace exactly as an already-classified path
+            does, and neither rejected write touches the installed db or
+            registry"
+    (rf/reg-app-schema [:vault :key] [:map [:key :int]])
     (rf/reg-app-schema [:session :key] [:map [:key :int]])
-    (rf/reg-event :session/write-classified
-      (fn [{:keys [db]} [_ v]]
-        {:db        (assoc-in db [:session :key] {:key v})
-         :sensitive [[:session :key]]}))
-    (let [trace (dispatch-failure-trace [:session/write-classified "same-event-SECRET"])]
-      (is (not (str/includes? (pr-str trace) "same-event-SECRET")))
-      (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace)))
-      (is (empty? (rf.elision/sensitive-declarations :rf/default))
-          "the rejected event's classification never installs"))))
+    (rf/reg-event :vault/classify (fn [_ _] {:sensitive [[:vault :key]]}))
+    (rf/reg-event :secret/write
+      (fn [{:keys [db]} [_ path v classify?]]
+        (cond-> {:db (assoc-in db path {:key v})}
+          classify? (assoc :sensitive [path]))))
+    (rf/dispatch-sync [:vault/classify])
+    (doseq [[case-name path classify?] [["pre-classified" [:vault :key] false]
+                                        ["same-event" [:session :key] true]]]
+      (testing case-name
+        (let [secret   (str case-name "-SECRET")
+              db0      (rf/app-db-value :rf/default)
+              reg0     (installed-registry)
+              failures (with-trace-recorder! [traces]
+                         (rf/dispatch-sync [:secret/write path secret classify?])
+                         (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
+                                        (= :app-db (get-in % [:tags :where])))
+                                  @traces))]
+          (is (= 1 (count failures)) "one app-db failure")
+          (is (not (str/includes? (pr-str failures) secret)) "no raw secret in any slot")
+          (is (= [true :rf/redacted :rf/redacted] (registry-redaction (first failures))))
+          (is (= db0 (rf/app-db-value :rf/default)) "the write is rejected")
+          (is (= reg0 (installed-registry)) "the registry is untouched"))))))
 
 (deftest app-db-validation-size-elides-a-registry-large-path
   (let [blob (apply str (repeat 40 "BLOB-"))]
