@@ -17,10 +17,14 @@
               {:reason :to-url-exclusive :keys [:to :url]}]
              [{:url "/x" :query {:a 1}} nil
               {:reason :url-excludes-address :keys [:query]}]
+             [{:query-merge {:a 1}} home
+              {:reason :unknown-keys :keys [:query-merge]}]
              [{:query {} :query-merge {}} home
-              {:reason :query-exclusive :keys [:query :query-merge]}]
-             [{:to :route/home :query-merge {:a 1}} nil
-              {:reason :query-merge-in-place-only :keys [:query-merge]}]
+              {:reason :unknown-keys :keys [:query-merge]}]
+             [{:query [:a 1]} home
+              {:reason :query-not-map :keys [:query]}]
+             [{:query nil} home nil]
+             [{:to :route/home :query {:a 1}} nil nil]
              [{:replace? true} home
               {:reason :no-destination-or-change :keys [:replace?]}]
              [{:query {:a 1}} nil
