@@ -625,14 +625,13 @@
 ;; Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags — so
 ;; there dropping is the whole of it.
 ;;
-;; NOT A THROW, THOUGH 004B SAYS "REFUSED" FOR THE TREE-SPACE GRAMMAR.
-;; That refusal is a compile/walk-time gate in a grammar that HAS a
-;; trusted-markup node; this fn's contract is narrower and says so above —
-;; it recognises "exactly the props that are *safe to silently drop*",
-;; and malformed input is `validate-attr-name!`'s job. A throw here would
-;; also take the Ring host shell down on a config typo in an attribute
-;; bag, and would diverge from react-dom/server harder than either drop
-;; or honour: react-dom throws for neither.
+;; DROPPED, NOT THROWN. `strip-prop?`'s whole contract is recognising
+;; exactly the props that are *safe to silently drop*, and malformed input
+;; is `validate-attr-name!`'s job. A throw here would take the Ring host
+;; shell down on a config typo in an attribute bag, and would diverge from
+;; react-dom/server harder than either drop or honour: react-dom throws for
+;; neither. Spec 004B §Attribute names (the reserved-props row) states what
+;; each emitter, and the structural tree, does with the two.
 ;;
 ;; MATCHED CASE-SENSITIVELY, for the same reason as the structural slots:
 ;; React extracts both by exact JS property name, so `:Children` and the
