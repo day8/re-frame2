@@ -184,6 +184,7 @@
   {:namespace "re-frame.fresco.overlay", :var "modal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.overlay", :var "popover", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.server", :var "document", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.server", :var "node-module", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.server", :var "payload-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.server", :var "render", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.server", :var "render-body", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}

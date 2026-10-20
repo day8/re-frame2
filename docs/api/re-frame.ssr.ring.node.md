@@ -37,7 +37,7 @@ Assuming the app's `:app/init` event is registered, the sidecar is running, and 
   ```
 - **Description**: Returns a value for `ssr-handler`'s `:renderer`. It validates `opts` and builds one HTTP client at construction; per request it projects the frame's state under `:render-state`, POSTs it to `<endpoint>/render` and returns the sidecar's body verbatim.
     - With a map policy, the projection applies the handler's `:payload-include-sensitive`, so the markup and the payload agree on a permitted value.
-    - The render module reads the state back with `re-frame.ssr.render-state/deserialize`.
+    - The render module reads the state back with `re-frame.ssr.render-state/deserialize`. A Fresco bundle's module built by `re-frame.fresco.server/node-module` does that for you, so the bundle's `:exports-var` is one form ([Write the render module](../ssr/concepts.md#2-write-the-render-module)).
     - A request waits at most `:timeout-ms` + `:admission-ms` + 600 ms, body included.
 - **Options**:
     - `:entry` (required) — the bundle entry to render; a non-empty string.

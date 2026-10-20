@@ -18,7 +18,8 @@
   bounded Node sidecar's half of the ssr-node crossing
   (`implementation/ssr-node/README.md`, §Node returns body markup and
   nothing else). Neither is built on the other, and neither
-  changes the other's spellings. `payload-script` and `document` are
+  changes the other's spellings. `node-module` wraps `render-body` into
+  the whole module that sidecar loads. `payload-script` and `document` are
   the composition helpers a host needs to rebuild the envelope without
   writing a second renderer; the roster and the argument for it are
   naming-ledger rows 22 and 50
@@ -543,3 +544,63 @@
         ;; and the window must already be shut when it runs.
         (rf.fresco.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
+
+;; ---------------------------------------------------------------------------
+;; The sidecar's render module
+;; ---------------------------------------------------------------------------
+
+(defn node-module
+  "The render module `implementation/ssr-node`'s sidecar loads — its
+  `module.exports` — built from one options map. Name the var holding it as
+  a `:node-library` build's `:exports-var`.
+
+      #js {:protocol 1 :buildId … :entries #js […] :boot fn :render fn}
+
+  That shape is the sidecar's render module contract
+  (`implementation/ssr-node/README.md`, §The render module contract); the
+  JVM renderer that calls it is Spec 011 §Client-side hydration boot helper.
+
+  `opts`:
+
+      :build-id          REQUIRED. This bundle's identity string. The JVM
+                         renderer's `:build-id` must equal it.
+      :entries           REQUIRED. The entry ids a JVM host may name.
+      :hiccup            REQUIRED. The root hiccup form, as `render-body`
+                         takes it.
+      :identifier-prefix as `render-body` takes it.
+      :frame-opts        as `render-body` takes it.
+      :boot              a zero-arg fn the sidecar runs once per isolate,
+                         before the first render: where the bundle seats
+                         its substrate, `#(rf/init! rf.fresco.substrate/
+                         adapter)` for Fresco's own. Absent, the module
+                         publishes no `boot`, and a render with no adapter
+                         seated fails with `:rf.error/no-adapter-installed`.
+
+  `:boot` has no default because this module cannot name the substrate:
+  `re-frame.fresco.substrate` is an optional module that only the
+  application requires
+  (`implementation/fresco/scripts/check_optional_module_reachability.py`).
+
+  `render` takes the frozen call the sidecar hands it, reads its `state`
+  and `runtime` partitions (key text -> EDN text) back with
+  `re-frame.ssr.render-state/deserialize`, and answers `render-body`'s
+  markup string. It renders `:hiccup` for every entry and reads no `args`,
+  so a bundle whose entries render different roots writes its own `render`
+  to the same contract."
+  [{:keys [build-id entries hiccup identifier-prefix frame-opts boot]}]
+  (let [module #js {:protocol 1
+                    :buildId  build-id
+                    :entries  (into-array entries)
+                    :render   (fn [call]
+                                ;; String keys, so Closure cannot rename the
+                                ;; sidecar's field names under `:advanced`.
+                                (render-body
+                                  {:hiccup            hiccup
+                                   :render-state      (rf.ssr.render-state/deserialize
+                                                        {:rf/app-db     (js->clj (unchecked-get call "state"))
+                                                         :rf/runtime-db (js->clj (unchecked-get call "runtime"))})
+                                   :identifier-prefix identifier-prefix
+                                   :frame-opts        frame-opts}))}]
+    (when (some? boot)
+      (unchecked-set module "boot" boot))
+    module))

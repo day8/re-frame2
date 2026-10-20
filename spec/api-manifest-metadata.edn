@@ -453,6 +453,7 @@
   ;; flag exists precisely so an unprobed row states its own status rather than
   ;; overclaiming (see `gen.clj`'s note on the per-row flag).
   {:namespace "re-frame.fresco.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.server" :var "node-module"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
