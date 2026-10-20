@@ -234,19 +234,25 @@
 
 ;; ---- registry lookup -----------------------------------------------------
 
+(defn- not-registered-error
+  "The `:rf.error/resource-scope-not-registered` thrown for `scope-id`;
+  `when-clause` says when the lookup found nothing."
+  [scope-id where when-clause]
+  (registration-error
+    :rf.error/resource-scope-not-registered
+    where
+    (str "no resource-scope resolver is registered under " scope-id when-clause
+         " — call rf/reg-resource-scope before referencing it via "
+         "{:from-db " scope-id "}. Per Spec 016 §Named "
+         "resource-scope resolvers.")
+    {:scope-id scope-id}))
+
 (defn require-scope-resolver!
   "Returns the stored spec for `scope-id`, or throws
   `:rf.error/resource-scope-not-registered` naming `where`."
   [scope-id where]
   (or (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id))
-      (throw (registration-error
-               :rf.error/resource-scope-not-registered
-               where
-               (str "no resource-scope resolver is registered under " scope-id
-                    " — call rf/reg-resource-scope before referencing it via "
-                    "{:from-db " scope-id "}. Per Spec 016 §Named "
-                    "resource-scope resolvers.")
-               {:scope-id scope-id}))))
+      (throw (not-registered-error scope-id where ""))))
 
 ;; ---- input evaluation ----------------------------------------------------
 
@@ -294,7 +300,7 @@
 (defn resolve-scope*
   "As `resolve-scope*-pure`, and also emits `:rf.resource/scope-resolved` with
   the input names and values and the result. For causal boundaries only
-  (events, route entry, mutation settle)."
+  (events, route entry, a mutation's execution scope)."
   [scope-id spec db where]
   (let [inputs   (:inputs spec)
         in-vals  (eval-inputs inputs db)
@@ -343,6 +349,47 @@
   (let [scope-id (:from-db reference)
         spec     (require-scope-resolver! scope-id where)]
     (resolve-scope*-pure scope-id spec db where)))
+
+;; ---- a mutation's issuance context ---------------------------------------
+;;
+;; A mutation's consequences are `(fn [params result])`, so which resolvers
+;; they name is known only once the reply arrives. The mutation therefore
+;; resolves every registered resolver when it is issued, and each
+;; `{:from-db …}` a consequence names reads that map, at execute or at settle.
+;; Spec 016 §Resolver references — `{:from-db <id>}`
+
+(defn resolve-all-pure
+  "`{scope-id <canonical scope or nil>}` for every registered resolver,
+  resolved against `db` without a trace. A resolver that throws throws here,
+  before the mutation writes anything."
+  [db where]
+  (reduce-kv (fn [acc scope-id {spec :rf/resource-scope}]
+               (cond-> acc
+                 spec (assoc scope-id (resolve-scope*-pure scope-id spec db where))))
+             {}
+             (rf.registrar/registrations scope-kind)))
+
+(defn resolve-from-db-scopes
+  "Resolves `reference` from `from-db-scopes`, the `resolve-all-pure` map a
+  mutation took when it was issued, and emits `:rf.resource/scope-resolved`
+  for it, so only the resolvers a consequence names leave a row. The row has
+  no `:input-values`: the map keeps each resolver's scope, not the db values it
+  read. Returns the scope or nil; throws `:rf.error/resource-scope-not-registered`
+  for a resolver that was not registered at issuance."
+  [reference from-db-scopes where]
+  (let [scope-id (:from-db reference)]
+    (when-not (contains? from-db-scopes scope-id)
+      (throw (not-registered-error scope-id where " when the mutation was issued")))
+    (let [resolved (get from-db-scopes scope-id)
+          spec     (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id))]
+      (rf.trace/emit! :rf.event :rf.resource/scope-resolved
+                   (cond-> {:resource-id   scope-id
+                            :kind          :resource-scope
+                            :scope         resolved
+                            :resolved-nil? (nil? resolved)}
+                     spec (assoc :inputs    (vec (keys (:inputs spec)))
+                                 :whole-db? (:whole-db? spec))))
+      resolved)))
 
 ;; ---- ScopeInput resolution -----------------------------------------------
 
