@@ -38,9 +38,9 @@
   Schema-library-agnostic. The `[:schemas
   :data]` value is an OPAQUE schema — this namespace never `:require`s Malli
   (or any schema library) and never interprets the value itself. Validation
-  goes ENTIRELY through the late-bound `:schemas/validate-with-registered-fn`
-  hook: an app that registers a Malli (or any other) adapter validates; an
-  app that registers none pays zero cost (the hot path short-circuits at
+  goes ENTIRELY through the late-bound `:schemas/check!` seam (Spec 010 §The
+  validation seam): an app that loads the schemas artefact validates; an app
+  that loads none pays zero cost (the hot path short-circuits at
   `(rf.late-bind/get-fn ...)` returning nil). The declaration grammar and
   the optional validator adapter are therefore fully decoupled — machine core
   requires neither Malli nor JS Standard Schema.
@@ -50,11 +50,10 @@
   initial `:data` is validated before the snapshot lands in runtime-db so
   a failing spawn never installs.
 
-  Both validators route through the schemas artefact's late-bind
-  hooks (`:schemas/validate-with-registered-fn` /
-  `:schemas/explain-with-registered-fn`) so an app that ships no
-  schemas artefact pays zero validation cost — the hot path
-  short-circuits at `(rf.late-bind/get-fn ...)` returning nil.
+  Both validators route through the same `:schemas/check!` seam, so a
+  failure carries the tags every validating surface reports with — `:frame`
+  and, in development, `:explain-humanized` included — and a validator that
+  throws on a malformed schema reports `:rf.error/malformed-schema`.
 
   Per Spec 009 §Production builds the hot-path body lives inside
   `(when rf.interop/debug-enabled? ...)` so `:advanced` +
@@ -101,7 +100,7 @@
 
   ## Production is untouched BY CONSTRUCTION
 
-  Every caller of `emit-failure!` sits inside a
+  Every caller of `report-failure!` sits inside a
   `(when rf.interop/debug-enabled? …)` gate (`validate-machine-data!`,
   `validate-spawn-data!`, `validate-completion-output!`), so `:advanced` + `goog.DEBUG=false` carries
   neither this call nor the reason string's literals — `check-elision.cjs`
@@ -152,80 +151,26 @@
        :time       (rf.interop/now-ms)}))
   nil)
 
-(defn- emit-failure!
-  "Emit `:rf.error/schema-validation-failure` at a machine schema boundary
-  (`:where :machine-data` or `:where :machine-output`). `where` names the
-  boundary; `phase` is one of `:macrostep` / `:spawn` / `:bootstrap`
-  (machine-data) or `:completion` (machine-output) —
-  surfaces the lifecycle position to operators; `value` is the failing value
-  (the `:data` map / the completion-output payload); `reason` is the
-  one-sentence diagnostic. `frame-id` names the frame whose candidate
-  transition carried the failing snapshot — it does NOT ride the trace, and
-  exists for the always-on rejection record below,
-  which routes to that frame's `:observability :errors` sink.
+(defn- report-failure!
+  "Report a `:where :machine-data` failure the `:schemas/check!` seam
+  returned: the always-on rejection record FIRST when the phase rejects a
+  whole candidate transition (`:macrostep` / `:bootstrap`), then the dev
+  trace under the seam's category — `emit-error-both!`'s axis-1-then-axis-2
+  ordering (error_emit.cljc), so the JVM SSR error-listener's
+  last-write-wins buffer keeps the RICHER trace as its final input. That
+  ordering is why this site asks the seam for its tags rather than letting
+  it emit.
 
-  The trace tag carries:
-    :where           :machine-data / :machine-output
-    :failing-id      <machine-id>           — uniform error-emit alias
-    :machine-id      <machine-id>           — domain-specific synonym
-    :phase           :macrostep / :spawn / :bootstrap / :completion
-    :value           the failing value (:data map / output payload)
-    :received        the failing value (parallels validate-app-schema!)
-    :schema          the registered schema (verbatim)
-    :explain         the registered explainer's output (or nil)
-    :rollback?       true (macrostep / bootstrap — the whole candidate
-                     transaction is REJECTED pre-install) /
-                     false (spawn — a local skipped install;
-                     completion — the machine already finished)
-    :recovery        :no-recovery
-    :reason          one-sentence diagnostic
-
-  Per Spec 009 / Spec 010 the emit reuses the
-  `:rf.error/schema-validation-failure` op; the `:where :machine-data` /
-  `:where :machine-output` values are the schema-side extensions.
-
-  The value-bearing slots (`:value` / `:received` / `:explain`) are routed
-  through the SHARED schema-aware redaction seam
-  (`:schemas/redact-validation-tags`) BEFORE emit — the same redactor the
-  dev-time `validate-*!` hot path and the production boundary interceptor
-  use. A machine schema that marks any slot `:sensitive?` (e.g. an
-  auth token in machine data or in the completion output) therefore scrubs
-  those slots to `:rf/redacted` and stamps `:sensitive? true`, keeping
-  classified slots out of the error trace. The hook is unbound only when the
-  schemas artefact is absent — but this fn is only reached when a schema is
-  registered (validation ran), and the schemas artefact owns the validator
-  that ran it, so the hook is bound whenever a failure can fire; the
-  `(or redact ...)` fallthrough is belt-and-braces."
-  [machine-id frame-id where phase value schema explanation rollback? reason]
-  (let [explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
-        explanation (or explanation
-                        (when explain-fn (explain-fn schema value)))
-        redact      (rf.late-bind/get-fn :schemas/redact-validation-tags)
-        tags        {:where      where
-                     :failing-id machine-id
-                     :machine-id machine-id
-                     :phase      phase
-                     :value      value
-                     :received   value
-                     :schema     schema
-                     :explain    explanation
-                     :rollback?  rollback?
-                     :recovery   :no-recovery
-                     :reason     reason}
-        tags        (if redact (redact schema tags) tags)]
-    ;; The always-on `:errors` record FIRST, then the dev trace —
-    ;; mirroring `emit-error-both!`'s axis-1-then-axis-2 ordering
-    ;; (error_emit.cljc), so the JVM SSR error-listener's last-write-wins
-    ;; buffer keeps the RICHER trace as its final input.
-    ;;
-    ;; The record is promoted for the `:rollback? true` MACHINE-DATA arms
-    ;; only (`:phase :macrostep` / `:bootstrap` — a whole discarded event
-    ;; transaction). Both conditions are named rather than just `rollback?`:
-    ;; `:machine-output` is `:rollback? false`, and keying on the
-    ;; boundary too is what stops a future promoted arm reaching the
-    ;; always-on axis by default.
-    (when (and rollback? (= :machine-data where))
-      (emit-machine-data-rejection-record! machine-id frame-id phase))
+  The tags carry `:where`, `:failing-id` and `:machine-id` (the machine),
+  `:phase`, `:frame`, `:schema`, `:rollback?`, `:recovery :no-recovery`, the
+  value-bearing `:value` / `:received` / `:explain` and, in development,
+  `:explain-humanized` and `:reason`, redacted as every validating surface
+  redacts them (Spec 010 §`:sensitive?`)."
+  [machine-id frame-id phase rollback? {:keys [category tags]}]
+  (when rollback?
+    (emit-machine-data-rejection-record! machine-id frame-id phase))
+  (case category
+    :rf.error/malformed-schema (rf.trace/emit-error! :rf.error/malformed-schema tags)
     (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))
 
 (defn validate-snapshot-data!
@@ -244,9 +189,9 @@
       installed; the spawn-fx caller skips the install on false).
 
   `frame-id` (the 5-arity) names the frame whose CANDIDATE transition carries
-  this snapshot. It never rides the trace, and
-  exists so the `:rollback? true` arms' always-on rejection record
-  can route to that frame's `:observability :errors` sink. The candidate
+  this snapshot. It rides the trace as `:frame`, and routes the `:rollback?
+  true` arms' always-on rejection record to that frame's `:observability
+  :errors` sink. The candidate
   walker (`validate-machine-data!`) passes the frame the ROUTER handed it,
   which is the authoritative one; the 4-arity derives it from the
   router's dequeue-time event-owner binding, which is the same frame on the
@@ -255,18 +200,25 @@
    (validate-snapshot-data! machine-id snapshot schema phase
                             (rf.frame/current-event-owner-frame-id)))
   ([machine-id snapshot schema phase frame-id]
-   (if-let [validate-fn (rf.late-bind/get-fn
-                          :schemas/validate-with-registered-fn)]
-     (let [data (:data snapshot)]
-       (if (validate-fn schema data)
+   (if-let [check! (rf.late-bind/get-fn :schemas/check!)]
+     (let [rollback? (not (contains? local-skip-phases phase))
+           failure   (check! {:where      :machine-data
+                              :id         machine-id
+                              :schema     schema
+                              :value      (:data snapshot)
+                              :frame      frame-id
+                              :tags-only? true
+                              :extra-tags {:machine-id machine-id
+                                           :phase      phase
+                                           :schema     schema
+                                           :rollback?  rollback?}
+                              :reason     #(str "Machine " machine-id
+                                                " :data failed schema at boundary :where "
+                                                ":machine-data (phase " phase ").")})]
+       (if (nil? failure)
          true
-         (do
-           (emit-failure! machine-id frame-id :machine-data phase data schema nil
-                          (not (contains? local-skip-phases phase))
-                          (str "Machine " machine-id
-                               " :data failed schema at boundary :where "
-                               ":machine-data (phase " phase ")."))
-           false)))
+         (do (report-failure! machine-id frame-id phase rollback? failure)
+             false)))
      true)))
 
 (defn- resolve-data-schema
@@ -329,11 +281,10 @@
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
   ;;
-  ;; `frame-id` is threaded for the always-on rejection record only: that
-  ;; record routes to the frame's `:observability :errors` sink by
-  ;; its `:frame` slot, so without threading the router's frame down to the
-  ;; emit the record could reach corpus listeners but never the frame that
-  ;; owns the rejected transition. The trace tags do not carry it.
+  ;; `frame-id` is threaded to the trace's `:frame` and to the always-on
+  ;; rejection record, which routes to the frame's `:observability :errors`
+  ;; sink by its `:frame` slot: without it the record could reach corpus
+  ;; listeners but never the frame that owns the rejected transition.
   (if rf.interop/debug-enabled?
     ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
     ;; short-circuit) so each failing machine surfaces its
@@ -392,8 +343,7 @@
   no registrar / snapshot resolution to do here — unlike the `:where
   :machine-data` macrostep walker which resolves the spec from the committed
   snapshot). Returns true on conform / no `[:schemas :output]` schema / no
-  registered validator; false on failure (the boundary trace already
-  emitted).
+  schemas artefact; false on a reported failure.
 
   Per Spec 005 §Final states this is a best-effort fail-loud
   observation: the machine has ALREADY reached its final state when output is
@@ -407,10 +357,12 @@
   diagnostic posture.
 
   Schema-library-agnostic: the `[:schemas :output]` value is OPAQUE — this
-  validator routes ENTIRELY through the late-bound
-  `:schemas/validate-with-registered-fn` adapter (the SAME seam the `:where
-  :machine-data` boundary uses), so an app with no schema adapter pays zero
-  cost.
+  validator routes ENTIRELY through the late-bound `:schemas/check!` seam
+  (the SAME seam the `:where :machine-data` boundary uses), so an app with
+  no schemas artefact pays zero cost. A MALFORMED `[:schemas :output]` form
+  makes the validator throw; the seam isolates the throw and reports it as
+  `:rf.error/malformed-schema`, so a schema typo surfaces loudly yet never
+  breaks the auto-destroy cascade or deadlocks a finishing machine.
 
   Per Spec 009 §Production builds the body lives inside a
   `(when rf.interop/debug-enabled? ...)` gate so production builds return `true`
@@ -426,40 +378,20 @@
     ;; means no declaration.
     (if-not (contains? (get spec :schemas) :output)
       true
-      (let [schema (get-in spec [:schemas :output])]
-        (if-let [validate-fn (rf.late-bind/get-fn
-                               :schemas/validate-with-registered-fn)]
-          ;; A MALFORMED `[:schemas :output]` schema (a bad Malli form) makes the
-          ;; registered validator THROW at validate-time (Malli validates forms
-          ;; lazily). The macrostep `:where :machine-data` boundary leans on the
-          ;; router's defensive catch for that, but finalize has no such
-          ;; wrapper — an escaping throw here would break the auto-destroy
-          ;; cascade and leave the actor half-torn-down. Per the best-effort
-          ;; completion posture the throw is caught: emit the standard
-          ;; `:rf.error/malformed-schema :where :machine-output` trace and
-          ;; PROCEED (return true), so a schema typo surfaces loudly yet never
-          ;; deadlocks a finishing machine.
-          (try
-            (if (validate-fn schema result)
-              true
-              (do (emit-failure! machine-id (rf.frame/current-event-owner-frame-id)
-                                 :machine-output :completion result
-                                 schema nil false
-                                 (str "Machine " machine-id
-                                      " completion output (the :output-key payload) "
-                                      "failed schema at boundary :where "
-                                      ":machine-output (phase :completion)."))
-                  false))
-            (catch #?(:clj Throwable :cljs :default) e
-              (rf.trace/emit-error! :rf.error/malformed-schema
-                                    {:where    :machine-output
-                                     :reason   (str "Machine " machine-id
-                                                    "'s [:schemas :output] schema is malformed — "
-                                                    "the registered validator threw: "
-                                                    #?(:clj (.getMessage e) :cljs (ex-message e))
-                                                    ". The completion proceeds (best-effort).")
-                                     :schema   schema
-                                     :rollback? false})
-              true))
-          true)))
+      (if-let [check! (rf.late-bind/get-fn :schemas/check!)]
+        (let [schema (get-in spec [:schemas :output])]
+          (nil? (check! {:where      :machine-output
+                         :id         machine-id
+                         :schema     schema
+                         :value      result
+                         :frame      (rf.frame/current-event-owner-frame-id)
+                         :extra-tags {:machine-id machine-id
+                                      :phase      :completion
+                                      :schema     schema
+                                      :rollback?  false}
+                         :reason     #(str "Machine " machine-id
+                                           " completion output (the :output-key payload) "
+                                           "failed schema at boundary :where "
+                                           ":machine-output (phase :completion).")})))
+        true))
     true))

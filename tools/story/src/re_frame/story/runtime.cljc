@@ -968,16 +968,22 @@
   "Validate the seeded `db` against the app-db schemas the frame RESOLVES
   (spec/017 §Setup — direct seeding bypasses event / cofx
   validation but MUST validate the affected app-db schema). Returns a
-  (possibly empty) vector of `{:path :value :explain}` violations.
+  (possibly empty) vector of `{:path :schema :value :explain}` violations,
+  plus `:explain-humanized` in development and `:sensitive?` / `:large?`
+  when the schema says so.
 
-  REUSES the schemas late-bind seam — the SAME
-  `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
-  the `:sub-return` path + the `:sub-override` fold-in reach, and
+  REUSES the schemas late-bind seams — `:schemas/check!`, the one validation
+  seam every validating surface reaches (Spec 010 §The validation seam),
+  asked for the failure tags rather than a trace, and
   `:schemas/frame-schema-entries` to enumerate the `{path → schema-meta}` the
   frame resolves through its images — a variant image's narrower schema
-  included. No validation mechanism of its own, and no hard dep on
-  the schemas artefact: when it is absent every hook resolves nil and the
-  walk SOFT-PASSES (the host-free floor — a Story-only build pays nothing).
+  included. The seam's tags are already redacted against the schema, so a
+  violation on a `:sensitive?` slot carries `:rf/redacted`, never the seeded
+  secret. A schema that is itself malformed is a violation carrying
+  `:category :rf.error/malformed-schema` and no value. No validation
+  mechanism of its own, and no hard dep on the schemas artefact: when it is
+  absent every hook resolves nil and the walk SOFT-PASSES (the host-free
+  floor — a Story-only build pays nothing).
   When the schemas artefact IS present its registered validator (Malli on
   the CLJS reference) is the same one the framework's dev-mode hot path
   uses, so the seed is held to exactly the contract a real handler commit
@@ -985,22 +991,26 @@
   is not checked, a present value (`nil` included) is, and every registered
   entry delegates its schema token to the validator, a `nil` token included."
   [frame-id db]
-  (let [entries-fn  (rf.late-bind/get-fn :schemas/frame-schema-entries)
-        validate-fn (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
-        explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)]
-    (if (or (nil? entries-fn) (nil? validate-fn))
-      ;; No schemas artefact / no validator → soft-pass (nothing to check).
+  (let [entries-fn (rf.late-bind/get-fn :schemas/frame-schema-entries)
+        check!     (rf.late-bind/get-fn :schemas/check!)]
+    (if (or (nil? entries-fn) (nil? check!))
+      ;; No schemas artefact → soft-pass (nothing to check).
       []
       (into []
             (keep (fn [[reg-path schema-meta]]
                     (let [schema    (:schema schema-meta)
                           reg-slice (get-in db reg-path ::absent)]
-                      (when-not (or (= ::absent reg-slice)
-                                    (validate-fn schema reg-slice))
-                        {:path    reg-path
-                         :value   reg-slice
-                         :schema  schema
-                         :explain (when explain-fn (explain-fn schema reg-slice))}))))
+                      (when-not (= ::absent reg-slice)
+                        (when-let [{:keys [category tags]}
+                                   (check! {:schema     schema
+                                            :value      reg-slice
+                                            :frame      frame-id
+                                            :tags-only? true})]
+                          (cond-> (merge {:path reg-path :schema schema}
+                                         (select-keys tags [:value :explain :explain-humanized
+                                                            :sensitive? :large?]))
+                            (= :rf.error/malformed-schema category)
+                            (assoc :category category)))))))
             (entries-fn frame-id)))))
 
 (defn- run-db-seed!
@@ -1018,7 +1028,7 @@
   Per spec/017 §Setup direct seeding bypasses event / cofx validation but
   MUST validate the affected app-db schema. A seed that violates a
   registered schema THROWS a structured `:rf.error/story-db-seed-invalid`
-  ex-info carrying every `{:path :value :explain}` violation; the
+  ex-info carrying every `{:path :schema :value :explain}` violation; the
   orchestrator's `handle-run-error!` projects it onto the run result as a
   failed `:rf.error/story-db-seed-invalid` assertion (the run never reaches
   the script — a malformed precondition is not a thing to assert against)."

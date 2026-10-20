@@ -79,11 +79,11 @@
 (def validate-fx!         rf.schemas.validate/validate-fx!)
 (def validate-sub!        rf.schemas.validate/validate-sub!)
 
-;; Production-side boundary-validation seam.
+;; The primitives the `:schemas/check!` seam composes: the installed
+;; validator's verdict, its explanation, and the schema-aware redaction of a
+;; failure's tags. Callers outside this artefact use the seam, not these.
 (def validate-with-registered-fn rf.schemas.validate/validate-with-registered-fn)
 (def explain-with-registered-fn  rf.schemas.validate/explain-with-registered-fn)
-;; Shared schema-aware redaction for validation failures emitted by callers
-;; outside this artefact.
 (def redact-validation-tags      rf.schemas.validate/redact-validation-tags)
 
 ;; ---- late-bind hook registration ------------------------------------------
@@ -105,11 +105,10 @@
 (rf.late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (rf.late-bind/set-fn! :schemas/frame-schema-entries rf.schemas.storage/frame-schema-entries)
 
-;; Boundary-validation seam.
-(rf.late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)
-(rf.late-bind/set-fn! :schemas/explain-with-registered-fn  explain-with-registered-fn)
-;; Shared validation-failure redaction hook.
-(rf.late-bind/set-fn! :schemas/redact-validation-tags      redact-validation-tags)
+;; The one validation seam every validating surface outside this artefact
+;; calls: verdict, malformed-schema isolation, and the redacted failure tags
+;; in one shape (Spec 010 §The validation seam).
+(rf.late-bind/set-fn! :schemas/check! rf.schemas.validate/check!)
 
 ;; Public-API re-export hooks (consumed by re-frame.core-schemas).
 (rf.late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)

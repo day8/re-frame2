@@ -14,22 +14,25 @@
   "Returns the canonical `params` after, in order: defaulting an ABSENT slot
   to `{}` (an explicit nil passes through, so the schema decides whether nil
   conforms); rejecting non-EDN host values (`:rf.error/resource-non-edn-params`);
-  validating against the `:params-schema` through the late-bound validator (a
-  no-op with no schema or no validator). On a conformance failure it redacts
-  the params and explainer output by their classification marks, then throws
-  `(build-invalid-error redacted-params redacted-error)`. `where` names the
-  calling public surface. Spec 016 §Resource identity."
+  checking against the `:params-schema` through the `:schemas/check!` seam (a
+  no-op with no schema or no schemas artefact). On a failure it throws
+  `(build-invalid-error redacted-params redacted-error)`: the params redacted
+  slot by slot by the schema's marks, and the seam's explanation, which the
+  seam has already redacted against the schema. `where` names the calling
+  public surface. Spec 016 §Resource identity; Spec 010 §The validation seam."
   [id spec params where build-invalid-error]
   (let [params (rf.resources.state/default-omitted-params params)
         schema (:params-schema spec)]
     (rf.resources.state/reject-non-edn! params where :params id)
     (when schema
-      (let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-        (when (and validate (not (validate schema params)))
-          (let [explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
-                ;; Redact before the error is built: a `:sensitive?` slot must
-                ;; never ride raw on the thrown payload or downstream logs.
-                redacted (rf.resources.classification/redact-invalid-params-error
-                           params (when explain (explain schema params)) spec)]
-            (throw (build-invalid-error (:params redacted) (:error redacted)))))))
+      (when-let [check! (rf.late-bind/get-fn :schemas/check!)]
+        (when-let [failure (check! {:id         id
+                                    :schema     schema
+                                    :value      params
+                                    :tags-only? true})]
+          ;; Redact before the error is built: a `:sensitive?` slot must
+          ;; never ride raw on the thrown payload or downstream logs.
+          (throw (build-invalid-error
+                   (rf.resources.classification/redact-invalid-params params spec)
+                   (:explain (:tags failure)))))))
     (rf.resources.state/canonicalize params)))

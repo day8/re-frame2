@@ -343,21 +343,24 @@
 
 #?(:cljs
    (defn validator-fns
-     "Resolve the registered validator + explainer through the late-bind
-     hook table. Returns `{:validate <fn> :explain <fn-or-nil>}`. Both
-     entries default to nil when the schemas artefact is not on the
-     classpath — `args-violations` then soft-passes per Spec 010
-     §Recommended soft-pass.
+     "The `{:validate <fn> :explain <fn>}` pair `args-violations` walks with,
+     built over the `:schemas/check!` late-bind seam, the one validation seam
+     every validating surface reaches (Spec 010 §The validation seam). Both
+     entries are nil when the schemas artefact is not loaded —
+     `args-violations` then soft-passes per Spec 010 §Recommended soft-pass.
 
-     The validator hook (`:schemas/validate-with-registered-fn`) is
-     published by `re-frame.schemas` on ns-load; the boundary surface
-     it fronts is identical to the framework's dev-mode hot path, so
-     a panel using these fns sees exactly the same conformance
-     decisions the framework's `validate-app-schema!` / `validate-event!`
-     emit."
+     The seam is asked for its failure tags rather than a trace, so a panel
+     render reports nothing on the trace bus. Its verdict is the one the
+     framework's own validation reaches, and its explanation is redacted
+     against the schema, so a `:sensitive?` arg's value never reaches the
+     panel."
      []
-     {:validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
-      :explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)}))
+     (if-let [check! (rf.late-bind/get-fn :schemas/check!)]
+       (let [check (fn [schema value]
+                     (check! {:schema schema :value value :tags-only? true}))]
+         {:validate (fn [schema value] (nil? (check schema value)))
+          :explain  (fn [schema value] (:explain (:tags (check schema value))))})
+       {:validate nil :explain nil})))
 
 ;; ---- CLJS: styling ------------------------------------------------------
 
