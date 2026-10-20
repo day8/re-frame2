@@ -1,125 +1,49 @@
 (ns re-frame.resources.revalidate-listeners
-  "Host window-focus / network-reconnect listeners that feed the resource
-  revalidation events (EP-0003). Per Spec 016 §Stale
-  and GC scheduling / §Deferred slices.
-
-  TanStack Query's most visible magic is that stale ACTIVE data refreshes
-  when the user returns to the tab or the network reconnects. re-frame2
-  provides the same user-facing behaviour, but through EVENTS rather than
-  subscription lifecycle (Spec 016 §Deferred slices: focus/reconnect
-  revalidation as resource events, NOT subscription-driven fetching).
-
-  ## The seam
-
-  The host browser surfaces a `focus` / `online` (network reconnect) event
-  on `window` and a `visibilitychange` (tab return) event on `document` (the
-  ONLY target `visibilitychange` fires on — it is a `document` event, not a
-  `window` one, and `document.visibilityState` is what the handler reads).
-  This namespace wires those to a resource event dispatched at a specific
-  FRAME:
+  "Host window-focus and network-reconnect listeners that feed the resource
+  revalidation events at a frame:
 
     window  focus                         -> [:rf.resource/window-focused]
     document visibilitychange-to-visible  -> [:rf.resource/window-focused]
     window  online                        -> [:rf.resource/network-reconnected]
 
-  The event handlers (`re-frame.resources.events`) do the active-stale scan
-  + background refetch-by-policy. The listener carries NO policy — it only
-  translates a host event into a frame-targeted resource event (the cause).
-
-  ## The frame lifecycle owns them — there is no install/remove fn
-
-  Revalidation is a FRAME PROPERTY, declared by the `:revalidate-on`
-  frame-config key: a SET drawn from the closed enum `#{:focus :reconnect}`.
-  The frame lifecycle reconciles it — (re-)registration
-  installs exactly the declared subset through the façade's
-  `:resources/on-frame-registered!` hook, and frame destroy removes.
-  Nothing is sequenced by hand, exactly as routing's `:url-bound?` key owns
-  the browser URL-change listener: there is no
-  install/remove fn, on this namespace or on the façade.
-
-  The installed host handles live in this module-level side table keyed by
-  frame-id (NOT runtime-db, NOT serialized — transient host state, exactly
-  like the work-ledger handle table and the stale/GC timer table). They are
-  cancelled on frame destroy via the single `:resources/on-frame-destroyed!`
-  teardown hook the façade publishes — composed with the work-ledger + timer
-  release (ONE hook, no second teardown path).
-
-  ## JVM safety (CLJC reader conditionals)
-
-  `window` focus/online listeners are a BROWSER-ONLY host surface. The CLJS
-  arm wires `js/window` `addEventListener` / `removeEventListener`; the JVM
-  arm is a no-op so the namespace `:require`s cleanly from `.cljc` boot code
-  (SSR / JVM unit tests) without a live DOM. The frame-targeted dispatch
-  rides the published `:router/dispatch!` late-bind hook (the resources
-  artefact never statically `:require`s the router); a stripped runtime with
-  no dispatcher bound no-ops harmlessly.
-
-  Idempotent: reconciling a frame REPLACES its listeners — it detaches
-  whatever the frame had and attaches exactly the declared subset, every
-  time — so a repeated registration never STACKS a second listener, and
-  hot-reload is safe.
-
-  That is a REPLACE, not a diff: identical triggers still detach and
-  re-attach fresh handler closures. Deliberately so — re-registration is a
-  deliberate act rather than a render-frequency path, and the re-attach is
-  observationally inert. Routing's
-  `re-frame.routing.history/reconcile-url-listener!` DOES short-circuit on a
-  match, because re-installing ITS listener also re-syncs the current URL
-  into the owner's route slice — an observable effect this namespace has no
-  counterpart to."
+  The listener carries no policy; the event handlers in
+  `re-frame.resources.events` do the active-stale scan and refetch. The
+  frame's `:revalidate-on` key declares which listeners exist, and the frame
+  lifecycle hooks reconcile and tear them down, so there is no install/remove
+  fn. The JVM arm installs nothing, so `.cljc` boot code requires this
+  namespace without a DOM.
+  Spec 016 §Revalidation is a frame property (`:revalidate-on`)."
   (:require [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 (def window-focused-event
-  "The resource event a window-focus (tab-return) signal dispatches. Its
-  handler scans the frame's active-owner stale entries and refetches them in
-  the background with cause `:focus`. User code MUST NOT dispatch it — the
-  host focus listener does. Per Spec 016 §Deferred slices."
+  "The event a window-focus (tab-return) signal dispatches; its handler
+  refetches the frame's active stale entries with cause `:focus`. Dispatched
+  by the host listener, never by user code. Spec 016 §Deferred slices."
   :rf.resource/window-focused)
 
 (def network-reconnected-event
-  "The resource event a network-reconnect signal dispatches. Its handler
-  scans the frame's active-owner stale entries and refetches them in the
-  background with cause `:reconnect`. User code MUST NOT dispatch it — the
-  host `online` listener does. Per Spec 016 §Deferred slices."
+  "The event a network-reconnect signal dispatches; its handler refetches the
+  frame's active stale entries with cause `:reconnect`. Dispatched by the
+  host listener, never by user code. Spec 016 §Deferred slices."
   :rf.resource/network-reconnected)
 
-;; ---- host-side listener side table (Spec 016 [Runtime-Subsystems] 5) ------
-;;
-;; Module-level transient host cache keyed by `frame-id` → the installed host
-;; listener handles for that frame. NOT runtime-db, NOT serialized, off the
-;; epoch / SSR egress wire — exactly like the work-ledger `handle-table`, the
-;; stale/GC `timer-table`, and the process-wide generation high-water cache.
-;; Unlike the generation cache, this table is cleared per-frame on frame
-;; destroy via the single `:resources/on-frame-destroyed!` hook (composed in
-;; the façade). Each value is a map of
-;; `{:focus <handler> :visibility <handler> :online <handler>}` (CLJS), or
-;; absent (JVM — no listeners installed).
+;; ---- host-side listener side table ----------------------------------------
 
 (defonce
-  ^{:doc "Host-side side table of NON-serializable window focus / online
-   listener handles, keyed by `frame-id` → `{:focus … :visibility … :online …}`.
-   Transient host state (NOT runtime-db), so an epoch restore cannot rewind it
-   and it never rides the SSR / hydration / epoch wire. Cleared per-frame on
-   frame destroy (`release-frame!`) through the single
-   `:resources/on-frame-destroyed!` teardown hook (composed with the
-   work-ledger + timer release). Per Spec 016 §Stale
-   and GC scheduling / [Runtime-Subsystems] clause 5."}
+  ^{:doc "Host-side side table: `frame-id` → `{:focus … :visibility … :online …}`
+   listener handles (CLJS), absent on the JVM. Transient host state rather
+   than runtime-db, so an epoch restore cannot rewind it and it never rides
+   the wire. Cleared per frame by `release-frame!`.
+   Runtime-Subsystems §Host-transient subsystem state."}
   listener-table
   (atom {}))
 
 (defn dispatch-revalidation!
-  "Dispatch a revalidation `event-id` (`:rf.resource/window-focused` /
-  `:rf.resource/network-reconnected`) targeted at `frame-id`, through the
-  published `:router/dispatch!` late-bind hook (the resources artefact never
-  statically `:require`s the router), stamping `:source :revalidate` so Xray's
-  timeline labels the focus/reconnect-driven cascade. No-op when no dispatcher
-  is bound (a stripped runtime). The event handler does the active-stale scan
-  + refetch-by-policy — the listener only translates the host event.
-  Platform-neutral (no DOM — late-bind dispatch only); the only production
-  caller is the CLJS focus/online listener, so the JVM never reaches it (it
-  installs no listeners)."
+  "Dispatches `event-id` at `frame-id` with `:source :revalidate`, through
+  the `:router/dispatch!` late-bind hook because the resources artefact never
+  requires the router. No-op when no dispatcher is bound."
   [frame-id event-id]
   (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (dispatch! [event-id] {:frame frame-id :source :revalidate})))
@@ -132,18 +56,14 @@
 
 #?(:cljs
    (defn- browser-document
-     "The `js/document` object, or nil when no DOM is present (node / SSR).
-     `visibilitychange` is a `document` event (it never fires on `window`),
-     so the visibility listener attaches/detaches HERE."
+     "The `js/document` object, or nil when no DOM is present.
+     `visibilitychange` fires only on `document`, so its listener lives here."
      []
      (when (exists? js/document) js/document)))
 
 #?(:cljs
    (defn- remove-frame-listeners!
-     "Detach + drop frame-id's installed listeners from the side table (a
-     no-op when none is installed). Idempotent. CLJS-only. `focus` / `online`
-     detach from `window`; `visibilitychange` detaches from `document` (its
-     only event target)."
+     "Detaches and drops `frame-id`'s installed listeners. Idempotent."
      [frame-id]
      (when-let [{:keys [focus visibility online]} (get @listener-table frame-id)]
        (try (when-let [window-target (browser-window)]
@@ -157,57 +77,27 @@
      nil))
 
 (def revalidation-triggers
-  "The CLOSED enum a frame's `:revalidate-on` config key draws from — the
-  host signals that can enter a frame as a revalidation cause.
-
-  `:focus` is ONE setting covering both tab-return spellings (window `focus`
-  AND document `visibilitychange`-to-visible); `:reconnect` is window
-  `online`. Which host events ENTER the frame is this key's question; which
-  resources REFETCH for them is the resource-level stale/owner policy, and
-  the two stay separate. Per Spec 016 §Stale and GC scheduling."
+  "The closed enum `:revalidate-on` draws from. `:focus` covers both
+  tab-return signals (window `focus` and document visibilitychange-to-visible);
+  `:reconnect` is window `online`. Which resources then refetch is the
+  resource-level stale/owner policy.
+  Spec 016 §Revalidation is a frame property (`:revalidate-on`)."
   #{:focus :reconnect})
 
 (defn reconcile-listeners!
-  "Reconcile `frame-id`'s host revalidation listeners against `triggers` —
-  the frame's `:revalidate-on` config value, a subset of
-  `revalidation-triggers`. Per Spec 016 §Deferred slices (focus/reconnect
-  revalidation as resource events).
-
-  Installs EXACTLY the selected subset, replace-don't-stack:
-
-    - `:focus`     -> `window` `focus`             -> `[:rf.resource/window-focused]`     @ frame-id
-                   -> `document` `visibilitychange` -> `[:rf.resource/window-focused]`     @ frame-id
-                      (only when the document becomes VISIBLE — the tab-return
-                      case TanStack Query revalidates on; `visibilitychange`
-                      is a `document` event, its only valid target);
-    - `:reconnect` -> `window` `online`            -> `[:rf.resource/network-reconnected]` @ frame-id.
-
-  `nil` / an empty set installs nothing and REMOVES whatever the frame had —
-  an explicit `#{}` is a legitimate \"none\", and a re-registration that drops
-  the key relinquishes the listeners (the `:url-bound? false` relinquish rule
-  routing also uses). Members outside `revalidation-triggers` select no
-  listener. The event handlers do the scan + background refetch-by-policy;
-  the listener only translates the host event into the frame-targeted
-  resource event (the cause). Listeners are recorded in the host side table
-  keyed by `frame-id` and cancelled on frame destroy via the single
-  `:resources/on-frame-destroyed!` hook.
-
-  Called by the façade's `:resources/on-frame-registered!` lifecycle hook —
-  there is no install/remove fn for an app to sequence. Idempotent, so a
-  repeated registration never STACKS a listener (hot-reload safe) — a
-  REPLACE rather than a diff, so identical triggers still detach and
-  re-attach fresh handlers, which is what \"replace-don't-stack\" above
-  means. CLJS wires the host listeners; the JVM arm has no DOM under SSR /
-  JVM tests and only drops the side-table slot, so this is `:require`-able
-  from `.cljc` boot code without a reader conditional at the call site.
-  Returns nil."
+  "Installs exactly the `triggers` subset of `revalidation-triggers` for
+  `frame-id`, replacing whatever it had, so a repeated registration never
+  stacks a listener. Nil or `#{}` removes them all; unknown members select
+  nothing. It replaces rather than diffs: identical triggers re-attach fresh
+  handlers, which is observationally inert. The JVM arm only drops the
+  side-table slot. Called by the `:resources/on-frame-registered!` hook.
+  Returns nil. Spec 016 §Revalidation is a frame property (`:revalidate-on`)."
   [frame-id triggers]
   #?(:cljs
      (let [triggers   (set triggers)
            focus?     (contains? triggers :focus)
            reconnect? (contains? triggers :reconnect)]
-       ;; replace, don't stack (hot-reload safe) — and this is also the
-       ;; relinquish path when `triggers` selects nothing.
+       ;; Replace, don't stack; also the relinquish path for an empty set.
        (remove-frame-listeners! frame-id)
        (when-let [window-target (and (or focus? reconnect?) (browser-window))]
          (let [document-target    (browser-document)
@@ -215,11 +105,8 @@
                                     (fn [_e] (dispatch-revalidation! frame-id window-focused-event)))
                visibility-handler (when focus?
                                     (fn [_e]
-                                      ;; `visibilitychange` fires on BOTH the
-                                      ;; visible→hidden and hidden→visible
-                                      ;; transitions; revalidate ONLY on the
-                                      ;; tab-return (document becomes VISIBLE),
-                                      ;; never when the tab is hidden.
+                                      ;; visibilitychange fires on hide too;
+                                      ;; only the return to visible revalidates.
                                       (when (and document-target
                                                  (= "visible" (.-visibilityState document-target)))
                                         (dispatch-revalidation! frame-id window-focused-event))))
@@ -227,8 +114,6 @@
                                     (fn [_e] (dispatch-revalidation! frame-id network-reconnected-event)))]
            (when focus-handler
              (.addEventListener window-target "focus" focus-handler))
-           ;; `visibilitychange` is a `document` event — attach it to `document`,
-           ;; not `window` (the handler reads `document.visibilityState`).
            (when (and visibility-handler document-target)
              (.addEventListener document-target "visibilitychange" visibility-handler))
            (when online-handler
@@ -236,41 +121,26 @@
            (swap! listener-table assoc frame-id
                   {:focus focus-handler :visibility visibility-handler :online online-handler})))
        nil)
-     ;; JVM arm: no DOM under SSR / JVM — nothing to install, and the
-     ;; side-table slot (if any) is dropped so the reconcile is total on
-     ;; both hosts.
      :clj (do (swap! listener-table dissoc frame-id) nil)))
 
-;; ---- frame teardown (Spec 016 [Runtime-Subsystems] clause 5) --------------
+;; ---- frame teardown -------------------------------------------------------
 
 (defn release-frame!
-  "Cancel + drop frame-id's window focus / online listeners from the side
-  table — `reconcile-listeners!` against no triggers (removal is the empty
-  reconcile, not a second code path). Invoked from the single
-  `:resources/on-frame-destroyed!` teardown hook (composed in the façade with
-  the work-ledger host-handle release and the stale/GC timer release — ONE
-  hook, no second teardown path).
-  Idempotent. Per Spec 016 §Stale and GC scheduling (frame destroy cancels
-  all the frame's resource host handles) / [Runtime-Subsystems] clause 5.
-  Returns nil."
+  "Removes `frame-id`'s listeners: the empty reconcile, not a second code
+  path. Idempotent; returns nil. Runtime-Subsystems §5. Teardown"
   [frame-id]
   (reconcile-listeners! frame-id nil))
 
 (defn on-frame-destroyed!
-  "The focus/reconnect-listener half of the `:resources/on-frame-destroyed!`
-  teardown body. The façade composes THIS with the work-ledger host-handle
-  release + the stale/GC timer release (one composed hook, no second
-  teardown path). Detaches + drops the
-  destroyed frame's window focus / online listeners (`release-frame!`). Per
-  Spec 016 [Runtime-Subsystems] clause 5. Returns nil."
+  "The listener half of the `:resources/on-frame-destroyed!` teardown hook,
+  which the façade composes with the work-ledger and timer releases.
+  Returns nil. Runtime-Subsystems §5. Teardown"
   [frame-id]
   (release-frame! frame-id))
 
 (defn reset-cache!
-  "Tear down + drop EVERY frame's window focus / online listeners (test
-  isolation). Published via the resources test-support reset hook so the
-  shared CLJS `make-reset-runtime-fixture` clears it per test (host-side
-  transient state, NOT cleared by the runtime / frames reset). Returns nil."
+  "Removes every frame's listeners, for test isolation; the runtime and
+  frames reset does not clear this host-side state. Returns nil."
   []
   (doseq [frame-id (keys @listener-table)]
     (reconcile-listeners! frame-id nil))
