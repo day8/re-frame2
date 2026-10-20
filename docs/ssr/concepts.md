@@ -773,14 +773,12 @@ draws the wrong page. Name every key a render reads.
 
 The sidecar renders nothing itself; it loads your bundle. The module publishes
 a build id, an **entry table** of the ids a host may name, a once-per-isolate
-`boot` and a per-request `render`:
+`boot` and a per-request `render`. A Fresco bundle builds all four with one
+`re-frame.fresco.server/node-module` form:
 
 ```clojure
 (ns my-app.server
-  (:require [re-frame.core :as rf]
-            [re-frame.fresco.server :as server]
-            [re-frame.fresco.substrate :as substrate]
-            [re-frame.ssr.render-state :as render-state]
+  (:require [re-frame.fresco.server :as server]
             ;; The entry id and frame config, shared with the host in step 3.
             [my-app.policy :as policy]
             [my-app.views :as views]))
@@ -790,29 +788,26 @@ a build id, an **entry table** of the ids a host may name, a once-per-isolate
 ;; is a ClojureScript form, and the id is this bundle's own identity.
 (goog-define build-id "my-app-dev")
 
-(defn- boot! []
-  (rf/init! substrate/adapter))
-
-(defn- render! [^js call]
-  (let [partitions (render-state/deserialize
-                     {:rf/app-db     (js->clj (.-state call))
-                      :rf/runtime-db (js->clj (.-runtime call))})]
-    (server/render-body
-      {:hiccup            [views/root-view]
-       :render-state      partitions
-       :identifier-prefix views/identifier-prefix
-       ;; The host's frame config, so `route-link` hrefs carry the same
-       ;; base path. Its `:initial-events` do not run here: the JVM
-       ;; already drained them.
-       :frame-opts        policy/frame-config})))
-
 (def module
-  #js {:protocol 1
-       :buildId  build-id
-       :entries  #js [policy/root-entry]
-       :boot     boot!
-       :render   render!})
+  (server/node-module
+    {:build-id          build-id
+     :entries           [policy/root-entry]
+     :hiccup            [views/root-view]
+     :identifier-prefix views/identifier-prefix
+     ;; The host's frame config, so `route-link` hrefs carry the same
+     ;; base path. Its `:initial-events` do not run here: the JVM
+     ;; already drained them.
+     :frame-opts        policy/frame-config}))
 ```
+
+`boot` seats Fresco's substrate unless you pass a `:boot` fn of your own.
+`render` reads the request's two state partitions back with
+`re-frame.ssr.render-state/deserialize` and renders through
+`re-frame.fresco.server/render-body`, whose options `:hiccup`,
+`:identifier-prefix` and `:frame-opts` are. It renders `:hiccup` whichever entry
+the request names, so a bundle whose entries render different roots writes its
+own module to the same contract, set out in
+[`implementation/ssr-node/README.md`](../../implementation/ssr-node/README.md).
 
 **`render` returns the body markup as a string** (or a promise of one), here
 `render-body`'s answer. That string is the module's only output, and the
