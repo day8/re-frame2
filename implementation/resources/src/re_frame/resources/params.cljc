@@ -1,29 +1,9 @@
 (ns re-frame.resources.params
-  "The single owner of the resource/mutation params validate+canonicalize
-  pipeline. A mutation requires a `:params-schema` and a resource may omit
-  one (its params are then taken as given); both registries delegate here to
-  default an omitted slot, reject non-EDN host values at the identity boundary,
-  invoke the late-bound validator/explainer, redact invalid params before they
-  enter an error payload, and canonicalize the accepted value.
-
-  The pipeline is parameterized only by the family's error
-  descriptor — a `build-invalid-error` callback that shapes the family's
-  `:rf.error/resource-invalid-params` / `:rf.error/mutation-invalid-params`
-  throw. `registry` and `mutation-registry` keep thin wrappers so each public
-  surface retains its own error id and data shape.
-
-  LEAF: it requires only `state` (the omitted-default /
-  EDN-rejection / canonicalization the two registrars also delegate to),
-  `classification` (the invalid-param redaction seam), and `late-bind` (the
-  pluggable Malli validator/explainer — NO static `schemas` dependency).
-  Hosting the pipeline here keeps the require graph acyclic; `mutation-registry`
-  does not depend on `registry`.
-
-  PRIVACY: the `rf.resources.classification/redact-invalid-params-error` step is a privacy
-  boundary: a `:sensitive?` params slot must never ride raw on the thrown error
-  payload or downstream logs when validation fails on a non-sensitive sibling;
-  a `:large?` slot is elided. Projection happens before the family error is
-  built."
+  "The one params validate+canonicalize pipeline both registrars share. Each
+  family passes only its error factory, so `registry` and `mutation-registry`
+  keep their own thrown-error shapes. It requires only `state`,
+  `classification` and `late-bind` (no static `schemas` dependency), which
+  keeps the require graph acyclic. Spec 016 §Resource identity."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.state :as rf.resources.state]))
@@ -31,56 +11,24 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn validate+canonicalize
-  "The shared validate+canonicalize params pipeline used by both registrars.
-  Applies, in order:
-
-    1. the documented omitted-`:params` default (`rf.resources.state/default-omitted-params`)
-       — an ABSENT slot (`rf.resources.state/missing-params`) becomes `{}`; a PRESENT value
-       (INCLUDING an explicit `nil`) passes through unchanged so the
-       `:params-schema`, not a blanket `(or params {})`, decides whether nil
-       conforms (nil vs missing is schema-defined — Spec 016 §Resource
-       identity and Conventions §Canonical EDN identity);
-    2. host / opaque value rejection at the cache-key boundary
-       (`rf.resources.state/reject-non-edn!`, throwing `:rf.error/resource-non-edn-params`);
-    3. schema conformance against the family `:params-schema` via the pluggable
-       late-bound Malli validator (`:schemas/validate-with-registered-fn`) — a
-       no-op when the spec declares no schema or no validator is registered;
-       NO static `schemas` dependency;
-    4. on a conformance failure, REDACT the failing params + explainer output
-       through the shared `rf.resources.classification/redact-invalid-params-error` privacy
-       seam (a `:sensitive?` slot never rides raw on the error payload; a
-       `:large?` slot elides), then throw the FAMILY error the
-       `build-invalid-error` callback shapes from the ALREADY-redacted values;
-    5. return the canonical params (`rf.resources.state/canonicalize`).
-
-  `id` is the resource / mutation id (named in the non-EDN boundary error).
-  `spec` carries the `:params-schema` + its per-slot classification marks.
-  `where` names the call-site public surface (threaded into the non-EDN error).
-  `build-invalid-error` is the family's error factory
-  `(fn [redacted-params redacted-error] -> ex-info-to-throw)` — the ONLY
-  difference between the two families (the
-  `:rf.error/resource-invalid-params` vs `:rf.error/mutation-invalid-params`
-  error id, the family message, and the `:resource-id` / `:mutation-id`
-  slot). It is invoked ONLY on a conformance failure, with the redacted params
-  + redacted explainer error, and its return value is thrown — so each family
-  keeps its exact thrown-error shape."
+  "Returns the canonical `params` after, in order: defaulting an ABSENT slot
+  to `{}` (an explicit nil passes through, so the schema decides whether nil
+  conforms); rejecting non-EDN host values (`:rf.error/resource-non-edn-params`);
+  validating against the `:params-schema` through the late-bound validator (a
+  no-op with no schema or no validator). On a conformance failure it redacts
+  the params and explainer output by their classification marks, then throws
+  `(build-invalid-error redacted-params redacted-error)`. `where` names the
+  calling public surface. Spec 016 §Resource identity."
   [id spec params where build-invalid-error]
   (let [params (rf.resources.state/default-omitted-params params)
         schema (:params-schema spec)]
-    ;; host / opaque values are rejected at the cache-key boundary
     (rf.resources.state/reject-non-edn! params where :params id)
-    ;; schema conformance (pluggable; no-op when no validator is registered)
     (when schema
       (let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
         (when (and validate (not (validate schema params)))
           (let [explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
-                 ;; Thrown error data and downstream egress must not leak a
-                 ;; `:sensitive?` params slot (nor ride a `:large?`
-                ;; slot raw). Route `:params` + the explainer `:error` through the
-                ;; resources-family classification projection (the SAME per-slot
-                ;; owner surface SSR key egress uses + the shared schemas redaction
-                ;; seam), so the owner's `:params-schema` marks govern the error
-                ;; payload as they govern wire egress.
+                ;; Redact before the error is built: a `:sensitive?` slot must
+                ;; never ride raw on the thrown payload or downstream logs.
                 redacted (rf.resources.classification/redact-invalid-params-error
                            params (when explain (explain schema params)) spec)]
             (throw (build-invalid-error (:params redacted) (:error redacted)))))))
