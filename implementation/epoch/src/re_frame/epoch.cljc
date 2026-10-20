@@ -478,8 +478,17 @@
                                                 `:halt-reason` ride along),
                                                 `:synthetic` (a
                                                 `replace-frame-state!` record),
-                                                `:missing-trigger-event` or
-                                                `:missing-replay-token`
+                                                `:missing-trigger-event`,
+                                                `:missing-replay-token` or
+                                                `:incomplete-inputs` (capture
+                                                classification left
+                                                `:rf/redacted` or an elision
+                                                marker in the recorded
+                                                `:trigger-event` or `:rf.cofx`,
+                                                so a re-drive could not be
+                                                faithful — Tool-Pair §Replay;
+                                                `:lost` names each
+                                                `{:slot :path :loss}`)
     :rf.epoch/replay-unreplayable-fx-override — a recorded `:fx-overrides` entry
                                                 is the opaque `:rf/fn-override`
                                                 sentinel (`:fx-ids`)
