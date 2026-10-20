@@ -226,7 +226,7 @@
                              "while `" other-frame-id "` is still in flight, then `"
                              other-frame-id "` continues. Frames are independent state "
                              "machines so this does not violate either frame's "
-                             "contract (per Spec 002 §Run-to-completion §Rules "
+                             "contract (per Spec 002 §Rules "
                              "rule 1 — no cross-frame drain), but the interleaved "
                              "ordering is rarely the caller's intent. If the goal "
                              "is fire-and-forget cross-frame coordination, prefer "
