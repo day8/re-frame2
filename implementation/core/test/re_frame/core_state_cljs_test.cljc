@@ -125,22 +125,35 @@
                                                :line 1}]
     (rf.events/reg-event :core-state.other-app/boot (fn [_ _] {}))))
 
-(deftest an-explicit-image-selecting-the-caller-resolves-its-concern
+(deftest an-explicit-image-selecting-the-caller-runs-its-concern-as-an-implicit-frame-does
   (testing "a concern registered here belongs to this namespace, so an image
            that selects this namespace carries its sub and setter beside the
-           namespace's other registrations, and the shared clear resolves from
-           the framework base"
-    (rf/reg-event ::boot (fn [_ _] {}))
+           namespace's ordinary registrations, the shared clear resolves from
+           the framework base, and the frame reads, writes and clears exactly
+           as a frame made without :images does"
+    (rf/reg-sub ::control (fn [db _] (get db :control 0)))
+    (rf/reg-event ::control (fn [{:keys [db]} _] {:db (update db :control (fnil inc 0))}))
+    (rf/reg-event ::seed (fn [{:keys [db]} _] {:db (assoc-in db [:ui ::open? :shipping] true)}))
     (rf/reg-state ::open? {:default false})
-    (let [f (imaged-frame! ::imaged ["re-frame.core-state-cljs-test"])]
-      (is (= [true true true]
-             [(resolves? f :sub ::open?) (resolves? f :event ::open?)
-              (resolves? f :event :rf.state/clear)]))
-      (is (= false (read* f [::open? :billing])) "unwritten reads the default")
-      (send! f [::open? :billing true])
-      (is (= true (read* f [::open? :billing])))
-      (send! f [:rf.state/clear ::open? :billing])
-      (is (= false (read* f [::open? :billing])) "cleared back to the default"))))
+    (let [implicit (frame! ::implicit)
+          imaged   (imaged-frame! ::imaged ["re-frame.core-state-cljs-test"])]
+      (is (= [true true true true]
+             [(resolves? imaged :sub ::open?) (resolves? imaged :event ::open?)
+              (resolves? imaged :event :rf.state/clear) (resolves? imaged :sub ::control)]))
+      (doseq [f [implicit imaged]]
+        (testing (str "in " f)
+          (is (= false (read* f [::open? :billing])) "unwritten reads the default")
+          (send! f [::open? :billing true])
+          (is (= true (read* f [::open? :billing])))
+          (is (= {::open? {:billing true}} (:ui (db-of f))) "written at [:ui concern ikey]")
+          (send! f [::control])
+          (is (= 1 (read* f [::control])) "the ordinary control registration runs too")
+          (send! f [:rf.state/clear ::open? :billing])
+          (is (= false (read* f [::open? :billing])) "cleared back to the default")
+          (send! f [::seed])
+          (is (= true (read* f [::open? :shipping])) "an entry another event seeded")
+          (send! f [:rf.state/clear ::open? :shipping])
+          (is (= {} (:ui (db-of f))) "clears like a written one"))))))
 
 (deftest an-explicit-image-not-selecting-the-caller-still-resolves-clear
   (testing "the clear event is the framework's, whichever namespace registered
