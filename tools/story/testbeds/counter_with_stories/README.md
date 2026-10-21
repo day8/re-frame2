@@ -156,13 +156,11 @@ implementation symbols. The contract is enforced by:
 - `re-frame.story.config/enabled?` — when set to `false` via
   `:closure-defines`, every `reg-*` macro elides to `nil` and
   `mount-shell!` short-circuits before any DOM call.
-- the bundle-isolation grep test checks for the Story-internal
-  sentinel set (the `:rf.error/unknown-tag` reason string, the
-  `:rf.error/decorator-*` taxonomy) in the
-  `out/examples/counter` bundle. The example here counter_with_stories
-  is intentionally a dev build (Story enabled) so the playground
-  works; the production-flavoured probe is the plain `counter`
-  example.
+- the bundle-isolation gate reads the `out/examples/counter` build's
+  `manifest.edn` and fails if it lists any Story source. The example
+  here, counter_with_stories, is intentionally a dev build (Story
+  enabled) so the playground works; the production-flavoured probe is
+  the plain `counter` example.
 
 ## See also
 

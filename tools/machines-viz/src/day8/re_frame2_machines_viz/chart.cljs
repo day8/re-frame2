@@ -31,8 +31,8 @@
   `@xyflow/react` + `elkjs` are `devDependency`s of
   `implementation/package.json`. The chart is dev-only (Xray
   preload + the static viewer page). Production bundles MUST NOT
-  pull either; the `check-bundle-isolation.cjs` sentinel pins this
-  contract."
+  pull either; `check-bundle-isolation.cjs` forbids both in the
+  counter build's `manifest.edn`."
   (:require ["@xyflow/react" :as xyflow]
             ["elkjs/lib/elk.bundled.js" :as elkjs]
             [clojure.string :as str]

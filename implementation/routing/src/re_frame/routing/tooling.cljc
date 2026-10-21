@@ -329,23 +329,9 @@
           (and (some? route-id) (some? nav-token))
           (assoc :owner [:route route-id nav-token]))))))
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; `implementation/scripts/check-bundle-isolation.cjs` proves this tooling
-;; sibling never reaches the production counter bundle. The literal it greps
-;; the EMITTED module for is `route-fact` — the `:refinement` every route
-;; algebra node this namespace builds carries (`node-for` and
-;; `route-slice-algebra-view` both stamp it), so a CLJS keyword's
-;; fully-qualified name is interned into the emitted JS as a string constant
-;; Closure does not rename.
-;;
-;; There is deliberately no `defonce ^:private bundle-isolation-sentinel`
-;; string here: private and unconsumed, it would be dropped by Closure
-;; `:advanced`, so any `do-not-rename` instruction it carried would guard
-;; nothing. `re-frame.resources.tooling` and `re-frame.derivation.egress`
-;; record the identical trap.
-;;
-;; The rule, and the reason a planted string is the WRONG instinct here: pick
-;; a literal a LIVE code path emits, and verify the count in the emitted
-;; module, never in the `.cljc`. The roster comment in check-bundle-
-;; isolation.cjs beside the `routing-tooling` entry is the full account.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s
+;; `routing-tooling` entry forbids this file in the counter build's
+;; `manifest.edn`. The gate also fails when that path stops resolving,
+;; so a move or rename takes the entry with it.

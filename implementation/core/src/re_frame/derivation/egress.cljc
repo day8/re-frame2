@@ -33,10 +33,8 @@
   never loads this ns, so `:advanced` + `goog.DEBUG=false` DCE its body
   wholesale. The bundle-isolation gate
   (`implementation/scripts/check-bundle-isolation.cjs`) proves no stray
-  `:require` pulled it into the counter example's production bundle by
-  counting `rf.resource/opaque` — a literal this ns's live path emits — in
-  the emitted module; the note at the foot of this ns explains why there is
-  no planted sentinel string here.
+  `:require` pulled it into the counter example's production bundle: that
+  build's `manifest.edn` must not list this file.
 
   ## The contract
 
@@ -495,25 +493,9 @@
          (update :edges (fn [edges]
                           (project-resource-edge-endpoints (or edges []))))))))
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; THE SENTINEL FOR THIS NAMESPACE IS NOT IN THIS FILE, AND THERE IS NO
-;; PLANTED STRING TO MAINTAIN HERE. `implementation/scripts/check-bundle-
-;; isolation.cjs` greps the EMITTED counter/positive-control MODULE, not this
-;; source, and the literal it greps for `derivation-egress` is
-;; `rf.resource/opaque` — the opaque resource-handle marker this namespace
-;; MINTS on a live path (`opaque-handle` emits `[:rf.resource/opaque
-;; <digest>]`; `already-projected?` reads the same keyword back), so a CLJS
-;; keyword's fully-qualified name is interned into the emitted JS as a string
-;; constant Closure does not rename.
-;;
-;; A planted `defonce ^:private bundle-isolation-sentinel` string here would
-;; be inert: private and unconsumed, it is dropped by Closure `:advanced` —
-;; ZERO occurrences in the emitted module — so a `do-not-rename` instruction
-;; on it would guard nothing.
-;;
-;; The rule, and the reason a planted string is the WRONG instinct here: pick
-;; a literal a LIVE code path emits, and verify the count in the emitted
-;; module, never in the `.cljc`. The roster comment in check-bundle-
-;; isolation.cjs beside the `derivation-egress` entry is the full account,
-;; including two literals that do not work.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s
+;; `derivation-egress` entry forbids this file in the counter build's
+;; `manifest.edn`. The gate also fails when that path stops resolving,
+;; so a move or rename takes the entry with it.

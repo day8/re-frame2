@@ -147,7 +147,7 @@ nothing at all is registered.
 > canonical install is `:devtools/preloads` (dev build config) — so a host
 > that keeps Xray out of its release build carries none of this.
 > `check-bundle-isolation.cjs` pins the counter example's no-feature
-> bundle against the tooling-sibling sentinels; it is a leak check on a
+> build against compiling any tooling sibling; it is a leak check on a
 > bundle that never installed Xray, not a proof about one that did.
 
 ### The `:machines` contributor's selector-target extractor

@@ -910,9 +910,9 @@
 ;; This injection is part of the Xray global-styles preload path — it
 ;; only runs from `ShellView`'s `install!`, which is dev-only (Xray is
 ;; gated behind `:devtools/preloads`). The string is plain CSS data, not
-;; an `@xyflow/react` `:require`, so it carries none of the xyflow
-;; internal-symbol strings the `check-bundle-isolation.cjs` sentinel
-;; pins; a production bundle that never installs Xray never sees it.
+;; an `@xyflow/react` `:require`, so it adds no `node_modules/@xyflow/`
+;; source to a build, which is what `check-bundle-isolation.cjs` forbids;
+;; a production bundle that never installs Xray never sees it.
 ;;
 ;; ## Xray palette layer
 ;;

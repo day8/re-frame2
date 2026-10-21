@@ -60,10 +60,10 @@ production app build. Each Story `reg-*` macro emits a `when` guarded by
 that CLJS `goog-define`, so Closure removes the disabled registration
 branches and their unreachable dependencies.
 
-This is a hard rule. The bundle-isolation sentinels in
-`implementation/scripts/check-bundle-isolation.cjs` verify the separate
-no-Story-import consumer boundary with a Story-enabled positive control;
-they do not substitute for checking a consumer's disabled-registration build.
+This is a hard rule. `implementation/scripts/check-bundle-isolation.cjs`
+verifies the separate no-Story-import consumer boundary by reading the
+counter build's `manifest.edn` for Story sources; it does not substitute
+for checking a consumer's disabled-registration build.
 
 ## No new framework registries
 
