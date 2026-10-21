@@ -19,8 +19,8 @@
 ;; `:work/id` is `[:rf.work/resource <resource-id> <generation>]` and the
 ;; process-wide monotone generation is 1 (this is the FIRST load since the
 ;; runner reset the resource host-caches before the fixture). The payload
-;; carries no scoped key: the handler resolves it from the frame's work-ledger
-;; row for that work id.
+;; carries no scoped key: the handler resolves it from the frame's entry whose
+;; attempt carries that work id.
 ;;
 ;; The entry is read through the PUBLIC passive subscription
 ;; `[:rf/resource {:resource :scope :params}]` (Spec 016 §Subscriptions —

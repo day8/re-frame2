@@ -467,7 +467,7 @@
   the full contract: per-frame `project-egress` value redaction; dead-frame
   fail-closed (never borrowing an ambient frame and shipping raw); stable
   opaque live-resource-identity handles across every identity position (node
-  key, `:id`, `:output`, realized `:inputs`, `:work-ledger` work-id +
+  key, `:id`, `:output`, realized `:inputs`, `:work` work-id +
   `:resource/key`, `:host-transient`) and every edge endpoint; structure
   preservation (a redacted param is still an edge); and idempotence.
   `([graph frame-id] [graph frame-id opts])` — `opts` ride through to

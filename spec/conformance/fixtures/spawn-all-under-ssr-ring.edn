@@ -32,7 +32,7 @@
 ;;
 ;; So an async loader machine under SSR HANGS at `:loading` and is OUT of the
 ;; allowed subset. This fixture makes that observable without any runtime
-;; detection machinery (there is no machine work-ledger or await-quiescence
+;; detection machinery (there is no machine attempt tracking or await-quiescence
 ;; pump):
 ;;
 ;;   - Under `:platform :server`, entering the `:spawn-all`-bearing `:loading`

@@ -3,7 +3,7 @@
 ;; Spec 016 §Race and in-flight semantics — a second `ensure` for the SAME
 ;; scoped key while the first request is in flight JOINS the existing work
 ;; record: no new generation, no second fetch, the new owner is attached to the
-;; SAME entry + work-ledger row. The runtime emits :rf.resource/deduped for the
+;; SAME entry and its live attempt. The runtime emits :rf.resource/deduped for the
 ;; join (and :rf.resource/owner-attached with :joined-in-flight? true for the
 ;; newly-attached owner). Two ensures, ONE request.
 ;;

@@ -285,8 +285,8 @@ affordance that could serialise it for off-box transport.
 Production app builds (`re-frame.story.config/enabled?` false under `:advanced`) elide
 the entire Story UI shell; the a11y panel is reachable only from the
 disabled tree, so Closure DCE drops it. The bundle-isolation contract
-(`scripts/check-bundle-isolation.cjs`) verifies the Story sentinels
-are absent from `examples/counter`'s release bundle, which
+(`scripts/check-bundle-isolation.cjs`) verifies that `examples/counter`'s
+release build compiles no Story source, which
 transitively covers the a11y panel. Static-build deploys (rf2-8wgpm,
 see [`013-Static-Build.md`](013-Static-Build.md)) carry the axe-core
 opt-in prompt into the static site too, so a visitor running an a11y
@@ -872,10 +872,10 @@ specified in [`017-Testing-Story.md`](017-Testing-Story.md) §Composition.
 ### Verification
 
 `implementation/scripts/check-bundle-isolation.cjs` (per
-[`tools/README.md`](../../README.md)) checks live registrar/decorator
-sentinels are absent from the counter consumer that does not import
-Story, and present in its Story-enabled positive control. This verifies
-the no-import dependency boundary. The separate disabled-registration
+[`tools/README.md`](../../README.md)) reads the `manifest.edn` of the
+counter consumer that does not import Story, and fails if it lists any
+Story source. This verifies the no-import dependency boundary. The
+separate disabled-registration
 consumer is exercised by `tools/story/bench/bundle-size.cjs`; its
 historical measurement below is not a current CI result.
 

@@ -199,11 +199,11 @@
               :authority {:kind :remote :system :server :transport :rf.http/managed}}
              (select-keys node [:id :inputs :output :lifecycle :status :authority]))
           "the concrete scoped key, its realized edges and entry address, the active owners, status and authority")
-      (is (= [false false] [(contains? node :work-ledger) (contains? node :host-transient)])
-          "a loaded entry has no work-ledger or host-transient links"))))
+      (is (= [false false] [(contains? node :work) (contains? node :host-transient)])
+          "a loaded entry has no attempt or host-transient links"))))
 
-(deftest live-in-flight-entry-links-work-ledger-and-host-transient
-  (testing "an in-flight entry links its work-ledger record + names the host-transient handle"
+(deftest live-in-flight-entry-links-attempt-and-host-transient
+  (testing "an in-flight entry links its attempt summary + names the host-transient handle"
     (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
     (let [scope      :rf.scope/global
           params     {:slug "loading"}
@@ -214,10 +214,10 @@
           work-id    (rf.resources.work-ledger/resource-work-id :article/by-slug 1)]
       (is (= [:fetching work-id {:resource/key scoped-key :transport :rf.http/managed :owners #{[:route :route/article 9]}}
               [[:rf.http/in-flight work-id]]]
-             [(:status node) (get-in node [:work-ledger :work/id])
-              (select-keys (get-in node [:work-ledger :record]) [:resource/key :transport :owners])
+             [(:status node) (get-in node [:work :work/id])
+              (select-keys (get-in node [:work :record]) [:resource/key :transport :owners])
               (:host-transient node)])
-          "the work-ledger link carries the work id and a record summary, and the host-transient handle names it"))))
+          "the :work link carries the work id and a record summary, and the host-transient handle names it"))))
 
 (deftest live-view-keeps-cedn-distinct-scoped-keys-distinct
   (testing "ADVERSARIAL: two live entries whose params differ ONLY by
@@ -249,7 +249,7 @@
 ;; re-frame2-pair-mcp, conformance fixtures consume it). EP-0015 treats
 ;; resource entries, their attempts, scopes, params, and owner/cause
 ;; summaries as EGRESS RECORDS: the raw scope/params embedded in the node
-;; KEY, `:id`, `:inputs`, `:output`, and `:work-ledger :record :resource/key`
+;; KEY, `:id`, `:inputs`, `:output`, and `:work :record :resource/key`
 ;; cannot be reached by a generic value-path walk, so the tooling surface
 ;; must project them through the resource OWNER classification BEFORE egress.
 
@@ -257,7 +257,7 @@
 
 (defn- contains-secret?
   "Deep-walk `v`; true iff the raw secret string appears ANYWHERE (leaf, key,
-  scope, params, work-ledger record, :output path tail)."
+  scope, params, attempt summary, :output path tail)."
   [v]
   (boolean
     (cond
@@ -269,7 +269,7 @@
 (deftest live-view-redacts-sensitive-params-at-tool-egress
   (testing "a :sensitive? resource's scoped-key scope/params are
             projected to opaque handles in EVERY identity position — the node
-            map key, :id, :inputs, :output, and the in-flight work-ledger
+            map key, :id, :inputs, :output, and the in-flight :work
             record :resource/key — while resource-id identity + connectivity
             survive and no raw secret egresses"
     (rf/reg-resource :secret/article
@@ -284,8 +284,8 @@
           node       (first (vals view))]
       (is (= [1 false :secret/article :secret/article]
              [(count view) (contains-secret? view) (nth (:id node) 1)
-              (second (:resource/key (:record (:work-ledger node))))])
-          "one node, no raw secret anywhere (map keys included), the resource id surviving in :id and the work-ledger record"))))
+              (second (:resource/key (:record (:work node))))])
+          "one node, no raw secret anywhere (map keys included), the resource id surviving in :id and the :work record"))))
 
 ;; ---- entries whose projected keys collide -------------------------------
 ;;
@@ -342,10 +342,10 @@
               (set (map #(get-in % [:lifecycle :owners]) nodes)) (every? #(= :app/profile (nth (:id %) 1)) nodes)
               (set (map #(get-in % [:id 2 :rf.resource/collision]) nodes))])
           "one node per entry, with distinct ids differing only by a collision ordinal, each keeping its own status and owners")
-      (let [in-flight (first (filter :work-ledger nodes))
-            wid       (get-in in-flight [:work-ledger :work/id])]
+      (let [in-flight (first (filter :work nodes))
+            wid       (get-in in-flight [:work :work/id])]
         (is (= [(:id in-flight) [:rf.work/resource :app/profile 1] [[:rf.http/in-flight wid]]]
-               [(get-in in-flight [:work-ledger :record :resource/key]) wid (:host-transient in-flight)])
+               [(get-in in-flight [:work :record :resource/key]) wid (:host-transient in-flight)])
             "the in-flight node's record carries its own id; its work id names only the resource and generation"))
       (let [graph   (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)
             shipped (rf.derivation.egress/project-graph graph :rf/default)]

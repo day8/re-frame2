@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/shadow-report
 ;;
-;; EP-0026 §Shadow Report (../../docs/EP/EP-0026-image-api-simplification.md):
+;; EP-0026 §Shadow Report (docs/EP/EP-0026-image-api-simplification.md):
 ;; when a later image shadows an earlier image's registration, composition
 ;; records it on the generation's `:rf.gen/shadows`. Each entry says EXACTLY
 ;; three things — nothing else (no winner descriptor, image index, tier, source

@@ -2712,9 +2712,9 @@ jobs:
     # schemas leg of the `jvm` job. Both directions fire on a planted regression.
     #
     # NOT a duplicate of `cljs-bundle-isolation` or `cljs-perf-bundle`. Those
-    # two grep emitted bundles for symbols that must be absent; this one
-    # measures bytes and owns ONE quantity — what requiring the schemas
-    # artefact costs. Its own job so a schemas-margin failure stays
+    # two prove code absent from a build, by its manifest.edn or its main.js;
+    # this one measures bytes and owns ONE quantity — what requiring the
+    # schemas artefact costs. Its own job so a schemas-margin failure stays
     # distinguishable from an isolation failure in the checks UI.
     #
     # No browser and no Clojure CLI: two shadow-cljs releases plus a gzip of
@@ -2811,19 +2811,17 @@ jobs:
         run: npm ci
 
       # Build the counter example (the canonical no-feature app — it
-      # imports zero per-feature artefacts) and grep the produced
-      # main.js for each per-feature artefact's internal-only sentinel
-      # strings. The contract: every per-feature ns (schemas / machines
-      # / routing / flows / http / ssr) must be ABSENT from the counter
-      # bundle. A small consumer-side allow-list (the late-bind hook
-      # keys / fx-case keys core publishes for each artefact) is
-      # tracked with explicit expected-hit counts.
+      # imports zero per-feature artefacts) and read its manifest.edn:
+      # every per-feature ns (schemas / machines / routing / flows / http
+      # / ssr / …) must be ABSENT from the sources the build compiled.
+      # The dev-only trace.tooling projection and a small consumer-side
+      # allow-list (the late-bind hook keys / fx-case keys core publishes
+      # for each artefact) are still counted in the produced main.js.
       #
       # If a change re-imports a per-feature namespace
-      # into core (or any of core's transitive deps), one of the
-      # internal sentinels will appear in the bundle and this step will
-      # fail. The dual of cljs-elision (Spec 009) for the per-feature
-      # split contract.
+      # into core (or any of core's transitive deps), its source will
+      # appear in the manifest and this step will fail. The dual of
+      # cljs-elision (Spec 009) for the per-feature split contract.
       - name: Verify counter bundle isolates every per-feature artefact
         run: npm run test:bundle-isolation
 

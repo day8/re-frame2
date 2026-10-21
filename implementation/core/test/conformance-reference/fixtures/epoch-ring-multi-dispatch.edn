@@ -4,7 +4,7 @@
 ;; per dispatch; positions are stable across re-runs.
 ;;
 ;; Tool-Pair time-travel and the re-frame-10x epoch panel both walk
-;; this ring; a second-host implementation that emits one record per
+;; this ring; an implementation that emits one record per
 ;; dispatch but in REVERSE order would break the time-travel contract
 ;; even though every individual record looks right. This fixture pins
 ;; the order.

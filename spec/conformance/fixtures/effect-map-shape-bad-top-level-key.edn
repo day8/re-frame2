@@ -34,7 +34,7 @@
 {:fixture/id           :effect-map-shape/bad-top-level-key
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
- :fixture/doc          "A reg-event handler returns {:db ... :http ...}. The non-:db/:fx top-level :http key REFUSES the event: one always-on :rf.error/effect-map-shape emission (:offending-key :http, :fix-effect), the event aborts pre-commit, and the :db does NOT apply."
+ :fixture/doc          "A reg-event handler returns {:db ... :http ...}. The non-:db/:fx top-level :http key REFUSES the event: one :rf.error/effect-map-shape error (:offending-key :http, :fix-effect), the event aborts pre-commit, and the :db does NOT apply."
 
  :fixture/registry
  {:event {:shape/init {:doc "Seed [:seeded?] false."}
@@ -68,14 +68,6 @@
                 :value             {:url "/api"}
                 :rf.trace/event-id :shape/bad-key
                 :rf.event/v        [:shape/bad-key]}}]
-
-  ;; The always-on axis — the one that survives a production build, where the
-  ;; dev trace above is dead-code-eliminated. It carries the offending KEY as
-  ;; its lone discriminator; the rejected value stays on the dev trace.
-  :error-emit-records
-  [{:rf.error/id   :rf.error/effect-map-shape
-    :event-id      :shape/bad-key
-    :offending-key :http}]
 
   ;; The legacy top-level :http key was NOT routed through the fx machinery
   ;; — no fx with id :http was ever attempted.

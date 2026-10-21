@@ -7,7 +7,7 @@
 
   Both order-preserving matchers are pinned here: the shared trace matcher
   `re-frame.conformance/check-trace-emissions` and the core corpus runner's
-  `:error-emit-records` matcher."
+  reference-only `:error-emit-records` matcher."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.conformance :as rf.conformance]
             [re-frame.conformance-runner :as rf.conformance-runner]))

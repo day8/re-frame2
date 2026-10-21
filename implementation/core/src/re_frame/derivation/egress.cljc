@@ -33,10 +33,8 @@
   never loads this ns, so `:advanced` + `goog.DEBUG=false` DCE its body
   wholesale. The bundle-isolation gate
   (`implementation/scripts/check-bundle-isolation.cjs`) proves no stray
-  `:require` pulled it into the counter example's production bundle by
-  counting `rf.resource/opaque` — a literal this ns's live path emits — in
-  the emitted module; the note at the foot of this ns explains why there is
-  no planted sentinel string here.
+  `:require` pulled it into the counter example's production bundle: that
+  build's `manifest.edn` must not list this file.
 
   ## The contract
 
@@ -59,9 +57,9 @@
       borrowing an ambient dynamically-bound frame and shipping raw;
     - **identity-embedded scoped keys** — the positions the value-path walk
       is structurally blind to (node KEY, `:id`, `:output`, realized
-      `:inputs`, the `:work-ledger` record's `:resource/key`, and every edge
+      `:inputs`, the `:work` record's `:resource/key`, and every edge
       endpoint) projected into STABLE OPAQUE HANDLES. A resource work-id
-      (`:work-ledger :work/id`, the `:host-transient` in-flight address)
+      (`:work :work/id`, the `:host-transient` in-flight address)
       names its attempt by resource id and generation, so it carries no
       scope or params and rides as-is; and
     - **STRUCTURE PRESERVED** — a redacted value / param is still an edge;
@@ -105,7 +103,7 @@
 ;; reach: the concrete SCOPED KEY `[cache-scope resource-id canonical-params]`
 ;; is the node's IDENTITY — it is the node KEY (`[:resource <scoped-key>]`),
 ;; the node's `:id`, it is embedded in the `:output` runtime path, in the
-;; `:work-ledger :record :resource/key`, and a route-owned activation surfaces
+;; `:work :record :resource/key`, and a route-owned activation surfaces
 ;; it as the `:to` end of a `:param` edge. These are STRUCTURE positions, not
 ;; value-bearing leaves — and the param/scope they carry are exactly the
 ;; "sensitive params/scopes" [spec/Derivations.md] §Redaction metadata names
@@ -295,8 +293,8 @@
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
   path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads, and
-  `:work-ledger :record :resource/key` (the scoped key on the work-ledger
-  summary). The work-ledger `:work/id` and the `:host-transient` in-flight
+  `:work :record :resource/key` (the scoped key on the attempt
+  summary). The attempt's `:work/id` and the `:host-transient` in-flight
   address `[[:rf.http/in-flight <work-id>]]` name the attempt by resource id
   and generation (`[:rf.work/resource <resource-id> <generation>]`), so they
   carry no scope or params and ride as-is. Structure / classification fields
@@ -312,8 +310,8 @@
     (contains? node :inputs)
     (update :inputs project-resource-inputs)
 
-    (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+    (scoped-resource-key? (get-in node [:work :record :resource/key]))
+    (update-in [:work :record :resource/key] project-scoped-key)))
 
 (defn- resource-node-key?
   "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
@@ -405,8 +403,8 @@
   `[cache-scope resource-id canonical-params]` that is the node KEY
   (`[:resource <scoped-key>]`), the node's `:id`, and is embedded in the
   `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`
-  edges, and `:work-ledger :record :resource/key`. (The resource work-id
-  under `:work-ledger` and in the `:host-transient` in-flight address names
+  edges, and `:work :record :resource/key`. (The resource work-id
+  under `:work` and in the `:host-transient` in-flight address names
   its attempt by resource id and generation, so it carries neither scope nor
   params.) The `elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
@@ -495,25 +493,9 @@
          (update :edges (fn [edges]
                           (project-resource-edge-endpoints (or edges []))))))))
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; THE SENTINEL FOR THIS NAMESPACE IS NOT IN THIS FILE, AND THERE IS NO
-;; PLANTED STRING TO MAINTAIN HERE. `implementation/scripts/check-bundle-
-;; isolation.cjs` greps the EMITTED counter/positive-control MODULE, not this
-;; source, and the literal it greps for `derivation-egress` is
-;; `rf.resource/opaque` — the opaque resource-handle marker this namespace
-;; MINTS on a live path (`opaque-handle` emits `[:rf.resource/opaque
-;; <digest>]`; `already-projected?` reads the same keyword back), so a CLJS
-;; keyword's fully-qualified name is interned into the emitted JS as a string
-;; constant Closure does not rename.
-;;
-;; A planted `defonce ^:private bundle-isolation-sentinel` string here would
-;; be inert: private and unconsumed, it is dropped by Closure `:advanced` —
-;; ZERO occurrences in the emitted module — so a `do-not-rename` instruction
-;; on it would guard nothing.
-;;
-;; The rule, and the reason a planted string is the WRONG instinct here: pick
-;; a literal a LIVE code path emits, and verify the count in the emitted
-;; module, never in the `.cljc`. The roster comment in check-bundle-
-;; isolation.cjs beside the `derivation-egress` entry is the full account,
-;; including two literals that do not work.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s
+;; `derivation-egress` entry forbids this file in the counter build's
+;; `manifest.edn`. The gate also fails when that path stops resolving,
+;; so a move or rename takes the entry with it.

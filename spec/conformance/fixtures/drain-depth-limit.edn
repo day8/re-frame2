@@ -10,9 +10,7 @@
 ;; The depth limit stops the NEXT (halting) event; the runtime commits a
 ;; trailing :halted-depth :rf/epoch-record for it (Spec-Schemas
 ;; §:rf/epoch-record §Outcomes) so devtools (Xray, re-frame2-pair) get a
-;; clear "drain halted here" marker following the durable :ok epochs. The
-;; halting event never ran, so its record's :db-before / :db-after both
-;; equal the durable last-settled db.
+;; clear "drain halted here" marker following the durable :ok epochs.
 
 {:fixture/id           :drain/depth-limit
  :fixture/spec-version "1.0"
@@ -71,34 +69,4 @@
    ;; (`re-frame.epoch.assembly/outcome->consumer-facing`).
    {:operation :rf.epoch/outcome
     :tags      {:frame   :rf/default
-                :outcome :blocked}}]
-
-  ;; Per Spec 002 §Drain versus event: five durable :ok epochs (one per
-  ;; dequeued :recursive event, db chaining {:depth 1}…{:depth 5}) followed
-  ;; by the trailing :halted-depth marker. The marker's :db-before /
-  ;; :db-after both equal the durable last-settled db ({:depth 5}); the
-  ;; halting event never ran.
-  :epoch-records
-  [{:frame :rf/default :record {:outcome :ok :event-id :recursive
-                                :db-before {} :db-after {:depth 1}}}
-   {:frame :rf/default :record {:outcome :ok :event-id :recursive
-                                :db-before {:depth 1} :db-after {:depth 2}}}
-   {:frame :rf/default :record {:outcome :ok :event-id :recursive
-                                :db-before {:depth 2} :db-after {:depth 3}}}
-   {:frame :rf/default :record {:outcome :ok :event-id :recursive
-                                :db-before {:depth 3} :db-after {:depth 4}}}
-   {:frame :rf/default :record {:outcome :ok :event-id :recursive
-                                :db-before {:depth 4} :db-after {:depth 5}}}
-   {:frame :rf/default
-    :record {:outcome   :halted-depth
-             :event-id  :recursive
-             :db-before {:depth 5}
-             :db-after  {:depth 5}
-             ;; Ids only — the last-settled event is named, never carried
-             ;; (its args live on its own :ok record). The dev trace above
-             ;; keeps the vector for the local debugger.
-             :halt-reason
-             {:operation     :rf.error/drain-depth-exceeded
-              :depth         5
-              :queue-size    1
-              :last-event-id :recursive}}}]}}
+                :outcome :blocked}}]}}

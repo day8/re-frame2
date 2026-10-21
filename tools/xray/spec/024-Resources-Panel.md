@@ -50,7 +50,7 @@ Two distinct facts that must not be conflated:
   canonical install is `:devtools/preloads` (dev build config), so a
   host that keeps Xray out of its release build does not pay for the
   dep. `check-bundle-isolation.cjs` pins that the counter example's
-  no-feature production bundle carries no tooling-sibling sentinels —
+  no-feature production build compiles no tooling sibling —
   a leak check on a bundle that never installed Xray, not a proof about
   one that did. The
   Derivation-Graph tab needs the algebra-view PROJECTION; the panel below

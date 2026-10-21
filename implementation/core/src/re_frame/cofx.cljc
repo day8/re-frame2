@@ -1252,7 +1252,7 @@
 ;; `:rf/time-ms` — recordable, provided, stamped at enqueue on every dispatch
 ;; and reply envelope (per EP-0010's stamping rules). It is the
 ;; canonical durable wall-clock fact; the framework's own durable writers
-;; (resource freshness, work-ledger rows, mutation instances, epoch records)
+;; (resource freshness, in-flight attempts, mutation instances, epoch records)
 ;; read it from the envelope. A handler takes delivery by declaring
 ;; `:rf.cofx/requires [:rf/time-ms]` and reading `time-ms` flat.
 ;;

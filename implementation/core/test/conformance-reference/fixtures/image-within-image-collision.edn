@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/within-image-collision
 ;;
-;; EP-0026 §Layered Resolution (../../docs/EP/EP-0026-image-api-simplification.md):
+;; EP-0026 §Layered Resolution (docs/EP/EP-0026-image-api-simplification.md):
 ;; an image must resolve cleanly to ONE descriptor per `[kind id]` — there is no
 ;; within-image winner rule. So any `[kind id]` that resolves two ways WITHIN one
 ;; image is an ERROR. Three cases:

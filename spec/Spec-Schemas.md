@@ -4251,7 +4251,7 @@ The serialisable artefact contract for a story variant (owned by the optional `d
 > **Layer:** Runtime
 > **Owner:** [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
 > **Status:** dev-tier (gated on `re-frame.interop/debug-enabled?`; production builds elide entirely)
-> **Conformance:** `spec/conformance/fixtures/epoch-*.edn` + `implementation/epoch/test/re_frame/epoch_*.clj` (build / restore / privacy / jvm-prod-gate)
+> **Conformance:** `implementation/epoch/test/re_frame/epoch_*.clj` (build / restore / privacy / jvm-prod-gate) + the `:epoch-records` expectation of the reference implementation's reference-only corpus (`implementation/core/test/conformance-reference/`)
 
 Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one record per event, not per drain (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). A drain that settles several events back-to-back yields one record per settled event. Used by Tool-Pair for time-travel and post-mortem analysis. Production builds elide entirely (no schema validation needed in prod).
 

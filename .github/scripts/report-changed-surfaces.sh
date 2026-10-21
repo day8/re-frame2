@@ -1230,8 +1230,8 @@ else
         # error as DATA in them. Both trees join HTTP on the same `src/*`
         # scope, and the over-arm is as deliberate here as it is there: machines
         # carries an UNROSTERED
-        # implementation/machines/src/re_frame/machines/reply.cljc holding more
-        # `:rf.reply/*` occurrences than any rostered file in that tree, and
+        # implementation/machines/src/re_frame/machines/lifecycle_fx/registration.cljc writing
+        # `:rf.reply/*` tags (the single-`:spawn` stale-completion row), and
         # resources likewise carries
         # implementation/resources/src/re_frame/resources/reply.cljc — so the
         # suites' roster trails the emitters and an enumeration here
@@ -2047,8 +2047,10 @@ else
         #
         #   * cljs-bundle-isolation (bundle_isolation) releases
         #     :examples/counter, :examples/counter-uix, :examples/login,
-        #     :examples/login-uix and :examples/realworld-resources, then greps
-        #     the five bundles for tools/* symbols.
+        #     :examples/login-uix and :examples/login-fresco (with the gate's
+        #     positive-control build), then reads the counter's manifest.edn for
+        #     per-feature and tools/* sources and greps the bundles for each
+        #     view substrate's fingerprints.
         #   * cljs-perf-bundle (cljs_prod) releases :examples/counter
         #     and :examples/counter-perf — both counter.core/run — and greps the
         #     perf-OFF bundle for the ABSENCE and the perf-ON twin for the

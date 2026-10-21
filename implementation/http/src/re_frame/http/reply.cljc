@@ -26,7 +26,7 @@
       metadata on the reply map. The frame-qualified transport
       request-id `[:rf.req frame-id work-id]` (Spec 016) is the
       sanctioned second identity for process-global transport
-      correlation; the Resources work-ledger's `managed-request-id` is
+      correlation; `re-frame.resources.work-ledger/managed-request-id` is
       its only shipped constructor. Its resource work id
       `[:rf.work/resource <resource-id> <generation>]` names no scope or
       params, so the HTTP work id, the failure maps and the
@@ -230,7 +230,7 @@
 ;; Stale suppression for HTTP supersession (Managed-Effects §Stale
 ;; suppression). When a fresh request supersedes a prior one with
 ;; the same `:request-id`, the prior (superseded) attempt's app reply MUST NOT
-;; run, its ledger row reaches `:suppressed`, and the trace stream records a
+;; run, its attempt record reaches `:suppressed`, and the trace stream records a
 ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope row carrying
 ;; the CARRIED (the superseded attempt's work-id) and CURRENT (the superseding
 ;; attempt's work-id) correlation. The supersession gate is data-only: the

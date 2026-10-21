@@ -63,10 +63,4 @@
     :tags      {:actor-id :test/m
                 :event-id :tick
                 :event    [:tick]}
-    :recovery  :no-recovery}]
-
-  ;; The refusal is a per-handler no-op (the committed snapshot is untouched),
-  ;; not a drain-halt — the drain emptied its queue, so the epoch outcome is
-  ;; :ok (symmetric with cross-spec/machine-action-throws).
-  :epoch-records
-  [{:frame :rf/default :record {:outcome :ok :event-id :test/m}}]}}
+    :recovery  :no-recovery}]}}

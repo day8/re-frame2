@@ -64,7 +64,7 @@ A recordable registration comes in two shapes, and the **generator shape is the 
 
 > **Where does the application stamp a coeffect value at the dispatch site, then?** It does **not** — not in production. Carrying a coeffect on a dispatch (the `:rf.cofx` call-site opt, below) is **reserved for unit-test stubs**. A production app supplies its world-reads through `reg-cofx`: a generator for what it owns, a provided registration for boundary facts its owner stamps. The supplier *is* the coeffect source.
 
-**The durable-write rule (the whole discipline in one sentence): durable state folds facts, never reads.** A transition that performs a durable write — anything written to app-db, runtime-db, a resource, a machine snapshot, a work-ledger row, or a hydration payload — MUST consume world facts from the token's recordable coeffects (or the event payload), never from an ambient read at the write site. Otherwise the same event replays to a different value (epoch restore / SSR hydration / time-travel all diverge).
+**The durable-write rule (the whole discipline in one sentence): durable state folds facts, never reads.** A transition that performs a durable write — anything written to app-db, runtime-db, a resource, a machine snapshot, an attempt record, or a hydration payload — MUST consume world facts from the token's recordable coeffects (or the event payload), never from an ambient read at the write site. Otherwise the same event replays to a different value (epoch restore / SSR hydration / time-travel all diverge).
 
 ### `:rf/time-ms` — the framework's one built-in coeffect
 

@@ -28,9 +28,9 @@
   `re-frame.core` facade export and no api-manifest row: like the five
   siblings' CLJS-side fns, this is reached directly by the consuming tool
   (Xray statically `:require`s the tooling siblings it has), JVM-aliased
-  nowhere, and bundle-isolated from production builds (the explicit
-  sentinel at the foot of this ns proves no stray `:require` pulled the
-  body in).
+  nowhere, and bundle-isolated from production builds (the bundle-isolation
+  gate's `derivation-graph` entry forbids this file in the counter build's
+  `manifest.edn`).
 
   THE FIVE FAMILIES ARE FIXED. The graph composes exactly the five
   in-tree algebra-view families — subs / flows / resources / routes /
@@ -485,8 +485,8 @@
   the rest (including the `:machines` `:selector-targets`) via the
   `contributors` argument to `derivation-graph` / `live-derivation-graph`.
   This keeps the four optional sibling bodies out of a no-feature CLJS
-  bundle (a static `:require` from this core ns would defeat the
-  bundle-isolation the siblings each guard with their sentinel).
+  bundle (a static `:require` from this core ns would put every sibling's
+  source in a core-only build, which the bundle-isolation gate forbids).
 
   A genuinely-absent optional family contributes nothing (the no-flows /
   no-resources story); an init/compile failure of a PRESENT sibling

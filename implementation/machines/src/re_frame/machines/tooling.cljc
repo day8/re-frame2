@@ -18,8 +18,8 @@
       alias costs nothing. The whole machines artefact is already
       bundle-isolated from production builds (counter never `:require`s
       `re-frame.machines`), so this sibling can never reach a no-machines
-      app's bundle; the explicit sentinel at the foot of this ns
-      additionally proves no stray `:require` ever pulled the body in.
+      app's bundle; `check-bundle-isolation.cjs`'s `machines-tooling` entry
+      additionally forbids this file in the counter build's `manifest.edn`.
 
   READ-ONLY over the registry + live runtime-db. This ns touches NEITHER the
   core registrar write-path NOR the machine registration signatures — exactly
