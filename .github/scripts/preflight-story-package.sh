@@ -127,9 +127,6 @@ MISSING_HINT = {
 # reach the published jar. Seeing one here means an alias leaked into
 # :deps.
 EXTRA_HINT = {
-    ("day8", "re-frame2-epoch"):
-        " The epoch artefact is test-only for Story (both consumers read"
-        " the late-bound facade) — it must stay under the :test alias.",
     ("org.clojure", "test.check"):
         " test.check is :test-alias only; the generate adapter late-binds"
         " it via requiring-resolve so the published jar never depends on it.",

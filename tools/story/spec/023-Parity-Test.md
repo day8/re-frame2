@@ -254,8 +254,7 @@ every measurement with its evidence strength (§3.3).
    `tools/story`, for each probe:
 
    ```sh
-   clojure -Sdeps '{:deps {day8/re-frame2-epoch {:local/root "../../implementation/epoch"}}}' \
-     -M -i spec/findings/parity-probes/probe7.clj
+   clojure -M -i spec/findings/parity-probes/probe7.clj
    ```
 
    and compare stdout with `probe7.expected.txt` beside the script. On

@@ -169,8 +169,8 @@
   This guard is what makes the ns docstring's 'each step re-focuses head
   and the spine never pins into RETRO' true of the code.
 
-  A nil ring means the epoch artefact is absent, in which case the
-  listener would not have registered at all; the `some?` arm keeps the
+  A nil ring means the build elides epoch (`goog.DEBUG` false), in which
+  case the listener would not have registered at all; the `some?` arm keeps the
   predicate honest rather than silently disabling focus-pinning."
   [host-frame epoch-id]
   (let [latest (:epoch-id (peek (rf.epoch/epoch-history host-frame)))]
@@ -194,7 +194,7 @@
   (`latest-epoch?`) — the listener re-delivers a parent record after its
   child's has landed, and pinning that trailing stale record would put
   the spine into RETRO on the parent. `(rf/register-listener!
-  :epoch …)` returns nil when the epoch artefact is absent, in which
+  :epoch …)` returns nil when the build elides epoch, in which
   case focus-pinning silently degrades to a no-op (no epoch ring to
   focus against) — the testbed still steps."
   [id host-frame]

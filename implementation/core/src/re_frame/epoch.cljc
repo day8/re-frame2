@@ -45,15 +45,9 @@
             [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
-            [re-frame.features :as rf.features]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            ;; The core's record-kind door, asked once at load by guard G2
-            ;; below whether it dispatches `:rf/epoch-record`.
-            ;; Already on this artefact's transitive require graph through
-            ;; `re-frame.epoch.tool-pair`, so the edge adds no bundle weight.
-            [re-frame.projection :as rf.projection]
             [re-frame.trace :as rf.trace]))
 
 ;; ---- ONE GRAMMAR FOR THE EPOCH RING ----------------------------------------
@@ -64,15 +58,13 @@
 ;;
 ;;   * `epoch-history`, `current-epoch-id`, `restore-epoch!`, `replay-epoch!`
 ;;     and `replace-frame-state!` are this namespace's public surface, tiered
-;;     `:tooling`. All five are also published under their
-;;     `:epoch/*` late-bind hooks (the block at the foot of this file), which
-;;     `re-frame.core`'s `epoch-history` forwards through and which tools that
-;;     treat the artefact as optional call instead of requiring this namespace.
+;;     `:tooling`. `re-frame.core` re-exports `epoch-history`; tools require
+;;     this namespace and call the rest directly.
 ;;   * `configure!`, `clear-history!`, `register-epoch-listener!`,
 ;;     `unregister-epoch-listener!` and `clear-epoch-listeners!` are
-;;     IMPLEMENTATION SEAMS — hook targets for core's doors
-;;     (`rf/configure!`, the `:epoch` stream of `rf/register-listener!`, the
-;;     test-support reset table). They keep a row tiered `:implementation`,
+;;     IMPLEMENTATION SEAMS — what core's doors call (`rf/configure!`, the
+;;     `:epoch` stream of `rf/register-listener!`) and what this namespace's
+;;     lifecycle `:test-reset` runs. They keep a row tiered `:implementation`,
 ;;     following `settle!` rather than `^:no-doc`: the generator drops a
 ;;     `^:no-doc` var from the manifest entirely, and this repo tiers a seam
 ;;     honestly rather than quieting it.
@@ -118,8 +110,7 @@
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) are
   silently dropped at the boundary.
 
-  IMPLEMENTATION SEAM — hook target for `:epoch/configure!`. The public
-  door is `(rf/configure! {:epoch-history {…}})`, whose keys are the ones
+  IMPLEMENTATION SEAM — `rf/configure!` calls it. The public door is `(rf/configure! {:epoch-history {…}})`, whose keys are the ones
   above; read them back with `(:epoch-history (rf/current-config))`."
   [opts]
   (rf.epoch.state/merge-config! opts))
@@ -163,8 +154,8 @@
   Also drop in-flight capture buffers so a later event cannot harvest traces
   left by an interrupted test or run.
 
-  IMPLEMENTATION SEAM — hook target for `:epoch/clear-history!`, fired by
-  `re-frame.test-support`'s reset-hook table. There is no facade door and
+  IMPLEMENTATION SEAM — run by this namespace's lifecycle `:test-reset`,
+  which `re-frame.test-support`'s reset fires. There is no facade door and
   none is wanted: this is fixture-grade teardown, not an app gesture."
   []
   (rf.epoch.state/reset-histories!)
@@ -192,7 +183,7 @@
 
   Returns the id.
 
-  IMPLEMENTATION SEAM — hook target for `:epoch/register-epoch-listener!`.
+  IMPLEMENTATION SEAM — the `:epoch` arm of `rf/register-listener!` calls it.
   The public door is the `:epoch` stream of the one listener verb,
   `(rf/register-listener! :epoch id f)`; apps and tools alike attach
   there (Tool-Pair §Facade vs home-namespace verb)."
@@ -202,15 +193,15 @@
 (defn unregister-epoch-listener!
   "Remove the listener registered under id.
 
-  IMPLEMENTATION SEAM — hook target for `:epoch/unregister-epoch-listener!`.
-  The public door is `(rf/unregister-listener! :epoch id)`."
+  IMPLEMENTATION SEAM — the `:epoch` arm of `rf/unregister-listener!` calls
+  it. The public door is `(rf/unregister-listener! :epoch id)`."
   [id]
   (rf.epoch.state/drop-listener! id))
 
 (defn clear-epoch-listeners!
   "Drop every registered epoch-settled callback. Test fixtures use this.
 
-  IMPLEMENTATION SEAM — hook target for `:epoch/clear-epoch-listeners!`.
+  IMPLEMENTATION SEAM — run by this namespace's lifecycle `:test-reset`.
   There is no facade door and none is wanted: an app unregisters the ids
   it registered, via `(rf/unregister-listener! :epoch id)`; a blanket
   clear is fixture-grade teardown."
@@ -733,134 +724,55 @@
   [record opts]
   (rf.epoch.tool-pair/project-record record opts))
 
-;; ---- GUARD G2: version-skew refusal, at LOAD --------------------------------
-;;
-;; THE VECTOR. `late-bind/set-fns!` is a plain `swap! assoc` — it validates
-;; no key at runtime, and the directory is enforced only by a drift TEST. So
-;; a NEW epoch artefact loaded against an OLD core would register
-;; `:epoch/project-record` against a door that has never heard of it, in
-;; SILENCE. That core's `project-egress` does not carry `:rf/epoch-record`
-;; in its `record-kinds`, so it reads every stamped record as a KINDLESS
-;; VALUE and bare-walks it from `:path []` — a frame's `[:auth :token]`
-;; declaration cannot match `[:db-after :auth :token]`, and declared-
-;; sensitive app-db values ship RAW. G1 lives in the new core and cannot
-;; reach backwards to an old one; this is the half that can.
-;;
-;; THE CHECK asks the core's DOOR whether it dispatches `:rf/epoch-record`
-;; — asserted at load, before a single record can be projected, so the
-;; artefact refuses to load against a core whose door cannot dispatch its
-;; records rather than degrading quietly.
-;;
-;; WHY THE DOOR AND NOT THE LATE-BIND DIRECTORY, which rosters the same
-;; fact: the directory is a DOCUMENTATION
-;; corpus that production builds must dead-code-eliminate, pinned by
-;; `check-elision.cjs`'s `re-frame.late-bind.directory/hooks (:description
-;; corpus, DCE when unrequired)` sentinel. No `src/` namespace requires it;
-;; requiring it from HERE would drag its whole hook-key
-;; and description corpus into every bundle carrying this artefact, breaking
-;; that sentinel and the others whose strings the corpus quotes, and
-;; displacing a shared keyword constant out of the module a bundle-isolation
-;; positive control reads. It is also the weaker question: the directory
-;; DESCRIBES the door, where `recognises-record-kind?` IS the door's own
-;; answer, and `re-frame.projection` is already on this artefact's
-;; transitive require graph, so asking it costs nothing.
-;;
-;; WHY A PLAIN `ex-info` AND NOT `rf.error/throw-error!`: the canonical
-;; builder stamps an `:rf.error/*` category, and every emitted category owes
-;; a Spec 009 §Error event catalogue row with a ruled observability channel
-;; (pinned by `error-catalogue-channel-conformance-test`'s source scan).
-;; This is a LOAD-TIME classpath-compatibility refusal, not a runtime
-;; observability category: it fires while the namespace is still loading, so
-;; no error-emit listener can exist to receive it and neither channel
-;; describes it. It carries its discriminator under `:rf.epoch/load-refusal`
-;; instead, and claims no catalogue row it would not honour.
-(defn ^:no-doc assert-core-dispatches-epoch-records!
-  "Refuse to finish loading against a core whose `rf/project-egress` does
-  not dispatch `:rf/epoch-record`. `recognised?` is that core's own answer
-  (`re-frame.projection/recognises-record-kind?`), passed in so the skew can
-  be exercised by a unit test without a second core on the classpath.
-  Returns nil when the core is compatible; throws otherwise."
-  [recognised?]
-  (when-not recognised?
-    (throw (ex-info
-             (str (:maven (:epoch rf.features/feature-registry))
-                  " requires a re-frame core whose "
-                  "rf/project-egress dispatches :kind :rf/epoch-record. This "
-                  "core does not recognise that record kind, so it would read "
-                  "every epoch record as a kindless VALUE and walk it from "
-                  ":path [], shipping declared-sensitive :db-* values RAW. "
-                  "Upgrade day8/re-frame2 to match the epoch artefact.")
-             {:rf.epoch/load-refusal :rf.epoch/core-version-skew
-              :where                 're-frame.epoch
-              :recovery              :no-recovery
-              :kind                  :rf/epoch-record
-              :hook                  :epoch/project-record})))
-  nil)
-
-(assert-core-dispatches-epoch-records!
-  (rf.projection/recognises-record-kind? :rf/epoch-record))
-
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; The router calls `settle!` after each dequeued event, and trace emission
-;; calls `capture-event!`. Late binding keeps core independent of this optional
-;; artefact. Most absent-artefact reads degrade to empty/false/no-op; the state
-;; replacement facade raises because it cannot preserve its undo invariant
-;; without epoch storage.
-(rf.late-bind/set-fns!
-  {;; ---- per-cascade lifecycle (router + trace capture seam) -------
-   :epoch/settle!             settle!
-   ;; Per-event halt commit for a depth-exceeded event that never ran, so
-   ;; `settle!` would otherwise skip its empty buffer.
-   :epoch/commit-halt-record! commit-halt-record!
-   :epoch/capture-event       rf.epoch.capture/capture-event!
-   ;; In-flight cause lookup used to attribute render traces.
-   :epoch/run-cause           rf.epoch.capture/run-cause
-   ;; Post-settle render back-fill. `capture-event!` routes a
-   ;; view-render op that fires with no in-flight cascade (a React-
-   ;; commit-time async re-render) here so it is attributed to the
-   ;; cascade that CAUSED it (the frame's most-recently-settled epoch)
-   ;; rather than the next in-flight cascade. The orchestrator lives in
-   ;; `re-frame.epoch.listeners` (state back-fill + listener re-notify);
-   ;; publishing it through late-bind keeps `capture` free of a require
-   ;; on `listeners` (which would close the assembly→capture cycle).
-   :epoch/record-render!      rf.epoch.listeners/record-render!
-   ;; Post-settle sub-run back-fill, parallel to render back-fill for the
-   ;; same React-deref-time attribution case.
-   :epoch/record-sub-run!     rf.epoch.listeners/record-sub-run!
-   ;; Post-settle view-unmount back-fill, the teardown sibling
-   ;; of the two above. A `:rf.view/unmounted` fires at React teardown time,
-   ;; after the cascade that removed the view settled — too late for the
-   ;; capture seam. Back-fills it into the causing (most-recently-settled)
-   ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
-   :epoch/record-unmount!     rf.epoch.listeners/record-unmount!
+;; `re-frame.core` requires this namespace, so core's doors call it directly.
+;; These hooks remain because their callers sit inside this namespace's own
+;; require graph, where a direct require would close a cycle: `re-frame.router`
+;; calls `settle!` and `commit-halt-record!`, `re-frame.trace` calls
+;; `capture-event!` and `re-frame.projection` calls `project-record`, and this
+;; namespace requires all three; `re-frame.epoch.capture` reaches the
+;; `re-frame.epoch.listeners` back-fills, and `listeners` requires `capture`
+;; through `assembly`. `re-frame.late-bind.directory` names each cycle.
+;;
+;; The publication and the lifecycle contribution below both sit under
+;; `interop/debug-enabled?`, so a production build eliminates all of epoch:
+;; nothing is published, the router, trace and projection lookups find nothing,
+;; and no other reference keeps this namespace alive. Tool-Pair §Time-travel
+;; §Production elision.
+(when rf.interop/debug-enabled?
+  (rf.late-bind/set-fns!
+    {;; ---- per-cascade lifecycle (router + trace capture seam) -------
+     :epoch/settle!             settle!
+     ;; Per-event halt commit for a depth-exceeded event that never ran, so
+     ;; `settle!` would otherwise skip its empty buffer.
+     :epoch/commit-halt-record! commit-halt-record!
+     :epoch/capture-event       rf.epoch.capture/capture-event!
+     ;; Post-settle render back-fill. `capture-event!` routes a
+     ;; view-render op that fires with no in-flight cascade (a React-
+     ;; commit-time async re-render) here so it is attributed to the
+     ;; cascade that CAUSED it (the frame's most-recently-settled epoch)
+     ;; rather than the next in-flight cascade. The orchestrator lives in
+     ;; `re-frame.epoch.listeners` (state back-fill + listener re-notify);
+     ;; publishing it through late-bind keeps `capture` free of a require
+     ;; on `listeners` (which would close the assembly→capture cycle).
+     :epoch/record-render!      rf.epoch.listeners/record-render!
+     ;; Post-settle sub-run back-fill, parallel to render back-fill for the
+     ;; same React-deref-time attribution case.
+     :epoch/record-sub-run!     rf.epoch.listeners/record-sub-run!
+     ;; Post-settle view-unmount back-fill, the teardown sibling
+     ;; of the two above. A `:rf.view/unmounted` fires at React teardown time,
+     ;; after the cascade that removed the view settled — too late for the
+     ;; capture seam. Back-fills it into the causing (most-recently-settled)
+     ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
+     :epoch/record-unmount!     rf.epoch.listeners/record-unmount!
 
-   ;; ---- introspection + Tool-Pair write surface --------------------
-   ;; Read by `re-frame.core/epoch-history` and by tools that treat this
-   ;; artefact as optional, which call the hook rather than require this ns.
-   :epoch/epoch-history       epoch-history
-   :epoch/current-epoch-id    current-epoch-id
-   :epoch/restore-epoch!      restore-epoch!
-   :epoch/replay-epoch!       replay-epoch!
-   :epoch/replace-frame-state! replace-frame-state!
-
-   ;; ---- listener + config surface ----------------------------------
-   :epoch/register-epoch-listener!   register-epoch-listener!
-   :epoch/unregister-epoch-listener! unregister-epoch-listener!
-   :epoch/configure!                 configure!
-   ;; The read half, published for `re-frame.core/current-config`. Bound to
-   ;; the STATE-level reader; this ns has no reader of its own, so the
-   ;; facade is the only spelling.
-   :epoch/current-config             rf.epoch.state/current-config
-   :epoch/clear-history!             clear-history!
-   :epoch/clear-epoch-listeners!     clear-epoch-listeners!
-
-   ;; ---- off-box egress projection ---------------------------------
-   ;; ONE door. `rf/project-egress`
-   ;; dispatches a `:kind :rf/epoch-record` record to this per-kind
-   ;; projector; there is no standalone second spelling, so there is no
-   ;; second name to drift against.
-   :epoch/project-record      project-record})
+     ;; ---- off-box egress projection ---------------------------------
+     ;; ONE door. `rf/project-egress`
+     ;; dispatches a `:kind :rf/epoch-record` record to this per-kind
+     ;; projector; there is no standalone second spelling, so there is no
+     ;; second name to drift against.
+     :epoch/project-record      project-record}))
 
 ;; ---- lifecycle contribution ------------------------------------------------
 
@@ -885,11 +797,12 @@
 ;; The test reset restores the shipped config — `(rf/configure! {:epoch-history
 ;; ...})` merges, so a prior test's depth would leak — and drops history and
 ;; listeners. Spec 002 §Lifecycle contributions.
-(rf.frame/contribute-lifecycle!
-  {:id                 :epoch
-   :phase              #{:post-dead}
-   :on-frame-destroyed on-frame-destroyed
-   :test-reset         (fn []
-                         (clear-history!)
-                         (clear-epoch-listeners!)
-                         (rf.epoch.state/reset-config!))})
+(when rf.interop/debug-enabled?
+  (rf.frame/contribute-lifecycle!
+    {:id                 :epoch
+     :phase              #{:post-dead}
+     :on-frame-destroyed on-frame-destroyed
+     :test-reset         (fn []
+                           (clear-history!)
+                           (clear-epoch-listeners!)
+                           (rf.epoch.state/reset-config!))}))

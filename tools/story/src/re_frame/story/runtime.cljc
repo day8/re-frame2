@@ -29,6 +29,7 @@
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
+            [re-frame.epoch           :as rf.epoch]
             [re-frame.error           :as rf.error]
             [re-frame.late-bind       :as rf.late-bind]
             [re-frame.story.args      :as rf.story.args]
@@ -330,24 +331,19 @@
    :passed?   false})
 
 (defn restore-epoch!
-  "Rewind `frame-id` to `epoch-id` — `re-frame.epoch/restore-epoch!`, called
-  through its `:epoch/restore-epoch!` late-bind hook so Story carries no hard
-  dependency on the epoch artefact. Returns the restore's `{:ok? …}`
-  envelope, or nil when the artefact is not loaded."
+  "Rewind `frame-id` to `epoch-id` — `re-frame.epoch/restore-epoch!`.
+  Returns the restore's `{:ok? …}` envelope, or `false` in a build that
+  elides epoch."
   [frame-id epoch-id]
-  (when-let [restore! (rf.late-bind/get-fn :epoch/restore-epoch!)]
-    (restore! frame-id epoch-id)))
+  (rf.epoch/restore-epoch! frame-id epoch-id))
 
 (defn current-epoch-id
-  "The id of the epoch whose state `frame-id` holds — `re-frame.epoch/
-  current-epoch-id`, the cursor `restore-epoch!` moves, read through its
-  `:epoch/current-epoch-id` late-bind hook so Story carries no hard
-  dependency on the epoch artefact. A restore records no epoch, so after one
-  the ring's newest record is the undone step's and this is the state's id.
-  nil when the artefact is not loaded or nothing has settled."
+  "The id of the epoch whose state `frame-id` holds —
+  `re-frame.epoch/current-epoch-id`, the cursor `restore-epoch!` moves. A
+  restore records no epoch, so after one the ring's newest record is the
+  undone step's and this is the state's id. nil when nothing has settled."
   [frame-id]
-  (when-let [read-cursor (rf.late-bind/get-fn :epoch/current-epoch-id)]
-    (read-cursor frame-id)))
+  (rf.epoch/current-epoch-id frame-id))
 
 (defn record-error!
   "Append an error record to the variant frame's `[:rf.story/assertions]`
@@ -592,13 +588,8 @@
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script
            executed-play-keys plan runner-selection epoch-baseline]} start-ms]
   (let [app-db   (rf/app-db-value variant-id)
-        ;; Read the epoch tape through the late-bound
-        ;; `rf.story.assertions/epoch-history` (mirroring
-        ;; `re-frame.story.artifact`'s replay-path read), NOT a hard
-        ;; `[re-frame.epoch …]` require. Story's published surface (and
-        ;; its downstream consumer `tools/story-mcp`) carry no epoch dep on
-        ;; the production classpath; the read degrades to `[]` there while
-        ;; the `:test`-alias epoch dep makes it the live tape under the gate.
+        ;; Read the epoch tape through `rf.story.assertions/epoch-history`
+        ;; (mirroring `re-frame.story.artifact`'s replay-path read).
         ;;
         ;; Same-id reruns reset app-db/runtime-db in place so mounted view
         ;; reactions survive, but the epoch ring is frame-owned across
@@ -707,7 +698,7 @@
                     ;; `:cannot-run` under truncation — the dropped effects
                     ;; could exceed the bound (a truncation false-green).
                     :epoch-truncated?    truncated?
-                    ;; Without the epoch artefact there is no tape, so a
+                    ;; A build that elides epoch has no tape, so a
                     ;; declared schema-error records a named `:cannot-run`
                     ;; rather than failing against an empty projection.
                     :tape-available?     (rf.story.assertions/epoch-tape-available?)

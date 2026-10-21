@@ -53,8 +53,8 @@
             ;; in-place fresh-run reset preserves frame IDENTITY + sub-cache
             ;; + the app-db/runtime-db projection reactions. The epoch-backed
             ;; surface (`re-frame.epoch/replace-frame-state!`) is the WRONG
-            ;; seam here: it lives in the epoch artefact, which a published
-            ;; Story jar does not depend on, whereas the raw boundary is a pure container write
+            ;; seam here: it records a synthetic epoch and refuses in a
+            ;; production build, whereas the raw boundary is a pure container write
             ;; with no epoch coupling — exactly what the epoch surface itself
             ;; calls under the hood. Story's `test_support` already reaches
             ;; `re-frame.frame` directly; this is the same boundary.

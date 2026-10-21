@@ -8,7 +8,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            ;; `replace-frame-state!` is the epoch artefact's tool write; it
+            ;; `replace-frame-state!` is epoch's tool write; it
             ;; distrusts the frame's flow memo through `:flows/distrust-memo!`.
             [re-frame.epoch :as rf.epoch]
             [re-frame.flows]

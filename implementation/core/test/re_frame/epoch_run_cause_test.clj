@@ -1,5 +1,5 @@
 (ns ^:requires-debug re-frame.epoch-run-cause-test
-  "`re-frame.epoch.capture/run-cause`, the `:epoch/run-cause` hook that
+  "`re-frame.epoch.capture/run-cause`, which the
   `:rf.view/rendered` and `:rf.sub/run` emit sites call to attribute a render
   or recompute to the event run in flight. It walks the frame's capture
   buffer, which these tests seed directly.

@@ -8,7 +8,7 @@
     1. Cyclic-load: leaf namespaces (frame, fx, cofx, subs, router)
        calling into higher-level namespaces without `:require`ing them.
     2. Cross-artefact: re-frame.core reaching into an optional artefact
-       (schemas, flows, routing, machines, ssr, epoch, http) without
+       (schemas, flows, routing, machines, ssr, http) without
        statically `:require`ing it — when the artefact is absent the
        lookup returns nil and the consumer no-ops (or throws a clear
        `:rf.error/<artefact>-artefact-missing`).
@@ -45,7 +45,7 @@
 
   Equivalent to calling `set-fn!` once per entry, but reads as a single
   publication of an artefact's late-bind contract rather than a column
-  of identical imperative side-effects. Feature artefacts (epoch, flows,
+  of identical imperative side-effects. Feature artefacts (flows,
   schemas, machines, routing, http, ssr) publish ~15+ keys each at the
   bottom of their facade ns; the map form makes the contract scannable.
   Returns nil."

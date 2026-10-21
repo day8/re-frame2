@@ -5,10 +5,8 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             [re-frame.elision         :as rf.elision]
-            ;; Installs the epoch late-bind hooks, so `:epoch-tape` is live
-            ;; when this namespace runs alone.
-            [re-frame.epoch]
             [re-frame.frame           :as rf.frame]
+            [re-frame.interop         :as rf.interop]
             [re-frame.late-bind       :as rf.late-bind]
             [re-frame.machines        :as rf.machines]
             [re-frame.registrar       :as rf.registrar]
@@ -781,18 +779,14 @@
       (is (= [:error reason] [(:status r) (:reason (exception-record-of r))])))
     (rf.story/destroy-variant! vid)))
 
-;; ---- tape-projected assertions without the epoch artefact -----------------
+;; ---- tape-projected assertions in a build that elides epoch ----------------
 
-(defn- without-epoch-artefact
-  "Call `f` with the epoch artefact's `:epoch/epoch-history` hook
-  unpublished, as on a host that never loaded `re-frame.epoch`."
+(defn- in-an-epoch-eliding-build
+  "Call `f` with the debug gate read false, as in a production build, which
+  elides epoch and so records no tape."
   [f]
-  (let [snap @rf.late-bind/hooks]
-    (try
-      (swap! rf.late-bind/hooks dissoc :epoch/epoch-history)
-      (f)
-      (finally
-        (reset! rf.late-bind/hooks snap)))))
+  (with-redefs [rf.interop/debug-enabled? false]
+    (f)))
 
 (defn- run-tape-variant [vid body]
   (rf.story/reg-variant vid body)
@@ -800,13 +794,13 @@
     (rf.story/destroy-variant! vid)
     r))
 
-(deftest tape-assertions-without-the-epoch-artefact-refuse-by-name
+(deftest tape-assertions-in-an-epoch-eliding-build-refuse-by-name
   (rf/reg-event :test/tape-go (fn [{:keys [db]} _] {:db (assoc db :go true)
                                                     :fx [[:test/tape-fx nil]]}))
   (rf/reg-fx :test/tape-fx {:platforms #{:client :server}} (fn [_ _] nil))
   (let [named? (fn [rec]
                  (and (= :cannot-run (:status rec))
-                      (= :rf.error/epoch-artefact-missing (:reason rec))
+                      (= :rf.error/epoch-elided (:reason rec))
                       (string? (:hint rec))))
         refuses-once-by-name (fn [r id]
                                (let [recs (filter #(= id (:assertion %)) (:assertions r))]
@@ -814,11 +808,11 @@
                                         [(:status r) (count recs) (every? named? recs)
                                          (empty? (:cannot-run r))])
                                      (str id))))]
-    (testing "control: with the epoch artefact loaded, dispatched? passes"
+    (testing "control: in a development build, dispatched? passes"
       (is (= :pass (:status (run-tape-variant :story.noepoch/control
                               {:script [[:dispatch-sync [:test/tape-go]]
                                         [:assert [:rf.assert/dispatched? [:test/tape-go]]]]})))))
-    (without-epoch-artefact
+    (in-an-epoch-eliding-build
       (fn []
         (doseq [[vid atom] [[:story.noepoch/dispatched [:rf.assert/dispatched? [:test/tape-go]]]
                             [:story.noepoch/warnings   [:rf.assert/no-warnings]]

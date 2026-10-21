@@ -242,7 +242,7 @@
          " \", not :rf/epoch-record. re-frame.core/project-egress would bare-walk this record from :path [],"
          " so app-db :sensitive? declarations cannot match its :db-after-prefixed slots and raw app-db would"
          " ship off-box. The connected app's re-frame.epoch.assembly predates the :kind stamp"
-         " -- upgrade the app's re-frame2 epoch artefact.\")"
+         " -- upgrade the app's re-frame2.\")"
          " {:rf.error/id " unstamped-epoch-record-error-id
          " :reason " unstamped-epoch-record-error-id
          " :kind (:kind " s ")})))")))
@@ -402,12 +402,11 @@
   rebuilding those from the original events is exactly what the
   projection forbids.
 
-  The projector is late-bound into core by the optional Epoch artefact,
-  and the door throws `:rf.error/epoch-artefact-missing` for a stamped
-  record when it is absent. A core-only app still has a trace ring, so the
-  emitted source asks `re-frame.core/features` whether Epoch is loaded
-  before it calls the door, and without it every bundle's `:trace-events`
-  ships as `:rf/redacted`. Only the trace payload fails closed; the
+  The projector is late-bound from `re-frame.epoch`, which a production
+  build elides, and there the door throws `:rf.error/epoch-elided` for a
+  stamped record. So the emitted source asks `re-frame.interop/debug-enabled?`
+  before it calls the door, and in such a build every bundle's
+  `:trace-events` ships as `:rf/redacted`. Only the trace payload fails closed; the
   bundle's `:dispatch-id` and `:frame` still ship, and every other
   snapshot slice is unaffected.
 
@@ -417,7 +416,7 @@
   [bundles-sym incl?]
   (let [b        (name bundles-sym)
         opts-edn (egress-opts-edn incl?)]
-    (str "(let [epoch# (get-in (re-frame.core/features) [:epoch :loaded?])]"
+    (str "(let [epoch# re-frame.interop/debug-enabled?]"
          " (mapv (fn [b#]"
          " (let [pe# (if epoch#"
          " (:trace-events (re-frame.core/project-egress"

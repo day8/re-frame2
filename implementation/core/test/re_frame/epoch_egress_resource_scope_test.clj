@@ -1,4 +1,4 @@
-(ns re-frame.epoch-egress-resource-scope-test
+(ns ^:requires-debug re-frame.epoch-egress-resource-scope-test
   "Off-box egress of a `:rf.resource/scope-resolved` row inside an epoch
   record's `:trace-events`. The row carries the resolver's resolved
   `:input-values` and the `:scope` derived from them — identity-bearing values
@@ -7,12 +7,13 @@
   `:resources/project-scope-resolved-egress` projector, which fails closed.
 
   resources is a TEST-ONLY dep: production epoch never deps it, and with the
-  artefact absent the hook is nil and the rows pass through untouched."
+  artefact absent the hook is nil and the rows pass through untouched.
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: epoch
+  publishes its projector only in a development build, so under the
+  production gate the door refuses every epoch record."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            ;; load-bearing: publishes the `:epoch/project-record` hook the
-            ;; door dispatches an `:rf/epoch-record` to.
-            [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; load-bearing: publishes the :resources/* late-bind hooks,

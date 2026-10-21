@@ -12,8 +12,9 @@
 ;; surface lives in implementation/flows/ (`day8/re-frame2-flows`); the
 ;; Spec 014 managed-HTTP surface lives in implementation/http/
 ;; (`day8/re-frame2-http`); the Spec 011 SSR surface lives in
-;; implementation/ssr/ (`day8/re-frame2-ssr`); the Tool-Pair epoch surface
-;; lives in implementation/epoch/ (`day8/re-frame2-epoch`).
+;; implementation/ssr/ (`day8/re-frame2-ssr`). The Tool-Pair epoch surface
+;; (`re-frame.epoch`) ships here, dev-only: `re-frame.core` loads it and
+;; every path is gated on `interop/debug-enabled?`.
 ;;
 ;; Stock reagent/reagent is intentionally NOT a dep of this artefact: no
 ;; core ns requires reagent.* at require time. re-frame.views (the CLJS-only
@@ -66,20 +67,19 @@
   ;; exercise re-frame.flows; conformance_test.clj / examples_test.clj /
   ;; elision_probe.cljs require re-frame.http.managed; conformance_test.clj
   ;; / examples_test.clj / smoke_test.clj exercise re-frame.ssr surfaces;
-  ;; elision_probe.cljs requires re-frame.epoch and exercises the public
-  ;; epoch-history / restore-epoch! / register-epoch-listener! / unregister-epoch-listener!
-  ;; / clear-history! / clear-epoch-listeners! surface so the production-elision
-  ;; build asserts every gated branch in the namespace).
+  ;; elision_probe.cljs exercises the public epoch-history / restore-epoch! /
+  ;; register-epoch-listener! / unregister-epoch-listener! / clear-history! /
+  ;; clear-epoch-listeners! surface so the production-elision build asserts
+  ;; every gated branch in `re-frame.epoch`).
   ;; Those tests stay in core/test/ and pull schemas, machines, routing,
-  ;; flows, http, ssr, and epoch in as test-only deps. The core artefact's
+  ;; flows, http and ssr in as test-only deps. The core artefact's
   ;; test classpath therefore includes schemas (with Malli), machines, routing, flows,
-  ;; http, ssr, and epoch while the published library jar carries none
+  ;; http and ssr while the published library jar carries none
   ;; of them. Keeps the per-test coverage intact without smuggling any
   ;; feature into the production classpath. See
   ;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
   ;; implementation/routing/deps.edn, implementation/flows/deps.edn,
-  ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
-  ;; implementation/epoch/deps.edn.
+  ;; implementation/http/deps.edn and implementation/ssr/deps.edn.
   :test {:extra-paths ["test"
                        ;; The example sources the JVM tests load (`ssr.core`,
                        ;; `resources-ssr.core`,
@@ -105,7 +105,6 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
-                       day8/re-frame2-epoch      {:local/root "../epoch"}
                        ;; The optional Resources artefact
                        ;; (Spec 016). Pulled in as a TEST-ONLY dep so the
                        ;; JVM core test build can require re-frame.resources
@@ -210,7 +209,6 @@
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-http       {:local/root "../http"}
                  day8/re-frame2-ssr        {:local/root "../ssr"}
-                 day8/re-frame2-epoch      {:local/root "../epoch"}
                  day8/re-frame2-resources  {:local/root "../resources"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}

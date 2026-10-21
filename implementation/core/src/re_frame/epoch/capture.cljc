@@ -448,8 +448,7 @@
   handler-body invalidated this sub's reactive input. The tag is
   OMITTED at the emit site (key absent, not nil) when the sub runs
   outside any in-flight cascade (a post-settle reactive flush against
-  no live drain) or when the optional `re-frame.epoch` artefact is not
-  on the classpath. The projection threads it `cond->` so the row slot
+  no live drain). The projection threads it `cond->` so the row slot
   is likewise absent in those cases — consumers reading `(:cause-event-id row)`
   see nil and treat as no-attribution, parity with the OMITTED-vs-nil
   semantics of the trace tag.

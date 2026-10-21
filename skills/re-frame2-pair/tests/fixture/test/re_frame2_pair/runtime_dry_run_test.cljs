@@ -2,7 +2,6 @@
   (:require [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
 
@@ -71,16 +70,13 @@
   (with-probe-frame
     (fn [frame-id _ _]
       (rf/dispatch-sync [:review/seed] {:frame frame-id})
-      (let [replace! (rf.late-bind/get-fn :epoch/replace-frame-state!)]
-        (try
-          (rf.late-bind/set-fn! :epoch/replace-frame-state!
-                                (fn [f _]
-                                  {:ok? false :reason :rf.epoch/replace-schema-mismatch
-                                   :frame f :failing-paths [[:n]]}))
-          (let [result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
-            (is (= [false :rollback-failed false :rf.epoch/replace-schema-mismatch]
-                   ((juxt :ok? :reason :rolled-back? :rollback-reason) result))))
-          (finally (rf.late-bind/set-fn! :epoch/replace-frame-state! replace!)))))))
+      (with-redefs [rf.epoch/replace-frame-state!
+                    (fn [f _]
+                      {:ok? false :reason :rf.epoch/replace-schema-mismatch
+                       :frame f :failing-paths [[:n]]})]
+        (let [result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
+          (is (= [false :rollback-failed false :rf.epoch/replace-schema-mismatch]
+                 ((juxt :ok? :reason :rolled-back? :rollback-reason) result))))))))
 
 (deftest disabled-history-refuses-before-running-the-handler
   (let [depth (get-in (rf/current-config) [:epoch-history :depth])]

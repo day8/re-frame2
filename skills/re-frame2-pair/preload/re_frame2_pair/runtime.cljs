@@ -11,9 +11,8 @@
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
 ;;;;     surfaces (`re-frame.core/register-listener!`, `trace-buffer`, and
 ;;;;     `re-frame.epoch`'s `epoch-history` / `restore-epoch!` /
-;;;;     `replay-epoch!` / `replace-frame-state!`, reached through their
-;;;;     late-bind hooks so the preload compiles without the epoch
-;;;;     artefact). No reaching into private namespaces.
+;;;;     `replay-epoch!` / `replace-frame-state!`). No reaching into
+;;;;     private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame2-pair`) and one epoch
 ;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
@@ -85,9 +84,7 @@
             ;; direct require is bundle-isolation-safe.
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.interop :as rf.interop]
-            ;; The epoch surface (`re-frame.epoch`) is called through its
-            ;; late-bind hooks, not required: see `retained-epochs` below.
-            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.epoch :as rf.epoch]
             ;; `parse-source-coord` (the canonical inverse of
             ;; `format-source-coord`) is the source-coord contract owner's
             ;; parser for the `data-rf2-source-coord` DOM attribute. The pair
@@ -299,53 +296,33 @@
 ;; ---- the epoch surface ---------------------------------------------------
 ;;
 ;; `re-frame.epoch` owns `epoch-history`, `restore-epoch!`, `replay-epoch!`
-;; and `replace-frame-state!`. The preload reaches them through the
-;; artefact's late-bind hooks rather than a `:require`, because it compiles
-;; into an app that does not carry `day8/re-frame2-epoch` — only the epoch
-;; ops need it — and each op reads that absence as data.
-
-(defn- epoch-fn
-  "The epoch artefact's implementation behind late-bind `hook`, or nil when
-   `day8/re-frame2-epoch` is not loaded."
-  [hook]
-  (rf.late-bind/get-fn hook))
+;; and `replace-frame-state!`. In a build that elides epoch each returns its
+;; elided answer (`[]` or `false`), which the ops below read as data.
 
 (defn- retained-epochs
   "`frame-id`'s retained `:rf/epoch-record`s, oldest-first
-   (`re-frame.epoch/epoch-history`); `[]` without the epoch artefact."
+   (`re-frame.epoch/epoch-history`); `[]` in a build that elides epoch."
   [frame-id]
-  (if-let [read-history (epoch-fn :epoch/epoch-history)]
-    (read-history frame-id)
-    []))
+  (rf.epoch/epoch-history frame-id))
 
 (defn- framework-restore!
-  "`re-frame.epoch/restore-epoch!`: its `{:ok? …}` envelope, or `false`
-   without the epoch artefact (the same answer an elided build gives)."
+  "`re-frame.epoch/restore-epoch!`: its `{:ok? …}` envelope, or `false` in a
+   build that elides epoch."
   ([frame-id epoch-id] (framework-restore! frame-id epoch-id nil))
   ([frame-id epoch-id opts]
-   (if-let [restore! (epoch-fn :epoch/restore-epoch!)]
-     (restore! frame-id epoch-id opts)
-     false)))
+   (rf.epoch/restore-epoch! frame-id epoch-id opts)))
 
 (defn- framework-replay!
-  "`re-frame.epoch/replay-epoch!`: its `{:ok? …}` envelope, or `false`
-   without the epoch artefact (the same answer an elided build gives)."
+  "`re-frame.epoch/replay-epoch!`: its `{:ok? …}` envelope, or `false` in a
+   build that elides epoch."
   [frame-id epoch-id opts]
-  (if-let [replay! (epoch-fn :epoch/replay-epoch!)]
-    (replay! frame-id epoch-id opts)
-    false))
+  (rf.epoch/replay-epoch! frame-id epoch-id opts))
 
 (defn- framework-replace!
-  "`re-frame.epoch/replace-frame-state!`: its `{:ok? …}` envelope. Without
-   the epoch artefact the write cannot record the epoch that makes it
-   undoable, so it is refused with `:rf.error/epoch-artefact-missing`."
+  "`re-frame.epoch/replace-frame-state!`: its `{:ok? …}` envelope, or
+   `false` in a build that elides epoch."
   [frame-id frame-state]
-  (if-let [replace! (epoch-fn :epoch/replace-frame-state!)]
-    (replace! frame-id frame-state)
-    {:ok?    false
-     :reason :rf.error/epoch-artefact-missing
-     :frame  frame-id
-     :hint   "add day8/re-frame2-epoch to the app's dev build and require re-frame.epoch at boot"}))
+  (rf.epoch/replace-frame-state! frame-id frame-state))
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
@@ -611,8 +588,8 @@
      :rf.error/no-such-handler          — frame not registered
      :rf.epoch/replace-during-drain     — drain in flight
      :rf.epoch/replace-schema-mismatch  — v fails the frame's app-schema
-   Without the re-frame2-epoch artefact it is refused with
-   `:reason :rf.error/epoch-artefact-missing`."
+   In a build that elides epoch it is refused with
+   `:reason :reset-rejected`."
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame2-pair/op :app-db/reset
@@ -2020,7 +1997,7 @@
         :reason :no-epoch-recorded
         :event event-v
         :frame frame-id
-        :hint (str "Dry-run requires the epoch artefact, a debug build and positive "
+        :hint (str "Dry-run requires a debug build and positive "
                    "epoch-history depth for its rollback record; no dispatch ran.")}
 
        :else
@@ -2197,7 +2174,7 @@
           :epoch-id epoch-id
           :frame    frame-id
           :hint     (str "replay-epoch! returned false — the epoch surface is elided "
-                         "(rf.interop/debug-enabled? false) or day8/re-frame2-epoch is not loaded.")}
+                         "(rf.interop/debug-enabled? false).")}
 
          (and (map? result) (:ok? result))
          (let [attached (attach-cascade (assoc result :replayed? true)
@@ -3767,8 +3744,8 @@
      :ambiguous-frame?          (and (> (count app-fids) 1)
                                      (nil? @selected-frame))
      ;; `current-config` is the facade's own read twin of `configure!`, and
-     ;; it handles the optional-artefact branch itself: a build without
-     ;; `day8/re-frame2-epoch` reports no `:epoch-history` key at all, so
+     ;; it handles the availability branch itself: a build that elides
+     ;; epoch reports no `:epoch-history` key at all, so
      ;; this reads nil rather than a fabricated depth, with no
      ;; symbol-resolve of its own.
      :epoch-history-depth       (get-in (rf/current-config) [:epoch-history :depth])

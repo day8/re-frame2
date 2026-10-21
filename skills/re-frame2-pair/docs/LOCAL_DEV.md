@@ -15,7 +15,7 @@ Same as the README's *Which technical stack?* and *Install*:
 - The **MCP server** — the only skill-facing transport. It is **not yet published to npm**, so build and run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below. Once published, `npm install -g @day8/re-frame2-pair-mcp` plus an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md)) becomes the shorter path.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
-- `day8/re-frame2-schemas` on the app's dev classpath, at the same revision as core (from this clone, `{:local/root "<repo>/implementation/schemas"}`). The preload requires `re-frame.schemas` directly; core and the MCP server do not supply it to the app. For epoch reads and rollback, also include `day8/re-frame2-epoch` and require `re-frame.epoch` at app boot.
+- `day8/re-frame2-schemas` on the app's dev classpath, at the same revision as core (from this clone, `{:local/root "<repo>/implementation/schemas"}`). The preload requires `re-frame.schemas` directly; core and the MCP server do not supply it to the app.
 - The **`re-frame2-pair.runtime` preload** on the app's build classpath. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point the app's classpath at the absolute `skills/re-frame2-pair/preload/` path, which means `deps.edn` for a `:deps` app and `shadow-cljs.edn` `:source-paths` for a standalone one (shadow ignores its own `:source-paths` under `:deps` / `:lein` — see [`references/setup.md`](../references/setup.md)). Once the package is published to npm, a non-clone install runs `npm install -D @day8/re-frame2-pair` in the app and points at `node_modules/@day8/re-frame2-pair/preload` instead (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
 
 ## MCP server from a clone
@@ -178,7 +178,7 @@ Three likely causes:
 
 - **No epoch history yet.** `(rf.epoch/epoch-history :rf/default)` returns `[]` until the app dispatches at least one event. Click around or fire one synthetic dispatch.
 - **No activity matches the predicate**. Try `watch-epochs {}` with no predicate to confirm the transport works, then add filters.
-- **The epoch artefact isn't on the app's classpath.** If the app has plainly dispatched and `(rf.epoch/epoch-history :rf/default)` is still `[]`, the app is missing `day8/re-frame2-epoch` (or never requires `re-frame.epoch` at boot). Without it every epoch read is `[]` while `discover-app` still passes — see [`references/errors.md` §Tool-envelope refusals](../references/errors.md#tool-envelope-refusals).
+- **The app's epoch-history depth is 0.** If the app has plainly dispatched and `(rf.epoch/epoch-history :rf/default)` is still `[]`, check `(:epoch-history (rf/current-config))`. At depth 0 every epoch read is `[]` while `discover-app` still passes — see [`references/errors.md` §Tool-envelope refusals](../references/errors.md#tool-envelope-refusals).
 
 ### DOM ops return `{:src nil}`
 

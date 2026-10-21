@@ -18,7 +18,8 @@
   `(when rf.interop/debug-enabled? ...)` arm together with the precondition
   that licenses it, because a leak negative over two empty stores certifies
   nothing. Some scenarios are dev-only end to end, because their driver is a
-  trace fact or `epoch/settle!`, neither of which runs in that posture."
+  trace fact, `epoch/settle!` or epoch's lifecycle contribution, none of
+  which exists in that posture."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -66,7 +67,7 @@
           (pause! frame-id)
           (when publish (publish)))))))
 
-(deftest a-same-id-make-frame-fails-fast-until-teardown-has-published
+(deftest ^:requires-debug a-same-id-make-frame-fails-fast-until-teardown-has-published
   ;; A's handler destroys A and returns a db and a child dispatch. Both land in
   ;; A: the db commits (A's :on-destroy reads it) and the child joins A's queue,
   ;; where the boundary drops it. A's teardown then pauses inside its epoch
@@ -161,7 +162,7 @@
         (rf/unregister-listener! :trace ::reservation-through-publish)
         (reset! rf.frame/lifecycle-contributions saved)))))
 
-(deftest post-dead-member-failure-leaves-no-residual-ring
+(deftest ^:requires-debug post-dead-member-failure-leaves-no-residual-ring
   ;; A throwing :post-dead member's warning is an ordinary ring push under A's
   ;; bare id. The post-dead phase runs before A's ring release, so the release
   ;; clears it; run after, the warning would recreate a residual ring for
@@ -209,7 +210,7 @@
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
         (reset! rf.frame/lifecycle-contributions saved)))))
 
-(deftest snapshot-failure-still-publishes-and-reports
+(deftest ^:requires-debug snapshot-failure-still-publishes-and-reports
   ;; A throwing pre-dissoc snapshot does not abort teardown: the post-dissoc
   ;; publication still runs (with a nil bundle, so it fabricates no evidence
   ;; and still drops A's epoch stores), and one always-on report names epoch.
@@ -258,7 +259,7 @@
 ;; dissoc, so a listener registered while A's teardown is in its post-dissoc
 ;; publish never receives A's terminal record.
 
-(deftest predecessor-halted-record-reaches-only-the-pre-dissoc-listener
+(deftest ^:requires-debug predecessor-halted-record-reaches-only-the-pre-dissoc-listener
   ;; cb observes A; A's event destroys A and queues a child, and A's boundary
   ;; teardown pauses post-dissoc; during the pause cb is REPLACED. A's halted
   ;; record goes to the callback registered when A was destroyed; the
@@ -420,7 +421,7 @@
         (when (rf.frame/frame a-id) (rf.frame/destroy-frame! a-id))
         (when (rf.frame/frame d-id) (rf.frame/destroy-frame! d-id))))))
 
-(deftest an-epoch-publish-failure-leaves-no-residual-ring
+(deftest ^:requires-debug an-epoch-publish-failure-leaves-no-residual-ring
   ;; The after-dissoc publication runs after A's ring was released. A destroy
   ;; issued from another frame's event runs under that event's dispatch-id, so
   ;; its warning pushed under ordinary delivery would recreate a ring for A's

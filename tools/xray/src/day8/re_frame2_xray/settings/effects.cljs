@@ -515,8 +515,8 @@
 ;; `re-frame.core/configure!` is the published API (per spec/Tool-Pair
 ;; §Bounded history + Conventions §Configure keys). Reaching directly
 ;; into `re-frame.epoch.state/merge-config!` would couple Xray to an
-;; internal seam; the `configure` fn late-binds through the hook table
-;; so production builds that DCE the epoch artefact silently no-op.
+;; internal seam; `configure!` gates its `:epoch-history` arm on
+;; `interop/debug-enabled?`, so production builds silently no-op.
 ;;
 ;; Non-positive values are dropped at the effect boundary
 ;; (`apply-epoch-history!` requires `pos?`): `merge-config!`'s
@@ -533,10 +533,8 @@
 
   No-op when `n` is non-numeric (a malformed persisted payload survives
   into here as `nil`; the substrate ignores the slot rather than
-  resetting to default). Failures (epoch artefact not loaded, late-bind
-  hook unresolved) degrade silently — the persisted value still lives
-  in the settings atom and the next configure call (if the artefact
-  loads later) will land cleanly."
+  resetting to default). A production build applies nothing, silently —
+  the persisted value still lives in the settings atom."
   [n]
   (when (and (number? n) (pos? n))
     (try
@@ -786,9 +784,8 @@
     ;; Restore the persisted epoch-history depth so the
     ;; substrate's per-frame ring buffer matches the user's saved
     ;; capacity BEFORE the first dispatch settles into it. No-op-safe
-    ;; when the epoch artefact isn't loaded (the late-bind hook in
-    ;; `re-frame.core/configure!` returns nil so the call is a tap-only
-    ;; no-op).
+    ;; in a production build, where `re-frame.core/configure!` applies no
+    ;; `:epoch-history`.
     (apply-epoch-history! (get-in s [:general :epoch-history]))
     ;; Restore the persisted events-retained count so the
     ;; substrate's per-frame trace ring matches the user's saved capacity

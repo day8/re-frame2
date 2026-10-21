@@ -5,7 +5,7 @@
 #   verify-version-lockstep ──► test ──► deploy-core
 #                                         │
 #                                         │   ── deploy-leaf: ONE matrix job,
-#                                         │      9 values, all in parallel ──
+#                                         │      8 values, all in parallel ──
 #                                         ├── deploy-schemas
 #                                         ├── deploy-reagent
 #                                         ├── deploy-uix
@@ -13,8 +13,7 @@
 #                                         ├── deploy-routing
 #                                         ├── deploy-flows
 #                                         ├── deploy-http
-#                                         ├── deploy-ssr
-#                                         └── deploy-epoch
+#                                         └── deploy-ssr
 #                                                  │
 #                         ┌────────────────────────┼────────────────────────┐
 #                         ▼                        ▼                        ▼
@@ -35,7 +34,7 @@
 # artefact is publishable on its own and they fan out in parallel, and
 # the three DEPENDENT leaves ship in stages of their own after them.
 # The independent leaves are the per-feature artefacts (schemas,
-# machines, routing, flows, http, ssr, epoch) plus the
+# machines, routing, flows, http, ssr) plus the
 # substrate-adapter leaves (reagent, uix). The per-feature
 # split set is closed; an addition requires a new Spec-ulation increment.
 #
@@ -80,7 +79,7 @@
 #   not.
 #
 # `needs: deploy-leaf` is deliberately STRONGER than the pom edge — it
-# also blocks them behind leaves they do not depend on (flows, epoch,
+# also blocks them behind leaves they do not depend on (flows, routing,
 # …). That costs nothing. GitHub Actions cannot express an edge
 # between two values of one matrix, so the choice was between depending
 # on the whole matrix or hoisting a second job out of it; and under
@@ -285,10 +284,6 @@ jobs:
         working-directory: implementation/resources
         run: clojure -M:test
 
-      - name: JVM tests (epoch artefact)
-        working-directory: implementation/epoch
-        run: clojure -M:test
-
       # What a consumer resolves, asked before anything below publishes:
       # every artefact is built as jar + POM the way the deploy jobs build it,
       # and each documented coordinate set must resolve each documented
@@ -457,10 +452,6 @@ jobs:
           # above is red. They live in the `deploy-ssr-ring`,
           # `deploy-fresco` and `deploy-resources` jobs below, each
           # ordered after this whole matrix.
-          - leaf: epoch
-            artefact: day8/re-frame2-epoch
-            directory: implementation/epoch
-            local-root: ../core
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -894,7 +885,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     # A `needs` entry referencing a matrix job waits for ALL of its
-    # matrix values to succeed, so `deploy-leaf` alone covers the nine
+    # matrix values to succeed, so `deploy-leaf` alone covers the eight
     # independent leaves. `deploy-ssr-ring`, `deploy-fresco` and
     # `deploy-resources` are listed separately because each is its own
     # job; without them here, a SKIPPED stage would still cut a
@@ -939,7 +930,6 @@ jobs:
             - `day8/re-frame2-ssr` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-ssr-ring` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-resources` ${{ needs.deploy-core.outputs.version }}
-            - `day8/re-frame2-epoch` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-fresco` ${{ needs.deploy-core.outputs.version }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}

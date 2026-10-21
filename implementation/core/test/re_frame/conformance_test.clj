@@ -47,12 +47,11 @@
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            [re-frame.late-bind :as rf.late-bind]
             ;; Side-effect requires: registrations the fixtures reference,
             ;; re-seated by `reset-runtime!`'s `:reload`s.
             [re-frame.http.managed]
             [re-frame.routing.test-support]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.resources]
             [re-frame.resources.test-support]
             [re-frame.conformance-grammar :as rf.conformance-grammar]
@@ -172,10 +171,8 @@
   (reset! rf.ssr.error-listener/pending-error-traces {})
   (rf.error-emit/clear-error-listeners!)
   ;; `:epoch-records` must observe only this fixture's epochs.
-  (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
-    (f))
-  (when-let [f (rf.late-bind/get-fn :epoch/clear-epoch-listeners!)]
-    (f))
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; clear-all! wiped every ns-load registration; re-evaluate them. The
   ;; routing reload keeps `:rf/route` a RUNTIME sub (a hand `reg-sub` would

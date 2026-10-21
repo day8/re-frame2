@@ -17,16 +17,16 @@
     `(features)`   — every optional feature + its coordinate data and
                      live `:loaded?` status, as a map.
 
-    `(get-in (features) [:epoch :loaded?])`   — the boolean. An unknown
+    `(get-in (features) [:routing :loaded?])`   — the boolean. An unknown
                      feature keyword reads `nil` here (its entry is
                      simply absent from the map).
 
     ;; An app that wants boot-time failure rather than first-call
     ;; failure writes the guard itself — one line, no framework verb,
     ;; and NOT an `assert` (asserts are elidable):
-    (when-not (get-in (features) [:epoch :loaded?])
-      (throw (ex-info \"re-frame.epoch is not on the classpath\"
-                      (get (features) :epoch))))
+    (when-not (get-in (features) [:routing :loaded?])
+      (throw (ex-info \"re-frame.routing is not on the classpath\"
+                      (get (features) :routing))))
 
   ## `features` SHIPS to production
 
@@ -45,7 +45,7 @@
   It is HARD-CONSTRAINED to be static data living entirely in this
   always-loaded facade ns: it MUST NOT `:require` any optional impl
   namespace. A live require would create a hard facade→optionals edge
-  that pulls epoch / machines / schemas / flows / routing / http / ssr
+  that pulls machines / schemas / flows / routing / http / ssr
   into EVERY production bundle, breaking the bundle-isolation contract.
 
   `features` therefore detects presence by a pure keyword lookup in the
@@ -117,11 +117,6 @@
               :error-id  :rf.error/ssr-artefact-missing
               :spec      "Spec 011 (SSR & hydration)"
               :probe-key :ssr/reg-error-projector}
-   :epoch    {:maven     "day8/re-frame2-epoch"
-              :require   "re-frame.epoch"
-              :error-id  :rf.error/epoch-artefact-missing
-              :spec      "Tool-Pair (Time-travel / epoch)"
-              :probe-key :epoch/settle!}
    :resources {:maven     "day8/re-frame2-resources"
                :require   "re-frame.resources"
                :error-id  :rf.error/resources-artefact-missing
@@ -136,7 +131,7 @@
   would break bundle-isolation).
 
   Private: `features` is the one public inventory door, and the boolean
-  is read from it as `(get-in (features) [:epoch :loaded?])`."
+  is read from it as `(get-in (features) [:routing :loaded?])`."
   [probe-key]
   (some? (rf.late-bind/get-fn probe-key)))
 
@@ -146,25 +141,25 @@
   `:spec`) merged with its live `:loaded?` status.
 
       (rf/features)
-      ;=> {:epoch {:maven \"day8/re-frame2-epoch\"
-      ;            :require \"re-frame.epoch\"
-      ;            :spec \"Tool-Pair (Time-travel / epoch)\"
-      ;            :loaded? true}
-      ;    :routing {... :loaded? false}
+      ;=> {:routing {:maven \"day8/re-frame2-routing\"
+      ;              :require \"re-frame.routing\"
+      ;              :spec \"Spec 012 (Routing)\"
+      ;              :loaded? true}
+      ;    :flows {... :loaded? false}
       ;    ...}
 
   The `:probe-key` and `:error-id` are internal plumbing and are dropped
   from the public shape.
 
   This is the ONE feature-inspection door. The boolean is a lookup —
-  `(get-in (features) [:epoch :loaded?])` — and an unknown feature
+  `(get-in (features) [:routing :loaded?])` — and an unknown feature
   keyword reads `nil` there, because its entry is simply absent from
   the map. An app wanting boot-time rather than first-call failure
   writes the guard itself:
 
-      (when-not (get-in (features) [:epoch :loaded?])
-        (throw (ex-info \"re-frame.epoch is not on the classpath\"
-                        (get (features) :epoch))))
+      (when-not (get-in (features) [:routing :loaded?])
+        (throw (ex-info \"re-frame.routing is not on the classpath\"
+                        (get (features) :routing))))
 
   Ships to production — NOT elided. Per spec/API.md §Feature
   inspection."

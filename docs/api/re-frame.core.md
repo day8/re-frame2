@@ -1226,7 +1226,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
 
     | Key | Opts | Default | What it tunes |
     |---|---|---|---|
-    | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | Development only; ignored without the epoch artefact. `:depth` is the records kept per frame; `0` turns recording off, and lowering it trims existing history at once. `:trace-events-keep` is how many of the newest records keep their raw `:trace-events`. An invalid value is dropped silently. See [Configuration](re-frame.epoch.md#configuration). |
+    | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | Development only; ignored in a production build. `:depth` is the records kept per frame; `0` turns recording off, and lowering it trims existing history at once. `:trace-events-keep` is how many of the newest records keep their raw `:trace-events`. An invalid value is dropped silently. See [Configuration](re-frame.epoch.md#configuration). |
     | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | Development only. Event slots in each frame's trace ring: one slot per event, however many trace events its run emitted. `0` disables retention; tracing itself stays on. It applies to every frame without its own `:rf.trace/events-retained`. Opts without a usable `:events-retained` (negative, non-numeric, or `{:depth N}`) change nothing and emit `:rf.warning/trace-buffer-unrecognised-opts`. |
     | `:elision` | `{:rf.egress/threshold-bytes N}` | `{:rf.egress/threshold-bytes 16384}` | Size above which an undeclared large string triggers the `:rf.warning/large-value-unschema'd` advisory. The value is still forwarded unchanged; replacing it with the `:rf.size/large-elided` marker requires declaring the path `:large`. `0` turns the detection off. |
     | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | The process default for production observation sinks. See below. |
@@ -1234,7 +1234,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
     - `:observability` takes the same grammar as a frame's `:observability`. Precedence is per stream: a frame that declares a stream uses its own entries, a frame that omits it inherits this default's, and `{:errors []}` on a frame opts that frame out. Each record goes to exactly one source per stream.
     - A frame that inherits the default's sinks still projects its records under its own classification. A record that belongs to no live frame (emitted outside any frame, or naming a frame that no longer exists) goes to this default's sinks alone, projected with no frame's classification, so its data is redacted as [`project-egress`](#project-egress) describes for an unknown frame. Unlike the other keys, an explicit `nil` clears it, and it is validated when you call `configure!` (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`).
     - An unknown top-level key is ignored, and the known keys in the same map are still applied. The known keys are bare, so a bare or `rf`-namespaced unknown key such as `:epoch-histroy` is treated as a typo: development builds emit `:rf.warning/unknown-configure-key`, naming every offending key and the known set, and production builds remove the warning. A key in your own namespace (`:myapp/thing`) passes silently, so a wrapper can hand `configure!` a composed config without filtering it.
-    - `:epoch-history` in a build without the epoch artefact applies nothing, and the other keys still apply. Development builds emit the same `:rf.warning/unknown-configure-key`, carrying `:unavailable-keys [:epoch-history]` in place of `:unknown-keys`, the artefact's `:maven` coordinate and `:require` namespace, and a `:reason` sentence naming both. A call that also carries a typo emits one warning for each.
+    - `:epoch-history` applies nothing in a production build, silently, and the other keys still apply.
     - The argument must be one map. Anything else, including `nil`, raises `:rf.error/configure-bad-arg` in every build and applies nothing. The keyed form `(rf/configure! :trace-buffer {…})` raises it on CLJS and is an `ArityException` on the JVM.
     - SSR error-projection options (`:public-error-id`, `:dev-error-detail?`) are per-frame, on the frame's `:ssr` map.
     - See [The `configure!` bucket](../core/how-to/configure-dev-and-prod.md#the-configure-bucket-process-wide-data).
@@ -1255,7 +1255,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
   ```
 - **Description**: Returns the process-level config in effect, in `configure!`'s nested shape. Use it to answer "what is this process running with?" from a tool, a health check or a diagnostic panel.
     - It reports process values only. A frame's own settings, such as `:rf.trace/events-retained` in its metadata, are not reflected.
-    - `:epoch-history` is present only when the `day8/re-frame2-epoch` artefact is loaded, and `:trace-buffer` only when the development trace tooling is (a production bundle omits it). The function never fills in a default for missing code.
+    - `:epoch-history` is present only in a development build, and `:trace-buffer` only when the development trace tooling is (a production bundle omits it). The function never fills in a default for missing code.
     - `:observability` is present only after a process default is declared, and shows it as declared, not a frame's effective policy.
     - Keys are read one at a time, so the map is not a consistent snapshot across keys, and it may hold values that do not serialise. User-namespaced keys that `configure!` accepted are not reported.
 - **Example**:
@@ -1283,13 +1283,13 @@ These functions start and stop a re-frame2 process and set process-wide options.
 - **Example**:
   ```clojure
   (rf/features)
-  ;; => {:epoch {:maven "day8/re-frame2-epoch" :require "re-frame.epoch" :spec "Tool-Pair (Time-travel / epoch)" :loaded? true} …}
+  ;; => {:routing {:maven "day8/re-frame2-routing" :require "re-frame.routing" :spec "Spec 012 (Routing)" :loaded? true} …}
 
   (get-in (rf/features) [:routing :loaded?])   ;; => true once re-frame.routing has loaded
 
-  (when-not (get-in (rf/features) [:epoch :loaded?])
-    (throw (ex-info "re-frame.epoch is not loaded"
-                    (get (rf/features) :epoch))))
+  (when-not (get-in (rf/features) [:routing :loaded?])
+    (throw (ex-info "re-frame.routing is not loaded"
+                    (get (rf/features) :routing))))
   ```
 
 ## Feature registration (re-exports)
@@ -1462,9 +1462,9 @@ See [Observability](../core/observability.md).
   ```clojure
   (register-listener! stream id callback-fn) → id or nil
   ```
-- **Description**: Registers `callback-fn` under `id` to receive every record the runtime emits on `stream`, for development tools. `stream` is `:trace` (development only, removed from production builds) or `:epoch` (development only, from the optional epoch artefact). `:trace` events arrive as emitted, with paths the frame classifies already `:rf/redacted` or elided and no egress profile applied; `:epoch` records hold the frame's state unprojected.
+- **Description**: Registers `callback-fn` under `id` to receive every record the runtime emits on `stream`, for development tools. `stream` is `:trace` (development only, removed from production builds) or `:epoch` (development only, removed from production builds). `:trace` events arrive as emitted, with paths the frame classifies already `:rf/redacted` or elided and no egress profile applied; `:epoch` records hold the frame's state unprojected.
     - Delivery is synchronous: the callback returns before the next record. A record emitted inside a callback, directly or by a `dispatch-sync` the callback makes, is queued behind the record being delivered, so no callback is ever re-entered. Records emitted while a frame is draining its event queue are held and delivered when the drain ends, before the call that ran it returns, so a listener sees settled state and never runs mid-drain. On the JVM, where emits can race across threads, each listener is called serially and never concurrently with itself, so tool appenders and stateful folds need no locking of their own.
-    - Registering an id again on the same stream replaces the listener. Returns `id`, or `nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws `:rf.error/unknown-listener-stream`.
+    - Registering an id again on the same stream replaces the listener. Returns `id`. An unknown `stream` throws `:rf.error/unknown-listener-stream`.
     - A callback that throws does not stop delivery to other listeners. On `:trace` the exception is discarded without a report; on `:epoch` it emits `:rf.epoch.cb/listener-exception`.
     - The `:epoch` stream's publication rules are under [Epoch listeners](re-frame.epoch.md#epoch-listeners).
     - Production code registers a sink with [`register-observability-sink!`](#register-observability-sink) instead; see [Report errors in production](../core/how-to/report-errors-in-production.md).
@@ -1476,8 +1476,7 @@ See [Observability](../core/observability.md).
     (fn [trace-event]
       (js/console.log (:op-type trace-event) (:operation trace-event))))
 
-  ;; Dev-only: epoch publications, including later fills of the same record. Returns nil
-  ;; (and registers nothing) when day8/re-frame2-epoch is absent.
+  ;; Dev-only: epoch publications, including later fills of the same record.
   (rf/register-listener! :epoch :my-app/epoch-tap
     (fn [record]
       (js/console.log (:frame record) (:epoch-id record))))
@@ -1598,7 +1597,7 @@ See [Observability](../core/observability.md).
   ```
 - **Description**: Returns a record or value prepared for sending off-box: the paths the frame classifies as sensitive are redacted and large values elided, as the chosen egress profile (a named policy for one kind of destination) directs. Call it before handing anything to an off-box destination yourself, or to check what a sink will receive; sinks registered with [`register-observability-sink!`](#register-observability-sink) are handed records already projected. It is the only record-level egress function.
     - It recognises four record kinds by `:kind`: `:rf.observe/handled-event`, `:rf.observe/error`, `:rf.observe/derived-tree` and `:rf/epoch-record`. An input without a recognised `:kind` is walked as a plain value against the frame's classification.
-    - Projecting an `:rf/epoch-record` needs the optional `day8/re-frame2-epoch` artefact. Without it the call throws `:rf.error/epoch-artefact-missing`, naming the kind, rather than walking the record as a plain value, which would ship its `app-db` slots raw.
+    - Projecting an `:rf/epoch-record` needs epoch, which a production build elides. There the call throws `:rf.error/epoch-elided`, naming the kind, rather than walking the record as a plain value, which would ship its `app-db` slots raw.
     - To project a whole epoch ring, map over it: `(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))`. The ring and its listeners always hold the raw record, so projecting never affects `restore-epoch!`. See [re-frame.epoch](re-frame.epoch.md).
     - See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md), and [Choosing a profile](../core/how-to/keep-secrets-out-of-traces.md#choosing-a-profile).
 - **Options**: `opts` is closed; an unknown key throws `:rf.error/bad-egress-opts`, naming it.
@@ -1683,7 +1682,7 @@ See [Observability](../core/observability.md).
   ```clojure
   (epoch-history frame-target) → vector of epoch records
   ```
-- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds, and `[]` without the `day8/re-frame2-epoch` artefact. It is the same read as [`re-frame.epoch/epoch-history`](re-frame.epoch.md#epoch-history), which new code calls.
+- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds, and `[]` in a production build. It is the same function as [`re-frame.epoch/epoch-history`](re-frame.epoch.md#epoch-history), which new code calls.
 
 Rewinding a frame, replaying an epoch and writing frame state outside the event pipeline are tools, so they are called in `re-frame.epoch` rather than through `rf/`: [`restore-epoch!`](re-frame.epoch.md#restore-epoch), [`replay-epoch!`](re-frame.epoch.md#replay-epoch) and [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state).
 

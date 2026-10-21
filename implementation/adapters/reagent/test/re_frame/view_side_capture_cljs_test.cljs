@@ -5,8 +5,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views :as rf.views]
-            [re-frame.epoch]) ;; load so :epoch/run-cause hook is bound
+            [re-frame.views :as rf.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each

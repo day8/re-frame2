@@ -14,9 +14,6 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Loaded for its late-bind hooks: `:rf.assert/dispatched?` reads
-            ;; the epoch tape, which is empty without the epoch artefact.
-            [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]

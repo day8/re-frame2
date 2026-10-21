@@ -143,7 +143,7 @@
   / `cljs.test`, and story-mcp consume IDENTICALLY. Open map: the verdict
   + judgement + agreement-floor slots are pinned; the evidential tape
   projections and the identity / timing / provenance slots are optional
-  (a host without the epoch artefact omits the evidential ones; a bare
+  (a build that elides epoch omits the evidential ones; a bare
   re-read like `read-failures` omits the tape-floor slots).
 
   The frozen, always-present slots:
@@ -170,8 +170,8 @@
    [:fidelity        {:optional true} [:maybe [:set :any]]]
    [:elapsed-ms      {:optional true} [:maybe number?]]
    [:app-db          {:optional true} :any]
-   ;; evidential tape projections — optional (a host without the epoch
-   ;; artefact projects empty / omits these)
+   ;; evidential tape projections — optional (a build that elides epoch
+   ;; projects empty / omits these)
    [:epoch-tape        {:optional true} [:sequential :any]]
    [:narrative         {:optional true} [:sequential :any]]
    [:schema-violations {:optional true} [:sequential :any]]
@@ -765,8 +765,8 @@
   (assoc result :run-hash (rf.story.fingerprint/run-hash result)))
 
 (defn- epoch-missing-schema-match
-  "The `match-schema-expectations` shape for a host without the epoch
-  artefact: each declared `:rf.assert/schema-error` records `:cannot-run`
+  "The `match-schema-expectations` shape for a build that elides epoch:
+  each declared `:rf.assert/schema-error` records `:cannot-run`
   with `rf.story.assertions/epoch-missing-extras`, and nothing is consumed."
   [schema-expectations]
   {:records            (mapv (fn [atom]
@@ -806,8 +806,8 @@
 
   - `:epoch-tape`       — the retained `:rf/epoch-record` vector (the
                           evidence source; `project-evidence` reads
-                          it). May be empty for a host without the epoch
-                          artefact — the evidential slots are then empty.
+                          it). May be empty in a build that elides epoch —
+                          the evidential slots are then empty.
   - `:assertions`       — the RAW assertion accumulator entries (the
                           `:rf.story/assertions` slot). Normalized here into
                           unified assertion records — the ONE non-tape
@@ -872,7 +872,7 @@
                           is its cause (an unmet `:rf.assert/schema-error`
                           fails because no violation was emitted), so a
                           second row would only contradict it.
-  - `:tape-available?`  — whether the host loaded the epoch artefact
+  - `:tape-available?`  — whether the build records epochs
                           (`rf.story.assertions/epoch-tape-available?`);
                           defaults to true. When false, each declared
                           `:rf.assert/schema-error` records `:cannot-run`

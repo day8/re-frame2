@@ -188,7 +188,7 @@
   evicted since. Public — `runtime.cljc` reads this too (`:epoch-baseline`
   uses the same identity so the tape-scoping and the boundary bookkeeping
   agree on what a run's epochs look like). Tolerant — 0 when the frame
-  has no history / the epoch dep is absent (the read degrades to `[]`)."
+  has no history / the build elides epoch (the read degrades to `[]`)."
   [frame-id]
   (try (or (:epoch-id (last (rf.story.assertions/epoch-history frame-id))) 0)
        (catch #?(:clj Throwable :cljs :default) _ 0)))

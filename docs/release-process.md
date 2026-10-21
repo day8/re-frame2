@@ -6,7 +6,7 @@
 
 re-frame2 ships as a coordinated set of Maven artefacts, all driven from a single repo-root [`VERSION`](../VERSION) file. This doc is the operational guide for how a release flows through CI, what gates exist, and how to recover when something goes wrong mid-deploy.
 
-Two tiers ship from this repo and they move on separate triggers. The **framework tier** is the thirteen artefacts under `implementation/`, and a `v*` tag ships all of them together — that is what §Topological deploy DAG below describes. The **tools tier** is the jars under `tools/`, which share the same lockstep VERSION but ship on their own per-tool tags and are not touched by a `v*` tag at all; [§The tools tier](#the-tools-tier) is their runbook.
+Two tiers ship from this repo and they move on separate triggers. The **framework tier** is the twelve artefacts under `implementation/`, and a `v*` tag ships all of them together — that is what §Topological deploy DAG below describes. The **tools tier** is the jars under `tools/`, which share the same lockstep VERSION but ship on their own per-tool tags and are not touched by a `v*` tag at all; [§The tools tier](#the-tools-tier) is their runbook.
 
 ## Policy
 
@@ -134,7 +134,7 @@ Those edges are stronger than the poms require — each also blocks its artefact
 
 ## The tools tier
 
-`tools/` is versioned in lockstep with the framework — every tool jar reads the same repo-root `VERSION`, and [`verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh) gates them alongside the framework artefacts — but **a `v*` tag publishes none of it.** Each tool ships on its own tag prefix, so a Xray-only fix does not republish thirteen framework artefacts and a framework release does not accidentally republish Xray. Five tool jars carry Clojars coordinates:
+`tools/` is versioned in lockstep with the framework — every tool jar reads the same repo-root `VERSION`, and [`verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh) gates them alongside the framework artefacts — but **a `v*` tag publishes none of it.** Each tool ships on its own tag prefix, so a Xray-only fix does not republish twelve framework artefacts and a framework release does not accidentally republish Xray. Five tool jars carry Clojars coordinates:
 
 | Artefact | Coordinate | Tag | Workflow |
 |---|---|---|---|
@@ -177,9 +177,9 @@ Mike ruled route (b) on rf2-2ii52: the 271-line codec was **vendored into `re-fr
 
 Identical to the framework tier: Clojars has no yank, so recovery is bump-and-supersede. Do not re-run a failed tool deploy on the same tag — Clojars 409s on the duplicate upload. Bump `VERSION`, retag with the bumped value (`xray-v0.0.1.alpha-1`), rerun. See [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the full procedure; the only difference is that bumping VERSION for a tool fix puts the framework tier out of lockstep until its next `v*` tag, which is expected and is what the per-tool cadence buys.
 
-**But "out of lockstep" understates it: a tools-tier recovery bump cannot ship alone.** Each tool's release workflow rewrites *every* one of its in-repo `:local/root` coordinates to the bumped VERSION, and there is no per-coordinate override — the workflow passes the one VERSION for every coordinate it rewrites, so the recovery tag pins siblings at a version nobody has published. `xray-v0.0.1.alpha-1` rewrites Xray's ten in-repo coordinates — nine framework artefacts plus `machines-viz` — to `0.0.1.alpha-1`, and none of the ten is on Clojars at that version. The job then fails at dependency resolution before it can deploy, which is the ordering gate of [§Release order](#release-order) working as designed. The promise in [§The tools tier](#the-tools-tier) that a Xray-only fix does not republish thirteen framework artefacts holds only while VERSION stays put; a recovery bump is precisely the case where it does not.
+**But "out of lockstep" understates it: a tools-tier recovery bump cannot ship alone.** Each tool's release workflow rewrites *every* one of its in-repo `:local/root` coordinates to the bumped VERSION, and there is no per-coordinate override — the workflow passes the one VERSION for every coordinate it rewrites, so the recovery tag pins siblings at a version nobody has published. `xray-v0.0.1.alpha-1` rewrites Xray's ten in-repo coordinates — nine framework artefacts plus `machines-viz` — to `0.0.1.alpha-1`, and none of the ten is on Clojars at that version. The job then fails at dependency resolution before it can deploy, which is the ordering gate of [§Release order](#release-order) working as designed. The promise in [§The tools tier](#the-tools-tier) that a Xray-only fix does not republish twelve framework artefacts holds only while VERSION stays put; a recovery bump is precisely the case where it does not.
 
-**So price the recovery before you bump, not after.** To ship the one fixed tool jar you must first publish everything it names at the bumped VERSION, and the framework tier has no partial tag — a `v*` tag ships all thirteen artefacts. Recovering a bad Xray publish is therefore `v0.0.1.alpha-1` (thirteen artefacts), then `machines-viz-v0.0.1.alpha-1`, then `xray-v0.0.1.alpha-1`: **fifteen artefacts republished to replace one.** Add `story-v0.0.1.alpha-1` to bring Story's three jars back into lockstep and it is all eighteen. Every one of those is a permanent version that cannot be taken back, so the choice to bump is a whole-repo decision even when the defect is in a single tool jar.
+**So price the recovery before you bump, not after.** To ship the one fixed tool jar you must first publish everything it names at the bumped VERSION, and the framework tier has no partial tag — a `v*` tag ships all twelve artefacts. Recovering a bad Xray publish is therefore `v0.0.1.alpha-1` (twelve artefacts), then `machines-viz-v0.0.1.alpha-1`, then `xray-v0.0.1.alpha-1`: **fourteen artefacts republished to replace one.** Add `story-v0.0.1.alpha-1` to bring Story's three jars back into lockstep and it is all eighteen. Every one of those is a permanent version that cannot be taken back, so the choice to bump is a whole-repo decision even when the defect is in a single tool jar.
 
 ### First publish
 
@@ -248,7 +248,7 @@ Apps that ship a perf-instrumented prod bundle alongside their default release s
 - the `tests` workflow on every PR (`verify-version-lockstep` job — fast, runs in parallel with the test jobs);
 - the `release` workflow as the first gate before any deploy (`verify-version-lockstep` job — gates `test`, which gates `deploy-core`).
 
-It covers **eighteen** artefacts — the thirteen under `implementation/` plus the five tool jars — and prints that count on success, so a summary line naming any other number is itself the drift signal.
+It covers **seventeen** artefacts — the twelve under `implementation/` plus the five tool jars — and prints that count on success, so a summary line naming any other number is itself the drift signal.
 
 The contract:
 

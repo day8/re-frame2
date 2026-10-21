@@ -118,7 +118,7 @@ the state commit. Incoming facts come from coeffect suppliers before the handler
 These boundaries make tests straightforward: supply the facts, run the handler,
 and inspect or stub the requested effects.
 
-In development, the trace stream and optional epoch history connect an event with
+In development, the trace stream and epoch history connect an event with
 its changes, effects and later renders. [Xray](../../xray/index.md) and other tools
 read those records. [Observability](../observability.md) covers the model and its
 limits:

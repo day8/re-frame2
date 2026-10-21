@@ -241,20 +241,6 @@ DISPOSITIONS: dict[str, dict] = {
                "confirmed by the job's own explanatory text rather than by "
                "anything CI executes",
     },
-    # `test:xray-manual-epoch` runs as a step of test.yml's `cljs` job rather
-    # than being declared `covered-by: test:cljs`, even though it rides that
-    # lane.  `:node-test-xray-manual-epoch` selects the same single
-    # `-cljs-test$` namespace the consolidated build already runs, so on the
-    # rule the `test:security` / `test:testbed-support` entries above use it
-    # would read as a strict subset — and that reading would be exactly wrong.
-    # The teeth are the DEPENDENCY GRAPH, not the assertions: the gate proves
-    # `install.cljs`'s bare `[re-frame.epoch]` require is what loads the epoch
-    # producer on the manual `core/init!` startup path, and the consolidated
-    # bundle also loads `day8.re-frame2-xray.preload`, which carries the
-    # identical anchor.  So `test:cljs` runs the assertions and cannot fail
-    # them in either world.  Claiming cover would be a premise that reads true
-    # and grades nothing — the class this checker exists to refuse.
-    #
     # DO NOT WRITE A COUNT HERE.  Read the SUMMARY LINE this script prints
     # (`N of them known holes with beads`) rather than any prose here: a
     # checker asserting its own completeness in prose is the failure mode, not

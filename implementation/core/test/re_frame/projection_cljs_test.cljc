@@ -366,18 +366,18 @@
 ;; ---------------------------------------------------------------------------
 ;; `:rf/epoch-record` — the LATE-BOUND record kind.
 ;;
-;; `:rf/epoch-record` is owned by the OPTIONAL `day8/re-frame2-epoch` artefact,
+;; `:rf/epoch-record` is owned by `re-frame.epoch`, which requires this door,
 ;; so its projector arrives through the `:epoch/project-record` late-bind hook.
 ;; These arms pin the DOOR's half: the kind is recognised, the resolved frame
 ;; reaches the projector, and (guard G1) an ABSENT projector throws rather than
-;; falling through to the kindless walk. The artefact's half is pinned in
+;; falling through to the kindless walk. Epoch's half is pinned in
 ;; `re-frame.epoch-egress-redaction-cljs-test`. Sibling test namespaces load
 ;; `re-frame.epoch`, so each arm binds the hook explicitly.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-epoch-projector
   "Run `f` with the `:epoch/project-record` late-bind hook bound to `v`
-  (`nil` simulating an absent artefact), restoring the previous value
+  (`nil` simulating a build that elides epoch), restoring the previous value
   afterwards even when `f` throws."
   [v f]
   (let [original (rf.late-bind/get-fn :epoch/project-record)]
@@ -423,8 +423,8 @@
                (mapv (juxt #(contains? % :frame) :frame) @seen)))))))
 
 (deftest guard-g1-absent-epoch-projector-throws-and-never-bare-walks
-  ;; A RECOGNISED kind whose projector is absent throws before returning any
-  ;; payload. The contrast shows why: an UNSTAMPED epoch-shaped map is a
+  ;; A RECOGNISED kind whose projector is absent (a build that elides epoch)
+  ;; throws before returning any payload. The contrast shows why: an UNSTAMPED epoch-shaped map is a
   ;; kindless value walked from :path [], where the frame's [:auth :token]
   ;; declaration cannot match [:db-after :auth :token], so it ships RAW.
   (let [fid    :projection-test/epoch-g1
@@ -436,7 +436,7 @@
         (let [thrown (try (rf/project-egress record opts)
                           nil
                           (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
-          (is (= [{:rf.error/id :rf.error/epoch-artefact-missing :where 'rf/project-egress :kind :rf/epoch-record}
+          (is (= [{:rf.error/id :rf.error/epoch-elided :where 'rf/project-egress :kind :rf/epoch-record}
                   true
                   "super-secret-token"]
                  [(select-keys (ex-data thrown) [:rf.error/id :where :kind])

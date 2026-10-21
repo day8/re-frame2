@@ -7,10 +7,9 @@
   exactly the forms the arm renders and throws on an unresolved symbol,
   so a rewritten arm fails loudly rather than passing unexercised. The
   trace-ring fold is the framework's own (`re-frame.trace.projection`).
-  Core without the Epoch artefact is the real thing too — this build
-  carries no Epoch, so `re-frame.features/features` reports it absent and
-  `re-frame.projection/project-egress` throws for a stamped record. With
-  Epoch, a stub stands in for the late-bound epoch projector.
+  A build that elides epoch is modelled by the debug gate read false, with
+  a door that fails the test if called. With epoch, a stub stands in for
+  the late-bound epoch projector.
 
   The projected bundles then go through the `snapshot` tool's own wire
   pipeline, because that is where a bundle whose `:trace-events` is not a
@@ -18,8 +17,6 @@
   (:require [cljs.reader :as reader]
             [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
-            [re-frame.features :as rf.features]
-            [re-frame.projection :as rf.projection]
             [re-frame.trace.projection :as rf.trace.projection]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -87,19 +84,22 @@
    're-frame.trace.projection/absorb             rf.trace.projection/absorb
    're-frame.trace.projection/empty-event-bundle rf.trace.projection/empty-event-bundle})
 
-(def ^:private core-only
-  "Core as this build carries it: no Epoch artefact."
+(def ^:private epoch-elided
+  "A build that elides epoch: the gate reads false, and the door, which
+  would throw for a stamped record there, must not be called."
   (assoc core-fns
-         're-frame.core/features       rf.features/features
-         're-frame.core/project-egress rf.projection/project-egress))
+         're-frame.interop/debug-enabled? false
+         're-frame.core/project-egress    (fn [_record _opts]
+                                            (throw (ex-info "the door was called in a build that elides epoch"
+                                                            {})))))
 
 (defn- with-epoch
-  "Core with the Epoch artefact loaded, its record projector played by
+  "A development build, its record projector played by
   `project`, called as `(project record opts)`. Every door call lands in
   `calls`."
   [project calls]
   (assoc core-fns
-         're-frame.core/features       (fn [] {:epoch {:loaded? true}})
+         're-frame.interop/debug-enabled? true
          're-frame.core/project-egress (fn [record opts]
                                          (swap! calls conj [record opts])
                                          (project record opts))))
@@ -218,14 +218,12 @@
       (is (= 1 (count @calls)) "the door is still asked"))
     (check-snapshot {:app-db {:count 1} :traces [redacted-bundle]} done)))
 
-(deftest without-epoch-only-the-trace-payload-fails-closed
-  ;; A core-only app has a trace ring but no epoch projector, and the door
-  ;; throws for a stamped record. Each bundle's trace events ship as
+(deftest in-an-epoch-eliding-build-only-the-trace-payload-fails-closed
+  ;; A build that elides epoch has no epoch projector, and the door throws
+  ;; for a stamped record. Each bundle's trace events ship as
   ;; `:rf/redacted`, and the snapshot's other slices still read.
   (async done
-    (is (false? (get-in (rf.features/features) [:epoch :loaded?]))
-        "precondition: this build carries no Epoch artefact")
-    (is (= [redacted-bundle] (ship core-only [ring-bundle])))
+    (is (= [redacted-bundle] (ship epoch-elided [ring-bundle])))
     (check-snapshot {:app-db {:count 1} :traces [redacted-bundle]} done)))
 
 (deftest with-epoch-each-bundle-is-folded-from-its-projected-events

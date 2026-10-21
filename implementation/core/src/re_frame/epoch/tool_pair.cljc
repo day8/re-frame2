@@ -986,7 +986,7 @@
 ;;                                          `:rf/reply-to`) and emitting the
 ;;                                          EP-0011 stale-suppression facts.
 ;;
-;; Late-bound so the epoch artefact never statically depends on the optional
+;; Late-bound so epoch never statically depends on the optional
 ;; machines / http artefacts — absent the artefact the hook is nil and quiesce is
 ;; a clean no-op (an app with no async host work pays nothing). Each hook is
 ;; fired best-effort: a throwing hook is swallowed so one bad subsystem cleanup
@@ -1273,17 +1273,15 @@
   `replace-frame-state!` records a synthetic `:rf.epoch/db-replaced` epoch so
   that `restore-epoch!` of it `{:to :before}` undoes
   the injection — the caller's invariant is \"undo works after this call\"
-  (Tool-Pair §Pair-tool writes, the same invariant the artefact-missing
-  wrapper raises to honour at `core-epoch.cljc`). Under
+  (Tool-Pair §Pair-tool writes). Under
   `(rf/configure! {:epoch-history {:depth 0}})` the ring buffer is
   DISABLED by documented design (Tool-Pair §Time-travel — depth 0 retains
   no history; consume via `register-epoch-listener!`), so the synthetic
   undo-anchor can never land in the ring and `restore-epoch!` of it would
   fail `:rf.epoch/restore-unknown-epoch`. A silent `true` return would lie
-  about the undo invariant exactly as a silent no-op would on the
-  artefact-missing path. So a depth-0 injection is REJECTED loudly via the
-  in-artefact failure channel (a structured `:rf.epoch/replace-history-disabled`
-  trace + its refusal envelope), mirroring the artefact-missing throw's intent."
+  about the undo invariant. So a depth-0 injection is REJECTED loudly via
+  epoch's failure channel (a structured `:rf.epoch/replace-history-disabled`
+  trace + its refusal envelope)."
   [frame-id frame-state]
   (if-let [{:keys [reason keys]} (replace-frame-state-bad-keys frame-state)]
     ;; (0) Bad keys? Independent of frame resolution — a malformed call is

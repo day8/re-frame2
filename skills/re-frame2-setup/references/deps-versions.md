@@ -27,7 +27,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 
 | Artefact | Tier | When to add |
 |---|---|---|
-| `day8/re-frame2` | core | **Always.** Registry, drain, fx, dispatch, subscribe, frame-root, trace, the substrate-adapter contract. |
+| `day8/re-frame2` | core | **Always.** Registry, drain, fx, dispatch, subscribe, frame-root, trace, epoch history and time-travel (dev-only), the substrate-adapter contract. |
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` / `reg-app-schemas`, or put a `:schema` on a registration. `:require` `re-frame.schemas` first — it self-wires its Malli adapter (no separate `re-frame.schemas.malli` require) and a registered schema then validates (Spec 010); without the artefact `reg-app-schema` / `reg-app-schemas` throw `:rf.error/schemas-artefact-missing` — loud, not a silent soft-pass. |
@@ -36,7 +36,6 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When an event returns `[:rf.http/managed request]` in `:fx`; this is an effect, not an event to dispatch. |
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
-| `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` — or when you want `re-frame2-pair`'s live time-travel, which reads `epoch-history` and so needs this artefact on your app's own classpath. |
 
 This table is what a greenfield project may add, not the release roster. (One niche local root — `re-frame2-ssr-ring` — rides the same version but isn't greenfield. `day8/re-frame2-resources`, Spec [016](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md) / EP-0003, is a post-v1 per-feature artefact; add it when you call `reg-resource`.) `day8/re-frame2-xray` is a tool, on its own tag (above).
 
@@ -85,7 +84,6 @@ Lockstep is automatic — both resolve from one checkout, one commit — and edi
 | `day8/re-frame2-flows` | `implementation/flows` |
 | `day8/re-frame2-http` | `implementation/http` |
 | `day8/re-frame2-ssr` | `implementation/ssr` |
-| `day8/re-frame2-epoch` | `implementation/epoch` |
 | `day8/re-frame2-story` (tool; on the scaffold's `:dev` alias) | `tools/story` |
 | `day8/re-frame2-xray` (tool) | `tools/xray` |
 
@@ -136,8 +134,7 @@ Add them **at the moment** the author writes code that calls into them — not b
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
-| `(rf.epoch/epoch-history ...)` or `(rf.epoch/restore-epoch! ...)` directly | `day8/re-frame2-epoch` |
 
-(**`re-frame2-pair` does not add `-epoch` for you.** Its runtime ships as a shadow-cljs `:devtools` preload, and a preload cannot put a jar on the classpath. So to get the pair skill's epoch history / `restore-epoch` time-travel, add `day8/re-frame2-epoch` to your own `deps.edn` and require `re-frame.epoch` at boot; without it every epoch read comes back empty and `restore-epoch` refuses, mostly silently — only the pair skill's `replace-app-db` raises `:rf.error/epoch-artefact-missing`.)
+(Epoch history and time-travel — `(rf.epoch/epoch-history ...)`, `(rf.epoch/restore-epoch! ...)` and `re-frame2-pair`'s live time-travel — ship in core: there is no coordinate to add.)
 
 Each artefact registers its load-time hooks on require, so beyond the dep the only step is a `:require` of its primary namespace from your entry ns. The main `re-frame2` skill's per-feature leaves give the canonical require shape.

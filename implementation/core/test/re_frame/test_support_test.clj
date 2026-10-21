@@ -10,6 +10,7 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.flows :as rf.flows]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.observability :as rf.observability]
             [re-frame.schemas :as rf.schemas]
@@ -93,8 +94,10 @@
       (doseq [k [:flows/reset-flows! :adapter/clear-warn-once-caches!]]
         (rf.late-bind/set-fn! k (count! k)))
       ((fixture) (fn [] :ran))
-      (is (every? resetters [:fx :machines :routing :epoch])
-          "FIXTURE — the artefacts this lane loads contribute their resets")
+      (is (every? resetters (cond-> [:fx :machines :routing]
+                              rf.interop/debug-enabled? (conj :epoch)))
+          "FIXTURE — the artefacts this lane loads contribute their resets;
+           epoch contributes only in a development build")
       (is (= (merge (zipmap resetters (repeat 1))
                     {:flows/reset-flows! 2 :adapter/clear-warn-once-caches! 1})
              @counts))
@@ -254,10 +257,12 @@
                  (after))))}))
       (rf/make-frame {:id fid})
       (rf.frame/destroy-frame! fid)
-      (is (= {:ssr      [[fid :post-dead nil]]
-              :machines [[fid :pre-dead nil] [fid :post-dead nil]]
-              :epoch    [[fid :post-dead nil] [fid :after-dissoc false]]}
-             @calls))
+      (is (= (cond-> {:ssr      [[fid :post-dead nil]]
+                      :machines [[fid :pre-dead nil] [fid :post-dead nil]]}
+               rf.interop/debug-enabled?
+               (assoc :epoch [[fid :post-dead nil] [fid :after-dissoc false]]))
+             @calls)
+          "epoch contributes only in a development build")
       (finally
         (reset! rf.frame/lifecycle-contributions saved)))))
 

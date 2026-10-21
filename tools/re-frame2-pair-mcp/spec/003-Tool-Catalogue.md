@@ -282,11 +282,11 @@ stamps the projection keeps.
 
 Two answers leave a bundle with no events to fold. A frame that
 classifies its whole app-db sensitive (`{:sensitive [[]]}`) gets its
-`:trace-events` slot back from the projector as `:rf/redacted`. And an
-app without the optional Epoch artefact has no epoch projector at all —
+`:trace-events` slot back from the projector as `:rf/redacted`. And a
+build that elides epoch has no epoch projector at all —
 `project-egress` refuses a stamped record with
-`:rf.error/epoch-artefact-missing` — so the snapshot checks
-`(get-in (re-frame.core/features) [:epoch :loaded?])` first and, when it
+`:rf.error/epoch-elided` — so the snapshot checks
+`re-frame.interop/debug-enabled?` first and, when it
 is false, ships each bundle's `:trace-events` as `:rf/redacted` without
 calling the door. In both cases the bundle keeps its `:dispatch-id` and
 `:frame`, its domino slots stay at their empty values rather than being
@@ -1543,7 +1543,7 @@ non-zero.
 **Returns** (failure — all `isError: true`, rf2-wdxyx3 finding 2):
 
 - `:reason :no-epoch-recorded` — `interop/debug-enabled?` false or
-  `:epoch-history :depth` zero (no epoch artefact / a production
+  `:epoch-history :depth` zero (a production
   build), refused BEFORE dispatch. No handler ran; no rollback needed.
 - `:reason :no-new-epoch` — `dispatch-sync` returned but the head did
   not advance (the reducer rejected the event or an interceptor
@@ -1705,7 +1705,7 @@ did not land:
 | `:rf.epoch/replay-non-replayable-record` (`:cause`) | `:halted` (outcome not `:ok`; `:outcome` / `:halt-reason` ride along), `:synthetic` (a `replace-app-db` record), `:missing-trigger-event`, `:missing-replay-token`, `:incomplete-inputs` (a `:sensitive` / `:large` registration declaration substituted part of the replay material at capture; `:lost` names each `{:slot :path :loss}`) — refused before dispatch |
 | `:rf.epoch/replay-unreplayable-fx-override` (`:fx-ids`) | a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel — refused before dispatch |
 | `:rf.error/missing-required-cofx` | the strict dispatch failed loud on a declared fact absent from the record (the code moved on since it was recorded); nothing was minted |
-| `:replay-unavailable` | the framework returned `false` — epoch surface elided, or `day8/re-frame2-epoch` not loaded |
+| `:replay-unavailable` | the framework returned `false` — epoch surface elided |
 | `:ambiguous-frame` | no operating frame resolves (two-plus app frames, no pin) |
 
 ## replace-app-db

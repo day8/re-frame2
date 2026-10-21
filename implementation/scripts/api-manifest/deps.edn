@@ -33,7 +33,6 @@
          day8/re-frame2-http     {:local/root "../../http"}
          day8/re-frame2-ssr      {:local/root "../../ssr"}
          day8/re-frame2-ssr-ring {:local/root "../../ssr-ring"}
-         day8/re-frame2-epoch    {:local/root "../../epoch"}
          ;; Fresco publishes `re-frame.fresco` — a `.cljc` door whose
          ;; `:clj` arm is the three authoring macros. Those load on the JVM
          ;; (the `:cljs` arm's impl requires are reader-conditional away), so

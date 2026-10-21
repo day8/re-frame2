@@ -106,12 +106,10 @@
     ["SKILL.md" @skill-md "ops.md#hot-reload-coordination" "spec/design.md relies on this anchored read"]
     ["SKILL.md" @skill-md ":preloads" "§Setup installs the runtime as a devtools preload"]
     ["SKILL.md" @skill-md "re-frame2-pair.runtime" "§Setup names the preload namespace"]
-    ["SKILL.md" @skill-md "day8/re-frame2-epoch"
-     "without it discover-app still passes and every epoch read comes back empty"]
-    ["references/errors.md" @errors-md ":rf.error/epoch-artefact-missing"
-     "the one symptom of a missing epoch artefact that raises rather than reading empty"]
-    ["references/errors.md" @errors-md "day8/re-frame2-epoch" "the artefact that fixes it"]
-    ["docs/LOCAL_DEV.md" @local-dev-md "day8/re-frame2-epoch" "a cause of watch ops coming back empty"]
+    ["SKILL.md" @skill-md "day8/re-frame2-schemas"
+     "without it the preload's build fails to compile"]
+    ["references/errors.md" @errors-md ":epoch-history"
+     "the depth to check when every epoch read comes back empty"]
     ["references/errors.md" @errors-md ":runtime-not-preloaded" "the likeliest first-run failure"]]))
 
 (deftest privacy-guarantee-is-scoped-to-the-structured-tools

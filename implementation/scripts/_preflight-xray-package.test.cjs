@@ -165,11 +165,10 @@ const THIRD_PARTY = [
   dep('juji', 'editscript', '0.6.5'),
 ];
 
-// The nine coordinates as the script's derivation emits them, one per line,
+// The eight coordinates as the script's derivation emits them, one per line,
 // sorted. A literal, so the verdict fixtures are independent of deps.edn.
 const DERIVED_ALL = [
   'day8/re-frame2',
-  'day8/re-frame2-epoch',
   'day8/re-frame2-flows',
   FRESCO,
   'day8/re-frame2-machines',
@@ -267,11 +266,11 @@ test('a pom carrying every in-repo coordinate PASSES', () => {
   assert.equal(status, 0, `complete pom: expected exit 0, got ${status}\n${out}`);
 });
 
-test('the eight-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
+test('the seven-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
   expectFail(
     makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL.filter((lib) => lib !== FRESCO))]) }),
-    'eight-of-nine pom',
-    /1 of 9 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-fresco/,
+    'seven-of-eight pom',
+    /1 of 8 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-fresco/,
   );
 });
 

@@ -45,8 +45,7 @@
   an accidental production load inert rather than useful."
   (:require [re-frame.interop :as rf.interop]
             ;; Time travel (the ribbon's epoch nav) requires the epoch
-            ;; listener and history API;
-            ;; deps.edn makes the artefact part of every Xray build.
+            ;; listener and history API, which ship in core.
             [re-frame.epoch]
             [day8.re-frame2-xray.config :as config]
             ;; Shared installation functions are load-inert; only this

@@ -100,7 +100,6 @@ declare -A ARTEFACT_PATHS=(
   [ssr]="ssr"
   [ssr-ring]="ssr-ring"
   [resources]="resources"
-  [epoch]="epoch"
   [fresco]="fresco"
 )
 
@@ -116,11 +115,11 @@ declare -A ARTEFACT_PATHS=(
 # ships from a post-matrix stage in release.yml rather than from the
 # fail-fast:false deploy-leaf matrix; the second-coordinate assertions for
 # all three sit together below.
-ARTEFACTS=(core schemas reagent uix machines routing flows http ssr ssr-ring resources epoch fresco)
+ARTEFACTS=(core schemas reagent uix machines routing flows http ssr ssr-ring resources fresco)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent uix machines routing flows http ssr ssr-ring resources epoch fresco)
+NON_CORE=(schemas reagent uix machines routing flows http ssr ssr-ring resources fresco)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
@@ -804,13 +803,12 @@ declare -A TOOLS_PATHS=(
 # coordinate declared there and missing here reds, and so does one listed
 # here and absent there.
 #
-# All NINE of Xray's in-repo coordinates are publishable and release-xray.yml
-# rewrites all nine, so Xray's publishability depends on the ordinary release
+# All EIGHT of Xray's in-repo coordinates are publishable and release-xray.yml
+# rewrites all eight, so Xray's publishability depends on the ordinary release
 # ORDER (a framework `v*` tag before an `xray-v*` tag), which
 # docs/release-process.md §The tools tier states.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
-xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
 xray|day8/re-frame2-routing {:local/root "../../implementation/routing"}
 xray|day8/re-frame2-flows {:local/root "../../implementation/flows"}
 xray|day8/re-frame2-schemas {:local/root "../../implementation/schemas"}

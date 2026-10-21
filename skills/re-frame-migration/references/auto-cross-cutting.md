@@ -15,7 +15,7 @@ For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-fram
 - View / hiccup rewrites (M-22, M-24)
 - M-26 drift-sweep drops (mechanical half)
 - Init / adapter (M-40 — the boot sequence; the adapter choice is Type B unless one adapter is on the classpath)
-- Per-feature artefact adds (M-27 through M-33)
+- Per-feature artefact adds (M-27 through M-32)
 
 ---
 
@@ -125,8 +125,8 @@ Closed mechanical rename table. The trace and epoch listener APIs collapse onto 
 ;; The v1/v2-pre-rename `clear-*-cbs!` bulk-clears have NO facade
 ;; counterpart — dropping every listener on a stream is a test-isolation
 ;; concern the fixture layer owns (re-frame.test-support's reset clears the
-;; registries through re-frame.trace.tooling/clear-listeners! and the
-;; :epoch/clear-epoch-listeners! reset hook). App code
+;; registries through re-frame.trace.tooling/clear-listeners! and epoch's
+;; lifecycle :test-reset). App code
 ;; unregisters its own listeners by key.
 ```
 
@@ -137,9 +137,9 @@ The `stream` keyword (`:trace`) is a **required leading arg** on the unified ver
 ```
 :trace.tooling/register-trace-cb! → removed — (rf/register-listener! :trace id f)
 :trace.tooling/remove-trace-cb! → removed — (rf/unregister-listener! :trace id)
-:epoch/register-epoch-cb! → :epoch/register-epoch-listener!
-:epoch/remove-epoch-cb! → :epoch/unregister-epoch-listener!
-:epoch/clear-epoch-cbs! → :epoch/clear-epoch-listeners!
+:epoch/register-epoch-cb! → removed — (rf/register-listener! :epoch id f)
+:epoch/remove-epoch-cb! → removed — (rf/unregister-listener! :epoch id)
+:epoch/clear-epoch-cbs! → removed — the test-support reset clears epoch listeners
 ```
 
 The old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
@@ -377,9 +377,9 @@ Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOP
 
 ---
 
-## Per-feature artefact adds (M-27 through M-33)
+## Per-feature artefact adds (M-27 through M-32)
 
-*Which* v1 surface forces *which* artefact — the trigger→rule→dependency matrix — lives once, in [`breaking-changes.md` §Required (M-rules) by trigger surface](breaking-changes.md#required-m-rules-by-trigger-surface) (rows M-27–M-33); don't re-derive the triggers here. This section is the **execution** half, keyed by artefact: the namespace(s) you `:require` and what breaks when the artefact or its require is absent. The load-hook mechanism is uniform — **the `:require`, not merely the Maven dep on the classpath, is what fires the artefact's load-time hook registrations**, so a `re-frame.core` re-export whose implementing namespace was never required is a live call resolving through the façade with nothing behind it. Add the dep AND the `:require` in every namespace that uses the surface.
+*Which* v1 surface forces *which* artefact — the trigger→rule→dependency matrix — lives once, in [`breaking-changes.md` §Required (M-rules) by trigger surface](breaking-changes.md#required-m-rules-by-trigger-surface) (rows M-27–M-32; M-33 adds no artefact, because epoch ships in core); don't re-derive the triggers here. This section is the **execution** half, keyed by artefact: the namespace(s) you `:require` and what breaks when the artefact or its require is absent. The load-hook mechanism is uniform — **the `:require`, not merely the Maven dep on the classpath, is what fires the artefact's load-time hook registrations**, so a `re-frame.core` re-export whose implementing namespace was never required is a live call resolving through the façade with nothing behind it. Add the dep AND the `:require` in every namespace that uses the surface.
 
 | Artefact (rule) | Namespace(s) to require — fires the load-time hooks | If the artefact / require is absent |
 |---|---|---|
@@ -389,10 +389,9 @@ Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOP
 | `day8/re-frame2-flows` (M-30) | `re-frame.flows` | `reg-flow`, `(rf/clear :flow id)` and making a frame whose `:flows` names any flow throw `:rf.error/flows-artefact-missing` |
 | `day8/re-frame2-http` (M-31) | `re-frame.http.managed` — the one require, and it registers the `:rf.http/managed` fx at ns-load | a `[:rf.http/managed …]` fx with no `re-frame.http.managed` require throws `:rf.error/no-such-fx` at the drain; the façade's `rf/reg-http-interceptor` and its clear throw `:rf.error/http-artefact-missing` (the stub transports are not on the façade — require `re-frame.http.stub-transport`). There is no second HTTP namespace to require — there is no `re-frame.http` verb-helper ns (M-76) |
 | `day8/re-frame2-ssr` (M-32) | `re-frame.ssr` (server-side) | the SSR re-exports throw `:rf.error/ssr-artefact-missing`; the `:rf/hydrate` event resolves to no handler |
-| `day8/re-frame2-epoch` (M-33) | `re-frame.epoch` | **the exception — silent degrade, no throw** (dev-tier: a release build that omits it must not raise): `epoch-history` → `[]`, `restore-epoch!` → `false`, listener register / remove → `nil`, `configure!` no-ops; only the injection mutator throws `:rf.error/epoch-artefact-missing`, and there is exactly one — the partition-keyed `replace-frame-state!` (`{:rf.db/app v}` and/or `{:rf.db/runtime v}`); there is no `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` |
 | `re-frame.http.stub-transport` (M-31a / M-65 — ships in `day8/re-frame2-http`, **no** separate Maven dep) | `re-frame.http.stub-transport`, in the **test** (or demo) ns require closure | `route-transport` / `pending-transport` / `with-transport` / `install-transport!` are unresolvable, and a request from a `:test` / `:story` preset frame with no stub transport in place fails as `:rf.http/transport`. Production / SSR code MUST NOT require this ns — tests and demos opt in |
 
-So every artefact except **epoch** surfaces a missing dep/require as a loud throw at the first call — `:rf.error/<artefact>-artefact-missing`, or `:rf.error/no-such-fx` / `:rf.error/no-such-handler` for the fx/event surfaces — while epoch degrades silently because it is dev-tier. This is the [compile-clean register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)'s M-28..M-32 row seen from the artefact side.
+So every artefact surfaces a missing dep/require as a loud throw at the first call — `:rf.error/<artefact>-artefact-missing`, or `:rf.error/no-such-fx` / `:rf.error/no-such-handler` for the fx/event surfaces. Epoch (M-33) is not in the table: it ships in core and `re-frame.core` loads it, so there is no dep to add. A production build elides it, and there `epoch-history` reads `[]`, `restore-epoch!` and `replace-frame-state!` return `false`, the `:epoch` listener stream registers nothing and `configure!` applies no `:epoch-history`. The one injection mutator is the partition-keyed `replace-frame-state!` (`{:rf.db/app v}` and/or `{:rf.db/runtime v}`); there is no `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!`. This is the [compile-clean register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)'s M-28..M-32 row seen from the artefact side.
 
 ---
 

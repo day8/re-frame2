@@ -230,8 +230,8 @@ an error, just as `(rf/app-db-value <unknown>)` returns `nil`.
 Next to the trace buffer (what the app did) is the **epoch history** (what the app
 was): one record per run with `:db-before` and `:db-after` snapshots, plus
 `:sub-runs`, `:renders` and `:effects` summaries. Read it with
-`(rf.epoch/epoch-history :rf/default)`. Load the optional `day8/re-frame2-epoch` artefact
-and require `[re-frame.epoch]` first; without it the history call returns `[]`.
+`(rf.epoch/epoch-history :rf/default)`, requiring `[re-frame.epoch]`; `re-frame.core` already
+loads it. A production build records nothing, so there the call returns `[]`.
 
 Because each record holds real before-and-after state,
 [time travel](glossary.md#time-travel) needs no replay:
@@ -315,7 +315,7 @@ after projection: `(-> record rf/project-egress my-scrub)`.
 
 The only other listener stream is `:epoch`. It publishes a record after a run
 settles, then republishes the same record when later render details arrive. Use it when you think in runs rather than in individual trace
-events. It needs the `day8/re-frame2-epoch` artefact. Production errors reach you
+events. Like `:trace`, it is development-only. Production errors reach you
 through a sink ([below](#consuming-production-telemetry-declare-a-sink)).
 
 ```clojure
@@ -463,7 +463,6 @@ is separate from `goog.DEBUG`, so you can ship timing without the trace stream.
 |---|---|---|
 | A listener works in dev and never fires in production | The `:trace` and `:epoch` streams are elided from release builds | Ship telemetry through an `:observability` sink ([Consuming production telemetry](#consuming-production-telemetry-declare-a-sink)) |
 | `(rf/register-listener! :errors …)` throws `:rf.error/unknown-listener-stream` | Only `:trace` and `:epoch` are listener streams | Declare an `:errors` sink |
-| `(rf/register-listener! :epoch …)` returns `nil` | The `day8/re-frame2-epoch` artefact is not loaded | Add the artefact |
 | `:rf.warning/trace-buffer-unrecognised-opts`, retention unchanged | `configure!` got a `:trace-buffer` map with no non-negative `:events-retained`, such as `{:depth 50}` | Use `{:trace-buffer {:events-retained 50}}` |
 | A sink receives nothing and dev prints the error to the console | The sink id in `:observability` has no registered function | Register it with `rf/register-observability-sink!` |
 | `make-frame` or `configure!` throws `:rf.error/bad-frame-classification` | A typo in `:observability`: an unknown stream key such as `:error`, an unknown entry key, or an unknown `:rf.egress/profile` | Use `:errors` / `:handled-events`, `:sink`, and a listed profile |

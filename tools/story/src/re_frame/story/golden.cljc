@@ -77,7 +77,7 @@
 
   This ns is bundle-isolated tooling; it `:require`s ONLY the pure
   fingerprint / diff modules + the artifact replay seam (which itself uses
-  the late-bound `rf.story.assertions/epoch-history` read), so it introduces NO hard
+  the `rf.story.assertions/epoch-history` read), so it introduces NO hard
   `:require` of a test-only dep into the production Story path."
   (:require [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.diff        :as rf.story.diff]

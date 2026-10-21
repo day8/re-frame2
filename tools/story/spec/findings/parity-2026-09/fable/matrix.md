@@ -337,7 +337,7 @@ Each row: job · weight defence · Story layers (SPEC / CODE / DOCS / ERGONOMICS
 
 | Row | Probe that produced this run's cell | Re-run command |
 |---|---|---|
-| A2, B1, B2, B3, B4, C4 | `probe.clj` A/B/C/F, `probe2.clj` Q/R/S/F2, `probe3.clj` V1–V3 | `cd tools/story && clojure -Sdeps '{:deps {day8/re-frame2-epoch {:local/root "../../implementation/epoch"}}}' -M -i <scratch>/probeN.clj` |
+| A2, B1, B2, B3, B4, C4 | `probe.clj` A/B/C/F, `probe2.clj` Q/R/S/F2, `probe3.clj` V1–V3 | `cd tools/story && clojure -M -i <scratch>/probeN.clj` |
 | B6 (promotion keeps the expectation) | `probe4.clj` — source `:fail` → promote → child must `:fail` for the same expectation; a `:pass` with `:assertions []` is a red row | same runner; expected output `evidence.md` §P4 (red at this sha) |
 | B4 (upgrade snippet parses and drops the pin) | `probe5.clj` — `edn/read-string` of `upgrade-snippet`'s output must succeed; the compiled child's `:fidelity` must not still carry `:sub-overrides` unless the author kept the pin | same runner; expected output §P5 (red at this sha) |
 | A5, C1, C2 | `mcp-requests.jsonl` #1–#18, `mcp-requests2.jsonl` #1–#8 | `cd tools/story-mcp && clojure -M -e "(load-file \"<scratch>/mcp-prelude.clj\")" -m re-frame.story-mcp.server --allow-writes < <scratch>/mcp-requests.jsonl` |

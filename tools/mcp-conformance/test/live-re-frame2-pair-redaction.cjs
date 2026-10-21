@@ -176,31 +176,20 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // same as a JVM programmatic caller.
 //
 // Epoch recording must be ACTIVE for the pull-mode tools to have a record
-// to egress. The tiny fixture (`counter.core`) neither requires
-// `re-frame.epoch` nor configures a ring depth, so its dev build records
-// nothing — `epoch-history` stays empty and trace-window / watch-epochs
-// return `:epochs []` regardless of what we dispatch. We therefore
-// (a) `(require 're-frame.epoch)` so the namespace loads and publishes the
-// `:epoch/settle!` capture hook the router looks up at drain-settle, and
-// (b) `(configure :epoch-history {:depth 50})` so the ring keeps records.
+// to egress. `re-frame.core` loads `re-frame.epoch` in a dev build, so
+// (a) `(require 're-frame.epoch)` finds it already loaded, with the
+// `:epoch/settle!` capture hook the router looks up at drain-settle
+// published, and (b) `(configure :epoch-history {:depth 50})` sets the ring
+// depth explicitly rather than relying on the fixture's.
 // This is runtime configuration, NOT a fixture-source change — it keeps
 // the scenario self-contained under tools/mcp-conformance.
 //
-// CRITICAL: the `require`, the `configure`, and the dispatch MUST be
-// THREE SEPARATE awaited eval-cljs calls. shadow's runtime `require`
-// schedules an ASYNC module load; ANY form that references the
-// `re-frame.epoch` ns (the `configure` knob's late-bound hook, or the
-// `:epoch/current-config` read `rf/current-config` consults) BEFORE that
-// load settles fails to resolve. Within a
-// single `(do (require ...) (configure ...) ...)` form the configure
-// throws (`:repl/exception!`) and depth stays 0, so the dispatch records
-// nothing. Splitting lets each prerequisite settle before the next call.
-// Measured: single-form ⇒ :repl/exception! + :epoch-count 0; three
-// separate calls ⇒ depth 50 + :epoch-count 1.
+// The `require`, the `configure`, and the dispatch are THREE SEPARATE
+// awaited eval-cljs calls: shadow's runtime `require` schedules an ASYNC
+// module load, and a form referencing a namespace before that load settles
+// fails to resolve.
 //
-// Call 1: load the epoch namespace (publishes the `:epoch/settle!` capture
-// hook the router looks up at drain-settle, and the `:epoch/configure!`
-// knob the next call drives).
+// Call 1: require the epoch namespace.
 const ENABLE_REQUIRE_FORM = `(require 're-frame.epoch)`;
 
 // Call 2: configure a ring depth so the buffer keeps records (default for

@@ -66,7 +66,7 @@
   ## Mutation-proof
 
   Renaming any `render-row` output key in
-  `implementation/epoch/src/re_frame/epoch/capture.cljc` — e.g.
+  `implementation/core/src/re_frame/epoch/capture.cljc` — e.g.
   `:render-key` → `:renderkey`, or `:mount?` → `:mountp` — reddens
   `reactive-data-render-row-projects-real-mounted-render`: the projected
   `:views-rendered` row then lacks that key (and its `:view-id`, sourced

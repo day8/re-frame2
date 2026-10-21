@@ -4,15 +4,14 @@
 ;; rf2_playground/sci.cljs requires each one so its late-bind hooks install
 ;; at bundle load:
 ;;   - org.babashka/sci   the interpreter
-;;   - day8/re-frame2     re-frame.core, the API cells call
+;;   - day8/re-frame2     re-frame.core, the API cells call, and epoch history
 ;;   - day8/re-frame2-reagent  Reagent and its re-frame2 adapter
 ;;   - machines, flows,   reg-machine, reg-flow and reg-app-schema
 ;;     schemas            (schemas brings Malli)
 ;;   - fresco             re-frame.fresco and its forms, overlay and motion
 ;;                        modules
 ;;   - http, resources    :rf.http/managed, its stub transports, and reg-resource
-;;   - routing, epoch,    reg-route, epoch history, render-to-string
-;;     ssr
+;;   - routing, ssr       reg-route, render-to-string
 ;;
 ;; The :local/root coords build against this checkout's implementation. The
 ;; bundle is docs-only, so it never reaches an application build.
@@ -30,5 +29,4 @@
          day8/re-frame2-http     {:local/root "../../../../implementation/http"}
          day8/re-frame2-resources {:local/root "../../../../implementation/resources"}
          day8/re-frame2-routing  {:local/root "../../../../implementation/routing"}
-         day8/re-frame2-epoch    {:local/root "../../../../implementation/epoch"}
          day8/re-frame2-ssr      {:local/root "../../../../implementation/ssr"}}}
