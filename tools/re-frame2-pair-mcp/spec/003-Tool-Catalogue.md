@@ -271,12 +271,15 @@ slot), under the same opts as the `:epochs` slot, and the bundle's
 `:renders` / `:other` / `:parent-dispatch-id` slots are rebuilt from the
 projected events with the ring's own fold
 (`re-frame.trace.projection/absorb`), so none of them can carry a byte
-the projection removed. Off-box, every event argument, effect argument
-and unschematized HTTP body reads `:rf/redacted` whether or not anything
-declared it sensitive (`[:login "pw"]` ships as
-`[:login :rf/redacted]`), and declared-sensitive app-db slots redact.
-The `:include-sensitive` two-key opt-in lifts only the app-db sensitive
-axis, exactly as it does for `:epochs`. The client-side whole-bundle
+the projection removed. Off-box, every trace tag passes a closed
+allow-list: ids, flags, counts and timings ship, an event or query vector
+keeps its head id (`[:login "pw"]` ships as `[:login :rf/redacted]`), and
+every other payload, unschematized HTTP bodies included, reads
+`:rf/redacted` whether or not anything declared it sensitive.
+Declared-sensitive app-db slots redact. The `:include-sensitive` two-key
+opt-in lifts the sensitive axis, the app-db slots and the trace-tag
+allow-list, exactly as it does for `:epochs`; it never lifts the event or
+effect arguments. The client-side whole-bundle
 sensitive drop still applies afterwards, on the per-event `:sensitive?`
 stamps the projection keeps.
 

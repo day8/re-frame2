@@ -124,6 +124,8 @@ A query vector is **identity**. It is the sub-cache key — a frame's sub-cache 
 - the always-on error `:query-v` / `:event` slots — which survive into **production** builds;
 - epoch capture rows, which key on the query vector.
 
+An off-box epoch projection's `:trace-events` keep only a query vector's head id, because their tags pass the trace-tag allow-list ([Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). That is hygiene on one carrier, not containment: the same vector rides the record's `:sub-runs` rows and every other slot above.
+
 This is the **positional fail-open one surface over**. A query argument *is* a positional argument (see the positional note in [§Registration-owned transient classification](#registration-owned-transient-classification) above), and it ships raw for the same structural reason: there is no stable named path for a mark to name.
 
 **So pass identifiers, not secrets.** Treat a query vector the way you would treat a URL:
