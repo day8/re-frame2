@@ -114,18 +114,18 @@
   nothing but how many containers they mount it into."
   []
   [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v [:user/load]}}
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default :rf.event/v [:user/load]}}
    {:id 2 :op-type :rf.fx :operation :rf.fx/do-fx
-    :tags {:rf.trace/dispatch-id dispatch-id}}
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default}}
    {:id 3 :op-type :rf.fx :operation :rf.fx/handled
-    :tags {:rf.trace/dispatch-id dispatch-id
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/1"}
                         :request-id :req-a
                         :on-success [:user/loaded]
                         :on-failure nil}}}
    {:id 4 :op-type :rf.fx :operation :rf.fx/handled
-    :tags {:rf.trace/dispatch-id dispatch-id
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/2"}
                         :request-id :req-b
