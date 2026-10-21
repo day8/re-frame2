@@ -993,10 +993,23 @@
             ;; Snapshot-and-clear callbacks before firing: a callback that
             ;; re-enters `rf.interop/dispose!` on this same object hits the
             ;; guard above (no-op) and never sees the callbacks again, so
-            ;; the set fires exactly once in registration order.
-            (let [fns @on-dispose-fns]
+            ;; the set fires exactly once in registration order. Each runs
+            ;; under its own catch, because the set is already cleared and
+            ;; the guard already flipped: a throw that stopped the walk would
+            ;; strand every later callback for good. The first failure, kept
+            ;; by presence, is rethrown unchanged once the walk ends (Spec 006
+            ;; §On-dispose hooks).
+            (let [fns     @on-dispose-fns
+                  failure (volatile! capture-none)]
               (reset! on-dispose-fns [])
-              (doseq [f fns] (f)))))
+              (doseq [f fns]
+                (try (f)
+                     (catch :default e
+                       (when (identical? capture-none @failure)
+                         (vreset! failure e)))))
+              (let [e @failure]
+                (when-not (identical? capture-none e)
+                  (throw e))))))
         (-add-on-dispose [_ f]
           (swap! on-dispose-fns conj f))))))
 

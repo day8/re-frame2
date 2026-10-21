@@ -116,11 +116,19 @@
         dispose!         (fn []
                            ;; Snapshot-and-clear before firing, so a re-entrant
                            ;; dispose from inside an on-dispose callback finds
-                           ;; nothing to fire twice.
+                           ;; nothing to fire twice. Each callback runs under its
+                           ;; own catch, so a throw cannot strand the cleared ones
+                           ;; after it; the first failure, boxed so a `nil` or
+                           ;; `false` throw still counts, is rethrown unchanged
+                           ;; once the walk ends (Spec 006 §On-dispose hooks).
                            (doseq [[_ [_ unwatch]] (first (reset-vals! observers {}))]
                              (unwatch))
-                           (doseq [f (first (reset-vals! on-dispose-fns []))]
-                             (f)))]
+                           (let [failure (volatile! nil)]
+                             (doseq [f (first (reset-vals! on-dispose-fns []))]
+                               (try (f)
+                                    (catch #?(:clj Throwable :cljs :default) e
+                                      (when-not @failure (vreset! failure [e])))))
+                             (when-let [[e] @failure] (throw e))))]
     #?(:clj
        ;; No disposed flag, as on `rf.interop`'s `Reaction`: a callback that a
        ;; dispose re-registers fires on the next one, which is how the sub-cache

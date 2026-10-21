@@ -50,4 +50,6 @@
      every registered on-dispose callback. Idempotent AND re-entrant
      safe — a second `-dispose`, or a `-dispose` re-entered from
      inside an on-dispose callback, is a no-op: the callback set fires
-     exactly once in registration order and source watches release once."))
+     exactly once in registration order and source watches release once.
+     A throwing callback does not stop the walk: every callback runs, then
+     the first failure is rethrown unchanged."))

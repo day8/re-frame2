@@ -3,7 +3,9 @@
   lifecycle): every cleanup step is attempted, the FIRST failure is rethrown
   (kept by presence, so a falsey throw still surfaces), and later failures ride
   it as `rfAdapterTeardownSecondaryErrors`. Every frame's sub-cache is core's
-  teardown step, pinned in `re-frame.adapter.capabilities-cljs-test`.
+  teardown step, pinned in `re-frame.adapter.capabilities-cljs-test`. Also the
+  re-frame-owned derived values' `-dispose` (Spec 006 §On-dispose hooks): every
+  callback runs once, and the first failure is rethrown after the walk.
 
   Fake roots (objects with an `unmount` slot) stand in for React roots, so this
   runs on node with no DOM.
@@ -11,6 +13,7 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.disposable :as rf.disposable]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.substrate.spine :as rf.substrate.spine]))
 
 (defn- fake-root []
@@ -95,3 +98,29 @@
     (rf.disposable/-dispose dv)
     (rf.disposable/-dispose dv)
     (is (= [:re-entrant-cb :after-cb] @fire-log))))
+
+(deftest derived-value-dispose-runs-every-callback-then-rethrows-the-first-failure
+  ;; Spec 006 §On-dispose hooks: a throw does not strand the callbacks after
+  ;; it, a re-entrant `-dispose` stays a no-op, and only the first failure
+  ;; surfaces. Both re-frame-owned derived values honour it.
+  (let [scheduler (rf.substrate.spine/make-scheduler)]
+    (doseq [[label make-dv source]
+            [[:spine (rf.substrate.spine/make-derived-value-fn "rf-dispose-throw-test-" scheduler)
+              (rf.substrate.spine/make-state-container 0)]
+             [:plain-atom (:make-derived-value rf.substrate.plain-atom/adapter) (atom 0)]]]
+      (let [dv       (make-dv [source] identity)
+            ex1      (js/Error. "ex1")
+            ex2      (js/Error. "ex2")
+            fire-log (atom [])
+            fire!    (fn [k] (swap! fire-log conj k))
+            dispose  (fn [] (try (rf.disposable/-dispose dv) ::returned-normally
+                                 (catch :default e e)))]
+        (rf.disposable/-add-on-dispose dv #(do (fire! :a) (throw ex1)))
+        (rf.disposable/-add-on-dispose dv #(do (fire! :b) (rf.disposable/-dispose dv)))
+        (rf.disposable/-add-on-dispose dv #(do (fire! :c) (throw ex2)))
+        (rf.disposable/-add-on-dispose dv #(fire! :d))
+        (let [first-thrown (dispose)
+              log-after-1  @fire-log
+              second-call  (dispose)]
+          (is (= [label true [:a :b :c :d] ::returned-normally [:a :b :c :d]]
+                 [label (identical? ex1 first-thrown) log-after-1 second-call @fire-log])))))))
