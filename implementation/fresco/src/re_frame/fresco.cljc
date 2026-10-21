@@ -22,6 +22,9 @@
 
   **Every other var below is an ALIAS.** This namespace adds no
   behaviour: each `def` names a value `re-frame.fresco.impl.*` owns.
+  `as-component` alone is a `defn` that forwards to its owner, because it
+  is called at namespace top level and an alias call would keep every
+  unreferenced bridge in a release bundle.
 
   ## The marker keywords need no export
 
@@ -269,7 +272,7 @@
                   (re-frame.fresco.impl.error/declared!)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The vars — aliases, every one naming a value `impl.*` owns
+;; The vars — aliases naming a value `impl.*` owns, and one forwarding fn
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
@@ -326,7 +329,8 @@
   implementation/fresco/spec/authoring-contract.md §The interop door."}
        as-element rf.fresco.impl.codec/as-element)
 
-     (def ^{:doc "`h/as-component` — **the outward bridge**: a real React
+     (defn as-component
+       "`h/as-component` — **the outward bridge**: a real React
   component a native parent — UIx, Reagent or JavaScript — mounts, wrapping
   a Fresco view:
 
@@ -335,8 +339,14 @@
   Declare it once at top level. React props arrive as the view's props map
   under canonical names (`articleId` → `:article-id`), and the frame comes
   from React context, written by any adapter. Contract: implementation/fresco/spec/authoring-contract.md §The interop
-  door. `re-frame.fresco.impl.codec/as-component`."}
-       as-component rf.fresco.impl.codec/as-component)
+  door. `re-frame.fresco.impl.codec/as-component`."
+       ;; A FORWARDING FN, NOT AN ALIAS, because it is called at namespace
+       ;; top level. A call through an alias var compiles to dynamic IFn
+       ;; dispatch, which Closure cannot drop, so every unreferenced bridge
+       ;; would keep the view it wraps in a release bundle; a call to a
+       ;; `defn` is direct, and the bridge is a pure allocation.
+       [head]
+       (rf.fresco.impl.codec/as-component head))
 
      ;; ---- the two frame boundaries: ENSURE and SCOPE ---------------------
      ;;
