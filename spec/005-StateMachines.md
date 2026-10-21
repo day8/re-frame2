@@ -576,7 +576,7 @@ A malformed `[:auth.login/flow [:auth.login/submit {:password "short"}]]` is rej
 > - **`[:schemas :meta]` wires when** a consumer wants **state/machine metadata shape** validated at the boundary where `:meta` is read (snapshot `:meta?` slot / the `:rf/machine` registrar projection).
 > - **Or mark permanently declarative** if, at v1.1 review, the accept-only grammar is judged sufficient (the schema value documents intent for AI / tooling without a runtime check) — in which case the "yet" is struck and the three sub-keys become a settled declarative-only stance. That decision is itself the un-defer condition.
 
-**Schema-library-agnostic — validation is optional.** A `<schema>` value is **opaque**: machine core never interprets it and requires **neither Malli nor JavaScript Standard Schema**. `[:schemas :data]` validation runs entirely through an OPTIONAL late-bound validator adapter — the registered `:schemas/validate-with-registered-fn` hook. A Malli adapter (the framework default) interprets Malli values; a project with no schema adapter still uses the `:schemas` grammar, paying zero validation cost (the hot path short-circuits when no validator is registered). The declaration grammar and the optional validator adapter are fully decoupled.
+**Schema-library-agnostic — validation is optional.** A `<schema>` value is **opaque**: machine core never interprets it and requires **neither Malli nor JavaScript Standard Schema**. `[:schemas :data]` validation runs entirely through an OPTIONAL late-bound validator adapter — the `:schemas/check!` validation seam. A Malli adapter (the framework default) interprets Malli values; a project with no schema adapter still uses the `:schemas` grammar, paying zero validation cost (the hot path short-circuits when no validator is registered). The declaration grammar and the optional validator adapter are fully decoupled.
 
 > **`[:schemas :data]` is re-frame2's spelling of XState's `context`.** re-frame2 calls a machine's working memory `:data` (not `context`), so the data-context schema is declared at `[:schemas :data]`, not XState v6's `schemas.context`. The role is identical; only the vocabulary diverges (re-frame2's `:data` tracks FSM / `gen_statem` "state data" and avoids re-frame's already-overloaded "context").
 
@@ -621,7 +621,7 @@ Consumers route on `:where` — Issues triage, Xray projections and schema-viola
 
 **Best-effort fail-loud — no rollback.** The machine has **already reached its final state** when output is computed, and a spawned actor's auto-destroy cascade is already running. A `[:schemas :output]` violation is therefore a **post-completion observation**: it emits the boundary trace loudly (so a mismatched completion payload surfaces as a bug in dev), but the completion **still flows** — the `:on-done` payload and the `:rf.machine/done` trace are unchanged, and there is **nothing to roll back** (`:rollback? false`). This is the post-commit best-effort asymmetry (parity with the [FX-atomicity posture](009-Instrumentation.md) — pre-commit transactional, post-commit best-effort): a schema typo on a completion payload must not be able to *deadlock* a finishing machine, only to *surface* the mismatch.
 
-**Schema-library-agnostic, same adapter.** Validation routes ENTIRELY through the same optional late-bound `:schemas/validate-with-registered-fn` adapter the `:where :machine-data` boundary uses — `[:schemas :output]`'s `<schema>` value is opaque, machine core interprets nothing, and an app with no schema adapter pays zero cost (the hot path short-circuits when no validator is registered).
+**Schema-library-agnostic, same adapter.** Validation routes ENTIRELY through the same optional late-bound `:schemas/check!` seam the `:where :machine-data` boundary uses — `[:schemas :output]`'s `<schema>` value is opaque, machine core interprets nothing, and an app with no schema adapter pays zero cost (the hot path short-circuits when no validator is registered).
 
 **Failure trace.** The boundary emits the `:rf.error/schema-validation-failure` op with the `:where :machine-output` value and `:phase :completion`:
 
@@ -640,7 +640,7 @@ Consumers route on `:where` — Issues triage, Xray projections and schema-viola
         :reason     "Machine <id> completion output (the :output-key payload) failed schema..."}}
 ```
 
-The value-bearing slots (`:value` / `:received` / `:explain`) route through the same `:schemas/redact-validation-tags` seam, so a `[:schemas :output]` schema that marks an output slot `:sensitive?` scrubs it before the trace fires.
+The value-bearing slots (`:value` / `:received` / `:explain`) are redacted by the same `:schemas/check!` seam, so a `[:schemas :output]` schema that marks an output slot `:sensitive?` scrubs it before the trace fires.
 
 **Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is `re-frame.interop/debug-enabled?`-gated and DCEs to a no-op under `:advanced` + `goog.DEBUG=false` — parity with the `:where :machine-data` boundaries (dev-only by default, zero production cost).
 
