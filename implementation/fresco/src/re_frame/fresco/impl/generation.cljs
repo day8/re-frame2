@@ -1,6 +1,7 @@
 (ns re-frame.fresco.impl.generation
-  "The commit basis: the monotone counters Spec 006 invariant 5 is judged
-  against, and the only doors that advance the three this runtime owns
+  "The commit basis: the monotone counters invariant 5 of Fresco's commit
+  law (implementation/fresco/spec/commit-law.md) is judged against, and
+  the only doors that advance the three this runtime owns
   (the fourth, the frame's install epoch, is the substrate's and is read
   here, never written). The collector consults the basis on four paths
   and advances it on two, and the frame-destroy hook advances it on a
