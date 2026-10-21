@@ -1,6 +1,6 @@
 ;; Conformance fixture: derivation-graph/algebra-full (EP-0014)
 ;;
-;; The host-agnostic corpus pin for the FULL EP-0014 derivation/process
+;; The reference implementation's pin for the FULL EP-0014 derivation/process
 ;; ALGEBRA GRAPH — the broad `:derivation/algebra-graph` capability claim
 ;; (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
 ;; §Validation / Conformance). The companion subset fixture
@@ -43,7 +43,7 @@
 ;;                       scoped key under a nav-token) is the implementation-
 ;;                       local reference suite's subject
 ;;                       (`derivation_algebra_conformance_cljs_test`
-;;                       `cplus-…`); a portable corpus pins the deterministic
+;;                       `cplus-…`); this fixture pins the deterministic
 ;;                       static activation edge + the live-mode shape.
 ;;
 ;; The subscription declared `:input` edge is re-pinned here too, so the full
@@ -51,14 +51,11 @@
 ;; the `:input` and `:param` edge roles + authority/storage split +
 ;; static/live modes) — the broad claim's contract. The `:selector` edge
 ;; (machine → its selector subscription) needs a parameterized
-;; `[:rf/machine <id>]` declared input the portable corpus DSL does not express;
+;; `[:rf/machine <id>]` declared input the fixture DSL does not express;
 ;; it is pinned by the implementation-local reference suite
 ;; (derivation_algebra_conformance_cljs_test `c-static-edges-span-input-param-selector`).
 ;;
-;; Capability `:derivation/algebra-graph` (the BROAD claim). A port that
-;; exposes only the subs+machines graph claims the subset capability and
-;; allowlists this one as a known-skip; a port claiming the broad capability
-;; must pass this fixture.
+;; Capability `:derivation/algebra-graph` (the BROAD claim).
 
 {:fixture/id           :derivation-graph/algebra-full
  :fixture/spec-version "1.0"
@@ -212,7 +209,7 @@
 
    ;; GRAPH-LEVEL shape: the LIVE composer carries top-level
    ;; `:mode :live` AND `:frame :rf/default` (the corpus single-frame scope).
-   ;; This is the false-positive guard — a port returning the
+   ;; This is the false-positive guard — an implementation returning the
    ;; right live machine node while dropping/misreporting the live mode or
    ;; frame must FAIL here, not pass. `:expect-graph` is a submap match
    ;; against the whole graph map.

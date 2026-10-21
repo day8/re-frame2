@@ -1,7 +1,7 @@
 ;; Conformance fixture: image/inline-grammar
 ;;
 ;; EP-0026 §Inline Registration Grammar
-;; (../../docs/EP/EP-0026-image-api-simplification.md): inline `:registrations`
+;; (docs/EP/EP-0026-image-api-simplification.md): inline `:registrations`
 ;; DEFINE new registrations inline (the image-local analogue of a namespace's
 ;; `(def …)`). The outer tuple shape is EXACT:
 ;;

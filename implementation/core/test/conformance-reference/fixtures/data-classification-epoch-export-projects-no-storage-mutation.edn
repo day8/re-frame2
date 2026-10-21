@@ -1,7 +1,6 @@
 ;; Conformance fixture: data-classification/epoch-export-projects-no-storage-mutation
 ;;
-;; Per Spec 015 §Tests (the `epoch-export-projects-no-storage-mutation.edn`
-;; row) and EP-0015 §15 + open-issue 6 — epoch redaction is a
+;; Per Spec 015 §Tests and EP-0015 §15 + open-issue 6 — epoch redaction is a
 ;; PROJECTION-SIDE concern. Off-box epoch EXPORT projects via `project-egress`,
 ;; but the STORED epoch record is UNMUTATED. There is no storage-side
 ;; redaction: epoch records are causal replay material, so mutating
@@ -9,7 +8,7 @@
 ;; redaction property therefore holds BY CONSTRUCTION — the ring carries the
 ;; raw value regardless of any classification.
 ;;
-;; This fixture pins the STORAGE half host-agnostically: with `[:auth :token]`
+;; This fixture pins the STORAGE half: with `[:auth :token]`
 ;; declared frame-sensitive, after an event writes a token, the committed
 ;; epoch record's `:db-after` carries the RAW token (NOT `:rf/redacted`). The
 ;; trace-egress projection redacts the SAME event's t1 pending-db snapshot
@@ -21,7 +20,7 @@
 ;; value through `restore-epoch`) is pinned by the unit test
 ;; `re-frame.epoch-privacy-test/listener-fan-out-delivers-raw-record`,
 ;; the per-artefact counterpart to this
-;; storage-invariant corpus pin.
+;; storage-invariant pin.
 ;;
 ;; Harness note: `:fixture/classification-effects` declares the sensitive path;
 ;; the runner loads `re-frame.epoch`, so `:epoch-records` asserts the per-frame

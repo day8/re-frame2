@@ -1,7 +1,7 @@
 ;; Conformance fixture: image/standard-collision
 ;;
 ;; EP-0026 §Framework Standard Registrations
-;; (../../docs/EP/EP-0026-image-api-simplification.md): framework standard
+;; (docs/EP/EP-0026-image-api-simplification.md): framework standard
 ;; registrations are PROTECTED. They are not part of ordinary app image layer
 ;; order, and a public app image MUST NOT shadow one. A standard encodes an
 ;; execution invariant (e.g. `:rf.interceptor/path`, the app-db commit no-op

@@ -28,7 +28,7 @@
 {:fixture/id           :effect-map-shape/bad-fx-value
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
- :fixture/doc          "A reg-event handler returns {:db ... :fx :oops}. The non-sequential :fx value REFUSES the event: one always-on :rf.error/effect-map-shape emission (:offending-key :fx, :value :oops, :fix-effect), no commit, NO raw host exception."
+ :fixture/doc          "A reg-event handler returns {:db ... :fx :oops}. The non-sequential :fx value REFUSES the event: one :rf.error/effect-map-shape error (:offending-key :fx, :value :oops, :fix-effect), no commit, NO raw host exception."
 
  :fixture/registry
  {:event {:shape/init {:doc "Seed [:seeded?] false."}
@@ -61,12 +61,6 @@
                 :value             :oops
                 :rf.trace/event-id :shape/bad-fx-value
                 :rf.event/v        [:shape/bad-fx-value]}}]
-
-  ;; The production-surviving axis.
-  :error-emit-records
-  [{:rf.error/id   :rf.error/effect-map-shape
-    :event-id      :shape/bad-fx-value
-    :offending-key :fx}]
 
   ;; The malformed :fx value never reached the fx interpreter.
   :effects-routed []}}

@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/order-resolution
 ;;
-;; EP-0026 §Layered Resolution (../../docs/EP/EP-0026-image-api-simplification.md):
+;; EP-0026 §Layered Resolution (docs/EP/EP-0026-image-api-simplification.md):
 ;; image composition is ordered data and resolves by ONE rule — the LATER image
 ;; in `:images` wins. Image order is the ONLY precedence (there is no
 ;; within-image winner rule, because an image must resolve cleanly to one

@@ -1,13 +1,10 @@
 ;; Conformance fixture: derivation-graph/algebra-subs-machines (EP-0014)
 ;;
-;; The host-agnostic corpus pin for the EP-0014 derivation/process ALGEBRA
-;; GRAPH (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
+;; The reference implementation's pin for the EP-0014 derivation/process
+;; ALGEBRA GRAPH (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
 ;; §Validation / Conformance — "Source lowering", "Static graph", "Storage
-;; classification"). Without a corpus graph operator the EP-0014 graph laws
-;; would be pinned ONLY by implementation-local CLJS/JVM tests (the
-;; per-family algebra-view suites + the composer test), so a PORT could pass
-;; the whole corpus while missing the lowering / node-edge shape / storage
-;; classification the EP names.
+;; classification"), read through the composed graph. No public accessor
+;; returns that graph, so the fixture is reference-only (../grammar.edn).
 ;;
 ;; SCOPE — the SUBS+MACHINES SUBSET. This fixture proves the
 ;; subscription `:derivation` member and the machine `:process` member ONLY,
@@ -35,10 +32,7 @@
 ;;                       to the upstream subscription node id; a node with no
 ;;                       declared `[:sub …]` input draws no spurious edge.
 ;;
-;; Capability `:derivation/algebra-graph-subs-machines`. A port that does not
-;; expose the algebra-view graph declares this capability in its
-;; `known-skipped-capabilities` allowlist; the fixture is then reported as an
-;; out-of-claim skip rather than a failure.
+;; Capability `:derivation/algebra-graph-subs-machines`.
 
 {:fixture/id           :derivation-graph/algebra-subs-machines
  :fixture/spec-version "1.0"

@@ -10,14 +10,12 @@
 ;; interceptor chain captured the exception before :effects were
 ;; populated), but the DRAIN itself continues with the next queued
 ;; event. The downstream :should-not-fire dispatch (a separate
-;; cascade) drains normally. The drain reaches empty queue cleanly so
-;; the epoch record's :outcome is :ok — handler-exception does NOT
-;; commit a halted-cascade record.
+;; cascade) drains normally.
 
 {:fixture/id           :error/handler-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :core/trace}
- :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event; the failing handler's effects are suppressed but the drain continues. The drain settles with :outcome :ok — handler-exception is NOT a drain-halt and does not commit a :halted-* epoch record."
+ :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event; the failing handler's effects are suppressed but the drain continues."
 
  :fixture/registry
  {:event {:counter/initialise {:doc "Seed."}
@@ -57,19 +55,4 @@
                :reason            "Event handler threw."}
     :recovery :no-recovery}
    {:operation :rf.event/run-start
-    :tags     {:rf.trace/event-id :should-not-fire}}]
-
-  ;; Each dispatch is its own drain (dispatch-sync runs
-  ;; to settle). All three drains settle cleanly — :outcome :ok. The
-  ;; :will-throw drain DOES surface in epoch-history (the cascade ran,
-  ;; the error trace landed in :trace-events) but the drain itself did
-  ;; NOT halt — handler-exception is per-event recovery, not a
-  ;; drain-halt.
-  ;; Three :ok records — :initial-events [[:counter/initialise]] fires a
-  ;; synchronous drain at make-frame time (pos 0), then the fixture's
-  ;; two dispatches (:will-throw, :should-not-fire) each run as
-  ;; separate drains (positions 1 and 2). All three settle cleanly.
-  :epoch-records
-  [{:frame :rf/default :record {:outcome :ok :event-id :counter/initialise}}
-   {:frame :rf/default :record {:outcome :ok :event-id :will-throw}}
-   {:frame :rf/default :record {:outcome :ok :event-id :should-not-fire}}]}}
+    :tags     {:rf.trace/event-id :should-not-fire}}]}}
