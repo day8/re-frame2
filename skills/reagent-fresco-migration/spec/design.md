@@ -64,8 +64,8 @@ which the skill says before it does anything:
 
 **With a first-class Reagent adapter, an app moving from re-frame v1 stays on
 Reagent and needs no Fresco rewrite to land on re-frame2.** `day8/re-frame2-reagent`
-is the default browser substrate and the adapter the reference suite runs
-against. The v1→v2 move *completes* on its own. It does not leave every view
+is the default browser substrate.
+The v1→v2 move *completes* on its own. It does not leave every view
 untouched, so the skill never promises unchanged view code: re-frame-migration's
 M-11 gives each plain-function view that subscribes or dispatches in its render
 a frame (`reg-view`, or a frame carried in explicitly), and a pure view that
