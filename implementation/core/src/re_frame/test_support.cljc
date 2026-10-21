@@ -151,12 +151,10 @@
             ;; generation, so a stale default generation cannot leak.
             [re-frame.source-store :as rf.source-store]
             [re-frame.image-assembly :as rf.image-assembly]
-            ;; The flows / machines / routing / http-managed /
-            ;; epoch artefacts ship in separate Maven coordinates and are
-            ;; reached only through late-bind hooks — see the
-            ;; `reset-hook-table` var docstring below for the per-artefact
-            ;; rationale. This ns must not statically require
-            ;; any of them.
+            ;; The optional artefacts ship in separate Maven coordinates and
+            ;; are reached only through their lifecycle contributions and
+            ;; late-bind hooks (`run-test-resets!` below). This ns must not
+            ;; statically require any of them.
             [re-frame.late-bind :as rf.late-bind]
             ;; The public-tooling listener + buffer
             ;; surface lives in `re-frame.trace.tooling` (separate
@@ -311,134 +309,29 @@
 
 ;; ---- full per-test runtime reset ------------------------------------------
 
-(def ^:private reset-hook-table
-  "Late-bind hook keys fired by `make-reset-runtime-fixture` to drop per-process
-  test state — one row per optional artefact. Each entry pairs the hook key
-  with a `:phase` (when it fires relative to
-  `rf.substrate.adapter/dispose-adapter!`). The driver
-  `run-reset-hooks!` walks the table in registration order and no-ops a row
-  when its hook is unregistered (artefact absent from the classpath).
+(defn- reset-flows-memo!
+  "Drop every frame's flow evaluation memo when the flows artefact is loaded.
+  Flow definitions are registrar rows, restored with the table. Runs before
+  the adapter is disposed and again in the fixture's `finally`, so a failing
+  test leaves no memo behind."
+  []
+  (when-let [reset-flows! (rf.late-bind/get-fn :flows/reset-flows!)]
+    (reset-flows!)))
 
-  Order is load-bearing — non-late-bind steps interleave with the hooks:
-    1. `(reset! rf.frame/frames {})`
-    2. `:pre-dispose` hooks (flows resets)
-    3. `(rf.substrate.adapter/dispose-adapter!)`, then the error-listener,
-       observability-sink, process-default and trace-disabled-frame clears
-    4. `:post-dispose` hooks (machines, routing, http, epoch, ssr,
-       adapter-warn), so a hook can reinstate what a framework namespace
-       installed at load
-  Splitting the table by `:phase` lets the driver fire each contiguous run
-  in one pass while keeping the cross-cutting prose in one place.
-
-  Per-row rationale:
-
-    :flows/reset-flows!              — drop every frame's flow evaluation
-                                       memo. Flow definitions are registrar
-                                       rows, restored with the table.
-    :machines/reset-timers!          — cancel in-flight `:after` wall-clock
-                                       timers so a stale timer from a
-                                       sibling test can't survive.
-    :fx/reset-dispatch-later-timers! — cancel every frame's pending
-                                       `:dispatch-later` host timers
-                                       so a stale armed timer
-                                       from a sibling test can't fire mid-
-                                       next-test. Host-side transient state
-                                       the `frames` reset above does not
-                                       touch (mirrors `:machines/reset-
-                                       timers!`); always bound (re-frame.fx
-                                       ships in core).
-    :routing/reset-counters!         — reset the route-registration counter
-                                       so reg-index is deterministic across
-                                       fixture runs.
-    :routing/reset-nav-counters!     — reset the host-side nav-token /
-                                       pending-nav counter high-water marks.
-                                       They are host-side
-                                       transient state, so the
-                                       `frames` reset above does not clear
-                                       them; without this a prior test's
-                                       counter leaks and the nav-N / pn-N
-                                       id assertions drift.
-    :routing/reset-url-listener!     — tear down the browser URL-change
-                                       listener a `:url-bound? true` frame's
-                                       lifecycle installed. The
-                                       listener is module-level host state
-                                       (`re-frame.routing.history/history-
-                                       listener-atom`), NOT torn down by the
-                                       `rf.frame/frames` reset above (a raw atom
-                                       reset does not run `destroy-frame!`'s
-                                       teardown chain) — without this a
-                                       listener installed by one test would
-                                       survive into the next.
-    :resources/reset-resources!      — reset the resources artefact's
-                                       host-side transient state (Spec 016):
-                                       clear the `:resource` + `:mutation`
-                                       registrar kinds, the generation
-                                       high-water cache
-                                       (re-frame.resources.state/generation-cache),
-                                       and the host attempt / timer /
-                                       revalidation-listener handles.
-                                       Like the routing nav-counters, the
-                                       generation cache is host-side transient
-                                       state, so the `frames` reset above
-                                       does not clear it; without this a
-                                       prior test's generation high-water mark
-                                       leaks across tests. Published from
-                                       `re-frame.resources.test-support`, so the
-                                       row no-ops when that test-support require
-                                       is absent (production builds).
-    :http/clear-all-in-flight!       — drop the in-flight managed-request
-                                       registry.
-    :http/clear-all-http-interceptors! — remove every `:http-interceptor`
-                                       definition before the test body (the
-                                       `:app-ns` rows are reinstated after
-                                       it), so a frame's `:http-interceptors`
-                                       resolves only definitions the test
-                                       registers; the registrar snapshot
-                                       restores the rest afterwards. The row
-                                       no-ops when the http artefact is absent.
-    :epoch/clear-history!            — drop the per-frame epoch ring buffer.
-    :epoch/clear-epoch-listeners!          — drop the epoch-settled callback
-                                       registry.
-    :epoch/reset-config!             — restore epoch-history config to the
-                                       shipped default baseline.
-                                       `(rf/configure! {:epoch-history ...})`
-                                       MERGES, so without this a prior test's
-                                       `:depth` / `:trace-events-keep`
-                                       would leak into the next.
-                                       Suites that want a non-default value
-                                       re-apply it through `configure!` in
-                                       their `:init-fn` (which runs after the
-                                       post-dispose reset hooks).
-    :adapter/clear-warn-once-caches! — clear the views
-                                       `seen-render-keys` cache behind
-                                       `:mount?`. Chained — each
-                                       contributor registers a
-                                       clear-step.
-
-  Adding a new artefact's reset is a one-row addition here."
-  [{:hook :flows/reset-flows!              :phase :pre-dispose}
-   {:hook :machines/reset-timers!          :phase :post-dispose}
-   {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}
-   {:hook :routing/reset-counters!         :phase :post-dispose}
-   {:hook :routing/reset-nav-counters!     :phase :post-dispose}
-   {:hook :routing/reset-url-listener!     :phase :post-dispose}
-   {:hook :resources/reset-resources!      :phase :post-dispose}
-   {:hook :http/clear-all-in-flight!       :phase :post-dispose}
-   {:hook :http/clear-all-http-interceptors! :phase :post-dispose}
-   {:hook :epoch/clear-history!            :phase :post-dispose}
-   {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
-   {:hook :epoch/reset-config!             :phase :post-dispose}
-   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
-
-(defn- run-reset-hooks!
-  "Driver: fire every `reset-hook-table` row whose `:phase` matches and
-  whose producer has registered a fn. Rows with unregistered hooks no-op
-  (artefact absent from the classpath)."
-  [phase]
-  (run! (fn [{:keys [hook]}]
-          (when-let [f (rf.late-bind/get-fn hook)]
-            (f)))
-        (filter #(= phase (:phase %)) reset-hook-table)))
+(defn- run-test-resets!
+  "Run every lifecycle contribution's `:test-reset`, in list order, dropping
+  the host-side state a `frames` reset cannot reach — timers, counters, browser
+  listeners, in-flight registries, epoch history and config. Runs after the
+  adapter is disposed, so a reset can reinstate what a framework namespace
+  installed at load. Then the chained `:adapter/clear-warn-once-caches!`, to
+  which every loaded adapter adds its clear step. Spec 002 §Lifecycle
+  contributions."
+  []
+  (doseq [{:keys [test-reset]} @rf.frame/lifecycle-contributions
+          :when test-reset]
+    (test-reset))
+  (when-let [clear-warn-once! (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
+    (clear-warn-once!)))
 
 ;; ---- shared reset halves (fn-form + async map-form) -----------------------
 ;;
@@ -454,7 +347,7 @@
 ;;      cache, and CAPTURE the restore context
 ;;      (the table snapshot).
 ;;   2. `reset-runtime!`           — the reset body proper: frames reset, the
-;;      pre/post-dispose hook phases, adapter dispose+install, the framework-
+;;      contributed resets, adapter dispose+install, the framework-
 ;;      standard re-seeds, `:clear-kinds`. Runs inside the caller's try so
 ;;      the finish half still fires if it throws.
 ;;   3. `finish-runtime-reset!`    — the finally body: restore the table,
@@ -485,8 +378,9 @@
 
 (defn- reset-runtime!
   "The per-test runtime reset body shared by both fixture shapes. Reset the ONE
-  `frames` registry (clearing every record + its `:generation`), run the
-  pre/post-dispose late-bind hook phases, clear every observer a test can
+  `frames` registry (clearing every record + its `:generation`) and the flow
+  memo, dispose the adapter, run every contributed `:test-reset`, clear every
+  observer a test can
   leave behind (trace, event-emit and error-emit listeners, observability
   sinks and the process default, trace-disabled frames), dispose then
   (re)install the adapter
@@ -505,13 +399,13 @@
   makes any frame."
   [{:keys [adapter clear-kinds app-ns]}]
   (reset! rf.frame/frames {})
-  (run-reset-hooks! :pre-dispose)
+  (reset-flows-memo!)
   (rf.substrate.adapter/dispose-adapter!)
   (rf.error-emit/clear-error-listeners!)
   (rf.observability/clear-observability-sinks!)
   (rf.observability/clear-observability-default!)
   (rf.trace/clear-frame-no-emit!)
-  (run-reset-hooks! :post-dispose)
+  (run-test-resets!)
   (rf.trace.tooling/clear-listeners!)
   (rf.event-emit/clear-event-listeners!)
   (when adapter
@@ -542,8 +436,7 @@
   (restore-registrar! snap)
   (rf.image-assembly/clear-generation-cache!)
   (reset! rf.frame/frames {})
-  (when-let [reset-flows! (rf.late-bind/get-fn :flows/reset-flows!)]
-    (reset-flows!)))
+  (reset-flows-memo!))
 
 (defn make-reset-runtime-fixture
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
@@ -595,7 +488,10 @@
        an accessor seam) when that artefact is loaded — reset is
        late-bound so JVM tests that don't pull it in are unaffected.
     3. Disposes the currently-installed substrate adapter.
-    4. Cancels the machines' in-flight `:after` wall-clock timers.
+    4. Runs every loaded artefact's contributed `:test-reset`, dropping the
+       host-side state a frames reset cannot reach: machine `:after` and
+       `:dispatch-later` timers, routing counters and the URL listener,
+       resource caches, in-flight HTTP, epoch history and config.
     5. Clears the trace, event-emit and error-emit listeners, the
        observability sinks and process default, the trace-disabled
        frames, and the views `seen-render-keys` cache. A framework namespace's load-time error listener

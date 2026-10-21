@@ -49,10 +49,11 @@
                  {:sensitive [[:hook-failures :exception-data :token]]})))
     (rf.error-emit/dispatch-frame-teardown-report!
       :obs/teardown
-      [{:hook           :flows/teardown-on-frame-destroy!
+      [{:hook           :flows
+        :phase          :post-dead
         :exception      (ex-info "boom" {})
         :exception-data {:token secret}
-        :where          :safe-call-hook!}]
+        :where          :safe-call-contribution!}]
       12345)
     (testing "the corpus-wide listener receives the raw record"
       (is (= [:rf.error/frame-teardown-failed] (mapv :rf.error/id @listener-seen)))
@@ -91,7 +92,8 @@
 (deftest unroutable-records-reach-the-listener-and-no-sink
   (let [sink-seen     (atom [])
         listener-seen (atom [])
-        hook-failures [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]]
+        hook-failures [{:hook :ssr :phase :post-dead :exception (ex-info "x" {})
+                        :where :safe-call-contribution!}]]
     (rf/register-observability-sink! :test.sinks/sentry
                                      (fn [record] (swap! sink-seen conj record)))
     (rf.error-emit/register-error-listener! :test/listener

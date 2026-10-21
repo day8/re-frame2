@@ -11,7 +11,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas]
             [re-frame.source-store :as rf.source-store]
@@ -359,7 +358,7 @@
           user-effects   (atom 0)
           captured-ticks (atom [])
           gap-observation (atom nil)
-          original-hook  (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+          saved          @rf.frame/lifecycle-contributions]
       (rf/make-frame {:id frame-id})
       (rf/reg-fx :destroy-claim/effect
         (fn [_ _] (swap! user-effects inc)))
@@ -386,16 +385,16 @@
       (is (= [1 2] [(count @captured-ticks) (count (:queue @(:router (rf.frame/frame frame-id))))])
           "precondition: one scheduled drain attempt and two queued events")
 
-      ;; `:machines/teardown-on-frame-destroy!` runs after claim-frame-destroy! has returned
+      ;; A `:pre-dead` contribution runs after claim-frame-destroy! has returned
       ;; (and therefore after the cold lock release) but before
       ;; mark-frame-destroyed!. Its FIFO executor barrier forces the captured
       ;; drain to finish inside that exact claim -> lifecycle-dead window.
       (try
-        (rf.late-bind/set-fn!
-          :machines/teardown-on-frame-destroy!
-          (fn [id]
-            (when original-hook
-              (original-hook id))
+        (rf.frame/contribute-lifecycle!
+          {:id    ::gap-probe
+           :phase #{:pre-dead}
+           :on-frame-destroyed
+           (fn [id _phase]
             (when (= frame-id id)
               ;; Submit the drain attempt captured at enqueue time only AFTER
               ;; claim-frame-destroy! has released the cold lock. This covers
@@ -403,7 +402,7 @@
               ;; completed; the claim predicate, not scheduling luck, must
               ;; prevent it from invoking either queued handler.
               ;; `next-tick` deliberately conveys dynamic bindings through
-              ;; `bound-fn`. Scheduling from this teardown hook therefore also
+              ;; `bound-fn`. Scheduling from this teardown member therefore also
               ;; proves that owner privilege is ACTUAL host-thread identity,
               ;; not the conveyed `*destroying-frame-id*` value.
               (rf.interop/next-tick (first @captured-ticks))
@@ -411,10 +410,10 @@
               (let [record (get @rf.frame/frames frame-id)]
                 (reset! gap-observation
                         {:destroyed? (-> record :lifecycle :destroyed?)
-                         :queued     (count (:queue @(:router record)))})))))
+                         :queued     (count (:queue @(:router record)))}))))})
         (rf/destroy-frame! frame-id)
         (finally
-          (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)))
+          (reset! rf.frame/lifecycle-contributions saved)))
 
       ;; no queued handler, user effect or child ran once the destroy was
       ;; claimed; the queue emptied while the frame was still lifecycle-live,
@@ -432,7 +431,7 @@
           captured-ticks  (atom [])
           traces          (atom [])
           gap-observation (atom nil)
-          original-hook   (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+          saved           @rf.frame/lifecycle-contributions]
       (rf/make-frame {:id frame-id})
       (rf/reg-fx :destroy-claim/post-claim-effect
         (fn [_ _] (swap! user-effects inc)))
@@ -458,13 +457,13 @@
         (rf/dispatch [:destroy-claim/post-claim-parent] {:frame frame-id}))
 
       (try
-        (rf.late-bind/set-fn!
-          :machines/teardown-on-frame-destroy!
-          (fn [id]
-            (when original-hook
-              (original-hook id))
+        (rf.frame/contribute-lifecycle!
+          {:id    ::gap-probe
+           :phase #{:pre-dead}
+           :on-frame-destroyed
+           (fn [id _phase]
             (when (= frame-id id)
-              ;; This hook runs strictly AFTER `claim-frame-destroy!` returns
+              ;; This member runs strictly AFTER `claim-frame-destroy!` returns
               ;; and BEFORE `mark-frame-destroyed!` flips lifecycle liveness.
               ;; Submit genuinely NEW ordinary work here, capture its scheduled
               ;; drain, then force that drain through the real bound-fn executor
@@ -515,10 +514,10 @@
               (let [record (get @rf.frame/frames frame-id)]
                 (reset! gap-observation
                         {:destroyed? (-> record :lifecycle :destroyed?)
-                         :queued     (count (:queue @(:router record)))})))))
+                         :queued     (count (:queue @(:router record)))}))))})
         (rf/destroy-frame! frame-id)
         (finally
-          (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)
+          (reset! rf.frame/lifecycle-contributions saved)
           (rf/unregister-listener! :trace ::post-claim-combined-count)))
 
       (is (= [0 0 0 {:destroyed? false :queued 0} nil]

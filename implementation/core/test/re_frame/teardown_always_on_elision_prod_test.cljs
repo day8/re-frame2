@@ -76,24 +76,32 @@
                 (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
-;; Cleanup-hook-key install helper (mirrors the dev-mode
-;; `frame-teardown-report-cljs-test/with-hooks*`). The teardown cleanup
-;; hooks are late-bound optional artefacts; we install a throwing fn under a
-;; hook key for the extent of `f`, snapshotting + restoring the prior binding
-;; so the install never leaks across tests.
+;; Throwing-contribution helpers (mirroring the dev-mode
+;; `frame-teardown-report-cljs-test` ones): register a contribution whose
+;; destroy member throws for the extent of `f`, then put the contribution list
+;; back so the registration never leaks across tests.
 ;; ---------------------------------------------------------------------------
 
-(defn- with-hooks*
-  [hook-map f]
-  (let [originals (into {} (map (fn [k] [k (rf.late-bind/get-fn k)]) (keys hook-map)))]
+(defn- with-contributions*
+  "Register each of `contributions` for the extent of `f` — merged by `:id`
+  into a loaded artefact's — then put the contribution list back."
+  [contributions f]
+  (let [saved @rf.frame/lifecycle-contributions]
     (try
-      (doseq [[k v] hook-map] (rf.late-bind/set-fn! k v))
+      (run! rf.frame/contribute-lifecycle! contributions)
       (f)
       (finally
-        (doseq [[k orig] originals] (rf.late-bind/set-fn! k orig))))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
-(defn- throwing-hook [label]
-  (fn [& _] (throw (ex-info (str "teardown hook threw: " label) {:hook label}))))
+(defn- throwing
+  "A contribution `id` joining only `phase` (default `:post-dead`), whose
+  destroy member throws."
+  ([id] (throwing id :post-dead))
+  ([id phase]
+   {:id                 id
+    :phase              #{phase}
+    :on-frame-destroyed (fn [_ _]
+                          (throw (ex-info (str "teardown member threw: " id) {:hook id})))}))
 
 ;; ===========================================================================
 ;; (a) :rf.error/frame-teardown-failed — the bounded teardown report survives
@@ -116,10 +124,8 @@
       ;; ENGINE seat — this prod-elision suite must not root the image path
       ;; (see elision_probe.cljs).
       (rf.frame/upsert-frame! :prod.teardown/n-failures {:doc "three hooks will throw"})
-      (with-hooks*
-        {:ssr/on-frame-destroyed           (throwing-hook :ssr)
-         :machines/on-frame-destroyed!      (throwing-hook :machines)
-         :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
+      (with-contributions*
+        [(throwing :ssr) (throwing :machines) (throwing :flows)]
         (fn [] (rf/destroy-frame! :prod.teardown/n-failures)))
       (let [reports (filter #(= :rf.error/frame-teardown-failed (:rf.error/id %)) @seen)]
         (is (= 1 (count reports))
@@ -130,9 +136,7 @@
               ":frame names the destroyed frame")
           (is (= 3 (count (:hook-failures r)))
               "the report carries one :hook-failures entry per failed hook")
-          (is (= #{:ssr/on-frame-destroyed
-                   :machines/on-frame-destroyed!
-                   :flows/teardown-on-frame-destroy!}
+          (is (= #{:ssr :machines :flows}
                  (set (map :hook (:hook-failures r))))
               "every failed hook key is represented under prod")
           (is (= :ignored (:recovery r))

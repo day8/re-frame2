@@ -1,7 +1,7 @@
 (ns re-frame.timer-frame-scope-test
   "`re-frame.machines.timer/after-timers` partitions by frame-id: a state
-  exit's `after-cancel-fx`, `destroy-frame!`'s `:machines/on-frame-destroyed!`
-  hook and epoch restore's `:machines/on-frame-restored!` hook each touch only
+  exit's `after-cancel-fx`, the machines contribution's `:post-dead` destroy
+  member and epoch restore's `:machines/on-frame-restored!` hook each touch only
   their own frame's timers, while the 0-arity `reset-timers!` (the
   fixture-teardown shape) clears every frame. Restore needs its hook because it
   swaps runtime-db wholesale, which reverts a timer's liveness but not its

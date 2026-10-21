@@ -306,18 +306,24 @@
 
 (declare managed-abort-fx-transport)
 
+(defn- abort-direct!
+  "Fires `handle`'s direct `:abort-fn`, if it carries one. Never throws.
+  Returns true iff the abort-fn ran."
+  [handle]
+  (boolean (when-let [abort-fn (:abort-fn handle)]
+             (try (abort-fn :resource-superseded) true
+                  (catch #?(:clj Throwable :cljs :default) _ false)))))
+
 (defn- abort-handle!
   "Best-effort aborts the request `handle` describes in `frame-id`: a direct
   `:abort-fn`, and for managed HTTP the recorded frame-qualified
   `:request-id` through `re-frame.http.registry/abort-in-flight-in-frame!`.
   The managed transport owns the AbortController, so this is the
-  out-of-cascade teardown path (`clear-resource`, frame destroy); in-cascade
+  out-of-cascade teardown path (`clear-resource`, the test reset); in-cascade
   paths emit `abort-fx`. Never throws. Returns true iff an abort fired.
   Spec 016 §Cancellation is opportunistic; stale suppression is mandatory."
   [frame-id handle]
-  (let [direct? (boolean (when-let [abort-fn (:abort-fn handle)]
-                           (try (abort-fn :resource-superseded) true
-                                (catch #?(:clj Throwable :cljs :default) _ false))))
+  (let [direct?  (abort-direct! handle)
         managed? (boolean
                    (when (and (= (:transport handle) managed-abort-fx-transport)
                               (:request-id handle))
@@ -435,13 +441,19 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
 ;; ---- frame teardown -----------------------------------------------------------
 
 (defn release-frame!
-  "Detaches and best-effort aborts every handle of a destroyed `frame-id`.
-  Detaching first means an abort callback that seats a same-id successor
-  keeps its handle, and a re-entrant call finds nothing to abort twice. The
-  attempts go with their owners in the frame value. Idempotent; returns nil.
-  Runtime-Subsystems §5. Teardown."
+  "Detaches every handle of a destroyed `frame-id` and best-effort fires each
+  direct `:abort-fn`. A managed-HTTP slot is only detached: http's own
+  frame-destroy sweep aborts every request the frame issued with its reply
+  suppressed, so the request ends the same way whichever artefact tears down
+  first, and nothing replies into the dead frame. Detaching first means an
+  abort callback that seats a same-id successor keeps its handle, and a
+  re-entrant call finds nothing to abort twice. The attempts go with their
+  owners in the frame value. Idempotent; returns nil. Runtime-Subsystems §5.
+  Teardown; Spec 014 §Abort on frame destroy."
   [frame-id]
-  (abort-detached! (detach-slots! (fn [[fid _]] (= fid frame-id)))))
+  (run! (fn [[_ handle]] (abort-direct! handle))
+        (detach-slots! (fn [[fid _]] (= fid frame-id))))
+  nil)
 
 (defn reset-cache!
   "Detaches and best-effort aborts every frame's handles, for test isolation;
@@ -451,8 +463,8 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   (abort-detached! (first (reset-vals! handle-table {}))))
 
 (defn on-frame-destroyed!
-  "The attempt half of the `:resources/on-frame-destroyed!` teardown
-  hook, which the façade composes with the timer and revalidation-listener
+  "The attempt half of the resources contribution's `:post-dead`
+  teardown, which the façade composes with the timer and revalidation-listener
   releases. Returns nil. Runtime-Subsystems §5. Teardown."
   [frame-id]
   (release-frame! frame-id)

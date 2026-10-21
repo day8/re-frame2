@@ -244,8 +244,8 @@
         → classify: :redirect | projected-5xx error arm |
                      projected-4xx/none → render-to-string + payload
         → materialise to Ring map
-      → finally: destroy-frame!     (the `:ssr/on-frame-destroyed`
-                                     hook clears the request slot)
+      → finally: destroy-frame!     (the SSR lifecycle contribution
+                                     clears the request slot)
 
   Example:
 

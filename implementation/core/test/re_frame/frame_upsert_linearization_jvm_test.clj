@@ -16,7 +16,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
@@ -113,8 +112,7 @@
   ;; reprojection updates the generation in that window. The hook failure must
   ;; roll back to the value the swap actually replaced, not the record A read.
   (let [id                  :tp/prestage-rollback-merge
-        hook-key            :routing/on-frame-registered!
-        original-hook       (rf.late-bind/get-fn hook-key)
+        saved               @rf.frame/lifecycle-contributions
         original-swap-vals! clojure.core/swap-vals!
         reached             (CountDownLatch. 1)
         release             (CountDownLatch. 1)]
@@ -128,12 +126,13 @@
           prior-revision     (get-in (rf.frame/frame id)
                                      [:construction :revision])]
       (try
-        (rf.late-bind/set-fn!
-          hook-key
-          (fn [candidate-id]
+        (rf.frame/contribute-lifecycle!
+          {:id ::failing-registration
+           :on-frame-registered
+           (fn [candidate-id]
             (when (= id candidate-id)
               (throw (ex-info "registration hook failed"
-                              {:test/outcome :hook-failed})))))
+                              {:test/outcome :hook-failed}))))})
         (with-redefs [clojure.core/swap-vals!
                       (fn [reference f & args]
                         (when (identical? reference rf.frame/frames)
@@ -170,7 +169,7 @@
                                 (get-in (rf.frame/frame id) [:construction :revision]))]))))
         (finally
           (.countDown release)
-          (rf.late-bind/set-fn! hook-key original-hook))))))
+          (reset! rf.frame/lifecycle-contributions saved))))))
 
 ;; A re-registration stages its config onto the live record (the same app-db,
 ;; router, drain lock and sub-cache), so every actor keeps seeing the frame. The
@@ -311,8 +310,7 @@
 
 (deftest ^:requires-debug failed-reregistration-window-keeps-foreign-work-and-restores-config
   (let [id            :rereg/failed
-        hook-key      :routing/on-frame-registered!
-        original-hook (rf.late-bind/get-fn hook-key)
+        saved         @rf.frame/lifecycle-contributions
         reached       (CountDownLatch. 1)
         release       (CountDownLatch. 1)]
     (reg-inc!)
@@ -321,12 +319,13 @@
                                 :rf.trace/events-retained 5})
     (let [prior-config (:config (rf.frame/frame id))]
       (try
-        (rf.late-bind/set-fn!
-          hook-key
-          (fn [candidate-id]
+        (rf.frame/contribute-lifecycle!
+          {:id ::failing-registration
+           :on-frame-registered
+           (fn [candidate-id]
             (when (= id candidate-id)
               (throw (ex-info "registration hook failed"
-                              {:test/outcome :hook-failed})))))
+                              {:test/outcome :hook-failed}))))})
         (let [owner (binding [rf.frame/*upsert-policy-probe*
                               (window-probe id reached release)]
                       (future
@@ -356,7 +355,7 @@
                   (router-summary id)])))
         (finally
           (.countDown release)
-          (rf.late-bind/set-fn! hook-key original-hook))))))
+          (reset! rf.frame/lifecycle-contributions saved))))))
 
 (deftest ^:requires-debug omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})

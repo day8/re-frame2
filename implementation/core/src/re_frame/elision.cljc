@@ -1562,4 +1562,10 @@
 ;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — the
 ;; commit-plane classification effects own the app-db egress registry;
 ;; schemas describe shape only.
-(rf.late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)
+;; The warn-once set is keyed by `[frame-id path]`, so a destroy clears it: a
+;; same-id successor warns afresh, and per-request frames cannot grow it
+;; without bound. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :elision
+   :phase              #{:post-dead}
+   :on-frame-destroyed (fn [_frame-id _phase] (clear-warning-cache!))})

@@ -28,9 +28,8 @@
   itself.
 
   Surfaces:
-   - `teardown-on-frame-destroy!` — late-bound at
-     `:machines/teardown-on-frame-destroy!`; called from
-     `rf.frame/destroy-frame!`.
+   - `teardown-on-frame-destroy!` — the machines lifecycle contribution's
+     `:pre-dead` member, called from `rf.frame/destroy-frame!`.
 
   Source-of-truth on order: the DURABLE `[:rf.runtime/machines
   :spawn-order]` vector, appended by `install-spawn!` in the same

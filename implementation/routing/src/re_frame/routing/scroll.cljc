@@ -110,7 +110,7 @@
 
 (defn release-frame!
   "Drop `frame-id`'s entry from the host `scroll-positions-cache`. Invoked
-  on frame destroy (the `:routing/on-frame-destroyed!` teardown hook),
+  on frame destroy (routing's `:post-dead` lifecycle member),
   analogous to the other per-frame transient teardown. Idempotent —
   no-op on an absent frame. Returns nil."
   [frame-id]

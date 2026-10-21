@@ -9,6 +9,7 @@
   registry, router, `destroy-frame!` and reply dispatch are real."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
@@ -57,9 +58,14 @@
   (filter #(= :rf.http/stale-suppressed (:operation %)) traces))
 
 (deftest frame-boundaries-cancel-every-anonymous-request-and-spare-siblings
-  (doseq [[label hook recovery] [[:frame-destroy :http/on-frame-destroyed! :suppressed-on-frame-destroy]
-                                 [:epoch-restore :http/abort-in-flight-for-frame! :suppressed-on-epoch-restore]]]
-    (testing (str label " — through its published hook, every anonymous request
+  (doseq [[label boundary! recovery]
+          [[:frame-destroy
+            #((:on-frame-destroyed (rf.frame/lifecycle-contribution :http)) % :post-dead)
+            :suppressed-on-frame-destroy]
+           [:epoch-restore
+            #((rf.late-bind/get-fn :http/abort-in-flight-for-frame!) %)
+            :suppressed-on-epoch-restore]]]
+    (testing (str label " — through its published seam, every anonymous request
                   frame A issued is cancelled and suppressed with one stale row
                   each, while frame B's identical request is untouched and still
                   delivers")
@@ -83,7 +89,7 @@
                 [b-future] (futures-of :frame/b)]
             (try
               (rf.trace.tooling/register-listener! ::boundary #(swap! traces conj %))
-              ((rf.late-bind/get-fn hook) :frame/a)
+              (boundary! :frame/a)
               (finally
                 (rf.trace.tooling/unregister-listener! ::boundary)))
             (is (= [true true] (map #(.isCancelled ^CompletableFuture %) a-futures))

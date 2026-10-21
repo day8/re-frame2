@@ -14,7 +14,6 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -38,13 +37,15 @@
         (rf.error-emit/register-error-listener! :test/err-rec
                                                 (fn [r] (swap! reports conj r)))
         (rf/make-frame {:id :gate/divergence})
-        (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
+        (let [saved @rf.frame/lifecycle-contributions]
           (try
-            (rf.late-bind/set-fn! :ssr/on-frame-destroyed
-                                  (fn [& _] (throw (ex-info "hook threw" {}))))
+            (rf.frame/contribute-lifecycle!
+              {:id                 ::throws
+               :phase              #{:post-dead}
+               :on-frame-destroyed (fn [& _] (throw (ex-info "member threw" {})))})
             (rf/destroy-frame! :gate/divergence)
             (finally
-              (rf.late-bind/set-fn! :ssr/on-frame-destroyed orig)
+              (reset! rf.frame/lifecycle-contributions saved)
               (rf/unregister-listener! :trace ::trace-rec))))
         (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces))

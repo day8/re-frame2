@@ -57,8 +57,8 @@
 
 ;; No DOM under `:node-test`; the plain-atom adapter is the right substrate
 ;; (same choice as `re-frame.epoch-cljs-test`). The fixture snapshot/restores
-;; the registrar and drives the epoch reset hooks (`:epoch/clear-history!`,
-;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test starts
+;; the registrar and runs epoch's contributed `:test-reset` (history,
+;; listeners and config) so each test starts
 ;; from a shipped-default ring.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
