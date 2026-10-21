@@ -544,9 +544,8 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification-process-default-record-projection.edn` | The projection a **process-default** sink consumes for a record with no frame authority: the governing frame is explicitly nil, so tree slots fail closed to `:rf/redacted` while summary ids survive — a **stale `:frame` id among them**, kept as a diagnostic and never re-resolved. A control call projects the same record under a live classified frame and gets a **walked** tree (so a port that redacts unconditionally fails), and a fourth pins the `:rf.egress/local-raw` cross-frame raw hook. |
 | `data-classification-clear-axis-independent.edn` | `:clear-sensitive` removes a path from the sensitive axis without touching its (still-standing) `:large` classification, and vice-versa — the two axes clear independently. |
 | `data-classification-ssr-hydration-allowlist-first.edn` | A `:payload [:public]` allowlist ships **only** the allowlisted slice; an unlisted path does not cross even unclassified; an absent policy fails closed; a sensitive child of an allowlisted slice is redacted under `:rf.egress/ssr-hydration` as defence-in-depth. |
-| `data-classification-epoch-export-projects-no-storage-mutation.edn` | The stored epoch record carries the raw value (replay-faithful — no storage-side mutation); the same event's trace egress redacts the classified path. Egress redacts; storage stays raw. |
 
-Per-artefact unit tests cover the implementation mechanism; the conformance fixtures cover only the observable contract.
+Per-artefact unit tests cover the implementation mechanism; the conformance fixtures cover only the observable contract. The epoch ring's half of the storage invariant — the stored epoch record carries the raw value while the same event's trace egress redacts it — reads the dev-tier `:rf/epoch-record`, a Runtime-layer shape, so the reference implementation pins it in its reference-only corpus (`data-classification-epoch-export-projects-no-storage-mutation.edn` under `implementation/core/test/conformance-reference/`).
 
 ## Cross-references
 
