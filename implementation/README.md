@@ -333,9 +333,11 @@ clojure -M:test
 ```
 
 The core run executes the full JVM suite — smoke, conformance, drain,
-SSR end-to-end and so on — loading every `.edn` in
-`../../spec/conformance/fixtures/` and running the runnable subset
-against this implementation.
+SSR end-to-end and so on. Conformance grades two corpora, each by its
+runnable subset: the portable one, every `.edn` in
+`../../spec/conformance/fixtures/`, and the reference-only one in
+`test/conformance-reference/`, which grades shapes internal to this
+implementation.
 
 CLJS (one-time `npm install` at the implementation/ root, then iterate):
 
