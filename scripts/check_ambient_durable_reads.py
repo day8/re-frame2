@@ -186,8 +186,8 @@ DURABLE_WRITE_SUFFIXES: tuple[str, ...] = (
     "implementation/core/src/re_frame/reply.cljc",
     # http reply handler
     "implementation/http/src/re_frame/http/reply.cljc",
-    # machine reply handler
-    "implementation/machines/src/re_frame/machines/reply.cljc",
+    # machine work record (carries the causal :completed-at)
+    "implementation/machines/src/re_frame/machines/work.cljc",
     # routing reply handler
     "implementation/routing/src/re_frame/routing/reply.cljc",
     # restore / hydration installers

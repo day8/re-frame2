@@ -5,7 +5,7 @@
   contract surface that tools (Xray, story-mcp, re-frame-10x) key on for
   the actor-destroy signal.
   All destroy sites emit through this namespace to keep their argument-map
-  keys and reply facts aligned.
+  keys and work-record tags aligned.
 
   This namespace is the natural home (rather than `teardown.cljc`)
   because `teardown.cljc` is the unified pure runtime-db projection; it
@@ -13,7 +13,7 @@
   function. These helpers ARE side effects, so they live separately."
   (:require [re-frame.interop :as rf.interop]
             [re-frame.machines.error-emit :as rf.machines.error-emit]
-            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.work :as rf.machines.work]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -25,7 +25,7 @@
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
   keys are `#{:frame :actor-id :parent-id :invoke-id
   :child-id :reason :work-bearing-path :work-generation}`. The final two are PRIVATE
-  reply-correlation inputs and never become bare public trace tags.
+  work-identity inputs and never become bare public trace tags.
   `:actor-id` is the destroyed actor's live INSTANCE
   address (`:machine-id` is reserved for the registered TYPE);
   `:invoke-id` is the declarative invocation path. Callers pass only the
@@ -37,23 +37,21 @@
 
   Only an `:explicit` destroy is a CANCELLATION of an IN-PROGRESS actor work
   attempt (the actor was torn down before reaching a terminal outcome), so
-  ONLY it closes the work attempt the reply-envelope way: a
-  `:status :cancelled` reply (cancellation as DATA, not the absence of a
-  reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
-  reply-envelope facts (`:rf.reply/work-id` keyed on the destroyed actor instance,
-  `:rf.reply/work-kind`, `:rf.reply/status :cancelled`,
-  `:rf.reply/work-status :cancelled`, `:rf.reply/cancelled?`,
-  `:rf.reply/cancel-reason` and `:rf.reply/correlation`) ride ADDITIVELY so the
-  cancelled completion joins the
-  same uniform work/reply row the spawn started, classified the same way
-  the single-`:spawn` `:rf.machine/done` reply is.
+  ONLY it closes the work attempt, as DATA (Managed-Effects §Cancellation):
+  a `:status :cancelled` work record whose tags (`:rf.reply/work-id` keyed
+  on the destroyed actor instance, `:rf.reply/work-kind`,
+  `:rf.reply/status :cancelled`, `:rf.reply/work-status :cancelled`,
+  `:rf.reply/cancelled?`, `:rf.reply/cancel-reason` and
+  `:rf.reply/correlation`) ride ADDITIVELY, so the cancelled completion joins
+  the work row the spawn started, classified the same way the single-`:spawn`
+  `:rf.machine/done` record is.
 
   A NON-`:explicit` destroy is POST-COMPLETION cleanup, NOT a cancellation,
-  so it carries NO cancelled reply facts (the second-terminal contradiction
+  so it carries NO cancelled work record (the second-terminal contradiction
   the `cancelled?` gate below avoids):
 
     - `:rf.machine/finished` — the actor already closed its attempt through
-      `finalize-machine`'s `:rf.machine/done` reply. This covers a `:spawn-all`
+      `finalize-machine`'s `:rf.machine/done` record. This covers a `:spawn-all`
       join child too: completion IS finality, so a child that folded into a
       join reached a `:final?` state and closed its own attempt on the way
       out. Only SURVIVORS remain for the join to tear down at resolution, and
@@ -63,17 +61,16 @@
     :or {reason :explicit}
     :as args}]
   (let [cancelled? (= reason :explicit)
-        reply-ctx (cond-> {:actor-id          actor-id
-                           :parent-id         parent-id
-                           :work-bearing-path (or work-bearing-path invoke-id)
-                           :frame             frame
-                           :reason            reason}
-                    (contains? args :work-generation)
-                    (assoc :work-generation work-generation))
-        summary    (when cancelled?
-                     (rf.machines.reply/trace-reply
-                       (rf.machines.reply/cancelled-actor-reply reply-ctx)
-                       {:frame frame}))]
+        path       (or work-bearing-path invoke-id)
+        work       (when cancelled?
+                     (rf.machines.work/record
+                       (if (contains? args :work-generation)
+                         (rf.machines.work/spawn-work-id actor-id path work-generation)
+                         (rf.machines.work/spawn-work-id actor-id path))
+                       :cancelled
+                       {:cancel-reason reason
+                        :correlation   (rf.machines.work/actor-correlation
+                                         actor-id parent-id path)}))]
     (rf.trace/emit! :rf.machine :rf.machine/destroyed
                  (cond-> {:frame    frame
                           :actor-id actor-id
@@ -81,13 +78,13 @@
                    (contains? args :parent-id) (assoc :parent-id parent-id)
                    (contains? args :invoke-id) (assoc :invoke-id invoke-id)
                    (contains? args :child-id)  (assoc :child-id  child-id)
-                   cancelled? (assoc :rf.reply/work-kind            (:rf.reply/work-kind summary)
-                                     :rf.reply/status      (:status summary)
-                                     :rf.reply/work-id     (:rf.reply/work-id summary)
-                                     :rf.reply/work-status (:rf.reply/work-status summary)
-                                     :rf.reply/cancelled?  (:cancelled? summary)
-                                     :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
-                                     :rf.reply/correlation (:correlation summary))))))
+                   cancelled? (assoc :rf.reply/work-kind     (:work-kind work)
+                                     :rf.reply/status        (:status work)
+                                     :rf.reply/work-id       (:work-id work)
+                                     :rf.reply/work-status   (:work-status work)
+                                     :rf.reply/cancelled?    true
+                                     :rf.reply/cancel-reason (:cancel-reason work)
+                                     :rf.reply/correlation   (:correlation work))))))
 
 (defn emit-destroy-bad-arg!
   "Fail loud when a `:rf.machine/destroy` fx receives an arg the runtime

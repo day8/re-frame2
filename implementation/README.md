@@ -220,8 +220,8 @@ implementation/
                              test-only, no shipped namespace. Holds the umbrella guards
                              that sit above several artefacts: the shared :status /
                              :rf.reply/work-status / :work/id / canonical-stale vocabulary across
-                             every managed-async family (HTTP, resources, mutations,
-                             machines, routing) plus the egress projection of reply
+                             the reply-envelope families (HTTP, resources, mutations,
+                             routing) plus the egress projection of reply
                              slots through `trace-summary`. Core owns the
                              `project-egress` profiles, and core and its timer probe
                              own the reply-target functor laws.

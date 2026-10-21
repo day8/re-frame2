@@ -5,7 +5,6 @@
             [re-frame.reply :as rf.reply]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.resources.reply :as rf.resources.reply]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.routing.reply :as rf.routing.reply]))
 
 (def ^:private completion-time-ms 1781078400456)
@@ -30,19 +29,6 @@
    :scope       :rf.scope/global
    :generation  2
    :rf.frame/id :app/main})
-
-(def ^:private machine-ctx
-  {:actor-id          :auth/flow#1
-   :parent-id         :auth/main
-   :work-bearing-path [:authenticating]
-   :frame             :app/main})
-
-(def ^:private timer-ctx
-  {:actor-id  :a/multi
-   :state     :loading
-   :delay     30000
-   :decl-path [:loading]
-   :frame     :app/main})
 
 (def ^:private route-ctx
   {:route-id  :route/article
@@ -95,22 +81,6 @@
                   (merge {:work-kind rf.resources.reply/work-kind-mutation} %))
     :stale-out #(resource-stale-out [:rf.mutation :form/save-1] 2 3 :mutation
                                     :mutation/superseded %)}
-
-   {:family    :machine
-    :work-head :rf.work/machine
-    :untimed   #{:cancel}
-    :success   #(rf.machines.reply/success-reply (merge machine-ctx %) {:user-id "u-42"})
-    :error     #(rf.machines.reply/error-reply (merge machine-ctx %) {:reason :bad-creds})
-    :cancel    #(rf.machines.reply/cancelled-actor-reply (merge machine-ctx {:reason :explicit} %))
-    :stale     #(rf.machines.reply/stale-spawn-reply (merge machine-ctx {:current-generation nil} %))}
-
-   {:family    :timer
-    :work-head :rf.work/timer
-    :untimed   #{:cancel}
-    :success   #(rf.machines.reply/after-fired-reply (merge timer-ctx {:epoch 1} %))
-    :cancel    #(rf.machines.reply/cancelled-timer-reply (merge timer-ctx {:epoch 1 :reason :on-exit} %))
-    :stale     #(rf.machines.reply/after-stale-reply
-                  (merge timer-ctx {:scheduled-epoch 1 :current-epoch 2} %))}
 
    {:family    :route
     :work-head :rf.work/route
