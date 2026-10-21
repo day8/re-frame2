@@ -136,8 +136,6 @@
    :renders            []
    :other              []})
 
-(def ^:private default-frame :rf/default)
-
 (defn- dispatch-id
   "Return an event's concrete dispatch id, or nil when the event was
   emitted outside a dispatch run."
@@ -172,19 +170,18 @@
           events))
 
 (defn- bundle-frame
-  "Extract the host frame from an event. nil means the event is not
-  frame-qualified (registry-time or boot-time). A dispatch-scoped trace
-  that carries no frame tag, and whose dispatch id has no single known
-  frame, is treated as a default-frame trace so errors/warnings ride with
-  their run."
+  "The host frame of an event: its own frame tag, else the one frame its
+  dispatch id is known to have run in. nil when neither names a frame — a
+  registry-time or boot-time trace, or a dispatch-scoped trace whose run is
+  unattributable. Such a trace stays with its run in a bundle whose `:frame`
+  is nil rather than being filed under a frame nobody named.
+  Spec 009 §Event-bundle projection."
   [frame-index ev]
   (or (get-in ev [:tags :frame])
       (when-let [id (dispatch-id ev)]
         (let [frames (get frame-index id)]
           (when (= 1 (count frames))
-            (first frames))))
-      (when (dispatch-id ev)
-        default-frame)))
+            (first frames))))))
 
 (defn- bundle-key
   "The stable grouping key for an event bundle. Dispatch ids are only

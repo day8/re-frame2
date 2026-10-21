@@ -33,7 +33,7 @@ Both functions are pure, with no frame, registry or router, and run the same cod
     - Each bundle is a map with these keys:
         - `:dispatch-id` — the run's `:rf.trace/dispatch-id`, or `:ungrouped`.
         - `:parent-dispatch-id` — the dispatch id of the run that dispatched this event (through an `:fx` dispatch or a machine's internal dispatch), or `nil` for a root dispatch.
-        - `:frame` — the run's frame id; `nil` only on the `:ungrouped` bundle. A run's trace event that carries no frame joins the run's one known frame, or `:rf/default`.
+        - `:frame` — the run's frame id. A run's trace event that carries no frame joins the one frame its dispatch id is known to have run in. When there is no such frame, the event is unattributed: it stays in a bundle for its run whose `:frame` is `nil`, rather than being filed under a frame no event named. The `:ungrouped` bundle's `:frame` is also `nil`.
         - `:event` — the event vector.
         - `:dispatched` — the full `:rf.event/dispatched` trace event, including top-level slots such as `:rf.trace/call-site`.
         - `:handler` — the `:rf.event/run-start` or `:rf.event/run-end` trace event; the last one seen wins, usually `:run-end`.

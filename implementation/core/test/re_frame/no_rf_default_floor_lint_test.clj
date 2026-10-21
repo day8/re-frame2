@@ -3,8 +3,10 @@
   resolution): absence of frame context is `:rf.error/no-frame-context`, never
   repaired by synthesising `:rf/default`. No production source under
   `implementation/**/src/` or `tools/**/src/` may carry an `(or … :rf/default)`
-  floor, an `:or {frame-id :rf/default}` default, or a positional
-  `[:rf/default <sym>]` floor. `:rf/default` as an EXPLICIT frame id is legal.
+  floor, an `:or {frame-id :rf/default}` default, a positional
+  `[:rf/default <sym>]` floor, or a `(def <name> :rf/default)` that a floor
+  can name instead of spelling the id. `:rf/default` as an EXPLICIT frame id
+  is legal.
 
   The scan reads files as text, so `tools/` adds no classpath edge. `test/` is
   excluded, and line comments, string literals and backtick-quoted prose are
@@ -54,6 +56,10 @@
 (def ^:private or-default-re #"\(or\s[^\n]*:rf/default\s*\)")
 (def ^:private destructure-default-re #":or\s*\{[^}]*:rf/default[^}]*\}")
 
+;; A var bound to the id hides the floor from the shapes above: `(or frame
+;; default-frame)` names no keyword. Metadata on the name is allowed for.
+(def ^:private def-default-re #"\(def\s+(?:\^\S+\s+)*[^\s()]+\s+:rf/default\s*\)")
+
 ;; `:rf/default` must be followed by a further arg, so an explicit one-element
 ;; `[:rf/default]` frame-id vector is not flagged.
 (def ^:private positional-default-re #"\[\s*:rf/default\s+[^]\n]+\]")
@@ -67,7 +73,8 @@
                             (not (backtick-quoted-mention? code))
                             (or (re-find or-default-re code)
                                 (re-find destructure-default-re code)
-                                (re-find positional-default-re code)))
+                                (re-find positional-default-re code)
+                                (re-find def-default-re code)))
                    [n (str/trim raw)]))))))
 
 (deftest no-rf-default-absence-repair-in-production-source
@@ -88,5 +95,7 @@
   (doseq [line ["(defwrapper foo ([id] [:rf/default id]))"
                 "(let [f (or (:frame opts) :rf/default)] f)"
                 "(defn g [{:keys [frame-id] :or {frame-id :rf/default}}] frame-id)"
+                "(def ^:private default-frame :rf/default)"
+                "(def default-frame :rf/default)"
                 (str "(def hint \"" (str/join (repeat 3000 "x")) "\") [:rf/default id]")]]
     (is (seq (offending-lines line)) (subs line 0 (min 60 (count line))))))

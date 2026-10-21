@@ -82,6 +82,25 @@
              (mapv (juxt :dispatch-id :other)
                    (rf.trace.projection/group-by-event (conj (cascade-evs 400 [:foo]) err))))))))
 
+(deftest group-by-event-leaves-an-unattributable-run-trace-frameless
+  (testing "a dispatch-scoped trace with no frame tag, whose dispatch id names
+            no single frame, is attributed to no frame rather than to
+            :rf/default, a conventional id no runtime frame is promised to
+            carry; it stays in the projection, in its run's bundle with a nil
+            :frame"
+    (let [orphan    {:id 1 :op-type :error :operation :rf.error/handler-exception
+                     :tags {:rf.trace/dispatch-id 7 :event-id :foo}}
+          ambiguous {:id 50 :op-type :rf.warning :operation :rf.warning/late
+                     :tags {:rf.trace/dispatch-id 10}}
+          a         (cascade-evs 10 [:counter/a-inc] :counter/a)
+          b         (mapv #(update % :id + 100) (cascade-evs 10 [:counter/b-inc] :counter/b))]
+      (is (= [[nil 7 [orphan]]]
+             (mapv (juxt :frame :dispatch-id :other)
+                   (rf.trace.projection/group-by-event [orphan]))))
+      (is (= [[:counter/a 10 []] [nil 10 [ambiguous]] [:counter/b 10 []]]
+             (mapv (juxt :frame :dispatch-id :other)
+                   (rf.trace.projection/group-by-event (concat a b [ambiguous]))))))))
+
 (deftest group-by-event-empty-input-yields-empty-output
   (is (= [] (rf.trace.projection/group-by-event nil))))
 
