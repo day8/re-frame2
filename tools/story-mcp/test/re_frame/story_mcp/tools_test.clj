@@ -962,7 +962,8 @@
 ;; The top-level `:effects` / `:sub-runs` / `:renders` are the tape's epoch
 ;; rows, so they cross the same projector: off box an fx's args redact and a
 ;; query vector keeps only its id, exactly as the row reads in its narrative
-;; beat. Under the trusted-local opt-in they ship as recorded.
+;; beat. The trusted-local opt-in lifts the app-db axes inside the projection
+;; and never bypasses it, so a row still equals its beat's row there.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private row-secret "ROW-SECRET-SENTINEL")
@@ -983,6 +984,14 @@
      :setup  [[::row-seed]]
      :script [[:dispatch-sync [:rf.assert/sub-equals [::row-lookup row-secret] "v"]]]}))
 
+(defn- rows-match-their-beats
+  "Each top-level epoch row, less Story's `:epoch-id` stamp, reads as the
+  same row does in its narrative beat."
+  [payload posture]
+  (doseq [slot [:effects :sub-runs :renders]]
+    (is (= (mapv #(dissoc % :epoch-id) (slot payload)) (vec (mapcat slot (narrative-beats payload))))
+        (str posture ": each top-level " slot " row reads as it does in its narrative beat"))))
+
 (deftest run-variant-top-level-rows-cross-the-projector
   (reg-row-secret-variant!)
   (let [s   (:structuredContent (invoke "run-variant" {:variant-id "story.button/row-secret"}))
@@ -993,15 +1002,17 @@
     (is (seq sub) "control: the sub-run row is there")
     (is (every? #(= [::row-lookup :rf/redacted] (:query-v %)) sub) "the query vector keeps its id")
     (is (not (str/includes? (pr-str (select-keys s [:effects :sub-runs :renders])) row-secret)))
-    (doseq [slot [:effects :sub-runs :renders]]
-      (is (= (mapv #(dissoc % :epoch-id) (slot s)) (vec (mapcat slot (narrative-beats s))))
-          (str "each top-level " slot " row reads as it does in its narrative beat"))))
-  (testing "the trusted-local opt-in ships the rows as recorded"
+    (rows-match-their-beats s "off box"))
+  (testing "the trusted-local opt-in lifts the app-db axes inside the projection, never around it"
     (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (let [s (:structuredContent (invoke "run-variant" {:variant-id        "story.button/row-secret"
-                                                       :include-sensitive true}))]
-      (is (some #(= [::row-noop row-secret] (:args %)) (:effects s)))
-      (is (some #(= [::row-lookup row-secret] (:query-v %)) (:sub-runs s))))))
+    (let [s   (:structuredContent (invoke "run-variant" {:variant-id        "story.button/row-secret"
+                                                         :include-sensitive true}))
+          fx  (filter #(= :dispatch (:fx-id %)) (:effects s))
+          sub (filter #(= ::row-lookup (:sub-id %)) (:sub-runs s))]
+      (is (seq fx) "control: the fx row is there")
+      (is (every? #(= :rf/redacted (:args %)) fx) "an fx arg is not an app-db value, so it stays redacted")
+      (is (some #(= [::row-lookup row-secret] (:query-v %)) sub) "the query vector ships as recorded")
+      (rows-match-their-beats s "opt-in"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress privacy posture (spec/Tool-Pair.md §Direct-read privacy
