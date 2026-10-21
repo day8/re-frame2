@@ -143,9 +143,9 @@ implementation/
     deps.edn                 :local/root dep on ../core.
     src/re_frame/resources.cljc    reg-resource / clear-resource / resource-meta /
                                    resource-state / resources, :rf.resource/* events
-                                   + passive subs, :resource registrar kind, work-ledger.
+                                   + passive subs, :resource registrar kind, in-flight attempts.
     test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
-                                   (ensure/refetch, work ledger, invalidation/GC, hydration).
+                                   (ensure/refetch, in-flight attempts, invalidation/GC, hydration).
 
   fresco/                   day8/re-frame2-fresco — the Fresco view substrate: a
                              boundary is a real React function component minted by
