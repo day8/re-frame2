@@ -916,7 +916,7 @@
                      "their flags: event arguments, effect arguments and unschematized HTTP bodies read "
                      "`:rf/redacted`, declared-sensitive app-db slots redact, and a bundle's domino slots are "
                      "rebuilt from its projected events; `include-sensitive true` lifts only the app-db "
-                     "sensitive axis inside that projection. Without the Epoch artefact there is no "
+                     "sensitive axis inside that projection. A build that elides epoch has no "
                      "projector, so each bundle's trace events read `:rf/redacted`. "
                      "Per Tool-Pair §Direct-read privacy posture the `:app-db` and `:sub-cache` "
                      "slices are routed through `re-frame.core/project-egress` with off-box defaults — "
