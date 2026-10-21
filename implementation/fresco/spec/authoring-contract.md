@@ -85,7 +85,9 @@ through `h/defhost`.
 
 **Registration.** In a debug build a view is also registered under
 `(keyword "<ns>" "<name>")`, so `(rf/view id)` answers it; in a release build it
-answers `nil`.
+answers `nil`. Nothing else keeps a view alive, so a release build carries only
+the views something references: an unreferenced `defview` is dropped with its
+body, exactly as an unreferenced `defn` is.
 
 ## Reads
 
