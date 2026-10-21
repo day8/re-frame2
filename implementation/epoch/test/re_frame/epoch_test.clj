@@ -589,9 +589,9 @@
 (deftest depth-exceeded-commits-halted-record
   (testing "a depth-exceeded drain keeps the events that ran as durable :ok
             epochs and commits one trailing :halted-depth marker carrying the
-            last-settled state; listeners and the :rf.epoch/snapshotted /
-            :rf.epoch/outcome traces see every record, and the marker is not a
-            restore target"
+            last-settled state; listeners and the :rf.epoch/snapshotted trace
+            see every record, the trace carrying both the cause and its summary
+            tier, and the marker is not a restore target"
     (rf/make-frame {:id :test/main :drain-depth 5})
     (rf/reg-event :loop
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0)) :fx [[:dispatch [:loop]]]}))
@@ -603,9 +603,9 @@
             halted  (last history)
             last-ok (nth history 4)
             ids     (mapv :epoch-id history)
-            emitted (fn [op] (keep #(when (= op (:operation %))
-                                      ((juxt :rf.epoch/id :outcome) (:tags %)))
-                                   @recorded))]
+            trailer (fn [tag] (keep #(when (= :rf.epoch/snapshotted (:operation %))
+                                       ((juxt :rf.epoch/id tag) (:tags %)))
+                                    @recorded))]
         (is (= [:ok :ok :ok :ok :ok :halted-depth] (mapv :outcome history)))
         (is (= {:event-id           :loop
                 :trigger-event      [:loop]
@@ -619,8 +619,8 @@
                    (update :halt-reason select-keys [:operation :depth]))))
         (is (= (mapv (juxt :epoch-id :outcome) history)
                (mapv (juxt :epoch-id :outcome) @received)
-               (emitted :rf.epoch/snapshotted)))
-        (is (= (map vector ids [:ok :ok :ok :ok :ok :blocked]) (emitted :rf.epoch/outcome)))
+               (trailer :outcome)))
+        (is (= (map vector ids [:ok :ok :ok :ok :ok :blocked]) (trailer :summary)))
         (let [refusal (record-trace!)]
           (is (= :rf.epoch/restore-non-ok-record (refusal-reason (rf.epoch/restore-epoch! :test/main (:epoch-id halted)))))
           (is (has-error-op? @refusal :rf.epoch/restore-non-ok-record)))))))
@@ -635,7 +635,8 @@
   (testing "a handler that destroys its own frame and queues a child commits a
             :halted-destroy record for the dropped child whose :committed-at is
             that child's token time, not the host clock, and emits
-            :rf.epoch/outcome :blocked. The ring goes with the frame, so the
+            :rf.epoch/snapshotted with :summary :blocked. The ring goes with
+            the frame, so the
             record is read from a listener."
     (let [token-time 1781078400123
           clock-time 7777777777777
@@ -652,7 +653,8 @@
       (with-redefs [rf.interop/now-ms (constantly clock-time)]
         (rf/dispatch-sync [:self-destruct] {:frame :test/short-lived}))
       (is (= [[:dropped-child token-time]] (mapv (juxt :event-id :committed-at) @halted)))
-      (is (some #(and (= :rf.epoch/outcome (:operation %)) (= :blocked (-> % :tags :outcome)))
+      (is (some #(and (= :rf.epoch/snapshotted (:operation %))
+                      (= [:halted-destroy :blocked] ((juxt :outcome :summary) (:tags %))))
                 @recorded)))))
 
 ;; ---- a throw rides :trace-events; the epoch still settles :ok -------------
