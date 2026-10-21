@@ -73,7 +73,12 @@ executes one job at a time.  Every other unfinished job contributes `<job> ->
 so a gate the API still reports running is a record lagging a job that has
 ended — a job cancelled at its timeout can read `in_progress` for seconds
 afterwards — and reading it as a pass is how a hung, cancelled night counts
-toward closing the issue.
+toward closing the issue.  The lag can run to minutes: the run's job listing
+has reported a gate `in_progress` sixteen minutes after it passed.  So each job
+the listing reports unfinished is first re-read on its own, for up to a minute
+(`settle_unfinished`); one that re-reads finished is graded by that record and
+its listing is logged as STALE, never as a red step, and only a job still
+unfinished after the last re-read contributes the `no verdict` entry.
 
 The run's own conclusion is the backstop: a run that ended `cancelled` or
 `startup_failure` is never green, whatever its jobs report, and contributes
@@ -109,6 +114,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 LABEL = "nightly-red"
 TITLE = "Nightly `expensive tests` is red"
@@ -138,6 +144,12 @@ FAILED = ("failure", "timed_out")
 # runs that are behaving exactly as designed, and an alert that fires on
 # ordinary nights gets muted — which is the original fail-open in a new suit.
 ABORTED = ("cancelled", "startup_failure")
+
+# How long a job the run's listing reports unfinished is re-read before it is
+# believed (`settle_unfinished`): five reads, the first immediate, then 15 s
+# apart — a minute at most, inside the alerting job's ten-minute timeout.
+REREAD_ROUNDS = 5
+REREAD_DELAY_S = 15
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +207,37 @@ def derive_signature(jobs: list[dict], own_runner: str | None = None,
     if not entries and run_conclusion in ABORTED:
         entries.add(f"(run){SEP}(run {run_conclusion}, no verdict)")
     return sorted(entries)
+
+
+def settle_unfinished(jobs: list[dict], own_runner: str | None, reread, sleep,
+                      rounds: int = REREAD_ROUNDS,
+                      delay: float = REREAD_DELAY_S) -> tuple[list[dict], list[str]]:
+    """Re-read each job the run's listing reports unfinished, this script's own
+    aside, until it reads finished: at most `rounds` re-reads, the first
+    immediate and the rest `delay` seconds apart.
+
+    Returns the jobs with each re-read record in place of the listed one, and
+    a line per job whose listing was STALE — reported unfinished, re-read
+    finished.  The re-read record replaces the listed one whole, so a job that
+    finished red is graded by its own steps.  A job still unfinished after the
+    last round keeps its unfinished record, and `derive_signature` reds it.
+    """
+    jobs = list(jobs)
+    listed = [job.get("status") for job in jobs]
+    stale: list[str] = []
+    for n in range(rounds):
+        pending = [i for i, job in enumerate(jobs)
+                   if job.get("status") != "completed" and not is_own_job(job, own_runner)]
+        if not pending:
+            break
+        if n:
+            sleep(delay)
+        for i in pending:
+            jobs[i] = reread(jobs[i])
+            if jobs[i].get("status") == "completed":
+                stale.append(f"{jobs[i]['name']} (listed {listed[i]}, re-read "
+                             f"completed {jobs[i].get('conclusion')})")
+    return jobs, stale
 
 
 def signature_hash(signature: list[str]) -> str:
@@ -347,6 +390,10 @@ def fetch_jobs(repo: str, run_id: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
+def fetch_job(repo: str, job_id: int) -> dict:
+    return json.loads(gh(["api", f"repos/{repo}/actions/jobs/{job_id}"]))
+
+
 def fetch_run_conclusion(repo: str, run_id: str) -> str | None:
     out = gh(["api", f"repos/{repo}/actions/runs/{run_id}", "-q", ".conclusion"]).strip()
     return out if out and out != "null" else None
@@ -452,6 +499,8 @@ def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
     # This script's own job exists only in the run it is running in.
     own_runner = (os.environ.get("RUNNER_NAME") or None
                   if os.environ.get("GITHUB_RUN_ID") == str(run_id) else None)
+    jobs, stale = settle_unfinished(jobs, own_runner,
+                                    lambda job: fetch_job(repo, job["id"]), time.sleep)
     signature = derive_signature(jobs, own_runner, fetch_run_conclusion(repo, run_id))
     open_issues = fetch_open_issues(repo)
     issue = open_issues[0] if open_issues else None
@@ -462,6 +511,8 @@ def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
           f"action={action} notifies={'yes' if detail['notifies'] else 'no'}")
     for entry in signature:
         print(f"  RED  {entry}")
+    for entry in stale:
+        print(f"  STALE listing, graded by its re-read: {entry}")
     # Said either way, so a run whose own job went unrecognised — and so
     # reads red, naming itself as unfinished — explains itself in its log.
     mine = [job["name"] for job in jobs if is_own_job(job, own_runner)]
@@ -609,6 +660,43 @@ def self_test(verbose: bool) -> int:
     anon = derive_signature([own])
     check("with no runner identity nothing is own, so every unfinished job is red",
           anon == [f"Nightly result{SEP}(job in_progress, no verdict)"], repr(anon))
+
+    # --- a lagging listing is re-read before it is believed -------------------
+    def rereader(*records):
+        """A re-read answering `records` in turn, then the last one forever."""
+        calls: list[str] = []
+
+        def reread(listed):
+            calls.append(listed["name"])
+            return records[min(len(calls), len(records)) - 1]
+        return reread, calls
+
+    lagging = job("MCP live", None, [], status="in_progress", runner="GitHub Actions 7")
+    reread, calls = rereader(job("MCP live", "success", [("conformance", "success")]))
+    naps: list[int] = []
+    settled, stale = settle_unfinished([job("A", "success", [("one", "success")]), lagging, own],
+                                       me, reread, naps.append)
+    check("a job LISTED in_progress that re-reads as passed is graded green",
+          derive_signature(settled, own_runner=me) == [], repr(settled))
+    check("...and its listing is reported as stale, never as a red step",
+          stale == ["MCP live (listed in_progress, re-read completed success)"], repr(stale))
+    check("...after one immediate re-read, and this script's own job is never re-read",
+          calls == ["MCP live"] and naps == [], repr((calls, naps)))
+    for verdict, steps, expected in [
+            ("failure", [("conformance", "failure")], f"MCP live{SEP}conformance"),
+            ("cancelled", [("conformance", "cancelled")], f"MCP live{SEP}(job cancelled, no verdict)")]:
+        reread, _ = rereader(job("MCP live", verdict, steps))
+        settled, _ = settle_unfinished([lagging, own], me, reread, naps.append)
+        check(f"a lagging job that re-reads as {verdict.upper()} is graded by that record, red",
+              derive_signature(settled, own_runner=me) == [expected], repr(settled))
+    reread, calls = rereader(lagging)
+    naps = []
+    settled, stale = settle_unfinished([lagging, own], me, reread, naps.append, rounds=3, delay=7)
+    check("a job STILL in_progress after every re-read stays red, named as unfinished",
+          derive_signature(settled, own_runner=me) == [f"MCP live{SEP}(job in_progress, no verdict)"]
+          and stale == [], repr((settled, stale)))
+    check("...and the re-reading is bounded: one per round, with the waits between rounds",
+          calls == ["MCP live"] * 3 and naps == [7, 7], repr((calls, naps)))
 
     # A run that ended without a verdict is never green, whatever its jobs say.
     all_pass = [job("A", "success", [("one", "success")])]
