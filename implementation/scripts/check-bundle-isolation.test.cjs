@@ -25,6 +25,8 @@ const {
   assertCanonicalInventoryCovered,
   OPTIONAL_ARTEFACT_FACADES,
   assertExampleCoLoadIsolation,
+  STORY_ELISION,
+  checkStoryElision,
 } = require('./check-bundle-isolation.cjs');
 const { readBuildManifest } = require('./lib/read-release-bundle.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
@@ -630,5 +632,54 @@ assert(coLoad('trailing-comment.cljs', `(ns fixture.trailing
 
 fs.rmSync(CO_LOAD_FIXTURE_DIR, { recursive: true, force: true });
 
+// ----- Story's enabled?=false elision ----------------------------------------
+// Synthetic releases, so the claim's logic is pinned in every lane. The real
+// releases are read by the gate itself, whose ON half proves each sentinel live.
+{
+  const sentinels = STORY_ELISION.sentinels;
+  const loadsStory = [MANIFEST_ON_CONTROL, STORY_ELISION.storySource];
+  const release = (blob, { sources = loadsStory, status = 'ok', manifestStatus = 'ok' } = {}) =>
+    ({ dir: 'fixture', status, blob, manifestStatus, sources });
+  const onBlob = sentinels.map(({ sentinel }) => sentinel).join('\n');
+  const offBlob = '/* the app, with no shell */';
+
+  const clean = checkStoryElision(release(offBlob), release(onBlob));
+  assert(clean.ok, `a clean OFF release beside a live ON release passes: ${JSON.stringify(clean)}`);
+  assert.strictEqual(clean.checked, sentinels.length, 'every sentinel is checked');
+
+  for (const { sentinel } of sentinels) {
+    const planted = checkStoryElision(release(`${offBlob}\nvar shell = ${JSON.stringify(sentinel)};`),
+                                      release(onBlob));
+    assert.deepStrictEqual({ ok: planted.ok, leaked: planted.leaked.map((l) => l.sentinel) },
+      { ok: false, leaked: [sentinel] },
+      `a shell reference planted in the OFF release must fail on exactly ${JSON.stringify(sentinel)}`);
+
+    const withoutOne = sentinels.filter((s) => s.sentinel !== sentinel).map((s) => s.sentinel).join('\n');
+    const dead = checkStoryElision(release(offBlob), release(withoutOne));
+    assert.deepStrictEqual({ ok: dead.ok, dead: dead.dead.map((d) => d.sentinel) },
+      { ok: false, dead: [sentinel] },
+      `${JSON.stringify(sentinel)} missing from the ON release must fail, not pass vacuously`);
+  }
+
+  // Input the claim cannot classify is refused, and nothing is read from it:
+  // the OFF release below carries every sentinel, and none is reported leaked.
+  const leaky = release(onBlob);
+  for (const [why, off, on] of [
+    ['a missing OFF release', release('', { status: 'missing', manifestStatus: 'not read', sources: null }), release(onBlob)],
+    ['an empty ON release', leaky, release('', { status: 'empty', manifestStatus: 'not read', sources: null })],
+    ['an unreadable OFF manifest', release(onBlob, { manifestStatus: 'unreadable', sources: null }), release(onBlob)],
+    ['an OFF release that does not load Story', release(onBlob, { sources: [MANIFEST_ON_CONTROL] }), release(onBlob)],
+    ['an ON release that does not load Story', leaky, release(onBlob, { sources: [MANIFEST_ON_CONTROL] })],
+  ]) {
+    const res = checkStoryElision(off, on);
+    assert.deepStrictEqual({ ok: res.ok, refusals: res.unclassified.length, leaked: res.leaked.length },
+      { ok: false, refusals: 1, leaked: 0 }, `${why} must be refused, not read`);
+  }
+  const noSentinels = checkStoryElision(release(offBlob), release(onBlob), { ...STORY_ELISION, sentinels: [] });
+  assert.deepStrictEqual({ ok: noSentinels.ok, unclassified: noSentinels.unclassified },
+    { ok: false, unclassified: ['the claim names no sentinel'] }, 'a claim naming no sentinel is refused');
+}
+
 console.log(`PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts ` +
-  `(${graphClaims.length} graph, ${elisionClaims.length} elision), enrolment and co-load mutations`);
+  `(${graphClaims.length} graph, ${elisionClaims.length} elision), enrolment and co-load mutations, ` +
+  `Story elision over ${STORY_ELISION.sentinels.length} shell sentinels`);

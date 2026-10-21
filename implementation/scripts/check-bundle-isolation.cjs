@@ -42,6 +42,11 @@
  *     `re-frame.trace.tooling` statically, and its bodies reach no production
  *     bundle.
  *
+ * One claim reads a different app. Story's `enabled?` false elision
+ * (STORY_ELISION) needs an app that imports Story, so it reads
+ * :examples/counter-with-stories released with Story compiled out, against
+ * the same app released with Story on.
+ *
  * The allow-list budgets are grep too: a small set of consumer-side keyword
  * strings (e.g. `flows/reg-flow`, `rf.http/managed`) intentionally remain in
  * the counter bundle even when the per-feature artefacts are NOT loaded —
@@ -1203,6 +1208,85 @@ function assertExampleCoLoadIsolation(files = listExampleSources(EXAMPLES_DIR)) 
   };
 }
 
+// ----- Story's enabled?=false elision ----------------------------------------
+
+// Story's contract (tools/story/spec/005-SOTA-Features.md §Production elision):
+// a Story-importing `:advanced` build compiled with
+// `{re-frame.story.config/enabled? false}` carries no Story shell. No claim
+// above can see that, because the counter imports no Story, so this one reads
+// a Story-importing app, `:examples/counter-with-stories`, released twice from
+// the same source: OFF with the define false, ON at its default. Each sentinel
+// is a string literal only a shell body emits. It must be ABSENT from the OFF
+// release and PRESENT in the ON release, and the ON half is what proves the
+// literal live, since a grep for a literal that exists nowhere passes vacuously.
+//
+// The claim refuses input it cannot classify: a release that is missing or
+// empty, a manifest it cannot read, or a manifest that does not list Story's
+// facade, because then the release is not the Story-importing app the claim is
+// about and no absence read from it means anything.
+//
+// Xray is outside the claim. Story requires Xray statically, and Xray's
+// load-time forms keep it in any build whose graph holds it; 005 states that
+// residue with its measurement.
+const STORY_ELISION = {
+  offDir: path.join('out', 'bundle-isolation-story-off'),
+  onDir: path.join('out', 'examples', 'counter-with-stories'),
+  storySource: 're_frame/story.cljc',
+  sentinels: [
+    { source: 're-frame.story.ui.shell root class display name', sentinel: 'rf-story-shell' },
+    { source: 're-frame.story.ui.help launcher title and aria-label', sentinel: 'Show playground help' },
+    { source: 're-frame.story.ui.canvas class display name', sentinel: 'rf-story-canvas' },
+    { source: 're-frame.story.ui.open-in-editor chip test id', sentinel: 'story-open-in-editor' },
+  ],
+};
+
+// One release for the Story claim: its emitted JavaScript and its manifest.
+function loadStoryRelease(dir) {
+  const { status, blob } = classifyReleaseBundle(dir);
+  const manifest = status === 'ok' ? readBuildManifest(dir) : { status: 'not read', sources: null };
+  return { dir, status, blob, manifestStatus: manifest.status, sources: manifest.sources };
+}
+
+// The Story claim over the OFF and ON releases. Returns
+// { ok, unclassified, leaked, dead, checked }: `unclassified` says why each
+// input was refused, `leaked` names each sentinel the OFF release carries, and
+// `dead` each sentinel the ON release lacks.
+function checkStoryElision(off, on, spec = STORY_ELISION) {
+  const unclassified = [];
+  if (spec.sentinels.length === 0) unclassified.push('the claim names no sentinel');
+  for (const [label, release] of [['OFF', off], ['ON', on]]) {
+    if (release.status !== 'ok') {
+      unclassified.push(`${label} release ${release.status}: ${release.dir}`);
+    } else if (release.manifestStatus !== 'ok') {
+      unclassified.push(`${label} release manifest ${release.manifestStatus}: ${release.dir}`);
+    } else if (!release.sources.includes(spec.storySource)) {
+      unclassified.push(`${label} release does not load Story (its manifest lists no ` +
+        `${spec.storySource}): ${release.dir}`);
+    }
+  }
+  const leaked = [];
+  const dead = [];
+  if (unclassified.length === 0) {
+    for (const { source, sentinel } of spec.sentinels) {
+      const offHits = countSubstring(off.blob, sentinel);
+      const onHits = countSubstring(on.blob, sentinel);
+      report.detail(`    [${offHits === 0 ? 'OK' : 'FAIL'}] OFF ${source}: sentinel ` +
+                    `${JSON.stringify(sentinel)} expected 0, was ${offHits}`);
+      report.detail(`    [${onHits > 0 ? 'OK' : 'FAIL'}] ON  ${source}: sentinel ` +
+                    `${JSON.stringify(sentinel)} expected >= 1, was ${onHits}`);
+      if (offHits !== 0) leaked.push({ source, sentinel, hits: offHits });
+      if (onHits === 0) dead.push({ source, sentinel });
+    }
+  }
+  return {
+    ok: unclassified.length === 0 && leaked.length === 0 && dead.length === 0,
+    unclassified,
+    leaked,
+    dead,
+    checked: spec.sentinels.length,
+  };
+}
+
 // ----- main ------------------------------------------------------------------
 
 function main() {
@@ -1302,6 +1386,12 @@ function main() {
     }
   }
 
+  // Story's enabled?=false elision, over a Story-importing app released OFF and ON.
+  report.detail('  story-elision (counter-with-stories, enabled? false against true):');
+  const story = checkStoryElision(loadStoryRelease(path.join(ROOT, STORY_ELISION.offDir)),
+                                  loadStoryRelease(path.join(ROOT, STORY_ELISION.onDir)));
+  if (!story.ok) allOk = false;
+
   report.detail('');
   if (allOk) {
     report.pass(
@@ -1312,6 +1402,7 @@ function main() {
         `${internalChecked} elision sentinels absent; ` +
         `${allowListChecked} allow-list budgets ok; ` +
         `${positiveChecked} emitted positive-control sentinels present; ` +
+        `${story.checked} Story shell sentinels absent at enabled? false and present at true; ` +
         `${coverage.required.length} canonical browser-optional runtimes covered ` +
         `(${coverage.genericCount} generic, ${coverage.dedicatedCount} dedicated); ` +
         `${coLoad.filesScanned} example sources co-load isolated ` +
@@ -1462,6 +1553,28 @@ function main() {
       }
       console.error('');
     }
+    if (!story.ok) {
+      console.error('Story enabled?=false elision (tools/story/spec/005-SOTA-Features.md §Production elision):');
+      for (const reason of story.unclassified) console.error(`  - cannot classify: ${reason}`);
+      for (const { source, sentinel, hits } of story.leaked) {
+        console.error(`  - ${source}: ${JSON.stringify(sentinel)} found ${hits} time(s) in the enabled? false release`);
+      }
+      if (story.leaked.length) {
+        console.error('    A shell body survived the define, so something reaches it from a');
+        console.error('    top-level form or an ungated call site. Gate that root on');
+        console.error('    rf.story.config/enabled? tested on its own: inside an `and` it compiles');
+        console.error('    to a cljs.core/truth_ call, which Closure does not fold.');
+      }
+      for (const { source, sentinel } of story.dead) {
+        console.error(`  - ${source}: ${JSON.stringify(sentinel)} is absent from the enabled? true release,`);
+        console.error('    so its absence from the OFF release proves nothing. Re-derive the');
+        console.error('    sentinel from the shell source; never delete it to reach green.');
+      }
+      console.error('  `npm run test:bundle-isolation` builds both releases: the ON one is');
+      console.error('  :examples/counter-with-stories, the OFF one the same build with');
+      console.error('  scripts/bundle-isolation-story-off.edn merged in.');
+      console.error('');
+    }
     if (positiveFailures.length) {
       console.error('Positive control FAILED — a sentinel is no longer PRESENT where');
       console.error('it should be. The sentinel string has DRIFTED (most');
@@ -1516,4 +1629,7 @@ module.exports = {
   listExampleSources,
   assertExampleCoLoadIsolation,
   EXAMPLES_DIR,
+  STORY_ELISION,
+  loadStoryRelease,
+  checkStoryElision,
 };

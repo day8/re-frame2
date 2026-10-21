@@ -1,0 +1,5 @@
+;; Merged into :examples/counter-with-stories by `npm run test:bundle-isolation`
+;; (`--config-merge`): the same app released with Story compiled out, into
+;; its own directory, for the Story elision claim in check-bundle-isolation.cjs.
+{:output-dir       "out/bundle-isolation-story-off"
+ :compiler-options {:closure-defines {re-frame.story.config/enabled? false}}}
