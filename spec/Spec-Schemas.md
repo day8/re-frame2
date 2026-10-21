@@ -1135,9 +1135,12 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; and the completion PROCEEDS — a schema typo surfaces loudly yet never
   ;; deadlocks a finishing machine. A recordable coeffect's `:where :cofx`
   ;; arm reports it ahead of the always-on `:rf.error/cofx-value-invalid`
-  ;; hard error the same check throws.
+  ;; hard error the same check throws, and a resource's or mutation's params
+  ;; check (`:where :resource-params` / `:mutation-params`) ahead of the
+  ;; `:rf.error/resource-invalid-params` / `:rf.error/mutation-invalid-params`
+  ;; it throws.
   [:map
-   [:where           [:enum :app-db :event :fx-args :sub-return :sub-override :machine-data :machine-output :cofx]]
+   [:where           [:enum :app-db :event :fx-args :sub-return :sub-override :machine-data :machine-output :cofx :resource-params :mutation-params]]
    [:reason          :string]
    [:failing-id      {:optional true} :keyword]
    [:frame           {:optional true} :keyword]
