@@ -312,8 +312,7 @@ Trace events emitted by epoch history:
 
 | `:operation` | Tags |
 |---|---|
-| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (`:ok`, `:halted-depth` or `:halted-destroy`) |
-| `:rf.epoch/outcome` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome`: `:ok`, or `:blocked` for either halt (`:error` is reserved and not emitted) |
+| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (`:ok`, `:halted-depth` or `:halted-destroy`), `:summary` (`:ok`, or `:blocked` for either halt; `:error` is reserved and not emitted) |
 | `:rf.epoch/restored` | `:frame`, `:rf.epoch/id` |
 | `:rf.epoch/db-replaced` | `:frame`, `:rf.epoch/id` |
 | `:rf.epoch/restore-unknown-epoch` | `:frame`, `:rf.epoch/id`, `:history-size` |
