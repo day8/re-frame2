@@ -110,6 +110,7 @@ const START_LOCAL_HTTP_SERVER_CALLERS = [
   ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
   ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
   ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
+  ['serve-and-run-tenant-switcher-testbed.cjs', SCRIPTS_DIR],
 ];
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
@@ -137,7 +138,6 @@ for (const base of ['check-story-static.cjs']) {
 // launchers above cannot pass readiness without publishing it, so they are not
 // listed again here.
 const TOKEN_LIFECYCLE_LAUNCHERS = [
-  'serve-and-run-tenant-switcher-testbed.cjs',
   'serve-and-run-xray-feature-gate.cjs',
 ];
 const PUBLISH_TOKEN_RE = /\bpublishOwnershipToken\b/;

@@ -13,8 +13,9 @@
  *      JS entry-point) — never npx/npx.cmd under a shell.
  *   2. Stage the hand-written index.html into the build's :output-dir next
  *      to main.js.
- *   3. Serve the output dir over http-server (also shell-free), bound to
- *      127.0.0.1, with the per-run ownership-token handshake.
+ *   3. Serve the output dir through startLocalHttpServer
+ *      (lib/local-browser-harness.cjs): shell-free, bound to 127.0.0.1, with
+ *      the per-run ownership-token handshake.
  *   4. Drive the colocated spec.cjs in headless Chromium: navigate, run its
  *      assertions, and fail on any uncaught pageerror (pageerrors are
  *      tracked in a dedicated array and flip the verdict).
@@ -31,10 +32,8 @@ const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const {
   createHarnessCleanup,
-  publishOwnershipToken,
   resolveServePort,
-  spawnHarnessProcess,
-  waitForOwnedHttpReady,
+  startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
@@ -61,9 +60,7 @@ const SPEC = require(path.join(
 ));
 
 const DEFAULT_PORT = 8060; // top-level testbeds band (806x); see shadow-cljs.edn :dev-http.
-const READY_TIMEOUT_MS = 30000;
 const SPEC_TIMEOUT_MS = parseInt(process.env.TESTBED_SPEC_TIMEOUT_MS || '30000', 10);
-const POLL_MS = 200;
 
 // Resolve the http-server JS entry-point so it can be spawned shell-free
 // under process.execPath. Rooted at IMPL_ROOT regardless of this script's
@@ -169,50 +166,29 @@ async function runSpec(baseUrl) {
   if (!compile()) return 1;
   if (!stageHtml()) return 1;
 
-  const published = publishOwnershipToken(ROOT);
-  if (!published) {
-    console.error(`Asset root missing: ${ROOT}. Did shadow-cljs compile run?`);
-    return 1;
-  }
-  const { token, remove } = published;
-  cleanup.addCleanup(remove);
-
   const port = await resolveServePort(DEFAULT_PORT, {
     onFallback: (pref, fallback) =>
       console.warn(`Port ${pref} busy; falling back to free port ${fallback}.`),
   });
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
 
-  const args = [HTTP_SERVER_BIN, ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
-  const server = cleanup.trackProcess(
-    spawnHarnessProcess(process.execPath, args, {
-      cwd: IMPL_ROOT,
-      stdio: ['ignore', 'inherit', 'inherit'],
-    }),
-  );
-  const state = { exited: false, exitCode: null, exitSignal: null };
-  server.on('exit', (code, signal) => {
-    state.exited = true;
-    state.exitCode = code;
-    state.exitSignal = signal;
+  // A false `ready` has already printed the owner's reason. The exit is
+  // reported here, code and signal both, only when it cost the run its server;
+  // the owner's own exit line is suppressed so teardown's kill is not reported
+  // as a crash.
+  let serverExit = null;
+  const { ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: HTTP_SERVER_BIN,
+    root: ROOT,
+    port,
+    cwd: IMPL_ROOT,
+    onExit: (code, signal) => { serverExit = { code, signal }; },
+    suppressExitDiagnostic: () => true,
   });
-
-  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
-    pollMs: POLL_MS,
-    isAborted: () => state.exited,
-  });
-  if (!ready.ok) {
-    if (ready.reason === 'child-exited' || state.exited) {
-      console.error(
-        `http-server exited before becoming reachable on :${port} ` +
-          `(code=${state.exitCode}, signal=${state.exitSignal}).`,
-      );
-    } else if (ready.reason === 'token-mismatch') {
-      console.error(
-        `A foreign server is reachable on :${port} (token mismatch). Refusing to run.`,
-      );
-    } else {
-      console.error(`http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`);
+  if (!ready) {
+    if (serverExit) {
+      console.error(`http-server exit: code=${serverExit.code}, signal=${serverExit.signal}.`);
     }
     return 1;
   }
