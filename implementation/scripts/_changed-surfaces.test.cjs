@@ -465,6 +465,66 @@ test('machines-viz spec-only .md arms nothing (rf2-z0cw6s)', () => {
   assert.deepEqual(armedOutputs(classify('tools/machines-viz/spec/API.md')), []);
 });
 
+// test:bundle-isolation releases :examples/counter-with-stories, which reaches
+// the chart through Xray. The armed side is the machines-viz src that release's
+// manifest.edn lists; the src files it does not list, and everything outside
+// src/, stay unarmed.
+const MV = 'tools/machines-viz/src/day8/re_frame2_machines_viz';
+const MACHINES_VIZ_BUNDLE_ISOLATION_ARMED = pinnedRoster('the machines-viz bundle-isolation arm', [
+  `${MV}/chart.cljs`,
+  `${MV}/chart/context_redaction.cljc`,
+  `${MV}/chart/edges.cljs`,
+  `${MV}/chart/layout.cljc`,
+  `${MV}/chart/layout_error.cljc`,
+  `${MV}/chart/nodes.cljs`,
+  `${MV}/chart/nodes/event_node.cljs`,
+  `${MV}/chart/nodes/parallel_region_node.cljs`,
+  `${MV}/chart/nodes/xyflow_node.cljs`,
+  `${MV}/chart/overlays/after_rings.cljs`,
+  `${MV}/chart/overlays/after_rings_geometry.cljc`,
+  `${MV}/chart/overlays/cancellation_cascade.cljs`,
+  `${MV}/chart/overlays/overlay_anchor.cljc`,
+  `${MV}/chart/overlays/overlay_scaffold.cljs`,
+  `${MV}/chart/overlays/spawn_all_join.cljs`,
+  `${MV}/chart/post_elk.cljc`,
+  `${MV}/chart/primitives.cljc`,
+  `${MV}/chart/projection.cljc`,
+  `${MV}/context_shape.cljc`,
+  `${MV}/grammar.cljc`,
+  `${MV}/mermaid.cljc`,
+  `${MV}/theme/tokens.cljc`,
+  `${MV}/visual_constants.cljc`,
+]);
+const MACHINES_VIZ_BUNDLE_ISOLATION_UNARMED = pinnedRoster('the machines-viz bundle-isolation arm, unarmed side', [
+  `${MV}/adapters/react_chart.cljs`,
+  `${MV}/adapters/uix.cljs`,
+  `${MV}/ai_generate.cljc`,
+  `${MV}/export.cljs`,
+  `${MV}/scxml.cljc`,
+  `${MV}/share.cljs`,
+  'tools/machines-viz/test/day8/re_frame2_machines_viz/engine_grammar_parity_test.cljc',
+  'tools/machines-viz/page/day8/re_frame2_machines_viz/viewer.cljs',
+  'tools/machines-viz/deps.edn',
+  'tools/machines-viz/spec/API.md',
+]);
+
+test('machines-viz src counter-with-stories compiles arms bundle isolation; the rest of the artefact does not', () => {
+  for (const file of MACHINES_VIZ_BUNDLE_ISOLATION_ARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'true',
+      `${file} is compiled into a test:bundle-isolation release and must run the bundle-isolation job`,
+    );
+  }
+  for (const file of MACHINES_VIZ_BUNDLE_ISOLATION_UNARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'false',
+      `${file} is compiled into no test:bundle-isolation release and must not run the bundle-isolation job`,
+    );
+  }
+});
+
 test('testbed-support runs cljs + cljs-browser and its OWN jvm output (rf2-as6bg, rf2-wq17m)', () => {
   const result = classify(
     'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
