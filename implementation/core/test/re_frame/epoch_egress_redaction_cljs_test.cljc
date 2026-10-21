@@ -208,6 +208,46 @@
              (mapv (juxt #(get-in % [:auth :password]) #(get-in % [:audit :note])) opted)))
       (is (every? #(rf.elision/marker? (get-in % [:blob :payload])) opted)))))
 
+;; ---- `:sub-runs` query vectors ----------------------------------------------
+
+(defn- lookup-record!
+  "One cascade whose handler reads a parametric sub keyed by `secret`, so the
+  record's `:sub-runs` row carries `[:egress/by-email secret]`."
+  []
+  (fresh-frame!)
+  (rf/reg-sub :egress/by-email (fn [_ [_ email]] (count email)))
+  (rf/reg-event :egress/lookup
+    (fn [{:keys [db]} [_ email]]
+      (rf/subscribe-once [:egress/by-email email] {:frame frame-id})
+      {:db db}))
+  (rf/dispatch-sync [:egress/lookup secret] {:frame frame-id})
+  (last-record))
+
+(defn- by-email-row [record]
+  (->> (:sub-runs record) (filter #(= :egress/by-email (:sub-id %))) first))
+
+(deftest sub-runs-query-vectors-keep-their-id-and-redact-their-args
+  (testing "a `:sub-runs` row's query vectors carry user values: off box each
+            keeps its head id and ships its args `:rf/redacted`, `:cause-sub`
+            included, the shape a query vector takes in a trace tag. The
+            trusted-local sensitive opt-in ships the rows as recorded"
+    (let [raw   (lookup-record!)
+          proj  (rf/project-egress raw)
+          cause (synthetic-record frame-id [])
+          cause (assoc cause :sub-runs [{:sub-id      :egress/greeting
+                                         :query-v     [:egress/greeting]
+                                         :recomputed? true
+                                         :cause-sub   [:egress/by-email secret]}])]
+      (is (= [:egress/by-email secret] (:query-v (by-email-row raw)))
+          "control: the raw row carries the arg")
+      (is (= [:egress/by-email :rf/redacted] (:query-v (by-email-row proj))))
+      (is (not (contains-secret? proj)))
+      (is (= [:egress/by-email :rf/redacted]
+             (-> (rf/project-egress cause) :sub-runs first :cause-sub)))
+      (is (= (:sub-runs raw)
+             (:sub-runs (rf/project-egress raw {:rf.egress/include-sensitive? true}))
+             (:sub-runs (rf/project-egress raw {:rf.egress/profile :rf.egress/local-raw})))))))
+
 ;; ---- the one door's epoch arm -----------------------------------------------
 
 (deftest explicit-frame-override-beats-the-records-own-frame
