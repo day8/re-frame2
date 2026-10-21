@@ -285,121 +285,40 @@ const ARTEFACTS = [
     forbiddenSources: ['re_frame/story.cljc', 're_frame/story/'],
   },
 
-  // xyflow / @xyflow/react (the Machines panel render engine,
-  // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
-  // `devDependency` of `implementation/package.json` consumed only by
-  // tools/machines-viz/ (the chart engine under
-  // tools/machines-viz/src/day8/re_frame2_machines_viz/chart/);
-  // Xray's Machines panel reaches xyflow through machines-viz.
-  // Counter (and the UIx counter variant) MUST NOT pull
-  // xyflow into their production bundles — Xray + machines-viz are
-  // dev-only (gated by `:devtools/preloads` in shadow-cljs), and a
-  // host that doesn't install Xray should never pay for the
-  // ~50-80KB gzipped xyflow render engine.
+  // The dev-only third-party libraries machines-viz and the Xray EDN widget
+  // pull in. Each is consumed only by tools/ and gated behind Xray's
+  // `:devtools/preloads`, so one in a production bundle means a `:require`
+  // slipped from a tools/* ns into a production-reachable one
+  // (tools/README.md). The manifest names npm sources under `node_modules/`
+  // and the two Maven libraries under their own namespace roots.
   //
-  // Sentinels are CSS class strings that survive `:advanced` because
-  // they appear as string literals in xyflow's source. The class
-  // `react-flow__pane` is xyflow's canvas-background DOM class —
-  // unique to the package; a global grep returns hits only when the
-  // xyflow module body is in the bundle. `@xyflow/react` is the npm
-  // package name as it appears in re-export keys; same posture.
-  //
-  // A non-zero hit means `@xyflow/react` got dragged into a
-  // production bundle (most likely a `:require` slipped from a
-  // tools/* ns into an implementation/* ns, or a chart ns got moved
-  // out of the Xray preload-gated tree). Tools/ MUST NOT be reachable
-  // from `implementation/` per the bundle-isolation contract in
-  // `tools/README.md`.
+  // xyflow (`@xyflow/react` and its `@xyflow/system` engine): the Machines
+  // panel's render engine, Path B per spec/021 §6.0 + §17.4. A host that
+  // doesn't install Xray should never pay for its ~50-80KB gzipped.
   {
     name: 'xyflow',
-    internalSentinels: [
-      // xyflow's canvas-pane CSS class. Distinctive substring;
-      // survives Closure :advanced (literal strings are not renamed).
-      { source: '@xyflow/react canvas pane CSS class (react-flow__pane)',
-        sentinel: 'react-flow__pane' },
-      // xyflow's node-renderer CSS class. Second sentinel guards
-      // against a future xyflow rename of one but not the other.
-      { source: '@xyflow/react node renderer CSS class (react-flow__node)',
-        sentinel: 'react-flow__node' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['node_modules/@xyflow/'],
   },
 
-  // elkjs (elk.js runs as xyflow's layout engine inside the
-  // MachineChart). Same
-  // posture as xyflow: dev-only, used only by
-  // `tools/machines-viz/src/.../chart.cljs` and gated behind the
-  // Xray preload. Production bundles MUST NOT pull elkjs — it's
-  // ~1MB minified, ~250KB gzipped.
-  //
-  // Sentinel is a distinctive elk.js internal symbol that survives
-  // `:advanced`. `elk.algorithm` appears in elk's options-handling
-  // code as a literal string and in the layoutOptions keys the
-  // chart emits; presence in a production bundle means elk.js got
-  // dragged in.
+  // elkjs: xyflow's layout engine inside the MachineChart, ~1MB minified.
   {
     name: 'elkjs',
-    internalSentinels: [
-      { source: 'elk.js algorithm-key string literal (elk.algorithm)',
-        sentinel: 'elk.algorithm' },
-      { source: 'elk.js layered-spacing-key string literal (elk.layered.spacing)',
-        sentinel: 'elk.layered.spacing' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['node_modules/elkjs/'],
   },
 
-  // zprint — the canonical pretty-printer Xray's EDN widget
-  // `code-block` uses to pre-format handler-source strings before the
-  // in-bundle tokenizer renders them
-  // (tools/xray/src/.../views/edn_widget.cljs). Same posture
-  // as the other Xray-only dependencies: consumed only by tools/ and gated
-  // behind the Xray `:devtools/preloads`. Production bundles MUST
-  // NOT pull zprint — the formatter body + its rewrite-clj dep weigh
-  // hundreds of kilobytes and give consumers no runtime benefit.
-  //
-  // Sentinels are distinctive identifiers from zprint's source body —
-  // the `zprint.core` namespace string appears in zprint's
-  // goog.provide-equivalent + namespace registrations. A non-zero hit
-  // means zprint's body got pulled into the bundle (most likely a
-  // `:require` slipped from tools/xray/* into implementation/*, or
-  // the EDN widget got referenced outside the Xray preload-gated
-  // tree).
+  // zprint: the pretty-printer the Xray EDN widget's `code-block` uses to
+  // pre-format handler-source strings; with its rewrite-clj dep it weighs
+  // hundreds of kilobytes.
   {
     name: 'zprint',
-    internalSentinels: [
-      // zprint's core namespace name as a literal string — appears in
-      // zprint's goog.provide-equivalent and internal references.
-      { source: 'zprint pretty-printer core namespace (zprint.core)',
-        sentinel: 'zprint.core' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['zprint/'],
   },
 
-  // editscript — Xray's diff engine. A* algorithm
-  // producing optimally-small EDN edit scripts. Same posture as zprint:
-  // dev-only, consumed only by tools/ (Xray), gated behind Xray's
-  // `:devtools/preloads`. Production bundles MUST NOT pull editscript
-  // — the engine ships ~25KB of source over multiple cljc files +
-  // pulls in a priority-map dep; the operator inspection UX is a dev-
-  // only concern, never a production one.
-  //
-  // Sentinels are live identifiers from editscript's quick-diff and A*
-  // implementations. A non-zero hit means a `:require` slipped from
-  // tools/xray/* into implementation/*, or the EDN widget's diff path
-  // got referenced outside the Xray preload-gated tree.
+  // editscript: Xray's diff engine, ~25KB of source over several cljc files
+  // plus a priority-map dep.
   {
     name: 'editscript',
-    internalSentinels: [
-      { source: 'editscript quick diff-map protocol entry',
-        sentinel: 'editscript.diff.quick/diff-map' },
-      { source: 'editscript A* failure diagnostic',
-        sentinel: 'A* diff fails to find a solution' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['editscript/'],
   },
 ];
 
@@ -424,10 +343,6 @@ const ARTEFACTS = [
 // and nothing else to, so none can ship negative-only.
 const POSITIVE_CONTROL = {
   'trace-tooling': { onModule: 'trace-tooling' },
-  xyflow: { onModule: 'xyflow' },
-  elkjs: { onModule: 'elkjs' },
-  zprint: { onModule: 'zprint' },
-  editscript: { onModule: 'editscript' },
 };
 
 // The graph claims' on-control, taken from the target: every app loads
