@@ -66,7 +66,7 @@ L2 is the skill's most load-bearing claim, so its sources are named:
 - **`implementation/adapters/reagent/README.md`** — "a first-class,
   actively-supported view substrate for re-frame2".
 - **`CHANGELOG.md`** — `day8/re-frame2-reagent` as "the default browser
-  substrate"; §What a release publishes lists the fourteen coordinates a `v*`
+  substrate"; §What a release publishes lists the twelve coordinates a `v*`
   tag publishes, including Fresco beside the Reagent adapter.
 - **`implementation/fresco/deps.edn`** and
   **`.github/scripts/verify-version-lockstep.sh`** — the publication statement
