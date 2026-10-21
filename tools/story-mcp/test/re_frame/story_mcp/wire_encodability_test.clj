@@ -38,9 +38,6 @@
   (rf.story/clear-all!)
   (rf.story/install-canonical-vocabulary!)
   (rf.story-mcp.config/set-allow-writes! true)
-  ;; Keep the epoch ring out of the wire payload on any classpath that
-  ;; carries `re-frame.epoch`, so a run result cannot balloon past the cap.
-  (rf/configure! {:epoch-history {:depth 0}})
   (t)
   (rf.story-mcp.config/set-allow-writes! false))
 

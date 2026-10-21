@@ -75,7 +75,7 @@
      "expectations": [
        "The on-changes sites are migrated per M-21 to reg-flow, and because that trips M-30 the day8/re-frame2-flows artefact is added DURING this migration at the SAME coordinate kind and author-supplied pin already chosen for core and the adapter at M-0 (the same :git/sha, or the same checkout for a :local/root route), differing only in its own :deps/root / :local/root sub-path. The artefact is NOT left absent, deferred, or merely flagged for the author to add \"when it lands\": nothing is published, so core and adapter are in exactly the same state, and pre-publication is ONE decision made at M-0 rather than a second one per artefact.",
        "A re-frame.flows :require is added in every namespace that registers a flow, not merely the dep coord \u2014 the require is what fires the artefact's load-time hook registrations, so a dep-only add leaves rf/reg-flow throwing :rf.error/flows-artefact-missing.",
-       "Only the artefact the triggered rule requires is added: the other per-feature artefacts (-schemas, -machines, -routing, -http, -ssr, -epoch) are NOT added defensively just because one coordinate was being edited.",
+       "Only the artefact the triggered rule requires is added: the other per-feature artefacts (-schemas, -machines, -routing, -http, -ssr) are NOT added defensively just because one coordinate was being edited.",
        "Completion is not claimed on a report entry. The project's own compile / test commands are run and read, and a :rf.error/flows-artefact-missing throw \u2014 or a reg-flow that registers nothing \u2014 is treated as a migration failure to fix, never as a known limitation to report and defer."
      ]},
 

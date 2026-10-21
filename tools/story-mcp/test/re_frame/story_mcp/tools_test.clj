@@ -24,6 +24,7 @@
             [re-frame.story-mcp.config :as rf.story-mcp.config]
             [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]
             [re-frame.story-mcp.server :as rf.story-mcp.server]
+            [re-frame.story-mcp.test-support :as rf.story-mcp.test-support]
             [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
             [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
             [re-frame.story-mcp.tools.cursor :as rf.story-mcp.tools.cursor]
@@ -54,11 +55,6 @@
   (rf.story-mcp.config/set-allow-writes! false)
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
   (reset! declared-class {})
-  ;; `re-frame.epoch` installs its capture hooks process-wide at ns-load, so
-  ;; on any classpath that carries it `run-variant` would ship a full
-  ;; per-event narrative past the token cap. Depth 0 pins the posture; it
-  ;; no-ops when epoch is absent.
-  (rf/configure! {:epoch-history {:depth 0}})
   (rf.story/reg-story :story.button
     {:doc       "A clickable button."
      :component :app.ui/button
@@ -96,10 +92,7 @@
     ::reapply-frame-class
     (fn [{:keys [db]} [_ _frame-id classification-config]]
       (merge {:db db} classification-config)))
-  (try
-    (t)
-    (finally
-      (rf/configure! {:epoch-history {:depth 50}}))))
+  (t))
 
 (use-fixtures :each reset-story-and-config)
 
@@ -868,6 +861,107 @@
         "control: a cap both slots fit leaves the payload intact")))
 
 ;; ---------------------------------------------------------------------------
+;; `run-variant` with the epoch tape recorded, as every dev app records it:
+;; the default call fits the default cap with its assertions, and an
+;; over-budget call's hint names the slot the payload spends its bytes on.
+;; ---------------------------------------------------------------------------
+
+(defn- reg-seeded-variant!
+  "Register a variant whose `:setup` seeds app-db and whose `:script`
+  asserts the seed back — the smallest run that both commits epochs and
+  mints an assertion record."
+  []
+  (rf/reg-event ::seed (fn [{:keys [db]} _] {:db (assoc db :seeded "yes")}))
+  (rf.story/reg-variant :story.button/seeded
+    {:doc    "Seeds app-db and asserts the seed back."
+     :setup  [[::seed]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:seeded] "yes"]]]}))
+
+(defn- narrative-beats [payload]
+  (for [span (:narrative payload) beat (:epochs span)] beat))
+
+(deftest run-variant-default-call-fits-the-cap-with-its-assertions
+  (reg-seeded-variant!)
+  (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant" {:variant-id "story.button/seeded"})
+        p (rf.story-mcp.test-support/dedup-expand (:structuredContent r))]
+    (is (not (overflow-marker? r)) "the default call fits the default cap")
+    (is (= [[:rf.assert/path-equals :pass]] (map (juxt :assertion :status) (:assertions p))))
+    (is (seq (narrative-beats p)) "control: the run recorded its epoch tape")
+    (is (every? #(and (pos-int? (:trace-event-count %)) (not (contains? % :trace-events)))
+                (narrative-beats p))
+        "each beat counts its trace events instead of shipping them")))
+
+(deftest run-variant-include-trace-events-ships-the-raw-events
+  (reg-seeded-variant!)
+  (let [p (:structuredContent (invoke "run-variant" {:variant-id "story.button/seeded"
+                                                     :include-trace-events true
+                                                     :max-tokens 0}))]
+    (is (seq (narrative-beats p)))
+    (is (every? #(and (seq (:trace-events %)) (not (contains? % :trace-event-count)))
+                (narrative-beats p)))))
+
+(deftest overflow-hint-names-the-largest-slot
+  ;; Measured, so the hint follows the payload: the narrative when its beats
+  ;; carry their trace events, the app-db on a data-heavy result.
+  (reg-seeded-variant!)
+  (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant" {:variant-id "story.button/seeded"
+                                                                     :include-trace-events true
+                                                                     :max-tokens 1000})]
+    (is (overflow-marker? r))
+    (is (re-find #"^Largest slots: :narrative \d+%"
+                 (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :hint]))))
+  (is (re-find #"^Largest slots: :app-db \d+%"
+               (rf.story-mcp.tools.wire-pipeline/overflow-hint
+                 "run-variant"
+                 {:structuredContent {:assertions [] :narrative [] :app-db {:rows (vec (range 500))}}}))))
+
+;; ---------------------------------------------------------------------------
+;; The `:narrative` is epoch data, so each beat crosses the off-box epoch
+;; projector the pair MCP uses: a declared-sensitive app-db slot redacts in a
+;; beat's db snapshots and in its opt-in trace events alike.
+;; ---------------------------------------------------------------------------
+
+(def ^:private narrative-secret "NARRATIVE-SECRET-SENTINEL")
+
+(defn- reg-narrative-secret-variant!
+  "A variant whose `:setup` dispatches a token as an event arg, and seeds it
+  at a path it declares sensitive in the same transition. The trace bus
+  already redacts a trace event's db snapshot by that classification, so the
+  copy left for the epoch projector in the trace events is the event arg."
+  []
+  (rf/reg-event ::seed-secret
+    (fn [{:keys [db]} [_ token]]
+      {:db        (assoc-in db [:auth :token] token)
+       :sensitive [[:auth :token]]}))
+  (rf.story/reg-variant :story.button/narrative-secret
+    {:doc   "Seeds a declared-sensitive token."
+     :setup [[::seed-secret narrative-secret]]}))
+
+(defn- narrative-db-afters [payload]
+  (keep :db-after (narrative-beats payload)))
+
+(deftest run-variant-narrative-redacts-a-declared-sensitive-slot
+  (reg-narrative-secret-variant!)
+  (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/narrative-secret"}))]
+    (is (some #(= :rf/redacted (get-in % [:auth :token])) (narrative-db-afters s))
+        "the seeded slot reaches a beat's :db-after, redacted")
+    (is (not (str/includes? (pr-str (:narrative s)) narrative-secret))))
+  (testing "the trusted-local opt-in lifts the slot, still through the projector"
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (let [s (:structuredContent (invoke "run-variant" {:variant-id        "story.button/narrative-secret"
+                                                       :include-sensitive true}))]
+      (is (some #(= narrative-secret (get-in % [:auth :token])) (narrative-db-afters s))))))
+
+(deftest run-variant-include-trace-events-crosses-the-projector
+  (reg-narrative-secret-variant!)
+  (let [s      (:structuredContent (invoke "run-variant" {:variant-id           "story.button/narrative-secret"
+                                                          :include-trace-events true
+                                                          :max-tokens           0}))
+        events (mapcat :trace-events (narrative-beats s))]
+    (is (seq events) "control: the beats carry their trace events")
+    (is (not (str/includes? (pr-str events) narrative-secret)))))
+
+;; ---------------------------------------------------------------------------
 ;; Wire-egress privacy posture (spec/Tool-Pair.md §Direct-read privacy
 ;; posture). A slot classified on the variant's frame surfaces as
 ;; `:rf/redacted` unless the operator gate is open AND the caller sends
@@ -972,9 +1066,10 @@
 
 (deftest derived-slots-at-a-classified-path-honour-the-include-sensitive-opt-in
   ;; Each slot carries the secret AT a classified path — `[:token]` in the map
-  ;; slots, `[0 :token]` in the vector evidence slots — so it redacts unless
-  ;; the opt-in reaches that slot's own projection. The stub carries only
-  ;; slots a real `rf.story/run-variant` can produce.
+  ;; slots and in a narrative beat's app-db snapshot, `[0 :token]` in the
+  ;; other vector evidence slots — so it redacts unless the opt-in reaches
+  ;; that slot's own projection. The stub carries only slots a real
+  ;; `rf.story/run-variant` can produce, in the shapes it produces them.
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (with-clean-frame [vid :story.button/primary]
     (declare-sensitive! vid [:token])
@@ -985,10 +1080,15 @@
                       (merge {:status :pass :frame vid :lifecycle :ready :elapsed-ms 1
                               :app-db {} :assertions [] :checks []
                               :effective-args {:token "TOPSECRET"} :snapshot {:token "TOPSECRET"}}
-                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}])))))]
+                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}]))
+                             {:narrative [{:step nil :epochs [{:epoch-id 1 :db-after {:token "TOPSECRET"}}]}]})))]
       (doseq [[tool slots] [["run-variant"     (conj evidence-slots :snapshot)]
                             ["preview-variant" [:snapshot :effective-args]]]]
-        (let [paths (map #(if (#{:snapshot :effective-args} %) [% :token] [% 0 :token]) slots)
+        (let [paths (map #(case %
+                            (:snapshot :effective-args) [% :token]
+                            :narrative                  [% 0 :epochs 0 :db-after :token]
+                            [% 0 :token])
+                         slots)
               read  (fn [args]
                       (let [s (:structuredContent (invoke tool (merge {:variant-id "story.button/primary"} args)))]
                         (zipmap slots (map #(get-in s %) paths))))]

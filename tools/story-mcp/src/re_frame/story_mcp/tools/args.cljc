@@ -7,6 +7,8 @@
 
   - `include-sensitive?` — the operator+caller dual-gate on the
     `:include-sensitive` opt-in escape hatch.
+  - `include-trace-events?` — `run-variant`'s opt-in to each narrative
+    beat's raw trace events.
   - `required-arg` — the missing-required-arg shape that returns an
     error-envelope rather than throwing.
   - `with-variant` / `with-variant-id` — the four-line variant-id
@@ -91,6 +93,16 @@
   [arguments]
   (and (rf.story-mcp.config/sensitive-reads-allowed?)
        (rf.mcp-base.args/parse-boolean (get arguments :include-sensitive) false)))
+
+(defn include-trace-events?
+  "True iff the caller asked `run-variant` for each `:narrative` beat's
+  raw `:trace-events`. Default off: a beat's raw trace events are most
+  of a run's bytes, enough to push even a trivial variant past the
+  default wire cap, so by default a beat carries only their count. Same
+  boolean parser as `include-sensitive?`; no operator gate, because the
+  events are scrubbed at egress like every other evidence slot."
+  [arguments]
+  (rf.mcp-base.args/parse-boolean (get arguments :include-trace-events) false))
 
 (defn required-arg
   "Read a required argument. Returns `[value nil]` on success, or

@@ -2085,7 +2085,7 @@
        with `:restored? false`, on any failure mode. `:reason` is the op
        of the `:rf.epoch/*` / `:rf.error/*` trace the refusal fired, so
        the trace buffer need not be read to learn why.
-     - `false` when the epoch surface is elided or the artefact absent.
+     - `false` when the epoch surface is elided.
 
    `opts` is `restore-epoch!`'s: `{:to :before}` installs the record's
    `:frame-state-before` rather than its `:frame-state-after`. The arities
@@ -2145,7 +2145,7 @@
        mint); this arity translates the throw into the envelope so the
        tool result carries the reason.
      - `{:ok? false :reason :replay-unavailable}` when the framework
-       returned `false` (epoch surface elided / artefact absent).
+       returned `false` (epoch surface elided).
 
    The two arities mirror `restore-epoch`'s shape — 1-arity reads
    `(current-frame)`, 2-arity is explicit."

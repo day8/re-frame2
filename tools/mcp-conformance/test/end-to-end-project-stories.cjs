@@ -223,18 +223,24 @@ runWithWatchdog(
     //   - `:passed? false` with `:actual` nil if `:setup` never seeded
     // Neither degradation can wear a passing witness.
     //
-    // `max-tokens` 0 lifts the per-call cap. The result's `:narrative` carries
-    // the run's epoch tape, raw trace events included, and that alone
-    // outgrows the default cap, whose overflow envelope drops every slot
-    // this phase reads.
+    // The call is the AI's default one, at the default token cap: the server
+    // records epochs, and a trivial variant's result must still fit with its
+    // assertions rather than come back as the overflow marker.
     const runResp = await client.callTool({
       name: 'run-variant',
-      arguments: { 'variant-id': FIXTURE_VARIANT, 'max-tokens': 0 },
+      arguments: { 'variant-id': FIXTURE_VARIANT },
     });
     if (runResp.isError) {
       throw new Error('run-variant on the fixture variant failed: ' + JSON.stringify(runResp));
     }
     const runStruct = structured(runResp);
+    if (runStruct['rf.mcp/overflow']) {
+      throw new Error(
+        'run-variant on the trivial fixture variant overflowed the default ' +
+          'token cap, so the slots this phase reads were dropped: ' +
+          JSON.stringify(runStruct['rf.mcp/overflow']),
+      );
+    }
     const records = Array.isArray(runStruct.assertions) ? runStruct.assertions : [];
     if (records.length !== 1) {
       throw new Error(
