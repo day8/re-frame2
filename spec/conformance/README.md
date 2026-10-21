@@ -173,11 +173,9 @@ Routing and SSR pure-call fixtures use the same shape with different `:call` ops
   {:call :round-trip :url "/articles/intro"}]}
 ```
 
-The `:call` ops, the arguments each record takes and the expectation keys it may carry are the `:conformance/call` entry of [`fixture-file.edn`](fixture-file.edn). The registration-error ops and the image op have sections below. One more carries a contract beyond its grammar entry:
+The `:call` ops, the arguments each record takes and the expectation keys it may carry are the `:conformance/call` entry of [`fixture-file.edn`](fixture-file.edn). The registration-error ops have sections below.
 
-- `:derivation-graph` composes the cross-family [derivation/process graph](../Derivations.md#graph-inspection--internal-but-structured) over the host's loaded contributors. It is graded against a SPLIT capability pair so a host's claim cannot overclaim the surface: the broad `:derivation/algebra-graph` (`derivation-graph-algebra-full.edn`) and the narrow `:derivation/algebra-graph-subs-machines` (the subs+machines static subset, `derivation-graph-algebra.edn`). A graph host spanning only subscriptions and machines claims the subset and allowlists the broad capability as a known-skip.
-
-The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
+The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined. It grades only the public contract and the normative trace shapes. An op, expectation or capability tag that would bind a shape internal to one implementation — the value of an accessor with no public name, a registration-store descriptor, a dev-tier record — stays out of the corpus, so an internal refactor is never a port obligation. The reference implementation grades its own such shapes in a reference-only corpus beside its runner (`implementation/core/test/conformance-reference/`).
 
 #### The `:machine-transition` op — one pure macrostep
 
@@ -273,43 +271,19 @@ A `:reg-route` call carries the candidate `:pattern` string and either an `:expe
 
 The host runs the call by validating `:pattern` at the registration boundary (the reference invokes the pure `re-frame.routing.match/validate-route-pattern!`) and comparing the thrown `:rf.error/id` against `:expect-error` (pass iff equal); a control call (no `:expect-error`) passes iff validation does not throw. The op is pure — no registrar mutation, no navigation. Fixtures using `:reg-route` declare `:routing/pattern-validation`.
 
-#### The `:assemble-image` op — EP-0026 image API
-
-The `:assemble-image` op pins the image-API surface — `:select-ns` namespace selection, image-order layering (the later image wins), the shadow report, and the fail-loud collision / duplicate-image-id / framework-standard / retired-key / inline-grammar taxonomy — at the conformance layer. It is a pure Mode-B call (no frame loop): a function of a fixture-supplied descriptor pool plus image specs, exactly mirroring the reference implementation's `re-frame.image` constructor + `re-frame.image-assembly` explicit-pool assembler.
-
-A call carries:
-
-- `:pool` — a vector of registered descriptor maps the `:select-ns` selector projects from. Each carries `:rf.provenance/ns` (the source-code namespace — selection is by this string, never by the registration-id's namespace), `:kind`, `:id`, and a `:handler-fn` sentinel.
-- `:standards` — an optional vector of `[kind id]` framework standards the runner `register-standard!`s before assembling (the protected base — an app descriptor colliding with one fails loud).
-- `:images` — a vector of `rf/image` spec maps (`:id` / `:select-ns` / `:registrations`, or — for the negative cases — a retired key or a malformed inline tuple). Omit `:images` (or pass `:default? true`) for the default-image path (the implicit selector over the whole pool).
-- `:images-literal` — an alternative to `:images` for the `make-frame` boundary case: the runner passes the literal value to `make-frame` (whose `:images []` validation fires before any frame record is created). Used only for the `:images []` → `:rf.error/make-frame-bad-images` fixture.
-
-and either `:expect-error <:rf.error/id>` (a fail-loud case — the throw from `rf/image` construction OR `assemble`) or positive expectations:
-
-- `:expect-resolves` — a vector of `{:kind :id :coordinate <coord-map>}`; the sealed resolver MUST resolve `[kind id]` to a descriptor whose descriptor coordinate equals `:coordinate`. The coordinate is the pure-EDN who-won signal: `{:ns "…"}` for a namespace-selected descriptor, `{:image <id> :inline [section id]}` for an inline one, `{:standard true}` for a framework standard.
-- `:expect-present` / `:expect-absent` — vectors of `[kind id]` that MUST / MUST NOT be resolver keys.
-- `:expect-kinds` — the exact `:rf.gen/kinds` set.
-- `:expect-gen-absent` — top-level generation keys that MUST NOT appear on the sealed generation (for example the retired `:rf.gen/requires` image-capability slot).
-- `:expect-shadows` — the exact `:rf.gen/shadows` report vector (each entry is `{:registration [kind id] :image <loser> :shadowed-by <winner>}`, deterministically ordered; a chain names the final winner per loser).
-
-Inline `:registrations` bodies cannot be host fns in pure EDN, so the runner realises each inline body to a fresh host no-op (a distinct fn per entry, so two inline entries for one `[kind id]` stay distinct registrations rather than deduping). Impl identity is never asserted — who-won is read from the descriptor coordinate, which is independent of the body. Fixtures using `:assemble-image` declare `:core/image`. The op `register-standard!`/`clear-standards!`/`clear-generation-cache!`s around each call so a standard or cached generation from one call never leaks into the next.
-
-> **Default-image scope note.** The op's omit-`:images` / `:default? true` branch exercises the **shipped** pure assembler (`assemble-default`): the whole-pool projection + framework standards, with a cross-namespace `[kind id]` collision failing loud. That projection is what `make-frame` seals when handed a descriptor pool and no `:images`. `make-frame {}` over the registration store seals nothing: it resolves the store live and raises `:rf.error/ambiguous-registration` where a duplicated `[kind id]` is used, which the reference implementation's live-default-frame tests cover. The `image-default-image.edn` fixture pins the assembler path + the `:images []` error.
-
 ### Capability tagging
 
 Per [Goal 6 — Hierarchical FSM substrate with implementor-chosen capabilities](../000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) and [005 §Capability matrix](../005-StateMachines.md#capability-matrix), conformance is graded against each port's claimed capability list rather than all-or-nothing. Every fixture self-declares which capabilities it exercises via `:fixture/capabilities`. The harness only runs fixtures whose capability set is a subset of the port's claimed list; un-runnable fixtures are reported as "not exercised" rather than "failed."
 
 Capability tag conventions (the closed list of tags a fixture may carry is the `:conformance/capability` enum in [`fixture-file.edn`](fixture-file.edn)):
 
-- `:core/*` — pattern-required basics every conformant port supports (event handler, frame, dispatch envelope, sub, trace, fx, error). `:core/image` is the image-API surface (`:select-ns` selection, image-order layering, the shadow report, the collision / retired-key / inline-grammar fail-loud taxonomy, the default-image projection) exercised by the `image-*.edn` fixtures via the `:assemble-image` call op.
+- `:core/*` — pattern-required basics every conformant port supports (event handler, frame, dispatch envelope, sub, trace, fx, error).
 - `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/choice`, `:fsm/delayed-after`, `:fsm/timeout`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/history`, `:fsm/final-states`, `:fsm/internal-events`, `:fsm/registration-validation`).
 - `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`).
 - `:routing/*`, `:ssr/*`, `:schemas/*` — per-spec capabilities for ports that ship them.
 - `:identity/*` — the canonical-identity byte contract: CEDN-1 encoding, identity comparison, and the `:rf/path` instantiate boundary, per [Conventions §The `:rf/path` algebra](../Conventions.md#the-rfpath-algebra). **Not optional** — it backs the required identity primitive, so every port runs these.
 - `:flow/*` — the Spec 013 flow substrate (`:flow/basic`, `:flow/topo`, `:flow/dirty-check`, `:flow/toggle`, `:flow/frame-scoped`, `:flow/hot-reload`, `:flow/trace`). **Not optional** — [013](../013-Flows.md) is v1-required.
 - `:data-classification/*` — the Spec 015 `:sensitive` / `:large` egress model. **Not optional** — [015](../015-Data-Classification.md) is v1-required.
-- `:derivation/*` — the cross-family derivation/process graph ([Derivations](../Derivations.md)), split into the broad `:derivation/algebra-graph` and the narrow `:derivation/algebra-graph-subs-machines` so a host spanning only subs + machines claims the subset. See the `:derivation-graph` call op in [§Mode B](#mode-b--pure--direct-call).
 - `:rf.http/managed` — a single tag rather than a `/*` axis: managed HTTP ([014](../014-HTTPRequests.md)) is one contract, claimed whole, for ports that ship it. The `http-managed-*` fixtures supply their own stub bodies and grade override routing, so passing them does not establish the managed-HTTP lifecycle — see [§Managed-HTTP lifecycle (not yet corpus-graded)](#managed-http-lifecycle-not-yet-corpus-graded).
 - `:resources/*` — the Spec 016 resource-runtime axis for ports that ship `day8/re-frame2-resources` (`:resources/ensure` — first-load + fresh-skip cache-hit; `:resources/dedupe` — dedupe-join; `:resources/stale-suppression` — stale-reply generation suppression; `:resources/scope-fail-closed` — the scope fail-closed trio; `:resources/owner-gc` — owner release → GC eligibility; `:resources/keep-previous` — refresh-error preserves prior data). Exercised by the `resources-*.edn` fixtures — Mode-A dispatch of `:rf.resource/ensure` / `refetch` / `release-owner` / `gc-fired` plus the framework-internal `:rf.resource.internal/succeeded` / `failed` replies (the reply verification payload — `:work/id` `[:rf.work/resource <resource-id> <generation>]` and `:generation` — is pure EDN, and the handler resolves the scoped key from the entry whose attempt carries that work id; the runner drives the reply the way `route-stale-nav-token-suppression.edn` drives its continuation), plus the pure `:reg-resource` / `:resolve-scope` call ops for the fail-closed registration + scope-resolution boundary.
 
@@ -430,7 +404,7 @@ A skipped fixture counts toward neither the score nor the runnable-fixture floor
 
 See `fixtures/` for the files. Each fixture is one EDN file exercising one shape of the spec, and its `:fixture/doc` states what it pins.
 
-Coverage spans the main categories: handlers, frames, frame construction (ordered `:initial-events` drain, `:rf/set-db` seed, retired-key fail-loud), the image API (`:select-ns` selection, image-order layering, the shadow report, the collision / retired-key / inline-grammar fail-loud taxonomy, the default-image projection), envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, HTTP request interceptors, and data-classification commit-plane classification + egress projection.
+Coverage spans the main categories: handlers, frames, frame construction (ordered `:initial-events` drain, `:rf/set-db` seed, retired-key fail-loud), envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, HTTP request interceptors, and data-classification commit-plane classification + egress projection.
 
 ### The EP-0025 classification model — what the `data-classification/` fixtures pin
 

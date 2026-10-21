@@ -1,7 +1,7 @@
 ;; Conformance fixture: image/retired-keys
 ;;
 ;; EP-0026 §Image Keys / §Backwards Compatibility / §Capability Removal
-;; (../../docs/EP/EP-0026-image-api-simplification.md): the public image value
+;; (docs/EP/EP-0026-image-api-simplification.md): the public image value
 ;; accepts EXACTLY three top-level source keys — `:id`, `:select-ns`,
 ;; `:registrations`. The keys `:include-ns`, `:exclude-ns`, `:replace`,
 ;; `:replace-standard`, and `:rf.image/requires` are RETIRED: a spec carrying one

@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/duplicate-image-id
 ;;
-;; EP-0026 §Image Keys (../../docs/EP/EP-0026-image-api-simplification.md): the
+;; EP-0026 §Image Keys (docs/EP/EP-0026-image-api-simplification.md): the
 ;; images in an `:images` composition MUST each be nameable by a DISTINCT id. The
 ;; shadow report identifies every image by id, so in a MULTI-image composition:
 ;;   * two images sharing an `:id` could not be told apart; and

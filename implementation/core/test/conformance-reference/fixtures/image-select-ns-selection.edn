@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/select-ns-selection
 ;;
-;; EP-0026 §Namespace Selection (../../docs/EP/EP-0026-image-api-simplification.md):
+;; EP-0026 §Namespace Selection (docs/EP/EP-0026-image-api-simplification.md):
 ;; an image SELECTS existing namespace-authored registrations with a single
 ;; `:select-ns {:include [globs] :exclude [globs]}` map. The selected set is
 ;; `union(:include matches) minus union(:exclude matches)` with exclusion GLOBAL
@@ -10,7 +10,7 @@
 ;; pattern matching nothing is a no-op. Selection is BY `:rf.provenance/ns`
 ;; (source namespace), never by the registration-id namespace.
 ;;
-;; Mode-B `:assemble-image` call op (see ../README.md §The :assemble-image op):
+;; Mode-B `:assemble-image` call op (see ../grammar.edn):
 ;; the `:pool` is the candidate registered descriptors (each carrying
 ;; `:rf.provenance/ns` / `:kind` / `:id` / a `:handler-fn` sentinel); the
 ;; `:images` are `rf/image` spec maps. `:expect-resolves` asserts who-won by the

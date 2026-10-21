@@ -1,6 +1,6 @@
 ;; Conformance fixture: image/default-image
 ;;
-;; EP-0026 §Default Image (../../docs/EP/EP-0026-image-api-simplification.md):
+;; EP-0026 §Default Image (docs/EP/EP-0026-image-api-simplification.md):
 ;; the default image is a frame-construction behavior, not an ordinary
 ;; `rf/image` value. The default image is the implicit selector over the WHOLE
 ;; default source-store pool — it selects ALL ordinary namespace-authored
