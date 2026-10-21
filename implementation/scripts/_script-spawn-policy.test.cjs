@@ -10,9 +10,9 @@
  * bare `npx` / `npx.cmd` executable is allowed. The hardened forms spawn a tool's
  * resolved JS entry point under process.execPath, or (test-mcp-conformance.cjs
  * alone) resolve the name through resolveTrustedExe and spawn it with cross-spawn.
- * The listed http-serving launchers start their server through the shared
- * startLocalHttpServer, which binds loopback and proves it owns the server it
- * probes. Discovered by `npm run test:scripts`.
+ * Every launcher that resolves the http-server package starts its server through
+ * the shared startLocalHttpServer, which binds loopback and proves it owns the
+ * server it probes. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
@@ -59,6 +59,13 @@ const TRUSTED_EXE_RE = /resolveTrustedExe/;
 const CROSS_SPAWN_RE = /cross-spawn|crossSpawn/;
 // The bare-'npx' exemption: the one launcher whose whole spawn path is trusted.
 const TRUSTED_RESOLUTION_FILES = new Set(['test-mcp-conformance.cjs']);
+// A launcher naming the http-server package serves with it, so the set of
+// launchers that must delegate to startLocalHttpServer is derived from the tree
+// and a new one is pinned the moment it lands. The helper's loopback bind,
+// ownership token and owned readiness are covered functionally in
+// _local-browser-harness.test.cjs.
+const HTTP_SERVER_PACKAGE_RE = /(['"`])http-server(?:\/|\1)/;
+const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 
 for (const file of gateScriptFiles()) {
   const base = path.basename(file);
@@ -79,29 +86,24 @@ for (const file of gateScriptFiles()) {
       );
     }
   });
-}
 
-// These launchers start http-server through the shared owner, whose loopback
-// bind, ownership token and owned readiness are covered functionally in
-// _local-browser-harness.test.cjs.
-const START_LOCAL_HTTP_SERVER_CALLERS = [
-  ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
-  ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
-  ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
-  ['serve-and-run-tenant-switcher-testbed.cjs', SCRIPTS_DIR],
-  ['serve-and-run-xray-feature-gate.cjs', SCRIPTS_DIR],
-  ['check-story-static.cjs', SCRIPTS_DIR],
-];
-const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
-for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
-  test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner`, () => {
-    const code = stripComments(fs.readFileSync(path.join(dir, base), 'utf8'));
-    assert.match(
-      code,
-      START_LOCAL_HTTP_SERVER_RE,
-      `${base} must start its http-server via the shared startLocalHttpServer(...) owner`,
-    );
-  });
+  // Both directions, so the derivation cannot go blind silently: the helper
+  // needs the resolved bin, so a caller the package regex cannot see is a
+  // regex that has stopped matching, not a launcher to skip.
+  const namesHttpServer = HTTP_SERVER_PACKAGE_RE.test(code);
+  const callsHelper = START_LOCAL_HTTP_SERVER_RE.test(code);
+  if (namesHttpServer || callsHelper) {
+    test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner`, () => {
+      assert.ok(
+        callsHelper,
+        `${base} names the http-server package but does not start it via the shared startLocalHttpServer(...) owner`,
+      );
+      assert.ok(
+        namesHttpServer,
+        `${base} calls startLocalHttpServer(...) but HTTP_SERVER_PACKAGE_RE cannot see how it resolves http-server; extend the regex`,
+      );
+    });
+  }
 }
 
 // The gate's teeth: each policy regex matches a real violation, and a string
@@ -110,6 +112,11 @@ test('the policy regexes catch real violations through stripComments', () => {
   assert.match(stripComments('spawn({ shell: true });'), SHELL_OPT_RE);
   assert.match(stripComments("spawn('npx.cmd', args);"), NPX_CMD_LITERAL_RE);
   assert.match(stripComments("exe: 'npx'"), NPX_BARE_LITERAL_RE);
+  assert.match(
+    stripComments("const bin = require.resolve('http-server/bin/http-server', { paths });"),
+    HTTP_SERVER_PACKAGE_RE,
+  );
+  assert.match(stripComments('await startLocalHttpServer({ cleanup });'), START_LOCAL_HTTP_SERVER_RE);
   assert.equal(stripComments('const s = "keep // me";'), 'const s = "keep // me";');
 });
 
