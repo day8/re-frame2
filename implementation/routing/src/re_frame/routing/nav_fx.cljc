@@ -162,9 +162,8 @@
   `re-frame.privacy.url/redact-url-carriers`.
 
   Carries the `:rf.fx.nav/push-url-args` `:schema` per
-  [Spec-Schemas §Standard fx args schemas] ('the `:rf.nav/*` and
-  `:rf.server/*` fx ship with `:schema` set to the corresponding schema
-  above'). A non-string arg is
+  [Spec-Schemas §Standard fx args schemas] ('the `:rf.nav/*` fx ship with
+  `:schema` set to the corresponding schema above'). A non-string arg is
   rejected at the Spec 010 §step-5 `:fx-args` boundary — the fx is
   skipped BEFORE `window.history` is touched — rather than reaching
   `pushState`."

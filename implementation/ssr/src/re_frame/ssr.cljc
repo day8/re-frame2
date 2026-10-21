@@ -27,8 +27,9 @@
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.response :as rf.ssr.response]
-            ;; Plain-data schemas attached to the six server effects.
-            [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
+            ;; Loaded with the façade: the published description of each
+            ;; server effect's args shape, for docs and tools.
+            [re-frame.ssr.server-fx-schemas]
             [re-frame.ssr.substrate :as rf.ssr.substrate]))
 
 ;; ---- public-surface re-exports --------------------------------------------
@@ -261,7 +262,6 @@ the client's registered app-schema digest. A mismatch emits a structured
 (rf.fx/reg-fx :rf.server/set-status
   {:doc       "Set the HTTP response status. Last-write-wins per
 [Spec 011 §Multiple-status policy]."
-   :schema    rf.ssr.server-fx-schemas/set-status-args
    :platforms #{:server}}
   rf.ssr.response/set-status-fx)
 
@@ -269,7 +269,6 @@ the client's registered app-schema digest. A mismatch emits a structured
   {:doc       "Replace any existing header with the same name (case-
 insensitive) and write [name value]. Per Spec 011 §Header replacement
 vs append."
-   :schema    rf.ssr.server-fx-schemas/set-header-args
    :platforms #{:server}}
   rf.ssr.response/set-header-fx)
 
@@ -277,7 +276,6 @@ vs append."
   {:doc       "Append [name value] to headers — preserves any existing
 header with the same name. Required for Set-Cookie-style multi-valued
 headers. Per Spec 011 §Header replacement vs append."
-   :schema    rf.ssr.server-fx-schemas/append-header-args
    :platforms #{:server}}
   rf.ssr.response/append-header-fx)
 
@@ -285,7 +283,6 @@ headers. Per Spec 011 §Header replacement vs append."
   {:doc       "Add a structured cookie to the :cookies vector. Cookie
 attributes are stored as a structured map (RFC 6265 wire-form
 serialisation is host-adapter business). Per Spec 011 §Cookie shape."
-   :schema    rf.ssr.server-fx-schemas/set-cookie-args
    :platforms #{:server}}
   rf.ssr.response/set-cookie-fx)
 
@@ -293,7 +290,6 @@ serialisation is host-adapter business). Per Spec 011 §Cookie shape."
   {:doc       "Sugar over :rf.server/set-cookie with :max-age 0 and an
 empty :value. The host adapter materialises the delete-marker semantics
 on the wire. Per Spec 011 §Cookie shape."
-   :schema    rf.ssr.server-fx-schemas/delete-cookie-args
    :platforms #{:server}}
   rf.ssr.response/delete-cookie-fx)
 
@@ -321,7 +317,6 @@ relative reference — :rf.error/redirect-host-disallowed (:reason
 :relative-only-violation); with :allow hosts, a non-relative URL whose host
 is not among them — :rf.error/redirect-host-disallowed (:reason
 :not-in-allowlist). A URL that passes sets :redirect."
-   :schema    rf.ssr.server-fx-schemas/redirect-args
    :platforms #{:server}}
   rf.ssr.response/redirect-fx)
 
