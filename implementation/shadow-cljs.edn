@@ -1167,8 +1167,6 @@
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules
    {:trace-tooling     {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}
-    :story             {:init-fn re-frame.bundle-isolation-positive-control.story/run
-                        :depends-on #{:trace-tooling}}
     :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run
                         :depends-on #{:trace-tooling}}
     :elkjs             {:init-fn re-frame.bundle-isolation-positive-control.elkjs/run
