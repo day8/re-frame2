@@ -117,9 +117,14 @@
   subscriptions read moves all 300), and the wrong shape for a narrow
   one. Say which runtime a figure came from, always.
 
-  Run it:
+  Run it, from `implementation/core`:
 
-      clojure -M:test -m re-frame.bench.read-attribution
+      clojure -X:test re-frame.bench.read-attribution/-main
+
+  `-X` rather than `-M -m`: the `:test` alias's `:main-opts` start the test
+  runner, and `-M` appends a command-line `-m` to them rather than replacing
+  them. `-main` ignores the `-X` argument map; the knobs are environment
+  variables.
 
   Environment: RM_N (dependencies, default 300), RM_ITERS, RM_WARMUP,
   RM_ALLOC (timing and allocation passes per arm across ALL rounds),
