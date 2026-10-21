@@ -18,9 +18,9 @@
 ;; The boundary uses the `:rf.error/schema-validation-failure` op
 ;; with the `:where :machine-output` value and `:phase :completion` — the
 ;; same op the `:where :machine-data` boundary uses. Validation routes
-;; entirely through the optional late-bound `:schemas/validate-with-
-;; registered-fn` adapter (machine core requires no schema library); a host
-;; with no registered validator pays zero cost and emits no trace.
+;; entirely through the optional late-bound `:schemas/check!` seam (per
+;; 010 §The validation seam; machine core requires no schema library); a
+;; host with no registered validator pays zero cost and emits no trace.
 ;;
 ;; Dynamic-host only — statically typed hosts catch the shape mismatch at
 ;; compile time and produce no runtime trace. Static-host harnesses skip

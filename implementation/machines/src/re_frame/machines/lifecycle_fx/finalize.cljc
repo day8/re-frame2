@@ -419,10 +419,10 @@
         ;; machine has already finished (post-completion observation), so a
         ;; violation emits the `:where :machine-output` boundary trace but the
         ;; completion still flows — nothing to roll back (`:rollback? false`).
-        ;; Routes through the SAME late-bound `:schemas/validate-with-
-        ;; registered-fn` adapter the `:where :machine-data` boundary uses; an
-        ;; app with no schema adapter pays zero cost. `machine` is the
-        ;; finishing actor's runtime-stamped spec held directly by this
+        ;; Routes through the SAME late-bound `:schemas/check!` seam the
+        ;; `:where :machine-data` boundary uses (Spec 010 §The validation
+        ;; seam); an app with no schemas artefact pays zero cost. `machine` is
+        ;; the finishing actor's runtime-stamped spec held directly by this
         ;; cascade, so the `[:schemas :output]` schema resolves off it without
         ;; a registrar / snapshot lookup. Production-elided
         ;; (`rf.interop/debug-enabled?`-gated inside the validator).
