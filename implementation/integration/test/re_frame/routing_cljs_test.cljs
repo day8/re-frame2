@@ -1,9 +1,10 @@
 (ns re-frame.routing-cljs-test
   "CLJS-side routing tests. Verifies the routing pipeline runs under the
-  Reagent reactive substrate and locks the multi-frame routing contract.
+  integration suite's reactive substrate and locks the multi-frame routing
+  contract.
 
   - routing-handle-url-change-cljs       — :rf.route/handle-url-change (cause :link)
-                                           drives the slice under the Reagent
+                                           drives the slice under the suite's
                                            adapter; subscriptions resolve.
   - routing-frame-provider-routing-cljs  — multi-frame routing: each frame's
                                            [:rf.db/runtime :rf.runtime/routing :current] slice
@@ -26,7 +27,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.subs :as rf.subs]
             [re-frame.routing :as rf.routing]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]))
 
 ;; Snapshot/restore the registrar around each test. We do NOT
@@ -37,7 +38,7 @@
 ;; sequences (nav-token, pending-nav, …) start from zero.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :init-fn rf.routing/reset-counters!}))
 
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
@@ -48,7 +49,7 @@
     ;; entry point is :rf.route/handle-url-change, standing for the link-click,
     ;; popstate, initial-load and SSR causes. It writes the [:rf.db/runtime :rf.runtime/routing :current]
     ;; slice from the URL and dispatches :on-match events. Subscriptions over
-    ;; the slice resolve under the Reagent adapter.
+    ;; the slice resolve under the suite's adapter.
     ;;
     ;; Test isolation: a fresh frame so prior tests' [:rf.db/runtime :rf.runtime/routing :current]
     ;; slices don't leak in.
@@ -73,7 +74,7 @@
              [(rf/subscribe-once [:rf.cljs.route/id] {:frame f})
               (rf/subscribe-once [:rf.cljs.route/params] {:frame f})
               (:article-loaded? (rf/app-db-value f))])
-          "the route id and params subs resolve under the Reagent adapter, and :on-match's [:cljs/article-load] dispatched and ran")
+          "the route id and params subs resolve under the suite's adapter, and :on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
       (rf/dispatch-sync [:rf.route/handle-url-change "/cljs/articles/welcome" {:rf.route/cause :link}] {:frame f})
