@@ -574,18 +574,13 @@
  ;; --------------------------------------------------------------------------
  ;; spec/API.md var-rows whose Spec cell stays AUTHORED although their table
  ;; is generated (re-frame.api-manifest.api-md-cells). spec/Ownership.md is
- ;; the authority on a surface's canonical home, and it names none for
- ;; these, so their :owner is not settled: init! (API.md says 006, the
- ;; adapter-selection contract in 006 §Adapter selection at boot; :owner
- ;; says 002), and configure! / current-config / features (API.md says —;
- ;; :owner says Conventions). When Ownership.md names a home, set :owner to
- ;; it and delete the entry here; an entry naming no generated row fails
- ;; the generator.
+ ;; the authority on a surface's canonical home, so a var belongs here only
+ ;; while Ownership.md names no home for it and its :owner is unsettled.
+ ;; Empty: every generated row's owner is settled. When Ownership.md names
+ ;; a home, set :owner to it and delete the entry here; an entry naming no
+ ;; generated row fails the generator.
  :api-md-authored-spec
- #{["re-frame.core" "init!"]
-   ["re-frame.core" "configure!"]
-   ["re-frame.core" "current-config"]
-   ["re-frame.core" "features"]}
+ #{}
 
  ;; --------------------------------------------------------------------------
  ;; SECONDARY projection-check allowlists. api-md-check guards
@@ -1057,7 +1052,7 @@
   ;; `:sensitive` payload classification + centralized `project-egress` do
   ;; that job, not a positional trace-scrub interceptor.
   ;; Lifecycle / adapter bootstrap.
-  ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"
+  ["re-frame.core" "init!"]                {:tier :front-porch :owner "006" :status "v1"
                                            :action :keep
                                            :justification "Front-porch: the one boot call. Its lower-level lifecycle siblings (destroy-adapter!, current-adapter) are advanced precisely so this one stays the whole answer to how do I start."}
   ["re-frame.core" "destroy-adapter!"]     {:tier :advanced :owner "006" :status "v1"
