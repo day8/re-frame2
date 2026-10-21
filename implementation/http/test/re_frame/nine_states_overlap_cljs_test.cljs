@@ -172,6 +172,9 @@
 
 (deftest overlapping-loads-are-newest-intent-wins
   (async done
+    ;; The node bundle shares one adapter seat across suites, and init!
+    ;; refuses a different adapter, so cold-start it.
+    (rf/destroy-adapter!)
     (rf/init! rf.adapter.reagent/adapter)
     (rf.frame/ensure-default-frame!)
     (-> (run-rows! overlap-rows)
@@ -183,6 +186,7 @@
   ;; puts the region back at :loading, which would accept the abandoned reply;
   ;; the reload's same-id supersession is what closes that window.
   (async done
+    (rf/destroy-adapter!)
     (rf/init! rf.adapter.reagent/adapter)
     (rf.frame/ensure-default-frame!)
     (let [{:keys [restore attempts]} (with-parked-fetch)
@@ -231,6 +235,7 @@
   ;; The same overlap under a different id inverts the witness: nothing
   ;; supersedes the older attempt, so its late reply clobbers the machine.
   (async done
+    (rf/destroy-adapter!)
     (rf/init! rf.adapter.reagent/adapter)
     (rf.frame/ensure-default-frame!)
     (reg-load-under-a-different-id!)
