@@ -1993,13 +1993,21 @@
   handed through here stays the loud
   `:rf.error/fresco-intent-outside-boundary`. Call it ONCE, at top
   level: it allocates a component, and a fresh one per render is a fresh
-  element type that remounts the subtree, `React.memo`'s own law."
+  element type that remounts the subtree, `React.memo`'s own law.
+
+  The bridge is a pure allocation, so `:advanced` drops one nothing
+  references, and the view it wraps with it. That is why the label is
+  joined with a string literal's `.concat` rather than `str`: Closure
+  cannot see into `str`, so a bridge labelled with it would ship whether
+  referenced or not (see `collector/mint-view!` for the same constraint)."
   [head]
   (let [named     (when (fn? head) (unchecked-get head "displayName"))
         component (fn fresco-as-component [js-props]
                     (vec->element [head (outward-props js-props)]))]
     (unchecked-set component "displayName"
-                   (str "fresco/as-component" (when named (str "(" named ")"))))
+                   (if named
+                     (.concat "fresco/as-component(" named ")")
+                     "fresco/as-component"))
     component))
 
 ;; ---------------------------------------------------------------------------

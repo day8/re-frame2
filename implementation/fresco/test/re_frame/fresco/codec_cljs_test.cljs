@@ -1146,3 +1146,12 @@
   (testing "native-tag members are React's beat — there is no boundary head to name"
     (is (= [] (warnings-during
                 #(rf.fresco.impl.codec/as-element [:ul (for [i (range 3)] [:li {:key {:id i}} i])]))))))
+
+(deftest an-as-component-bridge-is-labelled-with-the-head-it-wraps
+  (testing "a named head's bridge carries the head's name, for React DevTools"
+    (is (= "fresco/as-component(w30.ns/card)"
+           (.-displayName (rf.fresco/as-component (named-view "w30.ns/card"))))))
+  (testing "a head with no name, or one that is not a function, gets the bare label"
+    (is (= "fresco/as-component"
+           (.-displayName (rf.fresco/as-component (rf.fresco.impl.codec/mark-boundary! (fn [_] nil))))))
+    (is (= "fresco/as-component" (.-displayName (rf.fresco/as-component #js {}))))))

@@ -40,6 +40,12 @@
  * §The boundary ABI). A write in the mint that Closure cannot prove local
  * keeps every view in every bundle, and makes this row red.
  *
+ * The same holds one door out: `bridged-row` is referenced only by
+ * `dropped-bridge`, a top-level `h/as-component` bridge nothing references,
+ * so its name must be absent too. A bridge that Closure cannot prove pure —
+ * a label built with `str`, say — keeps the view it wraps, and makes that
+ * row red.
+ *
  * `check_production_erasure.cjs` owns the general, multi-sentinel
  * production-erasure proof; this is the one source-coordinate sentinel.
  *
@@ -72,10 +78,15 @@ const SENTINEL = 'coord_sentinel_source.cljs';
 // Unconditional, and therefore the proof that the bundle is the right one.
 const POSITIVE_CONTROL = 're-frame.fresco.coord-sentinel-source/sentinel-row';
 
-// The unreferenced view, and the declaration that must still exist for its
-// absence to mean anything.
+// The unreferenced view and the view held only by an unreferenced bridge, and
+// the declarations that must still exist for their absence to mean anything.
 const DROPPED = 're-frame.fresco.coord-sentinel-source/dropped-row';
-const DROPPED_DECLARATION = '(rf.fresco/defview dropped-row';
+const BRIDGED = 're-frame.fresco.coord-sentinel-source/bridged-row';
+const DECLARATIONS = [
+  '(rf.fresco/defview dropped-row',
+  '(rf.fresco/defview bridged-row',
+  '(rf.fresco/as-component bridged-row)',
+];
 
 function fail(message) {
   process.stderr.write(`fresco source-coord elision: FAIL\n${message}\n`);
@@ -88,10 +99,13 @@ if (!fs.existsSync(SUITE)) {
        'a green that means nothing.');
 }
 
-if (!fs.readFileSync(SUITE, 'utf8').includes(DROPPED_DECLARATION)) {
-  fail(`missing unreferenced declaration: ${DROPPED_DECLARATION} in ` +
-       `${path.relative(IMPL_ROOT, SUITE)}\n` +
-       'Its absence from the bundle means nothing for a view nobody declares.');
+const suiteSource = fs.readFileSync(SUITE, 'utf8');
+for (const declaration of DECLARATIONS) {
+  if (!suiteSource.includes(declaration)) {
+    fail(`missing unreferenced declaration: ${declaration} in ` +
+         `${path.relative(IMPL_ROOT, SUITE)}\n` +
+         'An absence from the bundle means nothing for a form nobody declares.');
+  }
 }
 
 if (!fs.existsSync(BUNDLE)) {
@@ -125,6 +139,18 @@ if (bundle.includes(DROPPED)) {
        '`fn` literal; see `mint-view!` in re_frame/fresco/impl/collector.cljs.');
 }
 
+// After the row above, so a mint that stopped being pure — which keeps both
+// views — is named as that, and this row fires for the bridge alone.
+if (bundle.includes(BRIDGED)) {
+  fail(`a view held only by an unreferenced as-component bridge survived the advanced bundle: ${BRIDGED}\n` +
+       'A release `as-component` is no longer a pure allocation, so every ' +
+       'top-level bridge keeps the view it wraps whether referenced or not. ' +
+       'Its label has to be built with something Closure can see into (a ' +
+       'string literal\'s `.concat`, never `str`); see `as-component` in ' +
+       're_frame/fresco/impl/codec.cljs.');
+}
+
 process.stdout.write(
-  'OK: no defview/defhost source coordinate, and no unreferenced defview, ' +
-  'in the advanced bundle (positive control present).\n');
+  'OK: no defview/defhost source coordinate, no unreferenced defview, and ' +
+  'no view held only by an unreferenced bridge, in the advanced bundle ' +
+  '(positive control present).\n');
