@@ -85,7 +85,8 @@
                 ;; consolidated :node-test build picks up the resources
                 ;; ns's + the `*-cljs-test` suites under resources/test/,
                 ;; which exercise the Resources runtime (reg-resource, the
-                ;; :rf.resource/* events + passive subs, work ledger,
+                ;; :rf.resource/* events + passive subs, the in-flight
+                ;; attempts on entries and mutation instances,
                 ;; invalidation/GC, hydration).
                 ;; Bundle-isolation holds: nothing under tools/ is
                 ;; required, and core never :requires re-frame.resources.
@@ -420,8 +421,8 @@
                 ;; surface (no example :requires anything under
                 ;; testbeds/, and vice versa).
                 "../testbeds"
-                ;; Gate-owned advanced modules which prove each optional/tooling
-                ;; bundle-isolation sentinel is emitted by its declared owner.
+                ;; Gate-owned advanced modules which prove each bundle-isolation
+                ;; elision sentinel is emitted by its declared owner.
                 ;; No production build requires these fixtures.
                 "scripts/bundle-isolation-positive-control/src"
                 ;; re-frame2-pair.runtime preload (skills/re-frame2-pair/preload).
@@ -1207,11 +1208,12 @@
    :asset-path "."
    :compiler-options {:warnings-as-errors true}
    ;; goog.DEBUG=false is pinned for RELEASE ONLY, not shared
-   ;; :compiler-options. The bundle-isolation gate greps the `release`
-   ;; counter bundle (scripts/check-bundle-isolation.cjs, out/examples/
-   ;; counter) and wants goog.DEBUG=false explicit there, matching the
-   ;; sibling :bundle-isolation-positive-control build. But the SAME
-   ;; build also serves the Xray feature browser gate
+   ;; :compiler-options. The bundle-isolation gate reads the `release`
+   ;; counter build (scripts/check-bundle-isolation.cjs, out/examples/
+   ;; counter) and wants goog.DEBUG=false explicit there: it is the OFF
+   ;; half of the elision claims, whose ON half is the
+   ;; :bundle-isolation-positive-control build at goog.DEBUG=true. But
+   ;; the SAME build also serves the Xray feature browser gate
    ;; (scripts/serve-and-run-xray-feature-gate.cjs), which compiles it in
    ;; `compile`/dev with the :devtools Xray preload below and needs
    ;; goog.DEBUG at its dev default (true) so Xray's dev instrumentation
@@ -1796,10 +1798,10 @@
   ;; fiddling.
   ;;
   ;; This build deliberately leaves Story ENABLED (no :closure-defines
-  ;; override of re-frame.story.config/enabled?). The :advanced +
-  ;; enabled?=false elision path is exercised by the plain
-  ;; examples/counter build (via the Story sentinel in
-  ;; scripts/check-bundle-isolation.cjs).
+  ;; override of re-frame.story.config/enabled?). The no-Story consumer
+  ;; is the plain examples/counter build, whose manifest.edn the
+  ;; bundle-isolation gate reads for Story sources
+  ;; (scripts/check-bundle-isolation.cjs).
   :examples/counter-with-stories
   {:target           :browser
    :output-dir       "out/examples/counter-with-stories"
