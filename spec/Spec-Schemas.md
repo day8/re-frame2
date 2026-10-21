@@ -1881,8 +1881,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 ;; --- runtime: artefact-missing errors (per MIGRATION §M-31) ---
 
 (def ArtefactMissingTags
-  ;; Shared shape for the eight artefact-missing categories: flows, ssr,
-  ;; routing, schemas, machines, http, epoch, resources. Each surfaces as a
+  ;; Shared shape for the seven artefact-missing categories: flows, ssr,
+  ;; routing, schemas, machines, http, resources. Each surfaces as a
   ;; thrown ex-info with this payload; not a trace event.
   [:map
    [:where    [:or :symbol :string]]
