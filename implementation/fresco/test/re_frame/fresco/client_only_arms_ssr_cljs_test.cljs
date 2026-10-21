@@ -276,6 +276,10 @@
             emits the live `<input>`, carrying the committed value,
             deterministically"
     (fresh! true)
+    (is (some? (rf/handler-meta {:frame frame-id :kind :sub :id rf.fresco.forms/drafts}))
+        "the field's draft read resolves to the module's own registration —
+         a missing one would still render `:value`, so the bytes alone
+         cannot tell")
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"milk\"" html)
           (str "carrying the COMMITTED value, so the page paints filled
