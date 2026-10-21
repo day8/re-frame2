@@ -2,9 +2,9 @@
   "The app-db failure trace locates the failing leaf: `:path` is the
   registered path plus the explainer's `:in` (the value's navigation path),
   `:registered-path` is the registration root, and `:value` is the failing
-  datum. Sensitivity is decided at that leaf, so a sensitive sibling does not
-  redact a non-sensitive leaf's narrowed `:value`. With no extractable `:in`
-  the trace falls back to the registered root and whole-schema sensitivity."
+  datum. Sensitivity is the whole schema's, so a sensitive sibling redacts a
+  non-sensitive leaf's narrowed `:value` too. With no extractable `:in` the
+  trace falls back to the registered root."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -63,26 +63,6 @@
 
     [:int] "x"
     [1 nil {:path [:slot] :registered-path [:slot] :value "x"}]))
-
-(deftest schema-sensitive-at?-flags-the-leaf-its-ancestors-and-descendants
-  (testing "a failing slot is sensitive when it, an ancestor or a descendant it
-            carries is flagged, never because of a sibling; a nil path is the
-            whole schema"
-    (let [sens       [:map [:p {:sensitive? true} :string]]
-          not-sens   [:map [:p :string]]
-          ancestor   [:map {:sensitive? true} [:token :string] [:expiry :int]]
-          descendant [:map [:user [:map [:name :string] [:password {:sensitive? true} :string]]]]]
-      (are [expected schema path] (= expected (rf.schemas/schema-sensitive-at? schema path))
-        true  sens       nil
-        false not-sens   nil
-        true  ancestor   [:token]
-        true  descendant [:user]
-        true  descendant [:user :password]
-        false descendant [:user :name]
-        ;; through a transparent :maybe, and beside a sensitive ancestor wrapped in :and
-        false [:map [:s [:maybe [:map [:k :string] [:secret {:sensitive? true} :string]]]]] [:s :k]
-        false [:map [:s {:sensitive? true} [:and [:map [:k :int]]]] [:other [:and [:map [:j :int]]]]]
-        [:other :j]))))
 
 (deftest multi-error-path-narrows-to-common-ancestor
   ;; Two diverging failures under one registration narrow to the parent slot
