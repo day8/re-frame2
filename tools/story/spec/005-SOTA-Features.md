@@ -879,12 +879,12 @@ Measured on `:examples/counter-with-stories` (`shadow-cljs release`,
 | Release | Raw | Gzipped |
 |---|---:|---:|
 | `:examples/counter`, which imports no Story | 672,793 | 198,195 |
-| counter-with-stories, `enabled?` false | 5,278,384 | 1,473,293 |
+| counter-with-stories, `enabled?` false | 5,268,738 | 1,468,725 |
 | the same, with those load-time forms compiled out (a diagnostic build) | 4,009,055 | 1,121,947 |
 | the same, built with Story's four Xray requires removed | 1,406,588 | 393,909 |
 | counter-with-stories, `enabled?` true | 5,915,591 | 1,655,260 |
 
-Xray is about 3.87 MB raw (1.08 MB gzipped) of the `enabled?` false
+Xray is about 3.86 MB raw (1.07 MB gzipped) of the `enabled?` false
 release. The other 733,795 raw (195,714 gzipped) over the plain counter
 is the testbed's own app and the libraries above. Compiling the load-time
 forms out drops every Xray view and still leaves about 728 KB gzipped,
