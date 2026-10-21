@@ -1315,19 +1315,24 @@
   Per `005-SOTA-Features.md` §Production elision under `:advanced` production builds with `enabled?` false short-
   circuit here and return nil — no DOM call, no Reagent render."
   [dom-node]
-  (when (and rf.story.config/enabled? dom-node)
-    (when-let [prev @shell-singleton]
-      (try
-        (rdc/unmount (:root prev))
-        (catch :default _ nil)))
-    ;; Before the first render: a variant prepared on mount can already
-    ;; produce a captured refusal. See §Error ownership above.
-    (register-error-sink!)
-    (let [root (rdc/create-root dom-node)]
-      (rdc/render root [shell])
-      (let [handle {:root root :node dom-node}]
-        (reset! shell-singleton handle)
-        handle))))
+  ;; `enabled?` is tested on its own, never inside an `and`: an `and` with a
+  ;; non-boolean operand compiles to a `cljs.core/truth_` call, which Closure
+  ;; does not fold, so the branch and the whole shell it renders would stay
+  ;; reachable in an `enabled?` false build.
+  (when rf.story.config/enabled?
+    (when dom-node
+      (when-let [prev @shell-singleton]
+        (try
+          (rdc/unmount (:root prev))
+          (catch :default _ nil)))
+      ;; Before the first render: a variant prepared on mount can already
+      ;; produce a captured refusal. See §Error ownership above.
+      (register-error-sink!)
+      (let [root (rdc/create-root dom-node)]
+        (rdc/render root [shell])
+        (let [handle {:root root :node dom-node}]
+          (reset! shell-singleton handle)
+          handle)))))
 
 (defn unmount-shell!
   "Tear down a mounted shell. Accepts the handle returned by
