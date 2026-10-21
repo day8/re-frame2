@@ -3432,10 +3432,15 @@ degrade keeps the sentence readable):
 | (fallback)    | `Aborted` when `:rollback? true`, else the `:recovery` keyword's name | "Schema violation. `schema check` for details." |
 
 \* `:app-db` chip text is `Aborted` only when the violation
-carries `:rollback? true` (the runtime rejected the candidate
-transition: the candidate is discarded, never installed, and app-db
-keeps its pre-event value — [Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery)
-row 4). The rollback-mute pass (§Rollback blast-radius
+carries `:rollback? true`: the runtime rejected a candidate
+transition, so that candidate is discarded, never installed, and the
+frame keeps the state it last installed successfully. For the event's
+own candidate, rejected before install, that is app-db's pre-event
+value ([Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery)
+row 4). For a post-walk flow settle's rejected candidate, the handler's
+install and its effects' writes stand
+([Spec 013 §Sequencing](../../../spec/013-Flows.md#sequencing--settling-on-the-dispatching-frame)).
+The rollback-mute pass (§Rollback blast-radius
 mute below) handles the downstream-step opacity overlay.
 
 The `:sub-return` chip reads `Passed through` because a sub whose
