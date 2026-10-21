@@ -14,7 +14,7 @@ The release pipeline reflects a small set of decisions Mike made up front. They 
 
 1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships a coordinated set — and are documented in [§Topological deploy DAG](#topological-deploy-dag). The authoritative artefact roster is the [`release` workflow](../.github/workflows/release.yml)'s leaf declarations — the `deploy-leaf` matrix plus the three post-matrix stages it deliberately excludes, `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` ([§The inter-leaf edges](#the-inter-leaf-edges)); the enumerations below mirror them.
 2. **Channel gating — pre-1.0 = alpha/beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.alpha` (and `v0.0.1.alpha-N` / `v0.0.2.alpha` etc. for subsequent alphas; the same pattern with `.beta` once we promote). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
-3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full artefact set** — core plus every leaf: `schemas`, `reagent`, `uix`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `resources`, `epoch`, `fresco`; no artefact "comes later" — they all ship together at every release per the lockstep contract below. The compiled-view substrate `re-frame.ui` is **not** in that set and never will be: Mike ruled on 2026-07-22 that `day8/re-frame2-ui` is not to be published (rf2-a32r7), and on 2026-08-14 that both it and `re-frame.freehand` are retired and removed from the tree (rf2-0yp7w).
+3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full artefact set** — core plus every leaf: `schemas`, `reagent`, `uix`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `resources`, `fresco`; no artefact "comes later" — they all ship together at every release per the lockstep contract below. The compiled-view substrate `re-frame.ui` is **not** in that set and never will be: Mike ruled on 2026-07-22 that `day8/re-frame2-ui` is not to be published (rf2-a32r7), and on 2026-08-14 that both it and `re-frame.freehand` are retired and removed from the tree (rf2-0yp7w).
 4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
 5. **Artefact set ships together at lockstep VERSION.** Every framework artefact ships at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh). Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep. The tool jars share that VERSION but not that trigger — they ship on per-tool tags at their own cadence, which is a difference of *when*, never of *what version* (see [§The tools tier](#the-tools-tier)).
 
@@ -56,7 +56,6 @@ graph TD
   C --> F[deploy-flows]
   C --> H[deploy-http]
   C --> SS[deploy-ssr]
-  C --> E[deploy-epoch]
   S --> SR[deploy-ssr-ring]
   R --> SR
   U --> SR
@@ -65,7 +64,6 @@ graph TD
   F --> SR
   H --> SR
   SS --> SR
-  E --> SR
   S --> HI[deploy-fresco]
   R --> HI
   U --> HI
@@ -74,7 +72,6 @@ graph TD
   F --> HI
   H --> HI
   SS --> HI
-  E --> HI
   S --> RES[deploy-resources]
   R --> RES
   U --> RES
@@ -83,7 +80,6 @@ graph TD
   F --> RES
   H --> RES
   SS --> RES
-  E --> RES
   SR --> GR[github-release]
   HI --> GR
   RES --> GR
@@ -97,7 +93,7 @@ ASCII fallback:
 verify-version-lockstep ──► test ──► deploy-core
                                        │
                                        │   ── deploy-leaf: ONE matrix job,
-                                       │      9 values, all in parallel ──
+                                       │      8 values, all in parallel ──
                                        ├── deploy-schemas
                                        ├── deploy-reagent
                                        ├── deploy-uix
@@ -105,8 +101,7 @@ verify-version-lockstep ──► test ──► deploy-core
                                        ├── deploy-routing
                                        ├── deploy-flows
                                        ├── deploy-http
-                                       ├── deploy-ssr
-                                       └── deploy-epoch
+                                       └── deploy-ssr
                                                 │
                        ┌────────────────────────┼────────────────────────┐
                        ▼                        ▼                        ▼
@@ -116,7 +111,7 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf but three has core as its only re-frame2 dependency, so the CI graph realises a valid topological sort that exploits the parallelism: the nine independent leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch), the view layer — the two substrate adapters (reagent, the default; uix) — and the Fresco view substrate, which is neither. The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml), plus the three leaves that job deliberately excludes, `ssr-ring`, `fresco` and `resources`.
+**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf but three has core as its only re-frame2 dependency, so the CI graph realises a valid topological sort that exploits the parallelism: the eight independent leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources), the view layer — the two substrate adapters (reagent, the default; uix) — and the Fresco view substrate, which is neither. The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml), plus the three leaves that job deliberately excludes, `ssr-ring`, `fresco` and `resources`.
 
 **The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default) and `:uix`, one variant per shipped adapter. Adding a substrate to the `deploy-leaf` matrix does not automatically add a template variant; the two are decided separately.
 

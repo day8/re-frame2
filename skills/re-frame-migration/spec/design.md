@@ -69,7 +69,7 @@ When the skill picks an adapter to recommend (M-0 substrate-adapter slot), the d
 
 ### L8 — Single-import contract for new / migrated code
 
-User code uses `(:require [re-frame.core :as rf])`. The skill rewrites every private-namespace require (M-1, M-23, M-38) to land at this contract. Per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-schemas`, `-epoch`) require the per-feature namespace (`re-frame.machines`, etc.) **in addition** for hook registration — the contract there is "core single-import for the public API; per-feature requires for hook installation."
+User code uses `(:require [re-frame.core :as rf])`. The skill rewrites every private-namespace require (M-1, M-23, M-38) to land at this contract. Per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-schemas`) require the per-feature namespace (`re-frame.machines`, etc.) **in addition** for hook registration — the contract there is "core single-import for the public API; per-feature requires for hook installation."
 
 ### L9 — Smallest correct diff
 

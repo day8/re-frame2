@@ -76,8 +76,8 @@ matching the `init!` docstring's enumeration in `core.cljs`):
  under `:rf.xray/trace-collector`.
 3. Register the epoch collector via `(rf/register-listener! :epoch …)`
  under `:rf.xray/epoch-collector`. `install.cljs` carries a bare
- `[re-frame.epoch]` require, so the producer is loaded on every startup
- path and the facade's absent-artefact no-op cannot arise here.
+ `[re-frame.epoch]` require, naming the dependency on every startup
+ path; `re-frame.core` already loads it.
 4. Install the `window.day8.re_frame2_xray.*` browser-API exports
  (`install-browser-api-exports!`) — the console verbs `open_BANG_` /
  `open_overlay_BANG_` / `popout_BANG_` the devtools paths below invoke,
