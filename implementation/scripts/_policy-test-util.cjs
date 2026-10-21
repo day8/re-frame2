@@ -6,7 +6,7 @@
  * Shared utilities for the source-policy gate suites.
  *
  * The `_*-policy.test.cjs` gates are static source scanners: they read a
- * first-party script's text and assert on it. Three pieces they share live
+ * first-party script's text and assert on it. Two pieces they share live
  * here once, rather than as verbatim copies across them:
  *
  *   - `stripComments` — a deliberately simple (NOT a JS parser) stripper of
@@ -18,13 +18,6 @@
  *   - the standalone test harness (`const tests=[]; function test(){...}` +
  *     the run loop + the `<label> tests: N passed/failed.` footer) the
  *     framework-free `_*.test.cjs` convention repeats.
- *
- *   - `loopbackBindRe` — the http-server `-a 127.0.0.1` loopback-bind
- *     matcher. Two callers ( _script-spawn-policy + _story-script-runners-
- *     policy) share the identical tail `,[\s\S]{0,80}?'-a','127.0.0.1'`
- *     but differ in the bin-token alternation they anchor it to; the factory
- *     takes each caller's exact token set, so each gate keeps its own
- *     strictness.
  *
  * This is a plain helper module (NOT a `.test.cjs`), so the `test:script-*`
  * runners don't execute it as a suite; the policy suites `require` it.
@@ -75,19 +68,6 @@ function stripComments(src) {
   return out;
 }
 
-// Build the http-server loopback-bind matcher. `binTokenPattern` is the
-// RegExp-source alternation for the bin token a launcher names before its
-// `'-a', '127.0.0.1'` argument pair (e.g. `'HTTP_SERVER_BIN'` for the
-// constant form, or `'(?:httpServerBin\\(\\)|HTTP_SERVER_BIN)'` to also
-// accept the lazy-resolver form). The shared tail tolerates a short window
-// of intervening args/whitespace between the bin token and the loopback
-// pair. NB `[\s\S]{0,80}?` (not `[^]`): the JS-regex `[^]`-any-char gotcha.
-function loopbackBindRe(binTokenPattern) {
-  return new RegExp(
-    `${binTokenPattern},[\\s\\S]{0,80}?['"]-a['"]\\s*,\\s*['"]127\\.0\\.0\\.1['"]`,
-  );
-}
-
 // Create a standalone, framework-free test harness matching the
 // `_*.test.cjs` convention. `label` names the suite in the footer.
 //   opts.perTestPass : true ⇒ print `PASS  <name>` per passing test and
@@ -127,6 +107,5 @@ function createPolicyTestSuite(label, opts = {}) {
 
 module.exports = {
   stripComments,
-  loopbackBindRe,
   createPolicyTestSuite,
 };
