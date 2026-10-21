@@ -752,7 +752,9 @@
 ;; runs inside the construction: its dispatches flush any pending reprojection
 ;; against a record that already carries the incoming pair, which re-resolves
 ;; byte-for-byte and so swaps nothing. Reprojection writes the generation
-;; alone and leaves the pool as it found it.
+;; alone and leaves the pool as it found it, so its publish lands only while
+;; the record still carries the pair it read: a same-id re-registration that
+;; staged a new pair meanwhile keeps it, paired.
 ;;
 ;; The pool is transient: the engine strips it from the stored `:config`, so no
 ;; `frame-meta` read, lifecycle trace or tool carries it, and it leaves with the
@@ -1240,21 +1242,19 @@
   on the ONE record, so an `:id`-bearing frame and any holder of its frame value
   observe the swap through the same record.
 
-  The swap publishes only onto the incarnation `token` names — the one the
-  reprojection read — and returns whether it did. A frame destroyed and re-made
-  under the same id in between keeps its own generation; the stale one is
-  dropped, with no retry.
+  The swap publishes only onto `read-record`, the record the reprojection
+  re-resolved from — the same incarnation, still carrying the same generation
+  and pool (`rf.frame/set-generation!`'s compare-and-set) — and returns whether
+  it did.
 
   A published swap is followed by the TARGETED subscription refresh — frame
   memory continuing across a reload does not mean a cached reaction built
-  against the OLD generation's descriptor continues with it. Read the old
-  generation off the record here rather than trusting a caller's snapshot, so
-  the diff is against what the swap actually displaced."
-  [id token new-generation]
-  (let [old-generation (rf.frame/frame-generation id)
-        published?     (rf.frame/set-generation! id token new-generation)]
+  against the OLD generation's descriptor continues with it. The swap
+  displaced exactly `read-record`'s generation, so the diff is against that."
+  [id read-record new-generation]
+  (let [published? (rf.frame/set-generation! id read-record new-generation)]
     (when published?
-      (invalidate-subs-for-generation-change! id old-generation new-generation))
+      (invalidate-subs-for-generation-change! id (:generation read-record) new-generation))
     published?))
 
 ;; ===========================================================================
@@ -1293,17 +1293,27 @@
   frozen pool value always re-resolves identically). A no-op for a frame-id
   whose record carries no generation (not image-loaded). The incarnation
   token, the generation and its pool are read from ONE record snapshot, so the
-  composition always meets the pool it was sealed against; if the frame was
-  destroyed and re-made under the same id before the publish, the new
-  generation is dropped and this returns nil."
+  composition always meets the pool it was sealed against, and the publish
+  lands only while the record still carries all three.
+
+  When the record moved before the publish, the outcome depends on what moved.
+  If the frame was destroyed and re-made under the same id, the new generation
+  is dropped and this returns nil. If the same incarnation's generation or
+  pool moved instead (a same-id re-registration staged a new pair, or another
+  reprojection published), it re-resolves from the record that moved, so it
+  never overwrites a pair it did not read and never drops a refresh that pair
+  still needs."
   [frame-id]
-  (let [record (rf.frame/frame frame-id)]
+  (loop [record (rf.frame/frame frame-id)]
     (when-let [old-generation (:generation record)]
       (let [images         (vec (:rf.gen/images old-generation))
             new-generation (resolve-generation! images (:descriptor-pool record))]
-        (when (and (not= old-generation new-generation)
-                   (swap-frame-generation! frame-id (:drain-lock record) new-generation))
-          (generation-diff old-generation new-generation))))))
+        (when (not= old-generation new-generation)
+          (if (swap-frame-generation! frame-id record new-generation)
+            (generation-diff old-generation new-generation)
+            (let [current (rf.frame/frame frame-id)]
+              (when (identical? (:drain-lock record) (:drain-lock current))
+                (recur current)))))))))
 
 (defn reproject-live-frames!
   "Reproject EVERY image-loaded frame against the CURRENT live source store (the
