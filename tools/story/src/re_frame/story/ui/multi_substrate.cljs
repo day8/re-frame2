@@ -62,8 +62,8 @@
   stale one after every save.
 
   **The element is minted fresh and its TYPE is stable, so there is no
-  cache to keep.** `h/defview` already mints ONE `React.memo` wrapper per
-  head at definition time and every element made from that head rides it
+  cache to keep.** A `h/defview` head builds ONE `React.memo` wrapper, at
+  its first element, keeps it on the head, and every element made from it rides it
   (`re-frame.fresco.impl.codec/memoize-boundary!` + `element-type`), so a
   fresh element per pass re-renders the boundary and never remounts it.
   `h/as-component` is the wrong door here on both counts: it allocates a

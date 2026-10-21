@@ -1,8 +1,9 @@
 (ns re-frame.fresco.coord-sentinel-source
   "THE SENTINEL DECLARATIONS — one `defview` and one
-  `defhost`, declared for their SOURCE COORDINATES, and one `defview`
-  declared to be DROPPED: nothing references [[dropped-row]], so the
-  release build must not carry it at all.
+  `defhost`, declared for their SOURCE COORDINATES, and two declared to
+  be DROPPED: nothing references [[dropped-row]], and nothing but the
+  unreferenced bridge [[dropped-bridge]] references [[bridged-row]], so
+  the release build must carry neither.
 
   ## Why they are not in the suite that asserts about them
 
@@ -47,6 +48,19 @@
   alone."
   [_]
   [:li "dropped"])
+
+(rf.fresco/defview bridged-row
+  "Referenced only by [[dropped-bridge]]; the same rules as
+  [[dropped-row]]."
+  [_]
+  [:li "bridged"])
+
+(def dropped-bridge
+  "A top-level `h/as-component` bridge nothing references. A bridge is a
+  pure allocation too, so `:advanced` drops it and [[bridged-row]] with
+  it, and `check_source_coord_elision.cjs` requires that view's name
+  absent."
+  (rf.fresco/as-component bridged-row))
 
 (rf.fresco/defhost sentinel-host
   "The declaration channel's half of the same proof — `defhost` opens the
