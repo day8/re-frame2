@@ -565,11 +565,13 @@
     (coll? v) (every? structural? v)
     :else     false))
 
-(defn- id-summary
+(defn id-summary
   "`v` reduced to its identity: a vector headed by a keyword id keeps the id and
   redacts every argument, the shape `:trigger-event` takes off-box. A nil rides,
   because it carries nothing (a conditional `:fx` entry is legally nil); anything
-  else has no id to keep and redacts whole."
+  else has no id to keep and redacts whole. The off-box shape of every event or
+  query vector, in a trace tag or in an epoch record's `:sub-runs` row.
+  Idempotent. Security.md §Epoch privacy posture; Spec-Schemas §`:rf/epoch-record`."
   [v]
   (cond
     (nil? v) v

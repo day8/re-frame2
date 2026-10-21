@@ -2269,12 +2269,32 @@
         (rf.projection/project-egress (egress-opts frame-id opts))
         (allow-list-trace-tags opts))))
 
+(def ^:private sub-run-query-vector-slots
+  "The `:sub-runs` row slots holding a query vector, whose args are user values."
+  [:query-v :cause-sub])
+
+(defn- summarize-sub-run-query-vectors
+  "Off box, each of a `:sub-runs` row's query vectors keeps its head id and
+  ships its args `:rf/redacted` (`re-frame.projection/id-summary`), the shape
+  the same vector takes in the `:rf.sub/run` trace tag. The trusted-local
+  `:rf.egress/include-sensitive?` opt-in lifts it, as it lifts the trace-tag
+  allow-list. Spec-Schemas §`:rf/epoch-record` (`:sub-runs`)."
+  [sub-run-row {:rf.egress/keys [include-sensitive?]}]
+  (if include-sensitive?
+    sub-run-row
+    (reduce (fn [row slot]
+              (cond-> row
+                (contains? row slot) (update slot rf.projection/id-summary)))
+            sub-run-row
+            sub-run-query-vector-slots)))
+
 (defn- elide-sub-run-row
-  "Project a structured `:sub-runs` row. Its `:prev-value` / `:value`
+  "Project a structured `:sub-runs` row. Its query vectors (`:query-v`,
+  `:cause-sub`) keep only their ids off box
+  (`summarize-sub-run-query-vectors`). Its `:prev-value` / `:value`
   slots hold computed app data, so unlike the non-value
-  metadata (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`,
-  `:cause-sub`, `:cause-event-id`), they MUST respect the projection
-  contract.
+  metadata (`:sub-id`, `:value-changed?`, `:cascade?`, `:cause-event-id`),
+  they MUST respect the projection contract.
 
   The whole-output `:sensitive?` case is already redacted at the marks
   emit site (the slots arrive carrying `:rf/redacted`), so no work is
@@ -2293,7 +2313,9 @@
   at the marks emit site (`redact-with-paths`), so they ride the row
   pre-marked and need no projection here."
   [sub-run-row opts]
-  (elide-whole-output-large-slots sub-run-row opts :value :prev-value))
+  (-> sub-run-row
+      (elide-whole-output-large-slots opts :value :prev-value)
+      (summarize-sub-run-query-vectors opts)))
 
 (defn- elide-sub-runs-slot
   "Project the structured `:sub-runs` vector for off-box egress: walk
