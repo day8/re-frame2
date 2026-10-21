@@ -202,7 +202,7 @@ implementation/                CLJS reference implementation — per-artefact su
   event-conformance/           test-only, not published — cross-artefact public event-model
                                conformance (registration, coeffects, replies, error channels)
   reply-conformance/           test-only, not published — managed-async reply-envelope
-                               conformance across HTTP, resources, machines, routing
+                               conformance across HTTP, resources, routing
   scripts/                     Build / release scripts
   shadow-cljs.edn              Top-level build coordinator: pulls all artefacts onto one classpath
   deps.edn                     Top-level build coordinator (clojure-tools): :local/root deps for all

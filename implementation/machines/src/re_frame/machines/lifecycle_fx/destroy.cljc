@@ -45,7 +45,7 @@
   for its exact two-key shape, and only when the resolved slot is an actor-id
   KEYWORD — never a `:spawn-all` join-state map. Every malformed, overlapping,
   or unknown shape fails loud with `:rf.error/machine-destroy-bad-arg` and
-  performs ZERO mutation — no slot, actor, child, trace, terminal-reply, or
+  performs ZERO mutation — no slot, actor, child, trace, terminal work record, or
   ownership change. There is no permissive coercion, no truthy alias, and no
   compatibility fallback.
 
@@ -502,10 +502,10 @@
   ride the effect owner's token. Before teardown,
   `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
-  generation feeds the reply identity; a single-`:spawn` child's is the
+  generation feeds the work identity; a single-`:spawn` child's is the
   `[:rf/runtime :work-generation]` its spawn stamped, read from its `old-db` snapshot,
   so the cancel row closes the same work id the attempt's done or error
-  reply would carry. The trace carries the requested
+  row would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion."
   [frame-id actor-id requested-reason parent-id invoke-id old-db owner-token]
@@ -518,7 +518,7 @@
             ;; The keyword form names only the actor. A declarative
             ;; single-`:spawn` child names its spawn in its own
             ;; `:parent-id` / `:invoke-id` runtime stamps, so its trace and
-            ;; cancel row carry the coordinates its done or error reply
+            ;; cancel row carry the coordinates its done or error row
             ;; carries. The teardown below still prunes only the slots the
             ;; caller named: a keyword destroy leaves the tracked slot to
             ;; the parent's exit (`destroy-tracked!`).
@@ -529,7 +529,7 @@
             ;; A single-`:spawn` child has no membership record; the
             ;; `:work-generation` its spawn stamped sets its generation,
             ;; exactly as `finalize-machine` reads it for the attempt's done
-            ;; or error reply.
+            ;; or error row.
             work-generation (or (:work-generation join-child)
                                 (:work-generation child-rt))]
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
@@ -834,10 +834,10 @@
 
   `:reason` is `:explicit`, never a bespoke enum member: both
   `prepare-join-child-teardown!`'s live-join-child cancellation (its
-  `cancel-current?` gate) and `traces/emit-destroyed!`'s cancelled-reply facts
+  `cancel-current?` gate) and `traces/emit-destroyed!`'s cancelled work record
   (its `cancelled?` gate) test for exactly `:explicit`, so a bespoke reason
   would SKIP both and leave a replaced join child's attempt uncancelled with its
-  reply facts unemitted.
+  work record unemitted.
 
   OCCUPANCY IS `occupant-actor-live?`, NEVER `actor-live?`. Only a live spawned
   ACTOR is an occupant; an uninstantiated registered TYPE or plain event handler

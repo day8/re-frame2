@@ -61,7 +61,7 @@
       latch already flipped). Surviving siblings are unconditionally
       destroyed at resolution, so a straggler with no live join is a
       genuinely stale completion: the record stays frozen and the
-      `:rf.machine.spawn-all/late-completion` trace fires (stale reply), with
+      `:rf.machine.spawn-all/late-completion` trace fires (a stale work record), with
       no `:done` / `:failed` fold.
    5. Else evaluates the join condition. The join grammar is a CLOSED
       two-member enum — `:all` (default) + `:any`. On resolution:
@@ -81,8 +81,8 @@
   completion carrier through it instead of the machine's normal `:on` lookup."
   (:require [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.machines.work :as rf.machines.work]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -178,13 +178,25 @@
   (when (contains? (:children join-state) child-id)
     (if (contains? (:fixed-children join-state) child-id)
       attempt
-      (rf.machines.reply/actor-generation spawned-id))))
+      (rf.machines.work/actor-generation spawned-id))))
+
+(defn- child-correlation
+  "The correlation of one `:spawn-all` child's work: the join's parent and
+  invoke path, the logical child id and the spawned instance address, each when
+  known. A suppressed completion adds the `kind` it would have folded as."
+  [parent-id invoke-id child-id spawned-id kind]
+  (cond-> {}
+    (some? parent-id)  (assoc :parent-id parent-id)
+    (some? invoke-id)  (assoc :invoke-id (vec invoke-id))
+    (some? child-id)   (assoc :child-id child-id)
+    (some? spawned-id) (assoc :spawned-id spawned-id)
+    (some? kind)       (assoc :kind kind)))
 
 (defn- suppress-stale-completion!
   "Fail-closed suppression of a completion carrier that may NOT fold:
   emit one `:rf.machine.spawn-all/stale-completion` trace
-  carrying the `:status :stale` / `:rf.reply/work-status :suppressed`
-  reply facts with the precise `stale-reason`
+  carrying a `:status :stale` / `:work-status :suppressed` work record
+  with the precise `stale-reason`
   (`:rf.machine.spawn-all/attempt-unverified` — no runtime stamp;
   `:rf.machine.spawn-all/attempt-superseded` — prior attempt / wrong
   actor / mis-routed join; `:rf.machine.spawn-all/duplicate-completion` —
@@ -209,31 +221,27 @@
   attempt's work identity."
   [frame-id parent-id invoke-id child-id spawned-id work-generation kind
    completed-at runtime-db stale-reason]
-  (let [stale-reply (rf.machines.reply/stale-join-child-reply
-                      {:parent-id    parent-id
-                       :invoke-id    invoke-id
-                       :child-id     child-id
-                       :spawned-id   spawned-id
-                       :work-generation work-generation
-                       :frame        frame-id
-                       :completed-at completed-at}
-                      kind stale-reason)
-        summary     (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+  (let [work (rf.machines.work/record
+               (rf.machines.work/spawn-work-id spawned-id invoke-id work-generation)
+               :stale
+               {:stale-reason stale-reason
+                :correlation  (child-correlation parent-id invoke-id child-id spawned-id kind)
+                :completed-at completed-at})]
     (rf.trace/emit! :rf.machine :rf.machine.spawn-all/stale-completion
                  (cond-> {:actor-id  parent-id
                           :invoke-id invoke-id
                           :child-id  child-id
                           :kind      kind
                           :frame     frame-id
-                          ;; reply-envelope vocabulary (Managed-Effects §9)
-                          :rf.reply/work-kind    (:rf.reply/work-kind summary)
-                          :rf.reply/status       (:status summary)
-                          :rf.reply/work-id      (:rf.reply/work-id summary)
-                          :rf.reply/work-status  (:rf.reply/work-status summary)
-                          :rf.reply/stale-reason (:rf.reply/stale-reason summary)
-                          :rf.reply/correlation  (:correlation summary)}
-                   (some? (:completed-at summary))
-                   (assoc :rf.reply/completed-at (:completed-at summary))))
+                          ;; work record (Spec 005 §Machine completions emit work records)
+                          :rf.reply/work-kind    (:work-kind work)
+                          :rf.reply/status       (:status work)
+                          :rf.reply/work-id      (:work-id work)
+                          :rf.reply/work-status  (:work-status work)
+                          :rf.reply/stale-reason (:stale-reason work)
+                          :rf.reply/correlation  (:correlation work)}
+                   (contains? work :completed-at)
+                   (assoc :rf.reply/completed-at (:completed-at work))))
     {:rf.db/runtime runtime-db
      :fx []}))
 
@@ -333,13 +341,13 @@
      :resolution-event resolution-event
      :join-event-kw    join-event-kw}))
 
-(defn- child-completion-reply-facts
-  "Build the reply-envelope facts for ONE accepted child completion —
-  the canonical `:completed` / `:failed` terminal for that child's work
-  attempt, lowered through the shared `join-child-reply` (`:status :ok`
-  for a `:done` fold, `:status :error` for a `:failed` fold) — the same
-  uniform vocabulary the single-`:spawn` `:rf.machine/done` reply carries.
-  Returns a tag-map fragment `{:rf.reply/work-id … :rf.reply/status … …}`.
+(defn- child-completion-tags
+  "The trace tags of ONE accepted child completion's work record — the
+  `:completed` / `:failed` terminal for that child's work attempt
+  (`:status :ok` for a `:done` fold, `:status :error` for a `:failed` fold),
+  in the same vocabulary the single-`:spawn` `:rf.machine/done` trace
+  carries. Returns a tag-map fragment `{:rf.reply/work-id … :rf.reply/status
+  … …}`.
 
   ONE AUTHORITY PER CHILD: these facts ride EXACTLY ONE trace
   per accepted fold — the `:rf.machine.spawn-all/child-completed` fold
@@ -350,29 +358,21 @@
   terminal twice; duplicate pre-resolution signals are suppressed upstream
   by the exact-attempt fence, and post-resolution arrivals stay `:stale`.
 
-  `kind` is the arriving child's fold kind (`:done` / `:failed`);
-  `result` is the child's `:output-key` value at its finality (carried under
-  `:value` for a `:done` fold, wrapped as the error for a `:failed` fold)."
-  [frame-id parent-id invoke-id join-state'' child-id work-generation kind
-   result completed-at]
+  `kind` is the arriving child's fold kind (`:done` / `:failed`)."
+  [parent-id invoke-id join-state'' child-id work-generation kind completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])
-        reply      (rf.machines.reply/join-child-reply
-                     {:parent-id    parent-id
-                      :invoke-id    invoke-id
-                      :child-id     child-id
-                      :spawned-id   spawned-id
-                      :work-generation work-generation
-                      :frame        frame-id
-                      :completed-at completed-at}
-                     kind result)
-        summary    (rf.machines.reply/trace-reply reply {:frame frame-id})]
-    (cond-> {:rf.reply/work-kind            (:rf.reply/work-kind summary)
-             :rf.reply/status      (:status summary)
-             :rf.reply/work-id     (:rf.reply/work-id summary)
-             :rf.reply/work-status (:rf.reply/work-status summary)
-             :rf.reply/correlation (:correlation summary)}
-      (some? (:completed-at summary))
-      (assoc :rf.reply/completed-at (:completed-at summary)))))
+        work       (rf.machines.work/record
+                     (rf.machines.work/spawn-work-id spawned-id invoke-id work-generation)
+                     (if (= kind :failed) :error :ok)
+                     {:correlation  (child-correlation parent-id invoke-id child-id spawned-id nil)
+                      :completed-at completed-at})]
+    (cond-> {:rf.reply/work-kind   (:work-kind work)
+             :rf.reply/status      (:status work)
+             :rf.reply/work-id     (:work-id work)
+             :rf.reply/work-status (:work-status work)
+             :rf.reply/correlation (:correlation work)}
+      (contains? work :completed-at)
+      (assoc :rf.reply/completed-at (:completed-at work)))))
 
 (defn- emit-child-fold-terminal!
   "Fire the `:rf.machine.spawn-all/child-completed` trace for a
@@ -392,7 +392,7 @@
   reach here (suppressed by the exact-attempt fence) and post-resolution
   arrivals stay `:stale` — one terminal per work attempt, closed."
   [frame-id parent-id invoke-id join-state'' child-id work-generation kind
-   result completed-at]
+   completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])]
     (rf.trace/emit! :rf.machine :rf.machine.spawn-all/child-completed
                  (merge {:actor-id   parent-id
@@ -403,10 +403,9 @@
                          :done       (:done   join-state'')
                          :failed     (:failed join-state'')
                          :frame      frame-id}
-                        (child-completion-reply-facts
-                          frame-id parent-id invoke-id join-state''
-                          child-id work-generation kind result
-                          completed-at)))))
+                        (child-completion-tags
+                          parent-id invoke-id join-state''
+                          child-id work-generation kind completed-at)))))
 
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
@@ -418,10 +417,10 @@
   `(:rf/frame machine)` at the interceptor's entry) so the join
   resolution traces reach the cascade's `:trace-events` slot.
 
-  The DECISIVE child completion that drove the resolution lowers through
-  the shared `join-child-reply`; its reply-envelope facts
-  (`:rf.reply/work-id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
-  `:completed-at`) ride ADDITIVELY on the resolution trace, so the
+  The work record of the DECISIVE child completion that drove the
+  resolution (`child-completion-tags`: `:rf.reply/work-id`,
+  `:rf.reply/status`, `:rf.reply/work-status`, the causal
+  `:rf.reply/completed-at`) rides ADDITIVELY on the resolution trace, so the
   join-resolving child completion classifies the same way the
   single-`:spawn` path does, beside the public resolution-trace slots
   (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`)."
@@ -436,29 +435,27 @@
                          :failed     (:failed join-state'')
                          :done       (:done   join-state'')
                          :frame      frame-id}
-                        (child-completion-reply-facts
-                          frame-id parent-id invoke-id join-state''
-                          child-id work-generation :failed result
-                          completed-at))))
+                        (child-completion-tags
+                          parent-id invoke-id join-state''
+                          child-id work-generation :failed completed-at))))
   (when success-fired?
-    (let [reply-facts (child-completion-reply-facts
-                        frame-id parent-id invoke-id join-state''
-                        child-id work-generation :done result
-                        completed-at)]
+    (let [work-tags (child-completion-tags
+                      parent-id invoke-id join-state''
+                      child-id work-generation :done completed-at)]
       (if (= :all (:join spec :all))
         (rf.trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
                      (merge {:actor-id parent-id
                              :invoke-id invoke-id
                              :done       (:done join-state'')
                              :frame      frame-id}
-                            reply-facts))
+                            work-tags))
         (rf.trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
                      (merge {:actor-id parent-id
                              :invoke-id invoke-id
                              :done       (:done join-state'')
                              :join       (:join spec)
                              :frame      frame-id}
-                            reply-facts))))))
+                            work-tags))))))
 
 (defn- live-attempt-member?
   "True iff `spawned-id` is still a LIVE actor whose `:join-child`
@@ -525,29 +522,23 @@
                                                join-state'' cid spawned-id))))]
             (doseq [[cid spawned-id] survivors]
               ;; A join-survivor cancellation closes the survivor's actor
-              ;; work attempt the reply-envelope way: a `:status :cancelled`
-              ;; reply (cancellation as DATA, Managed-Effects §Cancellation).
-              ;; The reply-envelope facts (`:rf.reply/work-id` keyed on the
-              ;; survivor's spawned instance, `:rf.reply/status :cancelled`,
-              ;; `:rf.reply/cancel-reason :on-join-resolution`) ride ADDITIVELY
-              ;; so the survivor cancellation joins the same uniform work/reply
-              ;; row the spawn started — the spawn-all analogue of the
-              ;; single-actor destroy cancellation. The survivor's own
-              ;; `:rf.machine/destroy` fx ALSO closes it through the
-              ;; `:rf.machine/destroyed` cancelled reply; this trace carries the
-              ;; join-resolution attribution.
-              (let [survivor-summary
-                    (rf.machines.reply/trace-reply
-                      (rf.machines.reply/cancelled-actor-reply
-                        {:actor-id          spawned-id
-                         :parent-id         parent-id
-                         :work-bearing-path invoke-id
-                         :work-generation   (join-work-generation
-                                              join-state'' cid spawned-id
-                                              (:rf/attempt join-state''))
-                         :frame             frame-id
-                         :reason            :on-join-resolution})
-                      {:frame frame-id})]
+              ;; work attempt as DATA (Managed-Effects §Cancellation): a
+              ;; `:status :cancelled` work record keyed on the survivor's
+              ;; spawned instance, with `:cancel-reason :on-join-resolution`,
+              ;; so the cancellation joins the work row the spawn started —
+              ;; the spawn-all analogue of the single-actor destroy
+              ;; cancellation. The survivor's own `:rf.machine/destroy` fx
+              ;; ALSO closes it on its `:rf.machine/destroyed` trace; this
+              ;; trace carries the join-resolution attribution.
+              (let [work (rf.machines.work/record
+                           (rf.machines.work/spawn-work-id
+                             spawned-id invoke-id
+                             (join-work-generation join-state'' cid spawned-id
+                                                   (:rf/attempt join-state'')))
+                           :cancelled
+                           {:cancel-reason :on-join-resolution
+                            :correlation   (rf.machines.work/actor-correlation
+                                             spawned-id parent-id invoke-id)})]
                 (rf.trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
                              {:actor-id parent-id
                               :invoke-id invoke-id
@@ -555,14 +546,14 @@
                               :spawned-id spawned-id
                               :join-event join-event-kw
                               :frame      frame-id
-                              ;; reply-envelope vocabulary (Managed-Effects §9)
-                              :rf.reply/work-kind            (:rf.reply/work-kind survivor-summary)
-                              :rf.reply/status      (:status survivor-summary)
-                              :rf.reply/work-id     (:rf.reply/work-id survivor-summary)
-                              :rf.reply/work-status (:rf.reply/work-status survivor-summary)
-                              :rf.reply/cancelled?  (:cancelled? survivor-summary)
-                              :rf.reply/cancel-reason (:rf.reply/cancel-reason survivor-summary)
-                              :rf.reply/correlation (:correlation survivor-summary)})))
+                              ;; work record (Spec 005 §Machine completions emit work records)
+                              :rf.reply/work-kind     (:work-kind work)
+                              :rf.reply/status        (:status work)
+                              :rf.reply/work-id       (:work-id work)
+                              :rf.reply/work-status   (:work-status work)
+                              :rf.reply/cancelled?    true
+                              :rf.reply/cancel-reason (:cancel-reason work)
+                              :rf.reply/correlation   (:correlation work)})))
             ;; Only the SURVIVORS need an fx. Tearing down an already-torn-down
             ;; child would be a silent-idempotent no-op, but emitting the
             ;; destroy at all would be a lie about what the join did: the
@@ -663,8 +654,8 @@
           ;; The CAUSAL completion timestamp of the child's finality, carried on
           ;; the completion the child's own finalize minted (the router-stamped
           ;; `:rf/time-ms` off that macrostep's `:rf.cofx`). Rides the
-          ;; reply-envelope join-child / late-completion facts the same way the
-          ;; single-`:spawn` `:rf.machine/done` reply carries it
+          ;; join-child / late-completion work records the same way the
+          ;; single-`:spawn` `:rf.machine/done` record carries it
           ;; (Managed-Effects §Causal completion metadata). nil for a pure-fn /
           ;; no-cofx caller — then omitted, not nil-filled.
           completed-at (:completed-at completion)
@@ -764,11 +755,11 @@
         ;; Already resolved: post-resolution LATE completion of the carrier's
         ;; OWN current attempt (a genuine survivor draining after the
         ;; `:resolved?` latch already flipped). Trace once for observability +
-        ;; classify it stale (no further PARENT event ever fires). The
-        ;; reply-envelope facts mark the completion `:status :stale` /
-        ;; `:rf.reply/work-status :suppressed` (Managed-Effects §Stale
-        ;; suppression): it is SUPPRESSED from RE-RESOLVING the join — exactly
-        ;; the §Stale-suppression "fires no further parent event" rule.
+        ;; classify it stale (no further PARENT event ever fires). Its work
+        ;; record is `:status :stale` / `:work-status :suppressed`
+        ;; (Managed-Effects §Stale suppression): it is SUPPRESSED from
+        ;; RE-RESOLVING the join — exactly the §Stale-suppression "fires no
+        ;; further parent event" rule.
         ;;
         ;; Surviving siblings are unconditionally destroyed at resolution, so a
         ;; late completion is always a genuinely stale straggler with no live
@@ -780,34 +771,30 @@
               work-generation (join-work-generation
                                 join-state child-id spawned-id
                                 (:rf/attempt join-state))
-              stale-reply (rf.machines.reply/stale-join-child-reply
-                            {:parent-id    parent-id
-                             :invoke-id    invoke-id
-                             :child-id     child-id
-                             :spawned-id   spawned-id
-                             :work-generation work-generation
-                             :frame        frame-id
-                             :completed-at completed-at}
-                            kind)
-              summary    (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+              work (rf.machines.work/record
+                     (rf.machines.work/spawn-work-id spawned-id invoke-id work-generation)
+                     :stale
+                     {:stale-reason :rf.machine.spawn-all/join-resolved
+                      :correlation  (child-correlation parent-id invoke-id child-id spawned-id kind)
+                      :completed-at completed-at})]
           (rf.trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
                        (cond-> {:actor-id parent-id
                                 :invoke-id invoke-id
                                 :child-id   child-id
                                 :kind       kind
                                 :frame      frame-id
-                                ;; reply-envelope vocabulary (Managed-Effects §9)
-                                :rf.reply/work-kind             (:rf.reply/work-kind summary)
-                                :rf.reply/status       (:status summary)
-                                :rf.reply/work-id      (:rf.reply/work-id summary)
-                                :rf.reply/work-status  (:rf.reply/work-status summary)
-                                :rf.reply/stale-reason (:rf.reply/stale-reason summary)
-                                :rf.reply/correlation  (:correlation summary)}
-                         (some? (:completed-at summary))
-                         (assoc :rf.reply/completed-at (:completed-at summary))))
+                                ;; work record (Spec 005 §Machine completions emit work records)
+                                :rf.reply/work-kind    (:work-kind work)
+                                :rf.reply/status       (:status work)
+                                :rf.reply/work-id      (:work-id work)
+                                :rf.reply/work-status  (:work-status work)
+                                :rf.reply/stale-reason (:stale-reason work)
+                                :rf.reply/correlation  (:correlation work)}
+                         (contains? work :completed-at)
+                         (assoc :rf.reply/completed-at (:completed-at work))))
           ;; NO record mutation and NO resolution fx — the join stays
           ;; latched `:resolved?` and fires no further event (the stale
-          ;; reply records the suppression).
+          ;; work record records the suppression).
           {:rf.db/runtime runtime-db
            :fx []})
 
@@ -906,8 +893,7 @@
                                child-id work-generation result completed-at
                                resolution)
       (emit-child-fold-terminal! frame-id parent-id invoke-id join-state''
-                                 child-id work-generation kind result
-                                 completed-at))
+                                 child-id work-generation kind completed-at))
     (let [fx (build-resolution-fx runtime-db frame-id parent-id invoke-id join-state''
                                   child-id result resolution)]
       {:rf.db/runtime (assoc-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id) join-state'')

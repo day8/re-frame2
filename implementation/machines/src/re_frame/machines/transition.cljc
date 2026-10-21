@@ -53,10 +53,10 @@
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
             [re-frame.machines.grammar :as rf.machines.grammar]
             [re-frame.machines.path-walk :as rf.machines.path-walk]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.result :as rf.machines.result
              #?@(:cljs [:include-macros true])]
             [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.machines.work :as rf.machines.work]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -1139,16 +1139,15 @@
               {:guard-suppressed? true
                :actor-id          actor-id
                :state             (last prefix)
-               ;; Carry the declaring path so `after-fired-reply`
-               ;; (via `timer-work-id`) yields the canonical
-               ;; `[:rf.work/timer [<actor> <decl-path>… <delay-key>] epoch]`
-               ;; work-id. The
-               ;; live (`resolve-hit`) and stale branches both set `:decl-path`;
-               ;; without it here the guard-suppressed `:rf.machine.timer/fired`
-               ;; `:fired? false` reply degrades to `[:rf.work/timer <actor>
-               ;; epoch]` and fails to correlate with the scheduled/cancelled/
-               ;; stale rows for the SAME timer (Spec 005 §Async completions share
-               ;; the uniform reply envelope).
+               ;; Carry the declaring path so the fired row's work id
+               ;; (`work/timer-work-id`) is the canonical
+               ;; `[:rf.work/timer [<actor> <decl-path>… <delay-key>] epoch]`.
+               ;; The live (`resolve-hit`) and stale branches both set
+               ;; `:decl-path`; without it here the guard-suppressed
+               ;; `:rf.machine.timer/fired` `:fired? false` row degrades to
+               ;; `[:rf.work/timer <actor> epoch]` and fails to correlate with
+               ;; the scheduled/cancelled/stale rows for the SAME timer (Spec 005
+               ;; §Machine completions emit work records).
                :decl-path         prefix
                :delay-key         delay-key
                :delay             delay-ms
@@ -1182,8 +1181,8 @@
             ;; Per Managed-Effects §Stale suppression,
             ;; the declaring path + per-path epoch ARE the data-only
             ;; suppression gate. Carry `:decl-path` so the lifecycle's
-            ;; `:rf.machine.timer/stale-after` trace can express the
-            ;; carried/current gate the reply-envelope way.
+            ;; `:rf.machine.timer/stale-after` trace can carry the
+            ;; carried/current gate on its work record.
             :else
             {:stale?          true
              :actor-id        actor-id
@@ -2427,7 +2426,7 @@
                     ;; `(last prefix)` nil; mark it with the root sentinel
                     ;; `:rf/parallel-root` so the `:scheduled` / `:cancelled`
                     ;; `:state` matches the `:fired` / `:stale-after` rows
-                    ;; (`root-after-match` / the fired-reply emit both set
+                    ;; (`root-after-match` / the fired-row emit both set
                     ;; `:rf/parallel-root`) and the arm-fire-cancel pairing
                     ;; `emit-cancelled!` promises holds. A flat / region-root
                     ;; `:after` is rejected at registration
@@ -2549,12 +2548,12 @@
                :state             :rf/parallel-root
                ;; The parallel-ROOT timer's declaring path is the
                ;; empty path `[]` (the root `:after` lives on the machine map,
-               ;; decl-path `[]`). Carry it so `after-fired-reply` builds the
-               ;; canonical work-id `[:rf.work/timer [<actor> <delay-key>] epoch]` and the
-               ;; guard-suppressed root reply correlates with its scheduled/
+               ;; decl-path `[]`). Carry it so the fired row's work id is the
+               ;; canonical `[:rf.work/timer [<actor> <delay-key>] epoch]` and the
+               ;; guard-suppressed root row correlates with its scheduled/
                ;; cancelled/stale counterparts (the stale branch below already
-               ;; sets `:decl-path []`). Per Spec 005 §Async completions share the
-               ;; uniform reply envelope.
+               ;; sets `:decl-path []`). Per Spec 005 §Machine completions emit
+               ;; work records.
                :decl-path         []
                :delay-key         delay-key
                :delay             delay-ms
@@ -4108,9 +4107,9 @@
   completion timestamp of the timer-firing dispatch (the router-stamped
   `:rf/time-ms` off `(get-in machine [:rf/cofx :rf/time-ms])` — the SAME
   fresh fire-time token the firing `:after` guard / action read, NOT an
-  ambient `(.now)`). It rides onto every timer reply / trace so a fired or
-  stale `:after` completion carries completion time the same way the
-  spawned-machine `:rf.machine/done` reply does (Managed-Effects §Causal
+  ambient `(.now)`). It rides onto every timer work record / trace so a
+  fired or stale `:after` completion carries completion time the same way the
+  spawned-machine `:rf.machine/done` record does (Managed-Effects §Causal
   completion metadata). nil when the firing dispatch supplied no cofx
   (a pure-fn / hand-dispatched test path) — then omitted, not nil-filled.
   The 2-arity serves callers with no causal token in scope."
@@ -4118,30 +4117,27 @@
   ([frame-id match completed-at]
   (when match
     (when (:stale? match)
-      ;; Per Managed-Effects §Stale suppression:
-      ;; the machine `:after` timer is a specialized stale-gated
-      ;; instance of the uniform reply envelope. The
-      ;; epoch-mismatch drop is expressed in the shared reply vocabulary — the
-      ;; declaring path + per-path epoch ARE the data-only suppression gate —
-      ;; and the reply-shaped facts (`:rf.reply/status :stale`,
-      ;; `:rf.reply/work-status :suppressed`, the carried/current gate) ride
-      ;; on the trace alongside its public shape (`:state` /
-      ;; `:delay` / `:scheduled-epoch` / `:current-epoch` / `:recovery`)
-      ;; so the trace stream classifies the drop the same way HTTP /
-      ;; resources / routing do. The timer's transition does not
-      ;; fire.
-      (let [stale-reply (rf.machines.reply/after-stale-reply
-                          {:actor-id        (:actor-id match)
-                           :state           (:state match)
-                           :delay           (:delay match)
-                           :delay-key       (:delay-key match)
-                           :decl-path       (:decl-path match)
-                           :region          (:region match)
-                           :scheduled-epoch (:scheduled-epoch match)
-                           :current-epoch   (:current-epoch match)
-                           :frame           frame-id
-                           :completed-at    completed-at})
-            summary     (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+      ;; Per Managed-Effects §Stale suppression: the declaring path +
+      ;; per-path epoch ARE the data-only suppression gate. The stale timer's
+      ;; work record (`:status :stale`, `:work-status :suppressed`, the
+      ;; carried/current gate) rides on the trace alongside its public shape
+      ;; (`:state` / `:delay` / `:scheduled-epoch` / `:current-epoch` /
+      ;; `:recovery`), so the trace stream classifies the drop the same way
+      ;; it does HTTP, resources and routing. The timer's transition does
+      ;; not fire.
+      (let [work (rf.machines.work/record
+                   (rf.machines.work/timer-work-id
+                     (:actor-id match) (:region match) (:decl-path match)
+                     (:delay-key match) (:scheduled-epoch match))
+                   :stale
+                   {:stale-reason :rf.machine.timer/after-epoch-mismatch
+                    :correlation  (assoc (rf.machines.work/timer-correlation
+                                           (:actor-id match) (:state match) (:delay match))
+                                         :carried (rf.machines.work/after-suppression-gate
+                                                    (:decl-path match) (:scheduled-epoch match))
+                                         :current (rf.machines.work/after-suppression-gate
+                                                    (:decl-path match) (:current-epoch match)))
+                    :completed-at completed-at})]
         (rf.trace/emit! :rf.machine :rf.machine.timer/stale-after
                      (cond->
                      {;; The timer's owning actor
@@ -4155,50 +4151,46 @@
                       :current-epoch      (:current-epoch match)
                       :frame              frame-id
                       :recovery           :replaced-with-default
-                      ;; reply-envelope vocabulary (Managed-Effects §9)
-                      ;; `:rf.reply/work-id` (canonical) joins this stale
-                      ;; `:after` completion into the uniform work/reply rows
-                      ;; the same way every other managed async family does.
-                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
-                      :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:rf.reply/work-id summary)
-                      :rf.reply/work-status (:rf.reply/work-status summary)
-                      :rf.reply/stale-reason (:rf.reply/stale-reason summary)
-                      :rf.reply/correlation (:correlation summary)}
+                      ;; work record (Spec 005 §Machine completions emit work records)
+                      :rf.reply/work-kind    (:work-kind work)
+                      :rf.reply/status       (:status work)
+                      :rf.reply/work-id      (:work-id work)
+                      :rf.reply/work-status  (:work-status work)
+                      :rf.reply/stale-reason (:stale-reason work)
+                      :rf.reply/correlation  (:correlation work)}
                        ;; Inside a parallel region `:decl-path` is region-relative.
                        (some? (:region match))
                        (assoc :region (:region match))
-                       ;; The CAUSAL completion timestamp of the
-                       ;; firing dispatch (router-stamped `:rf/time-ms`), under
-                       ;; the reply-envelope `:rf.reply/completed-at` (mirroring
-                       ;; the spawned-machine `:rf.machine/done` trace). Omitted
-                       ;; when the firing dispatch carried no causal token.
                        ;; `:delay` is the milliseconds the timer armed with,
                        ;; omitted when nothing knows them (a hand-dispatched
-                       ;; elapsed event for a delay fn).
+                       ;; elapsed event for a delay fn). The CAUSAL completion
+                       ;; timestamp of the firing dispatch (router-stamped
+                       ;; `:rf/time-ms`) rides `:rf.reply/completed-at`,
+                       ;; mirroring the spawned-machine `:rf.machine/done`
+                       ;; trace, and is omitted when the firing dispatch
+                       ;; carried no causal token.
                        (some? (:delay match))
                        (assoc :delay (:delay match))
-                       (some? (:completed-at summary))
-                       (assoc :rf.reply/completed-at (:completed-at summary))))))
-    ;; A FIRED (live) `:after` timer is a CLOSED `:after`
-    ;; completion (`:status :ok` / `:rf.reply/work-status :completed`). Build the
-    ;; canonical fired reply and stamp the reply-envelope facts (`:rf.reply/work-id`,
-    ;; `:rf.reply/work-kind :timer`, status, work-status) onto the
-    ;; `:rf.machine.timer/fired` trace so it joins the uniform work/reply rows
-    ;; (Managed-Effects §Tracing).
+                       (contains? work :completed-at)
+                       (assoc :rf.reply/completed-at (:completed-at work))))))
+    ;; A FIRED (live) `:after` timer is a CLOSED `:after` completion: its work
+    ;; record is `:status :ok` / `:work-status :completed`, and its tags on the
+    ;; `:rf.machine.timer/fired` trace join it to the timer's work row.
     (when (:guard-suppressed? match)
-      (let [fired-reply (rf.machines.reply/after-fired-reply
-                          {:actor-id          (:actor-id match)
-                           :state             (:state match)
-                           :delay             (:delay match)
-                           :delay-key         (:delay-key match)
-                           :decl-path         (:decl-path match)
-                           :region            (:region match)
-                           :epoch             (:epoch match)
-                           :frame             frame-id
-                           :guard-suppressed? true
-                           :completed-at      completed-at})
-            summary     (rf.machines.reply/trace-reply fired-reply {:frame frame-id})]
+      (let [work (rf.machines.work/record
+                   (rf.machines.work/timer-work-id
+                     (:actor-id match) (:region match) (:decl-path match)
+                     (:delay-key match) (:epoch match))
+                   :ok
+                   {:correlation  (assoc (rf.machines.work/timer-correlation
+                                           (:actor-id match) (:state match) (:delay match))
+                                         :gate (rf.machines.work/after-suppression-gate
+                                                 (:decl-path match) (:epoch match))
+                                         ;; The guard's no-transition decision is
+                                         ;; app-level: the timer still fired and
+                                         ;; completed, so the attempt stays `:ok`.
+                                         :guard-suppressed? true)
+                    :completed-at completed-at})]
         (rf.trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
                      {;; Owning actor INSTANCE.
@@ -4209,20 +4201,20 @@
                       :epoch  (:epoch match)
                       :fired? false
                       :frame  frame-id
-                      ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
-                      :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:rf.reply/work-id summary)
-                      :rf.reply/work-status (:rf.reply/work-status summary)
-                      :rf.reply/correlation (:correlation summary)}
+                      ;; work record (Spec 005 §Machine completions emit work records)
+                      :rf.reply/work-kind   (:work-kind work)
+                      :rf.reply/status      (:status work)
+                      :rf.reply/work-id     (:work-id work)
+                      :rf.reply/work-status (:work-status work)
+                      :rf.reply/correlation (:correlation work)}
                        ;; Inside a parallel region `:decl-path` is region-relative.
                        (some? (:region match))
                        (assoc :region (:region match))
                        ;; Milliseconds and causal completion time (see stale branch).
                        (some? (:delay match))
                        (assoc :delay (:delay match))
-                       (some? (:completed-at summary))
-                       (assoc :rf.reply/completed-at (:completed-at summary))))))
+                       (contains? work :completed-at)
+                       (assoc :rf.reply/completed-at (:completed-at work))))))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (contains? match :delay-key))
@@ -4232,17 +4224,16 @@
       ;; suppressed branches' root marker) rather than emitting `:state nil`.
       (let [fired-state (or (last (:decl-path match))
                             (when (empty? (:decl-path match)) :rf/parallel-root))
-            fired-reply (rf.machines.reply/after-fired-reply
-                          {:actor-id     (:actor-id match)
-                           :state        fired-state
-                           :delay        (:delay match)
-                           :delay-key    (:delay-key match)
-                           :decl-path    (:decl-path match)
-                           :region       (:region match)
-                           :epoch        (:epoch match)
-                           :frame        frame-id
-                           :completed-at completed-at})
-            summary     (rf.machines.reply/trace-reply fired-reply {:frame frame-id})]
+            work        (rf.machines.work/record
+                          (rf.machines.work/timer-work-id
+                            (:actor-id match) (:region match) (:decl-path match)
+                            (:delay-key match) (:epoch match))
+                          :ok
+                          {:correlation  (assoc (rf.machines.work/timer-correlation
+                                                  (:actor-id match) fired-state (:delay match))
+                                                :gate (rf.machines.work/after-suppression-gate
+                                                        (:decl-path match) (:epoch match)))
+                           :completed-at completed-at})]
         (rf.trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
                      {;; Owning actor INSTANCE.
@@ -4253,20 +4244,20 @@
                       :epoch  (:epoch match)
                       :fired? true
                       :frame  frame-id
-                      ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
-                      :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:rf.reply/work-id summary)
-                      :rf.reply/work-status (:rf.reply/work-status summary)
-                      :rf.reply/correlation (:correlation summary)}
+                      ;; work record (Spec 005 §Machine completions emit work records)
+                      :rf.reply/work-kind   (:work-kind work)
+                      :rf.reply/status      (:status work)
+                      :rf.reply/work-id     (:work-id work)
+                      :rf.reply/work-status (:work-status work)
+                      :rf.reply/correlation (:correlation work)}
                        ;; Inside a parallel region `:decl-path` is region-relative.
                        (some? (:region match))
                        (assoc :region (:region match))
                        ;; Milliseconds and causal completion time (see stale branch).
                        (some? (:delay match))
                        (assoc :delay (:delay match))
-                       (some? (:completed-at summary))
-                       (assoc :rf.reply/completed-at (:completed-at summary)))))))))
+                       (contains? work :completed-at)
+                       (assoc :rf.reply/completed-at (:completed-at work)))))))))
 
 (defn ensure-raised-cofx
   "Re-run the consumer-attachment ensure step for a

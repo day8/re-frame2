@@ -41,9 +41,9 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.timeout :as rf.machines.timeout]
             [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.machines.work :as rf.machines.work]
             [re-frame.managed-timer :as rf.managed-timer]
             [re-frame.trace :as rf.trace]))
 
@@ -252,34 +252,31 @@
   (let [delay-source (:delay-source entry)
         ;; The `:region` recorded at schedule time names the region whose
         ;; head the timer-table `:spawn` carries. The row names the node by
-        ;; its region-relative path with `:region` beside it, and the reply's
-        ;; `:rf.reply/work-id` puts the region back at the path's head and
+        ;; its region-relative path with `:region` beside it, and the work
+        ;; record's `:rf.reply/work-id` puts the region back at the path's head and
         ;; ends with the `:after` key, as the fired / stale rows do, so all
         ;; the rows of one `:after` entry share one work-id and no other
         ;; timer — another region's, or a sibling entry on the same node —
         ;; shares it.
         region       (:region entry)
         decl-path    (region-relative-path region (:spawn k))
-        ;; Close the timer work attempt the reply-envelope way: a cancelled
-        ;; `:after` timer is `:status :cancelled` DATA, not the absence of a
-        ;; reply (Managed-Effects §Cancellation). The canonical `:rf.reply/work-id`
-        ;; matches the fired / stale reply's so the cancelled completion
-        ;; joins the same uniform work/reply row the timer's scheduling
-        ;; started; `:rf.reply/cancel-reason` carries the closed cancel-reason
-        ;; discriminator. The reply facts are extra keys BESIDE the public
-        ;; trace shape (`:actor-id` / `:state` / `:delay` / `:epoch` /
-        ;; `:reason`), never a replacement for it.
-        cancel-reply (rf.machines.reply/cancelled-timer-reply
-                       {:actor-id  (:parent k)
-                        :state     (:state entry)
-                        :delay     (:resolved-ms entry)
-                        :delay-key (:delay k)
-                        :decl-path decl-path
-                        :region    region
-                        :epoch     (:epoch entry)
-                        :frame     frame-id
-                        :reason    reason})
-        summary      (rf.machines.reply/trace-reply cancel-reply {:frame frame-id})]
+        ;; Close the timer work attempt as DATA (Managed-Effects
+        ;; §Cancellation): a cancelled `:after` timer's work record is
+        ;; `:status :cancelled`, its work id matching the fired / stale rows'
+        ;; so the cancellation joins the work row the timer's scheduling
+        ;; started, and its cancel reason is the closed `:reason`
+        ;; discriminator. Its tags are extra keys BESIDE the public trace
+        ;; shape (`:actor-id` / `:state` / `:delay` / `:epoch` / `:reason`),
+        ;; never a replacement for it.
+        work         (rf.machines.work/record
+                       (rf.machines.work/timer-work-id
+                         (:parent k) region decl-path (:delay k) (:epoch entry))
+                       :cancelled
+                       {:cancel-reason reason
+                        :correlation   (assoc (rf.machines.work/timer-correlation
+                                                (:parent k) (:state entry) (:resolved-ms entry))
+                                              :gate (rf.machines.work/after-suppression-gate
+                                                      decl-path (:epoch entry)))})]
     (rf.trace/emit! :rf.machine :rf.machine.timer/cancelled
                  (cond-> {;; the timer's owning actor INSTANCE;
                           ;; `:machine-id` is reserved for the registered TYPE.
@@ -291,14 +288,14 @@
                           :epoch      (:epoch entry)
                           :reason     reason
                           :frame      frame-id
-                          ;; reply-envelope vocabulary (Managed-Effects §9)
-                          :rf.reply/work-kind            (:rf.reply/work-kind summary)
-                          :rf.reply/status      (:status summary)
-                          :rf.reply/work-id     (:rf.reply/work-id summary)
-                          :rf.reply/work-status (:rf.reply/work-status summary)
-                          :rf.reply/cancelled?  (:cancelled? summary)
-                          :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
-                          :rf.reply/correlation (:correlation summary)}
+                          ;; work record (Spec 005 §Machine completions emit work records)
+                          :rf.reply/work-kind     (:work-kind work)
+                          :rf.reply/status        (:status work)
+                          :rf.reply/work-id       (:work-id work)
+                          :rf.reply/work-status   (:work-status work)
+                          :rf.reply/cancelled?    true
+                          :rf.reply/cancel-reason (:cancel-reason work)
+                          :rf.reply/correlation   (:correlation work)}
                    (some? region)       (assoc :region region)
                    (some? delay-source) (assoc :delay-source delay-source)))))
 
