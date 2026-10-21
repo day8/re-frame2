@@ -1166,15 +1166,7 @@
    :asset-path       "."
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules
-   {:trace-tooling     {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}
-    :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run
-                        :depends-on #{:trace-tooling}}
-    :elkjs             {:init-fn re-frame.bundle-isolation-positive-control.elkjs/run
-                        :depends-on #{:trace-tooling}}
-    :zprint            {:init-fn re-frame.bundle-isolation-positive-control.zprint/run
-                        :depends-on #{:trace-tooling}}
-    :editscript        {:init-fn re-frame.bundle-isolation-positive-control.editscript/run
-                        :depends-on #{:trace-tooling}}}}
+   {:trace-tooling {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}}}
 
   ;; ============================================================================
   ;; Example apps.
