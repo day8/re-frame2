@@ -970,15 +970,20 @@ async function heapPass(
         await gc();
         const held = await read();
         await page.evaluate(() => window.P0H.release());
+        // Wait for the Fresco reapers to go idle BEFORE the post read. A
+        // released arm's cells and entries are reaped on later macrotasks,
+        // and a 20-read arm queues 24,000 cells whose re-armed drains the
+        // platform clamps to 4 ms or more, so the collector's three-pass
+        // beat alone does not outlast them. A drain still running would
+        // leave the post read and this arm's structural read counting it,
+        // and leave the NEXT arm's baseline holding garbage its own window
+        // then reaps, reading that arm low.
+        await page.evaluate(() => window.P0H.quiesce());
         await gc();
         const post = await read();
-        // THE SURVIVAL METRIC'S STRUCTURAL HALF, read
-        // here and not one line earlier: the Fresco runtime reaps a
-        // cell and a read-set entry whose last holder left on the NEXT
-        // MACROTASK, so a residue read immediately after `release()`
-        // would report a cache that is about to evict itself as a leak.
-        // The collector above has just spent three passes with an 80 ms
-        // beat between them, which is that macrotask several times over.
+        // THE SURVIVAL METRIC'S STRUCTURAL HALF, read after the quiesce
+        // above and the collector's passes, so a cache that is about to
+        // evict itself is not reported as a leak.
         const structural = await page.evaluate(() =>
           window.P0H.frescoResidue ? window.P0H.frescoResidue() : null
         );
