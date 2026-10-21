@@ -114,7 +114,7 @@ That is a working SSR server. The other options have defaults you rarely change;
 
 ??? info "From re-frame v1"
 
-    v1 had no built-in SSR; you used community libraries and split server and client code by hand. Here it's one handler over the same events and views the client runs. The frame keys `:on-create` / `:initial-db` are retired: per-request setup is `:initial-events`, and supplying `:on-create` [fails loud](../core/glossary.md#fail-loud-not-silent) with `:rf.error/on-create-retired`.
+    v1 had no built-in SSR; you used community libraries and split server and client code by hand. Here it's one handler over the same events and views the client runs. There are no `:on-create` / `:initial-db` frame keys: per-request setup is `:initial-events`, and `make-frame` warns in dev about a supplied `:on-create` as an unknown key.
 
 ### Mounting in a Ring app
 
@@ -576,7 +576,7 @@ A few things change between your REPL and a production server:
 | Client first render ≠ server HTML | `:rf.ssr/hydration-mismatch` trace from the hydrating root; React re-renders the client's view | Deterministic views; fail CI from the root's `:on-recoverable-error` |
 | `#{:client}` fx during JVM drain | `:rf.fx/skipped-on-platform` trace — skipped, not thrown | Expected; declare `:platforms` on the fx/cofx |
 | Blocking resource hangs past budget | `:rf.error/resource-ssr-blocking-timeout` — resource enters `:error` | Fix the fetch, or render the resource's error state |
-| Retired frame boot key | `:rf.error/on-create-retired` | Use `:initial-events`, not `:on-create` |
+| `:on-create` frame key | `:rf.warning/unknown-frame-config-key` in dev; the key is never read | Use `:initial-events`, not `:on-create` |
 
 ## Advanced
 

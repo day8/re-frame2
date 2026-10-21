@@ -906,7 +906,6 @@ Which function makes the frame depends on who owns its lifetime:
     - `:rf.error/routing-artefact-missing`: `:url-strategy` without `re-frame.routing` loaded. `:url-bound?` alone is accepted before routing loads.
     - `:rf.error/resources-artefact-missing`: `:revalidate-on` without `re-frame.resources` loaded.
     - `:rf.error/http-bad-interceptor`: `:http-interceptors` is not a vector of keyword ids.
-    - `:rf.error/initial-db-retired`, `:rf.error/on-create-retired`: `:initial-db` and `:on-create` are not config keys. Use `:initial-events`, seeding with `[:rf/set-db {…}]`.
     - `:rf.error/initial-events-bare-event`: `:initial-events` is one bare event vector (`[:app/boot]`) instead of a vector of steps.
     - `:rf.error/initial-events-bad-step`, `:rf.error/initial-events-bad-event`, `:rf.error/initial-events-bad-opts`: a malformed step.
     - `:rf.error/initial-events-step-failed`: a step's handler, an interceptor, a coeffect or a flow threw. The frame is destroyed, and the error names `:step-index` and `:event`.

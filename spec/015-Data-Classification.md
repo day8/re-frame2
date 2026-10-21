@@ -273,7 +273,7 @@ The profile resolves to an `:rf.egress/*` opt **floor**; explicit caller `:rf.eg
 
 <a id="frame-owned-observability-sink-policy"></a><a id="the-three-observation-streams"></a>
 
-Production observability sink policy belongs on the frame, under the `:observability` key, validated for shape at frame-construction time through the frame's `validate!` seam (`re-frame.frame-classification`) and routed at runtime (`re-frame.observability`):
+Production observability sink policy belongs on the frame, under the `:observability` key, validated for shape at frame-construction time and routed at runtime, both by `re-frame.observability`:
 
 ```clojure
 (rf/make-frame
