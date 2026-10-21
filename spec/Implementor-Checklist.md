@@ -184,6 +184,29 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Reference-impl picks.** CLJS uses Reagent (browser) and plain-atom (JVM).
 - **Trade-offs.** Pick one signal library per port; the spec is single-adapter-per-process (per [006 §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process)). Multi-adapter coexistence is post-v1.
 
+#### F3 per-port realisations
+
+How each JS cross-compile port realises [006](006-ReactiveSubstrate.md)'s contract over its React binding. The contract is 006's; these are its realisations.
+
+- **`make-state-container`** ([006](006-ReactiveSubstrate.md#make-state-container-initial-value--container)). TS-React returns a tiny atom-shape (`{value, subscribers}`) wired into React via `useSyncExternalStore`. Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint return the same atom-shape over the host's React binding's `useSyncExternalStore` equivalent.
+- **`subscribe-container`** ([006](006-ReactiveSubstrate.md#subscribe-container-container-on-change--unsubscribe-fn)). Every port returns a function that detaches the listener from the atom-shape's subscriber list (the same store `useSyncExternalStore` consumes).
+- **`register-context-provider`** ([006](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)). TS-React returns an equivalent `React.createContext`-backed Provider component. Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint each return the host React binding's `createContext`-backed Provider component (Feliz / Fable.React `createContext`, scalajs-react `createContext`, `React.Basic.Hooks.createContext`, kotlin-react `createContext`, ReasonReact `React.createContext`).
+- **Revertibility** ([006 §Reference-adapter compliance](006-ReactiveSubstrate.md#reference-adapter-compliance)). Each port's atom-shape subscriber registry, the `useSyncExternalStore` snapshot store React caches, and any derived-value memoisation must all be derivable from the frame's value. Ports verify the host React binding doesn't squirrel away non-derivable state outside the frame container.
+- **Subscription cache** ([006 §Per-host implementation notes](006-ReactiveSubstrate.md#per-host-implementation-notes)). The per-port adapter implements layer-1/2/3 invalidation atop its host's React binding. The atom-shape's watch/listener machinery and any derived-value memoisation cooperate with React's `useSyncExternalStore`-driven render scheduling to surface invalidation to views. Tools relying on the trace stream's `:sub/recomputed` events depend on the equality-check-on-invalidation rule.
+- **Frame propagation** ([006 §Frame propagation across React-binding ports](006-ReactiveSubstrate.md#frame-propagation-across-react-binding-ports)). Each port reaches the frame through its React binding's own context primitive:
+
+| Port | React-context primitive | Hooks-equivalent read |
+|---|---|---|
+| TypeScript-React | `React.createContext<FrameId \| NoProvider>(NO_PROVIDER)` (sentinel default, not `:rf/default`) | `useContext(FrameContext)` |
+| Fable (F#) — Feliz / Fable.React | `React.createContext` | `React.useContext` |
+| Scala.js — scalajs-react / Slinky | `React.createContext` (binding-shaped) | `useContext` hook |
+| PureScript — `React.Basic.Hooks` | `Hooks.createContext` | `Hooks.useContext` |
+| Kotlin/JS — kotlin-react | `createContext` | `useContext` |
+| Melange / ReScript / Reason — ReasonReact | `React.createContext` | `React.useContext` |
+| Squint | reuses the CLJS-Reagent shape (Squint preserves Clojure keywords) | same as CLJS |
+
+The spec **does not** prescribe JS implementation details (`_currentValue` reads, class-component `:contextType` shapes, prop-stringification quirks) — those are port discretion. What the spec requires is the contract: the provider's *value* is a frame-id keyword (or the host's identity-primitive equivalent), and the views inside the provider's subtree resolve subscriptions / dispatches against that frame.
+
 #### F4. Effect-handling primitive
 
 - **Why it matters.** How `:fx` dispatches; sync vs async handling; effect resolution against the registry.

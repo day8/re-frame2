@@ -10,7 +10,8 @@ contract; the root corpus asserts none. Fresco keeps the root specs it sits on:
 [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) for
 the substrate and the client root, and
 [`spec/004C-Roots-and-Mount.md`](../../../spec/004C-Roots-and-Mount.md) for root
-identity and the hydrating boot. Its siblings here own three narrower facts:
+identity and the hydrating boot. Its siblings here own four narrower facts:
+[`commit-law.md`](commit-law.md) the reactive commit law,
 [`invariants.md`](invariants.md) the fifteen product invariants,
 [`server-policy.md`](server-policy.md) every public surface's server policy, and
 [`complaints.md`](complaints.md) the index of diagnostic ids. What an id

@@ -22,6 +22,9 @@ edits a table verifies its column count by hand and says so.
   package promises about the boundary ABI, reads, intents and carriers, the
   controlled-input door, frame heads, roots and hydration, the interop door,
   and the incarnation rule. Start here.
+- [`commit-law.md`](commit-law.md) — **the commit law**: the six numbered
+  reactive-ownership invariants, render-batch finalization and its two closers,
+  and the atomic shell that commits what a render may only probe.
 - [`complaints.md`](complaints.md) — the index of Fresco's diagnostic ids: one
   line per id the package raises, with the guide chapter that teaches how not to
   hit it. It does not restate what a complaint MEANS — that is
@@ -38,6 +41,7 @@ edits a table verifies its column count by hand and says so.
 | Document | Checker | Where it runs |
 |---|---|---|
 | `authoring-contract.md` | none of its own — prose, held to the code by review; its links are `../../../scripts/check_readme_links.py --ci`'s | the `verify-readme-links` job |
+| `commit-law.md` | none of its own — prose, held to the code by review; its links are `../../../scripts/check_readme_links.py --ci`'s | the `verify-readme-links` job |
 | `complaints.md` | none of its own since rf2-6c12m.7 retired `check_complaint_catalogue.py`; the ids its rows name are the ones `../../../scripts/check_keyword_catalogue_drift.py` reconciles against Spec 009 and the emitters, in both directions | the repo-wide keyword-drift gate in `.github/workflows/test.yml`, and `scripts/test-fast-pr.sh` |
 | `invariants.md` I8 | `check_optional_module_reachability.py` enforces the reachability clause against the source and cites the row | `npm run test:fresco-invariants` |
 | `server-policy.md` | none — a reference table, kept by whoever changes a policy | — |
