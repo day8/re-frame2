@@ -443,10 +443,13 @@
        [:span {:style {:color (:text-tertiary tokens)}}
         "outcome " (get-in row [:outcome :preview])])]))
 
-(defn- attempts-section [rows]
+(defn- attempts-section
+  "The §3 table of the frame's attempts. Its caption keeps the panel's
+  `Work ledger` name, which the user guide and its screenshots use."
+  [rows]
   (section
     {:first? false :testid "rf-xray-resources-work"}
-    (section-caption "Attempts" "rf-xray-resources-work-caption")
+    (section-caption "Work ledger" "rf-xray-resources-work-caption")
     (if (seq rows)
       (capped-body {:panel-id "resources-work"
                     :testid   "rf-xray-resources-work-body"
