@@ -121,10 +121,11 @@
   - app-db `:large?` slots stay `:rf.size/large-elided` — governed by the
     independent `:rf.egress/include-large?` opt.
 
-  `:include-sensitive` lifts only the app-db sensitive axis — it is NOT a
-  full raw epoch bypass. The app-db sensitive axis is independent of every
-  other axis, so the raw fx-args / runtime-db partition never ship merely
-  because sensitive app-db values were requested.
+  `:include-sensitive` lifts only the sensitive axis — the app-db slots and
+  the trace-tag allow-list — and is NOT a full raw epoch bypass. The
+  sensitive axis is independent of every other axis, so the raw fx-args /
+  runtime-db partition never ship merely because sensitive values were
+  requested.
   This holds Security.md §98-108 (off-box epoch egress MUST route through
   the record-level door; `:rf.egress/include-fx-args?` is orthogonal to app-db
   `:rf.egress/include-sensitive?` / `:rf.egress/include-large?`) and the EP-0015
@@ -381,8 +382,9 @@
   bundle's `:trace-events` crosses `re-frame.core/project-egress` inside
   a record stamped `:kind :rf/epoch-record` (bundle's own `:frame`, no
   other slot), the one door that reaches the epoch projector's
-  trace-event rules. Off-box, event arguments, effect arguments and
-  unschematized HTTP bodies become `:rf/redacted` whether or not
+  trace-event rules. Off-box, every trace tag passes the projection's
+  allow-list, so event and effect arguments, unschematized HTTP bodies
+  and every other payload tag become `:rf/redacted` whether or not
   anything declared them sensitive, and declared-sensitive app-db slots
   redact. A kindless walk of the bundle would reach none of those rules,
   because none of them is an app-db path.
