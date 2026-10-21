@@ -46,6 +46,13 @@
   check. This is the PRIMARY drift-guard: it goes red in CI until the
   manifest + sidecar are updated.
 
+  GENERATED API.MD CELLS. A spec/API.md table marked
+  `<!-- api-manifest:generated <namespace> -->` restates no manifest fact
+  by hand: `generate!` writes its M/Fn marker, Status, Tier and Spec cells
+  from the rows built here, and `--check` fails when the committed table
+  differs. `re-frame.api-manifest.api-md-cells` holds the rules;
+  spec/API.md §Conventions states them for authors.
+
   CLJS-ONLY SURFACES. The Reagent / UIx adapter namespaces, the
   Xray `mount-*!` family, and the pair-MCP server are ClojureScript-only
   and cannot be `require`d on the JVM. Their rows live in the sidecar
@@ -61,7 +68,8 @@
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.pprint :as pprint]))
+            [clojure.pprint :as pprint]
+            [re-frame.api-manifest.api-md-cells :as rf.api-manifest.api-md-cells]))
 
 ;; ---------------------------------------------------------------------------
 ;; Locating the repo root + artefact paths.
@@ -85,6 +93,7 @@
 
 (def manifest-file (delay (spec-file "api-manifest.edn")))
 (def sidecar-file  (delay (spec-file "api-manifest-metadata.edn")))
+(def api-md-file   (delay (spec-file "API.md")))
 
 ;; ---------------------------------------------------------------------------
 ;; JVM-loadable public namespaces.
@@ -1177,23 +1186,56 @@
 ;; Entry points.
 ;; ---------------------------------------------------------------------------
 
+(defn- api-md-rewrite
+  "spec/API.md's contents and `api-md-cells/rewrite` of them from
+   `manifest`'s rows: the generated tables' cells as this build states them."
+  [manifest]
+  (let [text (slurp @api-md-file)]
+    (assoc (rf.api-manifest.api-md-cells/rewrite text (:vars manifest)) :committed text)))
+
 (defn generate!
-  "Regenerate spec/api-manifest.edn from live vars + the curated sidecar.
-   Returns the manifest map."
+  "Regenerate spec/api-manifest.edn from live vars + the curated sidecar,
+   and rewrite spec/API.md's generated cells from it. Returns the manifest
+   map."
   []
-  (let [manifest (build-manifest (read-sidecar))]
+  (let [manifest (build-manifest (read-sidecar))
+        {:keys [text committed changes tables]} (api-md-rewrite manifest)]
     (spit @manifest-file (render-edn manifest))
     (println (format "Wrote %s (%d public vars)."
                      (.getPath ^java.io.File @manifest-file)
                      (count (:vars manifest))))
+    (when (not= text committed)
+      (spit @api-md-file text))
+    (println (format "Rewrote %d generated cell(s) in %s (%d generated table(s), %d row(s))."
+                     (count changes)
+                     (.getPath ^java.io.File @api-md-file)
+                     (count tables)
+                     (reduce + (map :rows tables))))
     manifest))
 
-(defn check!
-  "Regenerate in memory and compare to the committed manifest. Returns
-   true when in sync, false (with a printed diff summary) when drifted."
-  []
-  (let [generated (build-manifest (read-sidecar))
-        committed (read-committed-manifest)
+(defn- api-md-cells-in-sync?
+  "True when spec/API.md's generated cells already say what `generated`
+   says; false, naming each differing cell, otherwise."
+  [generated]
+  (let [{:keys [text committed changes tables]} (api-md-rewrite generated)]
+    (if (= text committed)
+      (do (println (format "OK: spec/API.md generated cells in sync (%d table(s), %d row(s))."
+                           (count tables) (reduce + (map :rows tables))))
+          true)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/API.md generated cells differ from the manifest.")
+            (println "Change the fact in spec/api-manifest-metadata.edn, not in the table, and")
+            (println "regenerate with: clojure -M -m re-frame.api-manifest.gen")
+            (doseq [{:keys [line raw column from to]} changes]
+              (println (format "  L%-4d %-6s `%s` API.md says %s; manifest says %s"
+                               line column raw (pr-str from) (pr-str to)))))
+          false))))
+
+(defn- manifest-in-sync?
+  "True when the committed spec/api-manifest.edn is `generated`; false, with
+   a printed diff summary, otherwise."
+  [generated]
+  (let [committed (read-committed-manifest)
         gen-vars  (set (:vars generated))
         com-vars  (set (:vars committed))]
     (cond
@@ -1227,6 +1269,15 @@
           (when (and (empty? added) (empty? removed))
             (println "  (var set identical; :meta or formatting differs — regenerate)")))
         false))))
+
+(defn check!
+  "Regenerate in memory and compare to the committed manifest and to
+   spec/API.md's generated cells. Returns true when both are in sync, false
+   (with a printed diff summary) when either has drifted."
+  []
+  (let [generated (build-manifest (read-sidecar))]
+    ;; Both comparisons run, so one run reports every drift.
+    (every? true? [(manifest-in-sync? generated) (api-md-cells-in-sync? generated)])))
 
 (defn -main [& args]
   (try
