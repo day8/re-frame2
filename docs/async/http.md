@@ -68,7 +68,7 @@ Your handler receives a reply map with one of three statuses:
 |---|---|
 | `:ok` | `:value` is the decoded 2xx body, or the value returned by `:accept`. `:meta` carries the HTTP status, status text and headers under lower-cased names. |
 | `:error` | `:error` is the failure map. Branch on its `:kind`. |
-| `:cancelled` | `:error` has `:kind :rf.http/aborted`; the reply also carries `:cancelled? true` and `:rf.reply/cancel-reason`. |
+| `:cancelled` | `:error` has `:kind :rf.http/aborted`; the reply also carries `:rf.reply/cancel-reason`. |
 
 An obsolete completion is recorded as `:stale` and suppressed before dispatch.
 Your handler never receives it. Managed HTTP does not emit `:partial`, the

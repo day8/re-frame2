@@ -222,7 +222,6 @@
                      ;; The canonical abort reply: :status :cancelled
                      ;; with the :rf.http/aborted map under :error.
                      (rf/dispatch [::reply {:status                 :cancelled
-                                            :cancelled?             true
                                             :rf.reply/cancel-reason reason
                                             :error                  {:kind   :rf.http/aborted
                                                                      :reason reason}}]

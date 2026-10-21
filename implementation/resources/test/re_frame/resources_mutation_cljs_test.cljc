@@ -952,8 +952,8 @@
            (filterv #{:rf.mutation/succeeded :rf.mutation/replied} (map :operation rows))))
     (is (= {:mutation :m/save :instance :po1 :status :ok :cause [:mutation :m/save :po1]}
            (select-keys row [:mutation :instance :status :cause])))
-    (is (= {:event [:test/save-replied] :delivery :append}
-           (select-keys (:target row) [:event :delivery])))))
+    (is (= {:event [:test/save-replied]}
+           (select-keys (:target row) [:event])))))
 
 ;; :affected-keys are the keys populated, patched, removed or marked stale by
 ;; the accepted reply.

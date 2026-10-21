@@ -17,9 +17,8 @@
   `re-frame.reply` substrate (the same substrate HTTP / resources /
   mutations / machines / route-loaders lower onto). It is a FRESH
   consumer of the shared reply substrate — proof that a brand-new writer
-  inherits the closed status taxonomy, the work-id correlation rule, the
-  stale-suppression correctness boundary, and the reply-mapping functor
-  law without re-spelling any of them.
+  inherits the closed status taxonomy, the work-id correlation rule and the
+  stale-suppression correctness boundary without re-spelling any of them.
 
   ## NOT a public surface
 
@@ -267,7 +266,6 @@
    (assoc (base-reply args times)
           :status        :cancelled
           :rf.reply/work-status   :cancelled
-          :cancelled?    true
           :rf.reply/cancel-reason reason)))
 
 ;; ---------------------------------------------------------------------------
@@ -303,22 +301,16 @@
     `args`        — the timer spec (supplies `:work/id` / `:work/kind` /
                     `:rf.frame/id` and the CARRIED generation).
     `current-gen` — the LIVE generation read at completion.
-    `times`       — `{:completed-at <causal ms>}` ridden onto the stale reply.
-    `target`      — the (optional) reply target, threaded to `re-frame.reply/
-                    suppress` for call-site uniformity but not consulted for a
-                    delivery decision (a stale outcome is universally
-                    non-delivering)."
-  ([args current-gen times] (suppress args current-gen times nil))
-  ([{:keys [generation frame] :as args} current-gen {:keys [completed-at]} target]
-   (rf.reply/suppress target
-                   (gate generation)
-                   (gate current-gen)
-                   (cond-> {:status       :stale
-                            :rf.reply/work-id      (work-id args)
-                            :rf.reply/work-kind    work-kind
-                            :rf.reply/stale-reason stale-reason}
-                     (some? frame)        (assoc :rf.frame/id frame)
-                     (some? completed-at) (assoc :completed-at completed-at)))))
+    `times`       — `{:completed-at <causal ms>}` ridden onto the stale reply."
+  [{:keys [generation frame] :as args} current-gen {:keys [completed-at]}]
+  (rf.reply/suppress (gate generation)
+                     (gate current-gen)
+                     (cond-> {:status       :stale
+                              :rf.reply/work-id      (work-id args)
+                              :rf.reply/work-kind    work-kind
+                              :rf.reply/stale-reason stale-reason}
+                       (some? frame)        (assoc :rf.frame/id frame)
+                       (some? completed-at) (assoc :completed-at completed-at))))
 
 ;; ---------------------------------------------------------------------------
 ;; Property 6 — abort REQUEST as data (Managed-Effects §Built-in abort). An

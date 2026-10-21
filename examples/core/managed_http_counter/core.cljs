@@ -105,7 +105,7 @@
       ;; The request was cancelled. This is the reply
       ;; `[:rf.http/managed-abort :http-counter/+1]` delivers, and the
       ;; framework builds every part of it — never the app: `:status
-      ;; :cancelled` with `:cancelled? true`, the abort reason under the
+      ;; :cancelled`, the abort reason under the
       ;; uniform reply contract's `:rf.reply/cancel-reason`, and the
       ;; classified `{:kind :rf.http/aborted :reason :user}` map under
       ;; `:error`. A cancellation is not a failure, so we settle to :idle

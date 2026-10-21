@@ -123,7 +123,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 
 - **Kind**: effect (reserved fx-id)
 - **Payload**: the `:request-id` of an in-flight request.
-- **Description**: Aborts the in-flight request with that `:request-id`, issued from the same frame; an id with nothing in flight is a no-op. Its reply target (`:reply-to` or `:on-failure`) receives the cancelled reply `{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user :error {:kind :rf.http/aborted ...}}`, as described under [Reply shape](#reply-shape). See [Cancellation: supersession and abort](../async/http.md#cancellation-supersession-and-abort), which compares abort with supersession.
+- **Description**: Aborts the in-flight request with that `:request-id`, issued from the same frame; an id with nothing in flight is a no-op. Its reply target (`:reply-to` or `:on-failure`) receives the cancelled reply `{:status :cancelled :rf.reply/cancel-reason :user :error {:kind :rf.http/aborted ...}}`, as described under [Reply shape](#reply-shape). See [Cancellation: supersession and abort](../async/http.md#cancellation-supersession-and-abort), which compares abort with supersession.
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -167,7 +167,7 @@ Every reply is one map keyed on `:status`, which is `:ok`, `:error` or `:cancell
  :error  {:kind :rf.http/<kind> ...}}
 
 ;; Abort / cancel
-{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user
+{:status :cancelled :rf.reply/cancel-reason :user
  :error  {:kind :rf.http/aborted …}}
 ```
 
