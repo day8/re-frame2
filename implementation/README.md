@@ -88,10 +88,10 @@ implementation/
       deps.edn               :local/root dep on ../../core.
       src/re_frame/adapter/
         reagent.cljs         The Reagent adapter.
-      test/re_frame/         CLJS tests that exercise the Reagent adapter end-to-end
-                             (cross-spec, events, hot-reload, http-managed, machines,
-                             nine-states, realworld, render-key, routing, runtime,
-                             schemas).
+      test/re_frame/         CLJS tests of the Reagent adapter itself (mount, render flush,
+                             hydration, Form-2/3 components, reg-view, SSR) and the
+                             integration-shaped tests that drive Reagent's own primitives
+                             (cross-spec DOM, diamond recompute, runtime).
     uix/                     day8/re-frame2-uix — the UIx adapter artefact (rf2-3yij).
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
@@ -248,6 +248,14 @@ implementation/
                              inside an image-loaded frame. Core's tests hold the
                              single `:rf/event-handler` wrapper.
     test/re_frame/                 JVM + CLJS one-form event-model conformance suites.
+
+  integration/               The framework integration suite — test-only, no shipped
+                             namespace. The examples' and the features' end-to-end tests
+                             (realworld, todomvc, routing, websocket, boot, …), which drive
+                             events, subscriptions and effects rather than views. Every
+                             fixture installs the adapter `re-frame.integration-adapter`
+                             names: Fresco's substrate, the taught default.
+    test/re_frame/                 CLJS integration suites.
 ```
 
 ## Status by spec area
@@ -269,11 +277,10 @@ implementation/
 | 013 Flows | Done | (covered via smoke + flow-recomputes) |
 | 014 HTTP requests | Done | (covered via the `http_managed_test` suites + the managed-HTTP example smoke spec) |
 
-The Reagent adapter is the canonical adapter — every test target (every
-`clojure -M:test` run, every `node-test` build, every `:browser-test`
-run, every `examples` run, every conformance fixture) executes against
-it. The UIx adapter is smoke-tested via the counter + login
-pair per [Conventions §Adapter test matrix policy](../spec/Conventions.md#adapter-test-matrix-policy).
+The framework integration suite (`integration/`) runs on Fresco's
+substrate, the taught default; each adapter's own tests stay with that
+adapter and run against it. The UIx adapter is smoke-tested via the
+counter + login pair per [Conventions §Adapter test matrix policy](../spec/Conventions.md#adapter-test-matrix-policy).
 
 ## Running tests
 

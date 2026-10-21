@@ -155,7 +155,7 @@ A singleton that supports `:reset` back to `:idle` from a `:final?` state declar
 
 ## Worked example
 
-`examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it. The CLJS unit test lives under the reagent adapter tests (`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`) — examples are test-free.
+`examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it. The CLJS test lives in the framework integration suite (`implementation/integration/test/re_frame/long_running_work_cljs_test.cljs`) — examples are test-free.
 
 ## Pointers
 
