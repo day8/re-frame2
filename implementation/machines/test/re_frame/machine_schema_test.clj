@@ -202,15 +202,17 @@
 
 (deftest present-nil-data-schema-fails-closed-under-default-malli
   (testing "with the DEFAULT Malli validator a present nil [:schemas :data]
-            fails CLOSED: the seam isolates Malli's throw to a false verdict,
-            so the bootstrap commit is rejected, never installed unvalidated"
+            fails CLOSED: the seam reports Malli's throw as a malformed
+            schema, so the bootstrap commit is rejected, never installed
+            unvalidated"
     (rf/reg-machine :rf.machine-schema/nil-malli
       {:initial :idle
        :data    {:n 1}
        :schemas {:data nil}
        :states  {:idle {}}})
-    (let [traces (collect-traces!
-                   #(rf/dispatch-sync [:rf.machine-schema/nil-malli [:noop]]))]
+    (let [traces (rf.machines.test-support/with-trace-capture traces
+                   (rf/dispatch-sync [:rf.machine-schema/nil-malli [:noop]])
+                   (filterv #(= :rf.error/malformed-schema (:operation %)) @traces))]
       (is (= [[:machine-data] nil]
              [(mapv (comp :where :tags) traces)
               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
