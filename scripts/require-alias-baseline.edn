@@ -30,6 +30,7 @@
   "implementation/flows"                  0
   "implementation/fresco"                 0
   "implementation/http"                   0
+  "implementation/integration"            0
   "implementation/machines"               0
   "implementation/reply-conformance"      0
   "implementation/resources"              0

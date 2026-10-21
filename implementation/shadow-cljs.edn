@@ -288,6 +288,19 @@
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is event-conformance/deps.edn `:test`.
                 "event-conformance/test"
+                ;; The framework INTEGRATION suite: the examples' and the
+                ;; features' end-to-end tests (realworld, todomvc, routing,
+                ;; websocket, boot, …). They drive events, subscriptions and
+                ;; effects rather than views, and they sit above every
+                ;; artefact and every adapter, so — like the conformance
+                ;; tiers above — they live in their own top-level
+                ;; integration/ surface and run on the one adapter
+                ;; `re-frame.integration-adapter` names (Fresco's substrate,
+                ;; the taught default). Adapter tests stay in each adapter's
+                ;; own test tree. Namespaces end in `-cljs-test`, so the
+                ;; always-on :node-test gate (`cljs-test$`) runs them;
+                ;; CLJS-only, so there is no JVM counterpart.
+                "integration/test"
                 ;; tools/mcp-base — the security tier's MCP-egress surface
                 ;; (`re-frame.mcp-base.sensitive`, the spec/009 §Privacy
                 ;; default-suppress filter) is CLJC and lives here. Source
