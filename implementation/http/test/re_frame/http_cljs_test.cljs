@@ -267,6 +267,9 @@
 ;; every dispatch names one.
 
 (defn- reset-runtime! []
+  ;; The node bundle shares one adapter seat across suites, and init!
+  ;; refuses a different adapter, so cold-start it.
+  (rf/destroy-adapter!)
   (rf/init! rf.adapter.reagent/adapter)
   (rf.frame/ensure-default-frame!)
   (rf.http.managed/clear-all-in-flight!))
