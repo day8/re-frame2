@@ -862,7 +862,6 @@ function withTimeout(promise, ms, label) {
 async function main() {
   const cleanup = createHarnessCleanup();
   cleanup.installSignalHandlers();
-  let tearingDown = false;
 
   if (ENGINES.length === 0) {
     console.error(`FRESCO_TESTBED_ENGINES=${ONLY} selects no engine; ` +
@@ -889,7 +888,6 @@ async function main() {
       port,
       cwd: IMPL_ROOT,
       readyTimeoutMs: READY_TIMEOUT_MS,
-      suppressExitDiagnostic: () => tearingDown,
     });
     if (!server.ready) {
       console.error('the testbed server did not prove owned readiness');
@@ -925,7 +923,6 @@ async function main() {
     console.log(`\nFRESCO CONTROLLED-INPUT PASS (${ENGINES.join(' + ')})`);
     return 0;
   } finally {
-    tearingDown = true;
     await cleanup.cleanup();
   }
 }

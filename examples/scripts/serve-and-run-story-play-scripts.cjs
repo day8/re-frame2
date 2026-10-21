@@ -131,11 +131,6 @@ function loadChromium() {
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
-// Toggled true once `main()` resolves to its exit code, so the
-// http-server's forced-shutdown `exit` event doesn't print a noisy
-// "exited unexpectedly" line during normal teardown.
-let exiting = false;
-
 function log(line) {
   process.stdout.write(`${line}\n`);
 }
@@ -901,8 +896,6 @@ async function main() {
   // unreachable diagnostics. Bind 127.0.0.1 (not http-server's
   // 0.0.0.0 default): the runner only ever hits http://127.0.0.1:<port> and
   // resolveStoryFeatureLoadPort pre-flights loopback.
-  // `exiting` suppresses the forced-shutdown "exited unexpectedly" noise once
-  // main() has already returned its own verdict.
   const { ready } = await startLocalHttpServer({
     cleanup,
     httpServerBin: httpServerBin(),
@@ -912,7 +905,6 @@ async function main() {
     readyTimeoutMs: READY_TIMEOUT_MS,
     captureOutput: true,
     verbose: VERBOSE,
-    suppressExitDiagnostic: () => exiting,
   });
   if (!ready) return 1;
 
@@ -940,12 +932,10 @@ async function main() {
 if (require.main === module) {
   main()
     .then(async (code) => {
-      exiting = true;
       await cleanup.cleanup();
       process.exit(code == null ? 1 : code);
     })
     .catch(async (err) => {
-      exiting = true;
       console.error(err && err.stack ? err.stack : err);
       await cleanup.cleanup();
       process.exit(1);
