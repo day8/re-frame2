@@ -222,9 +222,14 @@ runWithWatchdog(
     //   - absent entirely if the script never played
     //   - `:passed? false` with `:actual` nil if `:setup` never seeded
     // Neither degradation can wear a passing witness.
+    //
+    // `max-tokens` 0 lifts the per-call cap. The result's `:narrative` carries
+    // the run's epoch tape, raw trace events included, and that alone
+    // outgrows the default cap, whose overflow envelope drops every slot
+    // this phase reads.
     const runResp = await client.callTool({
       name: 'run-variant',
-      arguments: { 'variant-id': FIXTURE_VARIANT },
+      arguments: { 'variant-id': FIXTURE_VARIANT, 'max-tokens': 0 },
     });
     if (runResp.isError) {
       throw new Error('run-variant on the fixture variant failed: ' + JSON.stringify(runResp));
