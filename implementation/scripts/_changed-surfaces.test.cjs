@@ -2407,19 +2407,13 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
   //     so every fresco-only diff would schedule all of them to run one
   //     five-second one-namespace lane. The `fresco JVM lane is
   //     UNCONDITIONAL` test below pins that.
-  //   cljs_prod — no `-elision-prod-test$` namespace.
   //
   // `cljs_browser` is NOT on this list: the package owns `-dom-cljs-test$`
   // namespaces the :browser-test build selects, and that arm is asserted
-  // positively by the DOM-suite block above. Nor is `bundle_isolation`, which
-  // the row below pins per file.
+  // positively by the DOM-suite block above. Nor are `bundle_isolation` and
+  // `cljs_prod`, which the rows below pin per file.
   const result = classify('implementation/fresco/src/re_frame/fresco.cljc');
-  for (const key of [
-    'implementation_jvm',
-    'cljs_prod',
-  ]) {
-    assert.equal(result[key], 'false', `fresco must not arm ${key}`);
-  }
+  assert.equal(result.implementation_jvm, 'false', 'fresco must not arm implementation_jvm');
 });
 
 // test:bundle-isolation releases :examples/login-fresco, a Fresco app, and
@@ -2475,6 +2469,62 @@ test('Fresco src a bundle-isolation release compiles arms bundle isolation; the 
       classify(file).bundle_isolation,
       'false',
       `${file} is compiled into no test:bundle-isolation release and must not run the bundle-isolation job`,
+    );
+  }
+});
+
+// cljs-browser-prod-elision builds :browser-test-prod-elision, which selects
+// the `-elision-prod-test$` namespaces and compiles them with the facade and
+// its impl tree, then runs check_source_coord_elision.cjs over
+// coord_sentinel_source.cljs and the bundle. The armed side is what that
+// build's manifest.edn lists of this artefact, plus the script; the overlay
+// and presence impls, the optional modules and the rest of the tree stay
+// unarmed.
+const FRESCO_PROD_ELISION_ARMED = pinnedRoster('the Fresco prod-elision arm', [
+  'implementation/fresco/src/re_frame/fresco.cljc',
+  'implementation/fresco/src/re_frame/fresco/impl/boundary.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/collector.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/controlled.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/error.cljc',
+  'implementation/fresco/src/re_frame/fresco/impl/frame_boundary.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/frames.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/generation.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/intent.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/mount.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/portal.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/roots.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/route_link.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
+  'implementation/fresco/test/re_frame/fresco/coord_sentinel_source.cljs',
+  'implementation/fresco/test/re_frame/fresco/error_source_coord_elision_prod_test.cljs',
+  'implementation/fresco/test/re_frame/fresco/view_body_retention_elision_prod_test.cljs',
+  'implementation/fresco/scripts/check_source_coord_elision.cjs',
+]);
+const FRESCO_PROD_ELISION_UNARMED = pinnedRoster('the Fresco prod-elision arm, unarmed side', [
+  'implementation/fresco/src/re_frame/fresco/impl/overlay.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/presence.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/presence_react.cljs',
+  'implementation/fresco/src/re_frame/fresco/server.cljs',
+  'implementation/fresco/src/re_frame/fresco/substrate.cljs',
+  'implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc',
+  'implementation/fresco/scripts/check_bundle_isolation.cjs',
+  'implementation/fresco/spec/invariants.md',
+]);
+
+test('what cljs-browser-prod-elision compiles or runs of Fresco arms cljs_prod; the rest of the artefact does not', () => {
+  for (const file of FRESCO_PROD_ELISION_ARMED) {
+    assert.equal(
+      classify(file).cljs_prod,
+      'true',
+      `${file} is compiled or run by cljs-browser-prod-elision and must schedule it`,
+    );
+  }
+  for (const file of FRESCO_PROD_ELISION_UNARMED) {
+    assert.equal(
+      classify(file).cljs_prod,
+      'false',
+      `${file} is neither compiled nor run by cljs-browser-prod-elision and must not schedule it`,
     );
   }
 });
