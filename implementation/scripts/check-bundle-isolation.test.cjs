@@ -194,6 +194,7 @@ for (const [artefacts, controls, list, why] of [
     const text = fs.readFileSync(real.file, 'utf8');
     for (const [injected, owner] of [
       ['re_frame/schemas.cljc', 'schemas'],
+      ['re_frame/flows.cljc', 'flows'],
     ]) {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-manifest-'));
       try {

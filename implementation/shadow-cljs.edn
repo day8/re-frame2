@@ -1167,22 +1167,6 @@
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules
    {:trace-tooling     {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}
-    :routing           {:init-fn re-frame.bundle-isolation-positive-control.routing/run
-                        :depends-on #{:trace-tooling}}
-    :flows             {:init-fn re-frame.bundle-isolation-positive-control.flows/run
-                        :depends-on #{:trace-tooling}}
-    :epoch             {:init-fn re-frame.bundle-isolation-positive-control.epoch/run
-                        :depends-on #{:trace-tooling}}
-    :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
-                        :depends-on #{:trace-tooling}}
-    ;; day8/re-frame2-fresco is a PUBLISHED browser-optional view
-    ;; substrate, so the release lockstep and the bundle-isolation gate
-    ;; enrol it from the same `:aliases/:clein/build` fact. Its two sentinels
-    ;; are chosen to survive `:advanced` with `goog.DEBUG` false — most Fresco
-    ;; strings deliberately do not — so this module proves presence where the
-    ;; counter bundle proves absence.
-    :fresco           {:init-fn re-frame.bundle-isolation-positive-control.fresco/run
-                        :depends-on #{:trace-tooling}}
     :story             {:init-fn re-frame.bundle-isolation-positive-control.story/run
                         :depends-on #{:trace-tooling}}
     :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run

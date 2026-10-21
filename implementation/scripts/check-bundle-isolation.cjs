@@ -111,32 +111,13 @@ const ARTEFACTS = [
   {
     name: 'routing',
     relPath: 'routing',
-    internalSentinels: [
-      // routing.cljc — `route` lookup ex-info.
-      { source: 're-frame.routing route-by-id (no-such-route)',
-        sentinel: 'rf.error/no-such-route' },
-      // routing.cljc — required-param missing on path build.
-      { source: 're-frame.routing build-path (missing-route-param)',
-        sentinel: 'rf.error/missing-route-param' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/routing.cljc', 're_frame/routing/'],
   },
 
   {
     name: 'flows',
     relPath: 'flows',
-    internalSentinels: [
-      // flows.cljc — topological-sort cycle detection.
-      { source: 're-frame.flows topo-sort (flow-cycle)',
-        sentinel: 'rf.error/flow-cycle' },
-      // flows.cljc — reg-flow form validation: missing :id.
-      { source: 're-frame.flows reg-flow (flow-missing-id)',
-        sentinel: 'rf.error/flow-missing-id' },
-      // flows.cljc — reg-flow form validation: bad :inputs.
-      { source: 're-frame.flows reg-flow (flow-bad-inputs)',
-        sentinel: 'rf.error/flow-bad-inputs' },
-    ],
+    forbiddenSources: ['re_frame/flows.cljc', 're_frame/flows/'],
     // One consumer-side string:
     //   `flows/reg-flow`     — late-bind hook key core publishes for
     //                          the flows artefact's reg-flow surface,
@@ -164,29 +145,16 @@ const ARTEFACTS = [
   },
 
   // Epoch artefact (re-frame.epoch lives at implementation/epoch/;
-  // Tool-Pair §Time-travel surface). Counter imports
-  // zero epoch symbols — the `day8/re-frame2-epoch` artefact must DCE
-  // entirely when the consuming app doesn't `:require` re-frame.epoch.
-  // Xray's preload.cljs `:requires` re-frame.epoch to anchor it onto the
-  // dev classpath so every Xray-enabled build has working time-travel;
-  // the preload is dev-only (gated by shadow-cljs `:devtools/preloads`)
-  // so the anchor must NOT pull epoch into a production bundle. Core's
-  // `rf/epoch-history` forwarder looks the producing fn up through the
-  // late-bind hook table at call time;
-  // a non-zero internal-sentinel hit means the epoch namespace got
-  // dragged in (most likely a stray `:require` in a core/* ns).
-  // These two literals survive the real
-  // goog.DEBUG=false owner module: listener-failure reporting and record
-  // assembly remain reachable while the debug-only restore trace ids DCE.
+  // Tool-Pair §Time-travel surface). Xray's preload.cljs `:requires`
+  // re-frame.epoch to anchor it onto the dev classpath so every Xray-enabled
+  // build has working time-travel; the preload is dev-only (gated by
+  // shadow-cljs `:devtools/preloads`), so the anchor must NOT pull epoch into a
+  // production bundle. Core's `rf/epoch-history` forwarder looks the producing
+  // fn up through the late-bind hook table at call time.
   {
     name: 'epoch',
     relPath: 'epoch',
-    internalSentinels: [
-      { source: 're-frame.epoch.listeners listener failure diagnostic',
-        sentinel: 'rf.epoch.cb/listener-exception' },
-      { source: 're-frame.epoch.assembly redacted-path count',
-        sentinel: 'rf.epoch/redacted-modified-paths-count' },
-    ],
+    forbiddenSources: ['re_frame/epoch.cljc', 're_frame/epoch/'],
     // One consumer-side string: `epoch/settle!` — the late-bind hook
     // key the router calls into at drain-empty (router.cljc). Core
     // publishes the call site so the epoch artefact can populate the
@@ -202,20 +170,7 @@ const ARTEFACTS = [
   {
     name: 'ssr',
     relPath: 'ssr',
-    internalSentinels: [
-      // ssr.cljc — namespace-prefix on every server-only fx and trace
-      // op (`:rf.server/respond`, `:rf.server/redirect`, ...). The
-      // prefix appears in the bundle only when ssr.cljc's body is
-      // compiled in.
-      { source: 're-frame.ssr server-only fx prefix (rf.server/)',
-        sentinel: 'rf.server/' },
-      // ssr.cljc — :rf/hydrate event-id (the CLJS hydration entry
-      // point registered by ssr.cljc).
-      { source: 're-frame.ssr hydrate event (rf/hydrate)',
-        sentinel: 'rf/hydrate' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/ssr.cljc', 're_frame/ssr/'],
   },
 
   // Resources runtime (the `day8/re-frame2-resources` artefact, Spec 016), a
@@ -231,42 +186,14 @@ const ARTEFACTS = [
     forbiddenSources: ['re_frame/resources.cljc', 're_frame/resources/'],
   },
 
-  // Fresco, the lean-React view substrate (the
-  // `day8/re-frame2-fresco` artefact). A separately published,
-  // browser-reachable OPTIONAL substrate: nothing in core or the adapters
-  // `:require`s it, and the counter example is a Reagent app that never names
-  // a `re-frame.fresco.*` namespace, so the whole tree must be absent from
-  // its production bundle. A non-zero internal-sentinel hit means the Fresco
-  // runtime got dragged in (most likely a stray `:require` from a core/* ns).
-  //
-  // THE SENTINEL CHOICE IS THE INTERESTING PART, because most Fresco strings
-  // would make a FALSE-GREEN one. The package's production story is that its
-  // complaint machinery folds away under `:advanced` with `goog.DEBUG` false
-  // (`fresco/scripts/check_production_erasure.cjs` asserts exactly that), so
-  // a sentinel taken from a dev-guarded refusal would be absent from every
-  // bundle including one that ships the whole runtime. Both sentinels below
-  // are that script's own POSITIVE CONTROLS — the strings it proves PRESENT in
-  // the `:fresco-release` `:advanced` bundle — so they are absent here only
-  // when the code is absent:
-  //   - `frescoBoundary` is the own-property marker `mark-boundary!` stamps
-  //     on every minted head via `unchecked-set` with a literal string key,
-  //     with no `goog.DEBUG` gate anywhere near it;
-  //   - `rf.error/fresco-empty-vector` is a refusal id minted by `fail!` on
-  //     the path every build keeps, not inside its dev guard.
-  // Both are unique to the artefact's own src tree (verified repo-wide).
+  // Fresco, the lean-React view substrate (the `day8/re-frame2-fresco`
+  // artefact), a separately published, browser-reachable OPTIONAL substrate:
+  // nothing in core or the adapters `:require`s it, and the counter example is
+  // a Reagent app that never names a `re-frame.fresco.*` namespace.
   {
     name: 'fresco',
     relPath: 'fresco',
-    internalSentinels: [
-      // impl/codec.cljs — mark-boundary! own-property marker (ungated).
-      { source: 're-frame.fresco.impl.codec mark-boundary! (frescoBoundary)',
-        sentinel: 'frescoBoundary' },
-      // impl/codec.cljs — vector-kind's empty-vector refusal id.
-      { source: 're-frame.fresco.impl.codec vector-kind (fresco-empty-vector)',
-        sentinel: 'rf.error/fresco-empty-vector' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/fresco.cljc', 're_frame/fresco/'],
   },
 
   // re-frame.trace.tooling (the dev-tooling buffer + listener surface, kept
@@ -522,11 +449,6 @@ const ARTEFACTS = [
 // assertPositiveControlComplete() requires every elision claim to appear here
 // and nothing else to, so none can ship negative-only.
 const POSITIVE_CONTROL = {
-  routing: { onModule: 'routing' },
-  flows: { onModule: 'flows' },
-  epoch: { onModule: 'epoch' },
-  ssr: { onModule: 'ssr' },
-  fresco: { onModule: 'fresco' },
   'trace-tooling': { onModule: 'trace-tooling' },
   story: { onModule: 'story' },
   xyflow: { onModule: 'xyflow' },
