@@ -18,6 +18,7 @@
 
  :surfaces
  {
+  ".github"                               0
   "bench"                                 0
   "docs"                                  0
   "examples"                              0
