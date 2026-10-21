@@ -10,9 +10,10 @@
   The bare `:work/id` is still legitimate on its own: it is the durable
   attempt identity on the attempt record and the verification payload, and on
   non-reply resource-lifecycle trace rows (`:rf.resource/succeeded`, issuance
-  rows, …), which carry it as a LONE spelling with no `:rf.reply/work-id` twin. Routing's stale row carries a
-  lone bare `:work/id` too. The lint targets only the DUPLICATE: a map that
-  carries the namespaced reply-envelope key AND the bare key for the same fact.
+  rows, …), which carry it as a LONE spelling with no `:rf.reply/work-id`
+  twin. Routing's stale row carries a lone bare `:work/id` too. The lint
+  targets only the DUPLICATE: a map that carries the namespaced
+  reply-envelope key AND the bare key for the same fact.
   A lone `:work/id` (no `:rf.reply/work-id` in the same map) is fine; a nested
   correlation payload like `:rf.reply/carried {:work/id … :generation …}` is
   fine (that inner map carries no `:rf.reply/work-id`).
