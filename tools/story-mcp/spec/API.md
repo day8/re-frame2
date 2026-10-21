@@ -446,6 +446,10 @@ is epoch data, so it crosses the off-box epoch projector the pair MCP
 sends epochs through, trace events included: its `:db-before` /
 `:db-after` redact by app-db path, and its event and effect args redact.
 `:include-sensitive` lifts only the app-db axes inside that projection.
+The top-level epoch rows — `:effects`, `:sub-runs` and `:renders` — cross
+the same projector, so each reads as it does in its beat: an effect's
+`:args` redact and a sub-run's query vectors keep only their ids. Under
+`:include-sensitive` they ship as recorded.
 
 **Output.** The unified run-result (rf2-ba86n.17 clean break — the same
 shape the human Story UI reads; `re-frame.story.result/run-result`):

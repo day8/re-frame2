@@ -130,9 +130,6 @@
   (vec (rest (run-loop-frames
                (str "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{}}\n" in-text)))))
 
-(def ^:private evidence-slots
-  [:schema-violations :warnings :effects :sub-runs :renders :narrative])
-
 ;; ---------------------------------------------------------------------------
 ;; Registry
 ;; ---------------------------------------------------------------------------
@@ -962,6 +959,51 @@
     (is (not (str/includes? (pr-str events) narrative-secret)))))
 
 ;; ---------------------------------------------------------------------------
+;; The top-level `:effects` / `:sub-runs` / `:renders` are the tape's epoch
+;; rows, so they cross the same projector: off box an fx's args redact and a
+;; query vector keeps only its id, exactly as the row reads in its narrative
+;; beat. Under the trusted-local opt-in they ship as recorded.
+;; ---------------------------------------------------------------------------
+
+(def ^:private row-secret "ROW-SECRET-SENTINEL")
+
+(defn- reg-row-secret-variant!
+  "A variant whose `:setup` emits an fx with a secret arg and whose `:script`
+  computes a sub with a secret query-vector arg — the two user values an
+  epoch row carries."
+  []
+  (rf/reg-event ::row-noop (fn [{:keys [db]} _] {:db db}))
+  (rf/reg-event ::row-seed
+    (fn [{:keys [db]} _]
+      {:db (assoc db ::row "v")
+       :fx [[:dispatch [::row-noop row-secret]]]}))
+  (rf/reg-sub ::row-lookup (fn [db _] (get db ::row)))
+  (rf.story/reg-variant :story.button/row-secret
+    {:doc    "Carries a secret in an fx arg and in a query vector."
+     :setup  [[::row-seed]]
+     :script [[:dispatch-sync [:rf.assert/sub-equals [::row-lookup row-secret] "v"]]]}))
+
+(deftest run-variant-top-level-rows-cross-the-projector
+  (reg-row-secret-variant!)
+  (let [s   (:structuredContent (invoke "run-variant" {:variant-id "story.button/row-secret"}))
+        fx  (filter #(= :dispatch (:fx-id %)) (:effects s))
+        sub (filter #(= ::row-lookup (:sub-id %)) (:sub-runs s))]
+    (is (seq fx) "control: the fx row is there")
+    (is (every? #(= :rf/redacted (:args %)) fx))
+    (is (seq sub) "control: the sub-run row is there")
+    (is (every? #(= [::row-lookup :rf/redacted] (:query-v %)) sub) "the query vector keeps its id")
+    (is (not (str/includes? (pr-str (select-keys s [:effects :sub-runs :renders])) row-secret)))
+    (doseq [slot [:effects :sub-runs :renders]]
+      (is (= (mapv #(dissoc % :epoch-id) (slot s)) (vec (mapcat slot (narrative-beats s))))
+          (str "each top-level " slot " row reads as it does in its narrative beat"))))
+  (testing "the trusted-local opt-in ships the rows as recorded"
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (let [s (:structuredContent (invoke "run-variant" {:variant-id        "story.button/row-secret"
+                                                       :include-sensitive true}))]
+      (is (some #(= [::row-noop row-secret] (:args %)) (:effects s)))
+      (is (some #(= [::row-lookup row-secret] (:query-v %)) (:sub-runs s))))))
+
+;; ---------------------------------------------------------------------------
 ;; Wire-egress privacy posture (spec/Tool-Pair.md §Direct-read privacy
 ;; posture). A slot classified on the variant's frame surfaces as
 ;; `:rf/redacted` unless the operator gate is open AND the caller sends
@@ -1067,9 +1109,12 @@
 (deftest derived-slots-at-a-classified-path-honour-the-include-sensitive-opt-in
   ;; Each slot carries the secret AT a classified path — `[:token]` in the map
   ;; slots and in a narrative beat's app-db snapshot, `[0 :token]` in the
-  ;; other vector evidence slots — so it redacts unless the opt-in reaches
-  ;; that slot's own projection. The stub carries only slots a real
-  ;; `rf.story/run-variant` can produce, in the shapes it produces them.
+  ;; path-scrubbed vector evidence slots — so it redacts unless the opt-in
+  ;; reaches that slot's own projection. The stub carries only slots a real
+  ;; `rf.story/run-variant` can produce, in the shapes it produces them. The
+  ;; epoch rows (`:effects` / `:sub-runs` / `:renders`) are projected by their
+  ;; own slots rather than a classified path, and are covered by
+  ;; `run-variant-top-level-rows-cross-the-projector`.
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (with-clean-frame [vid :story.button/primary]
     (declare-sensitive! vid [:token])
@@ -1079,10 +1124,10 @@
                     (java.util.concurrent.CompletableFuture/completedFuture
                       (merge {:status :pass :frame vid :lifecycle :ready :elapsed-ms 1
                               :app-db {} :assertions [] :checks []
-                              :effective-args {:token "TOPSECRET"} :snapshot {:token "TOPSECRET"}}
-                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}]))
+                              :effective-args {:token "TOPSECRET"} :snapshot {:token "TOPSECRET"}
+                              :schema-violations [{:token "TOPSECRET"}] :warnings [{:token "TOPSECRET"}]}
                              {:narrative [{:step nil :epochs [{:epoch-id 1 :db-after {:token "TOPSECRET"}}]}]})))]
-      (doseq [[tool slots] [["run-variant"     (conj evidence-slots :snapshot)]
+      (doseq [[tool slots] [["run-variant"     [:schema-violations :warnings :narrative :snapshot]]
                             ["preview-variant" [:snapshot :effective-args]]]]
         (let [paths (map #(case %
                             (:snapshot :effective-args) [% :token]
