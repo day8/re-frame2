@@ -1353,9 +1353,10 @@
   ["re-frame.http.managed" "clear-all-http-interceptors!"] {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http.managed" "interceptors-snapshot"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
   ;; `re-frame.resources.test-support`'s one public var, the per-test resources
-  ;; reset. A test requires the namespace for its load effect, which publishes
-  ;; the `:resources/reset-resources!` hook `make-reset-runtime-fixture` fires;
-  ;; the var itself is a test reach, like the http reaches above.
+  ;; reset. A test requires the namespace for its load effect, which contributes
+  ;; the `:resources` lifecycle member whose `:test-reset`
+  ;; `make-reset-runtime-fixture` runs; the var itself is a test reach, like the
+  ;; http reaches above.
   ["re-frame.resources.test-support" "reset-resources!"]         {:tier :implementation :owner "016" :status "post-v1 lib (optional capability)"}
 
   ;; =========================================================================
