@@ -1230,8 +1230,8 @@ else
         # error as DATA in them. Both trees join HTTP on the same `src/*`
         # scope, and the over-arm is as deliberate here as it is there: machines
         # carries an UNROSTERED
-        # implementation/machines/src/re_frame/machines/reply.cljc holding more
-        # `:rf.reply/*` occurrences than any rostered file in that tree, and
+        # implementation/machines/src/re_frame/machines/lifecycle_fx/registration.cljc writing
+        # `:rf.reply/*` tags (the single-`:spawn` stale-completion row), and
         # resources likewise carries
         # implementation/resources/src/re_frame/resources/reply.cljc — so the
         # suites' roster trails the emitters and an enumeration here
