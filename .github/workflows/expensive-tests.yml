@@ -981,6 +981,30 @@ jobs:
         working-directory: bench/fresco
         run: node src/re_frame/bench/fresco/cljs_test_run.cjs
 
+  # The release gate's consumer-classpath check, run nightly so a hole in what
+  # a documented coordinate set resolves surfaces the night it lands rather
+  # than at the tag. release.yml's pre-release `test` job runs the same script
+  # before anything publishes; the script's header says what it builds and
+  # what it asserts.
+  consumer-classpath:
+    name: Consumer classpath (documented sets resolve every documented require exactly once)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Consumer classpath check
+        run: "$GITHUB_WORKSPACE/.github/scripts/check-consumer-classpath.sh"
+
   # THE GATE-SCHEDULING AUDIT IS NOT HERE. `scripts/check_gate_scheduling.py`
   # asserts that every `test:*` / `bench:*` / `build:*` command in
   # implementation/package.json is either reachable from a workflow or carries a
@@ -1031,6 +1055,7 @@ jobs:
       # signature can be derived while the bench compile is still running, and
       # a red lane would be absent from the night's tracking issue.
       - fresco-bench-compile
+      - consumer-classpath
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

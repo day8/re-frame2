@@ -289,6 +289,14 @@ jobs:
         working-directory: implementation/epoch
         run: clojure -M:test
 
+      # What a consumer resolves, asked before anything below publishes:
+      # every artefact is built as jar + POM the way the deploy jobs build it,
+      # and each documented coordinate set must resolve each documented
+      # require to exactly one classpath file. The suites above all run on
+      # in-repo classpaths no consumer has, and Clojars has no yank.
+      - name: Consumer classpath (documented sets resolve every documented require exactly once)
+        run: "$GITHUB_WORKSPACE/.github/scripts/check-consumer-classpath.sh"
+
       - name: npm install
         working-directory: implementation
         run: npm ci

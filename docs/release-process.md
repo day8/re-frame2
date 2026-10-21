@@ -199,6 +199,7 @@ Before tagging:
 - [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release, **including its artefact roster**. The GitHub Release body links to it, so it is the canonical narrative — and that link is pinned to the tag, not to `main`, so the CHANGELOG has to be right at the moment of tagging. A later correction on `main` will not reach a release body that has already been cut.
 - [ ] The tag's commit is the same commit that updates VERSION + the migration corpus + CHANGELOG (one release commit).
 - [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
+- [ ] The nightly `Consumer classpath` job is green on the release commit, or `./.github/scripts/check-consumer-classpath.sh` passes locally: every documented coordinate set, built as jars + POMs the way the deploy jobs build them, resolves each documented require to exactly one classpath file. The `test` job runs it again before anything publishes, because Clojars has no yank.
 
 ## Recovery from a partial deploy
 
