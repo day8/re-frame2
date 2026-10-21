@@ -1282,9 +1282,8 @@ else
         # no jvm output. `implementation/scripts/_changed-surfaces.test.cjs`
         # pins all three facts.
         #
-        # NOT cljs_prod / bundle_isolation: no
-        # `-elision-prod-test$` namespace and no example resolves the
-        # artefact.
+        # NOT cljs_prod: no `-elision-prod-test$` namespace. bundle_isolation
+        # is armed below, for the src files its releases compile.
         cljs_node_test=true
         # cljs_browser: the package owns `-dom-cljs-test` namespaces under
         # implementation/fresco/test/, and only the browser lane mounts them.
@@ -1351,6 +1350,19 @@ else
         # package's own coverage. Over-classifying a seconds-long pure JVM
         # suite is the cheaper error, and TESTING.md says to prefer it.
         migration_fresco_codemod=true
+        # bundle_isolation, for the src files a `test:bundle-isolation` release
+        # compiles: `:examples/login-fresco` is a Fresco app whose bundle
+        # check-login-bundle-isolation.cjs grades, and
+        # `:examples/counter-with-stories` reaches Fresco through Xray's views
+        # for the Story elision claim. The optional modules named first are in
+        # neither release's manifest.edn, nor is anything outside src/. A new
+        # src file arms until a manifest shows no release compiles it.
+        case "$file" in
+          implementation/fresco/src/re_frame/fresco/forms.cljs|implementation/fresco/src/re_frame/fresco/motion.cljs|implementation/fresco/src/re_frame/fresco/native.cljc|implementation/fresco/src/re_frame/fresco/overlay.cljs|implementation/fresco/src/re_frame/fresco/server.cljs|implementation/fresco/src/re_frame/fresco/impl/overlay.cljs|implementation/fresco/src/re_frame/fresco/impl/presence.cljs|implementation/fresco/src/re_frame/fresco/impl/presence_react.cljs)
+            : ;;
+          implementation/fresco/src/*)
+            bundle_isolation=true ;;
+        esac
         # The docs' live-cell SCI bundle bakes in `re-frame.fresco` and its
         # forms, overlay and motion modules, so a source or deps change must
         # prove the bundle still builds and renders. Tests are not baked in.
