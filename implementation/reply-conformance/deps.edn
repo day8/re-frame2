@@ -2,7 +2,7 @@
 ;; envelope (Managed-Effects).
 ;;
 ;; This is a test-only surface with no published source. It checks the core
-;; reply substrate and builders in HTTP, resources, machines, and routing
+;; reply substrate and builders in HTTP, resources, and routing
 ;; against the shared `:status`, `:rf.reply/work-status`,
 ;; `:rf.reply/work-id`, stale-suppression, and egress-projection contracts.
 ;; The tests depend on several implementation
@@ -34,7 +34,6 @@
    :extra-deps  {day8/re-frame2           {:local/root "../core"}
                  day8/re-frame2-http      {:local/root "../http"}
                  day8/re-frame2-resources {:local/root "../resources"}
-                 day8/re-frame2-machines  {:local/root "../machines"}
                  day8/re-frame2-routing   {:local/root "../routing"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

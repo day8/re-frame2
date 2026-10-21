@@ -37,8 +37,8 @@
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.work :as rf.machines.work]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -321,7 +321,7 @@
       join-child           (assoc :join-child join-child)
       attempt              (assoc :invoke-attempt attempt
                                   :work-generation
-                                  (rf.machines.reply/spawn-work-generation
+                                  (rf.machines.work/spawn-work-generation
                                     (contains? args :fixed-actor-id) spawned-id attempt)))))
 
 (defn- join-child-record-from-state
@@ -352,7 +352,7 @@
      ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
      ;; therefore never decides fixed-vs-generated provenance, and the
      ;; public/pure spawn effect shape remains unchanged.
-     :work-generation (rf.machines.reply/spawn-work-generation
+     :work-generation (rf.machines.work/spawn-work-generation
                         (contains? args :fixed-actor-id)
                         spawned-id
                         (:rf/attempt join-state))}))
