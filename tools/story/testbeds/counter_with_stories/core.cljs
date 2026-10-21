@@ -9,8 +9,10 @@
   Per `001-Authoring.md` §Registration macros, when this example is compiled under
   `:advanced` with `:closure-defines {re-frame.story.config/enabled?
   false}`, every `reg-*` form in `counter-with-stories.stories`
-  elides to `nil`, `mount-shell!` short-circuits, and the bundle
-  carries no Story body code."
+  elides to `nil` and `mount-shell!` short-circuits, so the bundle
+  carries no Story shell; it still carries Xray, which Story requires
+  statically (`005-SOTA-Features.md` §Residue). `npm run
+  test:bundle-isolation` releases this build that way and checks it."
   (:require [re-frame.core      :as rf]
             [re-frame.story     :as rf.story]
             [re-frame.story.play.ci-runner :as rf.story.play.ci-runner]

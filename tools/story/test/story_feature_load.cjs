@@ -1467,7 +1467,7 @@ const COVERAGE_MATRIX = [
     feature: 'Production elision',
     kind: 'owned-by',
     gate: 'npm run test:bundle-isolation',
-    why: 'test:bundle-isolation reads the plain counter build manifest for Story sources, so it checks only that an app importing no Story compiles none; no gate builds a Story-importing app with enabled? false, and the feature-load shell cannot exercise a production-elided bundle.',
+    why: 'test:bundle-isolation reads the plain counter build manifest for Story sources, and releases a Story-importing app with enabled? false to check that no shell body survives; the feature-load shell cannot exercise a production-elided bundle.',
   },
   {
     feature: 'Bundle size comparison',

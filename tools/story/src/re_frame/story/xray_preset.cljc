@@ -79,8 +79,9 @@
             ;; Bundle-isolation is unaffected — its contract
             ;; (tools/README.md) forbids `implementation/` → `tools/`
             ;; requires, not
-            ;; `tools/story` → `tools/xray` (the inverse is explicitly
-            ;; fine, and neither artefact reaches a production bundle).
+            ;; `tools/story` → `tools/xray`. The require is static, so a
+            ;; build that imports Story carries Xray even with Story
+            ;; compiled out (005-SOTA-Features.md §Residue).
             #?(:cljs [re-frame.frame :as rf.frame])
             #?@(:cljs [[day8.re-frame2-xray.mount :as xray-mount]
                        [day8.re-frame2-xray.config :as xray-config]

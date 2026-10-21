@@ -35,9 +35,15 @@ Tools must not be reachable from a consumer's production build.
   (DOM-heavy UI, monaco, story metadata, MCP server bits) into every
   consumer's production bundle.
 - The contract is enforced structurally: `tools/` is a separate
-  classpath root, not on `implementation/`'s `deps.edn` or
-  `shadow-cljs.edn`. Bundle isolation is "the wrong artefact is absent
-  from the classpath" — same mechanism the substrate adapters use.
+  classpath root, not on `implementation/`'s `deps.edn`, so for a
+  consumer bundle isolation is "the wrong artefact is absent from the
+  classpath" — same mechanism the substrate adapters use. Inside this
+  repository `implementation/shadow-cljs.edn` does list the tool sources
+  on its `:source-paths`, because the testbeds build against them, so
+  there isolation rests on the require graph: a build that requires no
+  tool namespace compiles none, which
+  `implementation/scripts/check-bundle-isolation.cjs` checks on the
+  counter example's manifest.
 
 Today this convention exists as a directory split plus disciplined
 `deps.edn` hygiene. The physical separation makes the contract obvious

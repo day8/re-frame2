@@ -10,7 +10,8 @@
   Per `001-Authoring.md` §Registration macros, when compiled under `:advanced` with
   `:closure-defines {re-frame.story.config/enabled? false}`, every
   reg-* form in `login-form.stories` elides to nil; `mount-shell!`
-  short-circuits; the bundle carries no Story body code."
+  short-circuits, so the bundle carries no Story shell, though it still
+  carries Xray (`005-SOTA-Features.md` §Residue)."
   (:require [re-frame.core      :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.http.stub-transport :as rf.http.stub-transport]

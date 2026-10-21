@@ -90,11 +90,11 @@
   ## Bundle isolation
 
   This testbed is dev-only by construction: it `:requires` from
-  `tools/xray/src/` and `tools/story/src/`, both of which are
-  excluded from production builds via shadow-cljs build gates and
-  the bundle-isolation enforcement at
-  `implementation/scripts/test-bundle-isolation.sh`. Production app
-  code never `:requires` anything under `tools/xray/testbeds/`."
+  `tools/xray/src/` and `tools/story/src/`, which a production build
+  compiles only when it requires a tool namespace itself
+  (`implementation/scripts/check-bundle-isolation.cjs` checks the
+  counter example for that). Production app code never `:requires`
+  anything under `tools/xray/testbeds/`."
   (:require [re-frame.core :as rf]
             [re-frame.story :as rf.story]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
