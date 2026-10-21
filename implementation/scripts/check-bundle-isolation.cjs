@@ -289,177 +289,65 @@ const ARTEFACTS = [
     ],
   },
 
-  // re-frame.subs.tooling (`sub-topology` and
-  // `sub-cache-snapshot`, kept apart from re-frame.subs for production
-  // DCE). Counter never `:require`s `re-frame.subs.tooling` (Xray /
-  // re-frame2-pair-mcp / re-frame-10x do, but counter is the no-feature
-  // reference app). When this contract holds, the tooling sibling's
-  // body is absent from the bundle entirely — the JVM-side aliases in
-  // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated so
-  // they never appear in CLJS compilation. The sentinel is a live node-kind
-  // value emitted while projecting a subscription-cache entry.
+  // re-frame.subs.tooling (`sub-topology` and `sub-cache-snapshot`, kept apart
+  // from re-frame.subs for production DCE). Xray, re-frame2-pair-mcp and
+  // re-frame-10x `:require` it; counter never does. The JVM-side aliases in
+  // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated, so they
+  // never appear in CLJS compilation.
   {
     name: 'subs-tooling',
-    internalSentinels: [
-      { source: 're-frame.subs.tooling live node kind',
-        sentinel: 'subscription-cache-entry' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/subs/tooling.cljc'],
   },
 
-  // re-frame.flows.tooling (EP-0014
-  // `flow-algebra-view`, kept apart from the flows artefact for production
-  // DCE). The whole flows artefact is ALREADY bundle-isolated from
-  // counter (counter never `:require`s `re-frame.flows` — the `flows`
-  // entry above pins that), so this sibling can never reach a no-flows
-  // app's bundle; this entry is the belt-and-braces guard the
-  // tooling-sibling pattern standardises (it also fires if a flows-using
-  // CLJS app's facade ever `:require`s the tooling sibling — the
-  // `re-frame.flows` → `re-frame.flows.tooling` require is `#?@(:clj ...)`-
-  // gated so the body stays out of CLJS). The sentinel is a live evaluation
-  // classification reached by the focused positive-control module.
+  // The four EP-0014 algebra-view siblings (`flow-algebra-view`,
+  // `resource-algebra-view`, `route-algebra-view`, `machine-algebra-view` and
+  // their kin), each kept apart from its optional artefact for production DCE.
+  // Every parent's require on its sibling is `#?@(:clj ...)`-gated, so the body
+  // stays out of CLJS. The `flows`, `resources`, `routing` and `machines`
+  // entries above forbid each parent's whole tree, so no no-feature app can
+  // reach these; each keeps its own entry so a leak is named for the sibling
+  // that leaked.
   {
     name: 'flows-tooling',
-    internalSentinels: [
-      { source: 're-frame.flows.tooling evaluation classification',
-        sentinel: 'after-event' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/flows/tooling.cljc'],
   },
 
-  // re-frame.resources.tooling (EP-0014
-  // `resource-algebra-view` / `resource-cache-algebra-view`, kept apart from
-  // the resources artefact for production DCE). The whole resources artefact
-  // is ALREADY bundle-isolated from counter (counter never `:require`s
-  // `re-frame.resources`), so this sibling can never reach a no-resources
-  // app's bundle; this entry is the belt-and-braces guard the tooling-sibling
-  // pattern standardises (it also fires if a resources-using CLJS app's facade
-  // ever `:require`s the tooling sibling — the `re-frame.resources` →
-  // `re-frame.resources.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). The sentinel is a live node-kind value reached by the
-  // focused positive-control module.
   {
     name: 'resources-tooling',
-    internalSentinels: [
-      { source: 're-frame.resources.tooling live node kind',
-        sentinel: 'resource-process' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/resources/tooling.cljc'],
   },
 
-  // re-frame.routing.tooling (EP-0014
-  // `route-algebra-view` / `route-slice-algebra-view`, kept apart from the
-  // routing artefact for production DCE). The whole routing artefact is
-  // ALREADY bundle-isolated from counter (counter never `:require`s
-  // `re-frame.routing`), so this sibling can never reach a no-routing app's
-  // bundle; this entry is the belt-and-braces guard the tooling-sibling
-  // pattern standardises (it also fires if a routing-using CLJS app's facade
-  // ever `:require`s the tooling sibling — the `re-frame.routing` →
-  // `re-frame.routing.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). The sentinel is a live route-fact node-kind reached by
-  // the focused positive-control module.
   {
     name: 'routing-tooling',
-    internalSentinels: [
-      { source: 're-frame.routing.tooling node kind',
-        sentinel: 'route-fact' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/routing/tooling.cljc'],
   },
 
-  // re-frame.machines.tooling (EP-0014
-  // `machine-algebra-view` / `machine-instance-algebra-view` /
-  // `machine-selector?`, kept apart from the machines artefact for production
-  // DCE). The whole machines artefact is ALREADY bundle-isolated from
-  // counter (counter never `:require`s `re-frame.machines` — the `machines`
-  // entry above pins that), so this sibling can never reach a no-machines
-  // app's bundle; this entry is the belt-and-braces guard the
-  // tooling-sibling pattern standardises (it also fires if a machines-using
-  // CLJS app's facade ever `:require`s the tooling sibling — the
-  // `re-frame.machines` → `re-frame.machines.tooling` require is
-  // `#?@(:clj ...)`-gated so the body stays out of CLJS). The sentinel is a
-  // live machine-process node-kind reached by the focused positive control.
   {
     name: 'machines-tooling',
-    internalSentinels: [
-      { source: 're-frame.machines.tooling live node kind',
-        sentinel: 'machine-process' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/machines/tooling.cljc'],
   },
 
-  // re-frame.derivation.graph (EP-0014: the internal
-  // graph-inspection COMPOSER that stitches the five algebra-view siblings
-  // (subs / flows / resources / routes / machines) into one DerivationGraph
+  // re-frame.derivation.graph (EP-0014: the internal graph-inspection COMPOSER
+  // that stitches the five algebra-view siblings into one DerivationGraph
   // view). It lives in core/src but composes the four OPTIONAL siblings
-  // through a runtime contributor seam (requiring-resolve on JVM; an
-  // explicit contributor map on CLJS) rather than a static cross-artefact
-  // `:require`, so it carries no static dep on the optional artefacts and
-  // can never drag them into a core-only bundle. The composer is consumed
-  // only by dev tools (Xray) + the conformance fixtures, which `:require`
-  // it directly; the counter example never does, so the body is absent
-  // from the counter bundle entirely. The sentinel is a live family marker
-  // reached while projecting the focused positive-control graph.
+  // through a runtime contributor seam (requiring-resolve on JVM; an explicit
+  // contributor map on CLJS) rather than a static cross-artefact `:require`,
+  // so it can never drag them into a core-only bundle. Only dev tools (Xray)
+  // and the conformance fixtures `:require` it; the counter example never does.
   {
     name: 'derivation-graph',
-    internalSentinels: [
-      { source: 're-frame.derivation.graph family marker',
-        sentinel: 'rf/family' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/derivation/graph.cljc'],
   },
 
-  // re-frame.derivation.egress (the OFF-BOX graph-egress redaction
-  // ALGORITHM, one copy shared by the Xray call site
-  // (`derivation-graph-helpers/redact-graph-for-egress`) and the
-  // derivation-conformance suite). It lives in core/src beside
-  // the derivation-graph composer but is TOOLING: it is NOT exposed from the
-  // `re-frame.core` facade and NOT `:require`d by any production-reachable ns
-  // — only Xray (whose `redact-graph-for-egress` delegates to it) and the
-  // conformance fixtures `:require` it directly, so the counter example never
-  // loads it and Closure `:advanced` + goog.DEBUG=false DCE its body
-  // wholesale. A non-zero hit means the egress ns got dragged into the counter
-  // bundle (most likely a stray `:require` from a production-reachable ns, or
-  // an accidental re-export from the core facade). The sentinel is the opaque
-  // resource-handle marker the egress projection MINTS: `opaque-handle` emits
-  // `[:rf.resource/opaque <digest>]` and `already-projected?` reads the same
-  // keyword back, both on the live path reached from `project-graph`, so the
-  // keyword's fully-qualified name is interned into this module's emitted JS.
-  //
-  // TWO other kinds of literal are traps worth naming, because each is what
-  // reading the source alone would pick:
-  //
-  //   A dead-frame stamp keyword. Egress mints none — the walker takes an
-  //     explicit nil frame at face value — and an identity value would intern
-  //     nothing where a keyword interns its name as a string. A sentinel naming
-  //     a literal the artefact does not emit reads 0/1 in this positive
-  //     control, which is how such drift fails loud instead of shipping as a
-  //     vacuous green.
-  //
-  //   A planted string, such as a `defonce ^:private bundle-isolation-sentinel`
-  //     in egress.cljc. It reads like the obvious choice and is NOT one: the var
-  //     is private and nothing consumes its value, so Closure `:advanced` drops
-  //     it and the emitted module carries 0 occurrences. The controls grep the
-  //     emitted module, not the source, which is why this entry and its
-  //     `derivation-graph` sibling (on `rf/family`) count live literals instead.
-  //     Do not plant one: egress.cljc's own comment points back here.
-  //
-  // The rule both traps teach: pick a literal a LIVE code path emits, and verify
-  // the count in the emitted module, never in the .cljc.
+  // re-frame.derivation.egress (the OFF-BOX graph-egress redaction ALGORITHM,
+  // one copy shared by the Xray call site and the derivation-conformance
+  // suite). It lives in core/src beside the composer but is TOOLING: it is not
+  // exposed from the `re-frame.core` facade and no production-reachable ns
+  // `:require`s it. A leak most likely means a stray `:require` from a
+  // production-reachable ns, or an accidental re-export from the core facade.
   {
     name: 'derivation-egress',
-    internalSentinels: [
-      { source: 're-frame.derivation.egress opaque resource-handle marker',
-        sentinel: 'rf.resource/opaque' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/derivation/egress.cljc'],
   },
 
   // Story (tools/story/). The plain
@@ -640,13 +528,6 @@ const POSITIVE_CONTROL = {
   ssr: { onModule: 'ssr' },
   fresco: { onModule: 'fresco' },
   'trace-tooling': { onModule: 'trace-tooling' },
-  'subs-tooling': { onModule: 'subs-tooling' },
-  'flows-tooling': { onModule: 'flows-tooling' },
-  'resources-tooling': { onModule: 'resources-tooling' },
-  'routing-tooling': { onModule: 'routing-tooling' },
-  'machines-tooling': { onModule: 'machines-tooling' },
-  'derivation-graph': { onModule: 'derivation-graph' },
-  'derivation-egress': { onModule: 'derivation-egress' },
   story: { onModule: 'story' },
   xyflow: { onModule: 'xyflow' },
   elkjs: { onModule: 'elkjs' },
