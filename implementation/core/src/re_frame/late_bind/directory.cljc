@@ -199,9 +199,8 @@
    ;; ===========================================================================
 
    ;; ---- re-frame.elision (frame-owned app-db egress registry) ---------------
-   ;; EP-0015 §8: durable app-db classification is frame-owned
-   ;; (`re-frame.frame-classification`) — the app-db egress registry is fed by
-   ;; the frame, not by schemas.
+   ;; Durable app-db classification is the commit-plane classification
+   ;; effects (Spec 015 §Durable app-db), which feed this registry — not schemas.
    {:key         :elision/clear-warning-cache!
     :producer-ns 're-frame.elision
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
@@ -234,22 +233,6 @@
    {:key         :classification/redact-event-by-registration
     :producer-ns 're-frame.classification
     :description "ALWAYS-ON (NOT a DCE seam — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection/project-event-slot — the one event projection the frame-owned sink route and the always-on re-frame.event-emit / re-frame.error-emit records share — and by the router's halted-epoch record, the managed-HTTP reply addresses (re-frame.http.privacy) and a mutation's :reply-to address (re-frame.resources.classification)."}
-
-   ;; ---- re-frame.frame-classification (EP-0015 §9 observability) ----
-   ;; The frame engine (`re-frame.frame/upsert-frame!`) consults this to validate the
-   ;; frame-owned :observability sink policy. Reached via late-bind because
-   ;; frame-classification requires frame, so a static require would cycle.
-   ;;
-   ;; EP-0025: there are no durable app-db classification install hooks and no
-   ;; :frame-classification/http-carriers resolver hook — there is no frame
-   ;; :sensitive / :large {:app-db …} annotation and no :sensitive {:http …}
-   ;; carrier block. Durable app-db classification rides the commit-plane effects
-   ;; (re-frame.elision); HTTP carriers ride the :rf.http/managed reg-fx
-   ;; registration (:carriers block, resolved by re-frame.http.privacy); and
-   ;; construction only VALIDATES the :observability policy.
-   {:key         :frame-classification/validate!
-    :producer-ns 're-frame.frame-classification
-    :description "Validate a make-frame config's frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; a :sensitive or :large frame key also fails loud here (EP-0025: HTTP carriers live on :rf.http/managed, app-db classification in commit-plane effects). Pure, installs nothing — called EARLY by the frame engine (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). There is no :frame-classification/http-carriers resolver hook — HTTP carrier classification lives on the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
    {:key         :flows/reg-flow
@@ -660,6 +643,9 @@
     :description "Drop a listener registered through `:error-emit/register-error-listener!`. Paired with it in `frame/fire-on-destroy-event!`'s finally-shaped teardown of the transient `:on-destroy`-throw capture listener, so the listener never leaks past the dispatch. Survives `:advanced` + `goog.DEBUG=false`."}
 
    ;; ---- re-frame.observability (EP-0015 §9 frame sink routing) --------------
+   {:key         :observability/validate-policy!
+    :producer-ns 're-frame.observability
+    :description "Validate a frame's `:observability` sink policy against the closed grammar `rf/configure!` also checks the process default against: throws `:rf.error/bad-frame-classification` naming the offending slot. Takes `[where frame-id observability]`. Called by `re-frame.frame/upsert-frame!`'s preflight, before any frame state is written; reached by late-bind because `re-frame.observability` requires `re-frame.frame`."}
    {:key         :observability/route-handled-event
     :producer-ns 're-frame.observability
     :description "EP-0015 §9 (the central claim, made production-live): route ONE `:rf.observe/handled-event` record per processed event to the owning frame's declared `:observability :handled-events` sinks. Takes `[event event-id frame time outcome elapsed-ms effects correlation]`; `time` and `outcome` are the values the router hands `:event-emit/dispatch-on-event` for the same event. Builds the canonical handled-event record (`:frame` / `:event-id` / `:event` / `:time` / `:outcome` / `:elapsed-ms` / `:effects` / `:correlation`), projects it through `project-egress` under the frame's classification and the entry's `:rf.egress/profile` (default `:rf.egress/off-box-observability`), and delivers the ALREADY-PROJECTED record to each entry's registered `:sink` fn. The off-box default omits the `:event` args slot entirely (EP-0015 issue 4); a buggy sink is try/catch isolated. Per-STREAM precedence: a frame DECLARING `:handled-events` uses its own entries, one OMITTING the stream inherits the process default's (`rf/configure! {:observability ...}`), and `{:handled-events []}` is the frame's opt-out — exactly one source per record. Fail-closed: a NO-OP when neither source names a sink, and projection under an explicitly nil governing frame when the frame is unresolved — never synthesises `:rf/default`, never borrows another frame's policy. Called once per processed event from the router's cascade trailers, ALONGSIDE the always-on `event-emit` listener fan-out. Reached via late-bind because a static `router` → `observability` → `projection` → `elision` → `frame` require closes a load cycle. Survives `:advanced` + `goog.DEBUG=false`."}

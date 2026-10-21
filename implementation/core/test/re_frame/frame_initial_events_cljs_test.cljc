@@ -2,7 +2,7 @@
   "`:initial-events` frame construction (EP-0027). A first `make-frame` runs
   the setup steps synchronously, in order, before it returns, each with the
   ordinary dispatch-sync opts and `:source :frame-init` provenance. Malformed
-  shapes and the retired `:on-create` / `:initial-db` keys fail at preflight. A
+  shapes fail at preflight. A
   re-registration re-records the steps without replaying them; a destroy and a
   fresh `make-frame` replays them. Any failing step, whether it throws out of
   dispatch-sync or is captured in-band by the chain, tears the partial frame
@@ -116,11 +116,7 @@
               [:bad/no-event {:initial-events [{:opts {:rf.cofx {}}}]}
                :rf.error/initial-events-bad-event]
               [:bad/event-kw {:initial-events [{:event :not-a-vector}]}
-               :rf.error/initial-events-bad-event]
-              [:ret/oc {:on-create [:test/inc]}
-               :rf.error/on-create-retired]
-              [:ret/idb {:initial-db {:n 0}}
-               :rf.error/initial-db-retired]]]
+               :rf.error/initial-events-bad-event]]]
     (is (= (mapv last rows)
            (mapv (fn [[id config]] (err-id #(rf/make-frame (assoc config :id id)))) rows)))
     (is (= [] (filterv rf.frame/frame (map first rows)))

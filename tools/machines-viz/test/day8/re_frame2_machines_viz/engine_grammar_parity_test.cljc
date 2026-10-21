@@ -350,9 +350,6 @@
    :region-root-only-data         {:type :parallel :regions {:r {:initial :a :data {:n 0} :states {:a {}}}}}
    ;; ---- `:timeout-ms` is not a spawn key ----
    :spawn-timeout-ms     {:initial :a :states {:a {:spawn {:machine-id :m :timeout-ms 500}}}}
-   :spawn-all-timeout-ms {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
-                                                               :on-all-complete [:done]
-                                                               :timeout-ms 500}}}}
    ;; ---- a `:timeout` the desugar cannot lower without dropping it ----
    :timeout-shorthand          {:initial :a :states {:a {:timeout "5s" :on-timeout :b} :b {}}}
    :spawn-timeout-shorthand    {:initial :a :states {:a {:spawn {:machine-id :m :timeout "5s" :on-timeout :b}} :b {}}}
@@ -548,7 +545,7 @@
    :root-spawn-on-error-number         :rf.error/machine-bad-on-error-clause
    :parallel-root-spawn-on-done-number :rf.error/machine-bad-on-done-clause
    :root-spawn-on-done-unresolved      :rf.error/machine-unresolved-target
-   :root-spawn-timeout-ms              :rf.error/spawn-timeout-ms-removed
+   :root-spawn-timeout-ms              :rf.error/machine-unknown-spawn-key
    ;; `:after nil` is absent, but still a declared key on a final or choice state
    :final-after-nil  :rf.error/machine-final-state-has-transitions
    :choice-after-nil :rf.error/machine-choice-extra-keys
@@ -750,6 +747,12 @@
              does not validate the parallel-root target grammar"
             {:type :parallel :spawn {:machine-id :m :on-error :b}
              :regions {:r {:initial :a :states {:a {} :b {}}}}}
+            [:reject :accept]]
+           ["the engine refuses a bare key outside the :spawn-all block vocabulary;
+             the viz does not validate the :spawn-all shape"
+            {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
+                                                  :on-all-complete [:done]
+                                                  :timeout-ms 500}}}}
             [:reject :accept]]
            ["the engine resolves a missing root :initial lazily; the viz needs one
              to draw an initial marker"

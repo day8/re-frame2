@@ -80,21 +80,15 @@
             ;; `re-frame.classification/validate-classification!` by DIRECT
             ;; REQUIRE (always-on, same-artefact, cycle-free, already bundled).
             [re-frame.classification]
-            ;; EP-0015 §3: required for its ns-load side-effect
-            ;; only — it publishes the `:frame-classification/*` late-bind
-            ;; hooks `re-frame.frame/upsert-frame!` consults to validate + install
-            ;; frame-owned durable classification. No symbols are referenced
-            ;; here; the require exists so the hooks are bound at boot before
-            ;; any runtime frame construction.
-            [re-frame.frame-classification]
             ;; EP-0015 §9: frame-owned observability sink
             ;; routing. Required
             ;; for BOTH its public façade exports (`register-observability-sink!`
             ;; et al., re-exported below) AND its ns-load side-effect: it
             ;; publishes the `:observability/route-handled-event` /
             ;; `:observability/route-error` late-bind hooks the router +
-            ;; error-emit substrate fire (a static require would close a
-            ;; load cycle). Pulls only `re-frame.projection` +
+            ;; error-emit substrate fire, and `:observability/validate-policy!`,
+            ;; which the frame preflight checks a frame's `:observability`
+            ;; through (a static require would close a load cycle). Pulls only `re-frame.projection` +
             ;; `re-frame.frame` + `re-frame.late-bind` (core spine), so it is
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).

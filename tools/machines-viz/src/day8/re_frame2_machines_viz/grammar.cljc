@@ -559,7 +559,6 @@
 ;;     transition or a fn (`machine-bad-on-error-clause` /
 ;;     `machine-bad-on-done-clause`);
 ;;   - `:after` delay-key shape (`machine-bad-after-delay`);
-;;   - no `:timeout-ms` on `:spawn` / `:spawn-all` (`spawn-timeout-ms-removed`);
 ;;   - `:timeout` / `:on-timeout` pairing, duration and `:after` collision
 ;;     (`machine-timeout-without-on-timeout` / `-on-timeout-without-timeout` /
 ;;     `machine-bad-timeout-duration` / `machine-timeout-after-collision`);
@@ -641,11 +640,10 @@
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
-  engine's `validation/known-spawn-spec-keys` (`:timeout-ms` and `:definition`
-  are excluded from the unknown-key scan so their own refusals —
-  `:rf.error/spawn-timeout-ms-removed` and `:rf.error/machine-spawn-bad-shape`
-  — win). A bare `:id` is not a single-spawn key: it is a `:spawn-all`
-  child's join address."
+  engine's `validation/known-spawn-spec-keys` (`:definition` is excluded from
+  the unknown-key scan so its own refusal, `:rf.error/machine-spawn-bad-shape`,
+  wins). A bare `:id` is not a single-spawn key: it is a `:spawn-all` child's
+  join address."
   #{:machine-id :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
     :source-coords :source-code})
@@ -826,7 +824,7 @@
       ;; engine's `validation/validate-spawn!` refuses it. N children is
       ;; `:spawn-all`.
       {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
-      (let [offending (vec (remove #{:timeout-ms :definition}
+      (let [offending (vec (remove #{:definition}
                                    (unknown-bare-keys spec known-spawn-spec-keys)))]
         (cond
           ;; Mirror of the engine's `validation/spawn-machine-id-error`: a
@@ -836,16 +834,6 @@
           {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
           (seq offending)
           {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending})))))
-
-(defn- spawn-timeout-ms-defect
-  "`:timeout-ms` is not a key of `:spawn` or `:spawn-all`: a spawn deadline is
-  the spawn-level `:timeout` / `:on-timeout`. Mirror of the engine's
-  `validation/validate-no-spawn-timeout-ms!`, which refuses a non-nil value
-  with its own id rather than the generic unknown-spawn-key one."
-  [path node]
-  (when (some (fn [spec] (and (map? spec) (some? (:timeout-ms spec))))
-              [(:spawn node) (:spawn-all node)])
-    {:category :rf.error/spawn-timeout-ms-removed :path (vec path)}))
 
 (defn- valid-after-delay-key?
   "A static `:after` map KEY is well-formed iff a positive integer (literal ms),
@@ -959,15 +947,14 @@
   node-key check already skips them)."
   [delays scope path node]
   ;; Check ORDER mirrors the engine's `validate-machine!` intra-node precedence
-  ;; (keys / tags / spawn shape / transition keys earliest; `:timeout-ms` and
-  ;; `:final?` shape BEFORE compound-`:initial`; targets; delay keys), so when a
+  ;; (keys / tags / spawn shape / transition keys earliest; `:final?` shape
+  ;; BEFORE compound-`:initial`; targets; delay keys), so when a
   ;; single node carries more than one defect the viz reports the SAME
   ;; `:rf.error/*` category the runtime would.
   (or (node-keys-defect path node false)
       (tags-defect path node)
       (spawn-defect path node)
       (transition-keys-defect path node)
-      (spawn-timeout-ms-defect path node)
       (final-state-defect path node)
       (spawn-completion-defect path node)
       (compound-initial-defect path node)
@@ -1244,7 +1231,6 @@
           (tags-defect [] d)
           (spawn-defect [] d)
           (transition-keys-defect [] d)
-          (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
           (some (fn [[path node]] (node-defect (:delays d) scope path node)) (walk-scope-nodes scope))
           (history-scope-defect scope)
@@ -1293,7 +1279,6 @@
           (tags-defect [] d)
           (spawn-defect [] d)
           (transition-keys-defect [] d)
-          (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
           (some (fn [[region-name body]] (region-defect (:delays d) region-name body)) regions)))))
 

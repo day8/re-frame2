@@ -347,17 +347,14 @@
       (let [[f _] (drive-fx! :rf.server/redirect {:location "/x" :relative-only? v})]
         (is (nil? (:redirect (settled-response f))) (pr-str v))))))
 
-(deftest ssr-redirect-retired-spelling-diagnostic-names-location
-  (testing ":url / :to are rejected, not normalised: the diagnostic names the
-            canonical :location, and no :redirect lands"
+(deftest ssr-redirect-without-location-is-target-less
+  (testing ":location is the only target key, so a map spelling the target
+            :url or :to carries none: the redirect lands target-less, for the
+            host adapter's no-target warning, and nothing throws"
     (doseq [k [:url :to]]
       (let [[f traces] (drive-fx! :rf.server/redirect {k "/welcome" :status 301})]
-        (is (= {:rf.error/id :rf.error/redirect-retired-target-key
-                :canonical-key :location
-                :retired-keys [k]}
-               (select-keys (fx-error-extra traces :rf.error/redirect-retired-target-key)
-                            [:rf.error/id :canonical-key :retired-keys])))
-        (is (nil? (:redirect (settled-response f))))))))
+        (is (= [] traces) (pr-str k))
+        (is (= {k "/welcome" :status 301} (:redirect (settled-response f))))))))
 
 ;; ===========================================================================
 ;; Error projection (Spec 011 §Server error projection)

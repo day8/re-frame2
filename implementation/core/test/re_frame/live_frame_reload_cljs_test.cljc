@@ -309,8 +309,8 @@
         img        (rf.image/image {:id :ktmto9-pool/img :select-ns {:include ["ktmto9-pool.provenance.ns"]}})
         gen-before (rf.live-frame/frame-generation
                      (rf.live-frame/make-frame {:id :ktmto9-pool/main :images [img]} pool))]
-    (is (= [:rf.error/on-create-retired true nil ::pool-v1]
-           [(err-id #(rf.live-frame/make-frame {:id :ktmto9-pool/main :on-create [:boom]} other-pool))
+    (is (= [:rf.error/initial-events-bad-step true nil ::pool-v1]
+           [(err-id #(rf.live-frame/make-frame {:id :ktmto9-pool/main :initial-events [42]} other-pool))
             (identical? gen-before (rf.live-frame/frame-generation :ktmto9-pool/main))
             (rf.live-frame/reproject-live-frame! :ktmto9-pool/main)
             (resolved-handler :ktmto9-pool/main :event :ktmto9-pool/inc)]))))

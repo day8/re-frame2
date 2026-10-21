@@ -14,8 +14,9 @@ lintable:
   (b) The redirect-target keys `:url` / `:to` on an SSR redirect effect
       (sweep item 4). The `:rf.server/redirect` fx writes an HTTP
       `Location` response header, so it uses header vocabulary — the
-      canonical (and only) target key is `:location`. `:url` / `:to` are
-      retired and throw `:rf.error/redirect-retired-target-key`.
+      canonical (and only) target key is `:location`. There is no alias:
+      a map spelling the target `:url` / `:to` carries no `:location`, so
+      at runtime it is a target-less redirect.
 
   (c) Route metadata `:query-retain` (EP-0037 R5). A destination
       address is taken LITERALLY: the router does not fold ambient
@@ -385,12 +386,11 @@ code without unacceptable false-positive noise:
   * A redirect args map bound to a NAME far from the fx id, e.g.
         (let [r {:url "/x"}] (dispatch [... [:rf.server/redirect r]]))
     The `:url` key and the `:rf.server/redirect` tag are in different forms;
-    binding them requires dataflow analysis a regex gate can't do. The
-    RUNTIME guard (`reject-retired-redirect-keys!` in
-    re-frame.ssr.response) is the real backstop here — it throws on the
-    retired key regardless of how the map was constructed. This lint is a
-    fast static defence-in-depth for the common inline-literal shape, not a
-    replacement for the runtime throw.
+    binding them requires dataflow analysis a regex gate can't do. At
+    runtime such a map carries no `:location`, so the host adapter's
+    target-less-redirect warning (`:rf.ssr/ssr-redirect-no-target`) is the
+    backstop, however the map was constructed. This lint catches the
+    common inline-literal shape statically.
 
   * The bare `:frame` keyword as a coeffect read via an unusual accessor
     (e.g. a user `(get (:coeffects ctx) :frame)`). The three canonical
@@ -1134,10 +1134,10 @@ class Finding(NamedTuple):
 # --------------------------------------------------------------------------
 #
 # The retired spellings appear extensively in PROSE: docstrings, `;;` line
-# comments, and the rationale comments around the runtime guards (e.g. the
-# `retired-redirect-target-keys` def + its docstring in
-# re-frame.ssr.response). Those are documentation, not reintroduced code —
-# the gate must not fire on them. We mask:
+# comments, and the rationale comments around the code that replaced them
+# (e.g. the redirect comments in re-frame.ssr.response). Those are
+# documentation, not reintroduced code — the gate must not fire on them. We
+# mask:
 #
 #   * `;`-to-end-of-line comments (length-preserving so column offsets and
 #     the keyword `\b` boundaries are unchanged), AND
@@ -1145,11 +1145,7 @@ class Finding(NamedTuple):
 #     again length-preserving.
 #
 # `#"..."` regex literals and `\"` escapes inside strings are handled by the
-# simple state machine below. The `retired-redirect-target-keys` DEF — the
-# vector literal `[:url :to]` that names the retired keys — stays green on the
-# window alone. `:url ` does match the map-entry key pattern (a keyword
-# followed by whitespace), but the docstrings around the def that name
-# `:rf.server/redirect` are masked, so no redirect tag survives in its window.
+# simple state machine below.
 
 _LINE_COMMENT_RE = re.compile(r";.*$")
 
