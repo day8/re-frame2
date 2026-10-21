@@ -22,6 +22,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.validate :as rf.schemas.validate]
             [re-frame.schemas.walker :as rf.schemas.walker]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -506,7 +507,7 @@
                         :value      :rf/redacted
                         :explain    :rf/redacted
                         :sensitive? true}
-                       (rf.schemas/redact-validation-tags schema tags))
+                       (rf.schemas.validate/redact-validation-tags schema tags))
         [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]]
         (m/schema [:map [:password {:sensitive? true} :string]])))))
 
@@ -579,7 +580,7 @@
 
 (deftest redact-validation-tags-large-slot-elides
   (let [blob (apply str (repeat 300 "Q"))
-        out  (rf.schemas/redact-validation-tags
+        out  (rf.schemas.validate/redact-validation-tags
                [:map [:blob {:large? true} :int]]
                {:value {:blob blob} :explain {:value {:blob blob}}})]
     (is (true? (:large? out)))

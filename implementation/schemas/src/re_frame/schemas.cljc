@@ -79,13 +79,6 @@
 (def validate-fx!         rf.schemas.validate/validate-fx!)
 (def validate-sub!        rf.schemas.validate/validate-sub!)
 
-;; The primitives the `:schemas/check!` seam composes: the installed
-;; validator's verdict, its explanation, and the schema-aware redaction of a
-;; failure's tags. Callers outside this artefact use the seam, not these.
-(def validate-with-registered-fn rf.schemas.validate/validate-with-registered-fn)
-(def explain-with-registered-fn  rf.schemas.validate/explain-with-registered-fn)
-(def redact-validation-tags      rf.schemas.validate/redact-validation-tags)
-
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Core and sibling artefacts use late-bound hooks so schemas remains optional.

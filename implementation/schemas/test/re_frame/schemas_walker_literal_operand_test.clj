@@ -8,6 +8,7 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.validate :as rf.schemas.validate]
             [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -37,5 +38,5 @@
 (deftest redact-validation-tags-registry-ref-redacts-and-stamps
   (doseq [schema rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
     (is (= {:value :rf/redacted :received :rf/redacted :explain :rf/redacted :sensitive? true}
-           (rf.schemas/redact-validation-tags schema tags))
+           (rf.schemas.validate/redact-validation-tags schema tags))
         (pr-str schema))))

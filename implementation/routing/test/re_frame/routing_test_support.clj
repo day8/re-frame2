@@ -85,7 +85,7 @@
   a callable predicate (and although a vector IS `ifn?` — it implements
   IFn for index lookup — calling it as `(schema value)` throws for a
   non-integer `value`), so a naive call would throw and the fail-closed
-  `validate-with-registered-fn` would coerce that to a FALSE, spuriously
+  `:schemas/check!` seam would report that as a malformed schema, spuriously
   rejecting a well-formed value during an unrelated param-validation test. The stub therefore only adjudicates ACTUAL fn
   schemas (`fn?` — the predicate schemas these tests install) and PASSES
   any other (Malli vector / map) schema. The explainer is symmetric."

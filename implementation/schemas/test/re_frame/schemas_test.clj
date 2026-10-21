@@ -11,6 +11,7 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.validate :as rf.schemas.validate]
             [re-frame.spec :as rf.spec]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -263,8 +264,8 @@
     (rf.schemas/set-schema-fns! {:validate (fn [_ v] (= v :good))})
     (with-redefs [rf.interop/debug-enabled? false]
       (is (= [true false]
-             [(rf.schemas/validate-with-registered-fn :keyword :good)
-              (rf.schemas/validate-with-registered-fn :keyword :bad)])))))
+             [(rf.schemas.validate/validate-with-registered-fn :keyword :good)
+              (rf.schemas.validate/validate-with-registered-fn :keyword :bad)])))))
 
 ;; ---- the `:boundary? true` production arm ------------------------------------
 ;;
