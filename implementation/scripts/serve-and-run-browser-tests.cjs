@@ -12,23 +12,20 @@
  *   3. Either way, log clearly which port was used and thread it
  *      through to the Playwright runner via $BROWSER_TEST_URL.
  *
- * Early-exit detection: listen for the http-server child's `'exit'`
- * event during the readiness window. If it dies before becoming
- * reachable (typically EADDRINUSE), fail fast with a direct message
- * instead of waiting out the full readiness timeout.
+ * The server starts through startLocalHttpServer (lib/local-browser-harness.cjs),
+ * which owns the ownership token, the loopback bind, early-exit detection and
+ * owned readiness, so the runner only ever drives a server this run launched.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const {
-  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
   isValidExplicitPort,
-  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
-  waitForOwnedHttpReady,
+  startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 // computeRunnerEnv + the two constants live in their own module
 // (scripts/lib/browser-runner-drift-env.cjs) so the env-forwarding rule is
@@ -164,8 +161,6 @@ try {
   );
   process.exit(1);
 }
-const READY_TIMEOUT_MS = 30000;
-const POLL_MS = 200;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
@@ -185,32 +180,6 @@ function ensureMountPoint() {
     console.log(`Patched ${INDEX} with <div id="app"> mount point.`);
   }
 }
-
-// The ownership token binds readiness to this run's served asset tree:
-//
-//   1. publishOwnershipToken(ROOT) generates a per-run nonce and writes it
-//      to a sentinel file under the served root BEFORE spawning http-server
-//      (so the file is published the moment http-server serves the dir).
-//   2. The readiness probe fetches `/.rf-harness-token` and compares the
-//      body to the nonce — only then do we treat the server as "ours" and
-//      proceed to the Playwright runner.
-//   3. On teardown the returned `remove` unlinks the sentinel, but only if
-//      it still holds THIS run's token (so an overlapping run's newer token
-//      is never destroyed).
-//
-// This defeats two failure modes:
-//   - An unrelated http-server (or any HTTP listener) on the same port
-//     gives a 200 to `/` but does not have our sentinel. A mismatched token
-//     fails immediately; an absent token is polled until the readiness deadline.
-//   - A stale http-server child from a previous aborted run that re-bound
-//     the port between resolveServePort() and our spawn — same detection:
-//     its sentinel won't match this run's nonce.
-//
-// The entire token lifecycle (nonce generation + write + concurrency-safe,
-// idempotent cleanup) plus the probe/token-fetch/owned-readiness mechanics
-// live in the shared local-browser-harness.cjs (publishOwnershipToken +
-// waitForOwnedHttpReady + fetchToken); this script only owns the launcher
-// diagnostics.
 
 // Resolve the port to use via the shared harness primitive
 // (local-browser-harness.cjs), honouring `--port` first, then
@@ -256,79 +225,33 @@ async function resolvePort() {
 async function run() {
   ensureMountPoint();
 
-  // Publish the per-run ownership token before spawning
-  // http-server so the file is visible the moment the server starts
-  // serving the directory. The returned `remove` (idempotent, only unlinks
-  // our own token) is registered for teardown here rather than at module
-  // load because it isn't known until the token is written.
-  const published = publishOwnershipToken(ROOT);
-  if (!published) {
-    console.error(`Asset root missing: ${ROOT}. Did shadow-cljs compile run?`);
-    process.exit(1);
-  }
-  const { token, remove } = published;
-  cleanup.addCleanup(remove);
-
   const port = await resolvePort();
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
 
-  // Spawn http-server shell-free under this node binary: the
-  // resolved absolute `.js` entry-point is the only thing the OS
-  // interprets, so a workspace-local `npx.cmd` cannot hijack the
-  // launch, and there is no `shell:true` warning/quoting class.
-  // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
-  // probe and the browser only ever hit loopback, so the listener must
-  // not be exposed on non-loopback interfaces during a test run
-  // (matches serve-and-run-adapter-smokes.cjs).
-  const args = [HTTP_SERVER_BIN, ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, args, {
-    cwd: IMPL_ROOT,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  }));
-
-  // Track the server's lifecycle so the readiness loop can fail fast
-  // if http-server dies before becoming reachable. With pre-binding via
-  // resolveServePort() this should be rare, but a slow-to-release socket
-  // or a race against a sibling spawner can still trigger EADDRINUSE.
-  const state = { exited: false, exitCode: null, exitSignal: null };
-  server.on('exit', (code, signal) => {
-    state.exited = true;
-    state.exitCode = code;
-    state.exitSignal = signal;
-  });
-
-  // Readiness WITH ownership-token verification via the shared harness
-  // primitive: refuse to run tests against any
-  // server on `port` that does not serve this run's token.
-  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
-    pollMs: POLL_MS,
-    isAborted: () => state.exited,
-  });
-  if (!ready.ok) {
-    if (ready.reason === 'child-exited' || state.exited) {
-      console.error(
-        `http-server exited before becoming reachable on :${port} ` +
-          `(code=${state.exitCode}, signal=${state.exitSignal}). ` +
-          `Likely cause: port already in use or http-server failed to start.`
-      );
-    } else if (ready.reason === 'token-mismatch') {
-      console.error(
-        `A server is reachable on :${port}, but its /${TOKEN_FILE_BASENAME} ` +
-          `does not match this run's ownership token. Refusing to run tests ` +
-          `against a server this harness did not launch. ` +
-          `(got "${ready.got}", expected "${token}"). ` +
-          `Set BROWSER_TEST_PORT to pin a different port if this is intentional.`
-      );
-    } else if (ready.reason === 'token-never-served') {
-      console.error(
-        `http-server on :${port} became reachable but never served ` +
-          `/${TOKEN_FILE_BASENAME} within ${READY_TIMEOUT_MS}ms. ` +
-          `Asset root may be inconsistent.`
-      );
-    } else {
-      console.error(
-        `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`
-      );
+  // A false `ready` has already printed the owner's reason. The exit is
+  // reported here, code and signal both, only when it cost the run its server;
+  // the owner's own exit line is suppressed so teardown's kill is not reported
+  // as a crash.
+  let serverExit = null;
+  let ready;
+  try {
+    ({ ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: HTTP_SERVER_BIN,
+      root: ROOT,
+      port,
+      cwd: IMPL_ROOT,
+      onExit: (code, signal) => { serverExit = { code, signal }; },
+      suppressExitDiagnostic: () => true,
+    }));
+  } catch (err) {
+    // The owner throws on a missing asset root, which the compile writes.
+    console.error(`${err.message} Did shadow-cljs compile run?`);
+    return 1;
+  }
+  if (!ready) {
+    if (serverExit) {
+      console.error(`http-server exit: code=${serverExit.code}, signal=${serverExit.signal}.`);
     }
     return 1;
   }
