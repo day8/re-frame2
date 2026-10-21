@@ -290,14 +290,16 @@ These are the same rules the app-source sweep applies, but the test layer is a *
 (re-frame.core/with-overrides {<override-map>}
   body...)
 
-;; REWRITE — rename the macro; body and override-map shape unchanged
-(rf/with-fx-overrides {<override-map>}
+;; REWRITE — rename the macro, now in re-frame.test-support; add
+;; [re-frame.test-support :as ts] to the test ns's :require.
+;; Body and override-map shape unchanged.
+(ts/with-fx-overrides {<override-map>}
   body...)
-(re-frame.core/with-fx-overrides {<override-map>}
+(re-frame.test-support/with-fx-overrides {<override-map>}
   body...)
 ```
 
-Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. See [MIGRATION.md §M-50](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
+Mechanical: the name changes and the macro moves to `re-frame.test-support`, with no alias left on `re-frame.core`. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. See [MIGRATION.md §M-50](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
 
 ---
 

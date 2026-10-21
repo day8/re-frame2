@@ -308,7 +308,7 @@ A `:frame` that names no live frame (a typo, or a destroyed frame) does not thro
 | Key | What it does |
 |---|---|
 | `:frame` | The frame to target: a frame-id keyword or a live frame value, as in `(rf/dispatch [::save x] {:frame :todo})`. |
-| `:fx-overrides` | `{fx-id override}` for this dispatch; see [`with-fx-overrides`](#with-fx-overrides) for override values and precedence. |
+| `:fx-overrides` | `{fx-id override}` for this dispatch; see [`with-fx-overrides`](re-frame.test-support.md#with-fx-overrides) for override values and precedence. |
 | `:interceptor-overrides` | `{interceptor-ref replacement}` for this dispatch: replaces or removes interceptors in the chain. See [Interceptor overrides](#interceptor-overrides). |
 | `:rf.cofx` | Recordable coeffect values to supply, such as `{:rf/time-ms 0}`, for tests, replay and SSR hydration. The runtime adds `:rf/time-ms` when it is absent. A value that is not a map, or a non-integer `:rf/time-ms`, makes the call throw `:rf.error/invalid-cofx`; a value that is not plain EDN (a fn, Promise or DOM node) throws `:rf.error/cofx-value-invalid`. Both are checked in every build. |
 | `:rf.cofx/mint-policy` | Whether a declared recordable coeffect the dispatch did not supply may be generated. `:live` runs its supplier; `:strict` fails the handler with `:rf.error/missing-required-cofx`, and any other value behaves as `:strict`. Unset, the frame's `:rf.cofx/mint-policy` applies (`:strict` under `:preset :test`), then `:live`. A test on a `:strict` frame opts back into generation with `:live`. See [Coeffects](../core/coeffects.md). |
@@ -810,29 +810,6 @@ Any other top-level key rejects the event before anything commits, so a valid `:
       {:db (assoc (:db cofx) :cart/saving? true)}))
   ```
 
-### `with-fx-overrides`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (with-fx-overrides overrides body+) → value of body
-  ```
-- **Description**: `overrides` is a map `{fx-id override}`. Replaces effect handlers for every `dispatch` and `dispatch-sync` inside `body`, usually to stub an effect in a test. Each such call merges the map under its own `:fx-overrides`, so a per-call key wins. The overrides apply for the dynamic extent of `body` and compose with `with-frame`.
-    - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
-    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
-    - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
-    - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
-    - See [Asserting on what would dispatch](../core/testing/pipeline-runs.md#asserting-on-what-would-dispatch).
-- **Example**:
-  ```clojure
-  ;; Capture the login request instead of sending it, for the test body —
-  ;; every dispatch inside inherits the override; it unwinds when the body exits.
-  (let [sent (atom [])]
-    (rf/with-fx-overrides {:rf.http/managed (fn [_ctx args] (swap! sent conj (:request args)))}
-      (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
-    @sent)
-  ```
-
 ## Standard effects and interceptor
 
 The framework reserves a few `:fx` ids and one standard interceptor reference; register your own fx ids with `reg-fx`. Feature fx (`[:rf.http/managed …]`, `[:rf.nav/push-url …]`, `[:rf.machine/spawn …]`, `[:rf.server/* …]`, …) are documented on each feature's page.
@@ -961,7 +938,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 | `:initial-events` | A vector of setup steps. | None. | Events dispatched into the new frame when it is created; see below. |
 | `:flows` | A vector of [`reg-flow`](#reg-flow) ids. | None, so no flow runs. | The flows the frame runs on every event, in dependency order. The ids resolve when the frame is made: an unregistered one raises `:rf.error/unregistered-flow`, and a cycle or overlapping output paths among them raise `:rf.error/flow-cycle` or `:rf.error/flow-path-overlap`. See [Activation](re-frame.flows.md#activation). |
 | `:on-destroy` | One event vector. | None. | The event `destroy-frame!` runs before the frame is marked dead. |
-| `:fx-overrides` | `{fx-id replacement}` | None. | Replaces effect handlers for every event in this frame. The replacement is an fx id or a function; see [`with-fx-overrides`](#with-fx-overrides). A per-dispatch override wins. |
+| `:fx-overrides` | `{fx-id replacement}` | None. | Replaces effect handlers for every event in this frame. The replacement is an fx id or a function; see [`with-fx-overrides`](re-frame.test-support.md#with-fx-overrides). A per-dispatch override wins. |
 | `:interceptor-overrides` | `{interceptor-ref replacement}` | None. | Replaces or removes interceptors in every event's chain in this frame; see [Interceptor overrides](#interceptor-overrides). A per-dispatch override wins. |
 | `:interceptors` | A vector of interceptor references (an id, or `[id arg]`). | None. | Prepended to every event's chain in this frame. |
 | `:drain-depth` | An integer. | `1000` | The most events one family runs: an external event or `dispatch-sync` seed plus every event dispatched while it runs. Past it the family halts, its queued events are dropped, `:rf.error/drain-depth-exceeded` is emitted, and the drain carries on with external input; see [`dispatch`](#dispatch). |

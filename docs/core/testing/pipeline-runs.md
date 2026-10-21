@@ -186,7 +186,7 @@ Sometimes the thing under test is which event a handler dispatches next. `:dispa
       (is (= [[:todo/set-showing :all]] @dispatched)))))
 ```
 
-A per-call override applies to the run it starts, and to that run's `:dispatch` and `:dispatch-later` children. It does not reach an HTTP reply, which is a new dispatch. To cover the reply too, wrap the body in `rf/with-fx-overrides`: every dispatch made while the body runs carries the override, including stubbed replies. Precedence is per-call opt, then `with-fx-overrides`, then the frame's `:fx-overrides`.
+A per-call override applies to the run it starts, and to that run's `:dispatch` and `:dispatch-later` children. It does not reach an HTTP reply, which is a new dispatch. To cover the reply too, wrap the body in [`ts/with-fx-overrides`](../../api/re-frame.test-support.md#with-fx-overrides): every dispatch made while the body runs carries the override, including stubbed replies. Precedence is per-call opt, then `with-fx-overrides`, then the frame's `:fx-overrides`.
 
 Suppose `:todo/fetched` also returns `:fx [[:dispatch [:todo/set-showing :all]]]`. This test checks that dispatch without running it:
 
@@ -194,7 +194,7 @@ Suppose `:todo/fetched` also returns `:fx [[:dispatch [:todo/set-showing :all]]]
 (deftest fetched-resets-the-filter
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [dispatched (atom [])]
-      (rf/with-fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}
+      (ts/with-fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}
         (stub-transport/with-transport
           (stub-transport/route-transport {[:get "/api/todos"] {:body []}})
           (fn [] (rf/dispatch-sync [:todo/fetch]))))

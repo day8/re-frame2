@@ -78,7 +78,7 @@
     (rf/reg-fx :realworld-replay/noop-http (fn [_ _] nil))
     (rf/dispatch-sync [:comment-form/edit-field :body "Great article!"]
                       {:frame f})
-    (rf/with-fx-overrides {:rf.http/managed :realworld-replay/noop-http}
+    (rf.test-support/with-fx-overrides {:rf.http/managed :realworld-replay/noop-http}
       (rf/dispatch-sync [:comment-form/submit]
                         {:frame               f
                          :rf.cofx             recorded

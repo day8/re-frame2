@@ -174,8 +174,7 @@
                                     reg-view reg-machine defmachine
                                     image
                                     dispatch dispatch-sync
-                                    with-frame with-new-frame
-                                    with-fx-overrides]])))
+                                    with-frame with-new-frame]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -1489,17 +1488,6 @@
 ;; ARBITRARY already-held fn (as opposed to `capture-frame`'s pre-bound
 ;; `{:dispatch :dispatch-sync :subscribe}` op bundle) is the internal
 ;; `re-frame.frame/bind-fn`, for implementation / test / tooling reach.
-
-#?(:clj
-   (defmacro with-fx-overrides
-     "Bind a per-call `:fx-overrides` map for `body`'s lexical scope —
-     test-support sugar over `(rf/dispatch ev {:fx-overrides {...}})`.
-     Precedence: per-call opt > lexical `with-fx-overrides` > per-frame
-     `:fx-overrides`. Composes with `with-frame`. Per Spec 002
-     §`:fx-overrides`."
-     [overrides-map & body]
-     `(binding [re-frame.router/*fx-overrides* ~overrides-map]
-        ~@body)))
 
 ;; ---- view ergonomics (CLJS only) -----------------------------------------
 ;;

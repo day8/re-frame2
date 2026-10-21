@@ -274,7 +274,7 @@ The dispatch-opts `:fx-overrides` map also accepts **function values** — a one
 
 For HTTP, answer with a stub transport (above) rather than overriding `:rf.http/managed`: an override replaces the whole effect, so nothing past it runs. A test that wants a reply no server would send dispatches the reply event directly, carrying the canonical envelope — `(rf/dispatch-sync [:user/login-reply {:status :ok :value {:user "u1"}}])`.
 
-For a *block* of dispatches that all want the same stub, `(rf/with-fx-overrides {…} & body)` binds the map for the body's lexical scope instead of repeating the opt on every call — precedence is per-call opt > lexical `with-fx-overrides` > per-frame, and it composes with `with-frame`.
+For a *block* of dispatches that all want the same stub, `(ts/with-fx-overrides {…} & body)` binds the map for the body's lexical scope instead of repeating the opt on every call — precedence is per-call opt > lexical `with-fx-overrides` > per-frame, and it composes with `with-frame`.
 
 Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:app/persist :app/persist-in-memory}`) redirects to another registered fx and is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke handler.
 
@@ -283,9 +283,9 @@ Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so
 To assert on what the runtime *emitted* — a trace operation, a promoted `:rf.error/*` — bracket the body with a recorder macro instead of hand-rolling a listener + atom + `finally`. Each binds an atom for the body's scope and unregisters on the way out, even if the body throws:
 
 ```clojure
-;; Both are macros, so refer them by name:
-;;   JVM:  (:require [re-frame.test-support :as ts :refer [with-trace-recorder! with-emit-recorder!]])
-;;   CLJS: (:require-macros [re-frame.test-support :refer [with-trace-recorder! with-emit-recorder!]])
+;; Both are macros; refer them by name (or call them as ts/…). The namespace
+;; self-requires its macros, so the one :require serves JVM and CLJS:
+;;   (:require [re-frame.test-support :as ts :refer [with-trace-recorder! with-emit-recorder!]])
 
 (with-trace-recorder! [traces]                         ;; trace events, a vector by default
   (rf/dispatch-sync [:my-event])
