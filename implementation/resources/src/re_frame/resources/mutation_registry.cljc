@@ -265,7 +265,9 @@
   "The canonical params for a mutation call, through the shared
   `re-frame.resources.params/validate+canonicalize` pipeline the resource
   registrar also uses, so the two cannot drift. Throws
-  `:rf.error/mutation-invalid-params` (params redacted) on a schema failure.
+  `:rf.error/mutation-invalid-params` on a schema failure, carrying the slots
+  that pipeline builds from the seam's diagnosis (`:reason :malformed-schema`
+  when the schema itself is broken).
   `params` is `state/missing-params` for an absent slot (defaulted to `{}`);
   an explicit nil reaches the schema. A mutation is not cached by params, but
   the instance row stores them, so the same EDN discipline applies.
@@ -273,15 +275,17 @@
   [mutation-id spec params where]
   (rf.resources.params/validate+canonicalize
     mutation-id spec params where
-    (fn [redacted-params redacted-error]
+    (fn [slots]
       (registration-error
         :rf.error/mutation-invalid-params
         where
-        (str "mutation " mutation-id " params do not conform to "
-             ":params-schema. Per Spec 016 §Mutations.")
-        {:mutation-id mutation-id
-         :params      redacted-params
-         :error       redacted-error}))))
+        (if (= :malformed-schema (:reason slots))
+          (str "mutation " mutation-id "'s :params-schema is malformed: the "
+               "validator threw, so its params could not be checked. "
+               "Per Spec 010 §Per-step recovery.")
+          (str "mutation " mutation-id " params do not conform to "
+               ":params-schema. Per Spec 016 §Mutations."))
+        (assoc slots :mutation-id mutation-id)))))
 
 (defn resolve-scope
   "The concrete execution scope for a mutation call: the payload `:scope`,
