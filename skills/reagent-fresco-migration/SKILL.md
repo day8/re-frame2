@@ -45,7 +45,7 @@ Helps an author rewrite **Reagent view code into Fresco** — `re-frame.fresco`,
 
 **This skill is not on anyone's critical path, and the first thing it does is check whether it has a job.**
 
-re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against; `day8/re-frame2-uix` is its peer. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter with `rf/init!`, and **stays on Reagent**. That is a *finished* migration, not a half-finished one, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
+re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-reagent` is the default browser substrate; `day8/re-frame2-uix` is its peer. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter with `rf/init!`, and **stays on Reagent**. That is a *finished* migration, not a half-finished one, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
 
 Staying on Reagent does not mean every view is untouched. A plain-function view reads its frame from the surrounding `frame-provider` while it renders, but a callback it sets up runs after the render, so a fresh `rf/dispatch` there needs a frame on re-frame2, and re-frame-migration's [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md) supplies one — ops captured at render, or a frame carried in explicitly. A pure view that renders only its arguments needs nothing:
 
