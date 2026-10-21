@@ -277,38 +277,12 @@ const ARTEFACTS = [
     forbiddenSources: ['re_frame/derivation/egress.cljc'],
   },
 
-  // Story (tools/story/). The plain
-  // examples/counter bundle imports zero Story symbols — the
-  // tools/story/ jar must DCE entirely when the consuming app
-  // doesn't `:require` any re-frame.story.* namespace. The sentinels
-  // below are ex-info reason strings emitted from
-  // tools/story/src/re_frame/story/registrar.cljc and
-  // tools/story/src/re_frame/story/decorators.cljc — they live in
-  // function bodies (not gated by the `enabled?` flag, which only
-  // gates registration callsites). A non-zero count means a
-  // re-frame.story.* namespace got dragged into the counter
-  // bundle's classpath — the bundle-isolation contract for
-  // tools/ ↛ implementation/ is broken.
+  // Story (tools/story/). The tools/story/ jar must stay out of any production
+  // bundle that `:require`s no re-frame.story.* namespace, per the
+  // tools/ ↛ implementation/ bundle-isolation contract in tools/README.md.
   {
     name: 'story',
-    internalSentinels: [
-      // registrar.cljc — unknown-tag rejection on a project tag
-      // that hasn't been registered. Only emitted when the
-      // registrar's body is in the bundle.
-      { source: 're-frame.story.registrar (rf.error/unknown-tag)',
-        sentinel: 'rf.error/unknown-tag' },
-      // decorators.cljc — decorator-ref taxonomy. Three closely-
-      // related sentinels; any one in the bundle indicates Story
-      // internals were pulled in.
-      { source: 're-frame.story.decorators (rf.error/decorator-bad-ref)',
-        sentinel: 'rf.error/decorator-bad-ref' },
-      { source: 're-frame.story.decorators unknown-decorator diagnostic',
-        sentinel: 'no decorator registered under' },
-      { source: 're-frame.story.decorators (rf.error/decorator-unknown-kind)',
-        sentinel: 'rf.error/decorator-unknown-kind' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/story.cljc', 're_frame/story/'],
   },
 
   // xyflow / @xyflow/react (the Machines panel render engine,
@@ -450,7 +424,6 @@ const ARTEFACTS = [
 // and nothing else to, so none can ship negative-only.
 const POSITIVE_CONTROL = {
   'trace-tooling': { onModule: 'trace-tooling' },
-  story: { onModule: 'story' },
   xyflow: { onModule: 'xyflow' },
   elkjs: { onModule: 'elkjs' },
   zprint: { onModule: 'zprint' },

@@ -195,6 +195,7 @@ for (const [artefacts, controls, list, why] of [
     for (const [injected, owner] of [
       ['re_frame/schemas.cljc', 'schemas'],
       ['re_frame/flows.cljc', 'flows'],
+      ['re_frame/story/registrar.cljc', 'story'],
     ]) {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-manifest-'));
       try {
