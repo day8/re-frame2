@@ -3324,6 +3324,14 @@ async function allocRow(chromium) {
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
+        // Wait for the Fresco reapers to go idle before the next arm mounts.
+        // A released Fresco arm's cells keep their subscriptions cached until
+        // the cell reaper disposes them, and its drain re-arms once per
+        // millisecond the release spanned, at 4 ms or more apiece once the
+        // platform clamps nested timers. A drain still running when the next
+        // arm mounts one round trip later leaves those subscriptions in the
+        // frame's cache, and that arm's key read-back counts them.
+        await page.evaluate(() => window.P0H.quiesce());
         // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S, exactly as
         // at the control site above. Off the mode `collapsed` IS
         // `win.samples`.
