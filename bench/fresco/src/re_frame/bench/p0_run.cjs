@@ -515,10 +515,19 @@ const LADDER_RUNGS = (process.env.P0_LADDER_RUNGS || '0,1,3,7,20')
   .map((s) => Number(s.trim()));
 const LADDER_ROUNDS = Number(process.env.P0_LADDER_ROUNDS || 6);
 
-const LADDER_SUBSTRATES = {
-  'reagent-subs': ['reagent', 'fresco'],
-  'uix-subs': ['uix', 'fresco'],
-};
+// `P0_LADDER_SUBSTRATES` narrows or widens the plan:
+// `<segment>:<sub>,<sub>;<segment>:<sub>,…` (see the entry-design rows).
+const LADDER_SUBSTRATES = process.env.P0_LADDER_SUBSTRATES
+  ? Object.fromEntries(
+      process.env.P0_LADDER_SUBSTRATES.split(';').map((seg) => {
+        const [name, subs] = seg.split(':');
+        return [name.trim(), subs.split(',').map((x) => x.trim())];
+      })
+    )
+  : {
+      'reagent-subs': ['reagent', 'fresco'],
+      'uix-subs': ['uix', 'fresco'],
+    };
 
 // `perRoot.grid` is the PAGE, and the plan states it on every arm rather
 // than letting the page's own compile-time default stand in for it. The
@@ -4371,14 +4380,17 @@ function ladderStructuralFailures(row) {
     for (const [key, a] of Object.entries(r.arms)) {
       const h = a.verify && a.verify.fresco;
       if (!h) continue;
-      const fresco = a.arm === 'lad/fresco';
+      const fresco = a.arm === 'lad/fresco' || a.arm === 'lad/fresco-ref';
       const R = a.reads || 0;
+      // The held-entry variant keeps no entry table; in a production bundle
+      // its dev-only registration set is empty, so it answers 0 entries.
+      const held = a.arm === 'lad/fresco-ref';
       const want = fresco
         ? {
             boundaries: R === 0 ? 0 : B,
             edges: B * R,
             cells: B * R,
-            entries: R === 0 ? 1 : B,
+            entries: held ? 0 : R === 0 ? 1 : B,
           }
         : { boundaries: 0, edges: 0, cells: 0, entries: 0 };
       for (const f of Object.keys(want)) {
@@ -4591,6 +4603,152 @@ function summariseLadder(row, structuralFailures) {
     `;;   ${row.orderRefused ? 'VERDICT: REFUSE — no figure above may be published as measured' : 'VERDICT: reportable'}`
   );
   if (row.orderRefused) console.log(`;;   ${row.orderVerdictEdn}`);
+}
+
+
+// ---------------------------------------------------------------------------
+// The entry-design rows — the page-global entry cache against a held ref
+// ---------------------------------------------------------------------------
+//
+// Two Fresco entry designs ride one bundle: the page-global read-set entry
+// cache (`lad/fresco`, `grid10/fresco`) and the held-entry variant, where
+// each boundary keeps its entry in a `useRef` (`lad/fresco-ref`,
+// `grid10/fresco-ref`). `P0H.mount` sets the collector's flag per arm, after
+// the previous arm's release, so both are measured in the same rounds under
+// the same collector and slot order.
+//
+// `--only ladder` with `P0_LADDER_SUBSTRATES=reagent-subs:reagent,fresco,fresco-ref`
+// takes the S1 (R=0 shell) and S3 (per-read slope) rows for both designs.
+// `--only entrygrid` takes the multi-row workload: `P0_GRID_ROOTS` roots of the
+// 10x10 grid example, each under its own frame — retained heap, mount time,
+// mount body runs and the body runs of one write per root and its restore.
+
+const GRID_ROOTS = Number(process.env.P0_GRID_ROOTS || 10);
+const GRID_ROUNDS = Number(process.env.P0_GRID_ROUNDS || 8);
+const GRID_BOUNDARIES_PER_ROOT = 121;
+const GRID_KEYS_PER_ROOT = 111;
+const GRID_SEGMENT = 'reagent-subs+grid';
+const GRID_ARMS = ['grid10/fresco', 'grid10/fresco-ref'];
+
+function gridPlan() {
+  return [
+    {
+      segment: GRID_SEGMENT,
+      arms: GRID_ARMS.map((arm) => ({
+        arm,
+        key: `${GRID_SEGMENT}|${arm}`,
+        boundaries: GRID_ROOTS * GRID_BOUNDARIES_PER_ROOT,
+        opts: null,
+        rung: arm,
+      })),
+    },
+  ];
+}
+
+async function entryGridRow(chromium) {
+  return heapPass(chromium, {
+    benchmark: 'P0:entry-design-grid10',
+    bead: 'rf2-o6j06',
+    plan: gridPlan,
+    roots: GRID_ROOTS,
+    rounds: GRID_ROUNDS,
+  });
+}
+
+// What a grid arm must answer, counted rather than asserted. At mount every
+// boundary reads exactly one key, so edges = boundaries = 121 per root and
+// cells = Q = 111 per root; the cache holds one entry per distinct read
+// sequence (111 per root) and the held variant none in a production bundle.
+// Every field zero after teardown. Mount body runs are one per boundary and
+// each write is two per root (the cell and its row total).
+function entryGridStructuralFailures(row) {
+  const out = [];
+  const B = GRID_ROOTS * GRID_BOUNDARIES_PER_ROOT;
+  const Q = GRID_ROOTS * GRID_KEYS_PER_ROOT;
+  for (const r of row.perRound) {
+    for (const [key, a] of Object.entries(r.arms)) {
+      const h = a.verify && a.verify.fresco;
+      const held = a.arm.endsWith('fresco-ref');
+      const want = { boundaries: B, edges: B, cells: Q, entries: held ? 0 : Q };
+      for (const f of Object.keys(want)) {
+        if (!h || h[f] !== want[f]) {
+          out.push(`round ${r.round} ${key}: fresco ${f} ${h && h[f]}, expected ${want[f]}`);
+        }
+      }
+      if (a.verify.mountBodyRuns !== B) {
+        out.push(`round ${r.round} ${key}: mount body runs ${a.verify.mountBodyRuns}, expected ${B}`);
+      }
+      const p = a.verify.probe;
+      if (!p || !p.ok || p.writeBodyRuns !== 2 * GRID_ROOTS || p.restoreBodyRuns !== 2 * GRID_ROOTS) {
+        out.push(`round ${r.round} ${key}: write probe ${JSON.stringify(p)}, expected 2/root each way`);
+      }
+      const res = a.structural;
+      for (const f of ['cells', 'cellRefs', 'boundaries', 'edges', 'entries']) {
+        if (!res || res[f] !== 0) {
+          out.push(`round ${r.round} ${key}: residue after teardown — fresco ${f} ${res && res[f]}`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+const fmtRange = (xs, d = 0) => {
+  const st = stat(xs);
+  return `${st.mean.toFixed(d)} [${st.min.toFixed(d)}–${st.max.toFixed(d)}]`;
+};
+
+// The paired comparison, round by round: the held arm against the cache arm
+// measured in the SAME round, so a round-wide drift cancels in the
+// difference. The spread printed is the range of the per-round differences.
+function summariseEntryGrid(row, structuralFailures) {
+  const B = GRID_ROOTS * GRID_BOUNDARIES_PER_ROOT;
+  console.log('\n;; ==== P0 ENTRY DESIGN — THE 10x10 GRID WORKLOAD ====');
+  console.log(`;; ${GRID_ROOTS} roots x ${GRID_BOUNDARIES_PER_ROOT} boundaries = ${B}; ${row.rounds} rounds`);
+  printHeapControl(row);
+  const k = (arm) => `${GRID_SEGMENT}|${arm}`;
+  for (const arm of GRID_ARMS) {
+    const a = row.perRound.map((r) => r.arms[k(arm)]);
+    console.log(`;; ${arm.padEnd(18)} retained ${fmtRange(a.map((x) => x.bytesPerBoundaryCdp))} B/boundary` +
+      `   residue ${fmtRange(a.map((x) => x.residueCdp / B))} B/boundary`);
+    console.log(`;; ${''.padEnd(18)} mount ${fmtRange(a.map((x) => x.verify.mountMs), 1)} ms (median ${median(a.map((x) => x.verify.mountMs)).toFixed(1)})` +
+      `   body runs: mount ${fmtRange(a.map((x) => x.verify.mountBodyRuns))}, write ${fmtRange(a.map((x) => x.verify.probe.writeBodyRuns))}`);
+  }
+  const d = row.perRound.map((r) =>
+    r.arms[k('grid10/fresco-ref')].bytesPerBoundaryCdp - r.arms[k('grid10/fresco')].bytesPerBoundaryCdp);
+  const t = row.perRound.map((r) =>
+    r.arms[k('grid10/fresco-ref')].verify.mountMs / r.arms[k('grid10/fresco')].verify.mountMs);
+  console.log(`;; PAIRED, held − cache: retained ${fmtRange(d, 1)} B/boundary; per round ${d.map((x) => x.toFixed(1)).join(', ')}`);
+  console.log(`;; PAIRED, held / cache: mount time ${fmtRange(t, 3)}x; per round ${t.map((x) => x.toFixed(3)).join(', ')}`);
+  if (structuralFailures.length === 0) {
+    console.log(';; STRUCTURAL: every arm of every round answered its expected counts.');
+  } else {
+    for (const f of structuralFailures.slice(0, 40)) console.log(`;;   FAILED ${f}`);
+  }
+  console.log(`;; ARM-ORDER GUARD: ${row.orderRefused ? 'REFUSE' : 'reportable'}`);
+}
+
+// The ladder's paired block: each rung of the held arm against the cache arm
+// in the same round, and the two fitted slopes round by round.
+function summariseEntryLadder(row) {
+  for (const { segment } of row.plan) {
+    const subs = LADDER_SUBSTRATES[segment];
+    if (!subs.includes('fresco') || !subs.includes('fresco-ref')) continue;
+    console.log(`;;\n;; ==== ENTRY DESIGN, PAIRED IN ${segment}: fresco-ref − fresco, per round ====`);
+    for (const R of LADDER_RUNGS) {
+      const d = row.perRound.map((r) =>
+        r.arms[`${segment}|lad/fresco-ref#R${R}`].bytesPerBoundaryCdp -
+        r.arms[`${segment}|lad/fresco#R${R}`].bytesPerBoundaryCdp);
+      console.log(`;;   R=${String(R).padEnd(3)} ${fmtRange(d, 1)} B/boundary; per round ${d.map((x) => x.toFixed(1)).join(', ')}`);
+    }
+    const pr = row.ladderFits.perRound;
+    const a = pr[`${segment}|fresco`];
+    const b = pr[`${segment}|fresco-ref`];
+    if (a && b) {
+      const ds = a.map((f, i) => b[i].slope - f.slope);
+      console.log(`;;   slope ${fmtRange(ds, 1)} B/read; per round ${ds.map((x) => x.toFixed(1)).join(', ')}`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4933,12 +5091,13 @@ if (require.main === module) (async () => {
   // row, and folding it into a default run would change the sample
   // stream that row's arm-order guard adjudicates.
   const wantLadder = ONLY === 'ladder';
+  const wantEntryGrid = ONLY === 'entrygrid';
   // `--only alloc` is opt-in on the same terms, and for a third reason as
   // well as the two the ladder gives: it is the only row here that keeps
   // an arm mounted across a measured window, so its sample stream is not
   // the mount/release one the arm-order guard adjudicates.
   const wantAlloc = ONLY === 'alloc';
-  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout && !wantLadder && !wantAlloc) {
+  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout && !wantLadder && !wantAlloc && !wantEntryGrid) {
     console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout | ladder | alloc)`);
     process.exit(1);
   }
@@ -5006,12 +5165,33 @@ if (require.main === module) (async () => {
       // and carried in the raw record; what it gates is what may be
       // written into validation.md.
     }
+    if (wantEntryGrid) {
+      console.error('[p0] entry-design grid row ...');
+      out.entryGrid = await entryGridRow(chromium);
+      const structural = entryGridStructuralFailures(out.entryGrid);
+      out.entryGrid.structuralFailures = structural;
+      summariseEntryGrid(out.entryGrid, structural);
+      if (out.entryGrid.verification.unverified > 0) {
+        failures.push(
+          `entrygrid: ${out.entryGrid.verification.unverified} unverified mounts — ` +
+            out.entryGrid.verification.detail.join(' | ')
+        );
+      }
+      if (!out.entryGrid.control.verdict.ok) {
+        failures.push(`entrygrid: positive control — ${out.entryGrid.control.verdict.why}`);
+      }
+      if (structural.length > 0) {
+        failures.push(`entrygrid: ${structural.length} structural failures — ${structural[0]}`);
+      }
+      refused = refused || out.entryGrid.orderRefused;
+    }
     if (wantLadder) {
       console.error('[p0] reads ladder ...');
       out.ladder = await ladderRow(chromium);
       const structural = ladderStructuralFailures(out.ladder);
       out.ladder.structuralFailures = structural;
       summariseLadder(out.ladder, structural);
+      summariseEntryLadder(out.ladder);
       if (out.ladder.verification.unverified > 0) {
         failures.push(
           `ladder: ${out.ladder.verification.unverified} unverified mounts — ` +

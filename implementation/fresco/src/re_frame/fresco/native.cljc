@@ -72,7 +72,13 @@
              ;; never reaches React's hook reconciliation, so no hook count
              ;; can disagree with a previous render's.
              sub-key   [frame-kw query-v]
-             ^js entry (rf.fresco.impl.collector/hook-entry sub-key)]
+             ;; The held-entry variant has no page-global table for a hook to
+             ;; share, so the hook holds its own one-key entry in a ref — a
+             ;; third hook per call. The flag is flipped only while nothing
+             ;; is mounted, so one component's hook count never changes.
+             ^js entry (if ^boolean (.-heldEntries rf.fresco.impl.collector/rstate)
+                         (rf.fresco.impl.collector/hook-held-entry (react/useRef nil) sub-key)
+                         (rf.fresco.impl.collector/hook-entry sub-key))]
          ;; The snapshot is an epoch, not the value: one monotone number
          ;; React compares with `Object.is`, and the value is read after it
          ;; from the same synchronous instant. The third argument is the

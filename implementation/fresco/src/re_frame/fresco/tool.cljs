@@ -167,15 +167,38 @@
           (sort names))
     rf.fresco.evidence/unknown))
 
+(defn- mounted-entries
+  "Each read-set entry a mounted boundary holds, paired with how many
+  boundaries hold it: `[entry holders]`.
+
+  Under the page-global cache that is the table's entries with a positive
+  reference count. Under the held-entry variant there is no table, so it
+  is the committed registrations `impl.collector/mounted-registrations`
+  records in a dev build, grouped by the entry each one names — the one
+  source that still sees a boundary whose body read nothing."
+  []
+  (if ^boolean (.-heldEntries rf.fresco.impl.collector/rstate)
+    (let [holders (js/Map.)
+          pairs   (volatile! [])]
+      (.forEach rf.fresco.impl.collector/mounted-registrations
+                (fn [^js registration]
+                  (let [entry (.-entry registration)]
+                    (.set holders entry (inc (or (.get holders entry) 0))))))
+      (.forEach holders (fn [n entry] (vswap! pairs conj [entry n])))
+      @pairs)
+    (for [[_ bucket] @rf.fresco.impl.collector/!entries
+          ^js entry  bucket
+          :when      (pos? (.-refs entry))]
+      [entry (.-refs entry)])))
+
 (defn- views-by-read-set
-  "A `js/Map` from each entry's key SET — the object a registration's
-  `.-reads` shares by reference — to that entry's `:views`, so an
-  attribution reader is named through the entry it came from rather than
-  through a second registry."
+  "A `js/Map` from each mounted entry's key SET — the object a
+  registration's `.-reads` shares by reference — to that entry's
+  `:views`, so an attribution reader is named through the entry it came
+  from rather than through a second registry."
   []
   (let [views-by-read-set-map (js/Map.)]
-    (doseq [[_ bucket] @rf.fresco.impl.collector/!entries
-            ^js entry  bucket]
+    (doseq [[^js entry _] (mounted-entries)]
       (.set views-by-read-set-map
             (.-set entry)
             (view-rows (rf.fresco.impl.collector/entry-views entry))))
@@ -200,11 +223,8 @@
   entries, which the same subscribe/cleanup pair that moves `refs`
   keeps."
   []
-  (let [live-entries (for [[_ bucket] @rf.fresco.impl.collector/!entries
-                           ^js entry  bucket
-                           :when      (pos? (.-refs entry))]
-                       entry)]
-    (->> live-entries
+  (let [holders-of (into {} (mounted-entries))]
+    (->> (keys holders-of)
          (group-by (fn [^js entry] (boundary-key (.-set entry))))
          (map (fn [[projected-boundary-key entries]]
                 ;; The RAW sub-keys stay here and go no further: `read-row`
@@ -234,10 +254,11 @@
                   ^{::snapshot snapshot}
                   {:boundary    {:parent nil :key projected-boundary-key}
                    :views       (view-rows (into #{} (mapcat rf.fresco.impl.collector/entry-views) entries))
-                   :instances   (reduce + 0 (map (fn [^js entry]
-                                                  (.-refs entry))
-                                                entries))
-                   :read-orders (count entries)
+                   :instances   (reduce + 0 (map holders-of entries))
+                   ;; Distinct key ORDERS, not entries: the cache keeps one
+                   ;; entry per order, while held entries are one per
+                   ;; boundary, so only the orders count the same in both.
+                   :read-orders (count (into #{} (map (fn [^js entry] (vec (.-keys entry)))) entries))
                    :frame       (let [frame-ids
                                       (into #{}
                                             (map #(nth % 0))

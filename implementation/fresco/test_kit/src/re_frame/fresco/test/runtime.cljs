@@ -86,7 +86,11 @@
      :cell-refs  memberships
      :edges      memberships
      :boundaries (count boundaries)
-     :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @rf.fresco.impl.collector/!entries))
+     ;; The held-entry variant keeps no table; what it can count instead
+     ;; is the committed registrations its dev-only set records.
+     :entries    (if ^boolean (.-heldEntries rf.fresco.impl.collector/rstate)
+                   (.-size rf.fresco.impl.collector/mounted-registrations)
+                   (reduce + 0 (map (fn [[_ v]] (count v)) @rf.fresco.impl.collector/!entries)))
      :generation (rf.fresco.impl.generation/generation)
      :frames     (count @rf.fresco.impl.frames/!frame-ops)
      :codec      (rf.fresco.impl.codec/cache-sizes)}))

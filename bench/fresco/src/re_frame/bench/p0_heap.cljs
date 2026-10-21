@@ -79,7 +79,10 @@
             [re-frame.bench.p0-reagent :as rf.bench.p0-reagent]
             [re-frame.bench.p0-uix :as rf.bench.p0-uix]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
+            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco.examples.grid.events :as rf.fresco.examples.grid.events]
+            [re-frame.fresco.examples.grid.views :as rf.fresco.examples.grid.views]
             ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
             ;; they are the PACKAGE's — not the frozen
             ;; `re-frame.bench.fresco.arm1.*` prototype, through which a
@@ -321,9 +324,10 @@
                   :uix     (uix-root-arm
                              (fn [r] (rf.bench.p0-uix/lad-root rf.bench.p0-arms/frame-id (* r cells) cells reads))
                              ".cell" cells)
-                  :fresco (fresco-root-arm
-                             (fn [r] (rf.bench.p0-fresco/lad-grid (* r cells) cells reads))
-                             ".cell" cells))]
+                  (:fresco :fresco-ref)
+                  (fresco-root-arm
+                    (fn [r] (rf.bench.p0-fresco/lad-grid (* r cells) cells reads))
+                    ".cell" cells))]
     (assoc base
            ;; The candidate reads through `re-frame.subs` and the
            ;; substrate's single internal frame context, so it needs
@@ -341,11 +345,105 @@
            :segment       (case substrate
                             :reagent :reagent-subs
                             :uix     :uix-subs
-                            :fresco nil)
+                            (:fresco :fresco-ref) nil)
+           ;; The held-entry variant is the same arm under the other entry
+           ;; design: `mount!` sets the collector's flag from this.
+           :held?         (= substrate :fresco-ref)
            :reads         reads
            ;; A boundary that reads NOTHING holds no cache entry, so the
            ;; R=0 rung's Q is 0 whatever `q` says — [[fan-arm]]'s rule.
            :keys-expected (if (zero? reads) 0 (long q)))))
+
+;; ---------------------------------------------------------------------------
+;; The entry-design workload — the 10x10 grid example, one frame per root
+;; ---------------------------------------------------------------------------
+;;
+;; A real multi-row page rather than a ladder rung: one `grid`, ten
+;; `grid-row`s, a hundred `cell`s and ten `row-total`s — 121 boundaries per
+;; root, the grid and its rows sharing one read set (`[::subs/dimensions]`),
+;; so the page-global entry cache's sharing is exercised where the ladder's
+;; distinct-query rungs never exercise it. Each root mounts under its OWN
+;; frame, so no two roots share a key and a root is one page, not a copy of
+;; another's subscriptions.
+
+(def grid-roots
+  "How many grid frames `prepare!` seeds — the most roots a grid arm may mount."
+  10)
+
+(def grid-dimensions {:rows 10 :cols 10})
+
+(def grid-boundaries-per-root
+  "1 grid + 10 rows + 100 cells + 10 totals."
+  121)
+
+(def grid-keys-per-root
+  "100 cells + 10 row totals + the shared dimensions."
+  111)
+
+(defn- grid-frame [i] (keyword "re-frame.bench.entry-design" (str "grid-" i)))
+
+(defn- seed-grid-frames!
+  "Stand up [[grid-roots]] grid frames, freshly seeded. Outside every
+  measured window, like `enter-segment!`."
+  []
+  (dotimes [i grid-roots]
+    (let [f (grid-frame i)]
+      (when (rf.frame/frame f) (rf/destroy-frame! f))
+      (rf/make-frame {:id f :initial-events [[::rf.fresco.examples.grid.events/seed grid-dimensions]]})))
+  nil)
+
+(defn- grid-live-keys
+  "Q across the grid frames — the sub-cache entries they hold."
+  []
+  (reduce + 0 (map (fn [i] (if-some [f (rf.frame/frame (grid-frame i))]
+                             (count @(:sub-cache f))
+                             0))
+                   (range grid-roots))))
+
+(defn- grid-write-probe
+  "Write cell (0,0) in each of the `k` mounted frames and write it back, each
+  write inside one `flushSync`, reading every write back off the DOM. Answers
+  the body runs of each write — predicted 2 per root, the cell and its
+  row's total — and whether both read-backs held."
+  [k]
+  (let [runs    (fn [] (.-bodyRuns rf.fresco.impl.collector/rstate))
+        write!  (fn [v]
+                  (react-dom/flushSync
+                    (fn []
+                      (dotimes [i k]
+                        (rf.fresco.impl.collector/dispatch!
+                          (grid-frame i) [::rf.fresco.examples.grid.events/edit 0 0 v])))))
+        shows?  (fn [cell-value total]
+                  (let [inputs (array-seq (.querySelectorAll js/document "input[data-cell='cell-0-0']"))
+                        totals (array-seq (.querySelectorAll js/document "td.total[data-total='0']"))]
+                    (and (= k (count inputs)) (= k (count totals))
+                         (every? #(= cell-value (.-value %)) inputs)
+                         (every? #(= total (.-textContent %)) totals))))
+        r0      (runs)
+        _       (write! "9")
+        r1      (runs)
+        ok1     (shows? "9" "54")
+        _       (write! "0")
+        r2      (runs)
+        ok2     (shows? "0" "45")]
+    {:ok (and ok1 ok2) :write-body-runs (- r1 r0) :restore-body-runs (- r2 r1)}))
+
+(defn- grid10-arm
+  "`k` roots of the 10x10 grid example, one frame each, under the entry
+  design `held?` names."
+  [held?]
+  {:selector      "input[data-cell]"
+   :expected      100
+   :segment       nil
+   :held?         held?
+   :live-keys     grid-live-keys
+   :keys-expected (fn [k] (* k grid-keys-per-root))
+   :probe         grid-write-probe
+   :mount-one     (fn [c i]
+                    (rf.fresco.impl.mount/root! c (grid-frame i)
+                                                [rf.fresco.examples.grid.views/grid {}]))
+   :unmount-one   (fn [handle]
+                    (react-dom/flushSync (fn [] (.unmount (:root handle)))))})
 
 (defn- arm-for
   "Resolve `arm-id` to an arm map. `:fan/*`, `:lad/*` and `:grid/floor`
@@ -367,6 +465,9 @@
       :lad/reagent (lad-arm :reagent cells (:reads opts) (:keys opts))
       :lad/uix     (lad-arm :uix     cells (:reads opts) (:keys opts))
       :lad/fresco (lad-arm :fresco cells (:reads opts) (:keys opts))
+      :lad/fresco-ref (lad-arm :fresco-ref cells (:reads opts) (:keys opts))
+      :grid10/fresco     (grid10-arm false)
+      :grid10/fresco-ref (grid10-arm true)
       (get arm-table arm-id))))
 
 ;; ---------------------------------------------------------------------------
@@ -398,8 +499,15 @@
    ;; forced — which is what leaves the survival metric something to
    ;; measure.
    (rf.fresco.impl.collector/reset-runtime!)
-   (let [segment (first (filter #(= segment-id (:id %)) rf.bench.p0-arms/segments))]
-     (when segment (rf.bench.p0-arms/enter-segment! segment (long grid-width))))
+   ;; A `<segment>+grid` id enters `<segment>` and then seeds the grid
+   ;; frames the entry-design workload mounts under.
+   (let [grid?      (and segment-id (str/ends-with? (name segment-id) "+grid"))
+         segment-id (if grid?
+                      (keyword (subs (name segment-id) 0 (- (count (name segment-id)) 5)))
+                      segment-id)
+         segment    (first (filter #(= segment-id (:id %)) rf.bench.p0-arms/segments))]
+     (when segment (rf.bench.p0-arms/enter-segment! segment (long grid-width)))
+     (when grid? (seed-grid-frames!)))
    true))
 
 ;; ---------------------------------------------------------------------------
@@ -452,12 +560,21 @@
   (let [opts       (js->clj opts :keywordize-keys true)
         arm        (arm-for (keyword arm-id) opts)
         {:keys [mount-one unmount-one selector expected keys-expected]} arm
+        ;; The entry design this arm mounts under. Set only here, after the
+        ;; previous arm's release, so no mounted boundary sees it change.
+        _          (set! (.-heldEntries rf.fresco.impl.collector/rstate) (boolean (:held? arm)))
         _          (when-some [q (:keys opts)] (rf.bench.p0-fixture/set-fan-keys! q))
         containers (mapv (fn [_] (rf.bench.p0-harness/container!)) (range k))
+        runs-0     (.-bodyRuns rf.fresco.impl.collector/rstate)
+        t-0        (js/performance.now)
         handles    (into [] (map-indexed (fn [i c] (mount-one c i))) containers)
+        mount-ms   (- (js/performance.now) t-0)
+        mount-runs (- (.-bodyRuns rf.fresco.impl.collector/rstate) runs-0)
+        probe      (when-some [p (:probe arm)] (p k))
         elements   (.-length (.querySelectorAll js/document selector))
         want       (* k expected)
-        live       (live-key-count)]
+        keys-expected (if (fn? keys-expected) (keys-expected k) keys-expected)
+        live       (if-some [f (:live-keys arm)] (f) (live-key-count))]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
     (let [hic (rf.fresco.test.runtime/residue)]
@@ -465,7 +582,16 @@
            :expected     want
            :keys         live
            :keysExpected keys-expected
-           :ok           (and (= elements want) (= live keys-expected))
+           :ok           (and (= elements want) (= live keys-expected)
+                              (or (nil? probe) (:ok probe)))
+           ;; The entry-design comparison's two further axes: the mount's
+           ;; wall time and body runs, and the write probe's body runs.
+           :mountMs      mount-ms
+           :mountBodyRuns mount-runs
+           :probe        (when probe
+                           #js {:ok              (boolean (:ok probe))
+                                :writeBodyRuns   (:write-body-runs probe)
+                                :restoreBodyRuns (:restore-body-runs probe)})
            ;; THE STRUCTURAL STAMP, counted off the Fresco runtime on
            ;; every mount of every arm. On a candidate arm
            ;; it is what makes "one hook plus N edges in a shared index" a

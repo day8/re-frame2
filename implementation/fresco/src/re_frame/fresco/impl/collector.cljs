@@ -61,7 +61,7 @@
   Public so the test kit's runtime door reads `bodyRuns` off it; every
   writer is in this file. Module-level because boundary bodies do not
   nest (docs/design/fresco/product/globals.md)."
-  #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil})
+  #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil "heldEntries" false})
 
 (def ^:private ^js scratch
   "The one scratch buffer: one render's reads, in read order, reset by
@@ -152,7 +152,7 @@
   (docs/design/fresco/studio/the-cold-read-mount-term.md)."
   ::cell-watch)
 
-(declare flush! retire-entries-naming!)
+(declare flush! retire-entries-naming! retire-held-entries!)
 
 (defn- mark-dirty! [^js cell]
   (when-not (.-disposed cell)
@@ -193,7 +193,8 @@
     ;; reader already left, disposed for idleness — keeps its entry and with
     ;; it the keyed-reorder reuse the grace macrotask exists to buy.
     (when (pos? (alength (.-readers cell)))
-      (retire-entries-naming! (.-subKey cell))))
+      (retire-entries-naming! (.-subKey cell))
+      (retire-held-entries! (.-readers cell))))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -861,6 +862,97 @@
    notify))
 
 ;; ---------------------------------------------------------------------------
+;; THE HELD-ENTRY VARIANT — each boundary keeps its own entry in a `useRef`
+;; ---------------------------------------------------------------------------
+;;
+;; A measurement variant, selected by `rstate`'s `heldEntries` flag and
+;; flipped only while nothing is mounted (a mounted boundary's hook count
+;; must not change). It has no page-global entry table, no bucket hash, no
+;; entry reaper and no horizon: an entry lives exactly as long as the
+;; fiber whose ref holds it. What it adds is the third hook on every
+;; boundary, a `retired` flag a cell disposal sets through the readers'
+;; registrations, and — for the tool door, dev only — a set of the mounted
+;; registrations, which is the one place a read-free boundary can be seen.
+
+(defonce mounted-registrations
+  ;; Dev only: every committed registration of a held entry, so the tool
+  ;; door can enumerate mounted boundaries — the read-free ones included,
+  ;; which no cell's reader list names. Nothing writes it in production.
+  (js/Set.))
+
+(defn- make-held-subscribe
+  "`make-subscribe` for a held entry: the registration names its entry, so
+  a cell disposal can retire it, and no reference count is kept — the
+  entry's lifetime is its fiber's."
+  [^js entry]
+  (fn subscribe [on-store-change]
+    (let [reads (.-set entry)
+          ^js registration #js {"reads" reads "notify" on-store-change "entry" entry}
+          cells (mapv (fn [sub-key] (acquire-cell! sub-key registration)) reads)]
+      (unchecked-set registration "cells" cells)
+      (when ^boolean js/goog.DEBUG (.add mounted-registrations registration))
+      (fn unsubscribe []
+        (set! (.-notify registration) nil)
+        (doseq [cell cells] (release-cell! cell registration))
+        (when ^boolean js/goog.DEBUG (.delete mounted-registrations registration))
+        nil))))
+
+(defn- mint-held-entry
+  "One boundary's entry for `read-keys`: the key array, the key set and the
+  two closures React sees, owned by the ref that holds it."
+  [^js read-keys]
+  (let [stored-read-keys (.slice read-keys)
+        ^js entry #js {"keys"    stored-read-keys
+                       "set"     (into #{} stored-read-keys)
+                       "retired" false}]
+    (unchecked-set entry "subscribe" (make-held-subscribe entry))
+    (unchecked-set entry "snapshot" (make-snapshot entry))
+    entry))
+
+(def ^:private empty-held-entry
+  "The read-free boundary's entry, one for the page: an empty read set
+  acquires nothing and names no cell, so no disposal can retire it and
+  there is nothing per boundary to keep."
+  (mint-held-entry #js []))
+
+(defn- held-entry-for
+  "The entry the ref `held` answers for `read-keys`: the held one while it
+  matches and is not retired, otherwise a fresh one written back into the
+  ref. The write happens in render, so a discarded render can leave the
+  ref naming an entry React never subscribed through; the next render's
+  compare is against that entry, and a mismatch costs a re-subscribe,
+  never a wrong value — React compares `subscribe` against the committed
+  one, not against the ref."
+  [^js held ^js read-keys]
+  (let [^js entry (.-current held)]
+    (if (and (some? entry)
+             (not (.-retired entry))
+             (entry-matches? entry read-keys))
+      entry
+      (let [fresh (if (zero? (alength read-keys))
+                    empty-held-entry
+                    (mint-held-entry read-keys))]
+        (set! (.-current held) fresh)
+        fresh))))
+
+(defn- retire-held-entries!
+  "Retire the held entry of every registration in `readers`, so each
+  boundary's next render mints a fresh `subscribe` and React's own
+  re-subscribe re-acquires — `retire-entries-naming!`'s half for held
+  entries, reached through the readers rather than a table scan. A
+  registration of a cached entry names none."
+  [^js readers]
+  (.forEach readers (fn [^js registration]
+                      (when-some [^js entry (.-entry registration)]
+                        (set! (.-retired entry) true))))
+  nil)
+
+(defn hook-held-entry
+  "`hook-entry` for a hook that holds its own entry in the ref `held`."
+  [held sub-key]
+  (held-entry-for held #js [sub-key]))
+
+;; ---------------------------------------------------------------------------
 ;; The hook seam — one read, from a React component that is not a boundary
 ;; ---------------------------------------------------------------------------
 ;;
@@ -1118,6 +1210,37 @@
                           (vswap! names conj view-name))))
       (not-empty @names))))
 
+(defn- render-body-held
+  "[[render-body]] for the held-entry variant: the same fence, with the
+  entry resolved through the boundary's ref `held` rather than the
+  page-global cache."
+  [frame-kw body-fn props ^js held]
+  (loop [attempt 0]
+    (let [basis-before (rf.fresco.impl.generation/commit-basis frame-kw)
+          element      (run-once frame-kw body-fn props)]
+      (cond
+        (= basis-before (rf.fresco.impl.generation/commit-basis frame-kw))
+        (let [entry (held-entry-for held scratch)]
+          (set! (.-entry rstate) entry)
+          (when ^boolean js/goog.DEBUG
+            (set! (.-subscribe rstate)
+                  (if-some [view-name (unchecked-get body-fn "displayName")]
+                    (view-subscribe entry view-name)
+                    (.-subscribe entry))))
+          element)
+
+        (< attempt max-fence-retries)
+        (recur (inc attempt))
+
+        :else
+        (fail! :rf.error/fresco-generation-fence-exhausted
+               're-frame.fresco.impl.collector/render-body
+               (str "A boundary body observed a new commit on each of "
+                    (inc max-fence-retries) " consecutive runs. A body that "
+                    "writes on every render cannot be fenced; move the write "
+                    "out of the render.")
+               {:frame frame-kw :generation (rf.fresco.impl.generation/generation)})))))
+
 (defn render-body
   "Run a boundary body under the generation fence and return its
   element; `last-reads` carries the entry it resolved, and in a dev
@@ -1209,6 +1332,22 @@
                                 (.-snapshot entry))
     element))
 
+(defn shell-held
+  "The held-entry variant's shell: three hooks — the frame context, the
+  boundary's own entry in a `useRef`, and the subscription — with the body
+  between the second and the third."
+  [body-fn js-props]
+  (let [frame-kw  (resolve-frame! (react/useContext rf.adapter.context/frame-context)
+                                  're-frame.fresco.impl.collector/shell)
+        ^js held  (react/useRef nil)
+        props     (or (unchecked-get js-props "rfProps") {})
+        element   (render-body-held frame-kw body-fn props held)
+        ^js entry (.-entry rstate)]
+    (react/useSyncExternalStore (if ^boolean js/goog.DEBUG (.-subscribe rstate) (.-subscribe entry))
+                                (.-snapshot entry)
+                                (.-snapshot entry))
+    element))
+
 (defn mint-view!
   "Turn a body fn into a boundary: a React function component, marked as
   a legal hiccup head and wrapped in the codec's stable memo — minted once,
@@ -1240,7 +1379,9 @@
     (unchecked-set body-fn view-attrs-slot (view-annotations view-name)))
   (let [component (fn fresco-boundary [js-props]
                     (rf.performance/mark-and-measure :render view-name
-                      (shell body-fn js-props)))
+                      (if ^boolean (.-heldEntries rstate)
+                        (shell-held body-fn js-props)
+                        (shell body-fn js-props))))
         ;; Dev only: the origin a refusal below names. `interop/debug-enabled?`
         ;; is `^boolean goog.DEBUG`, so under `:advanced` this `if` folds to
         ;; `component` and React calls the fn above, unchanged.
@@ -1326,6 +1467,7 @@
   (vreset! !batching false)
   (reset-reapers! cell-reapers)
   (reset-reapers! entry-reapers)
+  (.clear mounted-registrations)
   (rf.fresco.impl.generation/reset-basis!)
   (set! (.-entry rstate) nil)
   (set! (.-subscribe rstate) nil)
