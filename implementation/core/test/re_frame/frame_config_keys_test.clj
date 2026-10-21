@@ -5,6 +5,7 @@
   artefact's keys, pass silently."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.routing]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -33,6 +34,15 @@
     (is (= ::typo frame))
     (is (= #{:fx-overides :drain-depht} (set unknown-keys)))
     (is (contains? (set known) :fx-overrides))))
+
+(deftest ^:requires-debug on-create-and-initial-db-are-unknown-keys
+  ;; `:initial-events` is the one setup key, so these spellings construct and
+  ;; warn like any other bare key nothing reads.
+  (doseq [[id k v] [[::oc :on-create [:boot]] [::idb :initial-db {:n 0}]]]
+    (is (= [[id [k]]]
+           (mapv (juxt :frame :unknown-keys)
+                 (config-warnings #(rf/make-frame {:id id k v})))))
+    (is (some? (rf.frame/frame id)) (str k " constructs"))))
 
 (deftest ^:requires-debug recognised-and-namespaced-keys-pass-silently
   (is (= [] (config-warnings

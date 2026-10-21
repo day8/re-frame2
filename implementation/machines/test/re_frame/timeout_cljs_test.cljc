@@ -36,13 +36,20 @@
                 {:initial :w :states {:w {:timeout "5s" :on-timeout :d} :d {}}}]
                [:rf.error/machine-timeout-without-on-timeout (spawn {:timeout 10000})]
                [:rf.error/machine-on-timeout-without-timeout (spawn {:on-timeout :to})]
-               [:rf.error/spawn-timeout-ms-removed (spawn {:timeout-ms 1000})]
-               [:rf.error/spawn-timeout-ms-removed
+               ;; `:timeout-ms` is no spawn key: each place it can sit refuses it
+               ;; as the unknown key it is there.
+               [:rf.error/machine-unknown-spawn-key (spawn {:timeout-ms 1000})]
+               [:rf.error/machine-spawn-all-bad-shape
                 {:initial :h
                  :states  {:h {:spawn-all {:children        [{:id :a :machine-id :stub}]
                                            :join            :all
                                            :on-all-complete [:done!]
                                            :timeout-ms      5000}}}}]
+               [:rf.error/machine-unknown-spawn-key
+                {:initial :h
+                 :states  {:h {:spawn-all {:children        [{:id :a :machine-id :stub :timeout-ms 5000}]
+                                           :join            :all
+                                           :on-all-complete [:done!]}}}}]
                [:rf.error/machine-timeout-after-collision
                 {:initial :w
                  :states  {:w {:after {5000 {:target :x}} :timeout 5000 :on-timeout {:target :d}}

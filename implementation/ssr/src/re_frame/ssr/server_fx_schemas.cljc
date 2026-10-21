@@ -160,10 +160,9 @@
 
   [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
   011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all use
-  `:location`, matching HTTP `Location` response-header vocabulary. The
-  unsupported synonyms `:url` / `:to` are
-  NOT accepted: `redirect-fx` throws `:rf.error/redirect-retired-target-
-  key` naming `:location` (no back-compat alias).
+  `:location`, matching HTTP `Location` response-header vocabulary. There is
+  no alias: a map spelling the target `:url` / `:to` carries no `:location`,
+  so it is the target-less redirect below.
 
   `:allow` is `:any` or a SEQUENCE of host strings; a scalar host string is
   refused rather than read as an allowlist of characters. Absent, the
