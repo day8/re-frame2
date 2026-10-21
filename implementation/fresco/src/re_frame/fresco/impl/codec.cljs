@@ -1999,7 +1999,10 @@
   references, and the view it wraps with it. That is why the label is
   joined with a string literal's `.concat` rather than `str`: Closure
   cannot see into `str`, so a bridge labelled with it would ship whether
-  referenced or not (see `collector/mint-view!` for the same constraint)."
+  referenced or not (see `collector/mint-view!` for the same constraint).
+  It is also why the door's `h/as-component` is a forwarding `defn` and
+  not an alias: a call through an alias var is dynamic dispatch, which
+  Closure keeps."
   [head]
   (let [named     (when (fn? head) (unchecked-get head "displayName"))
         component (fn fresco-as-component [js-props]

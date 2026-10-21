@@ -864,9 +864,9 @@ its body in every build whose graph holds the namespace. The define
 cannot change that graph. Story requires Xray statically
 (`re-frame.story.ui.shell`, `re-frame.story.ui.xray-embed`,
 `re-frame.story.ui.evidence-spine` and `re-frame.story.xray-preset`).
-Xray's views are Fresco `defview`s, which drop when nothing references
-them, but Xray has load-time forms that reach them: its `h/as-component`
-bridges, first-mount hook registrations, keybinding and settings
+Xray's views are Fresco `defview`s and its bridges `h/as-component`s,
+which drop when nothing references them, but Xray has load-time forms
+that reach them: first-mount hook registrations, keybinding and settings
 installers, multimethod and protocol extensions. Story's embed descriptor
 also feeds a panel catalogue derived at load. Story requires
 `re-frame.machines`, malli and `cljs.test` too. So an `enabled?` false
@@ -879,12 +879,12 @@ Measured on `:examples/counter-with-stories` (`shadow-cljs release`,
 | Release | Raw | Gzipped |
 |---|---:|---:|
 | `:examples/counter`, which imports no Story | 672,793 | 198,195 |
-| counter-with-stories, `enabled?` false | 5,293,828 | 1,476,689 |
+| counter-with-stories, `enabled?` false | 5,278,384 | 1,473,293 |
 | the same, with those load-time forms compiled out (a diagnostic build) | 4,009,055 | 1,121,947 |
 | the same, built with Story's four Xray requires removed | 1,406,588 | 393,909 |
 | counter-with-stories, `enabled?` true | 5,915,591 | 1,655,260 |
 
-Xray is about 3.89 MB raw (1.08 MB gzipped) of the `enabled?` false
+Xray is about 3.87 MB raw (1.08 MB gzipped) of the `enabled?` false
 release. The other 733,795 raw (195,714 gzipped) over the plain counter
 is the testbed's own app and the libraries above. Compiling the load-time
 forms out drops every Xray view and still leaves about 728 KB gzipped,

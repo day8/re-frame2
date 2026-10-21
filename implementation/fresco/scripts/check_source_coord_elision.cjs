@@ -43,8 +43,8 @@
  * The same holds one door out: `bridged-row` is referenced only by
  * `dropped-bridge`, a top-level `h/as-component` bridge nothing references,
  * so its name must be absent too. A bridge that Closure cannot prove pure —
- * a label built with `str`, say — keeps the view it wraps, and makes that
- * row red.
+ * a label built with `str`, or a call through a door alias rather than a
+ * `defn` — keeps the view it wraps, and makes that row red.
  *
  * `check_production_erasure.cjs` owns the general, multi-sentinel
  * production-erasure proof; this is the one source-coordinate sentinel.
@@ -145,9 +145,10 @@ if (bundle.includes(BRIDGED)) {
   fail(`a view held only by an unreferenced as-component bridge survived the advanced bundle: ${BRIDGED}\n` +
        'A release `as-component` is no longer a pure allocation, so every ' +
        'top-level bridge keeps the view it wraps whether referenced or not. ' +
-       'Its label has to be built with something Closure can see into (a ' +
-       'string literal\'s `.concat`, never `str`); see `as-component` in ' +
-       're_frame/fresco/impl/codec.cljs.');
+       'Two things keep it: a label built with something Closure cannot see ' +
+       'into (`str`; see `as-component` in re_frame/fresco/impl/codec.cljs), ' +
+       'or a door `h/as-component` that is an alias rather than a `defn` ' +
+       '(an alias call is dynamic IFn dispatch; see re_frame/fresco.cljc).');
 }
 
 process.stdout.write(
