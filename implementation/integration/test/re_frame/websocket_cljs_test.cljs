@@ -12,7 +12,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
             [re-frame.substrate.adapter]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [websocket.schema :as ws.schema]
@@ -64,7 +64,7 @@
 ;; `:websocket/socket#1`, so leftover entries would multiply each push.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :init-fn (fn []
                 (register-all!)
                 (reg-reply-log!)

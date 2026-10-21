@@ -1,6 +1,6 @@
 (ns re-frame.http-managed-cljs-test
-  "CLJS smoke for Spec 014 — `:rf.http/managed` under the Reagent
-  reactive substrate, answered by a stub transport
+  "CLJS smoke for Spec 014 — `:rf.http/managed` under a live reactive
+  substrate (the integration suite's adapter), answered by a stub transport
   (`re-frame.http.stub-transport`): the real pipeline runs, and nothing
   reaches the network.
 
@@ -15,13 +15,13 @@
   - an unmatched route failing as `:rf.http/transport`
 
   Per Spec 014 §Implementation status — CLJS is the reference target;
-  this smoke locks that a stub transport answers under the Reagent adapter
+  this smoke locks that a stub transport answers under the suite's adapter
   the same way it does on the JVM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]))
 
 ;; Snapshot/restore the registrar around each test. The
@@ -33,7 +33,7 @@
     ;; Drop any in-flight registry leaks between tests.
     (rf.http.managed/clear-all-in-flight!)
     ((rf.test-support/make-reset-runtime-fixture
-       {:adapter rf.adapter.reagent/adapter})
+       {:adapter rf.integration-adapter/adapter})
       test-fn)
     (rf.http.managed/clear-all-in-flight!)))
 
