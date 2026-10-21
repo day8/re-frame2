@@ -5462,7 +5462,6 @@
     (= where :fx-args)     "Skipped"
     (= where :sub-return)  "Passed through"
     (= where :event)       "Rejected"
-    (= where :cofx)        "Skipped"
     (= where :hot-reload)  "logged + skipped"
     (keyword? recovery)    (name recovery)
     :else                  nil))
@@ -5594,8 +5593,6 @@
        :sub-return [:<> "This sub's value failed the " link
                     " and was passed through to its consumers."]
        :event      [:<> "This event was rejected because its payload failed the "
-                    link "."]
-       :cofx       [:<> "This handler was skipped because the coeffect failed the "
                     link "."]
        :hot-reload [:<> "A schema re-registration invalidated existing app-db state. "
                     "See " link " for the new shape."]

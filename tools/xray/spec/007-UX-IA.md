@@ -1052,7 +1052,7 @@ Text:      primary #e6edf3 (Figma --devtools-text)  · secondary #adbac7  · ter
 Accents:   accent       #539bf5  ACCENT — active tab, header stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
            info         #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
            green        #3fb950  success, additions, machine-active
-           yellow       #d29922  warnings, schema-replaced-with-default, :rf.size/large-elided elision
+           yellow       #d29922  warnings, :rf.size/large-elided elision
            orange       #FB923C  functional perf-amber — long-task / perf-slow
            red          #F87171  errors, schema-violations, hydration-mismatches
            magenta      #a855f7  classification: :rf/redacted · Epoch COEFFECT · filter OUT pill
