@@ -1,8 +1,8 @@
 (ns re-frame.reply-cljs-test
   "The uniform reply-envelope substrate (`re-frame.reply`): the reply-map
   schema and its data-only invariant, reply-target normalization and
-  completion, the reply-mapping functor laws, stale suppression, trace
-  summaries, and the reply thrown-error shape.
+  completion, stale suppression, trace summaries, and the reply thrown-error
+  shape.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply envelope.
   Pure substrate — no runtime fixture."
@@ -69,28 +69,20 @@
              [":partial without an :error" {:status :partial :value 1} :rf.reply/partial-missing-error]
              [":partial error map without a :kind" {:status :partial :value 1 :error {:no :kind}}
               :rf.reply/error-not-family-map]
-             [":cancelled with a reason and the marker"
-              {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true} ::valid]
+             [":cancelled with a reason"
+              {:status :cancelled :rf.reply/cancel-reason :user} ::valid]
              [":cancelled with compatibility :error data"
               {:status                 :cancelled
                :rf.reply/cancel-reason :actor-destroyed
-               :cancelled?             true
                :error                  {:kind :rf.http/aborted :reason :actor-destroyed}}
               ::valid]
-             [":cancelled without a reason" {:status :cancelled :cancelled? true}
+             [":cancelled without a reason" {:status :cancelled}
               :rf.reply/cancelled-missing-reason]
-             [":cancelled with a reason alone, no :cancelled? true marker"
-              {:status :cancelled :rf.reply/cancel-reason :user} :rf.reply/cancelled-missing-marker]
-             [":cancelled? false on a :cancelled reply is contradictory"
-              {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}
-              :rf.reply/cancelled-missing-marker]
-             [":stale with the flag and a reason"
-              {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch} ::valid]
-             [":stale without :stale? true" {:status :stale :rf.reply/stale-reason :x}
-              :rf.reply/stale-missing-flag]
-             [":stale without a reason" {:status :stale :stale? true} :rf.reply/stale-missing-reason]
+             [":stale with a reason"
+              {:status :stale :rf.reply/stale-reason :generation-mismatch} ::valid]
+             [":stale without a reason" {:status :stale} :rf.reply/stale-missing-reason]
              [":stale carrying a :value"
-              {:status :stale :stale? true :rf.reply/stale-reason :x :value 1} :rf.reply/stale-has-value]
+              {:status :stale :rf.reply/stale-reason :x :value 1} :rf.reply/stale-has-value]
              ["a closed-set :rf.reply/work-status"
               {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out} ::valid]
              ["an out-of-set :rf.reply/work-status" {:status :ok :value 1 :rf.reply/work-status :weird}
@@ -145,13 +137,10 @@
       (is (invalid-target? #(rf.reply/normalize-target target)) (pr-str target)))))
 
 (deftest durable-target-is-data-only
-  (testing "durable projection normalizes a data target, keeps an
-            identity-mapped target, and keeps nil as nil"
-    (is (= {:event [:x] :delivery :append :suppress {:g 1}}
+  (testing "durable projection normalizes a data target and keeps nil as nil"
+    (is (= {:event [:x] :suppress {:g 1}}
            (rf.reply/durable-target {:event [:x] :suppress {:g 1}})))
-    (is (= {:event [:x 1] :delivery :append}
-           (rf.reply/durable-target (rf.reply/map-completed-event identity [:x 1]))))
-    (is (= {:event [:x '(1 2) {:at 1781078400456}] :delivery :append}
+    (is (= {:event [:x '(1 2) {:at 1781078400456}]}
            (rf.reply/durable-target [:x '(1 2) {:at 1781078400456}]))
         "lists and an epoch-ms long are plain data")
     (is (nil? (rf.reply/durable-target nil))))
@@ -173,15 +162,6 @@
           (is (string? (:bad-type data)))
           (is (not (carries? handle data))))))))
 
-(deftest durable-target-refuses-a-mapped-target
-  (testing "a mapped target fails loud rather than being stored without its
-            mapping, which would complete a different event"
-    (let [mapped (rf.reply/map-completed-event (fn [e] [:parent/relay e]) [:child/done])
-          data   (thrown-ex-data #(rf.reply/durable-target mapped))]
-      (is (= :rf.error/reply-non-data-target (:rf.error/id data)))
-      (is (string? (:bad-type data)))
-      (is (not (carries? (get mapped :re-frame.reply/post) data))))))
-
 (deftest completion-appends-reply
   (let [reply {:status :ok :value {:title "Welcome"}}]
     (is (= [:article/load-replied {:id 42} reply]
@@ -200,25 +180,6 @@
           "a list target, which conj would prepend to, fails closed"))))
 
 ;; ---------------------------------------------------------------------------
-;; The functor laws (Managed-Effects §Reply mapping and the functor law).
-;; ---------------------------------------------------------------------------
-
-(deftest functor-laws
-  (let [target {:event [:article/replied {:id 42}] :delivery :append}
-        reply  {:status :ok :value {:id 42}}
-        done   #(rf.reply/complete % reply)
-        f      (fn [e] [:f e])
-        g      (fn [e] [:g e])]
-    (testing "naturality: (complete (map-completed-event f t) r) == (f (complete t r))"
-      (is (= (f (done target)) (done (rf.reply/map-completed-event f target)))))
-    (testing "identity: (map-completed-event identity t) == t, by value"
-      (is (= target (rf.reply/map-completed-event identity target))))
-    (testing "composition: f and g do not commute, so a composition in the wrong
-              order fails"
-      (is (= (done (rf.reply/map-completed-event (comp f g) target))
-             (done (rf.reply/map-completed-event f (rf.reply/map-completed-event g target))))))))
-
-;; ---------------------------------------------------------------------------
 ;; Stale suppression: the correctness boundary.
 ;; ---------------------------------------------------------------------------
 
@@ -233,11 +194,11 @@
 
 (deftest suppress-extra-cannot-override-stale-boundary
   (testing "threading a natural success reply as `extra` still yields a stale
-            reply: status, flag and work-status are forced, :value is
+            reply: status and work-status are forced, :value is
             stripped, the default stale reason is supplied, and identity facts
             ride verbatim"
     (let [{:keys [reply deliver?]}
-          (rf.reply/suppress nil {:g 1} {:g 2}
+          (rf.reply/suppress {:g 1} {:g 2}
                              {:status               :ok
                               :value                {:title "should-be-stripped"}
                               :rf.reply/work-status :completed
@@ -246,7 +207,6 @@
                               :rf.frame/id          :app/main})]
       (is (false? deliver?))
       (is (= {:status                :stale
-              :stale?                true
               :rf.reply/stale-reason :rf.reply/correlation-mismatch
               :rf.reply/work-status  :suppressed
               :work/id               [:rf.work/http :req 1 1]
@@ -254,14 +214,6 @@
               :rf.frame/id           :app/main}
              reply))
       (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply))))))
-
-(deftest suppress-is-universally-non-delivering
-  (testing "no target makes a stale outcome deliver, not even one carrying
-            :dispatch-stale? true and a forged stale-authority datum"
-    (is (false? (:deliver? (rf.reply/suppress {:event                          [:app/replied]
-                                               :dispatch-stale?                true
-                                               :re-frame.reply/stale-authority true}
-                                              {:g 1} {:g 2}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace summaries and the thrown-error shape.
@@ -282,10 +234,7 @@
               :rf.reply/invalid-target :rf.error/reply-invalid-target]
              ["non-map reply"
               #(rf.reply/validate-reply 42)
-              :rf.reply/non-map-reply :rf.error/reply-non-map-reply]
-             ["unknown delivery mode"
-              #(rf.reply/complete {:event [:x] :delivery :weird} {:status :ok})
-              :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery]]]
+              :rf.reply/non-map-reply :rf.error/reply-non-map-reply]]]
       (testing label
         (is (= {:rf.error/id error-id :rf.error/kind category :where :rf/reply-to}
                (select-keys (thrown-ex-data thunk) [:rf.error/id :rf.error/kind :where])))))))

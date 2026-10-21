@@ -218,7 +218,6 @@
       (assoc (base-reply ctx)
              :status        :cancelled
              :rf.reply/work-status   :cancelled
-             :cancelled?    true
              :rf.reply/cancel-reason (:reason failure)
              :error         failure)
       (assoc (base-reply ctx)
@@ -263,15 +262,14 @@
   embeds it)."
   [ctx current-work-id]
   (let [carried-wid (work-id ctx)]
-    (rf.reply/suppress nil
-                    {:work/id carried-wid}
-                    {:work/id current-work-id}
-                    (cond-> {:rf.reply/work-id      carried-wid
-                             :rf.reply/work-kind    :http
-                             :attempt      (or (:attempt ctx) 1)
-                             :rf.reply/stale-reason stale-reason}
-                      (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
-                      (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
+    (rf.reply/suppress {:work/id carried-wid}
+                       {:work/id current-work-id}
+                       (cond-> {:rf.reply/work-id      carried-wid
+                                :rf.reply/work-kind    :http
+                                :attempt      (or (:attempt ctx) 1)
+                                :rf.reply/stale-reason stale-reason}
+                         (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
+                         (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Actor-destroy obsolescence (Managed-Effects §Cancellation —
@@ -336,15 +334,14 @@
   unknown)."
   [ctx]
   (let [carried-wid (work-id ctx)]
-    (rf.reply/suppress nil
-                    {:work/id carried-wid}
-                    nil
-                    (cond-> {:rf.reply/work-id      carried-wid
-                             :rf.reply/work-kind    :http
-                             :attempt      (or (:attempt ctx) 1)
-                             :rf.reply/stale-reason actor-destroy-stale-reason}
-                      (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
-                      (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
+    (rf.reply/suppress {:work/id carried-wid}
+                       nil
+                       (cond-> {:rf.reply/work-id      carried-wid
+                                :rf.reply/work-kind    :http
+                                :attempt      (or (:attempt ctx) 1)
+                                :rf.reply/stale-reason actor-destroy-stale-reason}
+                         (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
+                         (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
 ;; Every reply family delivers the canonical envelope verbatim; there is no
 ;; second public dialect and no public-boundary reshape of the reply.

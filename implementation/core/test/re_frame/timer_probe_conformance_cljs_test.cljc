@@ -3,9 +3,8 @@
   that `spec/Managed-Effects.md` §How new managed-effect surfaces inherit the
   contract names as its proof that a brand-new surface adopts the managed-effect
   properties by consuming the shared `re-frame.reply` substrate. Each test pins
-  one property the probe demonstrates, and the reply-target functor laws hold
-  over the probe's own target; the substrate's own laws are pinned by
-  `re-frame.reply-cljs-test`."
+  one property the probe demonstrates; the substrate's own contract is pinned
+  by `re-frame.reply-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.reply :as rf.reply]
             [re-frame.timer-probe :as rf.timer-probe]))
@@ -81,7 +80,6 @@
       (is (= {:deliver?             false
               :rf.reply/work-status :suppressed
               :reply                {:status                :stale
-                                     :stale?                true
                                      :rf.reply/stale-reason :rf.timer/generation-stale
                                      :rf.reply/work-status  :suppressed
                                      :rf.reply/work-kind    :timer
@@ -94,19 +92,6 @@
                                      :rf.reply/carried      {:generation 1}
                                      :rf.reply/current      {:generation 2}}}
              outcome)))))
-
-(deftest reply-target-functor-law
-  (let [target [:search/timer-elapsed {:q "re-frame"}]
-        reply  (rf.timer-probe/complete-elapsed base-args {:fired-at 1} {:completed-at 1})
-        done   #(rf.reply/complete % reply)
-        f      (fn [e] [:f e])
-        g      (fn [e] [:g e])]
-    (testing "naturality: mapping the target then completing equals completing then mapping"
-      (is (= (f (done target)) (done (rf.reply/map-completed-event f target)))))
-    (testing "identity and composition over the timer target"
-      (is (= (done target) (done (rf.reply/map-completed-event identity target))))
-      (is (= (done (rf.reply/map-completed-event (comp f g) target))
-             (done (rf.reply/map-completed-event f (rf.reply/map-completed-event g target))))))))
 
 (deftest retry-is-data
   (testing "a declarative :retry policy projects to a delay schedule — data,
@@ -123,7 +108,6 @@
       (is (= {:aborted? true
               :released handle
               :reply    {:status                 :cancelled
-                         :cancelled?             true
                          :rf.reply/cancel-reason :rf.timer/cancelled
                          :rf.reply/work-status   :cancelled
                          :rf.reply/work-kind     :timer

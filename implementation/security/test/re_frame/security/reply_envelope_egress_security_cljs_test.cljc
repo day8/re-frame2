@@ -32,12 +32,13 @@
 ;; CROSS-RECORD SPELLING (Managed-Effects §The reply map). Every
 ;; top-level REPLY ENVELOPE below single-roots the work identity as
 ;; `:rf.reply/work-id` / `:rf.reply/work-kind`. The bare `:work/id` spelling is
-;; the DURABLE work-ledger / verification-payload fact and survives here only on
-;; the data-only carried/current stale-gate maps, which are exactly that layer.
+;; the in-flight attempt-record / verification-payload fact and survives here
+;; only on the data-only carried/current stale-gate maps, which ride verbatim
+;; as the `:rf.reply/carried` / `:rf.reply/current` trace tags.
 ;; `trace-summary` projects the wire slots and otherwise preserves the supplied
-;; map verbatim, so a fixture that modelled the ledger layer would let this
-;; suite stay green while proving nothing about the identity that actually
-;; egresses.
+;; map verbatim, so a fixture that spelled the identity the attempt-record way
+;; would let this suite stay green while proving nothing about the identity
+;; that actually egresses.
 ;;
 ;; `trace-summary` elides each wire slot rooted at its OWN value (not at the
 ;; reply-map root), so classification paths are relative to each slot value:
@@ -61,7 +62,7 @@
 (deftest framed-trace-summary-elides-declared-slots
   ;; Declared-sensitive leaves redact, the declared-large leaf becomes a
   ;; marker, and everything else, identity facts included, rides verbatim
-  ;; with no bare ledger alias beside the envelope spelling.
+  ;; with no bare `:work/id` alias beside the envelope spelling.
   (mk-frame! :reply/framed)
   (let [reply-map {:status       :partial
                    :value        {:token sentinel :doc big-string :public 7}
@@ -95,16 +96,16 @@
           current {:work/id [:rf.work/http :a 1] :generation 2}
           ;; Model a caller threading a full natural success reply as `extra`.
           ;; It is a REPLY ENVELOPE, so its identity is single-rooted; the
-          ;; carried/current gate maps above are ledger data and stay bare.
+          ;; carried/current gate maps above are attempt-record correlation and
+          ;; stay bare.
           natural {:status :ok :value {:token sentinel}
                    :rf.reply/work-status :completed
                    :rf.reply/work-id [:rf.work/http :a 1]
                    :rf.reply/work-kind :http
                    :rf.frame/id :reply/stale :completed-at 1781078400456}
-          {:keys [deliver? reply] :as outcome} (rf.reply/suppress nil carried current natural)]
+          {:keys [deliver? reply] :as outcome} (rf.reply/suppress carried current natural)]
       (is (false? deliver?) "a superseded app reply is NOT delivered")
       (is (= :stale (:status reply)) "the forced status is :stale")
-      (is (true? (:stale? reply)) ":stale? marker forced on")
       (is (= :suppressed (:rf.reply/work-status reply)) ":rf.reply/work-status forced to :suppressed")
       (is (not (contains? reply :value)) ":value is STRIPPED — no app mutation can ride")
       (is (not (contains-sentinel? reply)) "the secret value never rides the stale reply")
@@ -120,12 +121,14 @@
       (let [trace (:trace outcome)]
         (is (true? (:rf.reply/suppressed? trace)))
         ;; The trace reads its work id off `:rf.reply/work-id` on the reply, so
-        ;; a fixture spelling the identity the LEDGER way would leave this nil
-        ;; while the suite stayed green. This is the tooth that catches it.
+        ;; a fixture spelling the identity the bare attempt-record way would
+        ;; leave this nil while the suite stayed green. This is the tooth that
+        ;; catches it.
         (is (= [:rf.work/http :a 1] (:rf.reply/work-id trace))
             "the suppression trace carries the canonical envelope work id")
-        ;; The carried/current gate maps ARE ledger correlation, so the trace
-        ;; keeps them verbatim with their bare `:work/id` intact.
+        ;; The carried/current gate maps are attempt-record correlation, so the
+        ;; `:rf.reply/carried` / `:rf.reply/current` trace tags keep them
+        ;; verbatim with their bare `:work/id` intact.
         (is (= carried (:rf.reply/carried trace)))
         (is (= current (:rf.reply/current trace)))
         (is (= [:rf.work/http :a 1] (:work/id (:rf.reply/carried trace)))

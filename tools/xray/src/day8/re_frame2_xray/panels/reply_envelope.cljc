@@ -99,7 +99,7 @@
     - `:cancelled` — intentionally cancelled while still correlated;
                      `:rf.reply/cancel-reason` present.
     - `:stale`     — completed/observed after correlation became obsolete;
-                     `:stale? true` + `:rf.reply/stale-reason`; NO app-state mutation."
+                     `:rf.reply/stale-reason` present; NO app-state mutation."
   #{:ok :partial :error :cancelled :stale})
 
 (defn reply-status?

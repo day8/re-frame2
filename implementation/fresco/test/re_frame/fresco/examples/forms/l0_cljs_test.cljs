@@ -157,7 +157,7 @@
 
 (defn- capture-transport!
   "Replace the managed-HTTP effect with a recorder. The mutation runtime
-  still mints the instance, the work-ledger record and the reply
+  still mints the instance, its in-flight attempt and the reply
   addressing; only the fetch is missing, and a row supplies the reply the
   transport would have produced."
   []

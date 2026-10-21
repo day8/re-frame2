@@ -714,8 +714,7 @@ Trace events emitted by epoch-history machinery:
 
 | `:operation` | Tags |
 |---|---|
-| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (the detailed cause enum `:ok` / `:halted-depth` / `:halted-destroy`; `:halted-handler-exception` is schema-reserved, not currently emitted) |
-| `:rf.epoch/outcome` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (the consumer-facing `:ok` / `:blocked` / `:error` projection; fires paired with `:rf.epoch/snapshotted` per dequeued event) |
+| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (the detailed cause enum `:ok` / `:halted-depth` / `:halted-destroy`; `:halted-handler-exception` is schema-reserved, not currently emitted), `:summary` (the consumer-facing `:ok` / `:blocked` / `:error` projection of that cause) |
 | `:rf.epoch/restored` | `:frame`, `:rf.epoch/id` |
 | `:rf.epoch/db-replaced` | `:frame`, `:rf.epoch/id` |
 | `:rf.epoch/restore-unknown-epoch` | `:frame`, `:rf.epoch/id`, `:history-size` |
@@ -723,7 +722,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-missing-handler` | `:frame`, `:rf.epoch/id`, `:missing` |
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:rf.epoch/id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:rf.epoch/id` |
-| `:rf.epoch/restore-non-ok-record` | `:frame`, `:rf.epoch/id`, `:rf.epoch/outcome`, `:halt-reason` |
+| `:rf.epoch/restore-non-ok-record` | `:frame`, `:rf.epoch/id`, `:outcome`, `:halt-reason` |
 | `:rf.epoch/replace-during-drain` | `:frame` |
 | `:rf.epoch/replace-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch/replace-history-disabled` | `:frame` (a `replace-frame-state!` precondition failure when the history ring is disabled) |

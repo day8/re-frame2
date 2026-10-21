@@ -2487,7 +2487,7 @@
     ;; so a destroy + re-`make-frame` (a full "reset" composition)
     ;; can re-dispatch the recorded setup. The reserved
     ;; `:rf.frame/initial-db` key is dissoc'd defensively (nothing threads
-    ;; it; `:initial-db` fails loud upstream).
+    ;; it).
     :config     (dissoc config :rf.frame/generation :rf.frame/live-store?
                         :rf.frame/initial-db)}))
 
@@ -2896,42 +2896,59 @@
            :extra    {:frame      id
                       :step-count (count steps)}})))))
 
-(defn- reject-retired-construction-keys!
-  "PREFLIGHT guard (EP-0027 §Backwards-compat). `:on-create` and `:initial-db`
-  are RETIRED construction keys (there is no shim). A construction map that
-  supplies either fails LOUD with the dedicated `:rf.error/*` naming the
-  `:initial-events` / `[:rf/set-db …]` replacement, BEFORE any frame is created.
-  `where-sym` is the constructor symbol for the diagnostic."
-  [config where-sym]
-  (when (contains? config :on-create)
-    (rf.error/throw-error!
-      :rf.error/on-create-retired
-      where-sym
-      (str ":on-create is RETIRED (EP-0027) — frame setup is now the declarative "
-           ":initial-events vector. Replace {:on-create [:app/boot]} with "
-           "{:initial-events [[:app/boot]]}. (Construction is events-only; there "
-           "is no compatibility shim — pre-alpha.)")
-      {:recovery :use-initial-events
-       :extra    {:on-create (:on-create config)}}))
-  (when (contains? config :initial-db)
-    (rf.error/throw-error!
-      :rf.error/initial-db-retired
-      where-sym
-      (str ":initial-db is RETIRED (EP-0027) — seeding app-db is itself an event. "
-           "Replace {:initial-db {:n 0}} with {:initial-events [[:rf/set-db {:n 0}]]} "
-           "(`:rf/set-db` is the framework-standard app-db seed event). "
-           "(Construction is events-only; there is no compatibility shim — pre-alpha.)")
-      {:recovery :use-rf-set-db
-       :extra    {:initial-db (:initial-db config)}})))
+(defn- classification-key-reason
+  "The diagnostic for a `:sensitive` / `:large` frame key, naming where the
+  declaration it attempts lives instead."
+  [k]
+  (case k
+    :sensitive
+    (str "retired frame key :sensitive (EP-0025). A frame no longer carries a "
+         ":sensitive block: durable app-db classification moved to the "
+         "commit-plane `:sensitive` / `:large` effects a handler returns "
+         "alongside its `:db` write, and HTTP carrier names moved onto the "
+         "managed-HTTP `reg-fx` registration metadata (its `:carriers "
+         "{:headers […] :query-params …}` block) — see Spec 014 §HTTP "
+         "carriers.")
+    :large
+    (str "retired frame key :large — durable app-db classification is no "
+         "longer a frame annotation (EP-0025). Declare it from an event "
+         "handler via the `:sensitive` / `:large` commit-plane effects "
+         "(alongside `:db`); a frame is not app-db's definition site.")))
 
-(defn- validate-http-interceptors!
-  "PREFLIGHT guard for the `:http-interceptors` frame-config key (Spec 014
-  §Middleware): when present and non-nil it is a vector of keyword ids naming
-  `reg-http-interceptor` definitions, in the order the frame runs them. The
-  ids resolve when a request is issued, so neither the http artefact nor the
-  definitions need exist yet. `where-sym` is the constructor symbol for the
-  diagnostic."
-  [config where-sym]
+(defn- validate-frame-config!
+  "Refuse a malformed frame config before any frame state is written, so a bad
+  declaration throws with no frame left registered and never reaches
+  `:initial-events`. Pure; the checks run in this order and the first defect
+  throws:
+
+  1. `:sensitive` / `:large` — no frame carries either. Durable app-db
+     classification is the commit-plane effects a handler returns beside
+     `:db`, and HTTP carrier names live on the `:rf.http/managed`
+     registration, so either key would install nothing
+     (`:rf.error/bad-frame-classification`).
+  2. `:http-interceptors` — a vector of keyword ids naming
+     `reg-http-interceptor` definitions, in the order the frame runs them. The
+     ids resolve when a request is issued, so neither the http artefact nor the
+     definitions need exist yet (`:rf.error/http-bad-interceptor`).
+  3. `:flows` — a vector of keyword ids naming `reg-flow` definitions, which
+     `make-frame` has already resolved through the frame's own view
+     (`:rf.error/unregistered-flow`). A non-empty one needs the flows artefact,
+     which evaluates the flows each event (`:rf.error/flows-artefact-missing`).
+  4. `:observability` — the sink-policy grammar `re-frame.observability` owns,
+     reached by late-bind because that namespace requires this one
+     (`:rf.error/bad-frame-classification`).
+
+  Shape only: a bare key nothing reads is `warn-unknown-config-keys!`'s, and a
+  key an optional artefact owns is that artefact's preflight. Spec 002
+  §`make-frame` — atomic create-and-register and the canonical config grammar."
+  [id config where-sym]
+  (when-let [k (some #(when (contains? config %) %) [:sensitive :large])]
+    (rf.error/throw-error!
+      :rf.error/bad-frame-classification
+      where-sym
+      (classification-key-reason k)
+      {:recovery :fix-frame-classification
+       :extra    {:frame id :bad-key k :bad-value (get config k)}}))
   (let [ids (:http-interceptors config)]
     (when-not (or (nil? ids)
                   (and (vector? ids) (every? keyword? ids)))
@@ -2941,17 +2958,7 @@
         (str ":http-interceptors must be a vector of keyword ids naming "
              "reg-http-interceptor definitions, in the order the frame runs "
              "them, e.g. [:shop/auth :shop/telemetry] — got " (pr-str ids) ".")
-        {:extra {:http-interceptors ids}}))))
-
-(defn- validate-flows!
-  "PREFLIGHT guard for the `:flows` frame-config key (Spec 013 §Activation):
-  when present and non-nil it is a vector of keyword ids naming `reg-flow`
-  definitions. A non-empty vector needs the flows artefact, which evaluates
-  the flows each event; storing ids nothing will run is refused here, before
-  any frame state is written. `make-frame` has already resolved the ids
-  through the frame's own view and run the activation checks by the time this
-  runs. `where-sym` is the constructor symbol for the diagnostic."
-  [config where-sym]
+        {:extra {:http-interceptors ids}})))
   (let [ids (:flows config)]
     (cond
       (not (or (nil? ids) (and (vector? ids) (every? keyword? ids))))
@@ -2973,7 +2980,11 @@
           (str "this frame config names :flows, which requires " maven
                " on the classpath; add it to deps and require " require-ns
                " at app boot, BEFORE the frame is constructed."))
-        {:extra {:flows ids}}))))
+        {:extra {:flows ids}})))
+  (when (contains? config :observability)
+    (when-let [validate-policy! (rf.late-bind/get-fn :observability/validate-policy!)]
+      (validate-policy! where-sym id (:observability config))))
+  nil)
 
 ;; ---- the frame-config key vocabulary (dev-only) ----------------------------
 ;;
@@ -3304,42 +3315,14 @@
         ;; below so it never lands in the stored `:config` or a lifecycle trace.
         must-create? (true? (:rf.frame/must-create? config))
         config       (dissoc config :rf.frame/must-create?)
-        ;; EP-0027 PREFLIGHT (BEFORE any container / process-global write): reject
-        ;; the retired `:on-create` / `:initial-db` keys fail-loud, and normalize
-        ;; + validate `:initial-events` into a vector of setup steps. Both run
-        ;; here so a bad construction declaration throws BEFORE any frame is
-        ;; registered (EP-0027 §Failure — preflight validation; no frame left
-        ;; registered). The normalized steps are dispatched after the container +
-        ;; config are installed (first-registration branch below).
-        _              (reject-retired-construction-keys! config 'rf/make-frame)
-        _              (validate-http-interceptors! config 'rf/make-frame)
-        _              (validate-flows! config 'rf/make-frame)
+        ;; PREFLIGHT, before any container or process-global write: validate
+        ;; the config's own keys, then normalize + validate `:initial-events`
+        ;; into a vector of setup steps, so a bad declaration throws with no
+        ;; frame left registered (EP-0027 §Failure — preflight validation).
+        ;; The steps are dispatched once the container + config are installed
+        ;; (first-registration branch below).
+        _              (validate-frame-config! id config 'rf/make-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
-        ;; EP-0015 §9: validate the frame-owned policy key
-        ;; (`:observability` sink policy) EARLY — pure, container-independent,
-        ;; fail-loud. A retired `:sensitive` / `:large` frame key, an unknown
-        ;; observability key, or a malformed sink entry throws here, BEFORE
-        ;; any container exists or process-global write runs, so a bad
-        ;; declaration leaves no half-registered frame and never reaches
-        ;; `:initial-events`. Reached via late-bind: `re-frame.frame-classification`
-        ;; requires this ns, so a static require would cycle; `re-frame.core`
-        ;; requires it at boot so the hook is always published before any
-        ;; runtime construction. No-op when the config carries no policy key
-        ;; (the common case).
-        ;;
-        ;; EP-0025: durable app-db classification is NOT a frame
-        ;; annotation — the `:sensitive` / `:large {:app-db …}` durable
-        ;; declaration lives in the commit-plane classification effects
-        ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
-        ;; `re-frame.elision`). HTTP carrier classification is NOT a
-        ;; frame annotation either — the `:sensitive {:http …}` block lives
-        ;; on the `:rf.http/managed` `reg-fx` registration (`:carriers`).
-        ;; So construction only VALIDATES the `:observability` policy;
-        ;; it installs NOTHING into the elision registry. (A `:sensitive`
-        ;; or `:large` frame key fails loud.)
-        _              (when-let [validate (rf.late-bind/get-fn
-                                            :frame-classification/validate!)]
-                         (validate id config))
         ;; Routing-owned frame-config PREFLIGHT at the frame-config
         ;; COMMIT chokepoint. The routing artefact validates an explicitly-
         ;; declared `:url-strategy` (shape + host-required callable legs), and
@@ -3401,8 +3384,8 @@
                                   "lifecycle can install the host focus/reconnect "
                                   "listeners."))
                            {:extra {:frame-id id}}))
-        ;; Every refusal above has had its turn, so a retired or
-        ;; artefact-missing key fails loud rather than being warned about.
+        ;; Every refusal above has had its turn, so a `:sensitive` / `:large`
+        ;; or artefact-missing key fails loud rather than being warned about.
         _              (warn-unknown-config-keys! id config)
         ;; One identity token per attempted config commit. Only a successful
         ;; create/re-register installs it. Auxiliary policy stores consult the

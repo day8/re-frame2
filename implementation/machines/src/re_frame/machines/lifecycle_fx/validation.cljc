@@ -18,8 +18,6 @@
     - `validate-spawn!` — single `:spawn` shape: one spawn-spec map
       naming a registered machine by `:machine-id`.
     - `validate-spawn-all!` — `:spawn-all` shape.
-    - `validate-no-spawn-timeout-ms!` — rejects the unsupported
-      `:timeout-ms` slot on `:spawn` / `:spawn-all`.
     - `validate-final-state!` — `:final?` shape.
     - `validate-node-keys!` — reject unknown BARE state-node keys, and
       root-only keys below the root (`:rf.error/machine-unknown-node-key`);
@@ -173,29 +171,6 @@
                                false) ;; dangling terminal hop — unresolved
       :else                  false)))
 
-(defn- validate-no-spawn-timeout-ms!
-  "Per Spec 005 §`:timeout` / `:on-timeout` — a `:timeout-ms` slot on
-  `:spawn` / `:spawn-all` is NOT accepted: registration throws
-  `:rf.error/spawn-timeout-ms-removed`. Use the spawn-level `:timeout` /
-  `:on-timeout` grammar validated by `rf.machines.timeout/validate-timeouts!`."
-  [state-key state-node]
-  (doseq [[slot-key spec]
-          [[:spawn     (:spawn state-node)]
-           [:spawn-all (:spawn-all state-node)]]]
-    (when (map? spec)
-      (when (some? (:timeout-ms spec))
-        (throw (validation-error
-                 :rf.error/spawn-timeout-ms-removed
-                 (str ":timeout-ms is not a " slot-key " key. Express a "
-                      "wall-clock spawn timeout with the spawn-level "
-                      ":timeout / :on-timeout pair (a positive-integer ms or "
-                      "an ISO-8601 duration), e.g. {:spawn {:machine-id … "
-                      ":timeout 30000 :on-timeout {:target :timed-out}}}. "
-                      "Per Spec 005 §:timeout / :on-timeout.")
-                 {:state      state-key
-                  :slot       slot-key
-                  :timeout-ms (:timeout-ms spec)}))))))
-
 (def ^:private registered-type-reason
   "a spawned child is a registered machine type: register the child with reg-machine and spawn it by :machine-id")
 
@@ -265,14 +240,10 @@
                  {:state state-key})))
       ;; No-silent-swallow on the block keys: reject any unknown bare key
       ;; (e.g. `:cancel-on-decision?`) so a retired / misspelt
-      ;; key fails loud rather than being silently ignored. `:timeout-ms`
-      ;; is excluded — it carries its OWN dedicated retired-key rejection
-      ;; (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-
-      ;; removed`, naming the replacement), so that SPECIFIC diagnostic wins.
+      ;; key fails loud rather than being silently ignored.
       (let [offending (->> (keys spawn-all-spec)
                            (remove namespaced-key?)
                            (remove known-spawn-all-block-keys)
-                           (remove #{:timeout-ms})
                            vec)]
         (when (seq offending)
           (throw (validation-error
@@ -2051,14 +2022,12 @@
 
 (def ^:private spawn-spec-keys-with-own-refusal
   "Spawn-spec keys a DEDICATED check refuses with a diagnostic that names the
-  fix — `:timeout-ms` (`validate-no-spawn-timeout-ms!` →
-  `:rf.error/spawn-timeout-ms-removed`, naming `:timeout` / `:on-timeout`)
-  and `:definition` (`validate-spawn!` / `validate-spawn-all!` →
+  fix — `:definition` (`validate-spawn!` / `validate-spawn-all!` →
   `:rf.error/machine-spawn-bad-shape` / `:rf.error/machine-spawn-all-bad-shape`,
-  naming `reg-machine` + `:machine-id`). They are excluded from the generic
+  naming `reg-machine` + `:machine-id`). It is excluded from the generic
   unknown-key detection so the SPECIFIC diagnostic wins over the generic
   `:rf.error/machine-unknown-spawn-key`."
-  #{:timeout-ms :definition})
+  #{:definition})
 
 (def ^:private known-spawn-spec-keys
   "The closed BARE key vocabulary a single `:spawn` spec may declare, projected
@@ -2406,9 +2375,6 @@
   `:rf.error/machine-spawn-all-bad-shape` (child) on a spec with no
   `:machine-id` or one carrying an inline `:definition`.
 
-  Every `:spawn` / `:spawn-all` rejects the unsupported `:timeout-ms` slot;
-  spawn-level `:timeout` / `:on-timeout` is supported.
-
   Per Spec 005 §Final states D2: a single `:spawn`'s `:on-done` is a fn (the
   `:data` fold) or an `:on`-shaped transition, and a `:spawn-all` child's
   `:on-done` is a fn; anything else throws
@@ -2575,13 +2541,11 @@
   ;; The machine root's own `:spawn` is held to the spawn grammar a state's is
   ;; (`:spawn-all` is refused on the root above).
   (validate-spawn! :rf/root machine)
-  (validate-no-spawn-timeout-ms! :rf/root machine)
   (validate-spawn-on-error! :rf/root machine)
   (validate-spawn-on-done! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-spawn! s n)
     (validate-spawn-all! s n)
-    (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
     (validate-spawn-on-error! s n)
     (validate-spawn-on-done! s n)

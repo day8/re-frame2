@@ -100,19 +100,17 @@ On **live** completion the runtime dispatches the target event with the reply ma
   :completed-at     1781078400456}]
 ```
 
-The normalized `:rf/reply-to` descriptor form — what the short authoring form lowers to — carries explicit delivery options for framework internals and future public surfaces:
+The normalized `:rf/reply-to` descriptor form — what the short authoring form lowers to — adds the data-only suppression gates:
 
 ```clojure
 {:rf/reply-to {:event    [:article/load-replied {:id 42}]   ;; the normalized / internal descriptor
-               :delivery :append
                :suppress {:route/nav-token "nav-7"
                           :generation      1}}}
 ```
 
 | Descriptor field | Required | Meaning |
 |---|---:|---|
-| `:event` | yes | Event-vector prefix to complete. |
-| `:delivery` | no | `:append` by default — the reply map is appended as the final argument. Compatibility adapters may use other delivery internally to preserve an older public event shape. `:append` is the only public delivery mode; a new mode requires a recorded ruling justified by public migration need, not effect-family preference. |
+| `:event` | yes | Event-vector prefix to complete; the reply map is appended as its final argument. |
 | `:suppress` | no | Data-only gates that MUST still match before the reply is delivered ([§Stale suppression](#stale-suppression)). |
 
 A family MAY expose only the short vector form publicly while using the descriptor form internally.
@@ -136,9 +134,7 @@ The reply map is **data only**. It MUST NOT contain functions, promises, `AbortC
  :completed-at completed-at-or-nil
  :deadline-at  deadline-at-or-nil
  :correlation  data-only-map
- :stale?       boolean
  :rf.reply/stale-reason keyword-or-nil
- :cancelled?   boolean
  :rf.reply/cancel-reason keyword-or-nil
  :trace        data-only-trace-summary
  :meta         effect-family-data}
@@ -164,8 +160,8 @@ The reply `:status` vocabulary is **closed**:
 | `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
 | `:partial` | Work completed with usable value data **and** structured family-specific problems; the reply is current and the family decides how partial data installs. | `:value` present; `:error` present as a family error **map** carrying a `:kind` (e.g. `:rf.graphql/partial-success`) — a loose scalar error is rejected. |
 | `:error` | Work completed with a failure and the reply is current. | `:error` present as a family error **map** carrying a `:kind` — a loose scalar error is rejected. |
-| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancelled? true` (the intentional-cancellation marker) **and** `:rf.reply/cancel-reason` present; `:error` MAY carry compatibility failure data. |
-| `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:rf.reply/stale-reason` present; **no app-state mutation**. |
+| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:rf.reply/cancel-reason` present; `:error` MAY carry compatibility failure data. |
+| `:stale` | Work completed or was observed after its correlation became obsolete. | `:rf.reply/stale-reason` present; **no app-state mutation**. |
 
 `:partial` keeps the envelope transport-neutral: a protocol that can return both data and errors in one completion (GraphQL is the motivating case) must not be forced to pretend it is plain `:ok` or plain `:error`. Plain managed HTTP does not emit `:partial` — an HTTP response is decoded as `:ok` or projected as `:error`/`:cancelled`/`:stale`.
 
@@ -223,7 +219,7 @@ If validation fails:
 
 ### Cancellation
 
-Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:rf.reply/cancel-reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery. The *obsolete-target* check itself is surface-specific: HTTP needs an explicit target-identity gate (`actor-destroy-target-obsolete?`) because it alone re-dispatches a reply at a caller-supplied event target; resources/mutations gate obsolescence on work-id/generation entry-liveness, and machines split late-obsolete arrivals into separate semantic `:stale` paths — so none of the sibling surfaces needs HTTP's predicate.
+Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (carrying `:rf.reply/cancel-reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery. The *obsolete-target* check itself is surface-specific: HTTP needs an explicit target-identity gate (`actor-destroy-target-obsolete?`) because it alone re-dispatches a reply at a caller-supplied event target; resources/mutations gate obsolescence on work-id/generation entry-liveness, and machines split late-obsolete arrivals into separate semantic `:stale` paths — so none of the sibling surfaces needs HTTP's predicate.
 
 ### Causal completion metadata
 
@@ -237,18 +233,16 @@ A reply summarized for a trace row **self-summarizes**: the egress frame whose c
 
 ### Reply mapping and the functor law
 
-Because the reply target is plain data, relocating or wrapping a continuation is a pure data transform — the role `Cmd.map` plays in Elm's command algebra. The runtime SHOULD expose pure helpers for transforming reply targets (public or implementation-internal), but the law is normative: **mapping a target changes only the completed event — not issuance, work id, status classification, cancellation, stale checks, or tracing.**
+Because the reply target is plain data, relocating or wrapping a continuation is a pure data transform — the role `Cmd.map` plays in Elm's command algebra. A runtime MAY expose pure helpers for transforming reply targets (public or implementation-internal); any helper it ships obeys the law: **mapping a target changes only the completed event — not issuance, work id, status classification, cancellation, stale checks, or tracing.**
 
 ```text
-complete(map-completed-event(f, target), reply) == f(complete(target, reply))
+complete(map(f, target), reply) == f(complete(target, reply))
 
-map-completed-event(identity, target)      == target
-map-completed-event(comp(f, g), target)    == map-completed-event(f, map-completed-event(g, target))
+map(identity, target)      == target
+map(comp(f, g), target)    == map(f, map(g, target))
 ```
 
 Implementations need not store arbitrary functions in effect maps to satisfy this: a helper may rewrite source forms to named adapter events, or the law may be exercised in tests over the internal completion function. The required property is that reply-target wrappers compose predictably and create no hidden callback semantics.
-
-A target mapped through a function is **ephemeral**: the mapping exists only while the issuing family holds the target in memory, so a mapped target cannot be persisted. Making one durable (an attempt record, a stored continuation, a replay log) fails loud with `:rf.error/reply-non-data-target` rather than dropping the mapping, which would complete a different event. Mapping with `identity` leaves the target unchanged, so it stays durable; a continuation that must outlive its issuer names its relay event in the target vector.
 
 ### SSR, preload, hydration, and restore
 
@@ -298,7 +292,7 @@ A future surface — managed timers, managed IndexedDB transactions, managed bac
 
 A surface that satisfies fewer than these remains useful but does **not** carry the "managed external effect" label; pair tools, the conformance corpus, and the AI-Audit treat it as out-of-contract.
 
-This inheritance claim — that a *brand-new* surface, one that did not co-evolve with the contract, can in fact adopt all nine properties by consuming the shared infrastructure rather than re-spelling it — is **conformance-proven** by a test-only managed-timer probe (`re-frame.timer-probe`). The probe is a minimal managed-timer instance and the first fresh consumer of the shared reply substrate: it inherits the closed status taxonomy, the `[:rf.work/timer logical-timer-id generation]` work-id correlation, the `:rf/reply-to` `:suppress {:generation N}` stale-suppression boundary (stale completion → `:status :stale`, suppression trace joined to `:work/id`, no app dispatch), the reply-mapping functor law, a framework-private frame-scoped in-flight registry (host handles never leave it for a reply map), abort/teardown-as-data, and causal `:completed-at` ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — the host completion's reading, never a fresh ambient clock read) — all without a family-private substrate. The probe ships **no public surface**; a public `:rf.timer/after` surface, and the `:rf.timer/*` namespace reservation, are deferred to a future managed-timer surface.
+This inheritance claim — that a *brand-new* surface, one that did not co-evolve with the contract, can in fact adopt all nine properties by consuming the shared infrastructure rather than re-spelling it — is **conformance-proven** by a test-only managed-timer probe (`re-frame.timer-probe`). The probe is a minimal managed-timer instance and the first fresh consumer of the shared reply substrate: it inherits the closed status taxonomy, the `[:rf.work/timer logical-timer-id generation]` work-id correlation, the `:rf/reply-to` `:suppress {:generation N}` stale-suppression boundary (stale completion → `:status :stale`, suppression trace joined to `:work/id`, no app dispatch), a framework-private frame-scoped in-flight registry (host handles never leave it for a reply map), abort/teardown-as-data, and causal `:completed-at` ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — the host completion's reading, never a fresh ambient clock read) — all without a family-private substrate. The probe ships **no public surface**; a public `:rf.timer/after` surface, and the `:rf.timer/*` namespace reservation, are deferred to a future managed-timer surface.
 
 ## What this concept replaces
 

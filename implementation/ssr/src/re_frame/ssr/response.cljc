@@ -737,42 +737,11 @@
 ;; ---- :rf.server/redirect --------------------------------------------------
 ;;
 ;; The redirect target key is `:location`, matching the HTTP `Location` response
-;; header, so it uses header vocabulary (routing/navigation surfaces may
-;; use `:url` / `:to`; HTTP-response redirect surfaces use `:location`).
-;; The unsupported `:url` and `:to` spellings have no compatibility alias. An
-;; unsupported spelling
-;; (`:url` / `:to`) must fail with a CLEAR diagnostic naming `:location`
-;; rather than silently fall through to the no-target warning path — that
-;; would hide the API vocabulary error behind a malformed-redirect warning.
-(def ^:private retired-redirect-target-keys
-  "Redirect-target spellings unsupported in favour of canonical `:location`.
-  Detected on a `:rf.server/redirect` args map so they fail loudly rather than
-  degrade into the malformed-no-target path."
-  [:url :to])
-
-(defn- reject-retired-redirect-keys!
-  "Throw `:rf.error/redirect-retired-target-key` if `redirect-map` carries
-  an unsupported redirect-target spelling (`:url` / `:to`). The canonical key
-  is `:location`. The error names `:location` so the
-  programmer rewrites the spelling rather than seeing the generic
-  no-target warning the host adapter emits for a target-less redirect."
-  [redirect-map]
-  (let [retired-keys (filterv #(contains? redirect-map %)
-                              retired-redirect-target-keys)]
-    (when (seq retired-keys)
-      (rf.error/throw-error!
-        :rf.error/redirect-retired-target-key
-        're-frame.ssr.response
-        (str "redirect target key(s) " (pr-str retired-keys)
-             " are retired — the canonical redirect"
-             " target key is :location. The SSR redirect"
-             " fx writes an HTTP Location response header,"
-             " so it uses header vocabulary; rewrite "
-             (pr-str (first retired-keys)) " as :location;"
-             " there is no alias.")
-        {:recovery :rewrite-the-target-key-as-location
-         :extra    {:retired-keys  retired-keys
-                    :canonical-key :location}}))))
+;; header, so it uses header vocabulary (routing/navigation surfaces may use
+;; `:url` / `:to`). There is no alias: the args map is open, so a map spelling
+;; the target any other way carries no `:location` and is a target-less
+;; redirect, which the host adapter warns about
+;; (`:rf.ssr/ssr-redirect-no-target`).
 
 ;; THE URL GATE. A redirect `:location` is routinely built from untrusted
 ;; input — a `?next=` parameter after sign-in is the canonical case — so the
@@ -1142,21 +1111,20 @@
      :status   302}                    ;; defaults to 302
 
   A malformed CALL throws before the gate runs, in every build: a non-map
-  args value, a retired `:url` / `:to` key (`:rf.error/redirect-retired-
-  target-key`, naming `:location`, with no alias), a non-string `:location`,
+  args value, a non-string `:location`,
   a `:status` outside the integer 100–599 range, a malformed `:allow`, or a
   `:relative-only?` key (each `:rf.error/server-fx-args-invalid`), then CR /
   LF / NUL in `:location` (`:rf.error/redirect-invalid-location`, Spec 011
   §CRLF fail-fast), which no `:allow` waives. The URL gate then runs in the
   order the block above lists.
 
-  `:location` is optional: a target-less redirect sets `:redirect` and
+  `:location` is optional, and the only target key: a redirect without one —
+  a map spelling the target `:url` or `:to` among them — sets `:redirect` and
   falls through to the adapter's `:rf.ssr/ssr-redirect-no-target` warn→3xx.
   Last-write-wins, and the redirect's `:status` flows through to the
   response `:status`."
   [{:keys [frame]} {:keys [location allow status] :as redirect-map}]
   (validate-args-map! :rf.server/redirect redirect-map)
-  (reject-retired-redirect-keys! redirect-map)
   ;; SHAPE gate, always-on, before anything is parsed. Note the taxonomy line
   ;; this respects: a malformed CALL is a programmer error and throws; an
   ;; untrusted INPUT that is a well-typed string but points off-origin stays

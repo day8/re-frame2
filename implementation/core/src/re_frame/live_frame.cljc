@@ -650,10 +650,9 @@
   resolved into the generation + the frame value, NOT passed to the engine as
   record config. Everything else in the opts map is record-config.
 
-  `:initial-db` is not an image-selection key: a supplied `:initial-db` flows
-  through to the engine as record-config and is rejected fail-loud there
-  (`:rf.error/initial-db-retired`, EP-0027) — seeding app-db is itself an
-  event (`{:initial-events [[:rf/set-db {…}]]}`).
+  There is no `:initial-db` key: seeding app-db is itself an event
+  (`{:initial-events [[:rf/set-db {…}]]}`), so a supplied `:initial-db` is
+  ordinary record-config, which the engine warns about as an unknown key.
 
   `:capabilities` is not one either: images declare no host capabilities
   (EP-0026), so a supplied `:capabilities` flows through to the engine as
@@ -1145,10 +1144,8 @@
          ;; EP-0024: the unified constructor honours these. EP-0027:
          ;; `:initial-events` is one of these record-config keys — it flows
          ;; verbatim to the engine, which PREFLIGHT-validates it and runs the
-         ;; setup steps synchronously at construction (and a retired
-         ;; `:initial-db` / `:on-create` likewise flows through to the engine's
-         ;; fail-loud guard). We thread two reserved construction inputs
-         ;; through the config:
+         ;; setup steps synchronously at construction. We thread two reserved
+         ;; construction inputs through the config:
          ;;   :rf.frame/generation   — the resolved generation, nil for a frame
          ;;                            made without `:images`. The engine seats it
          ;;                            into the `:generation` slot and strips it

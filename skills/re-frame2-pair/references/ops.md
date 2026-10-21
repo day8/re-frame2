@@ -197,7 +197,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Missing handler | `:rf.epoch/restore-missing-handler` | DB references a registration id no longer in the registrar (e.g. a machine snapshot whose machine was unregistered) |
 | Version mismatch | `:rf.epoch/restore-version-mismatch` | Recorded `:meta :rf/snapshot-version` of an active machine is incompatible with the currently-loaded definition (hot-reload bumped it) |
 | Concurrent drain | `:rf.epoch/restore-during-drain` | Called while the frame's run-to-completion drain is in flight |
-| Halted-cascade target | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — the record was committed for a halted cascade (`:halted-depth`, `:halted-destroy`, …); halted records carry partial state for devtools introspection and are not valid restore targets. Tags `:rf.epoch/outcome` + `:halt-reason`. |
+| Halted-cascade target | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — the record was committed for a halted cascade (`:halted-depth`, `:halted-destroy`, …); halted records carry partial state for devtools introspection and are not valid restore targets. Tags `:outcome` + `:halt-reason`. |
 
 When a restore is refused, its `:reason` is the failure mode's trace operation from the table above and its other keys are that trace's `:tags` (`:history-size`, `:failing-paths`, `:missing`, …), so report them to the user directly — no trace-buffer read is needed.
 

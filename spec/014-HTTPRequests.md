@@ -558,7 +558,7 @@ Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#statu
 - a successful, decoded-and-`:accept`-projected response → `:status :ok` (`:rf.reply/work-status :completed`), decoded value at `:value`;
 - any `:rf.http/*` failure → `:status :error`, the classified failure map riding **verbatim** as `:error` — the closed [failure-category set](#failure-categories-closed-set) is what the handler branches on under `:error`;
 - a **timeout** → `:status :error` with `:rf.reply/work-status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
-- an **abort** → `:status :cancelled` with `:cancelled? true`, `:rf.reply/cancel-reason`, and the `:rf.http/aborted` shape under `:error`.
+- an **abort** → `:status :cancelled` with `:rf.reply/cancel-reason` and the `:rf.http/aborted` shape under `:error`.
 
 #### Successful-response metadata — `:meta`
 
@@ -744,7 +744,6 @@ When the request's reply target is **still meaningful** — an ordinary register
 ```clojure
 ;; the canonical envelope, appended as the reply target's last argument
 {:status        :cancelled
- :cancelled?    true
  :rf.reply/cancel-reason :actor-destroyed
  :error         {:kind       :rf.http/aborted
                  :request-id <id-or-nil>

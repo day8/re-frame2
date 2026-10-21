@@ -12,8 +12,8 @@
   > already-projected records only.
 
   A frame's `make-frame` `:observability` config (validated for SHAPE at
-  construction time by `re-frame.frame-classification`) names two production
-  observation streams:
+  construction time against the sink-policy grammar below) names two
+  production observation streams:
 
       (rf/make-frame {:id :app/main}
         {:observability
@@ -92,8 +92,8 @@
   → `frame` require would close a load cycle; the late-bind seam is the
   same cycle-break the sibling always-on substrates use). `re-frame.core`
   requires this ns at boot, so the hooks are bound before any dispatch."
-  (:require [re-frame.frame                :as rf.frame]
-            [re-frame.frame-classification :as rf.frame-classification]
+  (:require [re-frame.error                :as rf.error]
+            [re-frame.frame                :as rf.frame]
             [re-frame.late-bind            :as rf.late-bind]
             [re-frame.projection           :as rf.projection]
             [re-frame.registrar            :as rf.registrar]
@@ -140,6 +140,115 @@
   (reset! sinks {})
   nil)
 
+;; ---- sink-policy grammar ---------------------------------------------------
+;;
+;; `{:handled-events [<entry> …] :errors [<entry> …]}`. Each entry is a CLOSED
+;; map: a `:sink` keyword id and, optionally, an `:rf.egress/profile` from the
+;; closed profile enum (`re-frame.projection/profiles`). `route-stream!` reads
+;; exactly those two keys, so any other would be accept-and-drop, and a
+;; typo'd profile would otherwise install silently and fail only when the sink
+;; first fires — both fail loud here instead.
+
+(def ^:private stream-keys #{:handled-events :errors})
+
+(def ^:private sink-entry-keys #{:sink :rf.egress/profile})
+
+(defn- policy-error
+  "The `:rf.error/bad-frame-classification` ex-info for a malformed policy.
+  `extras` names the offending slot (`:bad-key`, `:bad-entry`, `:bad-value`)."
+  [where frame-id reason extras]
+  (rf.error/thrown-ex-info
+    :rf.error/bad-frame-classification
+    where
+    reason
+    {:recovery :fix-frame-classification
+     :extra    (merge {:frame frame-id} extras)}))
+
+(defn- validate-sink-entry!
+  [where frame-id stream entry]
+  (when-not (map? entry)
+    (throw (policy-error
+             where
+             frame-id
+             (str ":observability " stream " entries must be maps naming a "
+                  ":sink")
+             {:bad-key [:observability stream] :bad-entry entry})))
+  (when-not (keyword? (:sink entry))
+    (throw (policy-error
+             where
+             frame-id
+             (str ":observability " stream " entries must carry a :sink "
+                  "keyword id")
+             {:bad-key [:observability stream :sink] :bad-entry entry})))
+  (when (contains? entry :rf.egress/profile)
+    (let [profile (:rf.egress/profile entry)]
+      (when-not (contains? rf.projection/profiles profile)
+        (throw (policy-error
+                 where
+                 frame-id
+                 (str ":observability " stream " entry has unknown "
+                      ":rf.egress/profile " profile "; valid profiles are "
+                      rf.projection/profiles)
+                 {:bad-key [:observability stream :rf.egress/profile]
+                  :bad-value profile
+                  :valid    rf.projection/profiles
+                  :bad-entry entry})))))
+  (let [unknown (remove #(contains? sink-entry-keys %) (keys entry))]
+    (when (seq unknown)
+      (let [k (first unknown)]
+        (throw (policy-error
+                 where
+                 frame-id
+                 (str ":observability " stream " entry has unknown key " k
+                      "; a sink entry carries only " sink-entry-keys)
+                 {:bad-key   [:observability stream k]
+                  :valid     sink-entry-keys
+                  :bad-entry entry}))))))
+
+(defn- validate-policy!
+  "Throw `:rf.error/bad-frame-classification` on a malformed `:observability`
+  policy, naming the offending slot; return nil. `where` is the call the author
+  typed — `'rf/make-frame` for a frame's policy, reached from the frame
+  preflight through the `:observability/validate-policy!` late-bind hook, or
+  `'rf/configure!` for the process default, whose `frame-id` is nil.
+
+  One grammar, two doors. The process default and a frame's policy are the
+  same value in two scopes, so a second validator would be a second grammar
+  that drifts: an entry key `make-frame` refuses would install silently from
+  `configure!` and surface only as a dropped record at the first sink fire. The
+  malformation is identical at both doors, so it is one error category, and
+  `:where` tells the doors apart. `nil` passes — absent on a frame, the clear
+  at `configure!`. Spec 015 §Frame-owned observability sink policy."
+  [where frame-id observability]
+  (when (some? observability)
+    (when-not (map? observability)
+      (throw (policy-error
+               where
+               frame-id
+               ":observability, when present, must be a map of {:handled-events [..] :errors [..]}"
+               {:bad-key :observability :bad-value observability})))
+    (doseq [k (keys observability)]
+      (when-not (contains? stream-keys k)
+        (throw (policy-error
+                 where
+                 frame-id
+                 (str "unknown :observability key " k "; valid keys are "
+                      stream-keys)
+                 {:bad-key [:observability k] :valid stream-keys}))))
+    (doseq [stream stream-keys
+            :let [entries (get observability stream)]
+            :when (some? entries)]
+      (when-not (vector? entries)
+        (throw (policy-error
+                 where
+                 frame-id
+                 (str ":observability " stream ", when present, must be a "
+                      "vector of sink entries")
+                 {:bad-key [:observability stream] :bad-value entries})))
+      (doseq [entry entries]
+        (validate-sink-entry! where frame-id stream entry))))
+  nil)
+
 ;; ---- process-default sink policy ------------------------------------------
 ;;
 ;; A frame's `:observability` says who observes THAT frame. The process
@@ -178,9 +287,9 @@
                          :rf.egress/profile :rf.egress/off-box-observability}]}
 
   and it is validated by the SAME validator `make-frame` uses
-  (`frame-classification/validate-observability-policy!`), fail-loud at CALL
-  time with `:rf.error/bad-frame-classification` and `:where 'rf/configure!`.
-  One grammar, two scopes — see that fn for why there is no second error
+  (`validate-policy!`), fail-loud at CALL time with
+  `:rf.error/bad-frame-classification` and `:where 'rf/configure!`. One
+  grammar, two scopes — see that fn for why there is no second error
   category.
 
   `nil` CLEARS the default. That is the whole of the absent/empty
@@ -193,7 +302,7 @@
   Merging would make the clear unspellable and leave no way to remove one
   stream without knowing what the previous call installed."
   [observability]
-  (rf.frame-classification/validate-observability-policy! observability)
+  (validate-policy! 'rf/configure! nil observability)
   (reset! process-default observability)
   nil)
 
@@ -602,9 +711,12 @@
 ;; the error route from every `:rf.error/*` site. BOTH reach this ns through
 ;; the late-bind hook table at call time rather than static-requiring it —
 ;; a static `router`/`error-emit` → `observability` → `projection` →
-;; `elision` → `frame` require would close a load cycle. `re-frame.core`
-;; requires this ns at boot, so the hooks are bound before any dispatch.
+;; `elision` → `frame` require would close a load cycle. The frame preflight
+;; (`re-frame.frame/upsert-frame!`) reaches the sink-policy grammar the same
+;; way, since this ns requires `re-frame.frame`. `re-frame.core` requires this
+;; ns at boot, so the hooks are bound before any dispatch or construction.
 
+(rf.late-bind/set-fn! :observability/validate-policy!    validate-policy!)
 (rf.late-bind/set-fn! :observability/route-handled-event route-handled-event!)
 (rf.late-bind/set-fn! :observability/route-error         route-error!)
 (rf.late-bind/set-fn! :observability/route-error-record  route-error-record!)

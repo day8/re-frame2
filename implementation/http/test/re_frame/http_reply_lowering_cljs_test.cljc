@@ -41,8 +41,8 @@
   (testing "abort is :status :cancelled with an :rf.http/aborted :error"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/aborted :reason :user})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= [:cancelled :cancelled true :user :rf.http/aborted]
-             ((juxt :status :rf.reply/work-status :cancelled? :rf.reply/cancel-reason (comp :kind :error)) r))))))
+      (is (= [:cancelled :cancelled :user :rf.http/aborted]
+             ((juxt :status :rf.reply/work-status :rf.reply/cancel-reason (comp :kind :error)) r))))))
 
 (deftest self-identify-failure-stamps-request-identity
   ;; The retry-exhausted, 4xx and aborted stamps are pinned end to end in
