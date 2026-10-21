@@ -107,7 +107,7 @@ The `:rf.http/managed` fx from [014](014-HTTPRequests.md) — decoding, success/
 
 #### Q9. Resources?
 
-Declarative server state from [016](016-Resources.md) — `reg-resource` and the `:rf.resource/*` surface: resource identity, fail-closed cache scopes, active owners, the lifecycle FSM, the frame work ledger, stale/fresh policy, dedupe, stale-reply suppression, inactive GC, route `:resources`, and SSR preload/hydration. A **v1-optional, post-v1 artefact** (`day8/re-frame2-resources` on the CLJS reference); when shipped, the contract is fixed.
+Declarative server state from [016](016-Resources.md) — `reg-resource` and the `:rf.resource/*` surface: resource identity, fail-closed cache scopes, active owners, the lifecycle FSM, in-flight attempts, stale/fresh policy, dedupe, stale-reply suppression, inactive GC, route `:resources`, and SSR preload/hydration. A **v1-optional, post-v1 artefact** (`day8/re-frame2-resources` on the CLJS reference); when shipped, the contract is fixed.
 
 **Declaring yes implies Q8 yes** — [016](016-Resources.md) scopes resources to HTTP-only, making `:rf.http/managed` the single built-in read transport.
 
