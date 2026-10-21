@@ -227,7 +227,7 @@ Drop `:populates` and this test fails with a second GET, for `/api/articles/intr
 The ensures carry an `:owner` because only an owned entry refetches on invalidation;
 an unowned entry is marked stale, as section 3 asserts.
 
-!!! note "Why not record through `rf/with-fx-overrides`?"
+!!! note "Why not record through `ts/with-fx-overrides`?"
 
     Overriding `:rf.http/managed` with a recording fn *replaces* the whole effect, so nothing replies: the ledger shows the POST, the mutation stays `:pending`, and the refetches its reply would cause never happen. A stub transport replaces only the host send, so the frame's `:before` chain still runs: the interceptor records each request, and the stub answers it.
 

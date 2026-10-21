@@ -1,6 +1,6 @@
 # re-frame.test-support
 
-Fixtures and helpers for tests that exercise runtime state. The fixture resets the runtime around each test so every test starts from the same registrations; the helpers assert on `app-db`, commit mounted views, wait for async work, and record traces and errors. Its companion [`re-frame.test-helpers`](re-frame.test-helpers.md) walks the hiccup a view returns; a test that checks both state and views requires both.
+Fixtures and helpers for tests that exercise runtime state. The fixture resets the runtime around each test so every test starts from the same registrations; the helpers assert on `app-db`, stub effects for a block of dispatches, commit mounted views, wait for async work, and record traces and errors. Its companion [`re-frame.test-helpers`](re-frame.test-helpers.md) walks the hiccup a view returns; a test that checks both state and views requires both.
 
 Use this namespace when a test drives the runtime: it dispatches events and reads the state they commit. To test a handler's logic alone you need none of it; call the handler as a function, as [Test an event handler](../core/testing/event-handlers.md) shows.
 
@@ -29,7 +29,7 @@ Use this namespace when a test drives the runtime: it dispatches events and read
 
 `plain-atom/adapter` is the headless adapter: app-db lives in a plain atom and nothing renders, so the suite runs on the JVM or Node with no React. The fixture installs it and gives each test a fresh `:rf/default` frame as its ambient frame, which is why the bare `dispatch-sync` and `assert-path-equals` need no `:frame`.
 
-Nothing here is re-exported from `re-frame.core`, so a production build never loads test machinery by accident. Tests drive the runtime with the ordinary facade functions (`rf/dispatch-sync`, `rf/app-db-value`, …). [Test a pipeline run](../core/testing/pipeline-runs.md) shows these fixtures in use.
+Nothing here is re-exported from `re-frame.core`, so a production build never loads test machinery by accident. The macros (`with-fx-overrides`, `with-trace-recorder!`, `with-emit-recorder!`) resolve through the same `ts` alias on the JVM and on CLJS, because the namespace self-requires its macros as `re-frame.core` does. Tests drive the runtime with the ordinary facade functions (`rf/dispatch-sync`, `rf/app-db-value`, …). [Test a pipeline run](../core/testing/pipeline-runs.md) shows these fixtures in use.
 
 ## Fixture machinery
 
@@ -150,6 +150,31 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
   (ts/assert-path-equals [:cart :count] 2 {:frame :checkout})
   ```
 
+## Stubbing effects for a block of dispatches
+
+### `with-fx-overrides`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-fx-overrides overrides body+) → value of body
+  ```
+- **Description**: `overrides` is a map `{fx-id override}`. Replaces effect handlers for every `dispatch` and `dispatch-sync` inside `body`, usually to stub an effect in a test. Each such call merges the map under its own `:fx-overrides`, so a per-call key wins. The overrides apply for the dynamic extent of `body` and compose with `with-frame`.
+    - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
+    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
+    - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
+    - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
+    - See [Asserting on what would dispatch](../core/testing/pipeline-runs.md#asserting-on-what-would-dispatch).
+- **Example**:
+  ```clojure
+  ;; Capture the login request instead of sending it, for the test body —
+  ;; every dispatch inside inherits the override; it unwinds when the body exits.
+  (let [sent (atom [])]
+    (ts/with-fx-overrides {:rf.http/managed (fn [_ctx args] (swap! sent conj (:request args)))}
+      (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
+    @sent)
+  ```
+
 ## Committing mounted views
 
 ### `flush-views!`
@@ -218,8 +243,6 @@ Both macros bracket a body with a fresh listener: it is registered before the bo
 
 The listener lasts only for the synchronous body. Returning a Promise does not keep it registered until that Promise settles. Use `dispatch-sync` for a synchronous recording; on the JVM a blocking `poll-until` can keep the body open. For queued CLJS work, collect traces with a [trace listener](re-frame.core.md#register-listener) and unregister it after the async assertion finishes.
 
-On the JVM the macros resolve through the ordinary `(:require [re-frame.test-support :as ts])`. On CLJS the namespace does not self-require its macros (unlike `re-frame.core`), so a CLJS test file also needs `(:require-macros [re-frame.test-support :refer [with-trace-recorder! with-emit-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
-
 ### `with-trace-recorder!`
 
 - **Kind**: macro
@@ -287,6 +310,6 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
 
 ## See also
 
-- [re-frame.core](re-frame.core.md): the production functions tests drive (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `compute-sub`) and registrar introspection (`registrations`, `handler-meta`).
+- [re-frame.core](re-frame.core.md): the production functions tests drive (`make-frame`, `with-frame`, `dispatch-sync`, `app-db-value`, `compute-sub`) and registrar introspection (`registrations`, `handler-meta`).
 - [Managed HTTP reference](re-frame.http.md#testing-without-a-network): HTTP stubs for tests that exercise managed requests.
 - [Test an event handler](../core/testing/event-handlers.md): testing a handler as a pure function.

@@ -15,6 +15,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.error-emit :as rf.error-emit]
@@ -104,7 +105,7 @@
     (rf/reg-fx :fx-test/wo-email.call (fn [_ _] (swap! fired conj :per-call)))
     (rf/reg-event :fx-test/wo-send
       (fn [_ _] {:fx [[:fx-test/wo-email {:to "alice"}]]}))
-    (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
+    (rf.test-support/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
       (testing "a dispatch inside the body inherits the lexical override"
         (rf/dispatch-sync [:fx-test/wo-send])
         (is (= [:lexical] @fired)))

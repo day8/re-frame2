@@ -24,6 +24,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -79,8 +80,8 @@
 
 (deftest lexical-with-fx-overrides-merges-under-per-call
   (let [expected {:ovc/lexical :ovc/lexical-stub :ovc/dual :ovc/from-call}
-        tags (rf/with-fx-overrides {:ovc/lexical :ovc/lexical-stub
-                                    :ovc/dual :ovc/from-lexical}
+        tags (rf.test-support/with-fx-overrides {:ovc/lexical :ovc/lexical-stub
+                                                 :ovc/dual :ovc/from-lexical}
                (run-start-tags [:ovc/run]
                                {:fx-overrides {:ovc/dual :ovc/from-call}}))]
     (is (= expected (:fx-overrides @captured-envelope)))

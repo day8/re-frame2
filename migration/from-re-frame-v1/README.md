@@ -1544,7 +1544,7 @@ A test or a demo answers `:rf.http/managed` without a network through a **stub t
 
 **What to look for** in your codebase:
 
-- Any test namespace that routes `:rf.http/managed` to a stub fx through `:fx-overrides` — on `dispatch-sync`, `rf/with-fx-overrides` or a frame's config — or invokes a stub fx it resolved through `rf.registrar/handler`.
+- Any test namespace that routes `:rf.http/managed` to a stub fx through `:fx-overrides` — on `dispatch-sync`, `with-fx-overrides` or a frame's config — or invokes a stub fx it resolved through `rf.registrar/handler`.
 - Any test or story on a `:test` or `:story` preset frame that issues a request and expects an answer it never supplies.
 - Any test namespace that requires a `re-frame.http.*` namespace other than `re-frame.http.managed` and `re-frame.http.stub-transport` — no other ships, and the [M-1](#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename) inventory flags it.
 - Any dev-only example, testbed or story that wires its own per-URL stub fx.
@@ -2093,7 +2093,7 @@ Pre-release framing: state-machine declarations may now declare a `:type :histor
 
 **Type A** (mechanical, name-rename).
 
-The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (for example `with-interceptor-overrides` is a natural companion).
+The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-overrides` and lives in `re-frame.test-support`, beside the other test macros. The new name is for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (for example `with-interceptor-overrides` is a natural companion).
 
 **What to look for** in the codebase:
 
@@ -2102,19 +2102,19 @@ The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-ove
   (rf/dispatch-sync ...))
 ```
 
-**What to do.** Mechanical rename:
+**What to do.** Mechanical rename, plus the `re-frame.test-support` require:
 
 ```clojure
 ;; before
 (rf/with-overrides {:fx/http :fx/http-stub}
   (rf/dispatch-sync ...))
 
-;; after
-(rf/with-fx-overrides {:fx/http :fx/http-stub}
+;; after — with [re-frame.test-support :as ts] in the test ns's :require
+(ts/with-fx-overrides {:fx/http :fx/http-stub}
   (rf/dispatch-sync ...))
 ```
 
-Body, override-map shape, precedence rules, and composition with `with-frame` are unchanged — the macro is the same `binding` over `re-frame.router/*fx-overrides*`; only its name moves.
+Body, override-map shape, precedence rules, and composition with `with-frame` are unchanged — the macro is the same `binding` over `re-frame.router/*fx-overrides*`; only its name and namespace move. `re-frame.core` keeps no alias, so a call left on the `rf` alias fails to compile.
 
 **Cross-references.** [API.md §Testing](../../spec/API.md#testing) for the row; [Spec 002 §`:fx-overrides`](../../spec/002-Frames.md#fx-overrides--replace-fx-handlers) for the override-value shapes the macro honours.
 

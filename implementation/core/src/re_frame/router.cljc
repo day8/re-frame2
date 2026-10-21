@@ -43,9 +43,9 @@
 
 ;; ---- lexical-scope fx overrides -------------------------------------------
 ;;
-;; Bound by `rf/with-fx-overrides`. A plain map rather than a per-frame one,
-;; because the macro stubs fx for a block of dispatches whichever frame they
-;; land on. Precedence: per-call opt > `*fx-overrides*` > per-frame (Spec 002
+;; Bound by `re-frame.test-support/with-fx-overrides`, and directly by Story's
+;; artifact replay. A plain map rather than a per-frame one, because the
+;; macro stubs fx for a block of dispatches whichever frame they land on. Precedence: per-call opt > `*fx-overrides*` > per-frame (Spec 002
 ;; §Per-frame and per-call overrides).
 (def ^:dynamic *fx-overrides* nil)
 

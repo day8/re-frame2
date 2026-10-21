@@ -71,6 +71,11 @@
     Mirrors the `:rf.assert/path-equals` event (Story `:play` blocks);
     same name root so a reader who knows one surface navigates the other.
 
+  ### Lexical fx overrides
+  - [[with-fx-overrides]] — bind an `:fx-overrides` map for every
+    dispatch in a body, so a block of dispatches shares one stub
+    rather than repeating the per-call opt.
+
   ### Trace-recorder bracket
   - [[with-trace-recorder!]] — register a trace-tooling listener for the
     bracketed body, accumulate matching events into a recording atom
@@ -125,6 +130,8 @@
             ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
             ;; (`events` is already in the dep graph via `router`; no new cycle.)
             [re-frame.events :as rf.events]
+            ;; `with-fx-overrides` expands to a `binding` of its dynvar.
+            [re-frame.router]
             ;; The `:rf.interceptor/path` standard, re-seeded for the same
             ;; reason: image assembly checks every interceptor ref against the
             ;; sealed generation, so a `[:rf.interceptor/path …]` ref needs the
@@ -174,7 +181,12 @@
             ;; `react-dom/test-utils`.
             #?(:cljs ["react" :as React])
             #?(:clj  [clojure.test :as ctest]
-               :cljs [cljs.test :as ctest :include-macros true])))
+               :cljs [cljs.test :as ctest :include-macros true]))
+  ;; The macros are defined in this ns's `#?(:clj ...)` blocks. This
+  ;; self-`:require-macros` lets a CLJS test reach them through its
+  ;; ordinary `(:require [re-frame.test-support :as ts])`, as
+  ;; `re-frame.core` does for its call-site macros.
+  #?(:cljs (:require-macros [re-frame.test-support])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -1156,6 +1168,24 @@
         :clj  (commit!)))
    nil))
 
+;; ---- lexical fx overrides -------------------------------------------------
+;;
+;; Defined in the `#?(:clj ...)` arm; CLJS test files reach it through the
+;; ns's self-`:require-macros`, as `ts/with-fx-overrides`. The expansion
+;; binds `re-frame.router/*fx-overrides*`, which the router merges under
+;; each dispatch's per-call `:fx-overrides` (Spec 002 §`:fx-overrides`).
+
+#?(:clj
+   (defmacro with-fx-overrides
+     "Bind a per-call `:fx-overrides` map for `body`'s lexical scope —
+     test-support sugar over `(rf/dispatch ev {:fx-overrides {...}})`.
+     Precedence: per-call opt > lexical `with-fx-overrides` > per-frame
+     `:fx-overrides`. Composes with `with-frame`. Per Spec 002
+     §`:fx-overrides`."
+     [overrides-map & body]
+     `(binding [re-frame.router/*fx-overrides* ~overrides-map]
+        ~@body)))
+
 ;; ---- trace-recorder bracket -----------------------------------------------
 ;;
 ;; A test that captures a stream of trace events uses this single bracket
@@ -1167,9 +1197,9 @@
 ;; underlying pattern. The bracket is register-on-entry, unregister-on-exit
 ;; (try/finally), with-redefs-shaped body.
 ;;
-;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
-;; `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`
-;; — mirrors how `re-frame.core`'s call-site macros (`with-frame`,
+;; Macro lives in the `#?(:clj ...)` arm; the ns's self-`:require-macros`
+;; lets CLJS test files reach it as `ts/with-trace-recorder!` or by
+;; `:refer`, as `re-frame.core`'s call-site macros (`with-frame`,
 ;; `with-new-frame`, …) ship.
 
 #?(:clj
@@ -1276,8 +1306,8 @@
 ;; register/try/finally/unregister wrapper per file — the same divergence the
 ;; trace-side bracket avoids.
 ;;
-;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
-;; `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
+;; Macro lives in the `#?(:clj ...)` arm, reached on CLJS through the ns's
+;; self-`:require-macros` like its siblings.
 
 #?(:clj
    (defmacro with-emit-recorder!

@@ -73,6 +73,7 @@
   runners (DOM/browser) supply their own flush-hooks; this ns defaults to
   the headless hooks and never reaches for `dispatch-sync` directly."
   (:require [re-frame.core                        :as rf]
+            [re-frame.router                      :as rf.router]
             ;; The one Story-owned `:observability :errors` sink
             ;; id, shared with `frames` and `ui.shell`. `config` is the leaf
             ;; all three can reach without closing a cycle.
@@ -188,9 +189,10 @@
   `fx-decisions` as the per-call `:fx-overrides`.
 
   The wrap routes the fx decisions THROUGH the inner `:dispatch!`, never
-  around it: it binds the overrides on the lexical-scope `*fx-overrides*`
-  via `rf/with-fx-overrides` and then calls `inner`, so whatever dispatch
-  path the inner hook owns picks the overrides up at envelope-build time
+  around it: it binds the overrides on the lexical-scope
+  `re-frame.router/*fx-overrides*` with a `binding` and then calls `inner`,
+  so whatever dispatch path the inner hook owns picks the overrides up at
+  envelope-build time
   (precedence: per-call opt > lexical `with-fx-overrides` > per-frame
   `:fx-overrides`, Spec 002 §`:fx-overrides`). For the headless default
   `inner` is `drain-sync!` (`dispatch-sync!` drain) and the overrides ride
@@ -227,7 +229,11 @@
                              #(inner frame-id event-vector opts)
                              #(inner frame-id event-vector))]
                   (if (seq fx-decisions)
-                    (rf/with-fx-overrides fx-decisions (call))
+                    ;; What `re-frame.test-support/with-fx-overrides` expands
+                    ;; to, written out: that ns pulls in the test framework,
+                    ;; which the Story facade keeps off its require graph
+                    ;; (see the note in `re-frame.story`).
+                    (binding [rf.router/*fx-overrides* fx-decisions] (call))
                     (call))))]
     (assoc base-hooks
            :dispatch!

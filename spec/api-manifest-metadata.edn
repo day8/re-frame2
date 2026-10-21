@@ -1035,9 +1035,6 @@
   ;; row of any tier would still read as supported public API). The
   ;; migration alarm is the always-loud throw itself. Migration docs live in
   ;; migration/from-re-frame-v1/README.md.
-  ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"
-                                          :action :keep
-                                          :justification "The fx-stubbing scope every event test wraps around a dispatch-sync. Defined on re-frame.core beside the dispatch verbs whose behaviour it changes; there is no other door."}
   ;; There is no `redact-interceptor` (EP-0015 §7): registration-owned
   ;; `:sensitive` payload classification + centralized `project-egress` do
   ;; that job, not a positional trace-scrub interceptor.
@@ -1365,6 +1362,9 @@
   ;; bracket rather than a hand-rolled register/finally/unregister wrapper
   ;; per file, because per-file wrappers diverge.
   ["re-frame.test-support" "with-emit-recorder!"]       {:tier :testing :owner "008" :status "v1"}
+  ;; The lexical-scope fx-stubbing macro. Spec 002 owns the override
+  ;; contract it binds (values, precedence), so 002 is its owner.
+  ["re-frame.test-support" "with-fx-overrides"]         {:tier :testing :owner "002" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.test-helpers — view-tree assertion helpers (tier: testing).

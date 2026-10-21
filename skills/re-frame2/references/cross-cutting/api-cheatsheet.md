@@ -108,8 +108,8 @@ Production fx surface: `re-frame.http.managed`. Stub transports: `re-frame.http.
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore; compose in a `try` / `finally` for an ad-hoc bracket |
 | `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals`; full-db check → `(is (= expected-db (rf/app-db-value f)))` |
 | `ts/poll-until` | `(pred)` / `(pred opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
-| `with-trace-recorder!` / `with-emit-recorder!` | **macros** `([recs opts?] body+)` — bind an atom of captured trace events / raw `:rf.error/*` (or `:stream :events`) records for the body, unregister on exit. Refer by name; CLJS via `:require-macros` |
-| `rf/with-fx-overrides` | `(overrides-map & body)` — **macro** on the `rf/` façade; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
+| `with-trace-recorder!` / `with-emit-recorder!` | **macros** `([recs opts?] body+)` — bind an atom of captured trace events / raw `:rf.error/*` (or `:stream :events`) records for the body, unregister on exit. Call as `ts/…` or refer by name; one `:require` serves JVM and CLJS |
+| `ts/with-fx-overrides` | `(overrides-map & body)` — **macro**; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
 | fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
 
 ## View tests — `re-frame.test-helpers` (see `cross-cutting/testing-views.md`)
