@@ -1,19 +1,16 @@
 (ns re-frame.make-frame-generation-pool-contention-jvm-test
-  "Under contention, only the attempt the engine admits may touch a frame id's
-  generation-provenance row. `make-frame` writes that row before the engine
-  commit (see `make-frame-generation-pool-window-jvm-test`), so the write, the
-  commit and the rollback all run inside the id's construction reservation. A
-  same-id contender then loses before its first write: were it to publish its
-  pool on the way to losing, a reprojection on any thread could re-resolve the
-  winner's live frame against it. A rollback computed outside the reservation
-  could land on a newer owner's row.
+  "Under contention, only the attempt the engine admits may move a frame's
+  descriptor pool. The pool rides the frame record beside the generation, so a
+  same-id contender loses at the engine's claim before it writes either: were
+  it to publish its pool on the way to losing, a reprojection on any thread
+  could re-resolve the winner's live frame against it.
 
   The winner parks on `rf.frame/*upsert-decide-probe*`. An atom watch on the
-  provenance table fires synchronously inside each `swap!`, recording every
-  transition and whether the id was reserved at that instant, and can run the
-  real reader, `reproject-live-frame!`, there. JVM only: CLJS is single-threaded."
+  frames registry fires synchronously inside each `swap!`, recording every
+  move of the id's pool slot and whether the id was reserved at that instant,
+  and runs the real reader, `reproject-live-frame!`, there. JVM only: CLJS is
+  single-threaded."
   (:require [clojure.test :refer [deftest is use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.image :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
@@ -22,23 +19,15 @@
             [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-(def ^:private provenance #'rf.live-frame/frame-generation-pool)
-
-(defn- pool-row [id] (get (deref @provenance) id))
-
-(def ^:private ids
-  [:pool-race/target :pool-race/rollback :pool-race/nil-pool :pool-race/adopted])
+(defn- pool-row [id] (:descriptor-pool (rf.frame/frame id)))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
-    ;; start and finish with no row for this namespace's ids
-    (swap! @provenance #(apply dissoc % ids))
     (try
       (t)
       (finally
-        (remove-watch @provenance ::row-watch)
-        (swap! @provenance #(apply dissoc % ids))))))
+        (remove-watch rf.frame/frames ::row-watch)))))
 
 ;; A latch we expect to FIRE waits this long; it only bounds a hang.
 (def ^:private ^:const settle-ms 10000)
@@ -78,16 +67,16 @@
       true)))
 
 (defn- watch-row!
-  "Log every transition of `id`'s provenance row, with whether the id was
-  reserved at that instant, and run `on-change` (or nothing) there. The watch
-  fires on the writing thread inside the `swap!`; writes that do not move the
-  row are ignored."
+  "Log every move of `id`'s pool slot in the frames registry, with whether the
+  id was reserved at that instant, and run `on-change` (or nothing) there. The
+  watch fires on the writing thread inside the `swap!`; writes that do not
+  move the slot are ignored."
   [id log on-change]
   (add-watch
-    @provenance ::row-watch
+    rf.frame/frames ::row-watch
     (fn [_ _ old new]
-      (let [before (get old id ::absent)
-            after  (get new id ::absent)]
+      (let [before (get (get old id) :descriptor-pool ::absent)
+            after  (get (get new id) :descriptor-pool ::absent)]
         (when (not= before after)
           (swap! log conj {:from before :to after :reserved? (exclusively-reserved? id)})
           (when on-change (on-change)))))))
@@ -118,7 +107,7 @@
   (let [target :pool-race/target]
     (rf.live-frame/make-frame {:id target :images [img]} pool-v2)
     (is (= [::inc-v2 pool-v2] [(inc-impl target) (pool-row target)])
-        "control: the frame runs pool V2 and its row names it")
+        "control: the frame runs pool V2 and its record names it")
     (let [log     (atom [])
           reached (CountDownLatch. 1)
           release (CountDownLatch. 1)]
@@ -141,54 +130,6 @@
                  [(not= ::timeout (deref winner settle-ms ::timeout))
                   (inc-impl target)
                   (pool-row target)])
-              "the winner completes on its own generation with its row in step"))
+              "the winner completes on its own generation with its pool in step"))
         (finally
           (.countDown release))))))
-
-(deftest provenance-write-and-rollback-both-hold-the-id-reservation
-  (let [id  :pool-race/rollback
-        log (atom [])]
-    (rf.live-frame/make-frame {:id id :images [img]} pool-v1)
-    (watch-row! id log nil)
-    ;; a malformed :initial-events fails inside the engine, after the early write
-    (is (= [:rf.error/initial-events-bad-step
-            [{:from pool-v1 :to pool-v2 :reserved? true}
-             {:from pool-v2 :to pool-v1 :reserved? true}]]
-           [(err-id #(rf.live-frame/make-frame {:id id :images [img] :initial-events [42]}
-                                               pool-v2))
-            @log])
-        "the publication and its rollback both ran under the reservation")))
-
-(deftest rollback-restores-a-recorded-nil-row-rather-than-removing-it
-  ;; a 1-arity frame's row is present with value nil (the live store); an absent
-  ;; row would log ::absent
-  (let [id  :pool-race/nil-pool
-        log (atom [])]
-    (rf.live-frame/make-frame {:id id})
-    (watch-row! id log nil)
-    (is (= [:rf.error/initial-events-bad-step
-            [{:from nil :to pool-v1 :reserved? true}
-             {:from pool-v1 :to nil  :reserved? true}]]
-           [(err-id #(rf.live-frame/make-frame {:id id :initial-events [42]} pool-v1))
-            @log]))))
-
-(deftest a-handed-off-reservation-is-adopted-and-a-spent-one-is-not
-  ;; make-frame under an outer preflight's hand-off adopts that reservation
-  ;; rather than re-claiming it; a second entry under the spent hand-off loses
-  ;; without touching the table
-  (let [id    :pool-race/adopted
-        log   (atom [])
-        owner (rf.frame/claim-frame-construction! id :plan-preflight)]
-    (watch-row! id log nil)
-    (try
-      (is (= [true :rf.error/frame-construction-in-progress]
-             (rf.frame/call-with-frame-construction-handoff!
-               owner id
-               (fn []
-                 [(some? (rf.live-frame/make-frame {:id id :images [img]} pool-v1))
-                  (err-id #(rf.live-frame/make-frame {:id id :images [img]} pool-v2))]))))
-      (finally
-        (rf.frame/release-frame-construction! owner)))
-    (is (= [[{:from ::absent :to pool-v1 :reserved? true}] ::inc-v1 true]
-           [@log (inc-impl id) (some? (rf/make-frame {:id id}))])
-        "one publication, under the outer reservation, and no reservation left behind")))

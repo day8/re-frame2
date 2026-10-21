@@ -301,8 +301,8 @@
 ;; own pool, never the live store -------------------------------------------
 
 (deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
-  ;; the pool row is recorded AFTER the engine commit, so a FAILED re-make
-  ;; threading a different pool cannot clobber it — a clobbered row would make
+  ;; the pool rides the record, so a FAILED re-make threading a different
+  ;; pool leaves the frame's own pool in place — a clobbered pool would make
   ;; the next reprojection zero-match (the frame's ns is only in its own pool)
   (let [pool       [(reg-desc "ktmto9-pool.provenance.ns" :event :ktmto9-pool/inc ::pool-v1)]
         other-pool [(reg-desc "ktmto9-other.provenance.ns" :event :ktmto9-other/inc ::other)]
@@ -314,6 +314,59 @@
             (identical? gen-before (rf.live-frame/frame-generation :ktmto9-pool/main))
             (rf.live-frame/reproject-live-frame! :ktmto9-pool/main)
             (resolved-handler :ktmto9-pool/main :event :ktmto9-pool/inc)]))))
+
+(deftest failed-re-construction-keeps-generation-and-pool-paired
+  ;; A re-construction stages its generation and pool onto the live record and
+  ;; fails while they are staged (the policy probe throws). Alone, the rollback
+  ;; restores both. With a reprojection landing in the staged window, the
+  ;; reprojection's generation survives the rollback, so the pool it was
+  ;; resolved against must survive with it: the next reprojection agrees with
+  ;; the generation instead of re-resolving it against the outgoing pool.
+  (let [id       :paired/main
+        img      (rf.image/image {:id :paired/img :select-ns {:include ["paired.feature"]}})
+        pool     [(reg-desc "paired.feature" :event :paired/inc ::pool)]
+        live!    (fn [impl]
+                   (rf.source-store/record-descriptor!
+                     :event :paired/inc
+                     {:rf.provenance/ns "paired.feature" :kind :event :id :paired/inc :handler-fn impl}))
+        snapshot @rf.source-store/kind->id->ns->descriptor
+        fail-staged!
+        (fn [on-staged]
+          (let [armed? (atom true)]
+            (binding [rf.frame/*upsert-policy-probe*
+                      (fn [probe-id]
+                        (when (and (= id probe-id) @armed?)
+                          (reset! armed? false)
+                          (on-staged)
+                          (throw (ex-info "staged re-construction fails" {::staged-failure true}))))]
+              (try (rf.live-frame/make-frame {:id id :images [img]}) false
+                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                     (true? (::staged-failure (ex-data e))))))))]
+    (try
+      (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+        (rf.live-frame/flush-pending-reprojection!)
+        (live! ::live-v1)
+        (rf.live-frame/make-frame {:id id :images [img]} pool)
+        (is (= [::pool true]
+               [(resolved-handler id :event :paired/inc)
+                (not-any? #(identical? pool %) (vals (rf.frame/frame-meta id)))])
+            "control: the frame runs its explicit pool, and frame-meta carries no pool")
+        (is (= [true ::pool nil]
+               [(fail-staged! (fn []))
+                (resolved-handler id :event :paired/inc)
+                (rf.live-frame/reproject-live-frame! id)])
+            "a staged failure alone restores the generation and its pool together")
+        (is (= [true ::live-v2 nil ::live-v2]
+               [(fail-staged! (fn []
+                                (live! ::live-v2)
+                                (rf.live-frame/reproject-live-frame! id)))
+                (resolved-handler id :event :paired/inc)
+                (rf.live-frame/reproject-live-frame! id)
+                (resolved-handler id :event :paired/inc)])
+            "the reprojected generation survives the rollback, paired with the pool it was resolved against"))
+      (finally
+        (reset! rf.frame/frames {})
+        (reset! rf.source-store/kind->id->ns->descriptor snapshot)))))
 
 (deftest reproject-live-frames-mixes-explicit-pool-and-live-store-frames-safely
   ;; one sweep over an explicit-pool frame and a live-store frame: each

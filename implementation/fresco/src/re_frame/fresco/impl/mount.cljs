@@ -549,7 +549,7 @@
 ;; Published at NS LOAD, not from a once-body, per `late-bind`'s own contract
 ;; that `hooks` is populated by the producing namespace at load time — the
 ;; upgrade path a `defonce`-guarded publication breaks is written out at
-;; `:live-frame/release-frame-generation-pool!`'s directory row. This
+;; `:live-frame/call-with-frame-resolution`'s directory row. This
 ;; namespace is loaded by every door that can create a root, so the hook is
 ;; bound before the first Root can exist.
 (rf.late-bind/set-fn! :fresco/drain-client-roots! drain-active-roots!)
