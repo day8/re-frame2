@@ -3284,7 +3284,7 @@ surface.
 The substrate still emits the same two trace ops:
 
 - `:rf.error/schema-validation-failure` — runtime per-boundary
-  validation failure (app-db commit / cofx / sub-return / fx-args /
+  validation failure (app-db commit / sub-return / fx-args /
   event payload). Tags: `:where`, `:path`, `:value`, `:failing-id`,
   `:rollback?`, `:explain`, `:sensitive?`.
 - `:rf.schema/violation` — registration-time drift: a first
@@ -3303,7 +3303,6 @@ unchanged); only the aggregation moved.
 | `:where` slot   | Owning pipeline step                                | Granularity              |
 |-----------------|-----------------------------------------------------|--------------------------|
 | `:event`        | DISPATCH                                            | step-level               |
-| `:cofx`         | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
 | `:app-db`       | SIDE EFFECTS step `:db` row (the handler's app-db write) — per rf2-8resu / rf2-kt6js | row-level         |
 | `:machine-data` | SIDE EFFECTS step `:rf.db/runtime` row (the handler's runtime-db partition write — EP-0001 rf2-ff9b0d, the runtime-db sibling of the `:app-db` → `:db` attach, via `attach-to-runtime-db-row`). The runtime-db partition carries durable machine snapshots, so its post-commit boundary is `:where :machine-data`. When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is also signalled via the §Rollback blast-radius mute pass; the violation itself stays attached to the runtime-db row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
 | `:fx-args`      | SIDE EFFECTS step, row whose `:fx-id` = `:failing-id` | row-level (fallback step)|
@@ -3477,10 +3476,7 @@ behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
   registration the violation names: `:event` → `:event`; `:fx-args` → `:fx`;
   `:sub-return` and `:sub-override` → `:sub`; `:machine-data` and `:machine-output` →
   `:event`, because a machine IS an `:event` registration and its `[:schemas …]` ride on it.
-- `:cofx` is not emitted on
-  this category: a recordable-coeffect failure is the `:rf.error/cofx-value-invalid` hard
-  error (Spec 010 §Per-step recovery, row 2), so no kind is mapped for it. `:hot-reload`
-  rows never reach this block.
+- `:hot-reload` rows never reach this block.
 - Coord missing (a `:where` with no mapping, a `:failing-id` or path naming no
   registration, or a registration without a stamped coord) → the prose still renders,
   with `schema check` as plain inline text rather than a clickable affordance. Every

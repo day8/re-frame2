@@ -397,7 +397,7 @@
 (defn- schema-violation-ev
   "`:rf.error/schema-validation-failure` trace — the
   runtime per-event boundary check (`:where` in
-  `:app-db / :cofx / :sub-return / :fx-args`). The violation attaches
+  `:app-db / :sub-return / :fx-args`). The violation attaches
   inline under its owning step (`attach-violations`).
 
   The trace event also carries `:explain-humanized` —
