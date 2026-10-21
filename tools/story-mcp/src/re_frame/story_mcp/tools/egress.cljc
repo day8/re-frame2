@@ -95,9 +95,10 @@
 
   `elide-app-db` redacts the `:app-db` slot. The same value also appears in
   `:effective-args` (the resolved arg map), in any `:snapshot` body, and in
-  the evidence trees (a `:sub-runs` `:value`). A `:narrative` beat is not one
-  of these: it is epoch data, and `project-narrative` sends it through the
-  epoch projector.
+  the `:schema-violations` / `:warnings` evidence trees. The epoch rows
+  (`:effects` / `:sub-runs` / `:renders`) and the `:narrative` beats are not
+  among these: they are epoch data, and `project-epoch-rows` /
+  `project-narrative` send them through the epoch projector.
   Some of those derived positions match a classified path (an
   `:effective-args {:token …}` slice with `[:token]` classified); others
   re-key the value to a position the path cannot reach (the token at hiccup
@@ -367,7 +368,7 @@
       {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile false)})))
 
 ;; ---------------------------------------------------------------------------
-;; Epoch narrative — the off-box epoch projector
+;; Epoch narrative and epoch rows — the off-box epoch projector
 ;; ---------------------------------------------------------------------------
 
 (defn project-narrative
@@ -399,6 +400,37 @@
             (cond-> span
               (contains? span :epochs) (update :epochs #(mapv project-beat %))))
           narrative)))
+
+(def ^:private epoch-row-slots
+  "The run-result slots that hold epoch rows: the tape's per-epoch
+  `:effects` / `:sub-runs` / `:renders` rows, concatenated, each stamped
+  with its `:epoch-id`."
+  [:effects :sub-runs :renders])
+
+(defn project-epoch-rows
+  "Project a run-result's top-level epoch rows — `epoch-row-slots` of
+  `outcome` — through `re-frame.core/project-egress`'s `:rf/epoch-record`
+  arm, keyed to `variant-id`'s frame. Returns those slots as a map, each a
+  vector.
+
+  The rows are the epoch records' own rows under the record's slot names,
+  so one record stamped around them takes the projector's row arms, and
+  each row reads as it does in the record the pair MCP projects and in
+  its `project-narrative` beat: an effect's `:args` redact, a sub-run's
+  query vectors keep only their ids, and a render row, which carries no
+  user value, passes through as the arm passes it. Story's `:epoch-id`
+  stamp passes through too.
+
+  `include?` returns the rows as recorded: Story MCP's trusted-local
+  opt-in ships them raw."
+  [outcome variant-id include?]
+  (let [rows (into {} (map (fn [slot] [slot (vec (get outcome slot))])) epoch-row-slots)]
+    (if include?
+      rows
+      (select-keys (rf/project-egress
+                     (assoc rows :kind :rf/epoch-record :frame variant-id)
+                     {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile false)})
+                   epoch-row-slots))))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime and captured values
