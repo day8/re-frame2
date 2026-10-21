@@ -451,8 +451,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn mark-boundary!
-  "Record that `f` — a React function component `defview` minted
-  — is a legal hiccup head. Returns `f`, so a `defview` can end with it."
+  "Record that `f` — a React component — is a legal hiccup head. Returns
+  `f`, so a declaration can end with it. `collector/mint-view!` writes the
+  same marker inline, because a call that writes its argument would keep
+  every unreferenced view in a release bundle."
   [f]
   (unchecked-set f "frescoBoundary" true)
   f)
@@ -514,29 +516,42 @@
       false)))
 
 (defn memoize-boundary!
-  "Give a marked head ONE stable internal `React.memo` wrapper
+  "Opt a marked head into ONE stable internal `React.memo` wrapper
   (`boundary-props=`) and return the head, still the function it was. The
   wrapper is attached to the head rather than returned because a minted
   head must BE a function and `React.memo` returns an object;
-  `boundary-element` creates elements from it (`element-type`). Minted
+  `boundary-element` creates elements from it (`element-type`). Built
   once per head, never per element — a fresh wrapper per render is a
   fresh element type, and React remounts the subtree instead of bailing
-  out. Opt-in at the mint site, so heads that are not reactive boundaries
-  keep the semantics they were written with. Why the bail-out is the
-  boundary default: docs/design/fresco/architecture.md, Memoization;
+  out. Built at the head's FIRST element rather than here, so opting in
+  is one own-property write and `collector/mint-view!` stays a pure
+  allocation an unreferenced view can be dropped with. Opt-in at the mint
+  site, so heads that are not reactive boundaries keep the semantics they
+  were written with. Why the bail-out is the boundary default:
+  docs/design/fresco/architecture.md, Memoization;
   docs/design/fresco/decisions.md HD-028."
   [f]
-  (let [memo (react/memo f boundary-props=)]
-    (unchecked-set memo "displayName" (unchecked-get f "displayName"))
-    (unchecked-set f "frescoMemo" memo)
-    f))
+  (unchecked-set f "frescoMemoize" true)
+  f)
+
+(defn- boundary-memo
+  "Build an opted-in head's `React.memo` wrapper, keep it on the head, and
+  answer it."
+  [head]
+  (let [memo (react/memo head boundary-props=)]
+    (unchecked-set memo "displayName" (unchecked-get head "displayName"))
+    (unchecked-set head "frescoMemo" memo)
+    memo))
 
 (defn- element-type
   "The React type a boundary head's elements are created from: its stable
-  memo wrapper when it has one, and otherwise the head itself. One
-  own-property read on a path that already reads one."
+  memo wrapper when it has one — built here on an opted-in head's first
+  element — and otherwise the head itself."
   [head]
-  (or (unchecked-get head "frescoMemo") head))
+  (or (unchecked-get head "frescoMemo")
+      (if (true? (unchecked-get head "frescoMemoize"))
+        (boundary-memo head)
+        head)))
 
 ;; ---------------------------------------------------------------------------
 ;; Host heads (HD-011) — the declared door for a foreign React component

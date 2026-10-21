@@ -1211,13 +1211,24 @@
 
 (defn mint-view!
   "Turn a body fn into a boundary: a React function component, marked as
-  a legal hiccup head and wrapped in the codec's stable memo — minted once,
+  a legal hiccup head and opted into the codec's stable memo — minted once,
   at definition, which is why the codec's stable-heads cache (HD-004) has
   nothing to do here and why a plain function in head position can be a
   loud error (HD-016). Returns the head, still a function: `React.memo`
   answers an object, and the codec and the tests require a minted head to
-  BE one, so `codec/memoize-boundary!` attaches the wrapper to the head
-  and the codec creates elements from the wrapper.
+  BE one, so the codec builds the wrapper at the head's first element,
+  keeps it on the head, and creates every element from it
+  (`codec/memoize-boundary!`).
+
+  A RELEASE MINT IS A PURE ALLOCATION, so Closure drops a view nothing
+  references, body and all (implementation/fresco/spec/authoring-contract.md
+  §The boundary ABI, Registration). That holds only while every own
+  property is written straight onto the binding of the `fn` literal:
+  Closure proves a write local there and nowhere else, and a write through
+  a rebinding or a helper call reads as a write to a shared object, which
+  keeps every view's mint and body in every bundle. The memo waits for
+  the first element for the same reason: `React.memo` is an npm call
+  Closure cannot see into.
 
   The component fn is Spec 009's `:render` bracket
   (`rf:render:<view-name>`, the string also stamped as `displayName`) and,
@@ -1240,21 +1251,25 @@
     (unchecked-set body-fn view-attrs-slot (view-annotations view-name)))
   (let [component (fn fresco-boundary [js-props]
                     (rf.performance/mark-and-measure :render view-name
-                      (shell body-fn js-props)))
-        ;; Dev only: the origin a refusal below names. `interop/debug-enabled?`
-        ;; is `^boolean goog.DEBUG`, so under `:advanced` this `if` folds to
-        ;; `component` and React calls the fn above, unchanged.
-        component (if rf.interop/debug-enabled?
-                    (rf.fresco.impl.error/traced-boundary view-name component)
-                    component)]
+                      (shell body-fn js-props)))]
+    ;; `codec/mark-boundary!`'s marker and `codec/memoize-boundary!`'s
+    ;; opt-in, written inline — see the docstring's pure-allocation section.
     (unchecked-set component "displayName" view-name)
-    (let [head (rf.fresco.impl.codec/memoize-boundary! (rf.fresco.impl.codec/mark-boundary! component))]
-      ;; The body, kept ON the head for the test kit's L2 walk alone, which
-      ;; mounts nothing and would otherwise have no route back to it. One
-      ;; own property; under `goog.DEBUG=false` it folds away with
-      ;; `codec/retain-body!` (`view-body-retention-elision-prod-test`).
-      (when ^boolean js/goog.DEBUG (rf.fresco.impl.codec/retain-body! head body-fn))
-      head)))
+    (unchecked-set component "frescoBoundary" true)
+    (unchecked-set component "frescoMemoize" true)
+    ;; Dev only: the head is `error/traced-boundary`'s wrapper, so a refusal
+    ;; raised below can name the view. It carries the component's own
+    ;; properties (`Object.assign` copies exactly those: a fn's `name` and
+    ;; `length` are not enumerable) and the body, kept ON the head for the
+    ;; test kit's L2 walk, which mounts nothing and has no other route back
+    ;; to it. `interop/debug-enabled?` is `^boolean goog.DEBUG`, so under
+    ;; `:advanced` the branch folds to `component`
+    ;; (`view-body-retention-elision-prod-test`).
+    (if rf.interop/debug-enabled?
+      (rf.fresco.impl.codec/retain-body!
+        (js/Object.assign (rf.fresco.impl.error/traced-boundary view-name component) component)
+        body-fn)
+      component)))
 
 ;; ---------------------------------------------------------------------------
 ;; The authoring-time alias — one registrar entry per declaration, dev only
