@@ -52,9 +52,10 @@
          DevTools label")))
 
 (deftest a-production-head-retains-no-body
-  (testing "`(when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))`
-            in `mint-view!` folds away whole, so the slot the test kit reads
-            was never written and the body is unreachable from the head"
+  (testing "`codec/retain-body!` sits in `mint-view!`'s
+            `interop/debug-enabled?` branch, which folds away whole, so the
+            slot the test kit reads was never written and the body is
+            unreachable from the head"
     (is (nil? (rf.fresco.impl.codec/retained-body rf.fresco.coord-sentinel-source/sentinel-row)))))
 
 (deftest no-own-property-of-a-production-head-holds-a-function
