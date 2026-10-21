@@ -97,10 +97,17 @@ const postMessage = (message) => parentPort.postMessage(message);
  * The stack, not the message alone. It opens with the error's own name and
  * message, so nothing is dropped by preferring it, and it adds the frames
  * — which is the half a refusal could never have carried anyway.
+ *
+ * The caller's `requestId`, when the request carried one, because the JVM
+ * host sends its request frame's id there and files its own error record
+ * under the same frame: with it an operator matches a 5xx to the stack
+ * behind it by id rather than by clock. It is the caller's own token, so
+ * naming it here publishes nothing, and it goes on this line only.
  */
-function reportRenderException(entry, err) {
+function reportRenderException(entry, err, requestId) {
   const trace = err && err.stack ? err.stack : String(err);
-  process.stderr.write(`[rf.ssr-node] render threw in entry ${entry}: ${trace}\n`);
+  const request = requestId === undefined ? '' : ` (request ${requestId})`;
+  process.stderr.write(`[rf.ssr-node] render threw in entry ${entry}${request}: ${trace}\n`);
 }
 
 /**
@@ -245,7 +252,7 @@ async function handleRender(renderId, request) {
     // NOTHING IS LOST BY IT, because a refusal is not where an operator
     // reads a stack anyway. The real exception goes to stderr below, in
     // full; see `reportRenderException`.
-    reportRenderException(request.entry, err);
+    reportRenderException(request.entry, err, request.requestId);
     postMessage({
       t: 'error',
       id: renderId,
@@ -276,7 +283,7 @@ parentPort.on('message', (message) => {
       // be an unbounded string on the response protocol, and a law with one
       // arm that states it differently is a law with a way around it. The
       // operator gets the real one, as everywhere else on this path.
-      reportRenderException(message.request?.entry, err);
+      reportRenderException(message.request?.entry, err, message.request?.requestId);
       postMessage({
         t: 'error',
         id: message.id,

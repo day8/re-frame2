@@ -233,6 +233,35 @@ test('a THROW is refused with the contract’s wording and carries nothing the m
   });
 });
 
+test('the OPERATOR’s render-threw line names the caller’s requestId, so a JVM 5xx can be matched to its stack', async () => {
+  // The id goes to stderr and nowhere new: the refusal is the one above.
+  const [captured, restore] = captureStderr();
+  const lines = () => captured.join('').split('\n').filter((line) => line.includes('render threw in entry'));
+  let tagged;
+  try {
+    await withService('throws-data', { isolates: 1 }, async (service) => {
+      tagged = await refusalOf(() => service.renderToString({ ...throwReq('app/plain'), requestId: 'corr-throw' }));
+      await refusalOf(() => service.renderToString(throwReq('app/plain')));
+      // The worker's stderr reaches this process through a pipe.
+      await waitFor(() => lines().length >= 2, 5000, 'both render-threw lines did not arrive');
+    });
+  } finally {
+    restore();
+  }
+  assert.strictEqual(tagged.message, RENDER_THREW_REFUSAL);
+  assert.deepStrictEqual(tagged.detail, { entry: 'app/plain' }, 'the detail is the entry and nothing else');
+  assert.deepStrictEqual(refusalLeaks(tagged), []);
+
+  assert.ok(
+    lines().some((line) => line.includes('render threw in entry app/plain (request corr-throw): ')),
+    `a render that sent a requestId must name it: ${lines().join('\n')}`,
+  );
+  assert.ok(
+    lines().some((line) => line.startsWith('[rf.ssr-node] render threw in entry app/plain: ')),
+    `a render that sent none must read as it always has: ${lines().join('\n')}`,
+  );
+});
+
 test('and it cannot choose the HTTP status either — every throw is a 500', async () => {
   // Rename a member of `CODE` and the fixture's literals would map to 500 on
   // their own: this row would stay green and stop testing a spoof.
@@ -341,7 +370,9 @@ async function replacementBootFailure() {
       'flaky-boot',
       { isolates: 1, admissionTimeoutMs: 5000, defaultTimeoutMs: 300, maxTimeoutMs: 5000 },
       async (service) => {
-        const hung = refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/hang' }));
+        const hung = refusalOf(() =>
+          service.renderToString({ protocol: 1, entry: 'app/hang', requestId: 'corr-hang' }),
+        );
         await tick();
         await tick();
         const queued = refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/root' }));
@@ -389,6 +420,10 @@ test('a replacement that cannot boot tells a WAITING CALLER nothing it authored,
   assert.ok(
     poolLine?.includes('flaky-boot.cjs') && poolLine.includes(BOOT_SENTINEL),
     `the operator must be told the REAL failure and the module that would not load: ${run.stderr}`,
+  );
+  assert.ok(
+    poolLine.includes('(request corr-hang)'),
+    `and the request whose isolate died, which the replacement was for: ${poolLine}`,
   );
 });
 

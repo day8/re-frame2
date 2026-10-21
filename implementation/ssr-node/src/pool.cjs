@@ -56,13 +56,18 @@ const { Isolate } = require('./isolate.cjs');
  * boot receiver builds from that post carries only `modulePath` in its
  * `detail`. For that failure the application's trace is the worker's line,
  * and this one says that the boot which failed was a replacement's.
+ *
+ * `requestId` is the caller's id for the render whose isolate died and set
+ * off the replacement, when that request carried one — the same token
+ * `reportRenderException` names, for the same reason.
  */
-function reportReplacementFault(modulePath, err) {
+function reportReplacementFault(modulePath, err, requestId) {
   const trace = err && err.stack ? err.stack : String(err);
   const detail =
     err && err.detail && Object.keys(err.detail).length ? ` ${JSON.stringify(err.detail)}` : '';
+  const request = requestId === undefined ? '' : ` (request ${requestId})`;
   process.stderr.write(
-    `[rf.ssr-node] a replacement isolate failed to boot from ${modulePath}: ${trace}${detail}\n`,
+    `[rf.ssr-node] a replacement isolate failed to boot from ${modulePath}${request}: ${trace}${detail}\n`,
   );
 }
 
@@ -219,9 +224,11 @@ class Pool {
   /**
    * Give an isolate back. A dead one is replaced rather than returned —
    * asynchronously, because a caller finishing a request should not wait
-   * on the next isolate's boot.
+   * on the next isolate's boot. `requestId` is the id of the request the
+   * isolate just served, if it carried one; it reaches only the operator's
+   * line should the replacement fail.
    */
-  release(isolate) {
+  release(isolate, requestId) {
     if (isolate.dead) {
       this.isolates.delete(isolate);
       this.replacementCount += 1;
@@ -265,7 +272,7 @@ class Pool {
         // `reportReplacementFault` for why that is part of the contract
         // rather than a courtesy.
         (err) => {
-          reportReplacementFault(this.modulePath, err);
+          reportReplacementFault(this.modulePath, err, requestId);
           if (this.failed) return;
           this.failed = true;
           for (const waiter of this.waiters.splice(0)) {

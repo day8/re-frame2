@@ -25,7 +25,6 @@
   "rf.http/classify-response-body"           1
   "rf.http/decode-response-body"             2
   "rf.http/json-parse"                       1
-  "rf.ssr.ring/import-fn"                    1
   "rf.ssr/cookie->set-cookie-header"         5
   "rf.ssr/ssr-handler"                       7
   "rf.ssr/trusted-shell"                     1
