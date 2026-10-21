@@ -431,12 +431,17 @@ on the common no-run inspection path; that boundary is retired for
  :active-modes      [keyword] (optional)
  :cell-overrides    {keyword any} (optional)
  :timeout-ms        number  (optional, capped at 30000)
- :include-sensitive boolean (optional, gated — see `preview-variant`)}
+ :include-sensitive boolean (optional, gated — see `preview-variant`)
+ :include-trace-events boolean (optional, default false)}
 ```
 
 `:timeout-ms` is clamped to 30 s (matches `:rf.http/timeout-ms`
 baseline per rf2-it1cd; rf2-g9fje). `:include-sensitive` follows
 the same `--allow-sensitive-reads` gate as `preview-variant`.
+`:include-trace-events true` ships each `:narrative` beat's raw
+`:trace-events`; by default a beat carries their `:trace-event-count`
+instead, because the raw events are most of a run's bytes and would
+push even a trivial variant past the default `max-tokens` cap.
 
 **Output.** The unified run-result (rf2-ba86n.17 clean break — the same
 shape the human Story UI reads; `re-frame.story.result/run-result`):
@@ -452,7 +457,7 @@ shape the human Story UI reads; `re-frame.story.result/run-result`):
  :effects            [map]
  :sub-runs           [map]
  :renders            [map]
- :narrative          [map]    ; ordered narrative beats
+ :narrative          [map]    ; ordered narrative beats; each counts its trace events
  :app-db             map
  :snapshot           map
  :elapsed-ms         number

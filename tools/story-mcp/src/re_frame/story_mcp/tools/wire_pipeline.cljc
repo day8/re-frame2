@@ -57,6 +57,8 @@
     result shape (`{:content [...] :structuredContent ...}` CLJ maps).
   - `overflow-hints` is the local hint table — the per-tool next-step
     prose stays here because the surfaces are domain-specific.
+    `overflow-hint` leads that prose with the payload's largest slots,
+    measured.
 
   Sized via `rf.mcp-base.overflow/token-estimate` (the `(quot (count s) 4)` rule
   aligned with Anthropic's character→token rule-of-thumb). The cap is
@@ -72,7 +74,8 @@
   `true`. Pass `false` to skip dedup — useful for ad-hoc reads when the
   agent host hasn't been taught to call `re-frame.mcp-base.dedup/expand`. Lives
   on dedup-eligible tools' input schema via `schemas/with-dedup`."
-  (:require [re-frame.mcp-base.args :as rf.mcp-base.args]
+  (:require [clojure.string :as str]
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
@@ -81,18 +84,54 @@
             [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
 
 (def ^:private overflow-hints
-  "Tool-specific next-step hints for the overflow marker. Generic
+  "Tool-specific next-step hints for the overflow marker, which
+  `overflow-hint` leads with the measured largest slots. Generic
   fallback (from `mcp-base.overflow`) when a tool isn't listed.
 
   Mirrors re-frame2-pair-mcp's local hint table — the hint is the agent's
-  shortest path back into budget."
-  {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`. The :app-db / :snapshot slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
-   "run-variant"       "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :snapshot slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+  shortest path back into budget. The prose names the knobs and leaves
+  WHICH slot is large to the measurement, because that depends on the
+  variant."
+  {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`, or raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+   "run-variant"       "Leave `:include-trace-events` off (each `:narrative` beat then carries a `:trace-event-count` in place of its raw trace events), tighten scope with `:cell-overrides` or a smaller `:active-modes`, or raise `max-tokens` (0 disables) if the full payload is genuinely needed."
    "get-story"         "Story body is large — request `list-stories` for a slimmer overview, or raise `max-tokens` (0 disables)."
    "get-variant"       "Variant body is large — request `variant->edn` if you want EDN-only, or raise `max-tokens` (0 disables)."
    "variant->edn"      "Variant EDN body is large — narrow the variant or raise `max-tokens` (0 disables)."
    "list-stories"      "Story registry is large — narrow with `:tags`, or raise `max-tokens` (0 disables)."
    "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."})
+
+(def ^:private ranked-slot-count
+  "How many of the payload's largest slots the overflow hint names."
+  3)
+
+(defn overflow-hint
+  "The overflow marker's `:hint` for `tool-name` over `result`, the
+  handler's result: the largest top-level slots of its structured
+  payload, each with its share of that payload, then the tool's
+  next-step prose. A payload that is not a map gets the prose alone.
+
+  Measured rather than written into the prose, because which slot
+  overflows depends on the call — `run-variant`'s `:narrative` on a run
+  whose beats carry their trace events, its `:app-db` on a data-heavy
+  variant. Measured BEFORE structural dedup, where the slot names are
+  the ones the agent reads, so a subtree several slots share counts
+  toward each of them. Only an over-budget call pays for it: the
+  dispatcher hands `apply-cap` this hint as a `delay`."
+  [tool-name result]
+  (let [structured (:structuredContent result)
+        sizes      (when (map? structured)
+                     (map (fn [[k v]] [k (count (rf.story-mcp.tools.result/pr-edn v))]) structured))
+        total      (reduce + 0 (map second sizes))
+        prose      (get overflow-hints tool-name rf.mcp-base.overflow/overflow-hint-fallback)]
+    (if (pos? total)
+      (str "Largest slots: "
+           (->> sizes
+                (sort-by second >)
+                (take ranked-slot-count)
+                (map (fn [[k n]] (str (pr-str k) " " (quot (* 100 n) total) "%")))
+                (str/join ", "))
+           ". " prose)
+      prose)))
 
 (def ^:private result-io
   "ResultIO reify over story-mcp's CLJ-map result shape. The
@@ -287,7 +326,7 @@
     (rf.mcp-base.cap/apply-cap result-io err-result
                         {:tool tool-name
                          :cap  effective-cap
-                         :hint (get overflow-hints tool-name)})))
+                         :hint (delay (overflow-hint tool-name err-result))})))
 
 (defn invoke-tool
   "Invoke `tool-name` with `arguments` (a map of keyword-keyed args).
@@ -409,7 +448,9 @@
               deduped   (if (true? (:isError result))
                           result
                           (apply-dedup result dedup?))]
+          ;; The hint measures `result`, not `deduped`: the slot names
+          ;; the agent reads are the handler's.
           (rf.mcp-base.cap/apply-cap result-io deduped
                               {:tool tool-name
                                :cap  cap
-                               :hint (get overflow-hints tool-name)}))))))
+                               :hint (delay (overflow-hint tool-name result))}))))))

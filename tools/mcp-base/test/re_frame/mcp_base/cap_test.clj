@@ -75,6 +75,18 @@
                    [:structuredContent rf.mcp-base.vocab/overflow-key :hint]))
         "an absent hint falls back to the generic one")))
 
+(deftest apply-cap-forces-a-delayed-hint-only-on-overflow
+  ;; A consumer measuring the payload to name the overflowing slot pays for
+  ;; that measurement only when the cap trips.
+  (let [hint (delay "measured")
+        r    (ok-text-result "small")]
+    (is (identical? r (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint hint})))
+    (is (not (realized? hint)) "an under-budget call never forces the hint")
+    (is (= "measured"
+           (get-in (rf.mcp-base.cap/apply-cap map-io (ok-text-result {:huge (big-string 4000)})
+                                              {:tool "snapshot" :cap 500 :hint hint})
+                   [:structuredContent rf.mcp-base.vocab/overflow-key :hint])))))
+
 (deftest apply-cap-overflow-payload-is-itself-under-cap
   (let [r   (ok-text-result {:huge (big-string 8000)})
         out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500})]

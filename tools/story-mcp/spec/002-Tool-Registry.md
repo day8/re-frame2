@@ -492,7 +492,7 @@ Full lifecycle invocation; returns the unified run-result (see
  :effects            [...]
  :sub-runs           [...]
  :renders            [...]
- :narrative          [...]   ; ordered narrative beats
+ :narrative          [...]   ; ordered narrative beats; each counts its trace events
  :app-db             {...}
  :snapshot           {...}
  :elapsed-ms         ...
@@ -506,9 +506,17 @@ reruns of a deterministic scenario, so compare them to tell a changed
 plan from changed behaviour. Each is present iff the run minted it; a
 planless `:status :error` carries no `:plan-hash`.
 
+Each `:narrative` beat carries its epoch's causal spine and structured
+rows, and a `:trace-event-count` in place of its raw `:trace-events`.
+The raw events are most of a run's bytes — enough to push even a
+trivial variant past the default token cap and lose its `:assertions`
+to the overflow marker — so they ship only on `:include-trace-events
+true`.
+
 Inputs: `:variant-id` (required), plus optional `:substrate`,
-`:active-modes`, `:cell-overrides`, `:timeout-ms`, and
-`:include-sensitive`. See [the input schema](API.md#run-variant).
+`:active-modes`, `:cell-overrides`, `:timeout-ms`,
+`:include-sensitive`, and `:include-trace-events`. See [the input
+schema](API.md#run-variant).
 
 Host prerequisite: with no re-frame adapter installed in the server JVM
 this REFUSES up front with `:rf.error/no-adapter-installed` and no

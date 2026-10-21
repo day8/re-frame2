@@ -209,7 +209,8 @@
     :body                                                     ; write payload slots
     :tags :kind :limit :cursor                                ; filters / pagination
     :timeout-ms                                               ; behaviour knobs
-    :include-sensitive :max-tokens :dedup})                   ; egress / budget knobs
+    :include-sensitive :include-trace-events                  ; egress / budget knobs
+    :max-tokens :dedup})
 
 (defn- rename-allowed-keys
   "Return `m` (a possibly-string-keyed map) with every key that the

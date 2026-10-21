@@ -27,7 +27,7 @@ The pipeline is a **two-stage** gate that folds both sums in a **single pass** o
 1. **Resolve the cap.** `max-tokens` returns `nil` for `0`, the 5000 default for an absent/non-number value, a floored positive integer for an in-range number, or an invalid-arg marker for an out-of-domain number. Consumers reject the marker before calling `apply-cap`.
 2. **Single-pass token + character sum.** One `transduce` folds both `Σ token-estimate` and `Σ (count s)` across all measured payload strings, including a serialized `:structuredContent` slot when present.
 3. **Two-stage over-budget decision** (`over-cap?`): trip when either the token sum exceeds `cap` or the character sum exceeds `cap * byte-cap-multiplier`. The second gate bounds loss from flooring each short payload string independently. `reported-count` always reports token units: the token estimate when the token gate trips, otherwise (only the character gate tripped) `quot chars 4`.
-4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`).
+4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`). The `:hint` opt is a string or a `delay` of one, forced only here, so a consumer can measure the over-budget payload to name the slot that overflowed without paying for the measurement on every under-budget call.
 
 ```clojure
 (defn apply-cap [io result {:keys [tool cap hint]}] ; cap = resolved max-tokens
@@ -47,7 +47,7 @@ The pipeline is a **two-stage** gate that folds both sums in a **single pass** o
                        {:tool        tool
                         :token-count (reported-count tokens chars cap)
                         :cap         cap
-                        :hint        hint})]
+                        :hint        (force hint)})] ; string, or a delay of one
           (build-overflow-result io marker result)))))) ; over-budget
 ```
 
