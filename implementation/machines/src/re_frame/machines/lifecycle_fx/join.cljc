@@ -383,7 +383,7 @@
   resolution trace carries only the decisive child's terminal,
   so in an `:all` join every other child would be folded
   silently — stranding
-  work-ledger/Xray projections on an open attempt.
+  trace-derived attempt projections (Xray) on an open attempt.
 
   The DECISIVE fold's terminal rides the resolution trace instead
   (`emit-resolution-traces!`); the two emits sit on opposite arms of the

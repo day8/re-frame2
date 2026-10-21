@@ -43,7 +43,7 @@
 
 ;; A region `:after` is scheduled under a region-PREFIXED invoke-id. Its
 ;; :cancelled row must build the same region-qualified work-id its :fired row
-;; does, or one logical timer splits across two work/reply ledger rows.
+;; does, or one logical timer splits across two work ids.
 (deftest region-after-fired-and-cancelled-share-one-work-id
   (rf/reg-machine :cttpk4-tw/timer
     {:type    :parallel
