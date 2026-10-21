@@ -887,7 +887,7 @@
   ;; projection. Live-state inspection (`resource-state`) is not on the
   ;; facade: it is rowed at home in `re-frame.resources` (spec/API.md
   ;; §Conventions, the facade rule by role).
-  ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
+  ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Resource registration is the everyday half of the Spec 016 surface."}
   ;; Mutations — the causal-write counterpart of the resource registration
@@ -898,7 +898,7 @@
   ;; Registration (`reg-mutation`); the registered SPEC is the generic query
   ;; plus the `:rf/mutation` projection, and live-state inspection
   ;; (`mutation-state`) is rowed at home in `re-frame.resources`.
-  ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
+  ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
   ;; There are no `sub-mutation` / `sub-resource` reactive-read sugar fns: a
@@ -919,10 +919,10 @@
   ;; implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc).
   ;; Same optional-artefact wrapper posture
   ;; as reg-resource.
-  ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"
+  ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"
                                             :action :keep
                                             :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Named resource-scope resolvers are the third resources kind (Spec 016, EP-0016 D3) and share the wrapper posture of reg-resource."}
-  ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"
+  ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"
                                              :action :keep
                                              :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The pure scope-resolution helper an app calls in the logout coeffect-db idiom, in the same file as the resolver it registered."}
   ;; Focus/reconnect revalidation carries NO facade row: it is the
@@ -1339,7 +1339,7 @@
   ;; reset. A test requires the namespace for its load effect, which publishes
   ;; the `:resources/reset-resources!` hook `make-reset-runtime-fixture` fires;
   ;; the var itself is a test reach, like the http reaches above.
-  ["re-frame.resources.test-support" "reset-resources!"]         {:tier :implementation :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources.test-support" "reset-resources!"]         {:tier :implementation :owner "016" :status "post-v1 lib (optional capability)"}
 
   ;; =========================================================================
   ;; re-frame.test-support — runtime-state test helpers (tier: testing).
@@ -1591,7 +1591,7 @@
   ;;       capability, one tier — the
   ;;       manifest must not classify the same var `:advanced` through the
   ;;       facade door and something else through its home door. Every one
-  ;;       is `:advanced :owner "016" :status "v1 (optional capability)"` on
+  ;;       is `:advanced :owner "016" :status "post-v1 lib (optional capability)"` on
   ;;       the facade, so they are that here.
   ;;   (b) There are no per-kind `<kind>-ids` / `<kind>-meta`
   ;;       accessors here — enumeration is
@@ -1610,21 +1610,21 @@
   ;;       `route-algebra-view` / `machine-algebra-view` (EP-0014).
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
-  ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
   ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
-  ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
   ;; Home-only inspection: the live-state reads have no facade door (spec/API.md
   ;; §Conventions, the facade rule by role), so these rows are their only
   ;; classification. They keep the tier the resource surface carries.
-  ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
+  ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
   ;; (a) Facade-mirrored — named resource-scope resolvers (Spec 016 §Named
   ;; resource-scope resolvers). `resolve-resource-scope` is PURE over the
   ;; resolver registry (the logout coeffect-db idiom): not an effect and with
   ;; no observability side effect, so it emits no
   ;; `:rf.resource/scope-resolved` trace.
-  ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
+  ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "post-v1 lib (optional capability)"}
   ;; (c) Algebra views — a resource is the canonical PROCESS member of the
   ;; algebra (Derivations §Process). The static registry view and
   ;; the live per-frame cache-entry view have no
