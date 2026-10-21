@@ -6,7 +6,7 @@
   `reconcile-on-restore` does everything the SSR hydrate reconcile does
   (recompute the reverse indexes, orphan SSR owners, clear `:current-work`)
   PLUS settle every mid-flight entry to its last STABLE status and record every
-  non-terminal work-ledger row and pending mutation as DANGLING, so a
+  live attempt and pending mutation as DANGLING, so a
   pre-restore in-flight reply is suppressed by the ordinary work-id +
   generation check. Restore never eagerly refetches, never rewinds the
   host-side generation allocator, and never re-reads the live clock for a
@@ -56,19 +56,15 @@
           :refresh-error  refresh-error}))
 
 (defn- runtime-db-with
-  "A runtime-db carrying `entries` (given as `{scoped-key entry}`) and an
-  optional work `ledger` (given as `{work-id record}`), re-keyed to the
-  runtime's byte-identity shapes."
-  ([entries] (runtime-db-with entries nil))
-  ([entries ledger]
-   (cond-> {rf.resources.state/resources-key
-            {:entries (into {}
-                            (map (fn [[sk e]]
-                                   [(rf.resources.state/key-id sk) (assoc e :resource/key sk)]))
-                            entries)
-             :tag-index {} :owner-index {}}}
-     ledger (assoc rf.resources.state/work-ledger-key
-                   (into {} (map (fn [[wid r]] [(rf.resources.work-ledger/work-id-id wid) r])) ledger)))))
+  "A runtime-db carrying `entries` (given as `{scoped-key entry}`), re-keyed to
+  the runtime's byte-identity shape."
+  [entries]
+  {rf.resources.state/resources-key
+   {:entries (into {}
+                   (map (fn [[sk e]]
+                          [(rf.resources.state/key-id sk) (assoc e :resource/key sk)]))
+                   entries)
+    :tag-index {} :owner-index {}}})
 
 (defn- with-live-nav-token
   "Install a restored routing slice naming `nav-token` as live — the token the
@@ -146,33 +142,9 @@
 (defn- work-row
   [work-id status]
   (-> (rf.resources.work-ledger/work-record
-        {:work-id work-id :frame-id :app/main :resource/key gkey
-         :generation (nth work-id 2) :transport :rf.http/managed
+        {:work-id work-id :generation (nth work-id 2) :transport :rf.http/managed
          :started-at 1000})
       (assoc :status status)))
-
-(deftest non-terminal-rows-settled-to-dangling-suppressed
-  ;; Every restored non-terminal row settles terminal :suppressed with a
-  ;; :dangling outcome, so a late reply is suppressed; a terminal row is left alone.
-  (let [live     {[:rf.work/resource gkey 3] :running
-                  [:rf.work/resource gkey 4] :queued
-                  [:rf.work/resource gkey 5] :abort-requested}
-        w-done   [:rf.work/resource gkey 2]
-        done-row (rf.resources.work-ledger/mark-terminal (work-row w-done :completed)
-                                                         :completed {:ok true})
-        ledger   (assoc (into {} (map (fn [[wid st]] [wid (work-row wid st)])) live)
-                        w-done done-row)
-        out      (get (rf.resources.ssr/reconcile-on-restore
-                        (runtime-db-with {gkey (entry {:resource-id :article/by-slug
-                                                       :status :loading :data nil})}
-                                         ledger)
-                        :app/main)
-                      rf.resources.state/work-ledger-key)
-        row      (fn [wid] (get out (rf.resources.work-ledger/work-id-id wid)))]
-    (doseq [wid (keys live)]
-      (is (= [:suppressed :dangling] ((juxt :status (comp :reason :outcome)) (row wid)))
-          (pr-str wid)))
-    (is (= done-row (row w-done)) "a completed row rides through unchanged")))
 
 (defn- mutation-instance
   "A durable mutation instance under instance-id (defaults to a :pending
@@ -199,6 +171,42 @@
                       (rf.resources.mutation-runtime/instance-key-id instance-id)]))
 
 (def ^:private live-clock 9999999999999)
+
+(deftest non-terminal-rows-settled-to-dangling-suppressed
+  ;; Every restored live attempt, on an entry or a mutation instance, settles
+  ;; terminal :suppressed with a :dangling outcome, so a late reply is
+  ;; suppressed; a settled summary is left alone.
+  (let [k        (fn [slug] (rf.resources.state/scoped-resource-key
+                              :rf.scope/global :article/by-slug {:slug slug}))
+        wid      (fn [g] (rf.resources.work-ledger/resource-work-id :article/by-slug g))
+        live     {(k "a") [(wid 3) :running]
+                  (k "b") [(wid 4) :queued]
+                  (k "c") [(wid 5) :abort-requested]}
+        done     (rf.resources.work-ledger/attempt-summary
+                   (rf.resources.work-ledger/mark-terminal
+                     (work-row (wid 2) :completed) :completed {:ok true}))
+        entries  (into {(k "done") (assoc (entry {:resource-id :article/by-slug :data {:x 1}})
+                                          :recent-work [done])}
+                       (map (fn [[sk [w st]]]
+                              [sk (assoc (entry {:resource-id :article/by-slug :status :loading
+                                                 :current-work w})
+                                         :work (work-row w st))]))
+                       live)
+        inst-wid (rf.resources.work-ledger/resource-work-id [:rf.mutation :inst-1] 9)
+        inst     (assoc (pending-instance :inst-1)
+                        :current-work inst-wid :work (work-row inst-wid :running))
+        out      (rf.resources.ssr/reconcile-on-restore
+                   (assoc (runtime-db-with entries)
+                          rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 inst}))
+                   :app/main {:restore-time-ms 1})
+        attempt  (fn [w] (rf.resources.work-ledger/attempt-record out w))]
+    (doseq [w (conj (mapv first (vals live)) inst-wid)]
+      (is (= [:suppressed :dangling] ((juxt :status (comp :reason :outcome)) (attempt w)))
+          (pr-str w)))
+    (is (= [done] (:recent-work (get-in out (rf.resources.state/entry-path (k "done")))))
+        "a settled summary rides through unchanged")
+    (is (not-any? :work (vals (get-in out (rf.resources.state/entries-path))))
+        "no live attempt survives the restore")))
 
 (deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
   ;; A dangled instance's :settled-at is durable frame-state, so it comes from
@@ -254,19 +262,17 @@
                             :generation 9})
         instance-id :article/edit-form
         work-id     (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] 3)
-        pending     (mutation-instance {:mutation-id :article/edit
-                                        :instance-id instance-id
-                                        :generation 3 :work-id work-id
-                                        :scope :rf.scope/global :params {:slug "x"}})
-        snapshot    (-> (runtime-db-with {gkey loaded})
-                        (assoc rf.resources.mutation-runtime/mutations-key (mutations-map {instance-id pending}))
-                        (assoc-in (rf.resources.work-ledger/record-path work-id)
-                                  (-> (rf.resources.work-ledger/work-record
-                                        {:work-id work-id :frame-id fid
-                                         :resource/key [:rf.mutation instance-id]
-                                         :generation 3 :transport :rf.http/managed
-                                         :started-at 1000})
-                                      (assoc :work/kind :mutation))))]
+        pending     (-> (mutation-instance {:mutation-id :article/edit
+                                            :instance-id instance-id
+                                            :generation 3 :work-id work-id
+                                            :scope :rf.scope/global :params {:slug "x"}})
+                        (assoc :work (-> (rf.resources.work-ledger/work-record
+                                           {:work-id work-id :generation 3
+                                            :transport :rf.http/managed :started-at 1000})
+                                         (assoc :work/kind :mutation))))
+        snapshot    (assoc (runtime-db-with {gkey loaded})
+                           rf.resources.mutation-runtime/mutations-key
+                           (mutations-map {instance-id pending}))]
     (rf/make-frame {:id fid :doc "restore mutation suppression frame"})
     (rf.frame/replace-runtime-db! fid (rf.resources.ssr/reconcile-on-restore snapshot fid))
     ;; the late pre-restore SUCCESS reply, carrying the snapshot's work-id + generation
@@ -386,7 +392,7 @@
 ;; 4b. Clear host transients on restore (part 5)
 ;; ===========================================================================
 ;;
-;; Timer and work-ledger host handles belong to the PRE-restore timeline and
+;; Timer and attempt host handles belong to the PRE-restore timeline and
 ;; are not frame-state, so the wholesale install does not touch them; the
 ;; reconcile clears them so a stale timer or abandoned handle cannot fire
 ;; against the restored state.
@@ -486,7 +492,7 @@
   (is (= 7 (rf.resources.state/generation-snapshot))))
 
 (deftest restore-noop-without-resources
-  (testing "a runtime-db with no resource entries AND no work-ledger rows is
+  (testing "a runtime-db with no resource entries AND no mutation instances is
             returned unchanged (a resource-free restore)"
     (let [rdb {:rf.runtime/machines {:snapshots {}}}]
       (is (= rdb (rf.resources.ssr/reconcile-on-restore rdb :app/main))))))

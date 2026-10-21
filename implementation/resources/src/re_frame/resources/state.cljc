@@ -1,10 +1,10 @@
 (ns re-frame.resources.state
-  "Resource runtime-db paths, the durable entry and work-row shapes, and the
-  pure transitions over them. The runtime swaps over these paths live in the
-  sibling namespaces; the paths and shapes are pinned here so every sibling
-  agrees on one home. The cache lives at `:rf.runtime/resources` and the
-  work ledger at `:rf.runtime/work-ledger`, both reserved runtime-db keys,
-  never app-db. Spec 016 §Cache home and write authority."
+  "Resource runtime-db paths, the durable entry shape, and the pure
+  transitions over it. The runtime swaps over these paths live in the sibling
+  namespaces; the paths and shapes are pinned here so every sibling agrees on
+  one home. The cache lives at the reserved runtime-db key
+  `:rf.runtime/resources`, never app-db, and each entry carries its own
+  in-flight attempt. Spec 016 §Cache home and write authority."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.identity :as rf.identity]))
@@ -21,14 +21,9 @@
   Spec 016 §Cache home and write authority."
   :rf.runtime/resources)
 
-(def work-ledger-key
-  "The reserved runtime-db key of the frame work ledger.
-  Spec 016 §Frame work ledger."
-  :rf.runtime/work-ledger)
-
 (defn key-id
   "The map key for a scoped resource key: its canonical-bytes string. The
-  `:entries` map, the reverse indexes and the work ledger are keyed on it
+  `:entries` map and the reverse indexes are keyed on it
   rather than the vector, because Clojure `=` collapses a vector and a list
   of the same elements while their canonical identities differ. The string
   is plain EDN, so it rides every wire with no custom handler. Total on an
@@ -99,8 +94,8 @@
 ;; ---- durable shapes ---------------------------------------------------------------
 
 (def terminal-work-statuses
-  "The terminal work-ledger statuses.
-  Spec 016 §Ledger row retention and identity."
+  "The terminal attempt statuses.
+  Spec 016 §In-flight attempts."
   #{:completed :failed :timed-out :suppressed :cancelled})
 
 (defn- empty-entry*

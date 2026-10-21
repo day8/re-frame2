@@ -178,11 +178,12 @@
   [pre-db runtime-db written-keys by-work-id]
   (reduce
     (fn [[rdb superseded] scoped-key]
-      (let [wid    (:current-work (get-in pre-db (rf.resources.state/entry-path scoped-key)))
-            record (when wid (rf.resources.work-ledger/get-record rdb wid))]
-        (if (and record (not (rf.resources.work-ledger/terminal? (:status record))))
-          [(rf.resources.work-ledger/settle-terminal
-             rdb wid :suppressed {:reason :superseded :by by-work-id})
+      (let [path   (rf.resources.state/entry-path scoped-key)
+            wid    (:current-work (get-in pre-db path))
+            record (rf.resources.work-ledger/live-attempt (get-in rdb path) wid)]
+        (if record
+          [(update-in rdb path rf.resources.work-ledger/settle-attempt
+                      wid :suppressed {:reason :superseded :by by-work-id})
            (conj superseded [wid (:transport record)])]
           [rdb superseded])))
     [runtime-db []]
@@ -191,12 +192,12 @@
 (defn- apply-removes
   "Dissocs each `:removes` target (`(fn [params result] -> target-or-targets)`)
   from the cache by byte `key-id` (a dissoc by the scoped-key vector would
-  leak the entry), settles its in-flight work `:cancelled` and drops its
-  ledger rows, as `:rf.resource/remove` does. Returns
+  leak the entry), its attempts with it, and reports its in-flight work for
+  the abort, as `:rf.resource/remove` does. Returns
   `[runtime-db' removed-keys removed-work nil-resolved-ids skipped-targets]`
   and drops targets as `apply-patches` does.
   Spec 016 §Map-form exact resource targets."
-  [runtime-db removes-fn params result clock-ms mut-scope from-db-scopes where]
+  [runtime-db removes-fn params result mut-scope from-db-scopes where]
   (let [targets (when removes-fn
                   (let [raw (removes-fn params result)]
                     ;; validate-target-map! threads values; a remove has none.
@@ -217,18 +218,8 @@
                 entry (get-in db' (rf.resources.state/entry-path scoped-key))]
             (if entry
               (let [wid       (:current-work entry)
-                    transport (when wid (:transport (rf.resources.work-ledger/get-record db' wid)))]
-                [(-> db'
-                     (update-in (rf.resources.state/entries-path) dissoc k-id)
-                     (cond-> wid (rf.resources.work-ledger/update-record
-                                   wid rf.resources.work-ledger/mark-terminal
-                                   ;; A cancellation is a completion: it carries
-                                   ;; the settling reply's clock, never an
-                                   ;; ambient read.
-                                   :cancelled {:reason :mutation-remove
-                                               :completed-at clock-ms}))
-                     ;; Spec 016 §Ledger row retention and identity.
-                     (rf.resources.work-ledger/drop-rows-for-key scoped-key))
+                    transport (:transport (rf.resources.work-ledger/live-attempt entry wid))]
+                [(update-in db' (rf.resources.state/entries-path) dissoc k-id)
                  (conj ks scoped-key)
                  (cond-> work wid (conj [wid transport]))
                  nils sk])
@@ -836,7 +827,7 @@
 
 (defn execute-handler
   "`:rf.mutation/execute` with `{:mutation :params :instance :scope :cause
-  :reply-to}`: mints the instance and its work-ledger row, applies any
+  :reply-to}`: mints the instance and its attempt, applies any
   optimistic plan, and lowers `:request` through managed HTTP. `:scope` is a
   ScopeInput resolved against this event's app-db, which is also the
   mutation's issuance context: every `{:from-db …}` its consequences name
@@ -884,19 +875,23 @@
         ;; Nothing is populated before the request, so nothing is exempt.
         before-fxs  (when before-plan
                       (plan->fx before-plan [:mutation mutation instance-id] #{}))
-        instance'  (rf.resources.mutation-runtime/empty-instance
-                     mutation instance-id
-                     {:scope cscope :params cparams :cause cause
-                      :generation generation :work-id work-id :started-at started-at})
+        prior      (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance-id))
         record     (-> (rf.resources.work-ledger/work-record
                          {:work-id      work-id
-                          :frame-id     frame-id
-                          :resource/key [:rf.mutation instance-id]
                           :generation   generation
                           :transport    transport-id
                           :cause        cause
                           :started-at   started-at})
                        (assoc :work/kind :mutation))
+        ;; A re-execute keeps the instance's attempt history; a prior attempt
+        ;; still in flight is superseded, since its reply fails the work-id
+        ;; gate.
+        instance'  (-> (rf.resources.mutation-runtime/empty-instance
+                         mutation instance-id
+                         {:scope cscope :params cparams :cause cause
+                          :generation generation :work-id work-id :started-at started-at})
+                       (merge (select-keys prior [:work :recent-work]))
+                       (rf.resources.work-ledger/start-attempt record))
         lower-fx   (rf.resources.transport.http/lower
                      {:http-args    http-args
                       :request-id   request-id
@@ -943,7 +938,6 @@
         ;; keys the successor does not re-touch roll back now; re-touched keys
         ;; inherit the superseded pre-paint `:before`. Pending is `pending?`,
         ;; never the presence of `:rollback`, which a settled row keeps.
-        prior       (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance-id))
         prior-rows  (when (rf.resources.mutation-runtime/pending? prior)
                       (recorded-rollback prior))
         retouched?  #(contains? opt-target-map (:resource/key %))
@@ -951,9 +945,8 @@
                       (abandon-optimistic-apply runtime-db prior (vec rows) time-ms))
         inherited   (into {} (comp (filter retouched?) (map (juxt :resource/key identity)))
                           prior-rows)
-        rdb0       (-> (or (:runtime-db superseded) runtime-db)
-                       (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) instance')
-                       (rf.resources.work-ledger/put-record work-id record))
+        rdb0       (assoc-in (or (:runtime-db superseded) runtime-db)
+                             (rf.resources.mutation-runtime/instance-path instance-id) instance')
         [rdb1 opt-ks opt-inverse]
         (if (seq opt-target-map)
           (apply-optimistic rdb0 opt-target-map started-at)
@@ -1021,9 +1014,8 @@
 
 (defn clear-handler
   "`:rf.mutation/clear` with `{:instance …}` or `{:mutation …}`: drops the
-  matching instances and all their ledger rows, settles in-flight work
-  `:cancelled` and best-effort aborts it (stale suppression protects
-  correctness). A pending optimistic apply is rolled back first, with the
+  matching instances with their attempts and best-effort aborts in-flight
+  work (stale suppression protects correctness). A pending optimistic apply is rolled back first, with the
   revalidate obligation, because the write's server outcome is unknown.
   Spec 016 §Mutations (first public-beta gate)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
@@ -1046,7 +1038,7 @@
                                  (let [inst (get instances kid)
                                        wid  (:current-work inst)]
                                    (when wid
-                                     [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
+                                     [wid (:transport (rf.resources.work-ledger/live-attempt inst wid))]))))
                          target-kids)
         ;; read before the rows are dissoc'd
         cleared-ids (mapv #(:instance/id (get instances %)) target-kids)
@@ -1060,28 +1052,12 @@
                         [(:runtime-db rolled) (conj acc [inst rolled])])
                       [db acc])))
                 [runtime-db []] target-kids)
-        rdb'       (-> rdb-r
-                       (update-in (rf.resources.mutation-runtime/instances-path)
-                                  (fn [m] (reduce dissoc m target-kids)))
-                       (as-> db (reduce (fn [d [wid _]]
-                                          (rf.resources.work-ledger/update-record
-                                            d wid rf.resources.work-ledger/mark-terminal
-                                            ;; a cancellation carries the event's
-                                            ;; causal clock
-                                            :cancelled {:reason :mutation-clear
-                                                        :completed-at time-ms}))
-                                        db in-flight))
-                       ;; Every cleared instance, not only in-flight ones: the
-                       ;; terminal rows of past attempts are pruned nowhere
-                       ;; else. Spec 016 §Ledger row retention and identity.
-                       (as-> db (reduce (fn [d iid]
-                                          (rf.resources.work-ledger/drop-rows-for-key
-                                            d [:rf.mutation iid]))
-                                        db cleared-ids)))]
+        rdb'       (update-in rdb-r (rf.resources.mutation-runtime/instances-path)
+                              (fn [m] (reduce dissoc m target-kids)))]
     (doseq [[inst rolled] abandoned]
       (emit-abandoned-rollback! frame-id inst rolled))
     (rf.trace/emit! :rf.event :rf.mutation/cleared
-                 ;; The cancelled rows are dropped with the instances, so the
+                 ;; The cancelled attempts go with the instances, so the
                  ;; trace is where tooling reads the completion time.
                  {:rf.frame/id frame-id :cleared cleared-ids
                   :aborted (mapv first in-flight)
@@ -1171,12 +1147,13 @@
         result     (:value reply)
         inst       (live-instance-for-reply runtime-db frame-id payload)]
     (if (nil? inst)
-      ;; Stale: no durable write, and only this frame's row is settled.
+      ;; Stale: no durable write beyond settling this frame's attempt.
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :success})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :success stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
+          runtime-db frame-id (instance-path-for-reply payload) payload
+          {:reason :stale-reply :outcome :success}))
       (let [spec        (rf.resources.mutation-registry/mutation-meta mutation-id)
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
@@ -1188,7 +1165,7 @@
                                        runtime-db rdb2 (set/union patched-ks populated-ks) work-id)
             ;; Before the invalidation match, so a removed key is never also
             ;; reported stale.
-            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result clock-ms scope from-db-scopes where)
+            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result scope from-db-scopes where)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             patch-target-skipped    (mapv #(assoc % :arm :patches) patch-skipped)
@@ -1257,17 +1234,16 @@
                                                       (:rollback opt-summary))
                                    :committed   committed-keys
                                    :reconciliation-refetches reconciliation-refetches))
-            inst'       (rf.resources.mutation-runtime/instance-succeeded
-                          inst {:result result :settled-at clock-ms
-                                :affected-keys affected :patch-summary patch-summary})
+            inst'       (-> (rf.resources.mutation-runtime/instance-succeeded
+                              inst {:result result :settled-at clock-ms
+                                    :affected-keys affected :patch-summary patch-summary})
+                            (rf.resources.work-ledger/settle-attempt
+                              work-id :completed {:settled-at clock-ms}))
             ;; Only the authoritative keys change index members; the
             ;; dispatched invalidation never touches `:tags` or owners.
             old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'        (-> rdb3
                             (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
-                            (rf.resources.work-ledger/settle-terminal
-                              work-id
-                              :completed {:settled-at clock-ms})
                             (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                     old-entries
                                     (mapv rf.resources.state/key-id authoritative-keys))
@@ -1352,7 +1328,7 @@
   `:after-failure` / `:after-settle` invalidation against the rolled-back
   cache, settles the instance `:error` (terminal until a causal clear), and
   continues into `:reply-to`. An `:rf.http/aborted` envelope lowers to
-  `:status :cancelled` and settles the ledger row `:cancelled`. A stale reply
+  `:status :cancelled` and settles the attempt `:cancelled`. A stale reply
   is suppressed. A `{:from-db …}` resolves from the payload's issuance
   `:from-db-scopes`. Spec 016 §Optimistic settle — commit / rollback / reconcile."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
@@ -1365,7 +1341,7 @@
                                          {:work-kind rf.resources.reply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)
-        ;; The ledger row must agree with the reply's `:rf.reply/work-status`;
+        ;; The attempt must agree with the reply's `:rf.reply/work-status`;
         ;; a stale abort still settles `:suppressed`, because stale wins.
         ;; Managed-Effects §Status taxonomy.
         aborted?   (= :cancelled (:status reply))
@@ -1376,7 +1352,8 @@
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :failure stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload {:reason :stale-reply :outcome :failure}))
+          runtime-db frame-id (instance-path-for-reply payload) payload
+          {:reason :stale-reply :outcome :failure}))
       (let [spec     (rf.resources.mutation-registry/mutation-meta mutation-id)
             params   (:params inst)
             timing   (or (:invalidate-timing spec) :after-success)
@@ -1411,17 +1388,16 @@
             inst'    (cond-> (rf.resources.mutation-runtime/instance-failed
                                inst {:error error :settled-at clock-ms
                                      :affected-keys affected})
-                       rolled-summary (assoc :patch-summary rolled-summary))
-            rdb'     (-> settle-db
-                         (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
-                         ;; An abort carries no error envelope: it is not a
-                         ;; user-visible failure.
-                         (rf.resources.work-ledger/settle-terminal
-                           work-id
-                           (:rf.reply/work-status reply)
-                           (if aborted?
-                             {:reason :aborted :completed-at completed-at}
-                             {:error error})))
+                       rolled-summary (assoc :patch-summary rolled-summary)
+                       ;; An abort carries no error envelope: it is not a
+                       ;; user-visible failure.
+                       true (rf.resources.work-ledger/settle-attempt
+                              work-id
+                              (:rf.reply/work-status reply)
+                              (if aborted?
+                                {:reason :aborted :completed-at completed-at}
+                                {:error error})))
+            rdb'     (assoc-in settle-db (rf.resources.mutation-runtime/instance-path instance-id) inst')
             ;; Delivery is keyed on acceptance, so an accepted :error or
             ;; :cancelled reply continues too.
             ;; Spec 016 §Delivery rule — keyed on acceptance, not on a status enumeration.

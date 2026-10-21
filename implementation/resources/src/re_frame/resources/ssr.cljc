@@ -268,9 +268,10 @@
                       :omit
                       (-> entry
                           (dissoc :data :refresh-error)))
-        ;; A pointer to an in-flight attempt dangles after the round-trip.
+        ;; An in-flight attempt belongs to the server timeline, so neither it
+        ;; nor its pointer rides the round-trip, and nor does the terminal tail.
         ;; Spec 016 §2. In-flight work does not survive restore as live work
-        wire-entry  (dissoc wire-entry :current-work :invalidated-during)
+        wire-entry  (dissoc wire-entry :current-work :invalidated-during :work :recent-work)
         ;; The in-entry key copy matches the wire map key, so the raw identity
         ;; rides in neither carrier.
         wire-entry  (assoc wire-entry :resource/key projected-key)
@@ -377,9 +378,9 @@
 (defn settle-blocking-timeout
   "Pure timeout policy: returns `{:entries :route-blocking-failure
   :timed-out-work}` with every unsettled blocking entry settled to an
-  `ssr-timeout-error` first-load failure, so the render never sees a hung
-  `:loading`. `:timed-out-work` is the abandoned `:current-work` ids, the
-  only record of them once `entry-failed` clears the pointer.
+  `ssr-timeout-error` first-load failure and its abandoned attempt settled
+  `:timed-out`, so the render never sees a hung `:loading`. `:timed-out-work`
+  is the abandoned attempts' ids, whose host handles the caller clears.
   `:route-blocking-failure` is nil when nothing timed out. Emits
   `:rf.error/resource-ssr-blocking-timeout`; route state is not touched.
   Spec 016 §SSR and hydration"
@@ -389,13 +390,16 @@
     (if (empty? unsettled)
       {:entries entries :route-blocking-failure nil :timed-out-work []}
       (let [error    (ssr-timeout-error deadline-ms)
+            outcome  {:reason :ssr-blocking-timeout :limit-ms deadline-ms}
             timed-out-work (into [] (keep (fn [[k-id _]] (:current-work (get entries k-id))))
                                  unsettled)
             entries' (reduce
                        (fn [es [k-id k]]
                          (let [entry (or (get es k-id)
                                          (rf.resources.state/empty-entry (second k) k))]
-                           (assoc es k-id (rf.resources.state/entry-failed entry {:error error}))))
+                           (assoc es k-id (-> (rf.resources.state/entry-failed entry {:error error})
+                                              (rf.resources.work-ledger/settle-attempt
+                                                (:current-work entry) :timed-out outcome)))))
                        entries unsettled)]
         (rf.trace/emit-error! :rf.error/resource-ssr-blocking-timeout
                            {:rf.error/id :rf.error/resource-ssr-blocking-timeout
@@ -456,9 +460,9 @@
 
   Returns `{:settled? :timed-out [<scoped-key> …] :route-blocking-failure}`.
   On a clean settle runtime-db is unchanged. On timeout one write installs
-  the failed entries and settles each abandoned attempt's ledger row
-  `:timed-out`, then the host handles are cleared, so a late reply is
-  stale-suppressed. Routing state is never touched.
+  the failed entries with each abandoned attempt settled `:timed-out`, then
+  the host handles are cleared, so a late reply is stale-suppressed. Routing
+  state is never touched.
   Spec 016 §SSR and hydration"
   [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
   (let [clock-fn (or clock-fn rf.interop/epoch-now-ms)
@@ -477,15 +481,11 @@
 
               (>= (clock-fn) deadline)
               (let [{:keys [entries route-blocking-failure timed-out-work]}
-                    (settle-blocking-timeout entries blocking deadline-ms frame-id)
-                    outcome {:reason :ssr-blocking-timeout :limit-ms deadline-ms}]
+                    (settle-blocking-timeout entries blocking deadline-ms frame-id)]
                 (rf.frame/swap-runtime-db!
                   frame-id
                   (fn [rdb]
-                    (reduce (fn [rdb work-id]
-                              (rf.resources.work-ledger/settle-terminal rdb work-id :timed-out outcome))
-                            (assoc-in rdb [rf.resources.state/resources-key :entries] entries)
-                            timed-out-work)))
+                    (assoc-in rdb [rf.resources.state/resources-key :entries] entries)))
                 (run! #(rf.resources.work-ledger/clear-handle! frame-id %) timed-out-work)
                 {:settled?              false
                  :timed-out             (vec (vals (unsettled-blocking-keys
@@ -645,11 +645,11 @@
 ;; ---- epoch-restore reconcile ----------------------------------------------
 ;;
 ;; Restore shares the hydration install path but installs the UNPROJECTED
-;; snapshot, which still carries in-flight entries pointing at attempts the
-;; restored timeline no longer owns and their non-terminal ledger rows. So on
-;; top of what hydration does, restore orphans stale-nav route owners, settles
-;; in-flight entries to last-stable, and dangles non-terminal work so a
-;; pre-restore reply is suppressed by the ordinary work-id + generation check.
+;; snapshot, which still carries in-flight entries and instances holding live
+;; attempts the restored timeline no longer owns. So on top of what hydration
+;; does, restore orphans stale-nav route owners, settles in-flight entries to
+;; last-stable, and dangles live attempts so a pre-restore reply is suppressed
+;; by the ordinary work-id + generation check.
 ;; Restore never continues old work; a later live-owner `ensure` decides.
 ;; Spec 016 §Restore and replay
 
@@ -668,29 +668,31 @@
     entry))
 
 (defn dangle-non-terminal-work!
-  "Returns `[runtime-db' dangled-work-ids]` with every non-terminal ledger row
-  settled terminal `:suppressed` with a `:dangling` outcome, so a pre-restore
-  reply lands against a dead row and is suppressed. Host handles are left to
-  the restore teardown. Spec 016 §2. In-flight work does not survive restore as live work"
+  "Returns `[runtime-db' dangled-work-ids]` with every live attempt, on an
+  entry or a mutation instance, settled terminal `:suppressed` with a
+  `:dangling` outcome, so a pre-restore reply finds no live attempt and is
+  suppressed. Host handles are left to the restore teardown.
+  Spec 016 §2. In-flight work does not survive restore as live work"
   [runtime-db]
-  (let [ledger (get runtime-db rf.resources.state/work-ledger-key)
-        non-terminal (into []
-                           (comp (filter (fn [[_ r]]
-                                           (contains? rf.resources.work-ledger/non-terminal-statuses
-                                                      (:status r))))
-                                 (map key))
-                           ledger)]
-    (if (empty? non-terminal)
-      [runtime-db []]
-      ;; These are byte ids already: `update-record` would re-encode them.
-      [(reduce (fn [rdb work-id-id]
-                 (rf.resources.work-ledger/update-record-by-id rdb work-id-id
-                                                   rf.resources.work-ledger/mark-terminal
-                                                   :suppressed
-                                                   {:reason :dangling
-                                                    :recovery :restore-reconcile}))
-               runtime-db non-terminal)
-       non-terminal])))
+  (let [outcome {:reason :dangling :recovery :restore-reconcile}
+        live?   (fn [owner]
+                  (contains? rf.resources.work-ledger/non-terminal-statuses
+                             (:status (:work owner))))
+        dangle  (fn [[rdb dangled] path]
+                  ;; Owner paths are walked by their map's own byte ids, which
+                  ;; `entry-path` / `instance-path` would re-encode.
+                  (let [work-id (:work/id (:work (get-in rdb path)))]
+                    [(update-in rdb path rf.resources.work-ledger/settle-attempt
+                                work-id :suppressed outcome)
+                     (conj dangled work-id)]))
+        paths   (concat
+                  (for [[k-id entry] (get-in runtime-db (rf.resources.state/entries-path))
+                        :when (live? entry)]
+                    (rf.resources.state/entry-path-by-id k-id))
+                  (for [[k-id inst] (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
+                        :when (live? inst)]
+                    (conj (rf.resources.mutation-runtime/instances-path) k-id)))]
+    (reduce dangle [runtime-db []] paths)))
 
 (defn dangle-pending-mutations!
   "Returns `[runtime-db' dangled-instance-ids rolled-back-keys]` with every
@@ -725,9 +727,7 @@
                       rdb3 (update-in rdb2 inst-path
                                       rf.resources.mutation-runtime/instance-dangled settled-at)]
                   [(if (rf.resources.mutation-runtime/generated-instance-id? iid)
-                     (-> rdb3
-                         (update-in (rf.resources.mutation-runtime/instances-path) dissoc key-id)
-                         (rf.resources.work-ledger/drop-rows-for-key [:rf.mutation iid]))
+                     (update-in rdb3 (rf.resources.mutation-runtime/instances-path) dissoc key-id)
                      rdb3)
                    (into rk keys2)
                    (conj dids iid)]))
@@ -736,7 +736,7 @@
         [rdb' dangled-ids rolled-keys]))))
 
 (defn clear-host-transients-on-restore!
-  "Clears `frame-id`'s host-side timers and work-ledger handles armed by the
+  "Clears `frame-id`'s host-side timers and attempt handles armed by the
   pre-restore timeline, so neither fires against restored state; timers
   re-arm lazily from durable timestamps. It deliberately leaves the
   generation high-water mark (rewinding it would let a pre-restore reply
@@ -783,11 +783,11 @@
 (defn reconcile-on-restore
   "Reconciles the unprojected snapshot an epoch restore is about to install;
   the body of the `:resources/reconcile-on-restore` hook. Returns
-  `runtime-db` unchanged when it has no entries, ledger rows or mutation
-  instances. Otherwise, in order: orphans SSR and stale-nav route owners,
-  clears work pointers and settles in-flight entries to last-stable;
-  recomputes the indexes; dangles non-terminal ledger rows and pending
-  mutation instances (rolling back their optimistic writes); reconciles
+  `runtime-db` unchanged when it has no entries or mutation instances.
+  Otherwise, in order: orphans SSR and stale-nav route owners, clears work
+  pointers and settles in-flight entries to last-stable; recomputes the
+  indexes; dangles live attempts and pending mutation instances (rolling back
+  their optimistic writes); reconciles
   route readiness last, over the settled facts; and clears the frame's host
   transients. Never moves data between scopes.
 
@@ -803,12 +803,11 @@
   ([runtime-db frame-id {:keys [defer-traces? restore-time-ms]}]
    (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)
-         ledger    (get runtime-db rf.resources.state/work-ledger-key)
          mutations (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
          ;; Present because restore installs both partitions wholesale; nil
          ;; when the app has no routing slice.
          live-nav-token (get-in runtime-db routing-current-nav-token-path)]
-     (if-not (or (seq entries) (seq ledger) (seq mutations))
+     (if-not (or (seq entries) (seq mutations))
        runtime-db
        (let [clock-ms (rf.interop/epoch-now-ms)
              route-owner-policy (restore-route-owner-policy live-nav-token)

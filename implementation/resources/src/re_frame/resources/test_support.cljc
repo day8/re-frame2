@@ -17,7 +17,7 @@
 
 (defn reset-resources!
   "Per-test reset: clears the resource, mutation and scope registrar kinds and
-  every host-side side table (generation cache, work-ledger handles, timers,
+  every host-side side table (generation cache, attempt handles, timers,
   revalidation listeners, one-shot dev-warning dedupe sets). The host-side
   tables are not runtime-db, so a runtime or frames reset leaves them behind,
   and a leftover timer or listener would fire into a later test's frame."

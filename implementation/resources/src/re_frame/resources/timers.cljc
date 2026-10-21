@@ -338,7 +338,7 @@ poll timer is armed). Per Spec 016 §Polling."})
 
 (defn on-frame-destroyed!
   "The timer half of the `:resources/on-frame-destroyed!` teardown hook, which
-  the façade composes with the work-ledger and revalidation-listener releases.
+  the façade composes with the attempt-handle and revalidation-listener releases.
   Returns nil. Runtime-Subsystems §5. Teardown."
   [frame-id]
   (release-frame! frame-id)

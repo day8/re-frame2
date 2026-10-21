@@ -154,8 +154,8 @@
 ;; ---- the live cache view -------------------------------------------------
 
 (defn- install-live-entry!
-  "Write a live cache entry (and, when in flight, a linked work-ledger
-  record) DIRECTLY into the frame's runtime-db — a test fixture, NOT the
+  "Write a live cache entry (and, when in flight, the attempt it holds)
+  DIRECTLY into the frame's runtime-db — a test fixture, NOT the
   resource write-path under test. Returns the scoped key."
   [frame-id resource-id scope params {:keys [status owner in-flight?]}]
   (let [scoped-key (rf.resources.state/scoped-resource-key scope resource-id params)
@@ -167,21 +167,17 @@
                                   :status        (or status :loaded)
                                   :data          {:slug (:slug params)}
                                   :active-owners (if owner #{owner} #{}))
-                     in-flight? (assoc :current-work work-id :status :fetching))]
+                     in-flight? (assoc :current-work work-id :status :fetching
+                                       :work (rf.resources.work-ledger/work-record
+                                               {:work-id    work-id
+                                                :generation 1
+                                                :transport  :rf.http/managed
+                                                :owner      owner
+                                                :cause      :test/load})))]
     (rf.frame/swap-runtime-db!
       frame-id
       (fn [rdb]
-        (cond-> (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key) entry)
-          in-flight?
-          (rf.resources.work-ledger/put-record
-            work-id
-            (rf.resources.work-ledger/work-record {:work-id      work-id
-                                      :frame-id     frame-id
-                                      :resource/key scoped-key
-                                      :generation   1
-                                      :transport    :rf.http/managed
-                                      :owner        owner
-                                      :cause        :test/load})))))
+        (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key) entry)))
     scoped-key))
 
 (deftest live-entry-exposes-its-process-node
@@ -251,7 +247,7 @@
 ;;
 ;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
 ;; re-frame2-pair-mcp, conformance fixtures consume it). EP-0015 treats
-;; resource entries, work-ledger rows, scopes, params, and owner/cause
+;; resource entries, their attempts, scopes, params, and owner/cause
 ;; summaries as EGRESS RECORDS: the raw scope/params embedded in the node
 ;; KEY, `:id`, `:inputs`, `:output`, and `:work-ledger :record :resource/key`
 ;; cannot be reached by a generic value-path walk, so the tooling surface

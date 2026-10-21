@@ -113,9 +113,9 @@
 ;; 1. SERVER projection
 ;; ===========================================================================
 
-(deftest hydration-projection-ships-no-work-ledger-rows
+(deftest hydration-projection-ships-no-attempts
   ;; Through SSR's payload policy over a real frame: the resources slice rides
-  ;; ONLY its durable :entries — no reverse indexes, and no work-ledger rows
+  ;; ONLY its durable :entries — no reverse indexes, and no attempts on them
   ;; (host work facts never cross the hydration wire).
   (reg! :article/by-slug)
   (let [fid :ssr/drain-no-ledger-on-wire]
@@ -125,14 +125,16 @@
                         :params {:slug "x"} :owner [:ssr "req-3" "nav-3"]}]
                       {:frame fid})
     (let [rdb  (rf.frame/frame-runtime-db-value fid)
-          proj (rf.ssr.payload-policy/project-runtime-db rdb)]
-      (is (and (seq (get rdb rf.resources.state/work-ledger-key))
+          proj (rf.ssr.payload-policy/project-runtime-db rdb)
+          k-id (rf.resources.state/key-id gkey)]
+      (is (and (some? (get-in rdb [rf.resources.state/resources-key :entries k-id :work]))
                (seq (get-in rdb [rf.resources.state/resources-key :owner-index])))
-          "premise: the live runtime-db carries a work-ledger row and a reverse index")
-      (is (= [#{:entries} #{(rf.resources.state/key-id gkey)}]
+          "premise: the live runtime-db carries a live attempt and a reverse index")
+      (is (= [#{:entries} #{k-id}]
              [(set (keys (get proj rf.resources.state/resources-key)))
               (set (keys (get-in proj [rf.resources.state/resources-key :entries])))]))
-      (is (not (contains? proj rf.resources.state/work-ledger-key))))
+      (is (not-any? #(contains? (get-in proj [rf.resources.state/resources-key :entries k-id]) %)
+                    [:work :recent-work :current-work])))
     (rf.frame/destroy-frame! fid)))
 
 (deftest project-scoped-key-by-disposition
@@ -340,9 +342,9 @@
     (rf.frame/destroy-frame! fid)))
 
 (defn- ledger-row
-  "The work-ledger record for `work-id` in `frame-id`'s live runtime-db, or nil."
+  "The attempt record for `work-id` in `frame-id`'s live runtime-db, or nil."
   [frame-id work-id]
-  (rf.resources.work-ledger/get-record (rf.frame/frame-runtime-db-value frame-id) work-id))
+  (rf.resources.work-ledger/attempt-record (rf.frame/frame-runtime-db-value frame-id) work-id))
 
 (defn- entry-status [frame-id]
   (get-in (rf.frame/frame-runtime-db-value frame-id)
@@ -350,7 +352,7 @@
 
 (deftest drain-release-on-the-real-path-leaves-the-ledger-row-terminal
   ;; Through the REAL ensure and the REAL succeeded reply, which settles the
-  ;; entry and its work-ledger row in one write: a drain released by the entry
+  ;; entry and its attempt in one write: a drain released by the entry
   ;; leaves no live work behind the render.
   (reg! :article/by-slug)
   (let [fid :ssr/drain-ledger-terminal]

@@ -3,8 +3,8 @@
   single built-in transport). The runtime supplies `:request-id`,
   `:on-success` and `:on-failure` from the attempt's work id and generation.
   The reply payloads carry `:work/id`, `:generation` and `:rf.frame/id` but
-  no `:resource/key` or `:scope`: the reply handler resolves the scoped key
-  through the receiving frame's ledger row, so it never rides the transport.
+  no `:resource/key` or `:scope`: the reply handler finds the entry holding
+  the attempt in the receiving frame, so the key never rides the transport.
   The effect itself is registered by `re-frame.http.managed`.
   Spec 016 §Transport."
   (:require [re-frame.error :as rf.error]))

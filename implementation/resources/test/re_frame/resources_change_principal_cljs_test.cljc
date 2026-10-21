@@ -140,7 +140,7 @@
           "the owner's hold on the departing scope is retired; its hold elsewhere stays")
       (is (= [(rf.resources.work-ledger/managed-request-id :rf/default in-flight)] @aborts)
           "the in-flight refetch in the departing scope is aborted")
-      (is (nil? (rf.resources.work-ledger/get-record (runtime-db) in-flight))
+      (is (nil? (rf.resources.work-ledger/attempt-record (runtime-db) in-flight))
           "and its work row leaves the ledger with the entry"))))
 
 (deftest change-principal-refuses-a-malformed-from-before-clearing-anything
@@ -232,7 +232,7 @@
       (is (= [:loading #{owner}] [(:status (entry bob)) (:active-owners (entry bob))])
           "the new principal's read is ensured under the unchanged route owner")
       (is (= [[:account-switch]]
-             [(:causes (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry bob))))])
+             [(:causes (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work (entry bob))))])
           "the event's cause rides the replan's ensure verbatim")
       (is (= {(rf.resources.state/key-id bob) bob} (plan-slot)) "the plan names the new identity only")
       (is (= ["/docs/intro"] (requested-urls n)) "one request, for the new principal"))))

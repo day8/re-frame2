@@ -190,11 +190,11 @@
              (arc [:rf.work/http :req 1]))))))
 
 ;; ---------------------------------------------------------------------------
-;; live-work — ledger rows joined to reply status + trace cause.
+;; live-work — attempt records joined to reply status + trace cause.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private ledger
-  "A frame work ledger in the production shape: opaque string keys, the
+  "A frame's attempts in the gathered shape: opaque keys, the
   kind-preserving work id on each record as :work/id."
   {"w-res-2"  {:work/id [:rf.work/resource :k 2] :work/kind :resource :work/frame :f
                :generation 2 :status :running :owners #{[:dashboard/opened :a]}

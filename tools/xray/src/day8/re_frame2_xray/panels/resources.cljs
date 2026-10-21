@@ -22,7 +22,7 @@
 
   Spec 016 §Active owners and causes: opening this panel pins NOTHING.
   Every section is a pure read of `(rf/registrations {:kind …})` + the runtime-db
-  cache/ledger slices + the trace buffer. The panel dispatches no
+  cache and mutation slices + the trace buffer. The panel dispatches no
   `:rf.resource/ensure`, attaches no owner, refetches nothing, and
   extends no GC. (A future explicit 'pin this resource' debug action
   would be its own traced tool mutation, not normal inspection.)
@@ -45,7 +45,7 @@
   `tools/xray/spec/024-Resources-Panel.md` §Decoupling keeps the two
   apart; do not collapse them. The panel reads
   decoupled: the static registry via `(rf/registrations {:kind :resource})`, the
-  live cache/ledger from the runtime-db partition slice the spine already
+  live cache and its attempts from the runtime-db partition slice the spine already
   publishes (`:rf.xray/target-frame-runtime-db`), and the trace family
   from `:rf.xray/trace-buffer`. Identical posture to the Routing tab
   (route slice) + Machine Inspector (machine snapshots).
@@ -443,10 +443,10 @@
        [:span {:style {:color (:text-tertiary tokens)}}
         "outcome " (get-in row [:outcome :preview])])]))
 
-(defn- work-ledger-section [rows]
+(defn- attempts-section [rows]
   (section
     {:first? false :testid "rf-xray-resources-work"}
-    (section-caption "Work ledger" "rf-xray-resources-work-caption")
+    (section-caption "Attempts" "rf-xray-resources-work-caption")
     (if (seq rows)
       (capped-body {:panel-id "resources-work"
                     :testid   "rf-xray-resources-work-body"
@@ -458,7 +458,7 @@
 ;; ---- §3b WHAT IS STILL RUNNING? (EP-0011 live-work) ---------------------
 ;;
 ;; The cross-family "what is the app waiting on, and why" view (Trace-Consumer
-;; §"What is still running?"): the live (non-terminal) work-ledger rows joined
+;; §"What is still running?"): the live (non-terminal) attempt rows joined
 ;; to their latest reply-envelope trace phase + emitting op, UNIFORM across
 ;; HTTP / resources / mutations / routing / machines / timers. The projection
 ;; (`reply/live-work`) is computed in the composite data sub; this view
@@ -1186,7 +1186,7 @@
   "The Resources tab's WHOLE body, as a pure function of the one value
   [[Panel]] reads — the `:rf.xray/resources-tab-data` composite. Renders
   the sections top → bottom: static registry, named scope resolvers
-  (EP-0016 D3), live instances, work ledger, route/resource graph,
+  (EP-0016 D3), live instances, attempts, route/resource graph,
   lifecycle timeline, invalidation graph, scope resolution timeline
   (EP-0016 D3), mutation continuations + scoped invalidation (EP-0016
   D1/D2), optimistic mutations (EP-0019 — the apply→reconcile/rollback
@@ -1232,7 +1232,7 @@
       (registry-section registry)
       (scope-resolvers-section scope-resolvers)
       (instances-section instances)
-      (work-ledger-section work)
+      (attempts-section work)
       ;; EP-0011 uniform reply-envelope reads — "what is still running?"
       ;; (live work + active-effects tally) and the cross-family stale-races
       ;; view. Silent-by-default: each renders nothing when its data is
@@ -1356,7 +1356,7 @@
 
 (defn- resource-work-ledger-value [target-runtime-db]
   (when (map? target-runtime-db)
-    (get target-runtime-db h/work-ledger-key)))
+    (h/frame-work target-runtime-db)))
 
 (defn- resource-routing-slice-value [target-runtime-db]
   (when (map? target-runtime-db)
@@ -1412,14 +1412,15 @@
       `[:rf.runtime/resources :entries]` (EP-0001 — resource cache is
       framework-owned runtime-db state, never app-db). Sourced from
       `:rf.xray/target-frame-runtime-db`. Test override.
-    - `:rf.xray/resource-work-ledger` — the live work-ledger map from
-      `[:rf.runtime/work-ledger]`. Test override.
+    - `:rf.xray/resource-work-ledger` — the frame's attempts, gathered by
+      `h/frame-work` from each entry's and mutation instance's `:work` and
+      `:recent-work`. Test override.
     - `:rf.xray/resource-routing-slice` — the live routing-runtime subtree
       (`[:rf.runtime/routing]`) from `:rf.xray/target-frame-runtime-db`,
       backing the LIVE route/resource graph (current route + nav-token +
       unsettled-blocking set). Test override.
     - `:rf.xray/resources-tab-data` — the view-facing composite over the
-      registry + entries + ledger + route registry + trace buffer + routing
+      registry + entries + attempts + route registry + trace buffer + routing
       slice; the single read the Panel subscribes. Its `:route-graph` joins
       the static route plan against the live instance/work rows + routing
       slice (per-resource freshness rollup, the active route flagged
@@ -1509,7 +1510,7 @@
             ;; timer), so that filter would silently narrow them. They ARE
             ;; restricted to the observed FRAME: the buffer
             ;; merges every frame's ring, a work-id is frame-local, and the
-            ;; ledger they join is the observed frame's, so another frame's
+            ;; attempts they join are the observed frame's, so another frame's
             ;; same-id arc would label this frame's running work.
             family-rows   (h/resource-projection-rows trace-buffer)
             frame-buffer  (reply/trace-buffer-for-frame trace-buffer observed-frame)
@@ -1520,10 +1521,11 @@
             instance-rows (h/project-instances
                             entries now-ms
                             (on-box-resource-egress-fn observed-frame))
-            ;; The work ledger takes the resource-id gate: no per-instance
-            ;; declaration is lowered under it, so the frame classification
-            ;; above cannot match its values, and the §3 row renders a
-            ;; failed record's outcome, which carries the error envelope.
+            ;; The attempt rows take the resource-id gate: no per-instance
+            ;; declaration is lowered under `:work` or `:recent-work`, so the
+            ;; frame classification above cannot match their values, and the
+            ;; §3 row renders a failed record's outcome, which carries the
+            ;; error envelope.
             work-rows     (h/project-work-ledger ledger sensitive-rids)
             resolver-rows (h/project-scope-resolvers scope-resolvers)]
         {:silent?       (and (empty? registry-rows) (empty? instance-rows)
@@ -1541,10 +1543,10 @@
          ;; reply `:status` / stale-suppression carried+current) the SAME way
          ;; for every async family — so "what is still running?" and the
          ;; stale-races view are cross-family, not resource-private. The
-         ;; resources artefact is the only family writing the ledger; any
-         ;; family that writes its own ledger rows + emits its reply-envelope
-         ;; trace ops surfaces here with no panel change (one vocabulary,
-         ;; many families).
+         ;; resources artefact is the only family keeping attempt records;
+         ;; any family that keeps its own + emits its reply-envelope trace
+         ;; ops surfaces here with no panel change (one vocabulary, many
+         ;; families).
          :live-work     (reply/live-work ledger frame-buffer)
          :stale-races   (reply/races-by-work-id frame-buffer)
          :stale-tally   (reply/stale-tally-by-kind frame-buffer)

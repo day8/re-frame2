@@ -255,13 +255,10 @@
   (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
 
 (defn- ledger-rows-for
-  "Work-ledger rows linked to `scoped-key`, read off the durable slot rather
-  than through the ledger's own index."
+  "How many attempts, live or settled, the entry at `scoped-key` holds."
   [scoped-key]
-  (->> (:rf.runtime/work-ledger (runtime-db))
-       vals
-       (filter #(= scoped-key (:resource/key %)))
-       count))
+  (let [e (entry scoped-key)]
+    (+ (count (:recent-work e)) (if (:work e) 1 0))))
 
 (deftest remove-mid-flight-release-does-not-resurrect-the-owner-on-rollback
   ;; Delete a card, navigate away before the DELETE reply, and the reply fails.
@@ -287,7 +284,7 @@
     (is (some? (entry article-key)))
     (is (empty? (:active-owners (entry article-key))))
     (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) route-owner)))))
-  (testing "the owner-free tombstone GCs and takes its work-ledger rows with it"
+  (testing "the owner-free tombstone GCs and takes its attempts with it"
     (is (pos? (ledger-rows-for article-key)) "precondition: there are rows to drop")
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
     (is (nil? (entry article-key)))

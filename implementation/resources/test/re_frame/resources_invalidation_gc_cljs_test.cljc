@@ -47,7 +47,7 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-(defn- work-record [wid] (rf.resources.work-ledger/get-record (runtime-db) wid))
+(defn- work-record [wid] (rf.resources.work-ledger/attempt-record (runtime-db) wid))
 
 (defn- article-spec
   ([] (article-spec {}))

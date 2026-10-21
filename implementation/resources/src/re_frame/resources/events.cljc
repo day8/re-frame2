@@ -2,8 +2,8 @@
   "The resource event handlers: the causal write surface over the resource
   cache. The public events take map payloads. The `:rf.resource.internal/*`
   replies carry only the verification payload (`:work/id`, `:generation`,
-  `:rf.frame/id`) and resolve the scoped key through the receiving frame's
-  work-ledger row; user code MUST NOT dispatch them.
+  `:rf.frame/id`) and find their entry as the one holding that attempt in the
+  receiving frame; user code MUST NOT dispatch them.
 
   Stale suppression by work-id + generation, enforced on the entry, is the
   correctness boundary; transport abort is opportunistic. Handlers write
@@ -94,10 +94,10 @@
    page-reserved-ctx-index-key page-index})
 
 ;; ---- read completion continuations (call-site :reply-to) -------------------
-;; A read joins in flight, so `:reply-to` targets accumulate on the shared work
-;; record's `:reply-targets` and the one accepted terminal reply fans out to
+;; A read joins in flight, so `:reply-to` targets accumulate on the live
+;; attempt's `:reply-targets` and the one accepted terminal reply fans out to
 ;; each exactly once; a stale reply delivers nothing. A fresh-skip cache hit
-;; has no record and dispatches immediately.
+;; has no attempt and dispatches immediately.
 ;; Spec 016 §Read completion continuations — call-site `:reply-to`
 
 (defn- read-continuation-reply
@@ -115,7 +115,7 @@
 
 (defn- read-reply-continuation-fxs
   "The `[:dispatch …]` fxs delivering an accepted terminal `reply` to each
-  `:reply-to` target on the settling work `record`, one per target, or nil
+  `:reply-to` target on the settling attempt `record`, one per target, or nil
   when it has none. Pure."
   [record reply resource-key]
   (when-let [targets (seq (:reply-targets record))]
@@ -197,8 +197,8 @@
   (let [runtime-db (or rt {})
         spec       (rf.resources.registry/require-resource-spec! resource where)
         ;; Validated at issue, before any write: the target rides the durable
-        ;; work record, so a malformed or non-serializable one fails now
-        ;; rather than at completion.
+        ;; attempt, so a malformed or non-serializable one fails now rather
+        ;; than at completion.
         reply-to'  (when (some? reply-to) (rf.reply/durable-target reply-to))
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
@@ -214,9 +214,9 @@
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
         ;; Only LIVE prior work is joinable. Release-owner leaves
-        ;; `:current-work` pointing at an `:abort-requested` record, so the
+        ;; `:current-work` pointing at an `:abort-requested` attempt, so the
         ;; pointer alone does not prove there is work to join.
-        joinable?  (rf.resources.work-ledger/live-work? runtime-db prior-work)
+        joinable?  (rf.resources.work-ledger/live-work? entry)
         ;; The freshness basis is the token's `:rf/time-ms`, never the host
         ;; clock, so a replay takes the same serve-vs-fetch branch.
         fresh-skip? (and (not force-new?)
@@ -264,7 +264,7 @@
                              (rf.resources.state/stale-wake-delay-ms hit time-ms))
             gc-delay-ms    (when arm-timers?
                              (rf.resources.state/positive-or-nil (:gc-after-ms spec)))
-            ;; No work record, so `:reply-to` dispatches now, with a work id
+            ;; No attempt, so `:reply-to` dispatches now, with a work id
             ;; derived from the entry's generation. An infinite feed delivers
             ;; its merged items, the same shape a fetched page-0 delivers.
             hit-reply  (when reply-to'
@@ -312,14 +312,14 @@
             (seq fx) (assoc :fx fx))))
       ;; dedupe: join the live in-flight attempt, no new generation
       (and joinable? (not force-new?))
-      (let [joined (rf.resources.state/attach-owner entry owner)
-            rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path scoped-key) joined)
-                       (rf.resources.work-ledger/update-record
+      (let [joined (-> (rf.resources.state/attach-owner entry owner)
+                       (rf.resources.work-ledger/update-attempt
                          prior-work rf.resources.work-ledger/join-owner+cause owner cause)
                        (cond->
-                         reply-to' (rf.resources.work-ledger/update-record
-                                     prior-work rf.resources.work-ledger/add-reply-target reply-to'))
+                         reply-to' (rf.resources.work-ledger/update-attempt
+                                     prior-work rf.resources.work-ledger/add-reply-target reply-to')))
+            rdb'   (-> runtime-db
+                       (assoc-in (rf.resources.state/entry-path scoped-key) joined)
                        (cond->
                          owner (update-in (rf.resources.state/owner-index-path)
                                           update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))]
@@ -350,7 +350,7 @@
             ;; that `page-succeeded-handler` drives one leg at a time.
             ;; Spec 016 §Refetch and invalidation of an infinite feed
             refetch-policy (when infinite? (:refetch spec))
-            entry'     (cond-> (rf.resources.state/entry-start-load
+            started    (cond-> (rf.resources.state/entry-start-load
                                  entry {:generation generation :work-id work-id
                                         :request-id request-id :owner owner})
                          prev-key (assoc :previous-key prev-key)
@@ -361,20 +361,18 @@
             req-ctx    (when infinite? (page-request-ctx page-param page-index))
             superseding? (and in-flight? force-new?)
             ;; A superseded attempt hands its `:reply-to` targets to its
-            ;; successor: left on the suppressed row, no delivery site could
-            ;; reach them. Read before the row settles below.
+            ;; successor: left on the suppressed summary, no delivery site
+            ;; could reach them.
             superseded-targets (when superseding?
                                  (:reply-targets
-                                   (rf.resources.work-ledger/get-record runtime-db prior-work)))
+                                   (rf.resources.work-ledger/live-attempt entry prior-work)))
             record     (rf.resources.work-ledger/work-record
                          {:work-id      work-id
-                          :frame-id     frame-id
-                          :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
                           ;; every holder needs the attempt, so one owner
                           ;; releasing cannot abort an ownerless refetch
-                          :owners       (:active-owners entry')
+                          :owners       (:active-owners started)
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
@@ -387,18 +385,15 @@
             ;; already carried is not delivered twice
             record     (cond-> record
                          reply-to' (rf.resources.work-ledger/add-reply-target reply-to'))
+            ;; `start-attempt` settles a displaced attempt `:suppressed` as
+            ;; superseded; its targets are handed over rather than copied, so
+            ;; its summary never advertises targets it can no longer deliver.
+            entry'     (cond-> started
+                         superseding? (rf.resources.work-ledger/update-attempt
+                                        prior-work dissoc :reply-targets)
+                         true (rf.resources.work-ledger/start-attempt record))
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
-                           (cond->
-                             superseding?
-                             ;; hand over rather than copy: a terminal row must
-                             ;; not advertise targets it can never deliver
-                             (-> (rf.resources.work-ledger/update-record
-                                   prior-work dissoc :reply-targets)
-                                 (rf.resources.work-ledger/settle-terminal
-                                   prior-work
-                                   :suppressed {:reason :superseded :by work-id})))
-                           (rf.resources.work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
@@ -485,7 +480,7 @@
         owner      nil
         entry      (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         prior-work (:current-work entry)
-        in-flight? (rf.resources.work-ledger/live-work? runtime-db prior-work)
+        in-flight? (rf.resources.work-ledger/live-work? entry)
         pages      (:data entry)
         next-param (rf.resources.state/next-param-for (:next-page-param spec) pages)
         terminal?  (rf.resources.state/terminal? next-param)
@@ -527,8 +522,9 @@
 
       ;; join the live page fetch, attributing it to this cause too
       in-flight?
-      (let [rdb' (rf.resources.work-ledger/update-record
-                   runtime-db prior-work rf.resources.work-ledger/join-owner+cause owner cause)]
+      (let [rdb' (update-in runtime-db (rf.resources.state/entry-path scoped-key)
+                            rf.resources.work-ledger/update-attempt
+                            prior-work rf.resources.work-ledger/join-owner+cause owner cause)]
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :reason :in-flight :work/id prior-work
@@ -542,28 +538,26 @@
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             transport-id rf.resources.transport/managed-http-transport
-            entry'     (rf.resources.state/entry-start-load
+            started    (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
             record     (rf.resources.work-ledger/work-record
                          {:work-id      work-id
-                          :frame-id     frame-id
-                          :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
                           ;; mints no owner, but the feed's holders need the page
-                          :owners       (:active-owners entry')
+                          :owners       (:active-owners started)
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
                           ;; a positive index is what tells `:fetching-next?`
                           ;; apart from a whole-feed refresh
                           :page-index   page-index})
+            entry'     (rf.resources.work-ledger/start-attempt started record)
             owner-newly-attached? (and (some? owner)
                                        (not (contains? (:active-owners entry) owner)))
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
-                           (rf.resources.work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
@@ -661,23 +655,21 @@
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             transport-id rf.resources.transport/managed-http-transport
-            entry'     (rf.resources.state/entry-start-load
+            started    (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
             record     (rf.resources.work-ledger/work-record
                          {:work-id      work-id
-                          :frame-id     frame-id
-                          :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          :owners       (:active-owners entry')
+                          :owners       (:active-owners started)
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
                           :page-index   page-index})
+            entry'     (rf.resources.work-ledger/start-attempt started record)
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
-                           (rf.resources.work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
@@ -750,9 +742,9 @@
 
 (defn- entry-revalidation-in-flight?
   "True when `entry` has live work in flight. A `:current-work` pointer alone
-  is not proof: the linked record may be terminal or `:abort-requested`."
-  [runtime-db entry]
-  (rf.resources.work-ledger/live-work? runtime-db (:current-work entry)))
+  is not proof: the attempt may be gone or `:abort-requested`."
+  [entry]
+  (rf.resources.work-ledger/live-work? entry))
 
 (defn- active-stale-scan
   "The `{:resource/key :scope :resource :params}` of every entry that has an
@@ -765,7 +757,7 @@
           (keep (fn [[_k-id entry]]
                   (when (and (seq (:active-owners entry))
                              (rf.resources.state/entry-stale? entry clock-ms)
-                             (not (entry-revalidation-in-flight? runtime-db entry)))
+                             (not (entry-revalidation-in-flight? entry)))
                     ;; the map key is the opaque byte id; the vector lives on
                     ;; the entry
                     (let [scoped-key (:resource/key entry)
@@ -829,7 +821,7 @@
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (rf.resources.state/entry-path resource-key))
         owned?     (seq (:active-owners entry))
-        in-flight? (and entry (entry-revalidation-in-flight? runtime-db entry))
+        in-flight? (and entry (entry-revalidation-in-flight? entry))
         interval   (rf.resources.state/positive-or-nil
                      (:poll-interval-ms (rf.resources.registry/resource-meta (:resource/id entry))))
         decision   (cond
@@ -911,10 +903,11 @@
 
 (defn- record-pending-invalidation
   "Records an invalidation of `tag-set` at `invalidated-at` on an in-flight
-  work `record` whose entry the tags did not match; repeats union their tags
-  and keep the latest time. A terminal record is left alone. The note lives
-  on the attempt, so it dies with a failure, abort or supersession, and an
-  optimistic restore on the entry cannot erase it."
+  attempt `record` whose entry the tags did not match; repeats union their
+  tags and keep the latest time. A terminal record is left alone. The note
+  lives on the attempt, so it dies with a failure, abort or supersession, and
+  an optimistic restore cannot erase it: a rollback carries the live attempt
+  forward."
   [record tag-set invalidated-at]
   (if (rf.resources.work-ledger/terminal? (:status record))
     record
@@ -924,8 +917,8 @@
 
 (defn- settle-invalidations
   "Resolves the invalidations that landed during the attempt a success just
-  settled (`entry` pre-settle, `settled` post-settle, `record` the work
-  record). A mark written during the attempt and kept by the settle stands
+  settled (`entry` pre-settle, `settled` post-settle, `record` the
+  attempt). A mark written during the attempt and kept by the settle stands
   (read off the pre-settle entry, so an older mark a feed page settle keeps
   is not this attempt's to follow up). A recorded invalidation whose tags
   intersect the produced tags marks the entry stale at its recorded time; one
@@ -1056,9 +1049,10 @@
         ;; attempt (`settle-invalidations`), not the entry.
         rdb'       (reduce
                      (fn [db k-id]
-                       (rf.resources.work-ledger/update-record
-                         db (:current-work (get entries k-id))
-                         record-pending-invalidation tag-set invalidated-at))
+                       (update-in db (rf.resources.state/entry-path-by-id k-id)
+                                  (fn [e] (rf.resources.work-ledger/update-attempt
+                                            e (:current-work e)
+                                            record-pending-invalidation tag-set invalidated-at))))
                      rdb' in-flight-unmatched-ids)
         decisions  (mapv (fn [k-id]
                            (let [entry (get entries k-id)]
@@ -1097,8 +1091,8 @@
 
 (defn- release-owner-from-identities
   "Releases `owner` from the entries at byte `k-ids`: detaches it from each
-  entry and the owner index, drops it from in-flight work records and aborts
-  any left with no owner, cancels polling on entries left owner-free and
+  entry and the owner index, drops it from in-flight attempts and aborts any
+  left with no owner, cancels polling on entries left owner-free and
   re-arms their GC for a full `:gc-after-ms`, and emits one
   `:rf.resource/owner-released`. Clears no route slot. An id the owner does
   not hold is a no-op. Returns `{:rf.db/runtime :fx}`.
@@ -1124,14 +1118,15 @@
         (reduce
           (fn [acc k-id]
             (let [db   (:rdb acc)
-                  e    (get-in db (rf.resources.state/entry-path-by-id k-id))
+                  path (rf.resources.state/entry-path-by-id k-id)
+                  e    (get-in db path)
                   wid  (:current-work e)
-                  rec  (when wid (rf.resources.work-ledger/get-record db wid))]
-              (if (and wid rec)
+                  rec  (rf.resources.work-ledger/live-attempt e wid)]
+              (if rec
                 (let [rec' (rf.resources.work-ledger/release-owner-from-record rec owner)
                       orphaned? (empty? (:owners rec'))
                       rec'' (if orphaned? (rf.resources.work-ledger/mark-abort-requested rec') rec')]
-                  {:rdb (rf.resources.work-ledger/put-record db wid rec'')
+                  {:rdb (assoc-in db (conj path :work) rec'')
                    :aborts (cond-> (:aborts acc)
                              orphaned? (conj [wid (:transport rec'')]))})
                 acc)))
@@ -1234,16 +1229,15 @@
       {:rf.db/runtime runtime-db}
       (let [newly? (and (some? owner)
                         (not (contains? (:active-owners entry) owner)))
-            hit    (rf.resources.state/attach-owner entry owner)
-            wid    (:current-work hit)
+            hit    (cond-> (rf.resources.state/attach-owner entry owner)
+                     owner (as-> e (rf.resources.work-ledger/update-attempt
+                                     e (:current-work e)
+                                     rf.resources.work-ledger/join-owner+cause owner cause)))
             rdb0   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path scoped-key) hit)
                        (cond->
                          owner (update-in (rf.resources.state/owner-index-path)
-                                          update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key)))
-                       (cond->
-                         (and owner wid) (rf.resources.work-ledger/update-record
-                                           wid rf.resources.work-ledger/join-owner+cause owner cause)))
+                                          update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
             rdb    (rf.resources.route/reconcile-readiness rdb0)]
         (when newly?
           (rf.trace/emit! :rf.event :rf.resource/owner-attached
@@ -1254,10 +1248,10 @@
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn- clear-scope-handler*
-  "Clears the canonical concrete scope `cscope`: removes its entries and
-  their ledger rows, settles their in-flight work `:cancelled` with the
-  token's `:completed-at`, reindexes, aborts the in-flight requests and
-  cancels the entries' timers."
+  "Clears the canonical concrete scope `cscope`: removes its entries, whose
+  attempts go with them, reindexes, aborts the in-flight requests and cancels
+  the entries' timers. The token's `:completed-at` rides the
+  `:rf.resource/removed` trace."
   [runtime-db frame-id cscope cause time-ms]
   (let [entries    (get-in runtime-db (rf.resources.state/entries-path))
         in-scope-ids (into #{} (comp (filter (fn [[_k-id e]] (= cscope (first (:resource/key e)))))
@@ -1271,22 +1265,11 @@
                                  (let [e (get entries k-id)
                                        wid (:current-work e)]
                                    (when wid
-                                     [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
+                                     [wid (:transport (rf.resources.work-ledger/live-attempt e wid))]))))
                          in-scope-ids)
         rdb'       (-> runtime-db
                        (update-in (rf.resources.state/entries-path)
                                   (fn [es] (reduce dissoc es in-scope-ids)))
-                       (as-> db (reduce (fn [d [wid _]]
-                                          (rf.resources.work-ledger/update-record
-                                            d wid rf.resources.work-ledger/mark-terminal
-                                            :cancelled {:reason :clear-scope
-                                                        :completed-at time-ms}))
-                                        db in-flight))
-                       ;; A cleared key has no Xray tail to serve, so its whole
-                       ;; ledger holding goes, not just a bounded tail.
-                       ;; Spec 016 §Ledger row retention and identity
-                       (as-> db (reduce rf.resources.work-ledger/drop-rows-for-key
-                                        db in-scope))
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                entries in-scope-ids))]
     (rf.trace/emit! :rf.event :rf.resource/removed
@@ -1363,9 +1346,9 @@
 ;; ---- remove — single-instance cache removal --------------------------------
 
 (defn remove-handler
-  "`:rf.resource/remove`: removes one instance and its ledger rows,
-  cancelling any in-flight attempt with the token's `:completed-at`. Payload
-  `{:resource :scope :params}`.
+  "`:rf.resource/remove`: removes one instance with its attempts, aborting
+  any in-flight one; the token's `:completed-at` rides the
+  `:rf.resource/removed` trace. Payload `{:resource :scope :params}`.
   Spec 016 §Events (map payloads, not positional argument vectors)"
   [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
    [_event-id {:keys [resource] :as payload}]]
@@ -1378,21 +1361,12 @@
         scoped-key (rf.resources.state/scoped-resource-key* scope resource cparams)
         entry      (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         wid        (:current-work entry)
-        transport  (when wid (:transport (rf.resources.work-ledger/get-record runtime-db wid)))
+        transport  (:transport (rf.resources.work-ledger/live-attempt entry wid))
         old-entries (get-in runtime-db (rf.resources.state/entries-path))
         rdb'       (-> runtime-db
                        ;; by byte key-id: a vector dissoc would no-op and leak
                        ;; the entry
                        (update-in (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
-                       ;; Settle before the drop: a row the inverse index
-                       ;; missed stays terminal rather than surviving as
-                       ;; falsely in-flight into an epoch snapshot.
-                       (cond-> wid (rf.resources.work-ledger/update-record
-                                     wid rf.resources.work-ledger/mark-terminal
-                                     :cancelled {:reason :remove :completed-at time-ms}))
-                       ;; A removed key has no Xray tail to serve.
-                       ;; Spec 016 §Ledger row retention and identity
-                       (rf.resources.work-ledger/drop-rows-for-key scoped-key)
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                old-entries [(rf.resources.state/key-id scoped-key)]))]
     (rf.trace/emit! :rf.event :rf.resource/removed
@@ -1413,13 +1387,16 @@
 
 (defn- resolve-reply-payload
   "The reply `payload` with `:resource/key` and `:scope` taken from the
-  receiving frame's ledger row; a key or scope the payload carries is
-  discarded, never trusted. With no row (a cross-frame reply, or the row left
-  with its entry) the payload has no key, and `live-entry-for-reply`
-  suppresses it. Spec 016 §Transport"
+  receiving frame's entry that holds the reply's attempt, live or among its
+  terminal summaries; a key or scope the payload carries is discarded, never
+  trusted. With no such entry (a cross-frame reply, or the attempt left with
+  its entry) the payload has no key, and `live-entry-for-reply` suppresses
+  it. Spec 016 §Attempt identity"
   [runtime-db receiving-frame-id payload]
-  (let [resource-key (:resource/key (rf.resources.reply-handlers/ledger-row-for-reply
-                                      runtime-db receiving-frame-id payload))]
+  (let [resource-key (some->> (rf.resources.reply-handlers/attempt-owner-path-for-reply
+                                runtime-db receiving-frame-id payload)
+                              (get-in runtime-db)
+                              :resource/key)]
     (cond-> (dissoc payload :resource/key :scope)
       (some? resource-key) (assoc :resource/key resource-key
                                   :scope        (first resource-key)))))
@@ -1457,7 +1434,7 @@
 (defn- emit-resource-stale-suppressed!
   "Emits `:rf.resource/stale-suppressed` via the shared emitter. Names the
   attempt, not its scoped key: the resource id comes from the work id, so a
-  reply whose row is gone is still attributed."
+  reply whose attempt has left with its entry is still attributed."
   [frame-id work-id generation outcome stale]
   (rf.resources.reply-handlers/emit-stale-suppressed!
     :rf.resource/stale-suppressed
@@ -1494,17 +1471,20 @@
                                          {:work-kind rf.resources.reply/work-kind-resource
                                           :completed-at completed-at})
         entry      (live-entry-for-reply runtime-db frame-id payload)
-        ;; read before the row settles; delivered only on the accepted branch
-        record     (rf.resources.work-ledger/get-record runtime-db work-id)
+        ;; read before the attempt settles; delivered only on the accepted
+        ;; branch
+        record     (rf.resources.work-ledger/live-attempt entry work-id)
         cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (if (nil? entry)
-      ;; stale: the row settles `:suppressed` and no reply target runs
+      ;; stale: no reply target runs, and a still-live attempt settles
+      ;; `:suppressed`
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :success})]
         (emit-resource-stale-suppressed!
           frame-id work-id generation :success stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
+          runtime-db frame-id (entry-path-for-reply payload) payload
+          {:reason :stale-reply :outcome :success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             data      (:value reply)
             loaded-at (:completed-at reply)
@@ -1525,10 +1505,10 @@
                             (rf.resources.state/positive-or-nil (:poll-interval-ms spec)))
             old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'      (-> runtime-db
-                          (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                          (rf.resources.work-ledger/settle-terminal
-                            work-id
-                            :completed {:loaded-at loaded-at})
+                          (assoc-in (rf.resources.state/entry-path resource-key)
+                                    (rf.resources.work-ledger/settle-attempt
+                                      entry' work-id
+                                      :completed {:loaded-at loaded-at}))
                           (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                   old-entries [(rf.resources.state/key-id resource-key)])
                           (rf.resources.route/reconcile-readiness))]
@@ -1577,7 +1557,7 @@
   "`:rf.resource.internal/failed`: on a verified reply, a first-load failure
   settles `:error`, and a refresh failure returns to `:loaded` keeping
   `:data` and recording `:refresh-error`. An abort (`:rf.http/aborted`) is a
-  cancellation instead: `entry-abort-settled`, the work row `:cancelled`, no
+  cancellation instead: `entry-abort-settled`, the attempt `:cancelled`, no
   error facts. A first-load settle arms the stale and GC timers, since no
   success will arm them, so an owner-free entry is still reaped; a refresh
   keeps the timers its prior success armed. A stale reply, abort or not, is
@@ -1597,7 +1577,7 @@
                                           :completed-at completed-at})
         aborted?   (= :cancelled (:status reply))
         entry      (live-entry-for-reply runtime-db frame-id payload)
-        record     (rf.resources.work-ledger/get-record runtime-db work-id)
+        record     (rf.resources.work-ledger/live-attempt entry work-id)
         cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (cond
       ;; Stale wins over natural status: a stale abort settles `:suppressed`,
@@ -1609,7 +1589,7 @@
           frame-id work-id generation
           (if aborted? :aborted :failure) stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload
+          runtime-db frame-id (entry-path-for-reply payload) payload
           {:reason :stale-reply
            :outcome (if aborted? :aborted :failure)
            :completed-at completed-at}))
@@ -1619,10 +1599,10 @@
             first-load-abort? (= :idle (:status entry'))
             spec      (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :cancelled {:reason :aborted :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))
             stale-delay-ms (when first-load-abort?
                              (rf.resources.state/positive-or-nil (:stale-after-ms spec)))
@@ -1656,10 +1636,10 @@
                      :rf.resource/failed :rf.resource/refresh-failed)
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :failed {:error error :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :failed {:error error :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))
             stale-delay-ms (when first-load-error?
                              (rf.resources.state/positive-or-nil (:stale-after-ms spec)))
@@ -1717,14 +1697,15 @@
         entry        (live-entry-for-reply runtime-db frame-id payload)
         ;; An infinite ensure/refetch settles its `:reply-to` here, with the
         ;; merged items over the post-settle feed as `:value`.
-        record       (rf.resources.work-ledger/get-record runtime-db work-id)]
+        record       (rf.resources.work-ledger/live-attempt entry work-id)]
     (if (nil? entry)
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :page-success})]
         (emit-resource-stale-suppressed!
           frame-id work-id generation :page-success stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload {:reason :stale-reply :outcome :page-success}))
+          runtime-db frame-id (entry-path-for-reply payload) payload
+          {:reason :stale-reply :outcome :page-success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             decoded   (:value reply)
             loaded-at (:completed-at reply)
@@ -1759,10 +1740,10 @@
             poll-delay-ms (when (seq (:active-owners entry'))
                             (rf.resources.state/positive-or-nil (:poll-interval-ms spec)))
             rdb'      (-> runtime-db
-                          (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                          (rf.resources.work-ledger/settle-terminal
-                            work-id
-                            :completed {:loaded-at loaded-at :page-index page-index})
+                          (assoc-in (rf.resources.state/entry-path resource-key)
+                                    (rf.resources.work-ledger/settle-attempt
+                                      entry' work-id
+                                      :completed {:loaded-at loaded-at :page-index page-index}))
                           (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                   (get-in runtime-db (rf.resources.state/entries-path))
                                   [(rf.resources.state/key-id resource-key)])
@@ -1840,7 +1821,7 @@
         first-load?  (and (some? entry)
                           (= 0 page-index)
                           (zero? (rf.resources.state/page-count entry)))
-        record       (rf.resources.work-ledger/get-record runtime-db work-id)
+        record       (rf.resources.work-ledger/live-attempt entry work-id)
         cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
     (cond
       ;; stale wins over natural status
@@ -1851,9 +1832,10 @@
           frame-id work-id generation
           (if aborted? :aborted :page-failure) stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
-          runtime-db frame-id payload {:reason :stale-reply
-                                       :outcome (if aborted? :aborted :page-failure)
-                                       :completed-at completed-at}))
+          runtime-db frame-id (entry-path-for-reply payload) payload
+          {:reason       :stale-reply
+           :outcome      (if aborted? :aborted :page-failure)
+           :completed-at completed-at}))
 
       ;; first-load abort
       (and aborted? first-load?)
@@ -1862,10 +1844,10 @@
                        rf.resources.state/bump-revision)
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :cancelled {:reason :aborted :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))
             stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))]
@@ -1897,10 +1879,10 @@
                        rf.resources.state/clear-refetch-sweep
                        rf.resources.state/bump-revision)
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :cancelled {:reason :aborted :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-abort-requested
@@ -1918,10 +1900,10 @@
       (let [entry' (rf.resources.state/entry-failed entry {:error error})
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :failed {:error error :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :failed {:error error :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))
             stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))]
@@ -1956,10 +1938,10 @@
       (let [entry' (-> (rf.resources.state/entry-failed entry {:error error})
                        rf.resources.state/clear-refetch-sweep)
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :failed {:error error :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :failed {:error error :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
@@ -1979,10 +1961,10 @@
       (let [entry' (-> (rf.resources.state/entry-page-failed entry {:error error})
                        rf.resources.state/clear-refetch-sweep)
             rdb'   (-> runtime-db
-                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/settle-terminal
-                         work-id
-                         :failed {:error error :completed-at completed-at})
+                       (assoc-in (rf.resources.state/entry-path resource-key)
+                                 (rf.resources.work-ledger/settle-attempt
+                                   entry' work-id
+                                   :failed {:error error :completed-at completed-at}))
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
@@ -2048,7 +2030,7 @@
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired`: re-checks the live entry and removes it,
-  with its ledger rows, only when it is owner-free, has no work in flight,
+  with its attempts, only when it is owner-free, has no work in flight,
   and the check's `:gc-window` is current. GC has no durable deadline, so the
   window stands in for the spec's generation re-check: every event that arms
   GC opens a new window, and a check queued before a newer window opened (on
@@ -2070,10 +2052,6 @@
       (let [old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb' (-> runtime-db
                      (update-in (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id resource-key))
-                     ;; Nothing is in flight here, so the whole ledger holding
-                     ;; goes; a retained tail would outlive the collected entry.
-                     ;; Spec 016 §Ledger row retention and identity
-                     (rf.resources.work-ledger/drop-rows-for-key resource-key)
                      (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                              old-entries [(rf.resources.state/key-id resource-key)]))]
         (rf.trace/emit! :rf.event :rf.resource/gc-fired

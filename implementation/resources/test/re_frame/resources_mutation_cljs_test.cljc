@@ -67,14 +67,12 @@
    (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- mutation-record
-  "The work-ledger row for a mutation instance's current attempt: the row whose
-  `:work/id` embeds `[:rf.mutation instance-id]`."
+  "A mutation instance's latest attempt: its live `:work`, else the newest
+  summary in its `:recent-work`."
   ([instance-id] (mutation-record :rf/default instance-id))
   ([frame-id instance-id]
-   (->> (vals (get-in (runtime-db frame-id) [:rf.runtime/work-ledger]))
-        (filter (fn [r] (= [:rf.mutation instance-id]
-                           (second (:work/id r)))))
-        first)))
+   (let [inst (instance frame-id instance-id)]
+     (or (:work inst) (first (:recent-work inst))))))
 
 (defn- reply-success!
   ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
@@ -545,9 +543,14 @@
 ;; clear that row. The runtime retires it once the reply is accepted and any
 ;; continuation has run; a caller-supplied instance keeps its row.
 
-(defn- mutation-ledger-rows []
-  (filter #(= :rf.mutation (first (:resource/key %)))
-          (vals (:rf.runtime/work-ledger (runtime-db)))))
+(defn- mutation-ledger-rows
+  "Every mutation attempt in the frame, live or settled, tagged with its
+  instance's id."
+  []
+  (mapcat (fn [inst]
+            (map #(assoc % :instance/id (:instance/id inst))
+                 (cond->> (:recent-work inst) (:work inst) (cons (:work inst)))))
+          (vals (instances))))
 
 (deftest generated-instances-retire-after-settle
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
@@ -626,13 +629,13 @@
   (restore-runtime-db!)
   (is (= 0 (count (instances))))
   (is (= 0 (count (mutation-ledger-rows))))
-  (testing "a supplied instance keeps its dangled :error row and ledger row"
+  (testing "a supplied instance keeps its dangled :error row and its attempt"
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "s"} :instance :form/save}])
     (restore-runtime-db!)
     (is (= [:error :dangling-on-restore]
            ((juxt :status (comp :reason :error)) (instance :form/save))))
-    (is (= [[:rf.mutation :form/save]] (mapv :resource/key (mutation-ledger-rows))))))
+    (is (= [:form/save] (mapv :instance/id (mutation-ledger-rows))))))
 
 ;; ---- subs and introspection -------------------------------------------------
 

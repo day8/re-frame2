@@ -1,13 +1,14 @@
 (ns re-frame.resources-cache-key-identity-cljs-test
   "The resource cache key never `=`-collapses through its carriers.
-  `(= [1 2 3] '(1 2 3))` is true, so the entries, indexes and work ledger key
-  on the CEDN-1 byte `key-id` string, which rides the SSR and epoch wire with
+  `(= [1 2 3] '(1 2 3))` is true, so the entries, indexes and mutation
+  instances key on the CEDN-1 byte `key-id` string, which rides the SSR and epoch wire with
   no custom transit handler. The live entries table is pinned in
   `resources-runtime-cljs-test`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    #?(:cljs [cljs.reader])
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
@@ -41,27 +42,31 @@
 
 (def ^:private both-key-ids #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)})
 
-(deftest carrier-2-work-ledger-keys-distinctly
-  ;; A read's work id carries no params, so the kind distinction reaches the
-  ;; ledger key only through a mutation work id, which embeds the
-  ;; caller-supplied instance id.
+(deftest carrier-2-attempts-resolve-their-owners-distinctly
+  ;; A read's work id carries no params, so the kind distinction reaches an
+  ;; attempt's identity only through a mutation work id, which embeds the
+  ;; caller-supplied instance id; each attempt resolves to its own byte-keyed
+  ;; instance.
   (is (= [:rf.work/resource :r/x 1] (rf.resources.work-ledger/resource-work-id :r/x 1))
       "a read work id is the resource id and generation")
-  (let [iv   [:rf.mutation [:row 1 2 3]]
-        il   [:rf.mutation '(:row 1 2 3)]
-        wv   (rf.resources.work-ledger/resource-work-id iv 1)
-        wl   (rf.resources.work-ledger/resource-work-id il 1)
-        rec  (fn [wid k] (rf.resources.work-ledger/work-record {:work-id wid :frame-id :f :resource/key k
-                                                                :generation 1 :transport :rf.http/managed}))
-        rdb  (-> {}
-                 (rf.resources.work-ledger/put-record wv (rec wv iv))
-                 (rf.resources.work-ledger/put-record wl (rec wl il)))]
+  (let [iv       [:row 1 2 3]
+        il       '(:row 1 2 3)
+        wv       (rf.resources.work-ledger/resource-work-id [:rf.mutation iv] 1)
+        wl       (rf.resources.work-ledger/resource-work-id [:rf.mutation il] 1)
+        inst     (fn [iid wid]
+                   (-> (rf.resources.mutation-runtime/empty-instance
+                         :m/x iid {:generation 1 :work-id wid})
+                       (rf.resources.work-ledger/start-attempt
+                         (rf.resources.work-ledger/work-record
+                           {:work-id wid :generation 1 :transport :rf.http/managed}))))
+        rdb      (-> {}
+                     (assoc-in (rf.resources.mutation-runtime/instance-path iv) (inst iv wv))
+                     (assoc-in (rf.resources.mutation-runtime/instance-path il) (inst il wl)))
+        owner-id (fn [wid] (:instance/id (get-in rdb (rf.resources.work-ledger/attempt-owner-path rdb wid))))]
     (is (= wv wl) "precondition: the work-id vectors are Clojure-=")
-    (is (= 2 (count (:rf.runtime/work-ledger rdb))))
-    (is (= [iv il] [(:resource/key (rf.resources.work-ledger/get-record rdb wv))
-                    (:resource/key (rf.resources.work-ledger/get-record rdb wl))]))
-    (is (vector? (get-in (rf.resources.work-ledger/get-record rdb wv) [:resource/key 1])))
-    (is (seq? (get-in (rf.resources.work-ledger/get-record rdb wl) [:resource/key 1])))))
+    (is (= 2 (count (get rdb rf.resources.mutation-runtime/mutations-key))))
+    (is (vector? (owner-id wv)))
+    (is (seq? (owner-id wl)))))
 
 (deftest carrier-3-ssr-projection-round-trip-keeps-two-entries
   (let [wired (get-in (rf.resources.ssr/project-resources-runtime-db (byte-keyed-runtime-db))
@@ -76,7 +81,7 @@
 
 (deftest carrier-3b-restore-reconcile-keeps-two-entries
   (let [out (rf.resources.ssr/reconcile-on-restore
-              (assoc (byte-keyed-runtime-db) rf.resources.state/work-ledger-key {}))]
+              (byte-keyed-runtime-db))]
     (is (= 2 (count (get-in out [rf.resources.state/resources-key :entries]))))
     (is (= both-key-ids (get-in out [rf.resources.state/resources-key :tag-index :t])))))
 

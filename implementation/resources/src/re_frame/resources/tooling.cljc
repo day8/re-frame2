@@ -175,19 +175,19 @@
   (let [[projected-key _disposition _spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
     (assoc projected-key 0 (rf.resources.trace-egress/project-scope (nth scoped-key 0)))))
 
-(defn- live-work-ledger-link
-  "Assocs the `:work-ledger` summary and `:host-transient` handle address
-  onto `acc`, projecting the record's `:resource/key`. The work-id carries no
-  scope or params, so it rides as-is."
-  [acc runtime-db work-id project-key]
-  (let [record  (rf.resources.work-ledger/get-record runtime-db work-id)
+(defn- live-work-link
+  "Assocs the `:work-ledger` summary of `entry`'s live attempt `work-id` and
+  its `:host-transient` handle address onto `acc`. The summary names the
+  entry's projected `:resource/key`, the key the attempt serves. The work-id
+  carries no scope or params, so it rides as-is."
+  [acc entry work-id project-key]
+  (let [record  (rf.resources.work-ledger/live-attempt entry work-id)
         summary (select-keys record
-                             [:work/id :work/kind :status
-                              :resource/key :generation
+                             [:work/id :work/kind :status :generation
                               :transport :owners :causes])
         rec'    (cond-> (assoc summary :work/id work-id)
-                  (contains? summary :resource/key)
-                  (update :resource/key project-key))]
+                  (some? record)
+                  (assoc :resource/key (project-key (:resource/key entry))))]
     (assoc acc
            :work-ledger    {:work/id work-id :record rec'}
            :host-transient [[:rf.http/in-flight work-id]])))
@@ -216,7 +216,7 @@
   scoped key and `node-key` the identity it carries (`proj-key` or its
   `collision-key`); every identity position carries `node-key`.
   Derivations §The live resource cache view."
-  [runtime-db proj-key node-key frame-id entry static-node]
+  [proj-key node-key frame-id entry static-node]
   (let [[proj-scope resource-id proj-params] proj-key
         project-key (fn [scoped-key]
                       (let [projected (project-key-for-egress scoped-key frame-id)]
@@ -237,7 +237,7 @@
              :materialized? true
              :status        (:status entry)}
       (some? work-id)
-      (live-work-ledger-link runtime-db work-id project-key)
+      (live-work-link entry work-id project-key)
       (contains? static-node :source) (assoc :source (:source static-node))
       (contains? static-node :schema) (assoc :schema (:schema static-node))
       (contains? static-node :doc)    (assoc :doc (:doc static-node))
@@ -258,7 +258,7 @@
                          :let  [scoped-key  (:resource/key entry)
                                 static-node (resource-algebra-view (second scoped-key))
                                 proj-key    (project-key-for-egress scoped-key frame-id)
-                                node-at     #(live-node-for runtime-db proj-key % frame-id
+                                node-at     #(live-node-for proj-key % frame-id
                                                             entry static-node)]]
                      {:proj-key proj-key :node (node-at proj-key) :node-at node-at})]
     ;; Group by the projected key's byte key-id, never by the vector: list and

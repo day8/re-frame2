@@ -23,15 +23,16 @@
   (let [reply-frame-id (:rf.frame/id payload)]
     (and (some? reply-frame-id) (not= reply-frame-id receiving-frame-id))))
 
-(defn ledger-row-for-reply
-  "The receiving frame's work-ledger row for a reply's `:work/id`, or nil.
-  The row records which scoped key the attempt serves, so a resource reply
-  finds its entry through it. Nil for a cross-frame reply, because two frames
-  can hold the same work-id, and nil when the row is gone (the reply is then
-  stale)."
+(defn attempt-owner-path-for-reply
+  "The receiving frame's runtime-db path to the entry or instance holding a
+  reply's `:work/id` attempt, live or among its terminal summaries, or nil. A
+  read reply carries no scoped key, so this is how it finds its entry. Nil for
+  a cross-frame reply, because two frames can hold the same work-id, and nil
+  when the attempt has left with its owner (the reply is then stale).
+  Spec 016 §Attempt identity."
   [runtime-db receiving-frame-id {work-id :work/id :as payload}]
   (when-not (cross-frame-reply? receiving-frame-id payload)
-    (rf.resources.work-ledger/get-record runtime-db work-id)))
+    (rf.resources.work-ledger/attempt-owner-path runtime-db work-id)))
 
 (defn live-slot-for-reply
   "The live durable slot at `(path-fn payload)` when the reply still owns it,
@@ -52,16 +53,20 @@
 
 (defn settle-suppressed-work!
   "Settles a suppressed reply's work in the receiving frame: clears the host
-  handle and settles the ledger row terminal `:suppressed` with `outcome`.
-  Returns the handler's effect map. A cross-frame reply settles nothing and
-  returns `{}`, because the row and handle under that work-id here are the
-  receiving frame's own live work."
-  [runtime-db receiving-frame-id {work-id :work/id :as payload} outcome]
+  handle and, when the owner at `owner-path` still holds the attempt, live or
+  in its terminal tail, settles it `:suppressed` with `outcome`. Returns the
+  handler's effect map. A cross-frame reply settles nothing and returns `{}`,
+  because the handle under that work-id here is the receiving frame's own
+  live work."
+  [runtime-db receiving-frame-id owner-path {work-id :work/id :as payload} outcome]
   (if (cross-frame-reply? receiving-frame-id payload)
     {}
     (do (rf.resources.work-ledger/clear-handle! receiving-frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id :suppressed outcome)})))
+        {:rf.db/runtime (if (some->> owner-path (get-in runtime-db))
+                          (update-in runtime-db owner-path
+                                     rf.resources.work-ledger/settle-attempt
+                                     work-id :suppressed outcome)
+                          runtime-db)})))
 
 ;; ---- current-generation reader --------------------------------------------
 

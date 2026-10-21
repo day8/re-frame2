@@ -115,7 +115,7 @@
 ;; work identity there, EP-0011 one-name-per-fact — Managed-Effects §The
 ;; uniform reply envelope; the trace row's `:tags` stamp the same
 ;; `:rf.reply/work-id`, and there is no bare `:work-id` trace-tag spelling
-;; to tolerate). The bare `:work/id` fallback is the durable work-ledger row's
+;; to tolerate). The bare `:work/id` fallback is the durable attempt record's
 ;; cross-record spelling (Managed-Effects §The uniform reply envelope — a
 ;; queryable status record vs a transient causal envelope), NOT a reply-map
 ;; spelling. The frame readers take the canonical `:rf.frame/id`; on a raw
@@ -139,10 +139,10 @@
   `:work/id` trace-tag duplicate (one name per fact — Conventions rule 1),
   and the reply MAP also single-roots its work identity as
   `:rf.reply/work-id`. Prefer `:rf.reply/work-id`; fall back to
-  the bare `:work/id`, which is the DURABLE work-ledger row's cross-record
+  the bare `:work/id`, which is the DURABLE attempt record's cross-record
   spelling (Managed-Effects §The uniform reply envelope — a queryable status
   record vs a transient causal envelope), NOT a reply-map key. nil when absent
-  (a non-ledger-backed managed async)."
+  (a managed async with no attempt record)."
   [m]
   (or (:rf.reply/work-id m) (:work/id m)))
 
@@ -152,7 +152,7 @@
   `:rf.reply/work-kind` (the reply MAP single-roots the work
   identity there — Managed-Effects §The uniform reply envelope; a family
   trace row stamps it too). Fall back to the bare `:work/kind`
-  the durable work-ledger row keeps under the cross-record spelling rule,
+  the durable attempt record keeps under the cross-record spelling rule,
   then to `:work-kind`/`:kind`. nil when absent. When absent on a reply,
   `infer-work-kind` derives it from the work-id tuple head — note a
   `:mutation` reuses the `:rf.work/resource` head and so is only
@@ -234,10 +234,10 @@
   not listed falls through to `phase-of`'s name-suffix heuristic so a
   newly-added op is classified before this table is extended."
   {;; ---- issuance / start ----
-   ;; Resources lower their issuance onto the work-ledger row:
+   ;; Resources lower their issuance onto the entry's attempt record:
    :rf.resource/work-started               :issued
    :rf.resource/fetch-started              :issued
-   ;; Mutations reuse the resource work-ledger substrate (`:work/kind
+   ;; Mutations reuse the resource attempt record (`:work/kind
    ;; :mutation`); `:rf.mutation/started` is the issuance row (EP-0016 D1 —
    ;; the mutation phase order, phase 2: the managed request is issued under
    ;; runtime-owned reply addressing).
@@ -277,7 +277,7 @@
    :rf.resource/succeeded                  :completed
    :rf.resource/failed                     :completed
    :rf.resource/refresh-failed             :completed
-   ;; Mutation settlement (EP-0016 D1 — phase 5, instance + work-ledger
+   ;; Mutation settlement (EP-0016 D1 — phase 5, instance + its attempt
    ;; settled; the row carries the accepted reply `:status` via the canonical
    ;; reply map). A `:rf.mutation/succeeded` is `:ok`; `:rf.mutation/failed` is
    ;; `:error` or an accepted terminal `:cancelled`.
@@ -625,7 +625,7 @@
   "Group every cross-family work/reply trace row by its `:work/id` — the
   attempt-arc view the stale-races panel renders (Managed-Effects §Work-id
   correlation — `:work/id` is the SINGLE attempt identity, the key stale
-  suppression and the ledger and this view all share). Returns
+  suppression and the attempt records and this view all share). Returns
 
       {<work-id> {:work-id … :work-kind … :rows [<row> …]
                   :phases #{:issued :completed …}
@@ -635,8 +635,8 @@
   `:terminal-status` is the completion `:status` if the arc reached a
   `:completed` row, `:stale` if it was stale-suppressed, else nil (still
   in-flight). `:suppressed?` flags an arc that hit the stale-suppression
-  correctness boundary. Rows with no `:work/id` (a non-ledger-backed managed
-  async) are grouped under the `nil` key. Pure."
+  correctness boundary. Rows with no `:work/id` (a managed async with no
+  attempt record) are grouped under the `nil` key. Pure."
   [trace-buffer]
   (let [rows (project-work-events trace-buffer)]
     (->> rows
@@ -659,40 +659,40 @@
            {}))))
 
 ;; ---------------------------------------------------------------------------
-;; \"What is still running?\" — work-ledger rows joined to reply status +
+;; \"What is still running?\" — attempt records joined to reply status +
 ;; trace cause, UNIFORM across families (Cross-Cutting F-C4 active
-;; managed-effects dashboard). The work ledger is
-;; the durable substrate (Managed-Effects §Work-ledger integration — a ledger
-;; row IS the reified continuation); a non-terminal row is live work. Joining
-;; the ledger row to the latest trace phase for its `:work/id` answers \"is it
-;; issued / retrying / cancellation-requested?\" across every family with ONE
-;; query.
+;; managed-effects dashboard). The attempt record is
+;; the durable substrate (Managed-Effects §Attempt records — an attempt
+;; record IS the reified continuation); a non-terminal one is live work.
+;; Joining the record to the latest trace phase for its `:work/id` answers
+;; \"is it issued / retrying / cancellation-requested?\" across every family
+;; with ONE query.
 ;; ---------------------------------------------------------------------------
 
 (def non-terminal-work-statuses
-  "The non-terminal ledger statuses an attempt moves through while still live
-  (Managed-Effects §Work-ledger integration — issuance writes a `:running`
-  row; `:abort-requested` is non-terminal until the transport settles). A
-  ledger row in one of these IS live work."
+  "The non-terminal statuses an attempt moves through while still live
+  (Managed-Effects §Attempt records — issuance writes a `:running`
+  record; `:abort-requested` is non-terminal until the transport settles). An
+  attempt record in one of these IS live work."
   #{:queued :running :abort-requested})
 
 (defn live?
-  "True iff a ledger row `:status` is non-terminal (the attempt is still
+  "True iff an attempt record's `:status` is non-terminal (the attempt is still
   running / queued / abort-requested). Pure."
   [status]
   (contains? non-terminal-work-statuses status))
 
 (defn ledger-row
-  "Project ONE work-ledger record `[work-id record]` into the uniform
-  work/reply row vocabulary (Managed-Effects §Work-ledger integration). The
+  "Project ONE attempt record `[key record]` into the uniform
+  work/reply row vocabulary (Managed-Effects §Attempt records). The
   cross-family mirror of `resources-helpers/work-row`, but keyed on the
   ENVELOPE vocabulary (`:work-kind` / `:work/id` / live?) rather than
-  resource-specific fields, so HTTP / route / machine / timer ledger rows
+  resource-specific fields, so HTTP / route / machine / timer attempt records
   project the SAME way:
 
       {:work-id      <id>
        :work-kind    :resource | :mutation | :http | :route | :machine | :timer
-       :status       :running                    ; the ledger row status
+       :status       :running                    ; the attempt's status
        :live?        true                        ; non-terminal ⇒ still running
        :frame        <frame-id>
        :owners       [<owner> …]                 ; who needs this work
@@ -701,7 +701,7 @@
        :started-at   …  :deadline-at …
        :attempt      <n>
        :transport    :rf.http/managed
-       :outcome      <summary>}                  ; terminal-row outcome summary
+       :outcome      <summary>}                  ; terminal outcome summary
 
   PRIVACY: `:causes` + `:outcome` are summarized (a cause may carry data).
   The host handles (AbortControllers / promises / timer handles) live in a
@@ -709,14 +709,13 @@
   (Managed-Effects §The reply map — the data-only invariant). Pure."
   [[map-key record]]
   (let [status (:status record)
-        ;; The production `:rf.runtime/work-ledger` map is keyed on the opaque
-        ;; CEDN-1 byte `work-id-id` STRING (resources/work-ledger §record-path);
-        ;; the kind-preserving work-id VECTOR is carried on the record as
-        ;; `:work/id`. Read the canonical vector from there — fall back to the
-        ;; map key only for a nonconforming record that lacks the stamp —
-        ;; so the displayed `:work-id`, the `:work-kind` inference, AND the
-        ;; live-work trace join all key on the kind-preserving identity, NOT the
-        ;; byte string. Mirror of resources-helpers/work-row.
+        ;; The gathered map's key also carries the owner's byte id
+        ;; (resources-helpers/frame-work); the kind-preserving work-id VECTOR
+        ;; is carried on the record as `:work/id`. Read the canonical vector
+        ;; from there — fall back to the map key only for a nonconforming
+        ;; record that lacks the stamp — so the displayed `:work-id`, the
+        ;; `:work-kind` inference, AND the live-work trace join all key on the
+        ;; attempt's identity. Mirror of resources-helpers/work-row.
         work-id (or (:work/id record) map-key)]
     {:work-id      work-id
      :work-kind    (or (:work/kind record) (:kind record) (infer-work-kind work-id))
@@ -733,10 +732,10 @@
      :outcome      (when (contains? record :outcome) (rh/summarize (:outcome record)))}))
 
 (defn project-ledger
-  "Project a frame's work-ledger map `{<work-id> <record>}` into the uniform
+  "Project a frame's attempts `{<key> <record>}` into the uniform
   cross-family work/reply rows, live (non-terminal) work first then the
   terminal recent-races tail, each group newest-first by `:attempt`. Per
-  Managed-Effects §Work-ledger integration. Pure."
+  Managed-Effects §Attempt records. Pure."
   [ledger]
   (->> (or ledger {})
        (mapv ledger-row)
@@ -746,7 +745,7 @@
 (defn latest-phase-by-work-id
   "Index the LATEST reply-envelope trace phase observed per `:work/id` across
   a trace buffer (the most-recent `work-event-row` for each work id, by
-  `:time` then `:id`). Used to join a live ledger row to its current trace
+  `:time` then `:id`). Used to join a live attempt to its current trace
   cause — \"is this running work issued / retrying / cancellation-requested?\"
   Returns `{<work-id> <work-event-row>}`. Pure."
   [trace-buffer]
@@ -756,11 +755,11 @@
        (reduce (fn [acc row] (assoc acc (:work-id row) row)) {})))
 
 (defn live-work
-  "\"What is still running?\" — the live (non-terminal) work-ledger rows
+  "\"What is still running?\" — the live (non-terminal) attempt records
   joined to their latest reply-envelope trace phase + completion status,
   UNIFORM across HTTP / resources / mutations / routing / machines / timers
-  (Managed-Effects §Work-ledger integration / Cross-Cutting F-C4). Each live
-  ledger row gains the trace cause for its `:work/id`:
+  (Managed-Effects §Attempt records / Cross-Cutting F-C4). Each live
+  attempt gains the trace cause for its `:work/id`:
 
       {:work-id … :work-kind … :status :running :live? true
        :owners … :causes … :attempt … :frame …
@@ -768,13 +767,14 @@
        :latest-op    :rf.resource/work-abort-requested}      ; the emitting op
 
   Answers the operator's \"what is the app waiting on, and why\" across every
-  family with ONE join. `ledger` is the frame's work-ledger map (read off the
-  runtime-db at `:rf.runtime/work-ledger`); `trace-buffer` supplies the latest phase, and
+  family with ONE join. `ledger` is the frame's attempts, as
+  `resources-helpers/frame-work` gathers them off the runtime-db's entries and
+  mutation instances; `trace-buffer` supplies the latest phase, and
   must be THAT frame's rows (`trace-buffer-for-frame`), since the work-id it
   joins on is frame-local. Pure.
 
   The single-arity form (ledger only) returns the live rows without the trace
-  join (the ledger row's own `:status` is the live fact; the trace phase is
+  join (the attempt's own `:status` is the live fact; the trace phase is
   the enrichment)."
   ([ledger] (live-work ledger nil))
   ([ledger trace-buffer]

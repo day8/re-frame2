@@ -262,16 +262,15 @@
 
 (defn- fetching-next?*
   "True iff a load-more is in flight on feed `entry`. Load-more and a whole-feed
-  refresh both sit at `:fetching`, so it joins `:current-work` to its live
-  ledger row and checks for a positive `:page-index`.
+  refresh both sit at `:fetching`, so it reads the live attempt and checks for
+  a positive `:page-index`.
   Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
-  [runtime-db entry]
+  [entry]
   (boolean
     (when (and (some? entry) (= :fetching (:status entry)))
-      (let [work-id (:current-work entry)]
-        (and (rf.resources.work-ledger/live-work? runtime-db work-id)
-             (let [pi (:page-index (rf.resources.work-ledger/get-record runtime-db work-id))]
-               (and (integer? pi) (pos? pi))))))))
+      (and (rf.resources.work-ledger/live-work? entry)
+           (let [pi (:page-index (:work entry))]
+             (and (integer? pi) (pos? pi)))))))
 
 (defn fetching-next?-sub-fn
   "`:rf.resource/fetching-next?`: a load-more in flight, distinct from
@@ -279,7 +278,7 @@
   [frame-state [_id payload]]
   (let [rt (runtime-of frame-state)
         e  (feed-entry-for rt (app-of frame-state) payload)]
-    (fetching-next?* rt e)))
+    (fetching-next?* e)))
 
 (defn infinite-state-sub-fn
   "`:rf.resource/infinite-state`: the combined feed view-model, or the
@@ -295,7 +294,7 @@
        :loading? false :fetching? false :fetching-next? false
        :stale? false :has-data? false
        :error nil :refresh-error nil :page-error nil}
-      (let [next? (fetching-next?* rt e)]
+      (let [next? (fetching-next?* e)]
         {:status         (:status e)
          :items          (merged-items e 'rf.resource/infinite-state)
          :pages          (vec (:data e))
@@ -337,7 +336,7 @@
     {:doc "Passive read: true iff an infinite feed has a next page ((some? :next-page-param) — nil is the single terminal). false for a non-feed / terminal feed. Per Spec 016 §Subscription contract."}
     has-next-page?-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/fetching-next?
-    {:doc "Passive read: true iff a LOAD-MORE is in flight on an infinite feed (R2) — distinct from :fetching? (a whole-feed refresh). Derived from the in-flight work record's page index (a load-more appends at a positive index). Per Spec 016 §Subscription contract / §Causal event — load-more."}
+    {:doc "Passive read: true iff a LOAD-MORE is in flight on an infinite feed (R2) — distinct from :fetching? (a whole-feed refresh). Derived from the in-flight attempt's page index (a load-more appends at a positive index). Per Spec 016 §Subscription contract / §Causal event — load-more."}
     fetching-next?-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/page-error
     {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
