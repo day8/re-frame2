@@ -275,7 +275,7 @@ jobs:
       # gate the release alongside the other per-feature artefacts.
       # ssr-ring is the Ring/Pedestal host adapter (spins up a real Jetty
       # host on an ephemeral port in its e2e validator); resources is the
-      # EP-0003 declarative server-state runtime (FSM + work-ledger +
+      # EP-0003 declarative server-state runtime (FSM + in-flight attempts +
       # managed-HTTP + invalidation/GC + routing/SSR integrations).
       - name: JVM tests (ssr-ring artefact)
         working-directory: implementation/ssr-ring

@@ -262,8 +262,8 @@ def _grade_satisfied(grade_cell: str) -> bool:
     The grading-table legend (Runtime-Subsystems.md) defines ✅ as "the clause
     is satisfied with a named mechanism".  An empty cell, a `-`, a `TODO`, or a
     `❌`/`⚠️`-only cell is NOT a satisfied grade.  (A ⚠️ may legitimately ANNOTATE
-    a satisfied clause — e.g. work-ledger clause 2's open multi-writer
-    forward-flag — so we require ✅ to be PRESENT, not that the cell be ⚠️-free.)
+    a satisfied clause — an open forward-flag beside the named mechanism — so
+    we require ✅ to be PRESENT, not that the cell be ⚠️-free.)
     """
     return "✅" in grade_cell  # ✅
 
