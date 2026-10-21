@@ -309,7 +309,7 @@ The resolver's declared inputs ([016 §Named resource-scope resolvers](016-Resou
 
 ## Graph inspection — internal but structured
 
-There is **no public graph-accessor name**. The contract is a *structured shape* an internal accessor produces, which [Xray](../tools/xray/spec/README.md) and the conformance fixtures consume; a public name is stabilized only after the shape survives real use (the *project-before-primitive* discipline applied to accessors).
+There is **no public graph-accessor name**. The contract is a *structured shape* an internal accessor produces, which [Xray](../tools/xray/spec/README.md) and the reference implementation's tests consume; a public name is stabilized only after the shape survives real use (the *project-before-primitive* discipline applied to accessors).
 
 The shape carries:
 
@@ -361,7 +361,7 @@ An Xray panel renders this as **one** graph even though the underlying runtime m
 
 ### One accessor, two projections (EP-0014 issue-1 disposition)
 
-The static graph accessor and the live graph accessor are **projections of one registry** — never two overlapping internal accessors. The graduation gate: the public name ships only when a consumer **beyond** the two named first consumers (Xray, conformance fixtures) needs it, with [API](API.md)-facade classification recorded per name at graduation (the diff-time facade-export rule).
+The static graph accessor and the live graph accessor are **projections of one registry** — never two overlapping internal accessors. The graduation gate: the public name ships only when a consumer **beyond** the two named first consumers (Xray, the reference implementation's tests) needs it, with [API](API.md)-facade classification recorded per name at graduation (the diff-time facade-export rule).
 
 ### Redaction metadata (EP-0014 issue-1 disposition; EP-0015)
 

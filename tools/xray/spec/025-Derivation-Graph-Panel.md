@@ -347,9 +347,9 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   isolation (the first frame's slice does not leak).
 - The composer assembly mechanics + the cross-family classification
   conformance are pinned by `re-frame.derivation-graph-test` (JVM) and the
-  derivation-algebra conformance test + the host-agnostic
-  `derivation-graph-algebra.edn` corpus fixture (the `:derivation-graph` call
-  op, rf2-k0meap.3) — including the **precise machine→selector edge
+  derivation-algebra conformance test + the reference-only
+  `derivation-graph-algebra.edn` fixture (the `:derivation-graph` call
+  op) — including the **precise machine→selector edge
   targeting** (rf2-4qmiij: two machines, one selector reading only one of
   them, asserting no edge from the unrelated machine), the **frame-scoped
   flow node id** (`[:flow <frame-id> <flow-id>]` — a reused flow-id across two
