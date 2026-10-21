@@ -2,7 +2,8 @@
 
 /*
  * A small, complete EDN reader shared by the gates that must read a
- * `deps.edn` or `shadow-cljs.edn` as STRUCTURE rather than as text.
+ * `deps.edn`, a `shadow-cljs.edn` or a build's `manifest.edn` as STRUCTURE
+ * rather than as text.
  *
  * Current consumers:
  *
@@ -17,6 +18,10 @@
  *     ports and the builds whose `:output-dir` each one serves
  *   examples/scripts/examples-staging.cjs                 — the runnable
  *     standalone-example manifest, from the `:examples/*` builds
+ *   implementation/scripts/lib/read-release-bundle.cjs    — a browser build's
+ *     `manifest.edn`, the sources each module compiled
+ *   implementation/scripts/check-bundle-isolation.cjs     — the classpath a
+ *     forbidden source must resolve on, from shadow-cljs.edn
  *
  * Where a balanced-brace byte scan cannot tell a real `}` from one that sits
  * inside a `; comment`, a "string", or a `#_` reader-discarded form, this
@@ -37,8 +42,9 @@
  * It is deliberately strict and fail-closed: anything it does not understand
  * (an unterminated string, an unbalanced collection, an unknown `#` dispatch)
  * throws EdnReadError so callers can reject rather than silently mis-read. It
- * is NOT a full Clojure reader — it covers the EDN grammar a deps.edn and
- * this repo's shadow-cljs.edn contain — but, unlike a brace counter, it never mistakes
+ * is NOT a full Clojure reader — it covers the EDN grammar a deps.edn, this
+ * repo's shadow-cljs.edn and a shadow-cljs build manifest contain — but,
+ * unlike a brace counter, it never mistakes
  * comment / string / discarded bytes for real structure.
  */
 
