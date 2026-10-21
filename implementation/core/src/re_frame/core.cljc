@@ -139,6 +139,7 @@
             [re-frame.core-schemas  :as rf.core-schemas]
             [re-frame.core-machines :as rf.core-machines]
             [re-frame.core-resources :as rf.core-resources]
+            [re-frame.core-state    :as rf.core-state]
             [re-frame.core-ssr      :as rf.core-ssr]
             [re-frame.core-epoch    :as rf.core-epoch]
             [re-frame.core-http     :as rf.core-http]
@@ -169,7 +170,7 @@
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
                                     reg-error-projector reg-head
-                                    reg-http-interceptor
+                                    reg-http-interceptor reg-state
                                     reg-view reg-machine defmachine
                                     image
                                     dispatch dispatch-sync
@@ -1616,6 +1617,38 @@
   the coeffect db (EP-0016 issue 7). Implementation ships in
   `day8/re-frame2-resources`."}
   resolve-resource-scope rf.core-resources/resolve-resource-scope)
+
+;; ---- per-instance view state (Spec 002 §Per-instance view state) ---------
+;;
+;; One spelling for every view substrate. A macro like every `reg-*`, so the
+;; concern's sub and setter record the calling namespace and an explicit image
+;; selecting it carries them (Spec 002 §Image resolution and composition); the
+;; CLJS value alias beside it is the programmatic door (Conventions
+;; §Convention A). A clear is a dispatch of the shared `:rf.state/clear` event,
+;; so there is no clear fn here.
+
+#?(:clj
+   (rf.core-reg-macros/defreg-macro reg-state rf.core-state/reg-state
+     "Register the per-instance state `concern`: a sub and a setter
+     event under `concern` reading and writing `[:ui concern instance-key]`,
+     plus the shared clear event `[:rf.state/clear concern instance-key]`.
+
+         (rf/reg-state :todo.ui/expanded? {:default false})
+         @(rf/subscribe [:todo.ui/expanded? id])     ;; read
+         (rf/dispatch [:todo.ui/expanded? id true])  ;; write
+
+     `opts` may carry `:default` and nothing else. Returns `concern`.
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.core-state/reg-state` and Spec 002 §Per-instance view state."
+     {:arglists '([concern] [concern opts])}))
+
+#?(:cljs
+   (def ^{:doc "Fn-alias of the `reg-state` macro for HoF / programmatic
+  registration (no source-coord capture, so the concern's sub and setter
+  carry no `:rf.provenance/ns` — reached only by a frame made without
+  `:images`). Register the per-instance state `concern`. See
+  `re-frame.core-state/reg-state` and Spec 002 §Per-instance view state."}
+     reg-state rf.core-state/reg-state))
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;

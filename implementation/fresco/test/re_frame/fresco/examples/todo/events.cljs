@@ -5,32 +5,25 @@
   exists. That is the point of the file: a Todo-class application's model
   is ordinary re-frame2, and Fresco is a way of READING it.
 
-  ## The two places the substrate does leak in here, and why
+  ## The one place the state sugar stops short, and why
 
-  1. **`::h/clear`.** Cancelling an edit removes the `h/reg-state` entry,
-     and the door's spelling for that is a FRAMEWORK-NAMED event,
-     `[::h/clear ::concern ikey]`. A handler that has to end an edit as
-     part of doing something else — `::commit-edit` below — therefore
-     dispatches it, and this namespace `:require`s the view door for the
-     sole purpose of spelling one keyword. Nothing else here needs it.
+  Cancelling an edit removes the `rf/reg-state` entry, and the spelling
+  for that is core's own event, `[:rf.state/clear ::concern ikey]`, so a
+  handler that ends an edit as part of doing something else —
+  `::commit-edit` below — dispatches it with no view door in sight.
 
-  2. **The literal `:ui`.** `::commit-edit` has to ask *is this row
-     being edited?*, and `h/reg-state` answers that question with a
-     subscription and a setter — neither of which is available to an
-     event handler. What IS available is the app-db layout the sugar
-     documents, `[:ui ::concern ikey]`, which `impl.state`'s docstring
-     explicitly says ordinary handlers may read and write. So the read is
-     legitimate; what the door does not give is a NAME for the `:ui`
-     root, so the line below writes the keyword out by hand:
+  Reading is where the sugar stops one step short. `::commit-edit` has to
+  ask *is this row being edited?*, and `rf/reg-state` answers that
+  question with a subscription and a setter — neither of which is
+  available to an event handler. What IS available is the app-db layout
+  the sugar documents, `[:ui ::concern ikey]`, which Spec 002
+  §Per-instance view state says ordinary handlers may read and write. So
+  the read is legitimate; what the door does not give is a NAME for the
+  `:ui` root, so the line below writes the keyword out by hand:
 
-         (get-in db [:ui db/draft id])
-
-     Neither is a reach past the door — `re-frame.fresco` is the door —
-     but both are places where the sugar stops one step short of the
-     call site that needs it."
+      (get-in db [:ui db/draft id])"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.examples.todo.db :as rf.fresco.examples.todo.db]))
 
 ;; ---------------------------------------------------------------------------
@@ -114,14 +107,14 @@
          editor.
 
          It takes NO text argument. The draft is already in `app-db` —
-         every keystroke wrote it there through `h/reg-state`'s setter —
+         every keystroke wrote it there through `rf/reg-state`'s setter —
          and reading it here rather than off the DOM event is what makes
          this handler safe to fire twice. A blur that lands after Escape
          has already cleared the draft finds nothing to commit and does
          nothing, which is the whole of the cancel-must-beat-late-blur
          problem, solved by the model rather than by ordering."}
   (fn [{:keys [db]} [_ id]]
-    ;; `[:ui <concern> <ikey>]` is `h/reg-state`'s documented app-db layout
+    ;; `[:ui <concern> <ikey>]` is `rf/reg-state`'s documented app-db layout
     ;; and an ordinary handler may read it. The `:ui` root has no name on
     ;; the door, so it is written out — see the namespace docstring.
     (if-some [text (get-in db [:ui rf.fresco.examples.todo.db/draft id])]
@@ -129,5 +122,5 @@
         {:db (if (str/blank? title)
                (update db :todos dissoc id)
                (assoc-in db [:todos id :title] title))
-         :fx [[:dispatch [::rf.fresco/clear rf.fresco.examples.todo.db/draft id]]]})
+         :fx [[:dispatch [:rf.state/clear rf.fresco.examples.todo.db/draft id]]]})
       {})))

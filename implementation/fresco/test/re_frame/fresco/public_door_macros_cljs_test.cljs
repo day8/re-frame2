@@ -114,7 +114,7 @@
 (deftest defhost-refuses-options-that-are-not-a-map
   (testing "unguarded, a non-map would go straight from `mint-host!`'s
             nil-component check to `(keys opts)`, and whatever `keys`
-            raised would not be a declaration refusal. `h/reg-state` carries
+            raised would not be a declaration refusal. `rf/reg-state` carries
             the same guard; this is it on the comparable surface"
     (let [data (error-data #(rf.fresco.impl.codec/mint-host! "doc/in-the-wrong-place"
                                               badge-component

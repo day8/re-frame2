@@ -14,11 +14,11 @@ door source are the check, and reading the source is the check rather than a
 polish pass.
 
 - **`implementation/fresco/src/re_frame/fresco.cljc`** — the public door, and
-  the whole of it. Three macros (`defview`, `event`, `defhost`) and the vars
-  (`sub`, `error-boundary`, `reg-state`, `portal`, `route-link`,
-  `as-element`, `as-component`, `frame-root`, `frame-provider`,
-  `client-root`, `render!`, `unmount!`) — the fifteen names the manifest
-  rosters. Its docstrings are unusually load-bearing — the four handler
+  the whole of it. Four macros (`defview`, `event`, `defhost`,
+  `render-fn`) and the vars (`sub`, `error-boundary`, `portal`,
+  `route-link`, `as-element`, `as-component`, `frame-root`,
+  `frame-provider`, `client-root`, `render!`, `unmount!`) — the fifteen
+  names the manifest rosters. Its docstrings are unusually load-bearing — the four handler
   shapes, the `defhost` option roster, the `render!` root options and the
   held-open absences are all stated there.
 - **The `impl/` namespaces beside it**, which is where a *behaviour* is decided:
@@ -29,7 +29,9 @@ polish pass.
     crossing, the reserved-name skips.
   - `impl/slot.cljc` — the canonical prop-name rule (the MIG-11 table). Shared
     with the codemod, which is why the two cannot drift.
-  - `impl/state.cljc` — `reg-state`'s signature, address shape and key rules.
+  - Not under `impl/`: `rf/reg-state` is core's, and
+    `implementation/core/src/re_frame/core_state.cljc` holds its signature,
+    address shape and key rules.
   - `impl/mount.cljs` — `root!` / `render!` / `unmount!` arities and the
     hot-reload idiom.
   - `impl/controlled.cljs` — what "controlled" actually covers (input/textarea,

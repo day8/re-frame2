@@ -2,8 +2,9 @@
   "THE WHOLE OF THE MARKUP.
 
   Five boundaries. Everything they reach for is `h/…` — `defview`, `sub`,
-  `route-link`, the `::h/value` and `::h/checked` markers, the `::h/clear`
-  event and the `h/reg-state` pair `db` declared. There is no `impl`
+  `route-link`, the `::h/value` and `::h/checked` markers — plus core's
+  `:rf.state/clear` event and the `rf/reg-state` pair `db` declared. There
+  is no `impl`
   namespace in the `:require` list and no `re-frame.core` either: a view
   neither subscribes nor dispatches, because a read is `h/sub` and an
   intent is a vector.
@@ -18,7 +19,7 @@
      tabs, three calls, and the one-time cost paid once.
 
   2. **`:on-key-down` takes a MAP.** `{\"Enter\" [::events/commit-edit
-     id] \"Escape\" [::h/clear db/draft id]}` is a first-class lowered
+     id] \"Escape\" [:rf.state/clear db/draft id]}` is a first-class lowered
      shape — one `.key` lookup per event, composition-gated centrally so
      an IME's Enter commits nothing — and it is why this file contains no
      callback at all. Without it, the Todo class's Enter/Escape pair
@@ -92,13 +93,13 @@
   "One to-do: a checkbox, its title, a delete button, and — when this
   row's draft is set — an edit box in place of the title.
 
-  The draft is `h/reg-state` keyed by the to-do's id, so opening one
+  The draft is `rf/reg-state` keyed by the to-do's id, so opening one
   editor opens ONE editor. Double-clicking the title writes the current
   title into that row's draft, which both opens the editor and fills it:
   one write, because *the editor is open* and *the editor holds this
   text* are one fact.
 
-  Escape is `[::h/clear db/draft id]` — removal, back to the default —
+  Escape is `[:rf.state/clear db/draft id]` — removal, back to the default —
   and it needs no `::h/revision`, because clearing the draft UNMOUNTS the
   field rather than handing a still-mounted one a value it is already
   showing. That is the other side of the boundary: the revision counter
@@ -128,7 +129,7 @@
          :on-input    [rf.fresco.examples.todo.db/draft id ::rf.fresco/value]
          :on-blur     [::rf.fresco.examples.todo.events/commit-edit id]
          :on-key-down {"Enter"  [::rf.fresco.examples.todo.events/commit-edit id]
-                       "Escape" [::rf.fresco/clear rf.fresco.examples.todo.db/draft id]}}])]))
+                       "Escape" [:rf.state/clear rf.fresco.examples.todo.db/draft id]}}])]))
 
 ;; ---------------------------------------------------------------------------
 ;; The list

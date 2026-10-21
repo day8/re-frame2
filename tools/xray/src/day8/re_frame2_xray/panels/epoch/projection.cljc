@@ -1812,9 +1812,9 @@
 ;; `:status` (`:ok` / `:error`) primitive for its per-effect tick:
 ;;
 ;;   :db    — the handler's app-db write (the `:db` effect), FIRST in the
-;;            ledger when present. ✓ on a successful commit; ✗ when the
-;;            post-commit app-db schema check rejected the write and the
-;;            cascade rolled back. Shown whenever a `:db` commit was
+;;            ledger when present. ✓ on a successful commit; ✗ when
+;;            candidate validation rejected the write before install
+;;            (`db-rolled-back?`). Shown whenever a `:db` commit was
 ;;            attempted — INCLUDING a plain reg-event that returns only
 ;;            `:db` (no `:fx`); ABSENT when the handler returned only
 ;;            `:fx` / nothing, or THREW (no phantom `:db`).
@@ -1910,19 +1910,40 @@
     {}
     events))
 
-(defn db-rolled-back?
-  "True iff a `:where :app-db` schema-validation failure flagged the
-  cascade transaction-REJECTED — `:rollback? true` is the stable public
-  vocabulary; the candidate is rejected BEFORE install,
-  so app-db is never touched. The `:db` sub-step paints ✗ in this case; the schema
-  reason attaches to the `:db` row via `attach-to-fx-db-row`."
-  [events]
+(def ^:private candidate-passed-ops
+  "Ops proving an event's own candidate transition passed validation: the
+  change traces of its install, and the `:fx` walk, which runs only after
+  an install and emits one outcome op per entry plus the terminal
+  `:rf.fx/do-fx` marker."
+  (into #{:rf.event/db-changed :rf.event/db-noop
+          :rf.event/frame-state-changed :rf.fx/do-fx}
+        (keys fx-outcome-op->status)))
+
+(defn- candidate-rejected-at?
+  "True iff validation rejected the event's OWN candidate transition at the
+  `where` boundary: a `:rollback? true` failure there, from a value that
+  failed its schema or a schema that could not be evaluated, emitted before
+  any install or `:fx`-walk trace. A rejection after those is the post-walk
+  flow settle's, and the event's install and walk stood (Spec 013
+  §Sequencing)."
+  [events where]
   (boolean
     (some (fn [ev]
-            (and (= :rf.error/schema-validation-failure (op ev))
-                 (= :app-db (common/tag-of ev :where))
+            (and (contains? #{:rf.error/schema-validation-failure
+                              :rf.error/malformed-schema}
+                            (op ev))
+                 (= where (common/tag-of ev :where))
                  (true? (common/tag-of ev :rollback?))))
-          events)))
+          (take-while #(not (contains? candidate-passed-ops (op %))) events))))
+
+(defn db-rolled-back?
+  "True iff validation rejected the event's own candidate at the
+  `:where :app-db` boundary (`candidate-rejected-at?`), so the handler's
+  write never installed and app-db was never touched. `:rollback? true` is
+  the stable public vocabulary for that rejection. The `:db` row paints ✗
+  and the reason attaches to it via `attach-to-fx-db-row`."
+  [events]
+  (candidate-rejected-at? events :app-db))
 
 (defn db-noop?
   "True iff this cascade's `:db` commit was a NO-OP — the
@@ -1946,9 +1967,9 @@
         EVERY actual `:db` install (the single forward commit; a
         rejected candidate emits none). This is the canonical `:db`-commit signal, present
         for a plain reg-event that returns only `:db`.
-    (b) A `:where :app-db` schema violation — the candidate `:db` was
-        built and REJECTED pre-install (no db-changed fires), so the
-        commit was ATTEMPTED; the SIDE EFFECTS `:db` row surfaces it.
+    (b) `db-rolled-back?` — the candidate `:db` was built and REJECTED
+        pre-install (no db-changed fires), so the commit was ATTEMPTED;
+        the SIDE EFFECTS `:db` row surfaces it.
     (c) A `:rf.event/db-noop` trace — the handler returned a
         `:db` effect that left app-db unchanged (the no-op fast-path
         skipped the write). The commit was ATTEMPTED, so the SIDE EFFECTS
@@ -1971,10 +1992,13 @@
   flat SIDE EFFECTS ledger.
   nil when no `:db` commit was attempted (a reg-event that returned no
   `:db`, or a handler that threw — no phantom `:db`). `:status`
-  is `:error` on a schema-fail rollback (so the badge / `step-status`
-  paints ✗ and the attached `:where :app-db` violation carries the reason
-  box), `:noop` when the commit left app-db unchanged (∅ — \"returned
-  unchanged db, nothing committed\"), else `:ok`. Carries the
+  is `:error` when validation rejected the handler's write before install
+  (`db-rolled-back?`, so the badge / `step-status` paints ✗ and the
+  attached `:where :app-db` violation carries the reason box), `:noop`
+  when the commit left app-db unchanged (∅ — \"returned unchanged db,
+  nothing committed\"), else `:ok`. A post-walk flow settle's rejection
+  leaves the status as the handler's install set it, since that install
+  stood (Spec 013 §Sequencing); its violation still surfaces. Carries the
   `:fx-id :db` marker — the view renders its args slot as the clickable
   \"→ app-db\" DESTINATION marker (the actual db diff lives in the App-db
   panel; no duplication) and the attachment machinery matches `:fx-id :db`
@@ -2008,9 +2032,10 @@
 (defn- frame-state-partitions
   "The set of partition tags carried on the `:rf.event/frame-state-changed`
   trace — a subset of `#{:app-db :runtime-db}` (Spec 009). nil when no
-  frame-state-changed fired. Every emission is a forward commit (a
-  schema-rejected candidate never commits, so at most one emission
-  exists per cascade)."
+  frame-state-changed fired. Every emission is a forward commit, since a
+  rejected candidate never commits. The FIRST is the event's own; a
+  post-walk flow settle that installs emits a second (Spec 013
+  §Sequencing)."
   [events]
   (some (fn [ev]
           (when (= :rf.event/frame-state-changed (op ev))
@@ -2018,21 +2043,15 @@
         events))
 
 (defn runtime-db-rolled-back?
-  "True iff a `:where :machine-data` schema-validation failure flagged the
-  cascade transaction-REJECTED (EP-0001 · Spec 010 §Per-step
-  recovery row 7; the candidate runtime-db is validated
-  BEFORE install). The runtime-db partition carries durable machine
-  snapshots; its commit boundary is the `:where :machine-data` validator
-  (the runtime sibling of `db-rolled-back?`'s `:where :app-db`). A `false`
-  from it rejects the WHOLE candidate, so the runtime-db row paints ✗ and
-  the machine-data reason attaches to it via `attach-violations`."
+  "True iff validation rejected the event's own candidate at the
+  `:where :machine-data` boundary (`candidate-rejected-at?`; EP-0001 ·
+  Spec 010 §Per-step recovery row 7). The runtime-db partition carries
+  durable machine snapshots and `:where :machine-data` is its boundary,
+  the runtime sibling of `db-rolled-back?`'s `:where :app-db`. A rejection
+  refuses the WHOLE candidate, so the runtime-db row paints ✗ and the
+  machine-data reason attaches to it via `attach-violations`."
   [events]
-  (boolean
-    (some (fn [ev]
-            (and (= :rf.error/schema-validation-failure (op ev))
-                 (= :machine-data (common/tag-of ev :where))
-                 (true? (common/tag-of ev :rollback?))))
-          events)))
+  (candidate-rejected-at? events :machine-data))
 
 (defn runtime-db-commit?
   "True iff this cascade committed (or attempted) a runtime-db write
@@ -2042,8 +2061,8 @@
         `:rf.event/partitions` includes `:runtime-db` — the canonical
         runtime-db-commit signal (fires for a runtime-only commit, which
         emits NO `:rf.event/db-changed`).
-    (b) A `:where :machine-data` schema violation — implies a runtime-db
-        commit was ATTEMPTED even on the abort path.
+    (b) `runtime-db-rolled-back?` — a runtime-db commit was ATTEMPTED
+        even though the candidate was rejected.
 
   Keying off `frame-state-changed` is what makes the SIDE EFFECTS step
   carry a first-class runtime-db row on a runtime-ONLY cascade — no `:db`,
@@ -2056,8 +2075,9 @@
   "The synthesised `:rf.db/runtime` row — the handler's RUNTIME-DB
   partition write, a first-class SIDE EFFECTS state effect (EP-0001).
   nil when no runtime-db commit was attempted. `:status` is
-  `:error` on a `:where :machine-data` schema-fail rollback (so the badge
-  / `step-status` paints ✗ and the attached machine-data violation carries
+  `:error` when validation rejected the event's own candidate at
+  `:where :machine-data` (`runtime-db-rolled-back?`, so the badge /
+  `step-status` paints ✗ and the attached machine-data violation carries
   the reason box), else `:ok`. Carries the `:fx-id :rf.db/runtime` marker
   — the view renders its args slot as the clickable destination marker for
   the runtime-db partition (the App-db panel's runtime-db lens carries the
@@ -3932,29 +3952,22 @@
     :else                                         :ok))
 
 (defn cascade-rolled-back?
-  "True iff any STATE-partition schema violation in `rows` carries
-  `:rollback? true` — `:where :app-db` (the app-db partition) OR
-  `:where :machine-data` (the runtime-db partition, EP-0001).
-  Either partition's post-commit boundary failing unwinds the WHOLE
-  transition (Spec 010 §Per-step recovery rows 4 + 7), so both signal a
-  rolled-back cascade. The view layer reads this off the cascade context
-  to visually mute every step DOWNSTREAM of the rollback point (FX /
-  SUBSCRIPTIONS / VIEWS) so the operator reads 'the rest of this cascade
-  didn't really run' at a glance."
-  [rows]
-  (boolean
-    (some (fn [r]
-            (and (contains? #{:app-db :machine-data} (:where r))
-                 (true? (:rollback? r))))
-          rows)))
+  "True iff validation rejected the event's own candidate at either STATE
+  partition's boundary — `db-rolled-back?` (`:where :app-db`) or
+  `runtime-db-rolled-back?` (`:where :machine-data`, EP-0001). Either
+  refuses the WHOLE transition before install (Spec 010 §Per-step recovery
+  rows 4 + 7), so nothing downstream ran on it. A post-walk flow settle's
+  rejection is not one: the event's install stood and its subscriptions
+  and views ran on it (Spec 013 §Sequencing)."
+  [events]
+  (or (db-rolled-back? events) (runtime-db-rolled-back? events)))
 
 (defn mark-rolled-back-downstream
-  "When the cascade carries a state-partition rollback violation — the
-  `:app-db` or the `:machine-data` partition, per
-  `cascade-rolled-back?` — mark every step downstream of the SIDE
-  EFFECTS step (SUBSCRIPTIONS / VIEWS) with `:rolled-back? true`.
-  The view paints those steps with mute chrome. Pure fn over the step
-  vector.
+  "When `cascade-rolled-back?` holds for the cascade's `events`, mark every
+  step downstream of the SIDE EFFECTS step (SUBSCRIPTIONS / VIEWS) with
+  `:rolled-back? true`, so the operator reads at a glance that the rest of
+  this cascade did not run. The view paints those steps with mute chrome.
+  Pure fn over the step vector.
 
   The SIDE EFFECTS step itself is
   NOT marked rolled-back — its `:db` row carries the red ✗ + violation
@@ -3963,8 +3976,8 @@
   exist in a rollback cascade (per Spec 010, `:fx` doesn't walk when the
   commit rolls back) — so the flat ledger in a rollback carries only the
   `:db` CROSS row, visibly red."
-  [steps rows]
-  (if (cascade-rolled-back? rows)
+  [steps events]
+  (if (cascade-rolled-back? events)
     (let [fx-idx (index-of #(= :side-effects (:step %)) steps)]
       (if (number? fx-idx)
         (vec
@@ -4380,7 +4393,7 @@
             ;; `:outcome` / `:halt-reason` say so. A `:halted-depth`
             ;; record reads `:error`, a `:halted-destroy` one `:blocked`.
             skipped    (mark-halted skipped epoch-record)
-            steps      (mark-rolled-back-downstream skipped violations)]
+            steps      (mark-rolled-back-downstream skipped events)]
         steps)))))
 
 (defn number-steps

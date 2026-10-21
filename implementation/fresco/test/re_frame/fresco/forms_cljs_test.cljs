@@ -390,7 +390,7 @@
   (with-app
     (fn [frame]
       (type! frame 0 "abandoned on navigation")
-      (send! frame [:re-frame.fresco/clear rf.fresco.forms/drafts control])
+      (send! frame [:rf.state/clear rf.fresco.forms/drafts control])
       (is (nil? (record-of frame)))
       (is (= {} (:ui (db-of frame)))
           "and the concern map is pruned rather than left holding an empty
@@ -431,7 +431,7 @@
     (fn [frame]
       (let [d (refusal #(draft-at frame nil))]
         (is (some? d) "a nil control refuses rather than sharing a draft")
-        (is (= :rf.error/fresco-state-bad-argument (:rf.error/id d))
+        (is (= :rf.error/state-bad-argument (:rf.error/id d))
             "by an id that is already shipped and already catalogued")
         (is (= ::rf.fresco.forms/drafts (:concern d))
             "and it names THIS module's concern, so the message points at

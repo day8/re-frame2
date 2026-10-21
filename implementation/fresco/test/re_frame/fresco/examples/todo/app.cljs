@@ -10,10 +10,10 @@
 
   It reaches five namespaces and every one of them is public:
 
-      re-frame.core          events and subscriptions
+      re-frame.core          events, subscriptions and reg-state
       re-frame.routing       reg-route — the filter is a URL
-      re-frame.fresco       defview, sub, route-link, reg-state,
-                             root!, render!, and the markers
+      re-frame.fresco       defview, sub, route-link, root!,
+                             render!, and the markers
       re-frame.adapter.uix   the reactive adapter, installed once at boot
       clojure.string         trim, and joining two class names
 

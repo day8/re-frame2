@@ -315,7 +315,7 @@ clear it from an event:
 ```clojure
 (rf/reg-event :todo.ui/leave-editor
   (fn [_ [_ id]]
-    {:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}))
+    {:fx [[:dispatch [:rf.state/clear forms/drafts [:todo id :title]]]]}))
 ```
 
 Chapter: [Forms](05-forms.md).

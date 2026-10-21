@@ -3504,10 +3504,14 @@ row drops out cleanly and the humanized / raw map renders alone.
 
 #### Rollback blast-radius mute
 
-When the cascade carries an `:app-db` violation with
-`:rollback? true`, the projection's
+When validation rejected the event's own candidate — the rejection
+`db-rolled-back?` or `runtime-db-rolled-back?` reads, at `:where :app-db`
+or `:where :machine-data` — the projection's
 `mark-rolled-back-downstream` pass flags every step AFTER the
-SIDE EFFECTS step with `:rolled-back? true`. The view's pipeline
+SIDE EFFECTS step with `:rolled-back? true`. A post-walk flow settle's
+rejection mutes nothing: the event's install stood and its subscriptions
+and views ran on it
+([Spec 013 §Sequencing](../../../spec/013-Flows.md#sequencing--settling-on-the-dispatching-frame)). The view's pipeline
 wrapper applies a `:opacity 0.55` overlay to those steps. The SIDE
 EFFECTS step itself stays visible — the violation rides on its `:db`
 row (per the attachment table above, post-rf2-8resu / rf2-kt6js) so
@@ -3733,8 +3737,9 @@ The card carries, top to bottom:
    prose message below and no longer buried in collapsed `ex-data`. The
    title bar also carries a `Rolled back` recovery chip
    that paints **ONLY** when the cascade **ACTUALLY rolled back**
-   (`db-rolled-back?` — a `:where :app-db` schema-validation failure
-   reverted the commit, stamped onto each exception row by `project`).
+   (`db-rolled-back?` — validation rejected the event's own candidate at
+   `:where :app-db` before install, stamped onto each exception row by
+   `project`).
    The substrate stamps `:recovery :no-recovery` on EVERY `:rf.error/*`,
    so keying the chip off recovery alone painted a **spurious** "Rolled
    back". The earlier rf2-wnvid gate (`db-committed?`) fixed the
@@ -3862,10 +3867,17 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
 - **`:db` row** (FIRST, when present) — the handler's app-db write (the
   `:db` effect). `✓` on a successful commit; `∅` when the handler
   returned the db unchanged (`:rf.event/db-noop` — nothing committed,
-  rf2-ekq28v); `✗` when the post-commit
-  app-db schema check rejected the write and the cascade rolled back —
-  the `:where :app-db` violation reason box attaches to the `:db` row via
-  `attach-to-fx-db-row`. Its **args slot is the `→ app-db` DESTINATION
+  rf2-ekq28v); `✗` when candidate validation rejected the handler's
+  write before install (`db-rolled-back?`) — the `:where :app-db`
+  violation reason box attaches to the `:db` row via
+  `attach-to-fx-db-row`. The rejection that counts is the event's own: a
+  `:rollback? true` failure at `:where :app-db`, from a value that failed
+  its schema (`:rf.error/schema-validation-failure`) or a schema that
+  could not be evaluated (`:rf.error/malformed-schema`), emitted before
+  any install or `:fx`-walk trace. One emitted after those is the
+  post-walk flow settle's ([Spec 013 §Sequencing](../../../spec/013-Flows.md#sequencing--settling-on-the-dispatching-frame)): the handler's write
+  stood, so the row keeps its `✓` or `∅` and the settle's violation
+  surfaces on the SIDE EFFECTS step. Its **args slot is the `→ app-db` DESTINATION
   marker** — NOT the db diff (the actual change lives in the App-db panel;
   no duplication). The marker is clickable: it jumps to the App-db panel
   for the focused epoch (a `[:rf.xray/select-tab :app-db]` dispatch; the
@@ -3881,10 +3893,11 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
   `:rf.db/runtime` STATE effect). The two partition writes (`:db` →
   app-db, `:rf.db/runtime` → runtime-db) commit **atomically together**,
   so the runtime-db row sits immediately after the `:db` row and before
-  the `:fx` rows. `✓` on a successful commit; `✗` when the post-commit
-  runtime-db boundary (the `:where :machine-data` validator — runtime-db
-  carries durable machine snapshots) rejected the write and the cascade
-  rolled back, with the violation reason box attaching to the row via
+  the `:fx` rows. `✓` on a successful commit; `✗` when candidate
+  validation rejected the event's own candidate at the runtime-db boundary
+  (the `:where :machine-data` validator — runtime-db carries durable
+  machine snapshots), by the same rule as the `:db` row
+  (`runtime-db-rolled-back?`), with the violation reason box attaching to the row via
   `attach-to-runtime-db-row`. The row appears whenever the runtime-db
   partition was committed, **including a runtime-ONLY commit** (no `:db`,
   no `:fx`). The `:db`-commit signal (`:rf.event/db-changed`) is

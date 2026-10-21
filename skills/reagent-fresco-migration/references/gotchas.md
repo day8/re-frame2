@@ -115,7 +115,8 @@ reserved **head** an author writes is `::h/prevent` (MIG-06). Fresco keeps a
 second, internal navigate head that `h/route-link` mints — it is not `::h/…`, so
 never write it; navigation is `h/route-link` or an ordinary routing event.
 Everything else spelled `::h/…` is not a dispatch marker: `::h/revision` is a
-controlled-input attribute and `::h/clear` is `h/reg-state`'s clear event id.
+controlled-input attribute. Clearing an `rf/reg-state` instance is core's
+`[:rf.state/clear concern ikey]` event, not a `::h/…` keyword.
 The presence overrides are the motion module's own keywords
 (`::motion/mounting` / `::motion/unmounting`), not `::h/…` at all.
 

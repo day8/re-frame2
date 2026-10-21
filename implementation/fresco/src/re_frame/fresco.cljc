@@ -25,8 +25,8 @@
 
   ## The marker keywords need no export
 
-  `::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and
-  `::h/clear` read `:re-frame.fresco/…`. Alias this
+  `::h/value`, `::h/prevent`, `::h/revision` and `::h/checked`
+  read `:re-frame.fresco/…`. Alias this
   namespace as `h` and the auto-resolved spelling the guide teaches
   resolves, with no keyword changing value.
 
@@ -67,8 +67,7 @@
                [re-frame.fresco.impl.intent]
                [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
                [re-frame.fresco.impl.portal :as rf.fresco.impl.portal]
-               [re-frame.fresco.impl.route-link :as rf.fresco.impl.route-link]
-               [re-frame.fresco.impl.state :as rf.fresco.impl.state]))
+               [re-frame.fresco.impl.route-link :as rf.fresco.impl.route-link]))
   #?(:cljs (:require-macros [re-frame.fresco :refer [defview defhost event render-fn]])))
 
 ;; ---------------------------------------------------------------------------
@@ -293,12 +292,6 @@
   and React has a second kind — the Suspense boundary — that this one is
   not. `re-frame.fresco.impl.boundary/boundary`."}
        error-boundary rf.fresco.impl.boundary/boundary)
-
-     (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
-  parametric subscription and one setter event under `[:ui ::concern ikey]`,
-  and ensures the shared clear event `[::h/clear ::concern ikey]` is
-  registered. `re-frame.fresco.impl.state/reg-state`."}
-       reg-state rf.fresco.impl.state/reg-state)
 
      (def ^{:doc "`h/portal` — render children into another DOM container, in the
   same React tree and frame:

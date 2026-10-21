@@ -93,7 +93,7 @@
   "One row of the feed: a link to the article, and a tag disclosure whose
   open flag is this row's own.
 
-  The disclosure is what `h/reg-state` is for. Keyed by the slug — a
+  The disclosure is what `rf/reg-state` is for. Keyed by the slug — a
   domain id — so opening one row opens one row. A hand-rolled `[:ui
   :tags-open?]` path is the bug the sugar deletes: every row on the page
   would share one flag and they would all open together, silently."

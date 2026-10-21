@@ -115,7 +115,7 @@ teaches the whole route.
 
 | Name | Reference | Taught in |
 | --- | --- | --- |
-| `h/reg-state` | [`reg-state`](../../api/re-frame.fresco.md#reg-state) | [Ephemeral state](11-ephemeral-state.md#1-application-visible-state-app-db) |
+| `rf/reg-state` (core's) | [`reg-state`](../../api/re-frame.core.md#reg-state) | [Ephemeral state](11-ephemeral-state.md#1-application-visible-state-app-db) |
 
 ### The marker keywords
 
@@ -128,14 +128,13 @@ the namespace is aliased as `h`.
 | `::h/checked` | [Marker keywords](../../api/re-frame.fresco.md#marker-keywords) | [Events as data](03-events-as-data.md#read-values-from-the-browser-event) |
 | `::h/prevent` | [Marker keywords](../../api/re-frame.fresco.md#marker-keywords) | [Events as data](03-events-as-data.md#prevent-browser-defaults-explicitly) |
 | `::h/revision` | [Marker keywords](../../api/re-frame.fresco.md#marker-keywords) | [Controlled inputs](04-controlled-inputs.md#reset-with-hrevision) |
-| `::h/clear` | [Marker keywords](../../api/re-frame.fresco.md#marker-keywords) | [Ephemeral state](11-ephemeral-state.md#1-application-visible-state-app-db) |
 
 The presence markers `::motion/mounting` and `::motion/unmounting` belong to
 [`re-frame.fresco.motion`](#re-framefrescomotion).
 
 ## `re-frame.fresco.forms`
 
-The optional forms module: a buffered text field and the `h/reg-state` concern
+The optional forms module: a buffered text field and the `rf/reg-state` concern
 its drafts live under.
 
 ```clojure

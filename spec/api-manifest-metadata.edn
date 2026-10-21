@@ -423,7 +423,6 @@
   {:namespace "re-frame.fresco" :var "frame-root"     :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "client-root"    :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.fresco" :var "reg-state"      :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
@@ -839,6 +838,9 @@
   ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "001" :status "v1"
                                           :action :keep
                                           :justification "Defined on re-frame.core itself as the runtime / higher-order form of front-porch reg-view -- computed ids, library-generated views, Form-3 bodies (Spec 001, Allowed forms of the middle slot). There is no owning namespace to move it to, and it must sit beside the macro whose escape hatch it is. 97 in-repo consumer files."}
+  ["re-frame.core" "reg-state"]           {:tier :advanced    :owner "002" :status "v1"
+                                          :action :keep
+                                          :justification "Per-instance view state for every view substrate: a macro that registers, under the calling namespace like every reg-*, an ordinary sub and setter under a concern at [:ui concern instance-key] plus the shared :rf.state/clear event, refusing a key that cannot tell instances apart. It is app-authoring vocabulary beside reg-sub and reg-event, which it calls, and it has no owning sub-namespace door: re-frame.core-state is its implementation home, not a supported surface. Putting it on the facade is what lets Reagent, UIx and Fresco views share one spelling. Spec 002 Per-instance view state."}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"
                                           :action :keep
                                           :justification "Advanced but facade-resident by the Conventions ruling Keep product facades coherent, which names machines as part of the single-import app-authoring vocabulary. The split an audit would propose is made: the plain-fn reg-machine* and the machine query helpers live in re-frame.machines, and the authoring macro lives here. 276 consumer files."}

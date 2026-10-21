@@ -279,7 +279,7 @@
 
 (rf.fresco/defview two-tickets
   "Two of the same field on one page, on different instance keys — the
-  arrangement `h/reg-state` exists for. The seed holds one ticket, so
+  arrangement `rf/reg-state` exists for. The seed holds one ticket, so
   both fields start from the same committed text, which makes a
   collision harder to miss rather than easier."
   [_]

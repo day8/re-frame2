@@ -98,7 +98,6 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/fresco-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
 | `:rf.error/fresco-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
 | `:rf.error/fresco-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
-| `:rf.error/fresco-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
 | `:rf.error/fresco-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/fresco-true-child` | let `true` reach child position | ch02 |
 | `:rf.error/fresco-test-bad-option` | gave an L2 `tree`, `hm/mount!`, `hm/hydrate!` or `hm/shadow!` non-map options or an option outside its closed roster (`tree` `#{:subs}`; `mount!` `#{:initial-events :images :container :clock}`; `hydrate!` those plus `:html`; `shadow!` `#{:reference :candidate :images :initial-events}`), or called `hm/advance-clock!` on a handle whose mount was not given `{:clock true}` | ch15 |
@@ -120,6 +119,7 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/no-frame-context` | (corpus-owned) rendered a Fresco boundary whose React context carries no frame | ch03, ch09, ch10, ch18, ch20 |
 | `:rf.error/poll-until-timeout` | (corpus-owned) let a test-kit wait run out: `hm/settle-until!`'s predicate never held within `:timeout-ms`, or `hm/hydrate!`'s adoption did not finish within its budget | ch15 |
 | `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
+| `:rf.error/state-bad-argument` | (corpus-owned) gave `rf/reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read, write or clear; the reason names which | ch05, ch11 |
 | `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
 
 ## Rulings this catalogue owns
