@@ -3345,7 +3345,6 @@ carrying, top to bottom:
    - `:fx-args` → `Skipped`
    - `:sub-return` → `Passed through`
    - `:event` → `Rejected`
-   - `:cofx` → `Skipped`
    - `:hot-reload` → `logged + skipped` (the chip text is still
      defined, but no pipeline step carries a `:hot-reload` row — the
      issues ribbon owns hot-reload drift)
@@ -3429,14 +3428,14 @@ degrade keeps the sentence readable):
 | `:fx-args`    | `Skipped`       | "fx aborted because args failed the `schema check`."                                                |
 | `:sub-return` | `Passed through` | "This sub's value failed the `schema check` and was passed through to its consumers."               |
 | `:event`      | `Rejected`      | "This event was rejected because its payload failed the `schema check`."                            |
-| `:cofx`       | `Skipped`       | "This handler was skipped because the coeffect failed the `schema check`."                          |
 | `:hot-reload` | `logged + skipped` | "A schema re-registration invalidated existing app-db state. See `schema check` for the new shape." |
 | (fallback)    | `Aborted` when `:rollback? true`, else the `:recovery` keyword's name | "Schema violation. `schema check` for details." |
 
 \* `:app-db` chip text is `Aborted` only when the violation
-carries `:rollback? true` (the runtime aborted the cascade and
-rolled `:db` back to its pre-handler value — Spec 010 §Per-step
-recovery row 3). The rollback-mute pass (§Rollback blast-radius
+carries `:rollback? true` (the runtime rejected the candidate
+transition: the candidate is discarded, never installed, and app-db
+keeps its pre-event value — [Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recovery)
+row 4). The rollback-mute pass (§Rollback blast-radius
 mute below) handles the downstream-step opacity overlay.
 
 The `:sub-return` chip reads `Passed through` because a sub whose
@@ -3447,9 +3446,7 @@ row 6). A sub yields nil only when its body throws, and that is
 
 The emitted `:where` values with no template of their own —
 `:sub-override`, `:machine-data` and `:machine-output` —
-render the (fallback) row. The `:cofx` row is
-a template the producer no longer reaches (see **Inline link →
-coord resolution** below).
+render the (fallback) row.
 
 **Inline link → coord resolution.** The `schema check` link
 resolves to the source-coord of the registration whose schema FAILED,
@@ -3475,7 +3472,7 @@ behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
   registration the violation names: `:event` → `:event`; `:fx-args` → `:fx`;
   `:sub-return` and `:sub-override` → `:sub`; `:machine-data` and `:machine-output` →
   `:event`, because a machine IS an `:event` registration and its `[:schemas …]` ride on it.
-- `:cofx` keeps a prose template (§violation-prose-template) but is no longer emitted on
+- `:cofx` is not emitted on
   this category: a recordable-coeffect failure is the `:rf.error/cofx-value-invalid` hard
   error (Spec 010 §Per-step recovery, row 2), so no kind is mapped for it. `:hot-reload`
   rows never reach this block.

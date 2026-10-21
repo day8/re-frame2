@@ -2831,9 +2831,10 @@
 (defn- attach-to-fx-db-row
   "Attach a `:where :app-db` schema-violation
   to the SIDE EFFECTS step's `:db` row (the handler's app-db write).
-  Falls back to the step-level `:violations` if the `:db` row isn't
-  present (shouldn't happen — an :app-db violation implies a `:db`
-  commit attempted)."
+  Falls back to the step-level `:violations` when the step has no `:db`
+  row, as when the handler wrote no `:db` and its post-walk flow settle
+  was rejected (Spec 013 §Sequencing): the settle's write has no row of
+  its own, so its violation lands on the step."
   [step row]
   (if (some #(= :db (:fx-id %)) (:rows step))
     (update step :rows
