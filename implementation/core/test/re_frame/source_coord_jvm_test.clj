@@ -5,8 +5,8 @@
   The macro stamps it; the owning-ns fn-form (`re-frame.router/dispatch-sync!`)
   does not, and neither does `subscribe`, a plain fn with no expansion to
   capture its line. The macros expand on the JVM for both targets and the
-  delivery path is platform-neutral `.cljc`, so this JVM-only suite
-  (`-jvm-test` keeps it off `:node-test`) covers both hosts.
+  delivery path is platform-neutral `.cljc`, so this JVM suite covers
+  both hosts.
 
   ## Posture split
 

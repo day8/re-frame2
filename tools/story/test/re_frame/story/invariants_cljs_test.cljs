@@ -2,7 +2,7 @@
   "CLJS coverage for `re-frame.story.invariants` (spec/017 §Invariant
   sentinels): check-epoch's CLJS catch arm, and the `with-invariants` macro
   expanding to ClojureScript and observing a real CLJS frame's epochs. The
-  platform-neutral core is covered on the JVM by `re-frame.story.invariants-test`."
+  platform-neutral core is covered on both hosts by `re-frame.story.invariants-test`."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

@@ -25,7 +25,7 @@
                 ;; pin (re-frame.test-quiet-shadow-node-cljs-test) lives
                 ;; under test-quiet/test; listing it here puts the pin on
                 ;; the consolidated :node-test classpath so `npm run
-                ;; test:cljs` runs it (the `cljs-test$` ns-regexp matches).
+                ;; test:cljs` runs it (the `-test$` ns-regexp matches).
                 "test-quiet/test"
                 "core/src"
                 "core/test"
@@ -96,7 +96,7 @@
                 ;; test carries the package's own suites — the smoke
                 ;; (re-frame.fresco.smoke-cljs-test) and every
                 ;; `re-frame.fresco.*-cljs-test` beside it — which ride the
-                ;; always-on :node-test gate (`cljs-test$` matches) AND the
+                ;; always-on :node-test gate (`-test$` matches) AND the
                 ;; focused :node-test-fresco build below. The benchmark
                 ;; harness is NOT here: it is bench/fresco/, its own shadow
                 ;; project off this classpath, and
@@ -111,7 +111,7 @@
                 ;; `fresco/src`. No shipping namespace requires the kit, so it
                 ;; is reachable when a test uses it and unreachable otherwise,
                 ;; and bundle-isolation holds by reachability rather than by
-                ;; review. No namespace under it is `*-cljs-test`, so
+                ;; review. No namespace under it ends `-test`, so
                 ;; no test-selecting ns-regexp matches the KIT itself.
                 "fresco/test_kit/src"
                 ;; The kit's own witnesses. Most of them live under
@@ -120,7 +120,7 @@
                 ;; held by another branch, and so the kit's src root stays free
                 ;; of test namespaces. Same discovery as `fresco/test`: the
                 ;; suffix picks the lane (`-dom-cljs-test` → `:browser-test`,
-                ;; and `cljs-test$` → the always-on `:node-test` gate).
+                ;; and `-test$` → the always-on `:node-test` gate).
                 "fresco/test_kit/test"
                 ;; The controlled-input testbed. A standalone
                 ;; app under fresco/testbed/ whose fields are the §4.2
@@ -222,7 +222,7 @@
                 ;; artefact's test tree — the cross-artefact node-test
                 ;; classpath already spans every required ns. Namespaces end
                 ;; in `-security-cljs-test`, so they run under BOTH the
-                ;; always-on `:node-test` gate (`cljs-test$` matches) AND the
+                ;; always-on `:node-test` gate (`-test$` matches) AND the
                 ;; dedicated `:node-test-security` build below
                 ;; (`-security-cljs-test$`, wired as `npm run test:security`).
                 "security/test"
@@ -242,7 +242,7 @@
                 ;; reply-conformance/ surface; the cross-artefact node-test
                 ;; classpath already spans every required ns. Namespaces end
                 ;; in `-cljs-test`, so they run under the always-on
-                ;; :node-test gate (`cljs-test$` matches); the JVM
+                ;; :node-test gate (`-test$` matches); the JVM
                 ;; counterpart is reply-conformance/deps.edn `:test`.
                 "reply-conformance/test"
                 ;; The EP-0014 derivation/process-ALGEBRA
@@ -264,7 +264,7 @@
                 ;; derivation-conformance/ surface; the cross-artefact
                 ;; node-test classpath already spans every required ns.
                 ;; Namespaces end in `-cljs-test`, so they run under the
-                ;; always-on :node-test gate (`cljs-test$` matches); the JVM
+                ;; always-on :node-test gate (`-test$` matches); the JVM
                 ;; counterpart is derivation-conformance/deps.edn `:test`.
                 "derivation-conformance/test"
                 ;; The EP-0018 one-form event-MODEL conformance tier
@@ -285,7 +285,7 @@
                 ;; derivation-conformance/) it lives in its own top-level
                 ;; event-conformance/ surface.
                 ;; Namespaces end in `-cljs-test`, so they run under the
-                ;; always-on :node-test gate (`cljs-test$` matches); the JVM
+                ;; always-on :node-test gate (`-test$` matches); the JVM
                 ;; counterpart is event-conformance/deps.edn `:test`.
                 "event-conformance/test"
                 ;; The framework INTEGRATION suite: the examples' and the
@@ -298,7 +298,7 @@
                 ;; `re-frame.integration-adapter` names (Fresco's substrate,
                 ;; the taught default). Adapter tests stay in each adapter's
                 ;; own test tree. Namespaces end in `-cljs-test`, so the
-                ;; always-on :node-test gate (`cljs-test$`) runs them;
+                ;; always-on :node-test gate (`-test$`) runs them;
                 ;; CLJS-only, so there is no JVM counterpart.
                 "integration/test"
                 ;; tools/mcp-base — the security tier's MCP-egress surface
@@ -347,7 +347,7 @@
                 ;;
                 ;; Listed here for the two builds that DO need
                 ;; it: `:machines-viz-viewer` below, and `:node-test`, whose
-                ;; `cljs-test$` selector reaches the page's own unit suite
+                ;; `-test$` selector reaches the page's own unit suite
                 ;; (`viewer-cljs-test`, in the `test` root above).
                 "../tools/machines-viz/page"
                 ;; tools/xray/testbeds.
@@ -379,7 +379,7 @@
                 ;; The
                 ;; `src` path carries the helper namespaces; the dedicated
                 ;; `test` path carries the `*-cljs-test` suites the :node-test
-                ;; build's `cljs-test$` ns-regexp discovers — the same
+                ;; build's `-test$` ns-regexp discovers — the same
                 ;; src/test split every other tool/artefact uses.
                 ;; Bundle-isolation contract holds (nothing under
                 ;; implementation/ :requires it).
@@ -715,15 +715,26 @@
    ;;     node out/node-test.js --test=<ns>[,<ns>...]
    ;;
    ;; — which needs no recompile at all and therefore cannot poison anything.
-   :ns-regexp "cljs-test$"}
+   ;;
+   ;; THE SELECTOR takes every `-test` namespace in a `.cljs` or `.cljc`
+   ;; file, so the file extension decides which host runs a test: `.cljc`
+   ;; runs on both, and a `.clj` suite never reaches shadow-cljs. The three
+   ;; lookbehinds keep out the suffixes other lanes own, whose assertions
+   ;; hold only under those lanes' compiler options: `-emit-nightly-test`
+   ;; (`:node-test-perf-nightly`), and `-boundary-prod-test` /
+   ;; `-elision-prod-test` (the two prod-mode `:browser-test` builds). Three
+   ;; lookbehinds rather than one alternation, because
+   ;; scripts/check_test_lane_bijection.py reads this selector with Python's
+   ;; `re`, which refuses a lookbehind whose alternatives differ in width.
+   :ns-regexp "(?<!-emit-nightly)(?<!-boundary-prod)(?<!-elision-prod)-test$"}
 
   ;; Perf-emission nightly companion to `:node-test`.
   ;;
-  ;; The per-PR `:node-test` build above uses `:ns-regexp \"cljs-test$\"`,
-  ;; which excludes any test file whose namespace ends in
-  ;; `-nightly-test`. This build flips that filter (`:ns-regexp
-  ;; \"-emit-nightly-test$\"`) AND flips `re-frame.performance/enabled?`
-  ;; on at compile time, so the perf-bracket call-sites in
+  ;; The per-PR `:node-test` build above excludes any test file whose
+  ;; namespace ends in `-emit-nightly-test`. This build selects exactly
+  ;; those (`:ns-regexp \"-emit-nightly-test$\"`) AND flips
+  ;; `re-frame.performance/enabled?` on at compile time, so the
+  ;; perf-bracket call-sites in
   ;; `re-frame.router` / `re-frame.subs.memo` / `re-frame.fx` /
   ;; `re-frame.views` actually fire and the test can read
   ;; `performance.getEntriesByType('measure')` for the rf:* entries.
@@ -811,7 +822,7 @@
   ;; matches the broader `:browser-test` `-dom-cljs-test$` regex for its real
   ;; React-root handoff assertions; under this node build its body gates on
   ;; `(browser?)` and no-ops cleanly. The same namespaces additionally ride
-  ;; the always-on `:node-test` gate (`cljs-test$` matches), so the slice is
+  ;; the always-on `:node-test` gate (`-test$` matches), so the slice is
   ;; covered on every PR whether or not this focused build is invoked — this
   ;; is the *named* convenience surface, not an additional required gate.
   :node-test-testbed-support
@@ -974,7 +985,7 @@
   ;; Tests written to be cross-runtime (those that stub via `with-redefs`
   ;; or `(when (browser?) ...)` and provide a node-fallback body) keep
   ;; the plain `-cljs-test$` suffix and run under `:node-test` only —
-  ;; `:node-test`'s `cljs-test$` regex matches both suffixes
+  ;; `:node-test`'s `-test$` regex matches both suffixes
   ;; (`-cljs-test` AND `-dom-cljs-test`), so the DOM-tagged files run
   ;; on BOTH targets and the cross-runtime asserts fire in
   ;; Node. The split avoids a duplicate Chromium compile
@@ -1012,9 +1023,9 @@
   ;;
   ;; The ns-regexp `-boundary-prod-test$` matches only files named
   ;; `*_boundary_prod_test.cljs` — distinct from the default
-  ;; `:browser-test` build's `.*-dom-cljs-test$` and `:node-test` build's
-  ;; `cljs-test$`, so this test file is run ONLY under this prod-mode
-  ;; build. Running it under DEBUG=true would fail (the dev-mode boundary
+  ;; `:browser-test` build's `.*-dom-cljs-test$`, and excluded by name from
+  ;; the `:node-test` build's `-test$`, so this test file is run ONLY under
+  ;; this prod-mode build. Running it under DEBUG=true would fail (the dev-mode boundary
   ;; is a no-op by design); the companion node-test ns
   ;; `re-frame.schemas-cljs-test` carries the dev-mode assertions.
   ;;
@@ -1052,7 +1063,7 @@
   ;;
   ;; The ns-regexp `-prod-test$` matches only files named
   ;; `*_prod_test.cljs` — distinct from the default `:browser-test` /
-  ;; `:node-test` builds (which use `.*-dom-cljs-test$` / `cljs-test$`) and
+  ;; `:node-test` builds (`.*-dom-cljs-test$`, and `-test$` minus this suffix) and
   ;; from the schemas-boundary-prod build (which uses
   ;; `-boundary-prod-test$`). So these prod-elision tests run ONLY
   ;; under this build. Running them under DEBUG=true would FAIL by

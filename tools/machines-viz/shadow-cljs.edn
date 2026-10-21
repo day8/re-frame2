@@ -1,48 +1,25 @@
 ;; tools/machines-viz's OWN CLJS test lane.
 ;;
-;; WHY THIS FILE EXISTS. machines-viz's test tree is borrowed onto the
-;; consolidated `implementation/shadow-cljs.edn` `:node-test` classpath via a
-;; `../`-escaping `:source-paths` entry, and that build's `cljs-test$` selector
-;; reaches only the `*_cljs_test` half of it. The rest — suites whose namespace
-;; ends `-test` — compile into that bundle and are never selected, so they run
-;; on the JVM only while the CLJS lane reports a green count that says nothing
-;; about them.
+;; WHY THIS FILE EXISTS. The consolidated `implementation/shadow-cljs.edn`
+;; `:node-test` build borrows machines-viz's test tree onto a classpath that
+;; spans every artefact, and its `-test$` selector runs every suite here. On
+;; that classpath a namespace this artefact forgot to declare still resolves,
+;; through some sibling's root. This build compiles the same suites from the
+;; artefact's own deps.edn — its own classpath, its own bundle, its own exit
+;; code — so what its tests run on is what the artefact declares.
 ;;
-;; Renaming them into the shared bundle is NOT the answer. That would arm them
-;; inside a ~11.5k-test run they can contaminate (a fixture calling
-;; `registrar/clear-all!` without restoring breaks SIBLING namespaces), and it
-;; would leave the bijection gate blind either way — a borrowed root is held by
-;; that gate's B1 rule only.
+;; Declaring the build HERE also moves the ownership line
+;; `scripts/check_test_lane_bijection.py` reads: a source root that stays
+;; inside a shadow project is a tree that project's CLJS build OWNS, so rule
+;; B2 — "a `.cljc` test on a CLJS-owned root must be selected by a CLJS
+;; lane" — holds this tree, where a borrowed root is held by B1 alone.
 ;;
-;; A lane declared HERE does both jobs at once:
-;;
-;;   * ARMING IS CONTAINED. This build has its own bundle, its own classpath
-;;     (the artefact's own deps.edn) and its own exit code. A fixture that
-;;     leaks here cannot reach the consolidated suite.
-;;   * THE OWNERSHIP LINE MOVES. `scripts/check_test_lane_bijection.py` reads
-;;     every `shadow-cljs.edn` in the tree and calls a source root that stays
-;;     inside the shadow project a tree the CLJS build OWNS. Roots resolved
-;;     from THIS config's sibling deps.edn are inside tools/machines-viz, so
-;;     rule B2 — "a `.cljc` test on a CLJS-owned root must be selected by a
-;;     CLJS lane" — now reaches this tree with NO gate change, and holds the
-;;     result permanently.
-;;
-;; THE SELECTOR IS `-test$` UNDER THE ARTEFACT'S OWN NAMESPACE PREFIX, not
-;; `cljs-test$`. Two consequences, both wanted:
-;;
-;;   * no rename. These files keep the names their JVM lane knows them by and
-;;     stay OUT of the shared bundle's `cljs-test$`, so arming them here does
-;;     not arm them there.
-;;   * the ratchet is automatic. A new suite under this prefix is selected on
-;;     arrival rather than on the audit that finds it, and a new `.cljc` that
-;;     lands OUTSIDE the prefix reddens B2 — which is the gate saying "name it
-;;     under the artefact, or declare `-jvm-test`", exactly the two outcomes
-;;     every file in this tree must take.
-;;
-;; `-dom-cljs-test` namespaces match too and self-gate on `(browser?)` under
-;; Node, as they already do in the consolidated build. A `.clj` suite is not
-;; compiled by shadow-cljs at all, so the `-jvm-test` escape hatch is
-;; unaffected.
+;; THE SELECTOR IS `-test$` UNDER THE ARTEFACT'S OWN NAMESPACE PREFIX, so a
+;; new suite under the prefix is selected on arrival rather than on the audit
+;; that finds it. `-dom-cljs-test` namespaces match too and self-gate on
+;; `(browser?)` under Node, as they do in the consolidated build. A `.clj`
+;; suite is not compiled by shadow-cljs at all: the file extension decides
+;; which host runs a test.
 ;;
 ;; RUNNING IT: `npm run test:tools-machines-viz` from implementation/.
 ;; The artefact has no npm surface and needs none — `:js-package-dirs` points

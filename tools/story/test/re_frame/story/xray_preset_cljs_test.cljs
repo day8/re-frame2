@@ -2,7 +2,7 @@
   "The per-story Xray preset and the cross-host bridges, asserted against
   Xray's REAL config slot, `:active-filters` slot, matcher and tab.
 
-  The pure resolution / lowering surface runs on the JVM in
+  The pure resolution / lowering surface runs on both hosts in
   `re-frame.story.xray-preset-test`. This lane has no document, so
   `keybinding/attach!` never installs a listener here; the listener half
   of `wire-cross-host!` is asserted in

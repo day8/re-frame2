@@ -1,6 +1,6 @@
 (ns re-frame.story.backgrounds-test
-  "The backgrounds switcher's pure state model. JVM only: no CLJS build
-  selects a `-test` namespace, so the localStorage round-trip lives in
+  "The backgrounds switcher's pure state model. The localStorage round-trip
+  needs a browser, so it lives in
   `re-frame.story.backgrounds-storage-dom-cljs-test`."
   (:require [clojure.test :refer [are deftest is]]
             [re-frame.story.backgrounds :as rf.story.backgrounds]))

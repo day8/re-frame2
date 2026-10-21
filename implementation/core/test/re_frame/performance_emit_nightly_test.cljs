@@ -16,8 +16,8 @@
   Per the spec catalogue, perf-timing assertions are noisy under per-PR
   CI runners (variable load, GC pauses, slow VMs). This file is excluded
   from the per-PR `:node-test` build by NAMING CONVENTION: shadow-cljs's
-  `:node-test` build uses `:ns-regexp \"cljs-test$\"`, and this ns ends
-  in `-nightly-test` (NOT `-cljs-test`), so the per-PR runner does NOT
+  `:node-test` build's `:ns-regexp` excludes namespaces ending
+  `-emit-nightly-test`, as this one does, so the per-PR runner does NOT
   pick it up.
 
   The companion `:node-test-perf-nightly` build (in

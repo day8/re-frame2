@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.docs-toc-test
-  "JVM coverage of `visible-toc-entries` — conditional pruning vs the
+  "Coverage of `visible-toc-entries` — conditional pruning vs the
   always-on entries. The CLJS-side layout wiring and section anchors are
   covered by `re-frame.story.panels-e2e.docs-mode-toc-e2e-cljs-test`."
   (:require [clojure.test :refer [deftest is testing]]

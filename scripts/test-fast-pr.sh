@@ -1117,10 +1117,9 @@ run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.
   python "$spine_root/scripts/check_require_alias_dialect.py" --verbose
 
 # Test-lane bijection.  The per-lane floor makes a lane that ran ZERO tests red;
-# it cannot see a lane that ran SOME of what it should — a `.cljc` suite on the
-# `:node-test` classpath whose namespace the `cljs-test$` selector cannot match
-# never runs, while the lane still reports thousands of passing tests.  This
-# gate reads
+# it cannot see a lane that ran SOME of what it should — a test file on a lane's
+# classpath whose namespace no selector matches never runs, while the lane still
+# reports thousands of passing tests.  This gate reads
 # every lane from the file that DEFINES it (each shadow-cljs.edn's test builds,
 # each artefact's `deps.edn` `:test` alias via the two JVM rosters) and asserts
 # the bijection both ways: every file defining a top-level `deftest` is reached
