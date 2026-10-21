@@ -318,8 +318,14 @@ function waitForExit(child, timeoutMs) {
   });
 }
 
+// Children this module has sent a teardown kill, so the exit that follows is
+// the kill's and not a crash. On Windows `taskkill /F` ends a process with
+// code 1, which nothing else distinguishes from a server dying on its own.
+const teardownKilled = new WeakSet();
+
 function terminateProcessTreeSync(child, opts = {}) {
   if (hasExited(child)) return;
+  teardownKilled.add(child);
   const signal = opts.signal || 'SIGTERM';
   if (process.platform === 'win32') {
     spawnSync('taskkill.exe', ['/pid', String(child.pid), '/T', '/F'], {
@@ -579,9 +585,9 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 //                 a caller that records the outcome for its own verdict (e.g.
 //                 serve-example's decideRunnerExit).
 //   - suppressExitDiagnostic — predicate; when it returns true the
-//                 "exited unexpectedly" line is suppressed (e.g. once the
-//                 caller is already tearing down / was interrupted, so the
-//                 forced-shutdown exit isn't reported as a crash).
+//                 "exited unexpectedly" line is suppressed. The teardown kill
+//                 `cleanup` issues never prints it, so this is only for an
+//                 exit the caller brings about some other way.
 //   - log        — sink for the readiness/exit diagnostics (default
 //                 console.error, matching every caller's output).
 //   - failureTailLines — how many trailing captured lines to print on a
@@ -711,11 +717,14 @@ async function startLocalHttpServer(opts = {}) {
   server.on('exit', (code, signal) => {
     down = true;
     if (typeof onExit === 'function') onExit(code, signal);
-    // The server is force-terminated during normal teardown, which fires
-    // this exit with a non-zero/null code AFTER the run has finished. A
-    // caller that is already exiting suppresses the noise via
-    // suppressExitDiagnostic; a genuine mid-run crash is surfaced loudly.
-    if (code !== 0 && code !== null && !suppressExitDiagnostic()) {
+    // Only a server that died on its own is reported: the teardown kill is
+    // expected, and on Windows it ends the server with code 1.
+    if (
+      code !== 0 &&
+      code !== null &&
+      !teardownKilled.has(server) &&
+      !suppressExitDiagnostic()
+    ) {
       log(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
     }
   });

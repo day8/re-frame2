@@ -228,12 +228,15 @@ test('publishOwnershipToken remove() preserves a newer overlapping run\'s replac
 //
 // FAKE_HTTP_SERVER binds the requested host+port, serves the ownership token
 // file startLocalHttpServer published under `root` (as the real http-server
-// serves the dotfile), and records the argv it was given once listening.
+// serves the dotfile), and records the argv it was given once listening. It
+// ends with code 1 on SIGTERM, as `taskkill /F` ends a Windows process, so a
+// kill exits non-zero on every platform.
 const FAKE_HTTP_SERVER = `
 'use strict';
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+process.on('SIGTERM', () => process.exit(1));
 const argv = process.argv.slice(2);
 const root = argv[0];
 let host = '0.0.0.0';
@@ -317,8 +320,6 @@ test('startLocalHttpServer composes the canonical loopback/static argv, reaches 
       port,
       cwd: dir,
       readyTimeoutMs: 5000,
-      // Silences the "exited unexpectedly" line the teardown force-kill emits on Windows.
-      log: () => {},
     });
     assert.equal(ready, true);
     assert.deepEqual(
@@ -355,6 +356,58 @@ test('startLocalHttpServer appends the unresolved-request fallback ONLY when ask
       dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1',
       '--proxy', 'http://127.0.0.1:65001',
     ]);
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+// Starts FAKE_HTTP_SERVER with every diagnostic captured, and resolves once it
+// is ready with the server, its pending exit, and the captured exit lines.
+async function startCapturedFakeServer(cleanup, dir, binPath) {
+  const logged = [];
+  const { server, ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: binPath,
+    root: dir,
+    port: await findFreePort(),
+    cwd: dir,
+    readyTimeoutMs: 5000,
+    log: (m) => logged.push(m),
+  });
+  assert.equal(ready, true);
+  return {
+    server,
+    exited: waitForExit(server, 30000),
+    exitLines: () => logged.filter((l) => /exited unexpectedly/.test(l)),
+  };
+}
+
+test('startLocalHttpServer expects its own teardown kill and prints no exit line for it', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const { exited, exitLines } = await startCapturedFakeServer(cleanup, dir, binPath);
+    await cleanup.cleanup();
+    // Code 1 is the exit the diagnostic reports, so the silence is the expectation at work.
+    assert.deepEqual({ exit: await exited, lines: exitLines() }, {
+      exit: { code: 1, signal: null },
+      lines: [],
+    });
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer still reports a server killed mid-run by anything but its own teardown', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const { server, exited, exitLines } = await startCapturedFakeServer(cleanup, dir, binPath);
+    process.kill(server.pid, 'SIGTERM');
+    await exited;
+    assert.deepEqual(exitLines(), ['http-server exited unexpectedly (code=1, signal=null).']);
   } finally {
     await cleanup.cleanup();
     rmTmp(dir);
