@@ -441,7 +441,11 @@ the same `--allow-sensitive-reads` gate as `preview-variant`.
 `:include-trace-events true` ships each `:narrative` beat's raw
 `:trace-events`; by default a beat carries their `:trace-event-count`
 instead, because the raw events are most of a run's bytes and would
-push even a trivial variant past the default `max-tokens` cap.
+push even a trivial variant past the default `max-tokens` cap. Each beat
+is epoch data, so it crosses the off-box epoch projector the pair MCP
+sends epochs through, trace events included: its `:db-before` /
+`:db-after` redact by app-db path, and its event and effect args redact.
+`:include-sensitive` lifts only the app-db axes inside that projection.
 
 **Output.** The unified run-result (rf2-ba86n.17 clean break — the same
 shape the human Story UI reads; `re-frame.story.result/run-result`):

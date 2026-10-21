@@ -95,8 +95,9 @@
 
   `elide-app-db` redacts the `:app-db` slot. The same value also appears in
   `:effective-args` (the resolved arg map), in any `:snapshot` body, and in
-  the evidence trees (a `:narrative` beat's `:db-before`, a `:sub-runs`
-  `:value`).
+  the evidence trees (a `:sub-runs` `:value`). A `:narrative` beat is not one
+  of these: it is epoch data, and `project-narrative` sends it through the
+  epoch projector.
   Some of those derived positions match a classified path (an
   `:effective-args {:token …}` slice with `[:token]` classified); others
   re-key the value to a position the path cannot reach (the token at hiccup
@@ -364,6 +365,40 @@
        :tree      tree
        :source-db app-db}
       {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile false)})))
+
+;; ---------------------------------------------------------------------------
+;; Epoch narrative — the off-box epoch projector
+;; ---------------------------------------------------------------------------
+
+(defn project-narrative
+  "Project each beat of a `run-variant` `:narrative` through
+  `re-frame.core/project-egress`'s `:rf/epoch-record` arm, keyed to
+  `variant-id`'s frame, under the profile `include?` names.
+
+  A beat is an epoch record's payload slots under the record's own names
+  (`:db-before` / `:db-after` / `:trigger-event` / `:effects` / `:sub-runs`
+  / `:trace-events`), so it is stamped as a record for the call and the
+  stamp is dropped again after. That is the projector the pair MCP sends
+  epochs through: a declared-sensitive app-db slot in a db snapshot redacts
+  by its app-db path (where the derived-tree walk would find it re-keyed
+  and ship it raw), and event and effect args redact. Per Security.md
+  §Epoch privacy posture.
+
+  `include?` keeps Story MCP's trusted-local opt-in: `mcp-tool-profile`
+  lifts the app-db axes to `:rf.egress/local-raw`, and the beat still
+  crosses the projector, so event and effect args stay redacted. A span's
+  `:step` and `:caption` are the variant's authored script, public like
+  `get-variant`, and pass through."
+  [narrative variant-id include?]
+  (let [opts         {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile include?)}
+        project-beat (fn [beat]
+                       (-> (assoc beat :kind :rf/epoch-record :frame variant-id)
+                           (rf/project-egress opts)
+                           (dissoc :kind :frame)))]
+    (mapv (fn [span]
+            (cond-> span
+              (contains? span :epochs) (update :epochs #(mapv project-beat %))))
+          narrative)))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime and captured values
