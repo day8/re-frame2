@@ -1590,24 +1590,35 @@
 
 (defn set-generation!
   "Swap the resolved image GENERATION on frame `id`'s record IN PLACE,
-  preserving every other (state-bearing) slot by identity — the in-place
-  generation swap `re-frame.live-frame`'s `make-frame` (including a same-`:id`
-  re-construction) and reprojection write through (EP-0024). A no-op for an unknown frame
-  (the registry is keyed by the bare frame-id). Returns nil.
+  preserving every other (state-bearing) slot by identity (EP-0024) — the
+  generation-only writer reprojection publishes through. Construction instead
+  stages and restores the slot together with its pool inside `upsert-frame!`.
+  A no-op for an unknown frame (the registry is keyed by the bare frame-id);
+  the two-argument form returns nil.
 
-  The three-argument form is reprojection's compare-and-set: it publishes only
-  while the registry still holds the incarnation whose token
-  (`frame-incarnation-token`) is `expected-token`, and returns whether it did.
-  INTERNAL — the one mutator of the `:generation` slot."
+  The three-argument form is reprojection's compare-and-set against
+  `read-record`, the record it re-resolved from. It publishes only while the
+  registry still holds that record's incarnation (its `:drain-lock`, the
+  `frame-incarnation-token`) carrying that record's generation and descriptor
+  pool, each by identity, and returns whether it did. The token alone is not
+  enough: a same-id re-registration keeps the incarnation while it stages a
+  new generation and pool, and a publish derived from the outgoing pair would
+  replace the staged generation and leave its pool unpaired. Spec 002
+  §Single-drainer invariant (concurrent hosts). INTERNAL."
   ([id generation]
    (swap! frames (fn [m]
                    (if (contains? m id)
                      (update m id assoc :generation generation)
                      m)))
    nil)
-  ([id expected-token generation]
-   (let [holds?     (fn [m] (and (some? expected-token)
-                                 (identical? expected-token (:drain-lock (get m id)))))
+  ([id read-record generation]
+   (let [holds?     (fn [m]
+                      (let [current (get m id)]
+                        (and (some? (:drain-lock read-record))
+                             (identical? (:drain-lock read-record) (:drain-lock current))
+                             (identical? (:generation read-record) (:generation current))
+                             (identical? (:descriptor-pool read-record)
+                                         (:descriptor-pool current)))))
          [before _] (swap-vals! frames
                                 (fn [m]
                                   (if (holds? m)
@@ -2367,9 +2378,9 @@
     ;; generation"); there is no second live-frame registry holding it. nil for
     ;; a frame with no `:images` selection. Threaded in via the reserved
     ;; `:rf.frame/generation` config key so it is live BEFORE `:initial-events`
-    ;; run; a same-`:id` `make-frame` re-construction and reprojection swap it
-    ;; in place via `set-generation!`, preserving every other (state-bearing)
-    ;; slot by identity.
+    ;; run; a same-`:id` `make-frame` re-construction stages it with its pool,
+    ;; and reprojection swaps it in place via `set-generation!`, each
+    ;; preserving every other (state-bearing) slot by identity.
     :generation  (get config :rf.frame/generation)
     ;; The descriptor pool that generation was resolved against: nil for the
     ;; live source store, the caller's pool for `make-frame`'s 2-arity.
