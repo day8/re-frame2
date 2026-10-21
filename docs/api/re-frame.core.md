@@ -728,7 +728,7 @@ Frames, subscriptions, dispatch, source metadata and registry ids work the same 
 
 ### `reg-state`
 
-- **Kind**: function
+- **Kind**: macro
 - **Signature**:
   ```clojure
   (reg-state concern) → concern

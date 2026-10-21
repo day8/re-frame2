@@ -21,6 +21,7 @@
   Contract: Spec 002 §Per-instance view state."
   (:require [re-frame.error :as rf.error]
             [re-frame.events :as rf.events]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs :as rf.subs]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -92,12 +93,18 @@
 
 (defn- reg-clear-event!
   "Register `[:rf.state/clear concern ikey]`. Re-registration replaces it
-  with an identical handler."
+  with an identical handler.
+
+  Registered with no source namespace whichever namespace's `reg-state` ran,
+  so it is framework-owned: every frame resolves it from the framework base
+  (Spec 002 §Image resolution and composition), and two namespaces using
+  `reg-state` cannot make it ambiguous."
   []
-  (rf.events/reg-event clear-event-id
-    (fn clear-handler [{:keys [db]} [_ concern ikey]]
-      (check-key! concern ikey :clear)
-      {:db (clear-entry db concern ikey)})))
+  (binding [rf.source-coords/*pending-coords* nil]
+    (rf.events/reg-event clear-event-id
+      (fn clear-handler [{:keys [db]} [_ concern ikey]]
+        (check-key! concern ikey :clear)
+        {:db (clear-entry db concern ikey)}))))
 
 (defn reg-state
   "Register the per-instance state `concern`: a sub and a setter event under
@@ -112,8 +119,13 @@
   `concern` must be namespace-qualified, because it is a sub id, an event id
   and an app-db key at once. `opts` may carry `:default` and nothing else.
   Re-registering replaces all three registrations, so the last `:default`
-  wins. Refusals are `:rf.error/state-bad-argument`. Contract: Spec 002
-  §Per-instance view state."
+  wins. Refusals are `:rf.error/state-bad-argument`.
+
+  The sub and setter record the namespace of the `rf/reg-state` macro call
+  that reached here, so an explicit image selecting that namespace carries
+  them; called directly, as a fn, they record none and only a frame made
+  without `:images` resolves them. Contract: Spec 002 §Per-instance view
+  state."
   ([concern] (reg-state concern nil))
   ([concern opts]
    (when-not (and (keyword? concern) (namespace concern))

@@ -333,7 +333,10 @@ predecessors' pattern of building before measuring.
 >
 > **Status.** `h/reg-state`, `[::h/clear …]`, `h/child-key` and the refusal
 > surface have since landed on the now-closed bead `rf2-2rtt6.98`; the guide
-> teaches the convention in the same tense.
+> teaches the convention in the same tense. The sugar has since moved to core
+> as `rf/reg-state`, which is a `reg-*` macro rather than a plain function, so
+> its sub and setter record the calling namespace for explicit `:images`;
+> Spec 002 §Per-instance view state is the contract.
 
 **Ruling.** No component-local reactive cell (`local`, ratom-equivalent, or
 `useState` for app state) exists in Fresco. In order: CSS for hover/focus;
