@@ -28,7 +28,7 @@
   warns `:rf.warning/unknown-registration-key`. `:request` (the third slot)
   and `:retry` (it rides the managed-HTTP args) are absent on purpose.
   Conventions §No silent swallow — recognised input MUST signal."
-  #{:doc :params-schema :scope :transport
+  #{:doc :params-schema :scope
     :invalidates :patches :populates :removes :invalidate-timing
     :optimistic :optimistic-tags :on-conflict
     :sensitive :large})
@@ -69,10 +69,9 @@
     (throw (registration-error
              :rf.error/mutation-bad-spec
              'rf/reg-mutation
-             (str "mutation " mutation-id " declares no :request. For "
-                  ":transport :rf.http/managed (the only built-in "
-                  "transport) :request returns a Spec 014 managed-HTTP args "
-                  "map (the causal write). Per Spec 016 §Mutations.")
+             (str "mutation " mutation-id " declares no :request. "
+                  ":request returns a Spec 014 managed-HTTP args map (the "
+                  "causal write). Per Spec 016 §Mutations.")
              {:mutation-id mutation-id})))
   ;; A non-callable :request would register cleanly and fail at the first
   ;; write (a raw host cast error, or silently a nil args map). Not bare

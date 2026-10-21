@@ -61,7 +61,7 @@
   `:populates` (controlled resource-entry transforms / seeds applied on
   success), `:scope`, `:invalidate-timing` (`:after-success` (default) |
   `:before-request` | `:after-failure` | `:after-settle`), `:retry` (write
-  retries are OPT-IN), `:transport`, and `:doc`. Run it with
+  retries are OPT-IN), and `:doc`. Run it with
   `[:rf.mutation/execute {:mutation … :params … :instance …}]`; observe it
   through the passive `[:rf.mutation/*]` subs keyed by `:instance` id.
   Late-bound via `:resources/reg-mutation`."

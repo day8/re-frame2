@@ -114,7 +114,6 @@
         :rf/resource {:doc            "probe resource"
                       :params-schema  [:map [:slug :string]]
                       :scope          :rf.scope/global
-                      :transport      :rf.http/managed
                       :stale-after-ms 60000
                       :gc-after-ms    300000
                       :tags           (fn [_ _] #{})

@@ -504,11 +504,11 @@
 (defn- request-summary
   "A one-line, render-safe summary of a resource's `:request` (a fn that
   lowers params → a Spec 014 managed-HTTP args map). The fn body is
-  opaque, so the summary names the transport + that the request is
-  fn-derived; the live wire details surface per-instance via the work
-  ledger's `:transport`."
+  opaque, so the summary names the one transport, `:rf.http/managed`, and
+  that the request is fn-derived; the live wire details surface
+  per-instance via the work ledger's `:transport`."
   [spec]
-  (let [transport (or (:transport spec) :rf.http/managed)]
+  (let [transport :rf.http/managed]
     {:transport transport
      :fn?       (boolean (:request spec))
      :label     (str (name transport)

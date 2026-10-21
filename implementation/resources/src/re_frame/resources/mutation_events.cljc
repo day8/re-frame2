@@ -875,7 +875,7 @@
         ;; Frame-qualified: two frames can hold the same work-id.
         request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
         started-at time-ms
-        transport-id (or (:transport spec) rf.resources.transport/default-transport)
+        transport-id rf.resources.transport/managed-http-transport
         http-args  ((:request spec) cparams nil)
         invalidate-timing (or (:invalidate-timing spec) :after-success)
         before?    (= :before-request invalidate-timing)
@@ -897,9 +897,7 @@
                           :cause        cause
                           :started-at   started-at})
                        (assoc :work/kind :mutation))
-        lower-fx   (do
-                     (rf.resources.transport/assert-managed-transport! transport-id where)
-                     (rf.resources.transport.http/lower
+        lower-fx   (rf.resources.transport.http/lower
                      {:http-args    http-args
                       :request-id   request-id
                       :on-success-id :rf.mutation.internal/succeeded
@@ -916,7 +914,7 @@
                       :scope        cscope
                       :frame-id     frame-id
                       :generation   generation
-                      :where        where}))
+                      :where        where})
         ;; Registration rejects an optimistic plan with :before-request
         ;; timing, so the two never both run here.
         opt-out?    (and (contains? payload :optimistic?) (false? (:optimistic? payload)))

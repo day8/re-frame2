@@ -482,8 +482,7 @@
      ;; host-side handles, and the transport seam. The artefact ships ONE
      ;; built-in transport (`:rf.http/managed`); transport-neutrality is a
      ;; design property of the core, not a published extension API — no doc,
-     ;; spec, skill or example names `managed-http-transport`,
-     ;; `default-transport` or `assert-managed-transport!`.
+     ;; spec, skill or example names `managed-http-transport`.
      re-frame.resources.reply
      re-frame.resources.reply-handlers
      re-frame.resources.transport

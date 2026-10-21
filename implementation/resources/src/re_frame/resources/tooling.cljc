@@ -72,8 +72,8 @@
               :failure :rf.resource.internal/failed}}])
 
 (defn- authority-for
-  "The remote `:authority` map; `:transport` mirrors the registered
-  transport. Derivations §Authority — the remote axis."
+  "The remote `:authority` map; `:transport` names the one transport,
+  `:rf.http/managed`. Derivations §Authority — the remote axis."
   [transport-id]
   {:kind      :remote
    :system    :server
@@ -118,7 +118,7 @@
   "The static process node for one registered resource.
   Derivations §Resources expose process nodes."
   [resource-id spec slot]
-  (let [transport-id (or (:transport spec) rf.resources.transport/default-transport)
+  (let [transport-id rf.resources.transport/managed-http-transport
         resolver     (scope-resolver-enrichment spec)]
     (-> (rf.derivation.node/node-base resource-id [:runtime [rf.resources.state/resources-key :entries]]
                         {:kind          resource-superkind

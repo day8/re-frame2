@@ -27,14 +27,10 @@
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
 
-(def ^:private prev-cursor
-  (fn [first-page _all-pages] (get-in first-page [:page-info :prev-cursor])))
-
 (defn- page
   "An enveloped page, so flattening needs the registered :page->items."
-  ([items next-c] (page items next-c nil))
-  ([items next-c prev-c]
-   {:items items :page-info {:next-cursor next-c :prev-cursor prev-c}}))
+  [items next-c]
+  {:items items :page-info {:next-cursor next-c}})
 
 (defn- reg-feed! []
   (rf/clear :resource :feed/timeline)
@@ -43,7 +39,6 @@
      :infinite        true
      :params-schema   [:map [:filter :keyword]]
      :next-page-param next-cursor
-     :prev-page-param prev-cursor
      :page->items     :items
      :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})}
     (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
@@ -55,7 +50,7 @@
   (rf.resources.state/scoped-resource-key :rf.scope/global :feed/timeline {:filter :recent}))
 
 ;; three non-terminal pages: a fourth exists at cursor "c3"
-(def ^:private p0 (page [:a :b] "c1" "c0"))
+(def ^:private p0 (page [:a :b] "c1"))
 (def ^:private p1 (page [:c :d] "c2"))
 (def ^:private p2 (page [:e :f] "c3"))
 
@@ -65,7 +60,7 @@
   (reduce (fn [e [pg param loaded-at]]
             (rf.resources.state/entry-append-page
               e {:page pg :page-param param :next-page-param-fn next-cursor
-                 :prev-page-param-fn prev-cursor :loaded-at loaded-at :stale-at 9.0e15}))
+                 :loaded-at loaded-at :stale-at 9.0e15}))
           (rf.resources.state/empty-infinite-entry :feed/timeline fkey)
           [[p0 nil 1000] [p1 "c1" 1100] [p2 "c2" 1200]]))
 
@@ -93,8 +88,8 @@
 (def ^:private expected-pages [p0 p1 p2])
 (def ^:private expected-items [:a :b :c :d :e :f])
 
-(def ^:private page-facts (juxt :data :page-params :next-page-param :prev-page-param))
-(def ^:private expected-page-facts [expected-pages [nil "c1" "c2"] "c3" "c0"])
+(def ^:private page-facts (juxt :data :page-params :next-page-param))
+(def ^:private expected-page-facts [expected-pages [nil "c1" "c2"] "c3"])
 
 (defn- merged-items*
   "The framework-owned merged-items projection over `entry`."

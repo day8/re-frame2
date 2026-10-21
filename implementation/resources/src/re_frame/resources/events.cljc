@@ -225,7 +225,7 @@
                          (not (rf.resources.state/entry-stale? entry time-ms)))
         owner-newly-attached? (and (some? owner)
                                    (not (contains? (:active-owners entry) owner)))
-        transport-id (or (:transport spec) rf.resources.transport/default-transport)
+        transport-id rf.resources.transport/managed-http-transport
         prev-key   (when (and keep-previous? (not (rf.resources.state/has-data? entry)))
                      (rf.resources.state/prior-loaded-sibling-key
                        (get-in runtime-db (rf.resources.state/entries-path)) scoped-key))]
@@ -410,17 +410,16 @@
                                :reply-payload (infinite-page-reply-payload
                                                 generation work-id
                                                 page-param page-index)})
-            lower-fx   (do (rf.resources.transport/assert-managed-transport! transport-id where)
-                           (rf.resources.transport.http/lower
-                             (merge
-                               {:http-args    http-args
-                                :request-id   request-id
-                                :work-id      work-id
-                                :resource/key scoped-key
-                                :frame-id     frame-id
-                                :generation   generation
-                                :where        where}
-                               reply-overrides)))
+            lower-fx   (rf.resources.transport.http/lower
+                         (merge
+                           {:http-args    http-args
+                            :request-id   request-id
+                            :work-id      work-id
+                            :resource/key scoped-key
+                            :frame-id     frame-id
+                            :generation   generation
+                            :where        where}
+                           reply-overrides))
             superseding-abort-fx (when superseding?
                                    (rf.resources.work-ledger/abort-fx transport-id frame-id prior-work))]
         (rf.trace/emit! :rf.event :rf.resource/work-started
@@ -542,7 +541,7 @@
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            transport-id (or (:transport spec) rf.resources.transport/default-transport)
+            transport-id rf.resources.transport/managed-http-transport
             entry'     (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
@@ -571,20 +570,19 @@
             req-ctx    (page-request-ctx next-param page-index)
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams req-ctx))
-            lower-fx   (do (rf.resources.transport/assert-managed-transport! transport-id where)
-                           (rf.resources.transport.http/lower
-                             {:http-args    http-args
-                              :request-id   request-id
-                              :work-id      work-id
-                              :resource/key scoped-key
-                              :frame-id     frame-id
-                              :generation   generation
-                              :where        where
-                              :on-success-id page-succeeded-reply
-                              :on-failure-id page-failed-reply
-                              :reply-payload (infinite-page-reply-payload
-                                               generation work-id
-                                               next-param page-index)}))]
+            lower-fx   (rf.resources.transport.http/lower
+                         {:http-args    http-args
+                          :request-id   request-id
+                          :work-id      work-id
+                          :resource/key scoped-key
+                          :frame-id     frame-id
+                          :generation   generation
+                          :where        where
+                          :on-success-id page-succeeded-reply
+                          :on-failure-id page-failed-reply
+                          :reply-payload (infinite-page-reply-payload
+                                           generation work-id
+                                           next-param page-index)})]
         (rf.trace/emit! :rf.event :rf.resource/load-more
                      {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
@@ -662,7 +660,7 @@
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            transport-id (or (:transport spec) rf.resources.transport/default-transport)
+            transport-id rf.resources.transport/managed-http-transport
             entry'     (rf.resources.state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
@@ -686,20 +684,19 @@
             req-ctx    (page-request-ctx page-param page-index)
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams req-ctx))
-            lower-fx   (do (rf.resources.transport/assert-managed-transport! transport-id where)
-                           (rf.resources.transport.http/lower
-                             {:http-args    http-args
-                              :request-id   request-id
-                              :work-id      work-id
-                              :resource/key scoped-key
-                              :frame-id     frame-id
-                              :generation   generation
-                              :where        where
-                              :on-success-id page-succeeded-reply
-                              :on-failure-id page-failed-reply
-                              :reply-payload (infinite-page-reply-payload
-                                               generation work-id
-                                               page-param page-index)}))]
+            lower-fx   (rf.resources.transport.http/lower
+                         {:http-args    http-args
+                          :request-id   request-id
+                          :work-id      work-id
+                          :resource/key scoped-key
+                          :frame-id     frame-id
+                          :generation   generation
+                          :where        where
+                          :on-success-id page-succeeded-reply
+                          :on-failure-id page-failed-reply
+                          :reply-payload (infinite-page-reply-payload
+                                           generation work-id
+                                           page-param page-index)})]
         (rf.trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
@@ -1738,7 +1735,6 @@
                         entry {:page decoded :page-param page-param
                                :page-index page-index
                                :next-page-param-fn (:next-page-param spec)
-                               :prev-page-param-fn (:prev-page-param spec)
                                :loaded-at loaded-at :stale-at stale-at})
             sweep-leg (rf.resources.state/next-refetch-sweep-leg replaced)
             swept     (if sweep-leg

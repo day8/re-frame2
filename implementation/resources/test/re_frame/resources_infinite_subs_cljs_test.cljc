@@ -44,13 +44,9 @@
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
-(def ^:private prev-cursor
-  (fn [first-page _all-pages] (get-in first-page [:page-info :prev-cursor])))
 
-(defn- page
-  ([items next-c] (page items next-c nil))
-  ([items next-c prev-c]
-   {:items items :page-info {:next-cursor next-c :prev-cursor prev-c}}))
+(defn- page [items next-c]
+  {:items items :page-info {:next-cursor next-c}})
 
 (defn- feed-spec
   "Enveloped pages with a keyword :page->items accessor."
@@ -60,7 +56,6 @@
            :infinite         true
            :params-schema    [:map [:filter :keyword]]
            :next-page-param  next-cursor
-           :prev-page-param  prev-cursor
            :page->items      :items
            :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
           overrides)))
@@ -98,7 +93,7 @@
   "The full :infinite-state view-model with `overrides` over the idle defaults."
   [overrides]
   (merge {:status :idle :items [] :pages [] :page-count 0
-          :has-next-page? false :has-prev-page? false
+          :has-next-page? false
           :loading? false :fetching? false :fetching-next? false
           :stale? false :has-data? false
           :error nil :refresh-error nil :page-error nil}
@@ -106,10 +101,12 @@
 
 (deftest empty-feed-projections
   (rf/reg-resource :is1/feed (feed-spec) feed-spec-request)
-  (is (= [[] [] 0 false false false nil]
+  (is (= [[] [] 0 false false nil]
          (map #(sub % :is1/feed) [:rf.resource/items :rf.resource/pages :rf.resource/page-count
-                                  :rf.resource/has-next-page? :rf.resource/has-prev-page?
+                                  :rf.resource/has-next-page?
                                   :rf.resource/fetching-next? :rf.resource/page-error])))
+  (is (nil? (rf/handler-meta {:kind :sub :id :rf.resource/has-prev-page?}))
+      "there is no prev-page sub: pages are only appended")
   (is (= (view-model {}) (sub :rf.resource/infinite-state :is1/feed)))
   (is (nil? (entry (feed-key :is1/feed))) "subscribing conjured no entry"))
 
@@ -150,10 +147,9 @@
   (is (= [:a :b :c :d] (sub :rf.resource/items :isv/feed))))
 
 (deftest page-metadata-projections
-  (load-page-0! :is3/feed (page [:a] "c1" "p0"))
-  (is (= [1 true true] (map #(sub % :is3/feed) [:rf.resource/page-count :rf.resource/has-next-page?
-                                                :rf.resource/has-prev-page?]))
-      "a non-terminal page with both cursors")
+  (load-page-0! :is3/feed (page [:a] "c1"))
+  (is (= [1 true] (map #(sub % :is3/feed) [:rf.resource/page-count :rf.resource/has-next-page?]))
+      "a non-terminal page")
   (load-more! :is3/feed) (reply-success! (page [:b] nil))
   (is (= [2 false] (map #(sub % :is3/feed) [:rf.resource/page-count :rf.resource/has-next-page?]))
       "a nil next cursor is the terminal"))
