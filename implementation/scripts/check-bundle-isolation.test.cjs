@@ -5,6 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 const {
   ARTEFACTS,
   POSITIVE_CONTROL,
@@ -141,7 +142,6 @@ for (const [artefacts, controls, list, why] of [
   const resolve = (source) => resolveForbiddenSource(source, classpath, noJars);
   assert.strictEqual(resolve(MANIFEST_ON_CONTROL), 'core/src', 'a file under a :source-paths root resolves');
   assert.strictEqual(resolve('re_frame/subs/'), 'core/src', 'a directory under a :source-paths root resolves');
-  assert.strictEqual(resolve('node_modules/react/'), 'node_modules', 'an npm package resolves under node_modules');
   assert.strictEqual(resolve(`${MANIFEST_ON_CONTROL}/`), null, 'a file named as a directory does not resolve');
   assert.strictEqual(resolve('re_frame/subs'), null, 'a directory named as a file does not resolve');
   assert.strictEqual(resolve('re_frame/no_such_namespace.cljc'), null, 'a missing source does not resolve');
@@ -157,20 +157,71 @@ for (const [artefacts, controls, list, why] of [
   assert(!unreadable.ok && /no config/.test(unreadable.error), 'an unreadable classpath fails closed');
 }
 
-// Jar sources resolve from the archive's own central directory. The launcher
-// jar the shadow-cljs npm package installs is a real zip in every lane that
-// installs node_modules.
+// npm sources resolve under the project's node_modules, and jar sources from the
+// archive's own central directory. Both fixtures are built here, because the
+// lane that runs this file installs no node_modules and no Maven jars; the gate
+// itself resolves the real ones.
 {
-  const jar = path.join(IMPLEMENTATION_ROOT, 'node_modules', 'shadow-cljs-jar', 'bin', 'shadow-cljs.jar');
-  const entries = listJarEntries(jar);
-  assert(entries && entries.includes('META-INF/MANIFEST.MF'), `a real jar lists its entries: ${jar}`);
-  const jarOnly = { root: IMPLEMENTATION_ROOT, dirs: [], jars: [{ lib: 'shadow-cljs-jar', file: jar }] };
-  assert.strictEqual(resolveForbiddenSource('META-INF/', jarOnly), 'shadow-cljs-jar', 'a directory inside a jar resolves');
-  assert.strictEqual(resolveForbiddenSource('META-INF/MANIFEST.MF', jarOnly), 'shadow-cljs-jar', 'a file inside a jar resolves');
-  assert.strictEqual(resolveForbiddenSource('no_such_root/', jarOnly), null, 'a path the jar does not hold does not resolve');
-  assert.strictEqual(listJarEntries(path.join(os.tmpdir(), `bundle-iso-no-such-${process.pid}.jar`)), null,
-    'an absent jar reads as absent, not as a jar holding nothing');
-  assert.throws(() => listJarEntries(__filename), /not a zip archive/, 'a file that is not a zip fails loud');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-classpath-'));
+  try {
+    fs.mkdirSync(path.join(root, 'node_modules', 'probe-pkg'), { recursive: true });
+    const npmOnly = { root, dirs: [], jars: [] };
+    assert.strictEqual(resolveForbiddenSource('node_modules/probe-pkg/', npmOnly), 'node_modules',
+      'an npm package resolves under node_modules');
+    assert.strictEqual(resolveForbiddenSource('node_modules/no-such-pkg/', npmOnly), null,
+      'an npm package that is not installed does not resolve');
+
+    // A stored zip: two local entries, the central directory, and an
+    // end-of-central-directory record carrying an archive comment, so the
+    // reader has to scan back past it.
+    const entry = (name, data, offset) => {
+      const n = Buffer.from(name);
+      const crc = zlib.crc32(data);
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(10, 4);
+      local.writeUInt32LE(crc, 14);
+      local.writeUInt32LE(data.length, 18);
+      local.writeUInt32LE(data.length, 22);
+      local.writeUInt16LE(n.length, 26);
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(10, 4);
+      central.writeUInt16LE(10, 6);
+      central.writeUInt32LE(crc, 16);
+      central.writeUInt32LE(data.length, 20);
+      central.writeUInt32LE(data.length, 24);
+      central.writeUInt16LE(n.length, 28);
+      central.writeUInt32LE(offset, 42);
+      return { local: Buffer.concat([local, n, data]), central: Buffer.concat([central, n]) };
+    };
+    const a = entry('probe/core.cljc', Buffer.from('(ns probe.core)'), 0);
+    const b = entry('META-INF/MANIFEST.MF', Buffer.from('Manifest-Version: 1.0\n'), a.local.length);
+    const centralDir = Buffer.concat([a.central, b.central]);
+    const comment = Buffer.from('fixture');
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(2, 8);
+    eocd.writeUInt16LE(2, 10);
+    eocd.writeUInt32LE(centralDir.length, 12);
+    eocd.writeUInt32LE(a.local.length + b.local.length, 16);
+    eocd.writeUInt16LE(comment.length, 20);
+    const jar = path.join(root, 'probe-1.0.jar');
+    fs.writeFileSync(jar, Buffer.concat([a.local, b.local, centralDir, eocd, comment]));
+
+    assert.deepStrictEqual(listJarEntries(jar), ['probe/core.cljc', 'META-INF/MANIFEST.MF'],
+      'a zip lists its entries from the central directory');
+    const jarOnly = { root, dirs: [], jars: [{ lib: 'probe 1.0', file: jar }] };
+    assert.strictEqual(resolveForbiddenSource('probe/', jarOnly), 'probe 1.0', 'a directory inside a jar resolves');
+    assert.strictEqual(resolveForbiddenSource('probe/core.cljc', jarOnly), 'probe 1.0', 'a file inside a jar resolves');
+    assert.strictEqual(resolveForbiddenSource('probe/core.cljc/', jarOnly), null, 'a jar file named as a directory does not resolve');
+    assert.strictEqual(resolveForbiddenSource('no_such_root/', jarOnly), null, 'a path the jar does not hold does not resolve');
+    assert.strictEqual(listJarEntries(path.join(root, 'absent.jar')), null,
+      'an absent jar reads as absent, not as a jar holding nothing');
+    assert.throws(() => listJarEntries(__filename), /not a zip archive/, 'a file that is not a zip fails loud');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 // ----- the real counter manifest, and an injected leak ----------------------
