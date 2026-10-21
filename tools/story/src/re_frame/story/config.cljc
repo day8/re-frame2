@@ -8,8 +8,9 @@
   to `true`. Production builds set
   `:closure-defines {re-frame.story.config/enabled? false}` (typically
   alongside `goog.DEBUG false`) and every registration macro expands to
-  `nil`. Closure DCE then removes the entire registration-side ns graph
-  from the production bundle.
+  `nil`. Closure DCE then drops the registration bodies and the shell;
+  `005-SOTA-Features.md` §Residue states what a Story-importing build
+  still carries.
 
   On the JVM side this is just a `def` — JVM consumers of Story (tests,
   REPL exploration) always see `enabled?` true. Production CLJS builds

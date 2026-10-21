@@ -42,9 +42,9 @@
    `:examples/nine-states`, whose entry never requires this namespace or
    `nine-states.stories`. Under `:advanced` with `:closure-defines
    {re-frame.story.config/enabled? false}`, every `reg-*` in
-   `nine-states.stories` compiles to nil and `mount-shell!` short-circuits,
-   but no gate builds this host that way, so nothing checks how much of
-   Story and Xray it would still carry."
+   `nine-states.stories` compiles to nil and the shell drops out, but the
+   build still carries Xray, which Story requires statically
+   (tools/story/spec/005-SOTA-Features.md §Residue)."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.http.stub-transport :as rf.http.stub-transport]

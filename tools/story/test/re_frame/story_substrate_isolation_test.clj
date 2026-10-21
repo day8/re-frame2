@@ -5,7 +5,7 @@
   source may `:require` a `uix.core` / `uix.dom` namespace — a host app
   embedding Story does not get UIx on its classpath. Keyword references to
   `:uix` are fine. This guards the input side, the requires; no gate
-  builds a Story-embedding bundle to check the output side."
+  checks a Story-embedding bundle for UIx on the output side."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))

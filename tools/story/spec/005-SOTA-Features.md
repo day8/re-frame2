@@ -284,10 +284,10 @@ affordance that could serialise it for off-box transport.
 
 Production app builds (`re-frame.story.config/enabled?` false under `:advanced`) elide
 the entire Story UI shell; the a11y panel is reachable only from the
-disabled tree, so Closure DCE drops it. The bundle-isolation contract
-(`scripts/check-bundle-isolation.cjs`) verifies that `examples/counter`'s
-release build compiles no Story source, which
-transitively covers the a11y panel. Static-build deploys (rf2-8wgpm,
+disabled tree, so Closure DCE drops it with the shell. The
+bundle-isolation gate (`scripts/check-bundle-isolation.cjs`) checks the
+shell's elision on a Story-importing release (§Verification under
+§Production elision). Static-build deploys (rf2-8wgpm,
 see [`013-Static-Build.md`](013-Static-Build.md)) carry the axe-core
 opt-in prompt into the static site too, so a visitor running an a11y
 scan there sees the same consent dialog before any CDN load.
@@ -856,6 +856,35 @@ separate `re-frame.story.config/static-mode?` define.
   zero elapsed time), not a synchronous `{}` and not an unknown-variant
   exception. Unreferenced public functions need not survive DCE.
 
+### Residue
+
+Closure drops a body only when nothing reaches it, and a namespace's
+top-level forms run at load, so they reach their bodies in every build
+whose graph holds the namespace. The define cannot change that graph.
+Story requires Xray statically (`re-frame.story.ui.shell`,
+`re-frame.story.ui.xray-embed`, `re-frame.story.ui.evidence-spine` and
+`re-frame.story.xray-preset`), and Xray's views are Fresco `defview`s,
+each a top-level mint call, beside load-time hook registrations. Story
+also requires `re-frame.machines`, malli and `cljs.test`. So an
+`enabled?` false build that imports Story drops the shell and Story's
+own runtime, and still carries all of Xray and those libraries.
+
+Measured on `:examples/counter-with-stories` (`shadow-cljs release`,
+`goog.DEBUG` false; `main.js` bytes, gzip at level 9):
+
+| Release | Raw | Gzipped |
+|---|---:|---:|
+| `:examples/counter`, which imports no Story | 672,793 | 198,195 |
+| counter-with-stories, `enabled?` false | 5,298,014 | 1,478,596 |
+| the same, built with Story's four Xray requires removed | 1,406,588 | 393,909 |
+| counter-with-stories, `enabled?` true | 5,915,591 | 1,655,260 |
+
+Xray is 3,891,426 bytes raw (1,084,687 gzipped) of the `enabled?` false
+release. The other 733,795 raw (195,714 gzipped) over the plain counter
+is the testbed's own app and the libraries above. The define cannot
+remove Xray: that takes Xray's top-level forms becoming droppable, or
+Story reaching Xray without a static require.
+
 ### Cross-library `:extends` under elision
 
 All registrations are dev-only. In a production build:
@@ -872,12 +901,20 @@ specified in [`017-Testing-Story.md`](017-Testing-Story.md) §Composition.
 ### Verification
 
 `implementation/scripts/check-bundle-isolation.cjs` (per
-[`tools/README.md`](../../README.md)) reads the `manifest.edn` of the
-counter consumer that does not import Story, and fails if it lists any
-Story source. This verifies the no-import dependency boundary only.
-Nothing builds a Story-importing consumer with `enabled?` false — neither
-that gate nor `tools/story/bench/bundle-size.cjs` — so the elision this
-section specifies is not verified.
+[`tools/README.md`](../../README.md)) makes two Story claims, both run by
+`npm run test:bundle-isolation`:
+
+- It reads the `manifest.edn` of the counter consumer, which does not
+  import Story, and fails if it lists any Story source.
+- It releases `:examples/counter-with-stories` twice from the same
+  source, with `enabled?` false and at its default, and fails if the
+  `enabled?` false release carries any of four string literals only
+  shell bodies emit, or the default release lacks one. A release that
+  is missing, empty, or does not load `re-frame.story` is refused
+  rather than read.
+
+Xray and Story's libraries are outside the second claim; §Residue
+states what they weigh.
 
 ### Bundle-size comparison (rf2-xgay8)
 
@@ -889,9 +926,9 @@ Measured 2026-05-13 on `tools/story/testbeds/counter_with_stories` via
   That's the JS Story would add to a consumer's bundle if shipped
   to production.
 - Counter with Story disabled (`:advanced` +
-  `re-frame.story.config/enabled?=false`): not measured. The bench
-  builds no disabled variant, and no gate checks one (see
-  §Verification).
+  `re-frame.story.config/enabled?=false`): the bench builds no disabled
+  variant. §Residue measures one, and the bundle-isolation gate checks
+  its shell (§Verification).
 
 For reference, Storybook 9's `storybook` core package alone is
 ~35 MB unpacked (npm registry, 9.1.20), and a working SB9 project

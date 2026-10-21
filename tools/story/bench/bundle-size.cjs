@@ -24,10 +24,9 @@
  * dev-bundle-equivalent. None of the three builds sets
  * `re-frame.story.config/enabled?` to false, so this script does not
  * measure the production path Spec 005 §Production elision under
- * `:advanced` specifies, and no gate checks it either:
- * `implementation/scripts/check-bundle-isolation.cjs` reads only the plain
- * counter's `manifest.edn`, which proves that an app importing no Story
- * compiles no Story source.
+ * `:advanced` specifies. `npm run test:bundle-isolation` builds that path
+ * and checks its shell (Spec 005 §Verification), and 005 §Residue
+ * measures what it still carries.
  *
  * Why one-shot, not CI
  * --------------------
@@ -173,7 +172,7 @@ function main() {
   console.log(`  gz:   ${fmt(gzCost)} bytes (~${(gzCost / 1024).toFixed(0)} KiB)`);
   console.log('');
   console.log('None of these builds sets re-frame.story.config/enabled? to false, so this');
-  console.log('measures no production-elided Story build, and no gate checks one.');
+  console.log('measures no production-elided Story build; npm run test:bundle-isolation checks one.');
   console.log('');
   console.log('See tools/story/spec/005-SOTA-Features.md §Bundle-size comparison for the Storybook 9 comparison.');
 

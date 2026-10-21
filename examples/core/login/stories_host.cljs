@@ -39,9 +39,9 @@
    `:examples/login`, whose entry never requires this namespace or
    `login.stories`. Under `:advanced` with `:closure-defines
    {re-frame.story.config/enabled? false}`, every `reg-*` in
-   `login.stories` compiles to nil and `mount-shell!` short-circuits, but
-   no gate builds this host that way, so nothing checks how much of Story
-   and Xray it would still carry."
+   `login.stories` compiles to nil and the shell drops out, but the build
+   still carries Xray, which Story requires statically
+   (tools/story/spec/005-SOTA-Features.md §Residue)."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.config :as xray-config]
