@@ -169,8 +169,9 @@ tools_jvm_machines_viz=false
 tools_jvm_testbed_support=false
 # The machines-viz artefact's OWN CLJS lane
 # (tools/machines-viz/shadow-cljs.edn `:machines-viz-node-test`), which runs the
-# `-test`-suffixed suites the consolidated `:node-test` build compiles and never
-# selects. Its own output for the same reason as the two above: no existing
+# artefact's suites on the classpath its own deps.edn declares, where the
+# consolidated `:node-test` build runs them on a classpath spanning every
+# artefact. Its own output for the same reason as the two above: no existing
 # output gates a job that runs this build.
 tools_cljs_machines_viz=false
 # The read-only viewer PAGE (public/viewer.html + the
@@ -362,7 +363,7 @@ is_story_xray_node_test_path() {
 # WHY IT IS SEPARATE FROM THE NODE-TEST PREDICATE ABOVE. Both trees ride
 # the SAME two builds — implementation/shadow-cljs.edn puts
 # tools/{story,xray}/{src,test} on :source-paths, and the `:node-test`
-# build's `cljs-test$` regex matches a `-dom-cljs-test` namespace just as
+# build's `-test$` selector matches a `-dom-cljs-test` namespace just as
 # the `:browser-test` build's `-dom-cljs-test$` does. So a Story DOM suite
 # is COMPILED at PR time under Node too — where it finds no `document` and
 # SKIPS rather than mounting. Firing only cljs_node_test for it would leave
@@ -1171,11 +1172,11 @@ else
         # engine_grammar_parity_test.cljc can feed representative definitions
         # through BOTH the viz mirror and the engine and assert equal output:
         # catching ENGINE-side drift is the suite's reason to exist. The
-        # only JVM lane that runs it is the tools/machines-viz leg — neither
-        # consolidated CLJS selector reaches the namespace (`-test`, not
-        # `cljs-test$` or `-dom-cljs-test$`) — so without this arm an
-        # engine-only diff would leave that output false, and a grammar change
-        # could merge with its designated drift gate skipped. Scoped to the one
+        # only JVM lane that runs it is the tools/machines-viz leg, and the
+        # only CLJS lane that runs it on the classpath the artefact declares
+        # is `:machines-viz-node-test` — so without this arm an engine-only
+        # diff would leave both outputs false, and a grammar change could
+        # merge with its designated drift gates skipped. Scoped to the one
         # artefact on the other end of the declared edge; the sibling
         # per-feature trees have no such consumer.
         case "$file" in
@@ -1258,7 +1259,7 @@ else
         #   - the package smoke `re-frame.fresco.smoke-cljs-test`, which
         #     rides the consolidated `:node-test` build (fresco/src +
         #     fresco/test are on the global :source-paths and the ns
-        #     matches that build's `cljs-test$` regexp) in the `cljs` job;
+        #     matches that build's `-test$` selector) in the `cljs` job;
         #   - the INVARIANTS GATE, `npm run test:fresco-invariants`, a step
         #     of that same job — the optional-module reachability check (which
         #     also carries the no-bench-import row), the budget ledger, the
@@ -2023,7 +2024,7 @@ else
         # `:require` it. The integration test
         # re-frame.realworld-resources-cljs-test
         # (implementation/integration/test/re_frame/realworld_resources_cljs_test.cljs
-        # — its ns matches the :node-test build's `cljs-test$` ns-regexp)
+        # — its ns matches the :node-test build's `-test$` ns-regexp)
         # `:require`s realworld-resources.core + realworld-resources.scope
         # from examples/real-apps/realworld_resources/. So an examples-only
         # change can break a :node-test test, yet firing only cljs_browser
@@ -2315,12 +2316,11 @@ else
         # wrapper and is not part of the deps-new template's generated app.
         #
         # It has a JVM suite too: a wired `:test` alias and a row in
-        # scripts/jvm-lanes.txt. Most of its suites are
-        # `*_cljs_test.*` and ride the two CLJS gates above, but
+        # scripts/jvm-lanes.txt. Its `.cljc` suites —
         # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
-        # ratchet) and `mermaid_public_smoke_test.cljc` match neither
-        # `cljs-test$` (`:node-test`) nor `-dom-cljs-test$` (`:browser-test`),
-        # so of the consolidated builds' lanes they run in the JVM lane ONLY.
+        # ratchet) and `mermaid_public_smoke_test.cljc` among them — run in
+        # both hosts: `:node-test`'s `-test$` selector compiles their `:cljs`
+        # arms, and the JVM lane runs their `:clj` arms.
         #
         # That lane's CI home is the tools/machines-viz leg of the `jvm` job,
         # selected by the dedicated output below. `tools_jvm` is deliberately
@@ -2349,14 +2349,12 @@ else
             cljs_node_test=true
             cljs_browser=true
             tools_jvm_machines_viz=true
-            # And the artefact's OWN CLJS lane. The two suites the
-            # comment above calls out as JVM-only, `engine_grammar_parity_test`
-            # and `mermaid_public_smoke_test`, are `.cljc`: dual-runtime by
-            # construction, and the parity ratchet carries `:cljs` reader arms.
-            # The consolidated `:node-test` bundle does not contain them at all
-            # (its `cljs-test$` selector never reaches the namespaces), so the
-            # `cljs` job above is not their lane however green it is.
-            # `:machines-viz-node-test` is, and this output is what schedules it.
+            # And the artefact's OWN CLJS lane, `:machines-viz-node-test`,
+            # which runs every suite here on the classpath the artefact's
+            # deps.edn declares. The consolidated `:node-test` bundle runs the
+            # same suites on a classpath spanning every artefact, where a
+            # namespace this artefact forgot to declare still resolves through
+            # a sibling's root; this output schedules the lane that catches it.
             tools_cljs_machines_viz=true
             # And the PAGE gate. The viewer entry lives on this
             # artefact's `page/` root, the HTML on its `public/` root, and the
