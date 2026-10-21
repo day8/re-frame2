@@ -1798,6 +1798,24 @@ test('the test-tier artefacts arm exactly implementation_jvm + cljs_node_test (r
   }
 });
 
+// The framework integration suite is CLJS-only `-cljs-test` namespaces on the
+// consolidated :node-test classpath, so the node build is the one lane that
+// runs it: no JVM lane reads `.cljs`, no `-dom-cljs-test` lives there for the
+// browser lane, and it ships no source for a production, bundle or examples
+// gate to observe. The adapter helper is pinned beside the tests because a
+// change to it moves every fixture in the suite.
+const INTEGRATION_SUITE = pinnedRoster('the integration suite arm', [
+  'implementation/integration/test/re_frame/integration_adapter.cljs',
+  'implementation/integration/test/re_frame/routing_cljs_test.cljs',
+  'implementation/integration/test/re_frame/realworld_resources_cljs_test.cljs',
+]);
+
+test('the integration suite arms exactly cljs_node_test', () => {
+  for (const file of INTEGRATION_SUITE) {
+    assert.deepEqual(armedOutputs(classify(file)), ['cljs_node_test'], file);
+  }
+});
+
 // The tenant-switcher testbed keeps its own colocated Playwright spec.cjs and
 // its own smoke job; its launcher's arm is pinned by the launcher table above.
 test('the tenant-switcher testbed fires tenant_switcher_smoke + cljs_browser (rf2-h5e3v7)', () => {
