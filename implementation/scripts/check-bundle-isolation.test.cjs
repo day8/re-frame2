@@ -116,6 +116,7 @@ const ELISION_PROBE = {
 };
 const GRAPH_PROBE = { name: 'probe-graph', forbiddenSources: ['re_frame/probe.cljc'] };
 const TRACE_MODULE = POSITIVE_CONTROL['trace-tooling'].onModule;
+const TRACE_SENTINEL = ARTEFACTS.find((a) => a.name === 'trace-tooling').internalSentinels[0].sentinel;
 for (const [artefacts, controls, list, why] of [
   [[ELISION_PROBE], {}, 'missing', 'an elision claim with no positive control'],
   [[GRAPH_PROBE], { 'probe-graph': { onModule: 'probe' } }, 'extra', 'a positive control for a graph claim'],
@@ -125,7 +126,7 @@ for (const [artefacts, controls, list, why] of [
   [[{ ...GRAPH_PROBE, forbiddenSources: ['../escape.cljc'] }], {}, 'malformedSources', 'a source climbing out of its root'],
   [[{ ...GRAPH_PROBE, forbiddenSources: ['/'] }], {}, 'malformedSources', 'a bare-root source'],
   [[ELISION_PROBE], { 'probe-elision': { onModule: TRACE_MODULE } }, 'sharedModules', 'two owners of one emitted module'],
-  [[{ ...ELISION_PROBE, internalSentinels: [{ source: 'dup', sentinel: 'trace-events' }] }],
+  [[{ ...ELISION_PROBE, internalSentinels: [{ source: 'dup', sentinel: TRACE_SENTINEL }] }],
     { 'probe-elision': { onModule: 'probe' } }, 'sharedSentinels', 'one sentinel with two owners'],
   [[GRAPH_PROBE, { ...GRAPH_PROBE, name: 'probe-graph-2' }], {}, 'sharedSources', 'one forbidden source with two owners'],
 ]) {

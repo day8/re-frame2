@@ -214,12 +214,15 @@ const ARTEFACTS = [
   // drops them. The sentinel is the `:trace-events` slot of the tooling's
   // `trace-buffer` event-bundle projection; the only other code emitting it is
   // epoch, whose bodies the `epoch` elision claim pins out of this bundle too.
-  // A non-zero hit means one of the two reached a production bundle.
+  // A non-zero hit means one of the two reached a production bundle. It is
+  // the QUOTED name, the token a release emits for the keyword, because
+  // `"trace-events-keep"` is in every core release: epoch's default config
+  // literal rides the top-level atom allocations Closure keeps.
   {
     name: 'trace-tooling',
     internalSentinels: [
       { source: 're-frame.trace.tooling trace-buffer projection field',
-        sentinel: 'trace-events' },
+        sentinel: '"trace-events"' },
     ],
   },
 
