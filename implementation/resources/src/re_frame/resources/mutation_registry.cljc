@@ -274,7 +274,7 @@
   Spec 016 §Mutations (first public-beta gate)."
   [mutation-id spec params where]
   (rf.resources.params/validate+canonicalize
-    mutation-id spec params where
+    mutation-id spec params where :mutation-params
     (fn [slots]
       (registration-error
         :rf.error/mutation-invalid-params

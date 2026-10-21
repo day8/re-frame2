@@ -6,8 +6,9 @@
   throws, the malformed-schema distinction (Spec 010 §Per-step recovery) —
   `:reason :malformed-schema` on the domain error, the params withheld because
   the validator decided nothing about them, and the `:rf.error/malformed-schema`
-  trace every validating surface emits. The trace and the humanized slot are
-  development-only; the thrown error holds in every build."
+  trace every validating surface emits, at the family's own `:where`. The trace
+  and the humanized slot are development-only; the thrown error holds in every
+  build."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -34,15 +35,18 @@
 (def ^:private params-schema [:map [:n :int]])
 
 (def ^:private families
-  "Each family's public validate+canonicalize, its error id and its id slot."
+  "Each family's public validate+canonicalize, its error id, its id slot and the
+  `:where` its malformed-schema trace carries."
   {:resource {:check    #(rf.resources.registry/validate+canonicalize-params
                            :diag/resource {:params-schema params-schema} % 'rf/ensure)
               :error-id :rf.error/resource-invalid-params
-              :id-slot  [:resource-id :diag/resource]}
+              :id-slot  [:resource-id :diag/resource]
+              :where    :resource-params}
    :mutation {:check    #(rf.resources.mutation-registry/validate+canonicalize-params
                            :diag/mutation {:params-schema params-schema} % 'rf.mutation/execute)
               :error-id :rf.error/mutation-invalid-params
-              :id-slot  [:mutation-id :diag/mutation]}})
+              :id-slot  [:mutation-id :diag/mutation]
+              :where    :mutation-params}})
 
 (defn- with-schema-fns
   "Run `f` with `fns` merged into the installed validator port, restoring the
@@ -86,7 +90,7 @@
 (deftest a-throwing-validator-reports-a-malformed-schema
   (with-schema-fns {:validate (fn [_ _] (throw (ex-info "schema boom" {})))}
     (fn []
-      (doseq [[family {:keys [check error-id id-slot]}] families]
+      (doseq [[family {:keys [check error-id id-slot where]}] families]
         (let [{:keys [data message malformed-traces]} (outcome #(check {:n "SECRET-N"}))]
           (is (= [error-id (second id-slot) :malformed-schema rf.privacy/redacted-sentinel true false]
                  [(:rf.error/id data) (get data (first id-slot)) (:reason data) (:params data)
@@ -95,10 +99,10 @@
           (is (str/includes? (str message) "malformed")
               (str family ": the message names a broken schema, not a rejected input"))
           (is (= (if rf.interop/debug-enabled?
-                   [{:failing-id (second id-slot) :schema params-schema}]
+                   [{:where where :failing-id (second id-slot) :schema params-schema}]
                    [])
-                 (mapv #(select-keys (:tags %) [:failing-id :schema]) malformed-traces))
-              (str family ": the malformed-schema trace names the id and the schema to fix"))
+                 (mapv #(select-keys (:tags %) [:where :failing-id :schema]) malformed-traces))
+              (str family ": the malformed-schema trace names its surface, the id and the schema to fix"))
           (is (not (str/includes? (pr-str [data malformed-traces]) "SECRET-N"))
               (str family ": no value the validator never decided is reattached")))))))
 
