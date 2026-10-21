@@ -840,76 +840,80 @@
   (`:hot-reload-tick` / cell-override / mode / substrate). Renders the
   variant's `:component` view
   with the resolved `:hiccup` decorator stack applied."
-  (r/create-class
-     {:display-name "rf-story-canvas"
-      :component-did-mount
-      (fn [_this]
-        (run-if-needed!)
-        (mark-rendered-if-ready!))
-      :component-did-update
-      (fn [_this _old-argv]
-        ;; Re-run only when the variant runtime inputs change. An
-        ;; unconditional update would re-fire `:setup` on every app-db
-        ;; render, resetting interactive state and polluting recorder
-        ;; output with fixture setup events.
-        (run-if-needed!)
-        ;; Flip the first-rendered sentinel once the
-        ;; lifecycle machine reports :ready / :error.
-        (mark-rendered-if-ready!))
-      :component-will-unmount
-      (fn [_this]
-        ;; Scope the first-rendered reset to THIS instance's
-        ;; own variant — `canvas-last-run-key` (a `run-key` map, or nil)
-        ;; still names the variant this mounted instance was running.
-        ;; Reading it BEFORE resetting, then clearing only that variant's
-        ;; sentinel, stops an unmount from re-arming the loading skeleton
-        ;; for every OTHER already-rendered variant: wiping the GLOBAL
-        ;; sentinel set on every unmount would let a legitimate unmount
-        ;; (e.g. leaving Story for a workspace pane) blank the skeleton
-        ;; state for variants it never touched.
-        (let [unmounting-variant (:variant-id @canvas-last-run-key)]
-          (reset! canvas-last-run-key nil)
-          ;; A remount re-runs under the same run-key, so the settled verdict
-          ;; of this instance's run must not stand for the next one.
-          (swap! run-settled dissoc unmounting-variant)
-          (if unmounting-variant
-            (reset-first-rendered! unmounting-variant)
-            (reset-first-rendered!))))
-     :reagent-render
-     (fn []
-       (let [;; The run inputs only, through `r/track` — see
-             ;; `selected-run-key`. `:hot-reload-tick` is one of them, so a
-             ;; tick still re-renders (and, post-commit, re-runs) the canvas.
-             rk         @(r/track selected-run-key)
-             variant-id (:variant-id rk)
-             snapshot   (when variant-id
-                          (rf.story.runtime/snapshot-identity
-                            variant-id
-                            (select-keys rk [:active-modes :cell-overrides :substrate])))
-             ;; The settled verdict of the canvas's run, read
-             ;; reactively so the section re-renders once when the run settles.
-             settled    (when variant-id (get @run-settled variant-id))
-             ;; The generation the stamp must match. A plain read:
-             ;; reselecting a variant claims its fresh generation on the
-             ;; shell's selection edge, before this render, and the canvas's
-             ;; own run start and settlement both write `run-settled`.
-             generation (when variant-id
-                          (rf.story.runtime/current-generation variant-id))]
-         ;; The canvas wrap is the scrollable container
-         ;; for variant content; `tab-index "0"` makes it keyboard-
-         ;; focusable so axe-core's `scrollable-region-focusable` rule
-         ;; passes. The `<section>` element + aria-label give it a
-         ;; landmark name (it's nested inside the shell's <main> so
-         ;; landmark structure remains: main > section).
-         ;;
-         ;; Also stamp `data-test-variant` with the active variant id
-         ;; so Playwright specs can scope selectors to the canvas of a
-         ;; specific variant. Clicking a variant in the sidebar clears
-         ;; `:selected-workspace`, so the canvas never competes with a
-         ;; stale workspace pane for the main slot; the stamp also serves
-         ;; cross-route test scoping.
-        [:section (section-props rk snapshot settled generation)
-          (if variant-id
-            [canvas-inner variant-id rk]
-            [:div {:style (:empty styles)}
-             "select a variant from the sidebar"])]))}))
+  ;; Behind `enabled?` because a top-level call is a Closure root: ungated,
+  ;; it would keep the canvas and the runtime it drives in an `enabled?`
+  ;; false build (005-SOTA-Features.md §Production elision).
+  (when rf.story.config/enabled?
+    (r/create-class
+       {:display-name "rf-story-canvas"
+        :component-did-mount
+        (fn [_this]
+          (run-if-needed!)
+          (mark-rendered-if-ready!))
+        :component-did-update
+        (fn [_this _old-argv]
+          ;; Re-run only when the variant runtime inputs change. An
+          ;; unconditional update would re-fire `:setup` on every app-db
+          ;; render, resetting interactive state and polluting recorder
+          ;; output with fixture setup events.
+          (run-if-needed!)
+          ;; Flip the first-rendered sentinel once the
+          ;; lifecycle machine reports :ready / :error.
+          (mark-rendered-if-ready!))
+        :component-will-unmount
+        (fn [_this]
+          ;; Scope the first-rendered reset to THIS instance's
+          ;; own variant — `canvas-last-run-key` (a `run-key` map, or nil)
+          ;; still names the variant this mounted instance was running.
+          ;; Reading it BEFORE resetting, then clearing only that variant's
+          ;; sentinel, stops an unmount from re-arming the loading skeleton
+          ;; for every OTHER already-rendered variant: wiping the GLOBAL
+          ;; sentinel set on every unmount would let a legitimate unmount
+          ;; (e.g. leaving Story for a workspace pane) blank the skeleton
+          ;; state for variants it never touched.
+          (let [unmounting-variant (:variant-id @canvas-last-run-key)]
+            (reset! canvas-last-run-key nil)
+            ;; A remount re-runs under the same run-key, so the settled verdict
+            ;; of this instance's run must not stand for the next one.
+            (swap! run-settled dissoc unmounting-variant)
+            (if unmounting-variant
+              (reset-first-rendered! unmounting-variant)
+              (reset-first-rendered!))))
+       :reagent-render
+       (fn []
+         (let [;; The run inputs only, through `r/track` — see
+               ;; `selected-run-key`. `:hot-reload-tick` is one of them, so a
+               ;; tick still re-renders (and, post-commit, re-runs) the canvas.
+               rk         @(r/track selected-run-key)
+               variant-id (:variant-id rk)
+               snapshot   (when variant-id
+                            (rf.story.runtime/snapshot-identity
+                              variant-id
+                              (select-keys rk [:active-modes :cell-overrides :substrate])))
+               ;; The settled verdict of the canvas's run, read
+               ;; reactively so the section re-renders once when the run settles.
+               settled    (when variant-id (get @run-settled variant-id))
+               ;; The generation the stamp must match. A plain read:
+               ;; reselecting a variant claims its fresh generation on the
+               ;; shell's selection edge, before this render, and the canvas's
+               ;; own run start and settlement both write `run-settled`.
+               generation (when variant-id
+                            (rf.story.runtime/current-generation variant-id))]
+           ;; The canvas wrap is the scrollable container
+           ;; for variant content; `tab-index "0"` makes it keyboard-
+           ;; focusable so axe-core's `scrollable-region-focusable` rule
+           ;; passes. The `<section>` element + aria-label give it a
+           ;; landmark name (it's nested inside the shell's <main> so
+           ;; landmark structure remains: main > section).
+           ;;
+           ;; Also stamp `data-test-variant` with the active variant id
+           ;; so Playwright specs can scope selectors to the canvas of a
+           ;; specific variant. Clicking a variant in the sidebar clears
+           ;; `:selected-workspace`, so the canvas never competes with a
+           ;; stale workspace pane for the main slot; the stamp also serves
+           ;; cross-route test scoping.
+          [:section (section-props rk snapshot settled generation)
+            (if variant-id
+              [canvas-inner variant-id rk]
+              [:div {:style (:empty styles)}
+               "select a variant from the sidebar"])]))})))

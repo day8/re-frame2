@@ -265,8 +265,13 @@
 ;; Register the buffer-drain seam so `rf.story.recorder/start-recording!` + `clear!`
 ;; can cancel + drop pending keystrokes at the recording boundary. Runs at
 ;; ns load (dom-capture requires recorder, so recorder is loaded first and
-;; the runtime lookup resolves this at call time).
-(rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
+;; the runtime lookup resolves this at call time). This registration and
+;; the two at the foot of the file sit behind `enabled?` because a
+;; top-level call is a Closure root: ungated, they would keep the DOM
+;; recorder in an `enabled?` false build (005-SOTA-Features.md
+;; §Production elision).
+(when rf.story.config/enabled?
+  (rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!))
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -452,8 +457,9 @@
           (rf.story.config/note-suppressed! (rf.story.recorder/recording-variant)))
         out))))
 
-(rf.story.late-bind/set-fn! :recorder/inside-dom-step? inside-dom-step?)
-(rf.story.late-bind/set-fn! :recorder/redact-typed-secrets redact-typed-secrets)
+(when rf.story.config/enabled?
+  (rf.story.late-bind/set-fn! :recorder/inside-dom-step? inside-dom-step?)
+  (rf.story.late-bind/set-fn! :recorder/redact-typed-secrets redact-typed-secrets))
 
 ;; ---- listener handlers --------------------------------------------------
 

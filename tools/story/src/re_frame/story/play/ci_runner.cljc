@@ -44,6 +44,7 @@
   (:require [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.registrar   :as rf.story.registrar]
             #?(:cljs [re-frame.story.play.runner-events :as rf.story.play.runner-events])
+            #?(:cljs [re-frame.story.config :as rf.story.config])
             #?(:cljs [re-frame.story.runtime :as rf.story.runtime])))
 
 ;; ---- pure discovery ------------------------------------------------------
@@ -284,22 +285,22 @@
      uses to enumerate variants and read terminal run states. Safe to
      call multiple times — re-install replaces the existing slot.
 
-     Idempotent + side-effect-only: callers are expected to gate this
-     on a CI-only init path (e.g. a testbed's `core/run` checks
-     `window.location.search` for a `ci=1` flag, or simply always
-     install when re-frame.story.config/enabled? is true since the
-     hook is inert until polled).
+     Idempotent + side-effect-only, and a no-op when
+     `re-frame.story.config/enabled?` is false, so an `enabled?` false
+     build drops the hook and the runtime it reaches. The hook is inert
+     until polled, so a testbed may install it unconditionally.
 
      The hook object carries two per-play entry points (multi-play):
      - `readPlayRunState(variantId, playKey)` — per-play state read.
      - `runPlay(variantId, playKey)` — trigger a run for a specific
        play (used by the CI runner for non-auto-run plays)."
      []
-     (let [hooks (js-obj
-                   "listVariants"     list-variants-js
-                   "ciContext"        ci-context-js
-                   "readRunState"     read-run-state-js
-                   "readPlayRunState" read-play-run-state-js
-                   "runPlay"          run-play-js)]
-       (aset js/window "__rf2_story_ci" hooks)
-       nil)))
+     (when rf.story.config/enabled?
+       (aset js/window "__rf2_story_ci"
+             (js-obj
+               "listVariants"     list-variants-js
+               "ciContext"        ci-context-js
+               "readRunState"     read-run-state-js
+               "readPlayRunState" read-play-run-state-js
+               "runPlay"          run-play-js)))
+     nil))

@@ -153,10 +153,14 @@
   (when (some? vs)
     (js->clj vs :keywordize-keys true)))
 
+;; Behind `enabled?` because a top-level call is a Closure root: ungated,
+;; it would keep the a11y reader in an `enabled?` false build
+;; (005-SOTA-Features.md §Production elision).
 (defonce ^:private _a11y-reader-registered
-  (do (rf.story.play.browser/register-a11y-reader!
-        (fn [frame-id] (->clj-violations (get @violations-by-frame frame-id))))
-      true))
+  (when rf.story.config/enabled?
+    (rf.story.play.browser/register-a11y-reader!
+      (fn [frame-id] (->clj-violations (get @violations-by-frame frame-id))))
+    true))
 
 (defn reset-state!
   "Clear every per-frame slot. Test-fixture helper. Note that the

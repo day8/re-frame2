@@ -83,7 +83,8 @@
   (:refer-clojure :exclude [resolve])
   #?(:cljs (:require [re-frame.adapter.sub-override-context :as rf.adapter.sub-override-context]
                      [re-frame.interop :as rf.interop]
-                     [re-frame.late-bind :as rf.late-bind])))
+                     [re-frame.late-bind :as rf.late-bind]
+                     [re-frame.story.config :as rf.story.config])))
 
 ;; ============================================================================
 ;; Pure resolver
@@ -182,5 +183,9 @@
 ;; Publish the hook at ns-load time (CLJS only). Core consults it lazily
 ;; via `rf.late-bind/get-fn` inside the dev gate; an unpublished hook (JVM,
 ;; or a build that never loads Story) simply makes the consult a no-op.
+;; Behind `enabled?` because a top-level call is a Closure root: ungated, it
+;; would keep the resolver in an `enabled?` false build
+;; (005-SOTA-Features.md §Production elision).
 #?(:cljs
-   (rf.late-bind/set-fn! :subs/resolve-sub-override resolve-sub-override-hit))
+   (when rf.story.config/enabled?
+     (rf.late-bind/set-fn! :subs/resolve-sub-override resolve-sub-override-hit)))
