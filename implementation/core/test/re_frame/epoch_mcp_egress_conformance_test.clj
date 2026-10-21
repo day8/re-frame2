@@ -196,19 +196,25 @@
       (is (= ring (mapv rf/project-egress ring)))
 
       (testing "a whole-output `:large?` sub's value and previous value are
-                marked in BOTH carriers, the structured `:sub-runs` row and the
-                `:rf.sub/run` trace tag, by one shared rule"
+                marked on the structured `:sub-runs` row. Their `:rf.sub/run`
+                trace-tag twins are sub values the trace-tag allow-list never
+                names, so off box they ship `:rf/redacted`; under the sensitive
+                opt-in the tags ride, and one shared rule marks both carriers"
         (let [raw-row (sub-run-row (last raw) large-sub-id)
               proj    (last ring)
+              opted   (rf/project-egress (last raw) {:rf.egress/include-sensitive? true})
               row     (sub-run-row proj large-sub-id)
-              tags    (sub-run-tags proj large-sub-id)
+              tags    (sub-run-tags opted large-sub-id)
               marks   [(:value row) (:rf.sub/value tags) (:prev-value row) (:rf.sub/prev-value tags)]
               [cur cur' prev prev'] (mapv #(get-in % [:rf.size/large-elided :bytes]) marks)
               ctrl-row  (sub-run-row proj control-sub-id)
-              ctrl-tags (sub-run-tags proj control-sub-id)]
+              ctrl-tags (sub-run-tags opted control-sub-id)]
           (is (= [(* 2 payload-size) payload-size]
                  (mapv count [(:value raw-row) (:prev-value raw-row)]))
               "FIXTURE — the recompute puts two DISTINCT large values on the row")
+          (is (= [:rf/redacted :rf/redacted]
+                 ((juxt :rf.sub/value :rf.sub/prev-value) (sub-run-tags proj large-sub-id)))
+              "off box the trace-tag twins ship redacted")
           (is (every? rf.elision/marker? marks)
               "all four payload slots are markers — withheld, not dropped")
           (is (= [cur prev] [cur' prev'])

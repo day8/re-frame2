@@ -185,20 +185,28 @@
    :renders             []
    :effects             []})
 
-(deftest trace-events-db-pending-tag-is-rerooted-and-redacted
+(deftest trace-events-db-pending-tag-ships-redacted-and-reroots-under-the-opt-in
   (testing "the t1 / t2 pending-db traces carry the whole pending app-db under
-            `[:tags :rf.event/db]`, where a walk rooted at the trace vector never
-            matches `[:auth :password]`; egress re-roots that walk at the frame's
-            app-db, redacting by classification rather than blanking the tag"
+            `[:tags :rf.event/db]`, a payload the off-box trace-tag allow-list
+            never names, so it ships `:rf/redacted`. Under the sensitive opt-in
+            the tag rides, and egress re-roots its walk at the frame's app-db,
+            where a walk rooted at the trace vector never matches the
+            `[:blob :payload]` large declaration"
     (fresh-frame!)
-    (let [tags     {:rf.event/db {:auth {:password secret} :audit {:note benign}}}
-          rec      (synthetic-record
-                     frame-id
-                     [{:op-type :rf.event :operation :rf.event/db-pending          :tags tags}
-                      {:op-type :rf.event :operation :rf.event/db-pending-post-flow :tags tags}])
-          redacted {:rf.event/db {:auth {:password :rf/redacted} :audit {:note benign}}}]
-      (is (= [redacted redacted]
-             (mapv :tags (:trace-events (rf/project-egress rec))))))))
+    (let [tags  {:rf.event/db {:auth  {:password secret}
+                               :blob  {:payload (big-string payload-size)}
+                               :audit {:note benign}}}
+          rec   (synthetic-record
+                  frame-id
+                  [{:op-type :rf.event :operation :rf.event/db-pending          :tags tags}
+                   {:op-type :rf.event :operation :rf.event/db-pending-post-flow :tags tags}])
+          dbs   #(mapv (comp :rf.event/db :tags) (:trace-events (rf/project-egress rec %)))
+          opted (dbs {:rf.egress/profile            :rf.egress/off-box-tool
+                      :rf.egress/include-sensitive? true})]
+      (is (= [:rf/redacted :rf/redacted] (dbs nil)))
+      (is (= [[secret benign] [secret benign]]
+             (mapv (juxt #(get-in % [:auth :password]) #(get-in % [:audit :note])) opted)))
+      (is (every? #(rf.elision/marker? (get-in % [:blob :payload])) opted)))))
 
 ;; ---- the one door's epoch arm -----------------------------------------------
 
@@ -261,15 +269,22 @@
             slots always agree: a fail-closed profile elides all three, an
             explicit key overrides the profile in either direction, and
             `local-raw`'s floor reaches all three — while the epoch-only
-            runtime-db axis stays closed under it"
+            runtime-db axis stays closed under it. Off box the `:rf.sub/run`
+            trace tag is a sub value the trace-tag allow-list never names, so it
+            ships `:rf/redacted` whichever way the large axis points"
     (let [raw       (large-everywhere-record!)
-          projected (fn [opts] (large-surfaces (rf/project-egress raw opts)))]
+          projected (fn [opts] (large-surfaces (rf/project-egress raw opts)))
+          off-box   (fn [check opts]
+                      (let [surfaces (projected opts)]
+                        [(check (dissoc surfaces :trace-tag)) (:trace-tag surfaces)]))]
       (is (all-raw?    (projected {:rf.egress/profile :rf.egress/local-raw})))
       (is (all-elided? (projected {:rf.egress/profile        :rf.egress/local-raw
                                    :rf.egress/include-large? false})))
-      (is (all-elided? (projected {:rf.egress/profile :rf.egress/off-box-tool})))
-      (is (all-raw?    (projected {:rf.egress/profile        :rf.egress/off-box-tool
-                                   :rf.egress/include-large? true})))
+      (is (= [true :rf/redacted]
+             (off-box all-elided? {:rf.egress/profile :rf.egress/off-box-tool})))
+      (is (= [true :rf/redacted]
+             (off-box all-raw? {:rf.egress/profile        :rf.egress/off-box-tool
+                                :rf.egress/include-large? true})))
       (is (= :rf/redacted
              (get-in (rf/project-egress raw {:rf.egress/profile :rf.egress/local-raw})
                      [:frame-state-after :rf.db/runtime]))))))

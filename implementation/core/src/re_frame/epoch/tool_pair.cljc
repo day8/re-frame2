@@ -1485,7 +1485,8 @@
     - the TREE-SHAPED slots re-enter `project-egress` through `egress-opts`
       and get the floor applied on the way back in;
     - the WHOLE-OUTPUT slots — the `:sub-runs` row and its `:rf.sub/run`
-      trace twin, plus the four off-box `omit-*` seams — never re-enter it.
+      trace twin, the off-box `omit-*` seams and the trace-tag allow-list —
+      never re-enter it.
       They read their axis off this opts map BY KEY PRESENCE.
 
   Reading a floor-resolved axis by key presence on an UNRESOLVED map answers
@@ -1654,137 +1655,6 @@
                     trace-event))))
             trace-events))))
 
-;; ---- off-box HTTP response-body fail-closed -------------------------------
-;;
-;; EP-0015 disposition 5: a managed HTTP response body is a
-;; registration-owned transient payload; an UNSCHEMATIZED body (no Malli
-;; `:decode` schema) is whole-sensitive and OMITTED off-box. The on-box ring
-;; keeps the raw body (the local operator sees their own process); the
-;; off-box egress (`rf/project-egress`) omits it.
-;;
-;; The body's shape cannot be proven from the trace event alone — the
-;; request's `:decode` is request-private and never on the trace event — so
-;; the HTTP emit site (`re-frame.http.transport`) STAMPS its off-box
-;; disposition forward under `:tags :rf.http/off-box-body` (`:omit` for an
-;; unschematized body, `:classify` for a schema body whose per-slot marks
-;; were already applied on-box). This projector reads the stamp and OMITS
-;; (replaces with `:rf/redacted`) the body slot(s) for an `:omit` event. A
-;; `:classify` event's body already carries the classified projection
-;; (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`) from the
-;; on-box emit, so it rides as-is. No HTTP-artefact dependency — only the
-;; stamped keyword + the per-operation body-slot path(s) are read.
-;;
-;; The same disposition-5 rule applies to a raw error-response
-;; body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry the response body
-;; at `:body` and its raw text at `:body-text`, `:rf.http/decode-failure`
-;; carries the raw text at `:body-text`, and `:rf.http/retry-attempt` nests
-;; the intermediate failure
-;; (which may carry a raw `:body`/`:body-text`) under `:failure`. A raw error
-;; body is UNSCHEMATIZED by construction (status classification runs before
-;; decode; a decode-failure is the decode itself failing), so the emit site
-;; always stamps `:omit` for these — irrespective of the per-call
-;; `:sensitive?` flag. This projector omits whichever of the operation's
-;; candidate body-slot paths are present.
-;;
-;; The omission is the off-box DEFAULT and is lifted only by an explicit
-;; trusted-local `:rf.egress/include-sensitive?` opt-in (consistent with the
-;; runtime-db / event-args opt-back-in), matching the `local-raw` boundary.
-
-(def ^:private http-body-slots
-  "The off-box-body-bearing tag-slot PATH(S) per `:rf.http/*` operation —
-  the slots an `:rf.http/off-box-body :omit` stamp omits off-box:
-
-   - `:rf.http/replied`        — the SUCCESS reply's decoded body at `[:value]`,
-     and a FAILURE reply's body nested under its failure map at `[:error :body]`
-     / `[:error :body-text]` / `[:error :decoded]` (a failure lowers
-     through the SAME reply envelope, so this one operation row carries both
-     shapes; the emit site stamps the disposition for whichever is present);
-   - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
-   - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the response body at
-     `[:body]` (parsed when it declared JSON) and its raw text at
-     `[:body-text]`;
-   - `:rf.http/decode-failure` — the raw response text at `[:body-text]`;
-   - `:rf.http/retry-attempt`  — the intermediate failure's raw body nested at
-     `[:failure :body]` / `[:failure :body-text]`.
-
-  A vector of slot PATHS (each a `get-in`/`assoc-in` path) so an operation
-  whose body can ride in more than one slot (replied, retry-attempt) is covered
-  with one general rule rather than a per-slot special case.
-
-  The five PRODUCTION-REAL operation rows (`:rf.http/replied`,
-  `:rf.http/accept-failure`, `:rf.http/http-4xx`, `:rf.http/http-5xx`,
-  `:rf.http/decode-failure`) are bound UNCONDITIONALLY — NOT behind
-  `interop/debug-enabled?`. `project-record` is a PURE off-box projection
-  transform callable even when the debug gate is false (a JVM SSR process
-  started with `RE_FRAME_DEBUG=false`, or an already-held / synthetic record —
-  the gate elides record ASSEMBLY, not record PROJECTION). Its contract is
-  FAIL-CLOSED on a stamped unschematized HTTP body, so the slots it consults
-  must be present whether or not the gate was ever true. Gating the whole
-  table would leave it `nil` in a cold gate-false process, so
-  `omit-off-box-http-bodies` would find no slot path and pass every stamped
-  body through raw — a mandatory-off-box-safe breach. These five operation keywords
-  already ride the production bundle as `:kind`/`:operation` data values, so
-  binding them here at namespace load leaks nothing new.
-
-  ONLY the DEV-ONLY `:rf.http/retry-attempt` row sits behind the gate. That
-  op is a dev-only trace op (Spec 014 §Retry and backoff — its only emit sites
-  are `(when interop/debug-enabled? (trace/emit! :info :rf.http/retry-attempt …))`),
-  so its keyword literal must NOT float into the `:advanced` production bundle
-  (the Spec 009 elision probe / `scripts/check-elision.cjs` assert the
-  `rf.http/retry-attempt` sentinel ABSENT). Under `:advanced` +
-  `goog.DEBUG=false` the gated `assoc` is dead code, so the keyword constant
-  DCEs and the table folds to the five production rows; on the JVM the gate is
-  read once at load and a prod process simply omits the row. A retry-attempt
-  record only ever exists in a debug build anyway, so omitting its row under
-  prod is unreachable, not a fail-open."
-  (cond-> {:rf.http/replied        [[:value]
-                                    [:error :body]
-                                    [:error :body-text]
-                                    [:error :decoded]]
-           :rf.http/accept-failure [[:decoded]]
-           :rf.http/http-4xx       [[:body] [:body-text]]
-           :rf.http/http-5xx       [[:body] [:body-text]]
-           :rf.http/decode-failure [[:body-text]]}
-    rf.interop/debug-enabled?
-    (assoc :rf.http/retry-attempt [[:failure :body] [:failure :body-text]])))
-
-(defn- omit-off-box-http-bodies
-  "Enforce the fail-closed rule for off-box HTTP body trace events. For each
-  `:rf.http/*` event whose emit
-  site stamped `:tags :rf.http/off-box-body :omit` (an UNSCHEMATIZED response
-  body — whole-sensitive off-box, including every RAW error-response body),
-  substitute the `:rf/redacted` sentinel for each of the operation's body-slot
-  paths that is present (e.g. `[:value]` for `:rf.http/replied`, `[:body]` for
-  `:rf.http/http-4xx`/`:rf.http/http-5xx`, `[:body-text]` for
-  `:rf.http/decode-failure`, `[:failure :body]`/`[:failure :body-text]` for
-  `:rf.http/retry-attempt`). A `:classify` stamp (a schema-classified body)
-  passes through — its per-slot marks were applied on-box at emit. Events with
-  no stamp (every non-HTTP event) pass through untouched.
-
-  The omission is the off-box default; an explicit trusted-local
-  `:rf.egress/include-sensitive?` opt-in lifts it (the `local-raw` boundary).
-  Idempotent and nil-preserving."
-  [trace-events {:rf.egress/keys [include-sensitive?]}]
-  (if (or include-sensitive? (not (sequential? trace-events)))
-    trace-events
-    (mapv (fn [trace-event]
-            (if-not (map? trace-event)
-              trace-event
-              (let [body-slot-paths
-                    (get http-body-slots (:operation trace-event))]
-                (if (and body-slot-paths
-                         (= :omit (get-in trace-event
-                                         [:tags :rf.http/off-box-body])))
-                  (reduce (fn [trace-event body-slot-path]
-                            (let [tag-path (into [:tags] body-slot-path)]
-                              (if (some? (get-in trace-event tag-path))
-                                (assoc-in trace-event tag-path :rf/redacted)
-                                trace-event)))
-                          trace-event
-                          body-slot-paths)
-                  trace-event))))
-          trace-events)))
-
 (def ^:private event-arg-tag-slots
   "The trace-event tag slots that carry the dispatched event vector
   `[<event-id> <arg> …]`. The same registration-owned
@@ -1855,8 +1725,8 @@
   (declared NAMES) / `:kind` / `:resolved-nil?`.
 
   The redaction is the off-box default; the trusted-local `:rf.egress/include-sensitive?`
-  opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
-  HTTP-body redactions honour). No-op when no resources artefact is loaded (the
+  opt-in lifts it (the `local-raw` boundary — the same switch the app-db
+  redaction and the trace-tag allow-list honour). No-op when no resources artefact is loaded (the
   hook is nil — an app with no resources emits no scope-resolved rows anyway).
   Idempotent (`:rf/redacted` re-redacts to itself) and nil/non-sequential-
   preserving."
@@ -1921,7 +1791,7 @@
 
   The redaction is the off-box default; the trusted-local `:rf.egress/include-sensitive?`
   opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
-  HTTP-body / scope-resolved redactions honour). No-op when no resources
+  trace-tag allow-list / scope-resolved redactions honour). No-op when no resources
   artefact is loaded (the hook is nil — an app with no resources emits no
   resource/mutation rows anyway). Idempotent (an opaque token re-projects to
   itself) and nil/non-sequential-preserving."
@@ -2276,20 +2146,87 @@
               trace-event))
           trace-events)))
 
+(defn- owner-classified-row?
+  "Whether `trace-event` is a resource or mutation family row the resources
+  artefact's owner projector has already classified (`omit-off-box-resource-
+  trace-keys`). Its owner decides finer than the shape rule can — a plain
+  owner's identity rides, a `:sensitive?` owner's tokenizes — so the row keeps
+  that owner's verdict. Without the projector loaded no owner has spoken, and
+  the row takes the allow-list like any other.
+  Spec 015 §Subsystem projection-relative classification."
+  [trace-event]
+  (and (resource-family-op? (:operation trace-event))
+       (some? (rf.late-bind/get-fn :resources/project-resource-trace-egress))))
+
+(def ^:private classified-http-body-slots
+  "The tag slot carrying the response body on each `:rf.http/*` operation whose
+  emit site can stamp `:rf.http/off-box-body :classify`: a body its `:decode`
+  schema already classified on-box. Every other body — unschematized, reshaped,
+  or a raw error body — is stamped `:omit` and takes the allow-list, which never
+  names a body slot. Spec 014 §Response-body classification."
+  {:rf.http/replied        :value
+   :rf.http/accept-failure :decoded})
+
+(defn- passed-tag-keys
+  "The tag keys of `trace-event` the allow-list leaves as received, because
+  something finer than the shape rule has already answered for them:
+
+    - a `:classify`-stamped HTTP body (`classified-http-body-slots`), which its
+      `:decode` schema classified;
+    - the event-vector slots under a lifted `:rf.egress/include-event-args?`;
+    - every slot `omit-off-box-fx-args` treats as an fx-args carrier on this row
+      under a lifted `:rf.egress/include-fx-args?`, so the allow-list never takes
+      back what a trusted caller asked for."
+  [{:keys [operation tags]} {:rf.egress/keys [include-event-args? include-fx-args?]}]
+  (cond-> #{}
+    (and (= :classify (:rf.http/off-box-body tags))
+         (contains? classified-http-body-slots operation))
+    (conj (get classified-http-body-slots operation))
+    include-event-args? (into event-arg-tag-slots)
+    include-fx-args?    (into [:rf.fx/args :rf.event/fx])
+    (and include-fx-args? (= :rf.error/effect-map-shape operation))
+    (into [:value :reason])
+    (and include-fx-args? (= :fx-args (:where tags)))
+    (into fx-args-alias-slots)))
+
+(defn- allow-list-trace-tags
+  "The LAST step off-box: every trace event's `:tags` passes
+  `re-frame.projection/project-trace-tags`, so a tag nobody has classified ships
+  as `:rf/redacted` rather than raw. The trusted-local
+  `:rf.egress/include-sensitive?` opt-in lifts it, as it lifts every other
+  sensitive axis; a classified body and a lifted event-args or fx-args opt-in
+  keep their slots (`passed-tag-keys`); owner-classified rows
+  (`owner-classified-row?`) keep their owner's verdict. Nil- and
+  non-sequential-preserving.
+  Security.md §Epoch privacy posture."
+  [trace-events {:rf.egress/keys [include-sensitive?] :as opts}]
+  (if (or include-sensitive? (not (sequential? trace-events)))
+    trace-events
+    (mapv (fn [trace-event]
+            (if (and (map? trace-event)
+                     (contains? trace-event :tags)
+                     (not (owner-classified-row? trace-event)))
+              (let [tags (:tags trace-event)]
+                (assoc trace-event :tags
+                       (cond-> (rf.projection/project-trace-tags tags)
+                         (map? tags)
+                         (merge (select-keys tags (passed-tag-keys trace-event opts))))))
+              trace-event))
+          trace-events)))
+
 (defn- elide-trace-events-slot
   "Project `:trace-events`: first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
   sensitive / large declarations match natively, then fail closed on the
   dispatched-event-vector args (`:rf.event/v` / `:event`
   carry the same registration-owned transient args as `:trigger-event`,
-  which the app-db walker cannot prove safe), then enforce the off-box
-  HTTP response-body fail-closed rule, then fail closed on the fx-args
-  carriers (`:rf.fx/args` / `:rf.event/fx` carry the same fx-handler
-  argument payload the structured `:effects` row redacts), then run the bulk
-  frame/profile `project-egress` walk over the
-  whole vector to handle the other payload-bearing tag values
-  (`:rf.cofx/value`, etc.) with their own per-tag paths. `opts`
-  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` /
+  which the app-db walker cannot prove safe), then let the resource family's
+  owner classify its rows and the scoped keys inside fx args, then fail closed
+  on the fx-args carriers (`:rf.fx/args` / `:rf.event/fx` carry the same
+  fx-handler argument payload the structured `:effects` row redacts), then run
+  the bulk frame/profile `project-egress` walk over the whole vector, and
+  finally pass every tag through the off-box allow-list (`allow-list-trace-
+  tags`). `opts` `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` /
   `:rf.egress/include-event-args?` / `:rf.egress/include-fx-args?` opt
   the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
@@ -2298,7 +2235,6 @@
     (-> trace-events
         (reroot-trace-event-db-slots frame-id opts)
         (omit-off-box-event-args opts)
-        (omit-off-box-http-bodies opts)
         ;; Redact resolver-owned values copied into resource trace tags.
         (omit-off-box-resource-scope-values opts)
         ;; Redact owner-local scoped keys embedded in the
@@ -2330,7 +2266,8 @@
         ;; `project-egress` has no sub-specific arm, so ordering is otherwise
         ;; immaterial.
         (elide-large-sub-trace-values opts)
-        (rf.projection/project-egress (egress-opts frame-id opts)))))
+        (rf.projection/project-egress (egress-opts frame-id opts))
+        (allow-list-trace-tags opts))))
 
 (defn- elide-sub-run-row
   "Project a structured `:sub-runs` row. Its `:prev-value` / `:value`
