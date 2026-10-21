@@ -1445,7 +1445,6 @@
   ["re-frame.schemas" "validate-fx!"]              {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-sub!"]             {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :implementation :owner "015" :status "v1"}
-  ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-has-large?"]                  {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-opaque?"]                     {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-has-opaque-child?"]           {:tier :implementation :owner "015" :status "v1"}
