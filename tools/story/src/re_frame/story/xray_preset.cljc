@@ -76,8 +76,9 @@
             ;; false-negative under node-test, because shadow-cljs's
             ;; namespace organisation does not guarantee top-level def'd
             ;; fns are surfaced as parent-namespace JS properties.
-            ;; Bundle-isolation is unaffected — the gate forbids
-            ;; `implementation/` → `tools/` requires, not
+            ;; Bundle-isolation is unaffected — its contract
+            ;; (tools/README.md) forbids `implementation/` → `tools/`
+            ;; requires, not
             ;; `tools/story` → `tools/xray` (the inverse is explicitly
             ;; fine, and neither artefact reaches a production bundle).
             #?(:cljs [re-frame.frame :as rf.frame])

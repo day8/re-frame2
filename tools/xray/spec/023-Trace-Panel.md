@@ -54,7 +54,7 @@ The Trace panel's contract is **completeness**: it must surface *every* op-famil
 ## §2 Layout (flat list — rf2-aqusw)
 
 - **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the list. Two thin elements do render above the rows and neither is any of those three: a **column-widths header bar** (`rf-xray-trace-ops-header`) carrying the six column labels and the drag gutters for the shared `:rf.xray.trace/ops` table id — a resize affordance and column legend, and deliberately **not** sticky, so it scrolls away with the list and §14's "without sticky headers" holds; and, when an event-bundle is focused, a **3px status stripe** filled with that bundle's lifecycle colour (the same `event-status` vocabulary the L2 rows and the Event panel's header dot use), carrying no text.
-- **A single flat list — no hierarchy.** Every op the focused epoch emitted is one row, in strict fire order (oldest-first). There is **no envelope** and **no phase-band nesting** — the 4-band hierarchy was replaced (rf2-aqusw) because it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*` — snapshotted / outcome / restore / replay / db-replaced) render as **ordinary rows** in the flat list (no longer bracketed in an envelope); `:rf.epoch/outcome` carries the consumer-facing summary `:ok` / `:blocked` / `:error` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) (rf2-18g1w / rf2-jppad).
+- **A single flat list — no hierarchy.** Every op the focused epoch emitted is one row, in strict fire order (oldest-first). There is **no envelope** and **no phase-band nesting** — the 4-band hierarchy was replaced (rf2-aqusw) because it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*` — snapshotted / restore / replay / db-replaced) render as **ordinary rows** in the flat list (no longer bracketed in an envelope); `:rf.epoch/snapshotted` carries the consumer-facing summary `:ok` / `:blocked` / `:error` as its `:summary` tag per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **Stage recovers the phase shape flatly (§3a).** The phase information the bands conveyed is recovered per-row by a **stage column** + a **colour-coded left edge** — each row names the Epoch-panel pipeline step it belongs to.
 - **Chronological** — every row carries a Δt from the epoch's first op; ordering is strict fire order.
 - **Show every op** — no default filtering or collapse (completeness-first).
@@ -105,7 +105,7 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 > The **explicit overrides** (`trace_helpers/operation->verb`) are the operations whose readable verb simply
 > isn't their terminal segment: `:rf.event/dispatched` → `dispatched`, `:rf.event/run-start` and
 > `:rf.event/run-end` → `handler ran`, `:rf.event/db-changed` → `changed`, `:rf.event/db-noop` →
-> `unchanged`, `:rf.epoch/snapshotted` → `snapshotted`, `:rf.epoch/outcome` → `outcome`, `:rf.cofx/run` →
+> `unchanged`, `:rf.epoch/snapshotted` → `snapshotted`, `:rf.cofx/run` →
 > `run`, `:rf.flow/computed` → `computed`, `:rf.sub/create` → `created`, `:rf.sub/skip` → `cache-hit`,
 > `:rf.sub/dispose` → `disposed`.
 >
@@ -292,7 +292,7 @@ The panel renders **one** epoch's trace; work that produces *other* epochs is sh
 ## §13 Outcomes & short-circuit
 
 - **No empty-band scaffolding (rf2-aqusw).** With the bands removed, there is no dimmed `(none)` placeholder — an op simply has a row or it does not. A no-op event renders only the ops it produced (its absence of EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS rows is itself information). The stage column makes "which steps ran" legible without empty scaffolding.
-- **Outcome** — the `:rf.epoch/outcome` op renders as an ordinary row carrying the `:outcome` tag (the consumer-facing summary the runtime emits paired with `:rf.epoch/snapshotted` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, a destroy dropped queued work at the event boundary) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
+- **Outcome** — the `:rf.epoch/snapshotted` row shows the epoch's `:summary` tag (the consumer-facing summary the runtime emits beside the detailed `:outcome` cause on that one trace, per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary)): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, a destroy dropped queued work at the event boundary) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
 - **Short-circuit** — on a throw (`:rf.error/*`) the list stops at the failing op (inline error row); later steps simply have no rows; outcome `:error`. No fabricated rows.
 
 ## §14 States & responsive
@@ -376,8 +376,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 
 | Operation | Stage (§3a) | Area | Row label | Target / detail | Dur |
 |---|---|---|---|---|---|
-| `:rf.epoch/snapshotted` | DISPATCH | EPOCH | snapshotted | frame · snapshot | — |
-| `:rf.epoch/outcome` | DISPATCH | EPOCH | outcome `:ok/:blocked/:error` | outcome (+platform) | — |
+| `:rf.epoch/snapshotted` | DISPATCH | EPOCH | snapshotted | summary `:ok/:blocked/:error` (+platform) | — |
 | `:rf.epoch/restored` · `db-replaced` · `replay-conflict` · `replace-*` | DISPATCH | EPOCH | restored / db-replaced / replay-conflict / replace-* | reason | — |
 | `:rf.event/dispatched` | DISPATCH | EVENT | dispatched | event-vector + origin | — |
 | `:rf.cofx` (inject) | COEFFECT | COEFFECT | run | cofx-id → value | dur? |

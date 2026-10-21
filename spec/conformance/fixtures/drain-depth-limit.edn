@@ -56,17 +56,13 @@
                 :rollback?  false}
     :recovery  :no-recovery}
    ;; The trailing :halted-depth marker (the router's commit-halt-record!
-   ;; call). The :rf.epoch/snapshotted trace carries :outcome :halted-depth
-   ;; so listeners discriminate it from the durable :ok records. (Each :ok
-   ;; event also emits a :rf.epoch/snapshotted; the matcher is a
-   ;; subsequence match, so this trailing one is found last.)
+   ;; call). Its :rf.epoch/snapshotted trace carries :outcome :halted-depth
+   ;; so listeners discriminate it from the durable :ok records, and the
+   ;; consumer-facing :summary :blocked per the cause-to-summary mapping in
+   ;; Spec 009 §Op-type vocabulary. (Each :ok event also emits a
+   ;; :rf.epoch/snapshotted; the matcher is a subsequence match, so this
+   ;; trailing one is found last.)
    {:operation :rf.epoch/snapshotted
     :tags      {:frame   :rf/default
-                :outcome :halted-depth}}
-   ;; Paired with :rf.epoch/snapshotted the runtime emits :rf.epoch/outcome
-   ;; carrying the consumer-facing {:ok :blocked :error} summary.
-   ;; :halted-depth projects to :blocked per the canonical mapping
-   ;; (`re-frame.epoch.assembly/outcome->consumer-facing`).
-   {:operation :rf.epoch/outcome
-    :tags      {:frame   :rf/default
-                :outcome :blocked}}]}}
+                :outcome :halted-depth
+                :summary :blocked}}]}}

@@ -55,31 +55,26 @@
     :halted-destroy           :blocked
     :halted-handler-exception :error))
 
-(defn emit-snapshotted+outcome!
-  "Emit the paired cascade-trailer trace ops for a committed epoch:
-  `:rf.epoch/snapshotted` carrying the detailed `:outcome` CAUSE, then
-  `:rf.epoch/outcome` carrying the consumer-facing `{:ok :blocked :error}`
-  tier (via `outcome->consumer-facing`). Both ops share the same
-  `:frame` / `:rf.epoch/id` / `:rf.trace/event-id` so consumers correlate
-  the detailed cause with the coarse summary.
+(defn emit-snapshotted!
+  "Emit the one cascade-trailer trace for a committed epoch,
+  `:rf.epoch/snapshotted`. It carries the detailed `:outcome` cause and the
+  consumer-facing `:summary` tier (via `outcome->consumer-facing`), so a
+  consumer reads either off the same trace. Spec 009 §Op-type vocabulary
+  holds the tag contract and the cause→summary table.
 
   Shared by the per-event clean/halt settle (`re-frame.epoch/commit-record!`)
   and the frame-destroy commit (`re-frame.epoch.listeners/on-frame-destroyed!`)
-  so the two-op trailer shape lives in one place — a future trailer tag
-  lands on both surfaces at once. Both ops are catalogued in
-  `re-frame.epoch.capture/skip-ops` (they fire after the buffer is
+  so the trailer shape lives in one place — a future trailer tag lands on
+  both surfaces at once. The op is catalogued in
+  `re-frame.epoch.capture/skip-ops` (it fires after the buffer is
   harvested, outside any cascade)."
   [frame-id epoch-id event-id outcome]
   (rf.trace/emit! :rf.epoch :rf.epoch/snapshotted
                   {:frame             frame-id
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
-                   :outcome           outcome})
-  (rf.trace/emit! :rf.epoch :rf.epoch/outcome
-                  {:frame             frame-id
-                   :rf.epoch/id       epoch-id
-                   :rf.trace/event-id event-id
-                   :outcome           (outcome->consumer-facing outcome)}))
+                   :outcome           outcome
+                   :summary           (outcome->consumer-facing outcome)}))
 
 ;; ---- schema-digest --------------------------------------------------------
 

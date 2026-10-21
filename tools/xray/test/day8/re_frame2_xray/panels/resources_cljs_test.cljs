@@ -236,7 +236,7 @@
 
 (def ep0011-buffer
   [;; the live resource work's latest reply-envelope trace phase (issued) —
-   ;; live-work joins the running ledger row to THIS by :work/id.
+   ;; live-work joins the running attempt to THIS by :work/id.
    {:id 70 :op-type :rf.resource :operation :rf.resource/work-started
     :tags {:work/id ep0011-live-work-id :work/kind :resource}}
    ;; a cross-family HTTP supersession stale-suppressed row — drives the
@@ -250,8 +250,8 @@
 
 (deftest ep0011-live-work-and-stale-races-render
   (testing "the EP-0011 'what is still running?' live-work + active-effects
-            tally and the cross-family stale-races view render from the work
-            ledger + trace buffer"
+            tally and the cross-family stale-races view render from the frame's
+            attempts + trace buffer"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
@@ -603,7 +603,7 @@
 ;;
 ;; An attempt's `:rf.resource/work-started` row states its scoped key; its
 ;; later rows name it by `:work/id` and `:resource/id` only. Driven through
-;; the production composite with a running ledger record and a
+;; the production composite with a running attempt record and a
 ;; stale-suppressed arc per resource, and read off the rendered text: the
 ;; work id carries no scope or params and prints as-is, the timeline's
 ;; stale-suppressed row shows the params its work-started row named, and the

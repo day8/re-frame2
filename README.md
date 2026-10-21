@@ -188,7 +188,7 @@ implementation/                CLJS reference implementation — per-artefact su
   flows/                       day8/re-frame2-flows — registered computed-state declarations
   http/                        day8/re-frame2-http — managed :rf.http/* effect
   resources/                   day8/re-frame2-resources — declarative server-state resources
-                               (reg-resource, work ledger, managed-HTTP lowering, SSR preload)
+                               (reg-resource, in-flight attempts, managed-HTTP lowering, SSR preload)
   routing/                     day8/re-frame2-routing — URL ↔ frame routing
   ssr/                         day8/re-frame2-ssr — server-side rendering + hydration
   ssr-ring/                    day8/re-frame2-ssr-ring — Ring adapter for SSR pipeline
