@@ -407,12 +407,15 @@
   row's total — and whether both read-backs held."
   [k]
   (let [runs    (fn [] (.-bodyRuns rf.fresco.impl.collector/rstate))
+        ;; Dispatch, then Reagent's own synchronous drain inside one
+        ;; `flushSync` — the drain the allocation row takes for this
+        ;; substrate: a Reagent reaction's watch fires on the ratom queue's
+        ;; flush, not inside the dispatch.
         write!  (fn [v]
-                  (react-dom/flushSync
-                    (fn []
-                      (dotimes [i k]
-                        (rf.fresco.impl.collector/dispatch!
-                          (grid-frame i) [::rf.fresco.examples.grid.events/edit 0 0 v])))))
+                  (dotimes [i k]
+                    (rf.fresco.impl.collector/dispatch!
+                      (grid-frame i) [::rf.fresco.examples.grid.events/edit 0 0 v]))
+                  (react-dom/flushSync (fn [] (r/flush))))
         shows?  (fn [cell-value total]
                   (let [inputs (array-seq (.querySelectorAll js/document "input[data-cell='cell-0-0']"))
                         totals (array-seq (.querySelectorAll js/document "td.total[data-total='0']"))]
@@ -1397,6 +1400,11 @@
                                          (if (some? grid-width) (long grid-width) per-root)))
              :mount          (fn [arm k opts] (mount! arm k opts))
              :release        (fn [] (release!*) true)
+             ;; A promise that settles once the Fresco runtime's reapers are
+             ;; idle — the warm-up pass waits on it between arms, so an arm's
+             ;; mount never counts the previous Fresco arm's cells still
+             ;; waiting out their grace macrotask.
+             :quiesce        (fn [] (rf.fresco.test.runtime/quiesced!))
              :control        (fn [n] (control! n))
              :controlRelease (fn [] (control-release!))
              :perfMem        (fn []

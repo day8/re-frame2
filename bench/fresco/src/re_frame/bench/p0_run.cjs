@@ -918,6 +918,10 @@ async function heapPass(
     for (const entry of arms) {
       await mountOne(entry);
       await page.evaluate(() => window.P0H.release());
+      // The warm-up takes no collection between arms, so wait out the Fresco
+      // reapers instead: two Fresco arms back to back would otherwise mount
+      // the second while the first's released cells are still queued.
+      await page.evaluate(() => window.P0H.quiesce());
     }
   }
   await page.evaluate((n) => window.P0H.control(n), CONTROL_DOUBLES);
