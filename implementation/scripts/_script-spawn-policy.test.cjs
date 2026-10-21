@@ -87,7 +87,6 @@ for (const file of gateScriptFiles()) {
 // bind from the shared owner (next block).
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
 const IMPL_LOOPBACK_LAUNCHERS = [
-  ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
   ['check-story-static.cjs', SCRIPTS_DIR],
   ['serve-and-run-xray-feature-gate.cjs', SCRIPTS_DIR],
 ];
@@ -110,6 +109,7 @@ for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
 const START_LOCAL_HTTP_SERVER_CALLERS = [
   ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
   ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
+  ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
 ];
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
@@ -126,7 +126,7 @@ for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
 // These probe readiness themselves, so they must check the server answering is
 // their own run's (a stale server from another worktree can hold the port).
 const WAIT_OWNED_RE = /\bwaitForOwnedHttpReady\b/;
-for (const base of ['serve-and-run-browser-tests.cjs', 'check-story-static.cjs']) {
+for (const base of ['check-story-static.cjs']) {
   test(`${base}: waits for owned readiness via the shared waitForOwnedHttpReady`, () => {
     const code = stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'));
     assert.match(code, WAIT_OWNED_RE, `${base} must wait for owned readiness via waitForOwnedHttpReady`);
