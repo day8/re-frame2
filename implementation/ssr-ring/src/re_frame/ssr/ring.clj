@@ -9,8 +9,7 @@
 
   This façade exposes the handler and middleware, the default shell, and
   cookie serialization."
-  (:require [re-frame.error :as rf.error]
-            [re-frame.ssr :as rf.ssr]
+  (:require [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring.cookie :as rf.ssr.ring.cookie]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
@@ -32,18 +31,11 @@
 
   The metadata is copied via `alter-meta!` AFTER the `def` (rather than
   attached to the def symbol literal) so the `:arglists` value — a list
-  of param vectors — is treated as DATA, not evaluated as a form."
+  of param vectors — is treated as DATA, not evaluated as a form.
+
+  An unresolvable `src-sym` fails at namespace load with Clojure's own
+  compile error from the expansion's `def`."
   [src-sym]
-  (when-not (resolve src-sym)
-    ;; Author error at namespace load; retain the canonical structured shape.
-    (rf.error/throw-error!
-      :rf.error/ssr-ring-import-fn-unresolved
-      'rf.ssr.ring/import-fn
-      (str "import-fn cannot resolve the source var " src-sym
-           "; check the fully-qualified symbol and that its namespace is "
-           "required at the top of re-frame.ssr.ring.")
-      {:recovery :correct-the-import-fn-source-symbol
-       :extra    {:sym src-sym}}))
   (let [exported-sym (symbol (name src-sym))]
     `(do
        (def ~exported-sym ~src-sym)

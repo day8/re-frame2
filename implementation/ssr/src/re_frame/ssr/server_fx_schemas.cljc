@@ -1,25 +1,14 @@
 (ns re-frame.ssr.server-fx-schemas
-  "Malli args schemas for the standard `:rf.server/*` server-side fx.
-  Per Spec 011 §HTTP response contract §Standard fx and [Spec-Schemas
-  §Standard fx args schemas]. These are the `:rf.fx.server/*-args`
-  schemas the spec names as 'registered' plus the `:rf.server/cookie`
-  shape they build on.
+  "Malli args schemas for the standard `:rf.server/*` server-side fx: the
+  published description of each args shape, for docs and tools. Per Spec
+  011 §HTTP response contract §Standard fx and [Spec-Schemas §Standard fx
+  args schemas]. These are the `:rf.fx.server/*-args` schemas the spec
+  names plus the `:rf.server/cookie` shape they build on.
 
   The schemas here are **plain Malli EDN forms** — vectors + keywords,
-  no Malli code dependency. The ssr artefact does NOT depend on Malli /
-  the schemas artefact in production (Spec 006 §Adapter shipping
-  convention — schemas is an optional sibling). The `:schema` value an
-  `reg-fx` carries is consumed by whatever validator the (optional)
-  schemas artefact has installed — `re-frame.schemas.validator` routes
-  it through `malli.core/validate` by default (per Spec 010 §Validation
-  order step 5). When schemas / Malli is not on the classpath the
-  fx-args validation soft-passes (per Spec 010 §Recommended soft-pass);
-  these vars are inert EDN that still travels with the registration so
-  the `:schema` boundary EXISTS the moment a validator is present.
-
-  Attaching these schemas to the registrations makes malformed arguments
-  surface at the `:fx-args` boundary while the dispatching event is still in
-  scope, before response state is mutated.
+  no Malli code dependency — so the ssr artefact ships them without
+  depending on Malli or the schemas artefact (Spec 006 §Adapter shipping
+  convention — schemas is an optional sibling).
 
   Spec ↔ var map (per [Spec-Schemas §Standard fx args schemas]):
 
@@ -31,60 +20,29 @@
     :rf.fx.server/delete-cookie-args   — `delete-cookie-args`
     :rf.fx.server/redirect-args        — `redirect-args`
 
-  These are SHAPE checks — the structural contract on the fx args. The
-  per-attribute CRLF / token-grammar gates in `re-frame.ssr.response`
-  (`:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-attribute`, …)
-  are a SEPARATE, complementary defence layer that the args schema
-  cannot express (a CRLF-bearing string is still a `:string`). Spec 011
-  §CRLF fail-fast: 'args validation surfaces the [structural] bug at
-  the dispatch site; … the fail-fast posture composes cleanly with the
-  structured-fx-args schemas'.
+  ## What checks the args
 
-  ## What runs when
-
-  These schemas are a DEV-POSTURE boundary: `validate-fx!`
-  is `(if interop/debug-enabled? (run-validation …) true)`, read once at
-  namespace-load time, so under `-Dre-frame.debug=false` the Spec 010
-  §Validation order step-5 gate does not run at all and its documented
-  `:skipped` recovery never happens. That is intended for USER fx —
-  trust-the-programmer, no hot-path cost — but alone it would leave the
-  framework's own wire-adjacent contract unguarded: a malformed reserved fx
-  would RUN and its args land on the response accumulator `ssr/get-response`
-  publishes.
-
-  So the SHAPE contract is enforced twice, deliberately, with a
-  different job each time:
-
-  - **Here, in dev** — the Malli boundary rejects BEFORE the handler runs,
-    the fx is `:skipped`, siblings continue, and the programmer gets the
-    rich `:rf.error/schema-validation-failure :where :fx-args` diagnostic
-    naming the failing path. SSR's error projection answers that record
-    with the sanitised 500, the same status the guard below earns in a
-    release build.
-  - **In `re-frame.ssr.response`, in EVERY build** — cheap predicate guards
-    (`validate-status!`, `validate-string-arg!`, `validate-cookie-shape!`)
-    throw `:rf.error/server-fx-args-invalid` before the first
-    `swap-response!`, so the accumulator is never mutated in a release
-    build either. That is the only half a production JVM has.
-
-  The two must agree on the canonical cases, and nothing but discipline
-  keeps EDN in this file aligned with predicates in another. So they don't
-  rely on discipline: `ssr-reserved-fx-guards-test` drives ONE acceptance
-  corpus through both, and a widened schema that the guard still rejects
-  (or the reverse) fails there.
+  None of the six registrations carries these as its `:schema`. The one
+  acceptance check, in every build, is the guards in `re-frame.ssr.response`
+  (`validate-args-map!`, `validate-status!`, `validate-string-arg!` and
+  `validate-cookie-shape!` over the `cookie-attr-shape` table), which throw
+  `:rf.error/server-fx-args-invalid` before the first `swap-response!`, so a
+  malformed reserved fx never mutates the accumulator `ssr/get-response`
+  publishes. The same file holds the per-attribute CR/LF/NUL and
+  token-grammar gates (`:rf.error/header-invalid-value`,
+  `:rf.error/cookie-invalid-attribute`, …), which no args schema could
+  express: a CRLF-bearing string is still a `:string`. Spec 011 §The
+  reserved fx guard their own args.
 
   ## An optional key present with `nil` is absent
 
   Every OPTIONAL slot below is `[:maybe …]`, because `{:path nil}` and `{}` say
-  the same thing in Clojure and the always-on guards read them that way — a
-  cookie assembled from an options map (`{:secure (:secure? opts)}`) writes the
-  first while meaning the second. A bare `[:path {:optional true} :string]`
-  says something different: absent is fine, present-and-nil is a violation.
-  That gap would let `{:secure nil}` be skipped in dev and persisted in
-  production — the same posture-dependent
-  accumulator this whole gate exists to close, just one key deep. REQUIRED
-  slots keep the bare type: `{:value nil}` is a cookie with no value, and `nil`
-  is not a status.")
+  the same thing in Clojure and the guards read them that way — a cookie
+  assembled from an options map (`{:secure (:secure? opts)}`) writes the first
+  while meaning the second. A bare `[:path {:optional true} :string]` would
+  describe something the guards do not accept: absent is fine, present-and-nil
+  a violation. REQUIRED slots keep the bare type: `{:value nil}` is a cookie
+  with no value, and `nil` is not a status.")
 
 ;; ---- :rf.server/cookie — the structured-cookie shape ---------------------
 ;;
@@ -112,15 +70,9 @@
   accepted`, which passes `:same-site \"Strict\"` + a string `:expires`)
   lock that tolerance in.
 
-  A schema that enforced strict canonical types would reject those string
-  forms at the Spec 010 §step-5 boundary BEFORE the CRLF gate runs —
-  changing the surfaced error from the specific
-  `:rf.error/cookie-invalid-attribute` to a generic
-  `:rf.error/schema-validation-failure`, and
-  rejecting the legitimately-tolerated string `:same-site`/`:expires`. So
-  the three coercible attrs widen to `[:or <canonical-type> :string]`: the
-  canonical type is documented + validated, AND the deliberately-tolerated
-  string form passes the shape gate so it reaches the CRLF defence.
+  So the three coercible attrs read `[:or <canonical-type> :string]`: the
+  schema describes what the guard accepts, naming the canonical type beside
+  the deliberately-tolerated string form.
   `:secure` / `:http-only` / `:name` / `:value` / `:path` / `:domain` carry
   their canonical type and nothing else (the optional ones inside the
   `[:maybe …]` every optional slot carries — see the ns docstring). `:name` in
@@ -152,22 +104,15 @@
 
 (def http-status
   "An HTTP status code — an int in the RFC 9110 §15 status-line range
-  100–599. Named once and shared by every `:status` slot below
-  so the three registrations cannot drift from each other, or from
-  `re-frame.ssr.response/validate-status!` — the always-on guard that
-  enforces the SAME range in a release build, where this schema does not
-  run at all (Spec 010 §Validation order step 5 is dev-posture for user fx;
-  the reserved `:rf.server/*` family guards its own args unconditionally).
-  `ssr-reserved-fx-guards-test`'s acceptance corpus drives the schema and
-  the guard from one literal, so a widened range cannot land on one side
-  only."
+  100–599, the range `re-frame.ssr.response/validate-status!` enforces.
+  Named once and shared by every `:status` slot below so they cannot drift
+  from each other."
   [:int {:min 100 :max 599}])
 
 (def set-status-args
   "Args of `:rf.server/set-status` — `:rf.fx.server/set-status-args`.
-  An HTTP status code int (e.g. 200 / 404 / 500), bounded to 100–599: the
-  status line admits nothing else, and a bare `:int` would let `0` / `-1` /
-  `99999` through the dev boundary that exists to catch exactly that."
+  An HTTP status code int (e.g. 200 / 404 / 500), bounded to 100–599
+  because the status line admits nothing else."
   http-status)
 
 (def set-header-args
@@ -210,8 +155,8 @@
   "Args of `:rf.server/redirect` — `:rf.fx.server/redirect-args`.
   `{:location? <string> :allow? (:any | [<string> …]) :status? <int>}` — the
   redirect target, the hosts it may name beyond the request's own origin, and
-  the status (default 302). The CR/LF/NUL and URL gates live in
-  `re-frame.ssr.response/redirect-fx`; this is the structural shape check.
+  the status (default 302). The shape guard and the CR/LF/NUL and URL gates
+  live in `re-frame.ssr.response/redirect-fx`; this describes the shape.
 
   [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
   011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all use
@@ -223,20 +168,16 @@
   `:allow` is `:any` or a SEQUENCE of host strings; a scalar host string is
   refused rather than read as an allowlist of characters. Absent, the
   redirect is relative-only. `:relative-only?` names that default, so the
-  key is refused rather than read: a present non-nil value fails here as it
-  does at the fx's own guard.
+  key is refused rather than read: the fx's own guard refuses a present
+  non-nil value.
 
-  `:location` is optional, and a redirect with no `:location` passes this
-  shape gate because it is not a structural error. A
-  target-less redirect is the
+  `:location` is optional, because a redirect with no `:location` is not a
+  structural error. A target-less redirect is the
   `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
   redirect-fx accepts it and the adapter emits the warning trace + a 3xx
   with no Location header so the defect is observable rather than silently
-  shipping a broken redirect. A `[:fn]` clause requiring a target key
-  here would 400 the no-target redirect at the Spec 010 §step-5 boundary
-  before that warn→302 path runs, contradicting the graceful-degradation
-  contract. Closed map is avoided — extra keys pass — so the shape gate
-  never over-constrains a legitimate call."
+  shipping a broken redirect. The map is open — extra keys pass — so the
+  description never over-constrains a legitimate call."
   [:map
    [:status         {:optional true} [:maybe http-status]]  ;; default 302
    [:location       {:optional true} [:maybe :string]]      ;; canonical and only target key

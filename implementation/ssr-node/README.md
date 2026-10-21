@@ -83,7 +83,10 @@ out of the isolate, and `src/worker.cjs` is where that holds:
 - a rejection that is not a `Refusal` at all gets the `render-threw` wording.
 
 The full exception, with its stack, goes to the sidecar's stderr under the
-`[rf.ssr-node]` prefix, where the operator reads it.
+`[rf.ssr-node]` prefix, where the operator reads it. A render's line, and the
+line for a replacement isolate that cannot boot, name the caller's
+`requestId` when the request carried one, so a failure the JVM reports can be
+matched to the stack behind it.
 
 ### 3. One in-flight render per isolate
 

@@ -21,30 +21,32 @@
  * drags a tools/ ns / dev dep into a production-reachable path — is caught
  * by CI rather than by a downstream consumer paying for the regression.
  *
- * Strategy: grep, not parse — the same shape as scripts/check-elision.cjs
- * and scripts/check-perf-bundle.cjs. The closure compiler may rename
- * symbols and namespaces under :advanced, but it does NOT rewrite
- * string literals. Each per-feature artefact emits a small set of
- * `:rf.error/<feature>-*` ex-info / trace strings from its function
- * bodies; those strings appear in the bundle if and only if the
- * artefact's namespace contributes its body forms to the build.
+ * Each claim is answered by the artefact that can answer it:
  *
- * Per-artefact sentinels are chosen because they:
- *   - appear ONLY inside the per-feature artefact's namespace
- *   - are textual fragments (ex-info reason strings, trace op names)
- *     not synthesised from keywords at runtime
- *   - are unique enough that a global grep is unambiguous
- *   - sit OUTSIDE elision-gated branches (so :advanced + goog.DEBUG=false
- *     does not DCE them — they only disappear when the whole namespace
- *     is absent from the build).
+ *   - A GRAPH claim — "the counter build does not load this namespace" — is
+ *     read from the build's own manifest.edn, which shadow-cljs writes beside
+ *     main.js: per module, the classpath-relative path of every source
+ *     compiled into it. An entry names the sources it forbids
+ *     (`re_frame/flows.cljc`, `re_frame/story/`, `node_modules/@xyflow/`), and
+ *     each of those must resolve on the build's classpath, so a rename fails
+ *     loud instead of leaving a path that can never match.
  *
- * Allow-list contract: a small set of consumer-side keyword strings
- * (e.g. `flows/reg-flow-fx!`, `rf.http/managed`) intentionally remain
- * in the counter bundle even when the per-feature artefacts are NOT
- * loaded — they are the late-bind hook keys / fx keys that core
- * publishes for the artefact to populate at ns-load time. The
- * isolation contract distinguishes those (consumer-side, expected) from
- * the implementation-internal sentinels (must be absent).
+ *   - An ELISION claim — "the build loads this namespace, but Closure drops
+ *     these bodies" — cannot be read from the graph, because the namespace IS
+ *     in it. Only the emitted bytes can answer, so the entry greps the
+ *     `:advanced` output for string literals the bodies emit (Closure renames
+ *     symbols but never rewrites string literals), and proves each literal
+ *     live in the same compile with the bodies reached and their gate open,
+ *     since a grep for a literal that exists nowhere passes vacuously.
+ *     `trace-tooling` is the canonical case: core requires
+ *     `re-frame.trace.tooling` statically, and its bodies reach no production
+ *     bundle.
+ *
+ * The allow-list budgets are grep too: a small set of consumer-side keyword
+ * strings (e.g. `flows/reg-flow`, `rf.http/managed`) intentionally remain in
+ * the counter bundle even when the per-feature artefacts are NOT loaded —
+ * they are the late-bind hook keys / fx keys that core publishes for the
+ * artefact to populate at ns-load time — and each budget caps their count.
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -52,10 +54,13 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
+const { EdnReadError, readEdn, isMap, mapGetKeyword } = require('./lib/edn.cjs');
 const {
   classifyReleaseBundle,
+  readBuildManifest,
   countMatches,
   countSubstring,
 } = require('./lib/read-release-bundle.cjs');
@@ -68,85 +73,52 @@ const report = createGateReporter();
 
 // ----- the bundle-isolation contract ----------------------------------------
 
-// Each artefact has:
-//   - `name`: human-readable artefact label (matches the per-feature
-//     split's directory name under implementation/).
-//   - `internalSentinels`: an array of `{ source, sentinel }` pairs.
-//     Each `sentinel` is a string literal that lives in the artefact's
-//     own source body (an `ex-info` reason or `trace/emit-error!` op).
-//     If any sentinel appears in the counter bundle, the artefact's
-//     body has been pulled in — bundle isolation is broken.
-//   - `consumerAllowList`: a single regex matching consumer-side
-//     keyword strings core publishes for this artefact even when the
-//     artefact is NOT loaded (late-bind hook keys, fx keys). Used
-//     to distinguish 'expected' counter-bundle hits from the
-//     implementation-internal sentinels above.
-//   - `expectedAllowListHits`: the ceiling on consumer-side hits in
-//     the examples/counter bundle.
-//     The contract fails on EXCEEDS, not on DECREASE — a refactor that
-//     shrinks the consumer-side surface is a strict win.
+// Each artefact has a `name` and exactly one claim:
+//   - `forbiddenSources`, a GRAPH claim: classpath-relative source paths the
+//     counter build's manifest must not list. A path ending in `/` names a
+//     directory and forbids everything under it; any other path names one
+//     file. Each must resolve on the build's classpath
+//     (assertForbiddenSourcesLive), or it could never match.
+//   - `internalSentinels`, an ELISION claim: `{ source, sentinel }` pairs, each
+//     `sentinel` a string literal the artefact's bodies emit on a live path. A
+//     hit in the counter bundle means bodies Closure should have dropped
+//     survived. Its POSITIVE_CONTROL entry proves every sentinel present where
+//     those bodies are reached.
+// Optionally:
+//   - `relPath`: a publishable per-feature runtime's directory under
+//     implementation/, which canonical coverage keys on (exact path, never
+//     leaf name).
+//   - `consumerAllowList` + `expectedAllowListHits`: a regex over consumer-side
+//     keyword strings core publishes for this artefact even when it is NOT
+//     loaded (late-bind hook keys, fx keys), and the ceiling on their count in
+//     the counter bundle. The budget fails on EXCEEDS, not on DECREASE — a
+//     refactor that shrinks the consumer-side surface is a strict win.
 const ARTEFACTS = [
+  // The per-feature runtimes. Each ships as its own Maven jar, and core
+  // reaches each one through the late-bind hook table at call time rather than
+  // a `:require`, so a consumer that never requires one never pays for it.
   {
     name: 'schemas',
-    // Publishable per-feature runtime at implementation/schemas/. `relPath` is
-    // what canonical coverage keys on (exact path, never leaf name).
     relPath: 'schemas',
-    internalSentinels: [
-      // schemas.cljc — `reg-app-schemas` validates its arg is a map.
-      { source: 're-frame.schemas/reg-app-schemas (app-schemas-bad-arg)',
-        sentinel: 'rf.error/app-schemas-bad-arg' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/schemas.cljc', 're_frame/schemas/'],
   },
 
   {
     name: 'machines',
     relPath: 'machines',
-    internalSentinels: [
-      // machines.cljc — `resolve-guard` ex-info on unresolved keyword.
-      { source: 're-frame.machines/resolve-guard (machine-unresolved-guard)',
-        sentinel: 'rf.error/machine-unresolved-guard' },
-      // machines.cljc — `resolve-guard` ex-info on bad form.
-      { source: 're-frame.machines/resolve-guard (machine-bad-guard-form)',
-        sentinel: 'rf.error/machine-bad-guard-form' },
-      // machines.cljc — :on clause shape validator.
-      { source: 're-frame.machines machine-bad-on-clause',
-        sentinel: 'rf.error/machine-bad-on-clause' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/machines.cljc', 're_frame/machines/'],
   },
 
   {
     name: 'routing',
     relPath: 'routing',
-    internalSentinels: [
-      // routing.cljc — `route` lookup ex-info.
-      { source: 're-frame.routing route-by-id (no-such-route)',
-        sentinel: 'rf.error/no-such-route' },
-      // routing.cljc — required-param missing on path build.
-      { source: 're-frame.routing build-path (missing-route-param)',
-        sentinel: 'rf.error/missing-route-param' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/routing.cljc', 're_frame/routing/'],
   },
 
   {
     name: 'flows',
     relPath: 'flows',
-    internalSentinels: [
-      // flows.cljc — topological-sort cycle detection.
-      { source: 're-frame.flows topo-sort (flow-cycle)',
-        sentinel: 'rf.error/flow-cycle' },
-      // flows.cljc — reg-flow form validation: missing :id.
-      { source: 're-frame.flows reg-flow (flow-missing-id)',
-        sentinel: 'rf.error/flow-missing-id' },
-      // flows.cljc — reg-flow form validation: bad :inputs.
-      { source: 're-frame.flows reg-flow (flow-bad-inputs)',
-        sentinel: 'rf.error/flow-bad-inputs' },
-    ],
+    forbiddenSources: ['re_frame/flows.cljc', 're_frame/flows/'],
     // One consumer-side string:
     //   `flows/reg-flow`     — late-bind hook key core publishes for
     //                          the flows artefact's reg-flow surface,
@@ -158,19 +130,7 @@ const ARTEFACTS = [
   {
     name: 'http',
     relPath: 'http',
-    internalSentinels: [
-      // http/managed.cljc — managed-abort fx (registered only when the
-      // ns is loaded; the keyword string survives :advanced).
-      { source: 're-frame.http.managed reg-fx (rf.http/managed-abort)',
-        sentinel: 'rf.http/managed-abort' },
-      // http/handlers.cljc + transport.cljc — failure taxonomy: the 5xx
-      // category, in the retryable set and the status classifier.
-      { source: 're-frame.http.handlers retryable set (http-5xx)',
-        sentinel: 'rf.http/http-5xx' },
-      // http/managed.cljc — failure taxonomy: decode failure.
-      { source: 're-frame.http.managed classify-failure (decode-failure)',
-        sentinel: 'rf.http/decode-failure' },
-    ],
+    forbiddenSources: ['re_frame/http/'],
     // Consumer-side strings (Spec 014):
     //   `rf.http/stub-only?` — the frame-config key core's :test/:story
     //                          presets set (frame.cljc); the HTTP artefact
@@ -186,29 +146,16 @@ const ARTEFACTS = [
   },
 
   // Epoch artefact (re-frame.epoch lives at implementation/epoch/;
-  // Tool-Pair §Time-travel surface). Counter imports
-  // zero epoch symbols — the `day8/re-frame2-epoch` artefact must DCE
-  // entirely when the consuming app doesn't `:require` re-frame.epoch.
-  // Xray's preload.cljs `:requires` re-frame.epoch to anchor it onto the
-  // dev classpath so every Xray-enabled build has working time-travel;
-  // the preload is dev-only (gated by shadow-cljs `:devtools/preloads`)
-  // so the anchor must NOT pull epoch into a production bundle. Core's
-  // `rf/epoch-history` forwarder looks the producing fn up through the
-  // late-bind hook table at call time;
-  // a non-zero internal-sentinel hit means the epoch namespace got
-  // dragged in (most likely a stray `:require` in a core/* ns).
-  // These two literals survive the real
-  // goog.DEBUG=false owner module: listener-failure reporting and record
-  // assembly remain reachable while the debug-only restore trace ids DCE.
+  // Tool-Pair §Time-travel surface). Xray's preload.cljs `:requires`
+  // re-frame.epoch to anchor it onto the dev classpath so every Xray-enabled
+  // build has working time-travel; the preload is dev-only (gated by
+  // shadow-cljs `:devtools/preloads`), so the anchor must NOT pull epoch into a
+  // production bundle. Core's `rf/epoch-history` forwarder looks the producing
+  // fn up through the late-bind hook table at call time.
   {
     name: 'epoch',
     relPath: 'epoch',
-    internalSentinels: [
-      { source: 're-frame.epoch.listeners listener failure diagnostic',
-        sentinel: 'rf.epoch.cb/listener-exception' },
-      { source: 're-frame.epoch.assembly redacted-path count',
-        sentinel: 'rf.epoch/redacted-modified-paths-count' },
-    ],
+    forbiddenSources: ['re_frame/epoch.cljc', 're_frame/epoch/'],
     // One consumer-side string: `epoch/settle!` — the late-bind hook
     // key the router calls into at drain-empty (router.cljc). Core
     // publishes the call site so the epoch artefact can populate the
@@ -224,547 +171,206 @@ const ARTEFACTS = [
   {
     name: 'ssr',
     relPath: 'ssr',
-    internalSentinels: [
-      // ssr.cljc — namespace-prefix on every server-only fx and trace
-      // op (`:rf.server/respond`, `:rf.server/redirect`, ...). The
-      // prefix appears in the bundle only when ssr.cljc's body is
-      // compiled in.
-      { source: 're-frame.ssr server-only fx prefix (rf.server/)',
-        sentinel: 'rf.server/' },
-      // ssr.cljc — :rf/hydrate event-id (the CLJS hydration entry
-      // point registered by ssr.cljc).
-      { source: 're-frame.ssr hydrate event (rf/hydrate)',
-        sentinel: 'rf/hydrate' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/ssr.cljc', 're_frame/ssr/'],
   },
 
-  // Resources runtime (the `day8/re-frame2-resources` artefact,
-  // Spec 016). A separately published, browser-reachable OPTIONAL
-  // per-feature runtime (`.github/scripts/verify-version-lockstep.sh` ships it
-  // in the release inventory); `re-frame.core` MUST NOT `:require` it — the
-  // resources.cljc header (§Optionality + bundle isolation) pins that, and the
-  // public surface late-binds through the hook table so an app that omits the
-  // artefact sees a clean `:rf.error/resources-artefact-missing`. Counter
-  // imports zero resource symbols, so the whole `re-frame.resources.*` tree
-  // must DCE from its production bundle. A non-zero internal-sentinel hit means
-  // the resources runtime got dragged in (most likely a stray `:require
-  // [re-frame.resources]` in a core/* ns, or a production-reachable path
-  // reaching a resources sibling). The `resources-tooling` entry below is a
-  // SEPARATE, JVM-only tooling sibling (its CLJS require is `#?@(:clj ...)`-
-  // gated). Its positive-control module reaches a real tooling projection;
-  // the two entries guard different bodies and cannot satisfy each other.
-  //
-  // Sentinels are `ex-info` reason-id keywords thrown UNCONDITIONALLY from the
-  // registration validators (`reg-resource` / `reg-mutation`) — the same
-  // proven shape as the schemas / machines / http error-ids the `login`
-  // on-bundle already validates present. They are keyword literals emitted from
-  // function bodies on the boot path (every resources app registers resources +
-  // mutations), so they survive `:advanced` (string literals are not renamed)
-  // and are NOT gated by `interop/debug-enabled?`. Both are unique to the
-  // resources artefact's own src tree (verified repo-wide).
+  // Resources runtime (the `day8/re-frame2-resources` artefact, Spec 016), a
+  // separately published, browser-reachable OPTIONAL per-feature runtime
+  // (`.github/scripts/verify-version-lockstep.sh` ships it in the release
+  // inventory). `re-frame.core` MUST NOT `:require` it — the resources.cljc
+  // header (§Optionality + bundle isolation) pins that, and the public surface
+  // late-binds through the hook table so an app that omits the artefact sees a
+  // clean `:rf.error/resources-artefact-missing`.
   {
     name: 'resources',
     relPath: 'resources',
-    internalSentinels: [
-      // registry.cljc — `reg-resource` spec validator ex-info reason.
-      { source: 're-frame.resources.registry reg-resource (resource-bad-spec)',
-        sentinel: 'rf.error/resource-bad-spec' },
-      // mutation_registry.cljc — `reg-mutation` spec validator ex-info reason.
-      { source: 're-frame.resources.mutation-registry reg-mutation (mutation-bad-spec)',
-        sentinel: 'rf.error/mutation-bad-spec' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/resources.cljc', 're_frame/resources/'],
   },
 
-  // Fresco, the lean-React view substrate (the
-  // `day8/re-frame2-fresco` artefact). A separately published,
-  // browser-reachable OPTIONAL substrate: nothing in core or the adapters
-  // `:require`s it, and the counter example is a Reagent app that never names
-  // a `re-frame.fresco.*` namespace, so the whole tree must be absent from
-  // its production bundle. A non-zero internal-sentinel hit means the Fresco
-  // runtime got dragged in (most likely a stray `:require` from a core/* ns).
-  //
-  // THE SENTINEL CHOICE IS THE INTERESTING PART, because most Fresco strings
-  // would make a FALSE-GREEN one. The package's production story is that its
-  // complaint machinery folds away under `:advanced` with `goog.DEBUG` false
-  // (`fresco/scripts/check_production_erasure.cjs` asserts exactly that), so
-  // a sentinel taken from a dev-guarded refusal would be absent from every
-  // bundle including one that ships the whole runtime. Both sentinels below
-  // are that script's own POSITIVE CONTROLS — the strings it proves PRESENT in
-  // the `:fresco-release` `:advanced` bundle — so they are absent here only
-  // when the code is absent:
-  //   - `frescoBoundary` is the own-property marker `mark-boundary!` stamps
-  //     on every minted head via `unchecked-set` with a literal string key,
-  //     with no `goog.DEBUG` gate anywhere near it;
-  //   - `rf.error/fresco-empty-vector` is a refusal id minted by `fail!` on
-  //     the path every build keeps, not inside its dev guard.
-  // Both are unique to the artefact's own src tree (verified repo-wide).
+  // Fresco, the lean-React view substrate (the `day8/re-frame2-fresco`
+  // artefact), a separately published, browser-reachable OPTIONAL substrate:
+  // nothing in core or the adapters `:require`s it, and the counter example is
+  // a Reagent app that never names a `re-frame.fresco.*` namespace.
   {
     name: 'fresco',
     relPath: 'fresco',
-    internalSentinels: [
-      // impl/codec.cljs — mark-boundary! own-property marker (ungated).
-      { source: 're-frame.fresco.impl.codec mark-boundary! (frescoBoundary)',
-        sentinel: 'frescoBoundary' },
-      // impl/codec.cljs — vector-kind's empty-vector refusal id.
-      { source: 're-frame.fresco.impl.codec vector-kind (fresco-empty-vector)',
-        sentinel: 'rf.error/fresco-empty-vector' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/fresco.cljc', 're_frame/fresco/'],
   },
 
-  // re-frame.trace.tooling (the dev-tooling buffer + listener surface,
-  // kept apart from re-frame.trace for production DCE). The
-  // counter example never `:require`s `re-frame.trace.tooling`
-  // (test-support / Xray preload / Story / re-frame2-pair-mcp do, but counter
-  // is the no-feature reference app). When this contract holds, the
-  // tooling sibling's body is absent from the bundle entirely. The property
-  // pinned here is VAR-level, not namespace-level: `re-frame.core` and
+  // re-frame.trace.tooling (the dev-tooling buffer + listener surface, kept
+  // apart from re-frame.trace for production DCE) — an ELISION claim, because
+  // the namespace IS in the counter build's graph: `re-frame.core` and
   // `re-frame.trace` both `:require` `re-frame.trace.tooling` statically on
-  // both platforms, and the facade's `:trace` arm plus
-  // `rf/trace-buffer` / `rf/clear-trace-buffer!` name
-  // `re-frame.trace.tooling/…` directly — `re-frame.trace` publishes
-  // no listener/buffer surface of its own. The counter bundle stays clean
-  // because it never CALLS that surface, so Closure drops the bodies. The
-  // sentinel below is a distinctive string fragment from the tooling's
-  // `trace-buffer` filter-predicate body that does NOT appear anywhere else
-  // in the framework source. A non-zero hit means the tooling ns slipped
-  // into the bundle — most likely an ungated call site (one not behind
-  // `goog.DEBUG`) reached it.
+  // both platforms, and the facade's `:trace` arm plus `rf/trace-buffer` /
+  // `rf/clear-trace-buffer!` name `re-frame.trace.tooling/…` directly —
+  // `re-frame.trace` publishes no listener/buffer surface of its own. The
+  // counter bundle stays clean because those bodies sit behind
+  // `rf.interop/debug-enabled?` and the counter never calls them, so Closure
+  // drops them. The sentinel is the `:trace-events` slot of the tooling's
+  // `trace-buffer` event-bundle projection; the only other code emitting it is
+  // the epoch artefact, which the `epoch` graph claim keeps out of this bundle.
+  // A non-zero hit means one of the two reached a production bundle.
   {
     name: 'trace-tooling',
     internalSentinels: [
       { source: 're-frame.trace.tooling trace-buffer projection field',
         sentinel: 'trace-events' },
     ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
   },
 
-  // re-frame.subs.tooling (`sub-topology` and
-  // `sub-cache-snapshot`, kept apart from re-frame.subs for production
-  // DCE). Counter never `:require`s `re-frame.subs.tooling` (Xray /
-  // re-frame2-pair-mcp / re-frame-10x do, but counter is the no-feature
-  // reference app). When this contract holds, the tooling sibling's
-  // body is absent from the bundle entirely — the JVM-side aliases in
-  // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated so
-  // they never appear in CLJS compilation. The sentinel is a live node-kind
-  // value emitted while projecting a subscription-cache entry.
+  // re-frame.subs.tooling (`sub-topology` and `sub-cache-snapshot`, kept apart
+  // from re-frame.subs for production DCE). Xray, re-frame2-pair-mcp and
+  // re-frame-10x `:require` it; counter never does. The JVM-side aliases in
+  // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated, so they
+  // never appear in CLJS compilation.
   {
     name: 'subs-tooling',
-    internalSentinels: [
-      { source: 're-frame.subs.tooling live node kind',
-        sentinel: 'subscription-cache-entry' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/subs/tooling.cljc'],
   },
 
-  // re-frame.flows.tooling (EP-0014
-  // `flow-algebra-view`, kept apart from the flows artefact for production
-  // DCE). The whole flows artefact is ALREADY bundle-isolated from
-  // counter (counter never `:require`s `re-frame.flows` — the `flows`
-  // entry above pins that), so this sibling can never reach a no-flows
-  // app's bundle; this entry is the belt-and-braces guard the
-  // tooling-sibling pattern standardises (it also fires if a flows-using
-  // CLJS app's facade ever `:require`s the tooling sibling — the
-  // `re-frame.flows` → `re-frame.flows.tooling` require is `#?@(:clj ...)`-
-  // gated so the body stays out of CLJS). The sentinel is a live evaluation
-  // classification reached by the focused positive-control module.
+  // The four EP-0014 algebra-view siblings (`flow-algebra-view`,
+  // `resource-algebra-view`, `route-algebra-view`, `machine-algebra-view` and
+  // their kin), each kept apart from its optional artefact for production DCE.
+  // Every parent's require on its sibling is `#?@(:clj ...)`-gated, so the body
+  // stays out of CLJS. The `flows`, `resources`, `routing` and `machines`
+  // entries above forbid each parent's whole tree, so no no-feature app can
+  // reach these; each keeps its own entry so a leak is named for the sibling
+  // that leaked.
   {
     name: 'flows-tooling',
-    internalSentinels: [
-      { source: 're-frame.flows.tooling evaluation classification',
-        sentinel: 'after-event' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/flows/tooling.cljc'],
   },
 
-  // re-frame.resources.tooling (EP-0014
-  // `resource-algebra-view` / `resource-cache-algebra-view`, kept apart from
-  // the resources artefact for production DCE). The whole resources artefact
-  // is ALREADY bundle-isolated from counter (counter never `:require`s
-  // `re-frame.resources`), so this sibling can never reach a no-resources
-  // app's bundle; this entry is the belt-and-braces guard the tooling-sibling
-  // pattern standardises (it also fires if a resources-using CLJS app's facade
-  // ever `:require`s the tooling sibling — the `re-frame.resources` →
-  // `re-frame.resources.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). The sentinel is a live node-kind value reached by the
-  // focused positive-control module.
   {
     name: 'resources-tooling',
-    internalSentinels: [
-      { source: 're-frame.resources.tooling live node kind',
-        sentinel: 'resource-process' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/resources/tooling.cljc'],
   },
 
-  // re-frame.routing.tooling (EP-0014
-  // `route-algebra-view` / `route-slice-algebra-view`, kept apart from the
-  // routing artefact for production DCE). The whole routing artefact is
-  // ALREADY bundle-isolated from counter (counter never `:require`s
-  // `re-frame.routing`), so this sibling can never reach a no-routing app's
-  // bundle; this entry is the belt-and-braces guard the tooling-sibling
-  // pattern standardises (it also fires if a routing-using CLJS app's facade
-  // ever `:require`s the tooling sibling — the `re-frame.routing` →
-  // `re-frame.routing.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). The sentinel is a live route-fact node-kind reached by
-  // the focused positive-control module.
   {
     name: 'routing-tooling',
-    internalSentinels: [
-      { source: 're-frame.routing.tooling node kind',
-        sentinel: 'route-fact' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/routing/tooling.cljc'],
   },
 
-  // re-frame.machines.tooling (EP-0014
-  // `machine-algebra-view` / `machine-instance-algebra-view` /
-  // `machine-selector?`, kept apart from the machines artefact for production
-  // DCE). The whole machines artefact is ALREADY bundle-isolated from
-  // counter (counter never `:require`s `re-frame.machines` — the `machines`
-  // entry above pins that), so this sibling can never reach a no-machines
-  // app's bundle; this entry is the belt-and-braces guard the
-  // tooling-sibling pattern standardises (it also fires if a machines-using
-  // CLJS app's facade ever `:require`s the tooling sibling — the
-  // `re-frame.machines` → `re-frame.machines.tooling` require is
-  // `#?@(:clj ...)`-gated so the body stays out of CLJS). The sentinel is a
-  // live machine-process node-kind reached by the focused positive control.
   {
     name: 'machines-tooling',
-    internalSentinels: [
-      { source: 're-frame.machines.tooling live node kind',
-        sentinel: 'machine-process' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/machines/tooling.cljc'],
   },
 
-  // re-frame.derivation.graph (EP-0014: the internal
-  // graph-inspection COMPOSER that stitches the five algebra-view siblings
-  // (subs / flows / resources / routes / machines) into one DerivationGraph
+  // re-frame.derivation.graph (EP-0014: the internal graph-inspection COMPOSER
+  // that stitches the five algebra-view siblings into one DerivationGraph
   // view). It lives in core/src but composes the four OPTIONAL siblings
-  // through a runtime contributor seam (requiring-resolve on JVM; an
-  // explicit contributor map on CLJS) rather than a static cross-artefact
-  // `:require`, so it carries no static dep on the optional artefacts and
-  // can never drag them into a core-only bundle. The composer is consumed
-  // only by dev tools (Xray) + the conformance fixtures, which `:require`
-  // it directly; the counter example never does, so the body is absent
-  // from the counter bundle entirely. The sentinel is a live family marker
-  // reached while projecting the focused positive-control graph.
+  // through a runtime contributor seam (requiring-resolve on JVM; an explicit
+  // contributor map on CLJS) rather than a static cross-artefact `:require`,
+  // so it can never drag them into a core-only bundle. Only dev tools (Xray)
+  // and the conformance fixtures `:require` it; the counter example never does.
   {
     name: 'derivation-graph',
-    internalSentinels: [
-      { source: 're-frame.derivation.graph family marker',
-        sentinel: 'rf/family' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/derivation/graph.cljc'],
   },
 
-  // re-frame.derivation.egress (the OFF-BOX graph-egress redaction
-  // ALGORITHM, one copy shared by the Xray call site
-  // (`derivation-graph-helpers/redact-graph-for-egress`) and the
-  // derivation-conformance suite). It lives in core/src beside
-  // the derivation-graph composer but is TOOLING: it is NOT exposed from the
-  // `re-frame.core` facade and NOT `:require`d by any production-reachable ns
-  // — only Xray (whose `redact-graph-for-egress` delegates to it) and the
-  // conformance fixtures `:require` it directly, so the counter example never
-  // loads it and Closure `:advanced` + goog.DEBUG=false DCE its body
-  // wholesale. A non-zero hit means the egress ns got dragged into the counter
-  // bundle (most likely a stray `:require` from a production-reachable ns, or
-  // an accidental re-export from the core facade). The sentinel is the opaque
-  // resource-handle marker the egress projection MINTS: `opaque-handle` emits
-  // `[:rf.resource/opaque <digest>]` and `already-projected?` reads the same
-  // keyword back, both on the live path reached from `project-graph`, so the
-  // keyword's fully-qualified name is interned into this module's emitted JS.
-  //
-  // TWO other kinds of literal are traps worth naming, because each is what
-  // reading the source alone would pick:
-  //
-  //   A dead-frame stamp keyword. Egress mints none — the walker takes an
-  //     explicit nil frame at face value — and an identity value would intern
-  //     nothing where a keyword interns its name as a string. A sentinel naming
-  //     a literal the artefact does not emit reads 0/1 in this positive
-  //     control, which is how such drift fails loud instead of shipping as a
-  //     vacuous green.
-  //
-  //   A planted string, such as a `defonce ^:private bundle-isolation-sentinel`
-  //     in egress.cljc. It reads like the obvious choice and is NOT one: the var
-  //     is private and nothing consumes its value, so Closure `:advanced` drops
-  //     it and the emitted module carries 0 occurrences. The controls grep the
-  //     emitted module, not the source, which is why this entry and its
-  //     `derivation-graph` sibling (on `rf/family`) count live literals instead.
-  //     Do not plant one: egress.cljc's own comment points back here.
-  //
-  // The rule both traps teach: pick a literal a LIVE code path emits, and verify
-  // the count in the emitted module, never in the .cljc.
+  // re-frame.derivation.egress (the OFF-BOX graph-egress redaction ALGORITHM,
+  // one copy shared by the Xray call site and the derivation-conformance
+  // suite). It lives in core/src beside the composer but is TOOLING: it is not
+  // exposed from the `re-frame.core` facade and no production-reachable ns
+  // `:require`s it. A leak most likely means a stray `:require` from a
+  // production-reachable ns, or an accidental re-export from the core facade.
   {
     name: 'derivation-egress',
-    internalSentinels: [
-      { source: 're-frame.derivation.egress opaque resource-handle marker',
-        sentinel: 'rf.resource/opaque' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/derivation/egress.cljc'],
   },
 
-  // Story (tools/story/). The plain
-  // examples/counter bundle imports zero Story symbols — the
-  // tools/story/ jar must DCE entirely when the consuming app
-  // doesn't `:require` any re-frame.story.* namespace. The sentinels
-  // below are ex-info reason strings emitted from
-  // tools/story/src/re_frame/story/registrar.cljc and
-  // tools/story/src/re_frame/story/decorators.cljc — they live in
-  // function bodies (not gated by the `enabled?` flag, which only
-  // gates registration callsites). A non-zero count means a
-  // re-frame.story.* namespace got dragged into the counter
-  // bundle's classpath — the bundle-isolation contract for
-  // tools/ ↛ implementation/ is broken.
+  // Story (tools/story/). The tools/story/ jar must stay out of any production
+  // bundle that `:require`s no re-frame.story.* namespace, per the
+  // tools/ ↛ implementation/ bundle-isolation contract in tools/README.md.
   {
     name: 'story',
-    internalSentinels: [
-      // registrar.cljc — unknown-tag rejection on a project tag
-      // that hasn't been registered. Only emitted when the
-      // registrar's body is in the bundle.
-      { source: 're-frame.story.registrar (rf.error/unknown-tag)',
-        sentinel: 'rf.error/unknown-tag' },
-      // decorators.cljc — decorator-ref taxonomy. Three closely-
-      // related sentinels; any one in the bundle indicates Story
-      // internals were pulled in.
-      { source: 're-frame.story.decorators (rf.error/decorator-bad-ref)',
-        sentinel: 'rf.error/decorator-bad-ref' },
-      { source: 're-frame.story.decorators unknown-decorator diagnostic',
-        sentinel: 'no decorator registered under' },
-      { source: 're-frame.story.decorators (rf.error/decorator-unknown-kind)',
-        sentinel: 'rf.error/decorator-unknown-kind' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['re_frame/story.cljc', 're_frame/story/'],
   },
 
-  // xyflow / @xyflow/react (the Machines panel render engine,
-  // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
-  // `devDependency` of `implementation/package.json` consumed only by
-  // tools/machines-viz/ (the chart engine under
-  // tools/machines-viz/src/day8/re_frame2_machines_viz/chart/);
-  // Xray's Machines panel reaches xyflow through machines-viz.
-  // Counter (and the UIx counter variant) MUST NOT pull
-  // xyflow into their production bundles — Xray + machines-viz are
-  // dev-only (gated by `:devtools/preloads` in shadow-cljs), and a
-  // host that doesn't install Xray should never pay for the
-  // ~50-80KB gzipped xyflow render engine.
+  // The dev-only third-party libraries machines-viz and the Xray EDN widget
+  // pull in. Each is consumed only by tools/ and gated behind Xray's
+  // `:devtools/preloads`, so one in a production bundle means a `:require`
+  // slipped from a tools/* ns into a production-reachable one
+  // (tools/README.md). The manifest names npm sources under `node_modules/`
+  // and the two Maven libraries under their own namespace roots.
   //
-  // Sentinels are CSS class strings that survive `:advanced` because
-  // they appear as string literals in xyflow's source. The class
-  // `react-flow__pane` is xyflow's canvas-background DOM class —
-  // unique to the package; a global grep returns hits only when the
-  // xyflow module body is in the bundle. `@xyflow/react` is the npm
-  // package name as it appears in re-export keys; same posture.
-  //
-  // A non-zero hit means `@xyflow/react` got dragged into a
-  // production bundle (most likely a `:require` slipped from a
-  // tools/* ns into an implementation/* ns, or a chart ns got moved
-  // out of the Xray preload-gated tree). Tools/ MUST NOT be reachable
-  // from `implementation/` per the bundle-isolation contract in
-  // `tools/README.md`.
+  // xyflow (`@xyflow/react` and its `@xyflow/system` engine): the Machines
+  // panel's render engine, Path B per spec/021 §6.0 + §17.4. A host that
+  // doesn't install Xray should never pay for its ~50-80KB gzipped.
   {
     name: 'xyflow',
-    internalSentinels: [
-      // xyflow's canvas-pane CSS class. Distinctive substring;
-      // survives Closure :advanced (literal strings are not renamed).
-      { source: '@xyflow/react canvas pane CSS class (react-flow__pane)',
-        sentinel: 'react-flow__pane' },
-      // xyflow's node-renderer CSS class. Second sentinel guards
-      // against a future xyflow rename of one but not the other.
-      { source: '@xyflow/react node renderer CSS class (react-flow__node)',
-        sentinel: 'react-flow__node' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['node_modules/@xyflow/'],
   },
 
-  // elkjs (elk.js runs as xyflow's layout engine inside the
-  // MachineChart). Same
-  // posture as xyflow: dev-only, used only by
-  // `tools/machines-viz/src/.../chart.cljs` and gated behind the
-  // Xray preload. Production bundles MUST NOT pull elkjs — it's
-  // ~1MB minified, ~250KB gzipped.
-  //
-  // Sentinel is a distinctive elk.js internal symbol that survives
-  // `:advanced`. `elk.algorithm` appears in elk's options-handling
-  // code as a literal string and in the layoutOptions keys the
-  // chart emits; presence in a production bundle means elk.js got
-  // dragged in.
+  // elkjs: xyflow's layout engine inside the MachineChart, ~1MB minified.
   {
     name: 'elkjs',
-    internalSentinels: [
-      { source: 'elk.js algorithm-key string literal (elk.algorithm)',
-        sentinel: 'elk.algorithm' },
-      { source: 'elk.js layered-spacing-key string literal (elk.layered.spacing)',
-        sentinel: 'elk.layered.spacing' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['node_modules/elkjs/'],
   },
 
-  // zprint — the canonical pretty-printer Xray's EDN widget
-  // `code-block` uses to pre-format handler-source strings before the
-  // in-bundle tokenizer renders them
-  // (tools/xray/src/.../views/edn_widget.cljs). Same posture
-  // as the other Xray-only dependencies: consumed only by tools/ and gated
-  // behind the Xray `:devtools/preloads`. Production bundles MUST
-  // NOT pull zprint — the formatter body + its rewrite-clj dep weigh
-  // hundreds of kilobytes and give consumers no runtime benefit.
-  //
-  // Sentinels are distinctive identifiers from zprint's source body —
-  // the `zprint.core` namespace string appears in zprint's
-  // goog.provide-equivalent + namespace registrations. A non-zero hit
-  // means zprint's body got pulled into the bundle (most likely a
-  // `:require` slipped from tools/xray/* into implementation/*, or
-  // the EDN widget got referenced outside the Xray preload-gated
-  // tree).
+  // zprint: the pretty-printer the Xray EDN widget's `code-block` uses to
+  // pre-format handler-source strings; with its rewrite-clj dep it weighs
+  // hundreds of kilobytes.
   {
     name: 'zprint',
-    internalSentinels: [
-      // zprint's core namespace name as a literal string — appears in
-      // zprint's goog.provide-equivalent and internal references.
-      { source: 'zprint pretty-printer core namespace (zprint.core)',
-        sentinel: 'zprint.core' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['zprint/'],
   },
 
-  // editscript — Xray's diff engine. A* algorithm
-  // producing optimally-small EDN edit scripts. Same posture as zprint:
-  // dev-only, consumed only by tools/ (Xray), gated behind Xray's
-  // `:devtools/preloads`. Production bundles MUST NOT pull editscript
-  // — the engine ships ~25KB of source over multiple cljc files +
-  // pulls in a priority-map dep; the operator inspection UX is a dev-
-  // only concern, never a production one.
-  //
-  // Sentinels are live identifiers from editscript's quick-diff and A*
-  // implementations. A non-zero hit means a `:require` slipped from
-  // tools/xray/* into implementation/*, or the EDN widget's diff path
-  // got referenced outside the Xray preload-gated tree.
+  // editscript: Xray's diff engine, ~25KB of source over several cljc files
+  // plus a priority-map dep.
   {
     name: 'editscript',
-    internalSentinels: [
-      { source: 'editscript quick diff-map protocol entry',
-        sentinel: 'editscript.diff.quick/diff-map' },
-      { source: 'editscript A* failure diagnostic',
-        sentinel: 'A* diff fails to find a solution' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
+    forbiddenSources: ['editscript/'],
   },
 ];
 
-// ----- the positive control --------------------------------------------------
+// ----- the elision claims' positive control ---------------------------------
 
-// The checks above prove each internal sentinel is ABSENT from the counter
-// (no-feature) production bundle. On their own they are only HALF a contract:
-// a negative grep for a string that no longer exists ANYWHERE is a vacuous
-// pass. If a maintainer renames an error id (say `rf.error/flow-cycle` →
-// `rf.error/flow-cyclic` in the flows artefact) WITHOUT updating the sentinel
-// here, the old literal is absent from every bundle — so this gate stays green
-// whether or not the artefact actually leaks, and its teeth silently vanish
-// exactly where it is supposed to bite. Later, a stray `(:require
-// [re-frame.flows])` slipping into a core ns — the precise regression this gate
-// exists to catch — lands flows bodies in the counter bundle and the gate
-// STILL passes.
+// An elision claim proves its sentinels ABSENT from the counter bundle, and on
+// its own that is half a contract: a grep for a literal that no longer exists
+// ANYWHERE passes vacuously. Rename the literal in the artefact without
+// updating the sentinel, and the entry stays green whether or not the bodies
+// leak — exactly where it is supposed to bite.
 //
-// The sibling check-perf-bundle.cjs answers this with an ON-bundle POSITIVE
-// CONTROL: it also greps a build that DOES load the instrumented code and
-// asserts the sentinels are PRESENT (onCount > 0) there, so a moved / renamed
-// string fails LOUD rather than degrading to a vacuous pass. This map mirrors
-// that idea per artefact. Each artefact declares exactly one positive control:
+// So each elision claim names one module of the dedicated
+// :bundle-isolation-positive-control release, whose focused entrypoint reaches
+// the bodies, and every sentinel must be PRESENT in that exact emitted module
+// file. That release is the counter's :advanced compile with goog.DEBUG=true:
+// the bodies sit behind `rf.interop/debug-enabled?`, so it is the ON half of
+// the claim, the gate open, where the counter's goog.DEBUG=false release is
+// the OFF half. Each module stands alone, because Closure hoists a constant
+// several modules share into their common base module, where it would satisfy
+// a claim its own body never emits. Comments, docstrings, JVM-only reader
+// branches and DCE'd CLJS forms cannot satisfy it either, because the check
+// reads emitted JavaScript only.
 //
-//   { onBundle: '<example-dir>' }
-//       Grep an example release THIS gate already builds and that DOES load
-//       the artefact; assert every sentinel is PRESENT (count > 0). The
-//       strongest form (the perf-bundle template): it proves the sentinel is a
-//       live literal that survives `:advanced` compilation into a real
-//       production bundle. `login` (examples/core/login/model.cljc) requires
-//       the schemas / machines / http artefacts, so its bundle carries their
-//       sentinels.
-//
-//   { onModule: '<module-name>' }
-//       Grep exactly one module from the dedicated
-//       :bundle-isolation-positive-control release. Every module has a focused
-//       entrypoint that reaches the declared owner, and is built in the same
-//       :advanced mode with goog.DEBUG=false as the negative counter bundle.
-//       Exact module ownership is load-bearing: an occurrence emitted by a
-//       sibling module cannot satisfy this entry. Comments, docstrings,
-//       JVM-only reader branches, and DCE'd CLJS forms cannot satisfy it either
-//       because the checker reads emitted JavaScript only.
-//
-// assertPositiveControlComplete() requires EVERY artefact to appear here, so
-// adding a new artefact without declaring its positive control fails fast
-// rather than shipping another negative-only half-contract.
+// assertPositiveControlComplete() requires every elision claim to appear here
+// and nothing else to, so none can ship negative-only.
 const POSITIVE_CONTROL = {
-  // On-bundle (perf-bundle template): login loads these three artefacts.
-  schemas:  { onBundle: 'login' },
-  machines: { onBundle: 'login' },
-  http:     { onBundle: 'login' },
-
-  // On-bundle: realworld-resources `:require`s re-frame.resources
-  // and registers 20 resources + 11 mutations, so its `:advanced` release
-  // carries both registration-validator reason-ids. The strongest control
-  // (a real same-options production bundle), matching the schemas/machines/http
-  // login template — it proves the sentinels are live literals that survive
-  // `:advanced`, not just source text.
-  resources: { onBundle: 'realworld-resources' },
-
-  routing:             { onModule: 'routing' },
-  flows:               { onModule: 'flows' },
-  epoch:               { onModule: 'epoch' },
-  ssr:                 { onModule: 'ssr' },
-  // The :fresco module (scripts/bundle-isolation-positive-control/
-  // src/.../fresco.cljs) references the re-frame.fresco.impl.codec fns whose
-  // bodies carry both sentinels, so they are present in out/bundle-isolation-
-  // positive-control/fresco.js and a drifted marker or reason-id fails loud.
-  fresco:             { onModule: 'fresco' },
-  'trace-tooling':     { onModule: 'trace-tooling' },
-  'subs-tooling':      { onModule: 'subs-tooling' },
-  'flows-tooling':     { onModule: 'flows-tooling' },
-  'resources-tooling': { onModule: 'resources-tooling' },
-  'routing-tooling':   { onModule: 'routing-tooling' },
-  'machines-tooling':  { onModule: 'machines-tooling' },
-  'derivation-graph':  { onModule: 'derivation-graph' },
-  'derivation-egress': { onModule: 'derivation-egress' },
-  story:               { onModule: 'story' },
-  xyflow:              { onModule: 'xyflow' },
-  elkjs:               { onModule: 'elkjs' },
-  zprint:              { onModule: 'zprint' },
-  editscript:          { onModule: 'editscript' },
+  'trace-tooling': { onModule: 'trace-tooling' },
 };
+
+// The graph claims' on-control, taken from the target: every app loads
+// re-frame.core, so a manifest that does not list it is not the counter
+// build's, and no absence read from it means anything.
+const MANIFEST_ON_CONTROL = 're_frame/core.cljc';
 
 // ----- helpers ---------------------------------------------------------------
 
-// Bundle reading + grep primitives (escapeRe / countSubstring /
-// countMatches) are shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs, beside the bundle reader. The reader
-// returns only top-level *.js — the release artefact — so a stale
-// dev-build `cljs-runtime/` subdir from a prior `shadow-cljs compile`
-// doesn't get grep-ed alongside.
+// Bundle reading + grep primitives (escapeRe / countSubstring / countMatches)
+// and the manifest reader are shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs. The bundle reader returns only
+// top-level *.js — the release artefact — so a stale dev-build `cljs-runtime/`
+// subdir from a prior `shadow-cljs compile` doesn't get grep-ed alongside.
 
+// The emitted-bytes half of one artefact: its elision sentinels and its
+// allow-list budget, against the counter bundle. A graph claim carries no
+// sentinels, so for it this checks the budget alone.
 function checkArtefact(blob, artefact) {
-  report.detail(`  ${artefact.name}:`);
-
+  const sentinels = artefact.internalSentinels || [];
   let internalOk = true;
   let internalFailures = 0;
-  for (const { source, sentinel } of artefact.internalSentinels) {
+  for (const { source, sentinel } of sentinels) {
     const hits = countSubstring(blob, sentinel);
     const ok   = hits === 0;
     const tag  = ok ? 'OK' : 'FAIL';
@@ -792,26 +398,40 @@ function checkArtefact(blob, artefact) {
     internalOk,
     allowListOk,
     allowListHits,
-    internalChecked: artefact.internalSentinels.length,
+    internalChecked: sentinels.length,
     internalFailures,
     allowListChecked,
   };
 }
 
+// True iff manifest source `source` is what `forbidden` names: that file, or
+// anything under that directory. Whole segments only, so `re_frame/flows/`
+// does not catch core's own `re_frame/core_flows.cljc`.
+function sourceMatches(source, forbidden) {
+  return forbidden.endsWith('/') ? source.startsWith(forbidden) : source === forbidden;
+}
+
+// The graph half of one artefact: every manifest source its forbidden paths
+// match. `sources` is a build manifest's `:sources`, across all its modules.
+function checkGraphClaim(sources, artefact) {
+  const leaked = [];
+  for (const forbidden of artefact.forbiddenSources) {
+    const hits = sources.filter((source) => sourceMatches(source, forbidden));
+    const tag = hits.length === 0 ? 'OK' : 'FAIL';
+    report.detail(`    [${tag}] manifest source ${JSON.stringify(forbidden)}: ` +
+                  `expected 0, was ${hits.length}`);
+    leaked.push(...hits);
+  }
+  return { ok: leaked.length === 0, leaked, checked: artefact.forbiddenSources.length };
+}
+
 // ----- positive control ------------------------------------------------------
 
-// Lazy blob cache: real example bundles are keyed by directory, while focused
-// controls are keyed by their exact emitted module file.
+// Lazy cache of the positive-control release's emitted modules, keyed by
+// module name.
 function makePositiveContext() {
-  const bundleBlobs = new Map();
   const moduleBlobs = new Map();
   return {
-    onBundle(dir) {
-      if (!bundleBlobs.has(dir)) {
-        bundleBlobs.set(dir, classifyReleaseBundle(path.join(ROOT, 'out', 'examples', dir)));
-      }
-      return bundleBlobs.get(dir);
-    },
     onModule(moduleName) {
       if (!moduleBlobs.has(moduleName)) {
         const file = path.join(ROOT, 'out', 'bundle-isolation-positive-control', `${moduleName}.js`);
@@ -830,38 +450,16 @@ function makePositiveContext() {
   };
 }
 
-// Run the positive control for one artefact. Appends per-sentinel lines to the
-// report and returns { kind, ok, checked, passed, ... }.
+// Run the positive control for one elision claim. Appends per-sentinel lines to
+// the report and returns { ok, checked, passed, ... }.
 function checkPositiveControl(ctx, artefact) {
-  const pc = POSITIVE_CONTROL[artefact.name];
+  const moduleName = POSITIVE_CONTROL[artefact.name].onModule;
   const sentinels = artefact.internalSentinels;
-
-  if (pc.onBundle) {
-    const dir = pc.onBundle;
-    const { status, blob } = ctx.onBundle(dir);
-    if (status !== 'ok') {
-      report.detail(`    [FAIL] on-bundle '${dir}' positive control: bundle ${status} — ` +
-                    'cannot prove sentinels present (would be vacuous)');
-      return { kind: 'onBundle', ok: false, checked: sentinels.length, passed: 0, vacuous: true, bundle: dir };
-    }
-    const { ok, passed } = assertSentinelSet(blob, sentinels, {
-      mustContain: true,
-      count: true,
-      emit: (line) => report.detail(line),
-      formatLine: ({ source, sentinel, hits, tag }) =>
-        `    [${tag}] on-bundle '${dir}' present: ${source}: sentinel ` +
-        `${JSON.stringify(sentinel)} expected >= 1, was ${hits}`,
-    });
-    return { kind: 'onBundle', ok, checked: sentinels.length, passed, bundle: dir };
-  }
-
-  const moduleName = pc.onModule;
   const { status, blob, file } = ctx.onModule(moduleName);
   if (status !== 'ok') {
     report.detail(`    [FAIL] emitted module '${moduleName}' positive control: ${status} — ` +
                   'cannot prove sentinels present (would be vacuous)');
-    return { kind: 'onModule', ok: false, checked: sentinels.length, passed: 0,
-      vacuous: true, module: moduleName, file };
+    return { ok: false, checked: sentinels.length, passed: 0, vacuous: true, module: moduleName, file };
   }
   const { ok, passed } = assertSentinelSet(blob, sentinels, {
     mustContain: true,
@@ -871,50 +469,190 @@ function checkPositiveControl(ctx, artefact) {
       `    [${tag}] emitted module '${moduleName}' present: ${source}: sentinel ` +
       `${JSON.stringify(sentinel)} expected >= 1, was ${hits}`,
   });
-  return { kind: 'onModule', ok, checked: sentinels.length, passed,
-    module: moduleName, file };
+  return { ok, checked: sentinels.length, passed, module: moduleName, file };
 }
 
-// Startup completeness: every ARTEFACT must declare a positive control (and no
-// stale entries), so a new artefact cannot ship a negative-only half-contract.
+// A forbidden source is a relative classpath path: segments of path-safe
+// characters, ending in `/` when it names a directory. Anything else — an
+// absolute path, a `..`, an empty segment, a bare `/` — resolves against the
+// wrong root or matches nothing, so it is refused before it can pass.
+function isWellFormedSource(source) {
+  return typeof source === 'string' &&
+    /^[A-Za-z0-9_@.+-]+(\/[A-Za-z0-9_@.+-]+)*\/?$/.test(source) &&
+    !source.split('/').some((segment) => segment === '.' || segment === '..');
+}
+
+// The keys claimed by more than one owner, from `[key, owner]` pairs.
+function sharedOwners(pairs) {
+  const owners = new Map();
+  for (const [key, owner] of pairs) owners.set(key, [...(owners.get(key) || []), owner]);
+  return [...owners.entries()]
+    .filter(([_key, names]) => names.length !== 1)
+    .map(([key, names]) => ({ key, owners: names }));
+}
+
+// Startup completeness, fail-closed: every artefact declares exactly one
+// well-formed claim, every elision claim has a positive control and nothing
+// else does, and no emitted module, sentinel or forbidden source has two
+// owners.
 function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIVE_CONTROL) {
-  const missing = artefacts.filter((a) => !controls[a.name]).map((a) => a.name);
-  const extra = Object.keys(controls).filter(
-    (n) => !artefacts.some((a) => a.name === n)
-  );
+  const isGraph = (a) => Array.isArray(a.forbiddenSources) && a.forbiddenSources.length > 0;
+  const isElision = (a) => Array.isArray(a.internalSentinels) && a.internalSentinels.length > 0;
+  const unclaimed = artefacts.filter((a) => isGraph(a) === isElision(a)).map((a) => a.name);
+  const graph = artefacts.filter((a) => isGraph(a) && !isElision(a));
+  const elision = artefacts.filter((a) => isElision(a) && !isGraph(a));
+  const missing = elision.filter((a) => !controls[a.name]).map((a) => a.name);
+  const extra = Object.keys(controls).filter((name) => !elision.some((a) => a.name === name));
   const malformed = Object.entries(controls)
-    .filter(([_name, pc]) => Number(Boolean(pc.onBundle)) + Number(Boolean(pc.onModule)) !== 1)
+    .filter(([_name, pc]) => !pc || typeof pc.onModule !== 'string' || pc.onModule === '')
     .map(([name]) => name);
-  const moduleOwners = new Map();
-  for (const [name, pc] of Object.entries(controls)) {
-    if (!pc.onModule) continue;
-    const owners = moduleOwners.get(pc.onModule) || [];
-    owners.push(name);
-    moduleOwners.set(pc.onModule, owners);
+  const malformedSources = graph.flatMap((a) => a.forbiddenSources
+    .filter((source) => !isWellFormedSource(source))
+    .map((source) => ({ name: a.name, source })));
+  const sharedModules = sharedOwners(Object.entries(controls)
+    .filter(([_name, pc]) => pc && pc.onModule)
+    .map(([name, pc]) => [pc.onModule, name]))
+    .map(({ key, owners }) => ({ moduleName: key, owners }));
+  const sharedSentinels = sharedOwners(elision.flatMap((a) =>
+    a.internalSentinels.map(({ sentinel }) => [sentinel, a.name])))
+    .map(({ key, owners }) => ({ sentinel: key, owners }));
+  const sharedSources = sharedOwners(graph.flatMap((a) =>
+    a.forbiddenSources.map((source) => [source, a.name])))
+    .map(({ key, owners }) => ({ source: key, owners }));
+  const lists = { missing, extra, malformed, unclaimed, malformedSources,
+    sharedModules, sharedSentinels, sharedSources };
+  return { ...lists, ok: Object.values(lists).every((list) => list.length === 0) };
+}
+
+// ----- forbidden sources resolve on the classpath ----------------------------
+
+// A graph claim naming a source that does not exist can never match, so it
+// passes forever while guarding nothing — the graph-claim form of a renamed
+// sentinel. So every forbidden source must resolve on the classpath the
+// counter build compiles against, read from shadow-cljs.edn: under a
+// `:source-paths` root; under the one node_modules this repo installs (the
+// manifest names npm sources `node_modules/…`, relative to the project); or
+// inside a `:dependencies` jar in the local Maven repository, where
+// shadow-cljs resolves them.
+const MAVEN_REPOSITORY = path.join(os.homedir(), '.m2', 'repository');
+
+function readBuildClasspath(root = ROOT, mavenRepository = MAVEN_REPOSITORY) {
+  const config = readEdn(fs.readFileSync(path.join(root, 'shadow-cljs.edn'), 'utf8'));
+  const vectorAt = (key) => {
+    const value = isMap(config) ? mapGetKeyword(config, key) : undefined;
+    if (!value || value.edn !== 'vector') throw new EdnReadError(`shadow-cljs.edn has no :${key} vector`);
+    return value.items;
+  };
+  const dirs = vectorAt('source-paths').map((entry) => {
+    if (!entry || entry.edn !== 'string') throw new EdnReadError('a :source-paths entry is not a string');
+    return path.resolve(root, entry.value);
+  });
+  const jars = vectorAt('dependencies').map((dep) => {
+    const [lib, version] = dep && dep.edn === 'vector' ? dep.items : [];
+    if (!lib || lib.edn !== 'symbol' || !version || version.edn !== 'string') {
+      throw new EdnReadError('a :dependencies entry is not [lib "version" ...]');
+    }
+    const [group, artifact] = lib.name.includes('/') ? lib.name.split('/') : [lib.name, lib.name];
+    return {
+      lib: `${lib.name} ${version.value}`,
+      file: path.join(mavenRepository, ...group.split('.'), artifact, version.value,
+        `${artifact}-${version.value}.jar`),
+    };
+  });
+  return { root, dirs, jars };
+}
+
+// A jar's entry names, read from the zip central directory; null when the file
+// does not exist. Anything that is not a zip it can read throws, rather than
+// reading as a jar that holds nothing.
+function listJarEntries(file) {
+  let buf;
+  try {
+    buf = fs.readFileSync(file);
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
   }
-  const sharedModules = [...moduleOwners.entries()]
-    .filter(([_moduleName, owners]) => owners.length !== 1)
-    .map(([moduleName, owners]) => ({ moduleName, owners }));
-  const sentinelOwners = new Map();
-  for (const artefact of artefacts) {
-    for (const { sentinel } of artefact.internalSentinels) {
-      const owners = sentinelOwners.get(sentinel) || [];
-      owners.push(artefact.name);
-      sentinelOwners.set(sentinel, owners);
+  // The end-of-central-directory record is the last 22 bytes, before an
+  // archive comment of at most 64 KiB.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i -= 1) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
     }
   }
-  const sharedSentinels = [...sentinelOwners.entries()]
-    .filter(([_sentinel, owners]) => owners.length !== 1)
-    .map(([sentinel, owners]) => ({ sentinel, owners }));
-  return {
-    missing,
-    extra,
-    malformed,
-    sharedModules,
-    sharedSentinels,
-    ok: missing.length === 0 && extra.length === 0 && malformed.length === 0 &&
-      sharedModules.length === 0 && sharedSentinels.length === 0,
+  if (eocd < 0) throw new Error(`not a zip archive: ${file}`);
+  const count = buf.readUInt16LE(eocd + 10);
+  let offset = buf.readUInt32LE(eocd + 16);
+  const names = [];
+  for (let n = 0; n < count; n += 1) {
+    if (offset + 46 > buf.length || buf.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error(`unreadable zip central directory: ${file}`);
+    }
+    const nameLength = buf.readUInt16LE(offset + 28);
+    names.push(buf.toString('utf8', offset + 46, offset + 46 + nameLength));
+    offset += 46 + nameLength + buf.readUInt16LE(offset + 30) + buf.readUInt16LE(offset + 32);
+  }
+  return names;
+}
+
+// Where `source` resolves on `classpath` — a label for the root it was found
+// under — or null. A directory path must name a directory and a file path a
+// file, so `re_frame/flows/` cannot pass on the strength of `flows.cljc`.
+function resolveForbiddenSource(source, classpath, jarEntries = listJarEntries) {
+  const isDir = source.endsWith('/');
+  const exists = (p) => {
+    try {
+      const stat = fs.statSync(p);
+      return isDir ? stat.isDirectory() : stat.isFile();
+    } catch (_e) {
+      return false;
+    }
   };
+  if (source.startsWith('node_modules/')) {
+    return exists(path.join(classpath.root, source)) ? 'node_modules' : null;
+  }
+  for (const dir of classpath.dirs) {
+    if (exists(path.join(dir, source))) return path.relative(classpath.root, dir).replace(/\\/g, '/');
+  }
+  for (const jar of classpath.jars) {
+    const entries = jarEntries(jar.file);
+    if (entries && entries.some((entry) => (isDir ? entry.startsWith(source) : entry === source))) {
+      return jar.lib;
+    }
+  }
+  return null;
+}
+
+// Every graph claim's forbidden sources resolve. Returns
+// { ok, resolved, dead: [{ name, source }], absentJars, error }; a classpath or
+// jar that cannot be read fails closed, with `error` saying which.
+function assertForbiddenSourcesLive(artefacts = ARTEFACTS, readClasspath = readBuildClasspath) {
+  const dead = [];
+  const absentJars = new Set();
+  let resolved = 0;
+  try {
+    const classpath = readClasspath();
+    const jarCache = new Map();
+    const jarEntries = (file) => {
+      if (!jarCache.has(file)) jarCache.set(file, listJarEntries(file));
+      if (jarCache.get(file) === null) absentJars.add(file);
+      return jarCache.get(file);
+    };
+    for (const artefact of artefacts) {
+      for (const source of artefact.forbiddenSources || []) {
+        if (resolveForbiddenSource(source, classpath, jarEntries)) {
+          resolved += 1;
+        } else {
+          dead.push({ name: artefact.name, source });
+        }
+      }
+    }
+  } catch (e) {
+    return { ok: false, resolved, dead, absentJars: [...absentJars], error: e.message };
+  }
+  return { ok: dead.length === 0, resolved, dead, absentJars: [...absentJars], error: null };
 }
 
 // ----- canonical publishable-runtime coverage --------------------------------
@@ -1491,12 +1229,30 @@ function main() {
     process.exit(1);
   }
 
+  const manifest = readBuildManifest(bundleDir);
+  if (manifest.status !== 'ok') {
+    report.flushDetails();
+    console.error(`[bundle-isolation] build manifest ${manifest.status} — ${manifest.file}`);
+    if (manifest.reason) console.error(`                   ${manifest.reason}`);
+    console.error('                   The graph claims are read from the manifest.edn that');
+    console.error('                   "shadow-cljs release examples/counter" writes beside main.js.');
+    process.exit(1);
+  }
+
   report.detail(`bundle: ${bundleDir}`);
   report.detail(`bundle size: ${blob.length} chars`);
+  report.detail(`manifest: ${manifest.sources.length} sources`);
   report.detail('');
 
-  // Completeness: every artefact must declare a positive control.
+  // Completeness: every artefact declares exactly one claim, and every elision
+  // claim its positive control.
   const completeness = assertPositiveControlComplete();
+
+  // Liveness: every forbidden source names something real on the classpath.
+  const liveness = assertForbiddenSourcesLive();
+
+  // The manifest is the counter build's own.
+  const onControl = manifest.sources.includes(MANIFEST_ON_CONTROL);
 
   // Canonical coverage: every browser-optional publishable runtime
   // (deps.edn `:clein/build` authority) must carry a primary isolation entry,
@@ -1510,25 +1266,32 @@ function main() {
 
   const ctx = makePositiveContext();
 
-  let allOk = completeness.ok && coverage.ok && coLoad.ok;
+  let allOk = completeness.ok && liveness.ok && onControl && coverage.ok && coLoad.ok;
   const failures = [];
   const positiveFailures = [];
+  let graphChecked = 0;
   let internalChecked = 0;
   let allowListChecked = 0;
   let positiveChecked = 0;
   for (const artefact of ARTEFACTS) {
+    report.detail(`  ${artefact.name}:`);
+    const graph = artefact.forbiddenSources
+      ? checkGraphClaim(manifest.sources, artefact)
+      : { ok: true, leaked: [], checked: 0 };
+    graphChecked += graph.checked;
     const res = checkArtefact(blob, artefact);
     internalChecked += res.internalChecked;
     allowListChecked += res.allowListChecked;
-    if (!res.ok) {
+    if (!graph.ok || !res.ok) {
       allOk = false;
-      failures.push({ name: artefact.name, ...res });
+      failures.push({ name: artefact.name, leaked: graph.leaked, ...res });
     }
 
-    // Positive control: prove the sentinels still exist where they
+    // Positive control: prove each elision sentinel still exists where it
     // SHOULD, so a drifted / renamed sentinel fails LOUD instead of silently
     // turning the negative grep above into a vacuous pass. Skip artefacts with
-    // no declared control — assertPositiveControlComplete already flagged them.
+    // no declared control — assertPositiveControlComplete already flagged any
+    // elision claim missing one.
     if (POSITIVE_CONTROL[artefact.name]) {
       const pos = checkPositiveControl(ctx, artefact);
       positiveChecked += pos.checked;
@@ -1543,7 +1306,10 @@ function main() {
   if (allOk) {
     report.pass(
       'bundle-isolation',
-        `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
+        `${ARTEFACTS.length} artefact entries; ` +
+        `${graphChecked} forbidden sources absent from ${manifest.sources.length} manifest sources ` +
+        `(${liveness.resolved} resolved on the classpath); ` +
+        `${internalChecked} elision sentinels absent; ` +
         `${allowListChecked} allow-list budgets ok; ` +
         `${positiveChecked} emitted positive-control sentinels present; ` +
         `${coverage.required.length} canonical browser-optional runtimes covered ` +
@@ -1559,9 +1325,22 @@ function main() {
     console.error('=== FAIL ===');
     console.error('');
     if (failures.length) {
-      console.error('At least one per-feature artefact (or tools/story) leaked');
-      console.error('into the counter bundle. Per the bundle-isolation contracts');
-      console.error('(per-feature artefacts, and the tools/story jar):');
+      console.error('At least one artefact leaked into the counter bundle:');
+      for (const f of failures) {
+        if (f.leaked.length) {
+          const more = f.leaked.length > 5 ? ` and ${f.leaked.length - 5} more` : '';
+          console.error(`  - ${f.name}: the manifest lists ${f.leaked.slice(0, 5).join(', ')}${more}`);
+        }
+        if (!f.internalOk) {
+          console.error(`  - ${f.name}: ${f.internalFailures} elision sentinel(s) present in the emitted bundle`);
+        }
+        if (!f.allowListOk) {
+          console.error(`  - ${f.name}: ${f.allowListHits} consumer allow-list hit(s), over budget`);
+        }
+      }
+      console.error('');
+      console.error('Per the bundle-isolation contracts (per-feature artefacts, and');
+      console.error('tools/ with its dev-only dependencies):');
       console.error('  - Counter imports zero per-feature artefacts.');
       console.error('  - Each artefact ships as its own Maven jar, so a');
       console.error('    consumer that never requires one never pays for it.');
@@ -1571,33 +1350,68 @@ function main() {
       console.error('  - implementation/ MUST NOT `:require` anything under');
       console.error('    tools/ (tools/README.md bundle-isolation contract).');
       console.error('');
-      console.error('A non-zero internal-sentinel hit means a per-feature ns');
-      console.error('got pulled into the bundle (most likely a `:require` was');
-      console.error('added to a core/* namespace). A consumer-allow-list count');
-      console.error('above the expected value means core gained another reference');
-      console.error('to a consumer-side hook / fx key — verify it is intentional');
+      console.error('A forbidden source in the manifest means a namespace the counter');
+      console.error('build loads `:require`s it — most likely a `:require` added to a');
+      console.error('core/* namespace. An elision sentinel in the emitted bundle means a');
+      console.error('call site reached bodies Closure should have dropped. A consumer-');
+      console.error('allow-list count above the expected value means core gained another');
+      console.error('reference to a consumer-side hook / fx key — verify it is intentional');
       console.error('and bump expectedAllowListHits in this script.');
       console.error('');
     }
+    if (!onControl) {
+      console.error(`Manifest on-control: ${manifest.file} does not list`);
+      console.error(`${MANIFEST_ON_CONTROL}, which every app loads, so it is not the counter`);
+      console.error('build\'s manifest and no absence read from it means anything.');
+      console.error('');
+    }
+    if (!liveness.ok) {
+      console.error('Forbidden-source liveness:');
+      if (liveness.error) {
+        console.error(`  The build classpath could not be read: ${liveness.error}`);
+      }
+      for (const { name, source } of liveness.dead) {
+        console.error(`  - ${name}: ${JSON.stringify(source)} resolves nowhere on the build classpath`);
+      }
+      if (liveness.dead.length) {
+        console.error('  A forbidden source that names nothing can never match, so its claim');
+        console.error('  would pass whether or not the artefact leaks. Re-derive it from the');
+        console.error('  artefact\'s source tree — most likely a rename moved it.');
+      }
+      for (const jar of liveness.absentJars) {
+        console.error(`  (Not in the local Maven repository, so not searched: ${jar})`);
+      }
+      console.error('');
+    }
     if (!completeness.ok) {
-      console.error('Positive-control completeness:');
+      console.error('Claim completeness:');
+      if (completeness.unclaimed.length) {
+        console.error('  Artefact(s) without exactly one claim (forbiddenSources OR ' +
+          `internalSentinels): ${completeness.unclaimed.join(', ')}`);
+      }
       if (completeness.missing.length) {
-        console.error(`  Artefact(s) with NO positive control declared: ${completeness.missing.join(', ')}`);
-        console.error('  Add a POSITIVE_CONTROL entry (onBundle / onModule) so the');
-        console.error('  negative sentinel check cannot ship as a half-contract.');
+        console.error(`  Elision claim(s) with NO positive control declared: ${completeness.missing.join(', ')}`);
+        console.error('  Add a POSITIVE_CONTROL entry ({ onModule }) so the negative');
+        console.error('  sentinel check cannot ship as a half-contract.');
       }
       if (completeness.extra.length) {
-        console.error(`  POSITIVE_CONTROL entries with no matching artefact: ${completeness.extra.join(', ')}`);
-        console.error('  Remove the stale entry or restore the artefact it named.');
+        console.error(`  POSITIVE_CONTROL entries with no matching elision claim: ${completeness.extra.join(', ')}`);
+        console.error('  Remove the stale entry or restore the claim it named.');
       }
       if (completeness.malformed.length) {
-        console.error(`  Control(s) without exactly one emitted target: ${completeness.malformed.join(', ')}`);
+        console.error(`  Control(s) without an emitted module: ${completeness.malformed.join(', ')}`);
+      }
+      for (const { name, source } of completeness.malformedSources) {
+        console.error(`  ${name}: forbidden source ${JSON.stringify(source)} is not a relative classpath path`);
       }
       for (const { moduleName, owners } of completeness.sharedModules) {
         console.error(`  Emitted module '${moduleName}' is assigned to multiple owners: ${owners.join(', ')}`);
       }
       for (const { sentinel, owners } of completeness.sharedSentinels) {
         console.error(`  Sentinel ${JSON.stringify(sentinel)} is assigned to multiple owners: ${owners.join(', ')}`);
+      }
+      for (const { source, owners } of completeness.sharedSources) {
+        console.error(`  Forbidden source ${JSON.stringify(source)} is assigned to multiple owners: ${owners.join(', ')}`);
       }
       console.error('');
     }
@@ -1656,12 +1470,8 @@ function main() {
       console.error('bundle check above has LOST ITS TEETH for that artefact: it would');
       console.error('pass whether or not the artefact actually leaked.');
       for (const p of positiveFailures) {
-        if (p.vacuous && p.kind === 'onBundle') {
-          console.error(`  - ${p.name}: on-bundle '${p.bundle}' missing/empty — cannot prove presence`);
-        } else if (p.vacuous) {
+        if (p.vacuous) {
           console.error(`  - ${p.name}: emitted module '${p.module}' missing/empty — cannot prove presence`);
-        } else if (p.kind === 'onBundle') {
-          console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in on-bundle '${p.bundle}'`);
         } else {
           console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in emitted module '${p.module}'`);
         }
@@ -1682,10 +1492,16 @@ if (require.main === module) {
 module.exports = {
   ARTEFACTS,
   POSITIVE_CONTROL,
+  MANIFEST_ON_CONTROL,
   NON_BROWSER_OPTIONAL,
   DEDICATED_ISOLATION_GATES,
   assertPositiveControlComplete,
   checkArtefact,
+  checkGraphClaim,
+  assertForbiddenSourcesLive,
+  readBuildClasspath,
+  listJarEntries,
+  resolveForbiddenSource,
   pathDeclaresBuildAlias,
   discoverBrowserOptionalRuntimes,
   genericCoveragePaths,

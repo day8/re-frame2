@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle, readBuildManifest, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const tests = [];
 const cleanups = [];
@@ -67,6 +67,42 @@ test('classifyReleaseBundle ignores stale cljs-runtime dev sources when deciding
   });
   const c = classifyReleaseBundle(dir);
   assert.equal(c.status, 'empty', 'stale dev sources must not rescue an empty release artefact');
+});
+
+// ----- readBuildManifest -----------------------------------------------------
+// A graph claim reads "absent" off this list, so every shape the reader does not
+// understand must refuse rather than return a short list.
+
+test('readBuildManifest concatenates every module\'s :sources, in order', () => {
+  const dir = makeBundleDir({
+    'manifest.edn': '[{:module-id :a, :sources ["goog/base.js" "re_frame/core.cljc"], :depends-on nil}\n' +
+      ' {:module-id :b, :sources ["node_modules/elkjs/lib/elk.bundled.js"], :depends-on #{:a}}]',
+  });
+  const m = readBuildManifest(dir);
+  assert.equal(m.status, 'ok');
+  assert.deepEqual(m.sources, ['goog/base.js', 're_frame/core.cljc', 'node_modules/elkjs/lib/elk.bundled.js']);
+});
+
+test('readBuildManifest reports "missing" for a bundle with no manifest', () => {
+  assert.equal(readBuildManifest(makeBundleDir({ 'main.js': 'x();' })).status, 'missing');
+  assert.equal(readBuildManifest(missingDir()).status, 'missing');
+});
+
+test('readBuildManifest refuses every shape it cannot read as a module list', () => {
+  for (const [text, why] of [
+    ['{:sources ["re_frame/core.cljc"]}', 'a map, not a vector of modules'],
+    ['[{:module-id :main}]', 'a module with no :sources'],
+    ['[{:module-id :main, :sources "re_frame/core.cljc"}]', ':sources not a vector'],
+    ['[{:module-id :main, :sources [re_frame/core.cljc]}]', 'a :sources entry that is a symbol'],
+    ['[{:module-id :main, :sources []}]', 'no module lists a source'],
+    ['[]', 'no modules at all'],
+    ['[{:module-id :main, :sources ["re_frame/core.cljc"]', 'truncated EDN'],
+  ]) {
+    const m = readBuildManifest(makeBundleDir({ 'manifest.edn': text }));
+    assert.equal(m.status, 'unreadable', why);
+    assert.equal(m.sources, null, why);
+    assert.ok(m.reason, `${why}: the refusal must say why`);
+  }
 });
 
 // ----- countSubstring --------------------------------------------------------

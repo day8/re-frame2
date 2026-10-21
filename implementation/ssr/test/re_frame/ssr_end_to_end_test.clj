@@ -11,8 +11,8 @@
   values and cookie attributes, the cookie-attribute grammar, the redirect
   gate) reject in that lane, so their assertions read the always-on `:errors` axis
   rather than the dev trace. Only genuinely dev-only observations — the
-  `:rf.warning/*` family, the Spec 010 step-5
-  diagnostic and the redirect gate's raw diagnostics — sit in
+  `:rf.warning/*` family, the absence of a Spec 010 step-5
+  diagnostic for a reserved fx and the redirect gate's raw diagnostics — sit in
   `(when interop/debug-enabled? …)` arms, each beside the positive it
   belongs to, because a negative over the dev ring passes vacuously under
   the gate."
@@ -340,9 +340,9 @@
 
 (deftest ssr-redirect-relative-only-key-is-refused
   (testing "relative-only is the default, so :relative-only? is refused rather
-            than read, whatever its value, and no :redirect lands. The dev
-            schema and the always-on guard each refuse it; which one speaks
-            in which posture is `ssr-server-fx-args-schema-boundary`'s to pin"
+            than read, whatever its value, and no :redirect lands. The
+            always-on guard refuses it in every build; the error it raises is
+            `ssr-server-fx-args-schema-boundary`'s to pin"
     (doseq [v [true false]]
       (let [[f _] (drive-fx! :rf.server/redirect {:location "/x" :relative-only? v})]
         (is (nil? (:redirect (settled-response f))) (pr-str v))))))
@@ -669,7 +669,7 @@
 (deftest ssr-set-cookie-rejects-non-string-name-type
   (testing "a cookie :name that is neither a string nor a Named throws the
             catalogued :rf.error/cookie-invalid-name on the direct fx-handler
-            path (where no schema runs), not a raw ClassCastException"
+            path, not a raw ClassCastException"
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (doseq [call [#(rf.ssr.response/set-cookie-fx {:frame f} {:name 42 :value "x"})
                     #(rf.ssr.response/delete-cookie-fx {:frame f} {:name 99 :path "/"})]]
@@ -690,15 +690,14 @@
         (is (= [cookie] (:cookies (settled-response f))))))))
 
 ;; ===========================================================================
-;; ssr-server-fx-args-schema-boundary — a TWO-POSTURE CONTRACT.
+;; ssr-server-fx-args-schema-boundary — ONE ROUTE IN EVERY BUILD.
 ;;
-;; A malformed `:rf.server/*` fx never reaches the response in any build, but
-;; by different routes: in dev with schemas live the Spec 010 step-5 boundary
-;; rejects first with the rich `:rf.error/schema-validation-failure :where
-;; :fx-args`; in production step 5 is compiled out, the reserved fx's own
-;; guard throws, and `re-frame.fx` containment fans an always-on
-;; `:rf.error/fx-handler-exception`. The guards' accept/refuse corpus, read
-;; on the pure accumulator, is `re-frame.ssr-reserved-fx-guards-test`.
+;; A malformed `:rf.server/*` fx never reaches the response: the reserved
+;; fx's own guard throws, and `re-frame.fx` containment fans an always-on
+;; `:rf.error/fx-handler-exception` naming it. The reserved fx carry no
+;; `:schema`, so the Spec 010 step-5 boundary does not speak for them in dev
+;; either. The guards' accept/refuse corpus, read on the pure accumulator,
+;; is `re-frame.ssr-reserved-fx-guards-test`.
 ;; ===========================================================================
 
 (def ^:private malformed-server-fx
@@ -751,31 +750,21 @@
        (= fx-id (-> ev :tags :failing-id))))
 
 (deftest ssr-server-fx-args-schema-boundary
-  (testing "POSTURE-INDEPENDENT: a malformed set-status never reaches the
-            wire — it surfaces as the locked 500, because the default
-            projector's 400 arm is for client-surface failures and a server
-            fx built by a server handler is a server defect"
-    (is (= 500 (:status (:response (drive-server-fx! [:rf.server/set-status "not-an-int"]))))))
-
-  (when rf.interop/debug-enabled?
-    (testing "DEV ARM — step 5 rejects first, naming the fx and :where :fx-args"
-      (doseq [[label fx-id fx-vec] malformed-server-fx]
-        (let [traces (:dev-traces (drive-server-fx! fx-vec))]
-          (is (some #(fx-args-failure-for? fx-id %) traces)
-              (str label "; saw: " (pr-str (mapv (comp (juxt :where :failing-id) :tags) traces)))))))
-
-    (testing "DEV ARM — the permissive redirect schema admits the no-target
-              redirect (the documented warn→302 path the host adapter owns)"
-      (let [traces (:dev-traces (drive-server-fx! [:rf.server/redirect {:status 302}]))]
-        (is (not-any? #(fx-args-failure-for? :rf.server/redirect %) traces)))))
-
-  (when-not rf.interop/debug-enabled?
-    (testing "PRODUCTION ARM — the reserved fx's own guard throws and an
-              always-on :rf.error/fx-handler-exception names the fx, which is
-              what an off-box shipper receives"
-      (doseq [[label fx-id fx-vec] malformed-server-fx]
-        (let [{:keys [records]} (drive-server-fx! fx-vec)]
-          (is (some #(and (= :rf.error/fx-handler-exception (:rf.error/id %))
-                          (= fx-id (:failing-id %)))
-                    records)
-              (str label "; saw: " (pr-str (mapv (juxt :rf.error/id :failing-id) records)))))))))
+  (testing "in every build, the reserved fx's own guard throws, an always-on
+            :rf.error/fx-handler-exception names the fx (what an off-box
+            shipper receives), and the response is the locked 500 — the
+            default projector's 400 arm is for client-surface failures, and a
+            server fx built by a server handler is a server defect"
+    (doseq [[label fx-id fx-vec] malformed-server-fx]
+      (let [{:keys [response dev-traces records]} (drive-server-fx! fx-vec)]
+        (is (some #(and (= :rf.error/fx-handler-exception (:rf.error/id %))
+                        (= fx-id (:failing-id %)))
+                  records)
+            (str label "; saw: " (pr-str (mapv (juxt :rf.error/id :failing-id) records))))
+        (is (= 500 (:status response)) label)
+        ;; Beside the positive above, because under the production gate step 5
+        ;; is compiled out and this negative would pass vacuously.
+        (when rf.interop/debug-enabled?
+          (is (not-any? #(fx-args-failure-for? fx-id %) dev-traces)
+              (str label " — a reserved fx carries no :schema, so step 5 must not speak; saw: "
+                   (pr-str (mapv (comp (juxt :where :failing-id) :tags) dev-traces)))))))))

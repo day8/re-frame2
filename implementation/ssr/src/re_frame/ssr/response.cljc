@@ -101,7 +101,7 @@
 ;; before `swap-response!`, covering the CR/LF/NUL + token-grammar injection
 ;; surface. They are the WIRE-GRAMMAR half. This section is the SHAPE half:
 ;; the published TYPE contract of each args map (Spec 011 §Standard fx), which
-;; nothing else enforces outside a debug build.
+;; nothing else enforces in any build.
 ;;
 ;; MECHANISM — throw-through-containment, not skip-silently. The guards throw
 ;; the canonical `re-frame.error/throw-error!` BEFORE the first
@@ -120,34 +120,26 @@
 ;; STRING reaches the URL gate; only a `:location` that is not a string at all
 ;; (a keyword, a URI object) is a call the programmer got wrong.
 ;;
-;; POSTURE. Only the DIAGNOSTIC differs by build: dev-with-schemas gets the
-;; Malli step-5 skip plus its rich `:where :fx-args` diagnostic; production (or
-;; a schemas-less dev build) gets this guard's throw → containment → always-on
-;; `:rf.error/fx-handler-exception` record. Both reach SSR's error projection,
-;; which answers the sanitised 500 in every build. And the shape never differs:
+;; ONE CHECK, IN EVERY BUILD. The six registrations carry no `:schema`, so the
+;; step-5 boundary never runs for them and this guard is their one acceptance
+;; check: its throw → containment → always-on `:rf.error/fx-handler-exception`
+;; record, which SSR's error projection answers with the sanitised 500.
 ;; `get-response` never yields a malformed `:rf/response` shape in ANY build.
-;;
-;; ONE SHAPE, NOT TWO. The guard here and the Malli `:rf.fx.server/*-args`
-;; schemas in `re-frame.ssr.server-fx-schemas` are two enforcements of ONE
-;; published contract, so wherever they disagreed the accumulator would be
-;; posture-dependent again — the defect above, wearing a smaller hat. Two
-;; places they could disagree are settled the same way: by the shape Spec 011
-;; §Standard fx publishes.
+;; The Malli `:rf.fx.server/*-args` schemas in `re-frame.ssr.server-fx-schemas`
+;; describe the same shape for docs and tools; they check nothing. Two
+;; readings of that shape are settled by Spec 011 §Standard fx:
 ;;
 ;;   AN OPTIONAL KEY PRESENT WITH `nil` IS ABSENT. `{:path nil}` and `{}` say
 ;;   the same thing in Clojure, and code that builds a cookie out of an options
 ;;   map (`{:secure (:secure? opts)}`) writes the first while meaning the
-;;   second. The optional schema slots are `[:maybe …]`, so BOTH halves read a
-;;   present `nil` as absent; a schema that did not would skip `{:secure nil}`
-;;   in dev while the guard persisted it in production. A REQUIRED key is
-;;   different — `{:value nil}` is a missing `:value`, and `nil` is not a
-;;   status.
+;;   second. A REQUIRED key is different — `{:value nil}` is a missing
+;;   `:value`, and `nil` is not a status.
 ;;
 ;;   A COOKIE `:name` IS A STRING. `validate-cookie-name!` admits a keyword
-;;   or symbol (`(name n)` accepts either), while the schemas, Spec 011 §Cookie
-;;   shape and Spec-Schemas all publish `:string` — so without a type check
-;;   `{:name :csrf}` would be skipped in dev, land in production, and reach
-;;   every host adapter as a keyword where the contract promises a string.
+;;   or symbol (`(name n)` accepts either), while Spec 011 §Cookie shape and
+;;   Spec-Schemas publish `:string` — so without a type check `{:name :csrf}`
+;;   would reach every host adapter as a keyword where the contract promises a
+;;   string.
 ;;   Publishing the tolerance instead would hand every non-Ring adapter a
 ;;   `Named` to unwrap, pushing work onto adapters. So the fx boundary holds
 ;;   `:name` to the published type, exactly as `set-header-fx` holds a header
@@ -245,16 +237,14 @@
   for the same reason `checked-cookie-attrs` below is: the accepted shape is
   auditable in place rather than implied by a call sequence.
 
-  It mirrors `re-frame.ssr.server-fx-schemas/cookie` ROW FOR ROW, including
-  that schema's three documented INGRESS TOLERANCES — `:max-age`, `:expires`
+  It carries three documented INGRESS TOLERANCES — `:max-age`, `:expires`
   and `:same-site` accept their canonical type OR a string, because apps
   build cookie attrs from host data that arrives as strings and the
   per-attribute CR/LF gate must SEE those strings to reject a forged
   `\"3600\\r\\nSet-Cookie: admin=1\"`. A string `:expires` is deliberately
   tolerated here and rejected later by the Ring materialiser
-  (`:rf.error/cookie-invalid-expires`), exactly as the schema's docstring
-  says. `ssr-reserved-fx-guards-test`'s acceptance corpus drives this table
-  and the Malli schema from one literal so the two cannot drift.
+  (`:rf.error/cookie-invalid-expires`). `re-frame.ssr.server-fx-schemas/cookie`
+  describes this table, tolerances included, for docs and tools.
 
   `:name` is NOT here — it has its own richer gate
   (`validate-cookie-name!`) for the nil / unsupported-type / token-grammar
@@ -281,8 +271,8 @@
   `(some? v)` convention `validate-cookie!` applies to the injection gate, the
   reading every downstream consumer takes (`ssr-ring`'s materialiser
   appends `Path=` only `(when path)`), and the one Clojure gives a map entry
-  whose value is `nil`. `re-frame.ssr.server-fx-schemas/cookie` spells the same
-  rule `[:maybe …]` so the dev boundary cannot disagree with this one. For a
+  whose value is `nil`. `re-frame.ssr.server-fx-schemas/cookie` describes the
+  same rule as `[:maybe …]`. For a
   REQUIRED attribute `nil` is the violation it looks like: `{:value nil}` is a
   cookie with no value, which is exactly the malformation this gate exists to
   refuse."
