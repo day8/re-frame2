@@ -17,14 +17,11 @@ const path = require('path');
 
 const { isVerboseTests } = require('./lib/browser-test-report.cjs');
 const {
-  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
   probeTargetFromBaseUrl,
-  publishOwnershipToken,
   resolveServePort,
-  spawnHarnessProcess,
+  startLocalHttpServer,
   waitForHttpReady,
-  waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 const {
   SCENARIOS,
@@ -53,14 +50,12 @@ const READY_TIMEOUT_MS = 30000;
 const TEARDOWN_TIMEOUT_MS = 20000;
 const VERBOSE_TESTS = isVerboseTests();
 
-// Per-run ownership token. publishOwnershipToken
-// writes `${OUT_ROOT}/.rf-harness-token` before http-server is spawned
-// (OUT_ROOT is a staging dir this script owns — cleanAndStageRoot()
-// recreates it), then waitForOwnedHttpReady verifies it before any
-// Playwright scenario runs. Defeats a stale/foreign listener on the chosen
-// port serving a different (possibly stale-but-compatible → FALSE-GREEN)
-// asset tree. The whole token lifecycle (nonce + write + concurrency-safe
-// idempotent cleanup) lives in the shared local-browser-harness.cjs.
+// The local server starts through startLocalHttpServer, which publishes a
+// per-run ownership token under OUT_ROOT (a staging dir this script owns —
+// cleanAndStageRoot() recreates it) and proves the responder serves it before
+// any Playwright scenario runs, so a stale/foreign listener on the chosen port
+// serving a different (possibly stale-but-compatible → FALSE-GREEN) asset tree
+// is refused.
 
 // PR-smoke vs nightly-full split. With `--smoke` (or
 // RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
@@ -566,17 +561,6 @@ async function main() {
     return await runScenarios(EXTERNAL_BASE_URL.replace(/\/+$/, ''));
   }
 
-  // Publish the per-run ownership token BEFORE spawning http-server so
-  // the sentinel is visible the moment the server starts serving
-  // OUT_ROOT. The returned `remove` (idempotent, only unlinks
-  // our own token) is registered for teardown now that the token exists.
-  const published = publishOwnershipToken(OUT_ROOT);
-  if (!published) {
-    throw new Error(`Staging root missing: ${OUT_ROOT}. Did staging run?`);
-  }
-  const { token, remove } = published;
-  cleanup.addCleanup(remove);
-
   // Resolve the port: prefer XRAY_FEATURE_GATE_PORT (default 8037) when
   // free, else fall back to an OS-chosen free port. This
   // stops the gate from either failing to bind or — worse — silently
@@ -592,54 +576,16 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}`;
   console.log(`Serving ${OUT_ROOT} on ${baseUrl}`);
 
-  // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the ownership-
-  // token readiness probe and the headless browser only ever hit
-  // loopback, so the staged Xray bundle must not be exposed on non-
-  // loopback interfaces during the gate run (matches
-  // serve-and-run-adapter-smokes.cjs).
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
+  // A false `ready` has already printed the owner's reason.
+  const { ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: HTTP_SERVER_BIN,
+    root: OUT_ROOT,
+    port,
     cwd: IMPL_ROOT,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  }));
-
-  let serverDown = false;
-  server.on('exit', (code, signal) => {
-    serverDown = true;
-    if (code !== 0 && code !== null) {
-      console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
-    }
+    readyTimeoutMs: READY_TIMEOUT_MS,
   });
-
-  // Readiness WITH ownership-token verification: refuse to run scenarios
-  // against any server on `port` that does not serve this run's token.
-  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
-    isAborted: () => serverDown,
-  });
-  if (!ready.ok) {
-    if (ready.reason === 'child-exited' || serverDown) {
-      throw new Error(
-        `http-server exited before becoming reachable on :${port}. ` +
-          `Likely cause: port already in use or http-server failed to start.`,
-      );
-    }
-    if (ready.reason === 'token-mismatch') {
-      throw new Error(
-        `A server is reachable on :${port}, but its /${TOKEN_FILE_BASENAME} ` +
-          `does not match this run's ownership token. Refusing to run the Xray ` +
-          `feature gate against a server this harness did not launch ` +
-          `(got "${ready.got}", expected "${token}"). ` +
-          `Set XRAY_FEATURE_GATE_PORT to pin a different port if this is intentional.`,
-      );
-    }
-    if (ready.reason === 'token-never-served') {
-      throw new Error(
-        `http-server on :${port} became reachable but never served ` +
-          `/${TOKEN_FILE_BASENAME} within ${READY_TIMEOUT_MS}ms. ` +
-          `Staging root may be inconsistent.`,
-      );
-    }
-    throw new Error(`http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`);
-  }
+  if (!ready) return 1;
 
   return await runScenarios(baseUrl);
 }
