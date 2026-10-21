@@ -192,7 +192,6 @@ implementation/                CLJS reference implementation — per-artefact su
   routing/                     day8/re-frame2-routing — URL ↔ frame routing
   ssr/                         day8/re-frame2-ssr — server-side rendering + hydration
   ssr-ring/                    day8/re-frame2-ssr-ring — Ring adapter for SSR pipeline
-  epoch/                       day8/re-frame2-epoch — epoch ring-buffer + partial-record contract
   test-quiet/                  Quiet-on-success reporter shared across 17 test runners
   security/                    Cross-cutting security regression tests (MCP egress, schema
                                redaction, SSR escaping) — test-only, no shipped namespace

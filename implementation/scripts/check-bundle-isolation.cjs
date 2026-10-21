@@ -6,7 +6,7 @@
  * per-feature artefacts AND nothing under tools/. Three families of
  * leak are pinned absent from its production bundle:
  *   - per-feature splits (schemas / machines / routing / flows / http /
- *     ssr / epoch) — each ships as its own Maven jar; core MUST NOT
+ *     ssr) — each ships as its own Maven jar; core MUST NOT
  *     `:require` any of them (the re-export wrappers late-bind at call
  *     time);
  *   - the tooling siblings + dev-only composers (trace.tooling,
@@ -150,25 +150,25 @@ const ARTEFACTS = [
     expectedAllowListHits: 2,
   },
 
-  // Epoch artefact (re-frame.epoch lives at implementation/epoch/;
-  // Tool-Pair §Time-travel surface). Xray's preload.cljs `:requires`
-  // re-frame.epoch to anchor it onto the dev classpath so every Xray-enabled
-  // build has working time-travel; the preload is dev-only (gated by
-  // shadow-cljs `:devtools/preloads`), so the anchor must NOT pull epoch into a
-  // production bundle. Core's `rf/epoch-history` forwarder looks the producing
-  // fn up through the late-bind hook table at call time.
+  // Epoch history and time-travel (re-frame.epoch, Tool-Pair §Time-travel) — an
+  // ELISION claim, because `re-frame.core` requires `re-frame.epoch`, so the
+  // namespace IS in the counter build's graph. The counter bundle stays clean
+  // because epoch's load-time hook publication, its lifecycle contribution and
+  // every core call into it sit behind `rf.interop/debug-enabled?`, so Closure
+  // drops the bodies. `rf.epoch/snapshotted` is emitted by `settle!`, which only
+  // that publication reaches; `rf.epoch/restored` by `restore-epoch!`.
   {
     name: 'epoch',
-    relPath: 'epoch',
-    forbiddenSources: ['re_frame/epoch.cljc', 're_frame/epoch/'],
-    // One consumer-side string: `epoch/settle!` — the late-bind hook
-    // key the router calls into at drain-empty (router.cljc). Core
-    // publishes the call site so the epoch artefact can populate the
-    // hook at ns-load time; when the artefact is absent the lookup
-    // returns nil and the call is a no-op. Sibling `:epoch/*` hook
-    // keys (epoch-history, restore-epoch!, …) get DCE'd in counter
-    // because their wrappers in core_epoch.cljc are unreachable from
-    // the example's entry points.
+    internalSentinels: [
+      { source: 're-frame.epoch/settle! (rf.epoch/snapshotted)',
+        sentinel: 'rf.epoch/snapshotted' },
+      { source: 're-frame.epoch/restore-epoch! (rf.epoch/restored)',
+        sentinel: 'rf.epoch/restored' },
+    ],
+    // One consumer-side string: `epoch/settle!` — the late-bind hook key the
+    // router looks up after each event (router.cljc). A production build
+    // publishes nothing under it, so the lookup returns nil and the call is a
+    // no-op.
     consumerAllowList: /epoch\/settle!/g,
     expectedAllowListHits: 1,
   },
@@ -213,7 +213,7 @@ const ARTEFACTS = [
   // `rf.interop/debug-enabled?` and the counter never calls them, so Closure
   // drops them. The sentinel is the `:trace-events` slot of the tooling's
   // `trace-buffer` event-bundle projection; the only other code emitting it is
-  // the epoch artefact, which the `epoch` graph claim keeps out of this bundle.
+  // epoch, whose bodies the `epoch` elision claim pins out of this bundle too.
   // A non-zero hit means one of the two reached a production bundle.
   {
     name: 'trace-tooling',
@@ -353,6 +353,7 @@ const ARTEFACTS = [
 // and nothing else to, so none can ship negative-only.
 const POSITIVE_CONTROL = {
   'trace-tooling': { onModule: 'trace-tooling' },
+  'epoch': { onModule: 'epoch' },
 };
 
 // The graph claims' on-control, taken from the target: every app loads

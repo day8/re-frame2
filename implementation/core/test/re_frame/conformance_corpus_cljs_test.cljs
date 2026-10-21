@@ -20,7 +20,7 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.events]
-            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.routing :as rf.routing]
             ;; Registers `:rf.test/simulate-http-resolution` at ns-load, before
             ;; the baselines below are captured.
@@ -98,10 +98,8 @@
   (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
   (rf.error-emit/clear-error-listeners!)
   ;; `:epoch-records` must observe only this fixture's epochs.
-  (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
-    (f))
-  (when-let [f (rf.late-bind/get-fn :epoch/clear-epoch-listeners!)]
-    (f))
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
   (rf.resources.test-support/reset-resources!))
 
 ;; ---- host map --------------------------------------------------------------

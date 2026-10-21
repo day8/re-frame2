@@ -5,12 +5,12 @@
   `:db-after` with bookkeeping passing through; the shared app-db axes kept
   independent of each other; `:trigger-event` args failing closed; the t1/t2
   pending-db trace re-root; the explicit `:frame` override; the profile floor
-  resolved once at the record boundary; and guards G1 (absent projector) and G2
-  (a core whose door does not dispatch `:rf/epoch-record`). Every redaction assertion sits beside a
+  resolved once at the record boundary; and guard G1 (absent projector). Every
+  redaction assertion sits beside a
   value that rides raw through the same call, or an opt-in revealing it.
 
   Dual-lane `.cljc`: the `-cljs-test` suffix puts it in the shadow-cljs
-  `:node-test` build, and the artefact's `clojure -M:test` runs it on the JVM.
+  `:node-test` build, and core's `clojure -M:test` runs it on the JVM.
 
   ## Production gate
 
@@ -19,8 +19,8 @@
   ELIDED. What it asserts about — a recorded epoch, the ring, the
   capture buffer, or a record read back out of them — is assembled only
   while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
-  there is no subject. Epoch's production posture is that the
-  artefact is off, so that is the design, not a defect."
+  there is no subject. Epoch's production posture is that it is
+  elided, so that is the design, not a defect."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
@@ -274,7 +274,7 @@
              (get-in (rf/project-egress raw {:rf.egress/profile :rf.egress/local-raw})
                      [:frame-state-after :rf.db/runtime]))))))
 
-;; ---- guards G1 and G2 -------------------------------------------------------
+;; ---- guard G1 ---------------------------------------------------------------
 
 (deftest guard-g1-absent-projector-yields-no-payload-at-all
   (testing "with the projector absent the door throws before returning anything,
@@ -287,18 +287,5 @@
                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
                           (ex-data e))
                         (finally (rf.late-bind/set-fn! :epoch/project-record original)))]
-      (is (= :rf.error/epoch-artefact-missing (:rf.error/id data)))
+      (is (= :rf.error/epoch-elided (:rf.error/id data)))
       (is (not (contains-secret? data))))))
-
-(deftest guard-g2-refuses-a-core-whose-door-does-not-dispatch-the-kind
-  (testing "`late-bind/set-fns!` validates no key, so a new epoch artefact would
-            register against an old core in silence and that core would
-            bare-walk every record; the artefact refuses to load against a core
-            whose door does not dispatch `:rf/epoch-record`"
-    (is (= {:rf.epoch/load-refusal :rf.epoch/core-version-skew
-            :kind                  :rf/epoch-record
-            :hook                  :epoch/project-record}
-           (try (rf.epoch/assert-core-dispatches-epoch-records! false)
-                nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                  (select-keys (ex-data e) [:rf.epoch/load-refusal :kind :hook])))))))

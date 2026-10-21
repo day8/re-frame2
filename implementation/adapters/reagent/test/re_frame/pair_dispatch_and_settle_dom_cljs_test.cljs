@@ -10,8 +10,8 @@
   on the global `:source-paths` per implementation/shadow-cljs.edn), but
   its CONTRACT — 'the returned epoch carries the view renders/unmounts' —
   only has teeth against the REAL machinery: a live substrate adapter
-  (so `flush-render!` resolves a substrate-native flush), the epoch
-  artefact's post-settle render/unmount BACK-FILL (Spec 009 — a render
+  (so `flush-render!` resolves a substrate-native flush), epoch's
+  post-settle render/unmount BACK-FILL (Spec 009 — a render
   fires at React commit time, AFTER the cascade settles, and is
   re-attributed into the causing epoch + re-fanned to listeners), and
   real view-render trace emission. The pair-mcp dispatch_test pins the

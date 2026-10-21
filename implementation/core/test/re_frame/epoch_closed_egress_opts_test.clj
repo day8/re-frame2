@@ -10,15 +10,18 @@
 
 (defn- bad-opts-ex-data
   "The `ex-data` of a `:rf.error/bad-egress-opts` throw from `f`, or nil when
-  nothing throws. Any other error is re-thrown so it reports itself."
+  nothing throws. `:rf.error/epoch-elided` also reads nil: the epoch arm raises
+  it under the production gate, after the door graded the opts. Any other error
+  is re-thrown so it reports itself."
   [f]
   (try
     (f)
     nil
     (catch clojure.lang.ExceptionInfo e
       (let [d (ex-data e)]
-        (if (= :rf.error/bad-egress-opts (:rf.error/id d))
-          d
+        (case (:rf.error/id d)
+          :rf.error/bad-egress-opts d
+          :rf.error/epoch-elided    nil
           (throw e))))))
 
 (def ^:private a-record

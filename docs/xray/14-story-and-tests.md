@@ -78,7 +78,7 @@ portable login-form registrations:
   (story/is :story.login-form/error-regression))
 ```
 
-The test classpath needs the Story and epoch artefacts and the testbed's source
+The test classpath needs the Story artefact and the testbed's source
 path. In your app, require your own `.cljc` stories namespace instead of
 `login-form.stories`. A headless runner checks events and state; a scenario
 with DOM steps needs a runner with the required DOM capabilities. The
@@ -104,7 +104,7 @@ shows the isolated-frame replay.
 | `:fail` despite correct final state | A check failed or unconsumed failure evidence remains | Read the failed assertion and schema/error evidence |
 | `:cannot-run` | The runner lacks required capabilities | Choose a capable runner or keep this regression at a state-only level |
 | `:error` | Running the scenario itself failed | Read the exception and execution details; this is not an assertion pass |
-| No epochs in a headless run | The epoch artefact was not loaded or evidence was not retained | Require `re-frame.epoch` and rerun with enough retention |
+| No epochs in a headless run | The build elides epoch (`goog.DEBUG` false) or evidence was not retained | Run a development build with enough retention |
 | A variant created in the shell disappears on reload | Its registration was only in memory | Copy the generated form into the stories namespace |
 
 Xray never changes these verdicts. It supplies evidence to help you fix the

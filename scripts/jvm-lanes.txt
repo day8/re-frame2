@@ -50,7 +50,6 @@ implementation/ssr                      test,test:prod-gate  slow  implementatio
 # (`:crossing-test` needs Node), which this row's `:test` alias excludes.
 implementation/ssr-ring                 test                 -     implementation_jvm          matrix
 
-implementation/epoch                    test,test:prod-gate  -     implementation_jvm          matrix
 implementation/resources                test                 -     implementation_jvm          matrix
 
 # The deterministic control for the cold-load race the spec/ reader exists to

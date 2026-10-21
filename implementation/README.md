@@ -18,7 +18,7 @@ The implementation is split into per-Maven-artefact subdirectories per
 [Conventions §Adapter shipping convention](../spec/Conventions.md#adapter-shipping-convention)
 (rf2-0hxm). This is extended to per-feature artefacts under rf2-p7va (schemas),
 rf2-xbtj (machines), rf2-k682 (routing), rf2-tfw3 (flows), rf2-5kpd
-(http), rf2-uo7v (ssr), and rf2-lt4e (epoch). Each subdirectory carries
+(http) and rf2-uo7v (ssr). Each subdirectory carries
 its own `deps.edn`. The top-level `deps.edn` and `shadow-cljs.edn` are
 build coordinators that pull every artefact onto a single classpath
 for the cross-substrate builds (browser tests, elision probe, examples).
@@ -31,7 +31,7 @@ There are 2 top-level groupings:
   per adapter (`reagent`, `uix`).
 - per-feature artefacts — one flat directory per feature
   (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`,
-  `resources`, `epoch` — 9 in all), each plugged into core via the
+  `resources` — 8 in all), each plugged into core via the
   `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
@@ -64,6 +64,8 @@ implementation/
       std_interceptors.cljc  :rf.interceptor/path standard + path/unwrap removed-value stubs.
       cofx.cljc              reg-cofx supplier + declared-only delivery (:rf.cofx/requires).
       trace.cljc             Trace event emission + listener API.
+      epoch.cljc             Per-frame :rf/epoch-record ring buffer + time-travel
+                             (Tool-Pair §Time-travel; dev-only, re-frame.epoch.*).
       late_bind.cljc         Late-binding hook table for cross-artefact references.
       performance.cljc       Per-cascade duration capture + budget warnings (Spec 009).
       source_coords.cljc     Source-coord capture + format helpers (Spec 009).
@@ -130,13 +132,6 @@ implementation/
     src/re_frame/ssr.cljc          Hiccup → HTML5 emitter, :rf/hydrate, :rf.server/* fx,
                                    error projector.
     test/re_frame/                 JVM SSR end-to-end tests + source-coord parity tests.
-
-  epoch/                     day8/re-frame2-epoch — per-frame epoch history
-                             (Tool-Pair §Time-travel, rf2-lt4e).
-    deps.edn                 :local/root dep on ../core.
-    src/re_frame/epoch.cljc        Per-frame :rf/epoch-record ring buffer + projection
-                                   walker for sub-runs / renders / effects.
-    test/re_frame/                 JVM epoch tests.
 
   resources/                 day8/re-frame2-resources — managed resource queries
                              (Spec 016, EP-0003, rf2-p10npe).
@@ -324,10 +319,6 @@ clojure -M:test
 
 # ssr artefact
 cd implementation/ssr
-clojure -M:test
-
-# epoch artefact
-cd implementation/epoch
 clojure -M:test
 ```
 

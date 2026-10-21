@@ -17,7 +17,7 @@
   hold in every build.
 
   Lives in core's test tree because only core's `:test` classpath carries the
-  machines, flows and epoch artefacts together."
+  machines and flows artefacts together."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

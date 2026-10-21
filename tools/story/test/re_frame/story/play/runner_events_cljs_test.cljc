@@ -12,8 +12,7 @@
             [re-frame.story.loaders     :as rf.story.loaders]
             [re-frame.story.play        :as rf.story.play]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
-            ;; The narrative attribution tests read a live epoch tape; requiring
-            ;; the epoch artefact installs its capture hooks so the tape is real.
+            ;; The narrative attribution tests read a live epoch tape.
             [re-frame.epoch             :as rf.epoch]
             [re-frame.machines          :as rf.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]

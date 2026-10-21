@@ -6,7 +6,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — `implementation/**`
 
-Path: `implementation/core/src/re_frame/**`, `implementation/adapters/reagent/src/re_frame/**`, plus per-feature artefacts (`implementation/machines/`, `implementation/routing/`, `implementation/flows/`, `implementation/http/`, `implementation/ssr/`, `implementation/schemas/`, `implementation/epoch/`).
+Path: `implementation/core/src/re_frame/**`, `implementation/adapters/reagent/src/re_frame/**`, plus per-feature artefacts (`implementation/machines/`, `implementation/routing/`, `implementation/flows/`, `implementation/http/`, `implementation/ssr/`, `implementation/schemas/`).
 
 **This is the source of truth.** Every code snippet in `references/` and `patterns/` is verified against the implementation — the function signatures, the macro shapes, the keyword option sets, the late-bind hook contracts. When the spec disagrees with the implementation, the implementation wins.
 

@@ -611,8 +611,8 @@ available. The lifecycle is normative.
    under `:rf.xray/trace-collector`.
 3. Register the epoch collector via
    [`(rf/register-listener! :epoch …)`](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)
-   under `:rf.xray/epoch-collector`. `day8/re-frame2-epoch` is a hard Xray
-   dependency, so the artefact is always present in an Xray build.
+   under `:rf.xray/epoch-collector`. Epoch ships in core, so it is always
+   present in an Xray build.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
 5. Schedule a bounded substrate-adapter readiness probe. On readiness it
@@ -1052,23 +1052,17 @@ side-effect surface auditable. Test fixtures MAY call
 `reset-for-test!` to drop the sentinel and drive multiple
 registration cycles; production code MUST NOT.
 
-**Epoch artefact is a hard Xray dependency.** `day8/re-frame2-epoch`
-is optional *for a host app*, but it is a **hard dependency of Xray**.
-Two things make that a compile-time guarantee, and neither is the verb
-the registration spells: the `day8/re-frame2-epoch` coordinate in
-`tools/xray/deps.edn`, which puts the artefact on the classpath, and the
-bare `[re-frame.epoch]` require in `install.cljs`, which LOADS the
-producer namespace on every startup path — including manual
-`core/init!`, which requires `install` but not `preload`. The facade
-reaches the producer through a late-bind hook an unloaded namespace never
-populates, so the require is what stops
-`(rf/register-listener! :epoch …)` degrading to the silent
-no-op it correctly performs for a host that must tolerate the artefact's
-absence. The "absent-artefact" case therefore cannot arise for a compiled
-Xray. See [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).
+**Epoch history ships in core.** Epoch history and time-travel
+(`re-frame.epoch`) ship in `day8/re-frame2`, and `re-frame.core` loads them,
+so every development build that carries Xray records epochs and
+`(rf/register-listener! :epoch …)` delivers on every startup path — the
+preload and manual `core/init!` alike. `install.cljs` and `preload.cljs` each
+still require `re-frame.epoch`, naming the dependency. A production build
+elides epoch, and Xray is dev-tier, so no compiled Xray meets an absent epoch
+surface. See [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).
 Xray's epoch-reading panels still render an empty state when
 `(empty? (rf.epoch/epoch-history ...))` — but that reflects a target frame
-with **no epochs recorded yet**, not an absent artefact. (There is no
+with **no epochs recorded yet**. (There is no
 Time Travel PANEL to point at: it was deleted under `rf2-qy0nu` as
 unreachable in the 4-layer shell. Its epoch / target-frame plumbing
 survives it in
@@ -1076,23 +1070,12 @@ survives it in
 Machine Inspector and Reactive panels read
 `:rf.xray/epoch-history` from there.)
 
-**Where that guarantee is witnessed.** The claim above is about a
-DEPENDENCY GRAPH, so no test sharing a bundle with `preload.cljs` can
-grade it: the preload carries the identical bare require, and a delivery
-assertion beside it passes whether or not `install.cljs` still spells its
-own. The witness is therefore a namespace plus a build that selects only
-that namespace —
-`tools/xray/test/day8/re_frame2_xray/manual_epoch_delivery_cljs_test.cljs`
-under the `:node-test-xray-manual-epoch` build in
-`implementation/shadow-cljs.edn` (`npm run test:xray-manual-epoch`). Its
-require list reaches `re-frame.epoch` through `install.cljs` and nowhere
-else, and it asserts both halves of the paragraph above: that the
-producer reads as loaded through `(rf/features)` after requiring the
-manual facade alone, and that an `:epoch` listener registered through the
-facade after `core/init!` receives a dispatched event's assembled
-`:rf/epoch-record`. Delete the require and that build goes red; the
-always-on `:node-test` bundle, which runs the same namespace, stays
-green — which is precisely why the focused build exists.
+**Where that guarantee is witnessed.**
+`tools/xray/test/day8/re_frame2_xray/manual_epoch_delivery_cljs_test.cljs`,
+in the always-on `:node-test` build, asserts that an `:epoch` listener
+registered through the facade after the manual `core/init!` receives a
+dispatched event's assembled `:rf/epoch-record`; the panel end-to-end suites
+drive the preload's `register-epoch-collector!`.
 
 **Frame-destroy handling.** When the host frame whose drain
 produced an epoch is later destroyed (per

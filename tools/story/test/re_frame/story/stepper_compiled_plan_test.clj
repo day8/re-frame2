@@ -45,8 +45,7 @@
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; Requiring `re-frame.epoch` installs the epoch artefact's late-bind
-  ;; hooks, so a run records a real `:epoch-tape` for the scrubber witness.
+  ;; A run records a real `:epoch-tape` for the scrubber witness.
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
   (try (rf/init! rf.substrate.plain-atom/adapter)

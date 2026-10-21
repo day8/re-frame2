@@ -12,7 +12,6 @@
 ;;   - ssr/      (day8/re-frame2-ssr)
 ;;   - ssr-ring/ (day8/re-frame2-ssr-ring)
 ;;   - resources/ (day8/re-frame2-resources)
-;;   - epoch/    (day8/re-frame2-epoch)
 ;;   - fresco/  (day8/re-frame2-fresco)
 ;; each with its own deps.edn in that directory. The substrate adapters
 ;; live under implementation/adapters/; per-feature artefacts sit flat
@@ -36,7 +35,6 @@
          day8/re-frame2-http     {:local/root "http"}
          day8/re-frame2-ssr      {:local/root "ssr"}
          day8/re-frame2-ssr-ring {:local/root "ssr-ring"}
-         day8/re-frame2-epoch    {:local/root "epoch"}
          ;; The optional Resources artefact (Spec 016, EP-0003).
          ;; Managed resource queries: reg-resource, the :rf.resource/*
          ;; events + passive subs, in-flight attempts, invalidation/GC, and
@@ -68,7 +66,6 @@
                  "http/test"
                  "ssr/test"
                  "ssr-ring/test"
-                 "epoch/test"
                  ;; Resources artefact test tree.
                  "resources/test"
                  ;; The Fresco artefact test tree — package tests only; the

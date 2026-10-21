@@ -4,7 +4,7 @@ In development builds, re-frame records an epoch for every event a frame handles
 
 Most of the time you use epochs through a tool: Xray's time-travel view, re-frame2-pair and Story read the history and call these functions for you. At a REPL the usual loop is the one below: find the event that went wrong, rewind to just before it, fix and reload its handler, and replay it.
 
-Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it, and call the functions on this page there, as `rf.epoch/…`. A tool that must also run without the artefact reads the history through `rf/epoch-history`, which returns `[]` when it is absent.
+Epoch history ships in core: `re-frame.core` loads `re-frame.epoch`, so every development build records epochs. Call the functions on this page there, as `rf.epoch/…`; `rf/epoch-history` is the same read re-exported on the facade.
 
 ```clojure
 (:require [re-frame.core  :as rf]
@@ -84,7 +84,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
   ```
 - **Description**: Returns the frame's epoch records, oldest first. [The epoch record](#the-epoch-record) lists what each one holds.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
-    - Returns `[]` for an unknown or destroyed frame, for a frame that has recorded no epochs, when recording is off (`:depth` 0), and when the `day8/re-frame2-epoch` artefact is not loaded. Destroying a frame drops its history, so a new frame created under the same id starts empty.
+    - Returns `[]` for an unknown or destroyed frame, for a frame that has recorded no epochs, when recording is off (`:depth` 0), and in a production build. Destroying a frame drops its history, so a new frame created under the same id starts empty.
     - A record is added when each handled event runs to completion, not once per drain. A drain that handles a parent event and a child it queued with `:fx [[:dispatch …]]` adds two records; a machine macrostep stays one.
     - A `replace-frame-state!` write adds a record, and so does a drain that stops at its depth limit. Work a destroy drops at the event boundary adds none: its `:halted-destroy` record goes to [listeners](#epoch-listeners) only.
     - The ring keeps the newest `:depth` records per frame (default 50); see [Configuration](#configuration).
@@ -142,7 +142,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 - **Description**: Rewinds the frame to the named epoch's `:frame-state-after` in one atomic write, or with `opts` `{:to :before}` to its `:frame-state-before`. Both partitions rewind: `app-db` and `runtime-db` alike, so machine snapshots and the route slice go back too.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
     - `{:to :before}` undoes a `replace-frame-state!` write: restore the record it left `:before`. That needs no earlier epoch, so it works on a fresh frame too. It also reaches the state before the oldest retained event. `:to` defaults to `:after`; any other value throws.
-    - On success it returns `{:ok? true :frame … :epoch-id … :to …}`, naming the epoch restored and the direction, and emits `:rf.epoch/restored`. Returns `false` and does nothing in a production build, or when the `day8/re-frame2-epoch` artefact is not loaded.
+    - On success it returns `{:ok? true :frame … :epoch-id … :to …}`, naming the epoch restored and the direction, and emits `:rf.epoch/restored`. Returns `false` and does nothing in a production build.
     - The history is kept: epochs recorded after the target stay in the ring, so you can still restore or replay them. A restore records no epoch of its own.
     - Work the frame had in flight belongs to the abandoned timeline, so a successful restore cancels or settles it, and a late reply from before the restore changes nothing:
         - the frame's in-flight managed HTTP requests are aborted, and their replies are not delivered;
@@ -175,7 +175,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
   ```
 - **Description**: Runs a retained epoch's recorded event through the frame's own handlers again, as a strict replay. Use it after changing a handler, usually after a `restore-epoch!` to the epoch before, to see what the new code does with the same input. It differs from dispatching the recorded event vector yourself: the handler receives the coeffects recorded the first time, such as the time, instead of fresh ones.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns. The envelope's `:frame` is always the frame id.
-    - Returns `false` and does nothing in a production build, or when the `day8/re-frame2-epoch` artefact is not loaded.
+    - Returns `false` and does nothing in a production build.
     - The record is read in-process and its replay material goes into the dispatch: the raw `:trigger-event` with its arguments, the recorded `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` and `:interceptor-overrides`. Because nothing is copied out by hand, an off-box tool can replay even though a projected record shows event arguments only as `:rf/redacted`.
     - Replay runs in the same frame, against its current state and code. It does not restore first (call `restore-epoch!` beforehand when the start state matters), any effect the handler emits fires again, and the replay records a new ordinary epoch whose `:committed-at` equals the original's.
     - `opts` is an ordinary dispatch-opts map. Every key replay does not own reaches the dispatch unchanged, such as `:origin`, `:source`, `:source-detail` and `:trace-id`. Replay owns `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` and `:interceptor-overrides`, and discards a value under any of them: the record is the only source of replay material, and the target is always the recorded frame.
@@ -212,8 +212,8 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
     - This is the only frame-state write function. There is no `replace-app-db!`, `reset-app-db!` or `replace-runtime-db!`; write the one partition you mean.
     - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Restoring that record with `{:to :before}` undoes the write. Returns `{:ok? true :frame … :epoch-id …}`, where `:epoch-id` names that synthetic record (`nil` if the frame was destroyed just after the write, before the record could be kept).
 - **Errors**:
-    - Throws `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch` artefact is not loaded. It cannot quietly return `false` as the other functions do, because the record it writes is what makes the write undoable.
-    - Otherwise, a refused write returns `{:ok? false :reason … :frame … <tags>}`, changes nothing, and emits the error trace its `:reason` names, as for `restore-epoch!`:
+    - Returns `false` and does nothing in a production build, never a success envelope: the record it writes is what makes the write undoable.
+    - A refused write returns `{:ok? false :reason … :frame … <tags>}`, changes nothing, and emits the error trace its `:reason` names, as for `restore-epoch!`:
         - `:rf.error/replace-frame-state-bad-keys`: the map has no recognised partition key, or has an unrecognised key. Checked before the frame is resolved. The envelope's `:cause` says which (`:no-recognized-keys` or `:unknown-keys`), beside `:keys`.
         - `:rf.error/no-such-handler`: the frame is not registered.
         - `:rf.epoch/replace-during-drain`: called while a drain is in flight.
@@ -247,7 +247,7 @@ Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-liste
 - `:outcome` (`:ok`, `:halted-depth` or `:halted-destroy`) is state read off the record, not part of its identity. Listeners receive every record, whatever its `:outcome`.
 - Listeners receive records even when `:depth` is 0 and the ring keeps nothing.
 - `id` may be any comparable value; registering the same `id` again replaces the callback.
-- `(rf/register-listener! :epoch …)` returns `id`, or `nil` when the `day8/re-frame2-epoch` artefact is not loaded; `(rf/unregister-listener! :epoch id)` returns `nil`.
+- `(rf/register-listener! :epoch …)` returns `id`; `(rf/unregister-listener! :epoch id)` returns `nil`.
 - A listener exception is caught and isolated, emitting `:rf.epoch.cb/listener-exception`, so one broken listener cannot block the others.
 - A callback whose frame is destroyed simply receives no more records for it. A tool that wants to forget the frame listens for `:rf.frame/destroyed` on the `:trace` stream.
 
@@ -293,14 +293,14 @@ Set the ring's size through the facade, under the `:epoch-history` key:
 
 - `:depth`: a non-negative integer, the number of records kept per frame (default 50). `0` turns recording off. Lowering it trims each frame's existing history to its newest N records immediately, so `0` empties every ring and raising it again starts from an empty history.
 - `:trace-events-keep`: a non-negative integer, how many of each frame's most recent records keep their raw `:trace-events`. Older records keep only the structured `:sub-runs`, `:renders` and `:effects`. The default is a fixed 50, equal to the default `:depth`, so trace detail and records evict together; setting `:depth` alone leaves it at 50. Lower it to bound dev-session memory. A lowered value applies to records as they age past it; records already older than it keep their `:trace-events` until they leave the ring.
-- An invalid value (not a non-negative integer), an unrecognised key, and a non-map `:epoch-history` value are silently ignored, and so is the whole key when the `day8/re-frame2-epoch` artefact is not loaded.
+- An invalid value (not a non-negative integer), an unrecognised key, and a non-map `:epoch-history` value are silently ignored, and so is the whole key in a production build.
 
 ```clojure
 ;; Shrink the ring and keep raw traces for only the last 5 records.
 (rf/configure! {:epoch-history {:depth 20 :trace-events-keep 5}})
 ```
 
-Read the live configuration with `rf/current-config`; there is no reader on `re-frame.epoch`. The `:epoch-history` key is absent altogether when the `day8/re-frame2-epoch` artefact is not loaded, rather than reporting a made-up default:
+Read the live configuration with `rf/current-config`; there is no reader on `re-frame.epoch`. The `:epoch-history` key is absent altogether in a production build, rather than reporting a made-up default:
 
 ```clojure
 (:epoch-history (rf/current-config))     ;; => {:depth 20 :trace-events-keep 5}

@@ -7,11 +7,13 @@
   the epoch surfaces honour a REBOUND flag: with it false the ring stays empty
   and `restore-epoch!`, `replay-epoch!` and `replace-frame-state!` refuse.
 
-  The load-time posture is the epoch production-gate lane's job
+  The load-time posture is core's production-gate lane's job
   (`clojure -M:test:prod-gate`, the `:prod-gate` alias in
-  `implementation/epoch/deps.edn`, pinned by
-  `re-frame.epoch-prod-gate-lane-pin-test`), and that lane runs every deftest
-  below again with the property genuinely on the JVM command line. A rebind
+  `implementation/core/deps.edn`, pinned by
+  `re-frame.prod-gate-lane-pin-test`), and that lane runs every untagged
+  deftest below again with the property genuinely on the JVM command line.
+  Under it epoch publishes no hooks at load, so nothing records even with
+  the flag rebound open. A rebind
   reaches epoch's own gated branches — each is a runtime
   `(when interop/debug-enabled? …)` Var deref — but not what the framework
   decided while it LOADED; that half is what the lane adds.
@@ -63,7 +65,7 @@
       (is (empty? (rf.epoch/epoch-history :rf/default))
           "epoch ring is empty under disabled debug gate"))))
 
-(deftest restore-epoch-refuses-when-debug-disabled
+(deftest ^:requires-debug restore-epoch-refuses-when-debug-disabled
   (testing "`restore-epoch!` MUST refuse to operate
             when the JVM debug gate is off. The state-rewrite admin
             surface is dev-only; SSR production processes do NOT
@@ -71,10 +73,10 @@
             `app-db` out of band."
     (rf/reg-event :prod-gate.epoch/restore-probe
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; The target is a REAL retained `:ok` epoch, recorded with the gate
-    ;; rebound open so the production-gate lane records it too. An unknown id
-    ;; is refused whatever the gate reads, so only a restorable target leaves
-    ;; the gate as the one thing refusing.
+    ;; The target is a REAL retained `:ok` epoch, which only a development
+    ;; build records, hence the tag. An unknown id is refused whatever the
+    ;; gate reads, so only a restorable target leaves the gate as the one
+    ;; thing refusing.
     (let [target-id (with-redefs [rf.interop/debug-enabled? true]
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])

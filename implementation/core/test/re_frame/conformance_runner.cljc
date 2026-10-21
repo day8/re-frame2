@@ -116,14 +116,8 @@
     [re-frame.flows.tooling :as rf.flows.tooling]
     [re-frame.resources.tooling :as rf.resources.tooling]
     [re-frame.routing.tooling :as rf.routing.tooling]
-    ;; Side-effect require: publishing the epoch late-bind hooks
-    ;; (`:epoch/settle!`, `:epoch/epoch-history`, `:epoch/clear-history!`,
-    ;; …) at ns-load is what makes the router commit `:rf/epoch-record`s and
-    ;; `rf/epoch-history` observe them. Required HERE (not just in the JVM
-    ;; leaf) so BOTH hosts record + check `:epoch-records`. On the CLJS
-    ;; node-test build the epoch artefact is on the classpath (`epoch/src`);
-    ;; on the JVM core test build it is likewise reachable (the JVM leaf
-    ;; requires it too).
+    ;; `re-frame.core` already loads it; named here because the runner
+    ;; checks `:epoch-records` on both hosts.
     [re-frame.epoch]))
 
 ;; ---- claimed capability set -----------------------------------------------

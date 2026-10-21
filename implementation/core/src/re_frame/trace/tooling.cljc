@@ -92,8 +92,8 @@
 ;;
 ;; Per Spec 009 §`:rf.view/rendered`, a frame emits at most
 ;; `re-frame.views`' cap of `:rf.view/rendered` per run. The count is kept
-;; here, on core's own run state, so the cap holds whether or not the
-;; optional epoch artefact is loaded. A frame's count resets when a run
+;; here, on core's own run state rather than in epoch's capture buffer.
+;; A frame's count resets when a run
 ;; starts in it (`:rf.event/run-start`, seen by `deliver-to-tooling!`), and
 ;; renders after the run settles — React's post-settle batch, the common
 ;; browser case — keep counting against that run until the next one starts.

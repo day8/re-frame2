@@ -2,7 +2,7 @@
   "A spawned actor's liveness IS its runtime-db snapshot, never a per-instance
   registrar entry, so reverting runtime-db reverts it (Spec 005 §Liveness is
   derived from runtime-db). The end-to-end `restore-epoch!` case is
-  `implementation/epoch`'s actor_revertibility_restore_test."
+  core's actor_revertibility_restore_test."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])

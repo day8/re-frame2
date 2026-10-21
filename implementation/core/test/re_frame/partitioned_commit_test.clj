@@ -27,8 +27,7 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; `replace-frame-state!` delegates to the epoch artefact's
-            ;; late-bind hooks.
+            ;; `replace-frame-state!` is epoch's tool write.
             [re-frame.epoch :as rf.epoch]))
 
 (defn reset-runtime [test-fn]

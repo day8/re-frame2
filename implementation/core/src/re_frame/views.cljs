@@ -46,7 +46,8 @@
   The view-deref-sink + first-render? machinery (`*view-deref-sink*`,
   `record-view-deref!`, `first-render?!`, `clear-seen-render-keys!`) is
   specified in the per-block sections below."
-  (:require [re-frame.interop :as rf.interop]
+  (:require [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.performance :as rf.performance :include-macros true]
             [re-frame.registrar :as rf.registrar]
@@ -195,8 +196,7 @@
 ;; full-page re-render can fire hundreds of view-render emits and blow
 ;; the per-run buffer's heap budget. The count is kept per frame on
 ;; core's own run state (`re-frame.trace.tooling/claim-render!`), so the
-;; cap holds without the epoch artefact and for renders after a run
-;; settles; when crossed, the view-render emission
+;; cap holds for renders after a run settles; when crossed, the view-render emission
 ;; site fires a single :rf.view/rendered-cap-reached marker once per
 ;; run and skips subsequent :rf.view/rendered emits (the
 ;; :view/render emit is NOT capped — that op rides the per-view-render
@@ -293,10 +293,9 @@
   (when rf.interop/debug-enabled?
     (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       ;; :rf.view/rendered carries run-attribution (event-run sense).
-      ;; Resolved via the epoch capture's in-flight buffer; absent
-      ;; (or returns nil) when re-frame.epoch is not on the classpath.
-      (let [cause-fn (rf.late-bind/get-fn :epoch/run-cause)
-            cause    (when cause-fn (cause-fn frame-id))
+      ;; Resolved via the epoch capture's in-flight buffer; nil outside
+      ;; a run.
+      (let [cause    (rf.epoch.capture/run-cause frame-id)
             n-so-far (rf.trace.tooling/claim-render! frame-id)
             ;; The per-view re-render cause: the first sub in
             ;; THIS view's read-set whose value changed in the run.

@@ -107,23 +107,6 @@
                        ;; needs no substrate dep to be tested. Do not re-add a
                        ;; substrate coordinate to arm it; install the verb from
                        ;; the host side of the seam.
-                       ;; Two test-only consumers need the live epoch surface
-                       ;; on the JVM classpath:
-                       ;;   • the invariant-sentinel fixture
-                       ;;     (`re-frame.story.invariants`) registers a live epoch
-                       ;;     listener via `(rf/register-listener! :epoch …)`;
-                       ;;   • the run-artifact replay path (`re-frame.story.artifact`)
-                       ;;     captures a live epoch tape via `rf.epoch/epoch-history`.
-                       ;; Both degrade to a no-op / empty tape unless the epoch
-                       ;; artefact is on the classpath. The top-level CLJS build
-                       ;; already carries `epoch/src` (shadow-cljs.edn); this gives
-                       ;; the JVM `clojure -M:test` gate the same live surface so
-                       ;; both the sentinel's fresh/destroyed-frame coverage and the
-                       ;; replay tests exercise the real listener/capture path.
-                       ;; Test-only — the published Story jar carries no epoch dep
-                       ;; (both sources read the late-bound facade), mirroring how
-                       ;; implementation/core/deps.edn pulls epoch on :test only.
-                       day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
                        ;; The db-seed tests publish the schemas artefact's real
                        ;; `:schemas/check!` seam (its `re-frame.schemas.validate`
                        ;; namespace, never the facade, so no other hook is

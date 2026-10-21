@@ -72,8 +72,7 @@
   frame carried no matching classified `:sensitive` app-db declaration (the
   wrong owner). Sentinels the registration pass writes survive the
   subsequent frame-policy walk (a redacted leaf is inert)."
-  (:require [re-frame.core-artefact :as rf.core-artefact]
-            [re-frame.elision :as rf.elision]
+  (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -548,16 +547,6 @@
 
 ;; ---- dispatch ------------------------------------------------------------
 
-(def ^:private epoch-artefact
-  "Artefact info for the optional epoch artefact, in the shape
-  `re-frame.late-bind/require-fn!` consumes, built exactly as
-  `re-frame.core-epoch/epoch-artefact` is. Core cannot require the epoch
-  namespace (bundle isolation), so the epoch arm of `project-egress`
-  resolves its projector through late-bind and reports an absent artefact
-  with the SAME canonical `:rf.error/epoch-artefact-missing` shape every
-  other epoch surface reports (guard G1)."
-  (rf.core-artefact/artefact-info :epoch))
-
 (def ^:private record-kinds
   "The closed `:kind` vocabulary `project-egress` RECOGNISES as a
   frame-bearing RECORD. The `case` in `project-record-by-kind` below
@@ -569,11 +558,11 @@
   TWO NAMESPACES, one vocabulary. The three `:rf.observe/*`
   kinds are things observed WITHIN a frame — a handled event, an error, a
   derived tree — and their projectors live in THIS namespace.
-  `:rf/epoch-record` is a committed unit of causal history, owned by the
-  optional epoch artefact and normatively named by
+  `:rf/epoch-record` is a committed unit of causal history, owned by
+  `re-frame.epoch` and normatively named by
   [Spec-Schemas §`:rf/epoch-record`](../../../../../spec/Spec-Schemas.md#rfepoch-record);
-  its projector is LATE-BOUND (`:epoch/project-record`) because core may
-  not require the artefact. So this set is a roster of record KINDS, not
+  its projector is LATE-BOUND (`:epoch/project-record`) because
+  `re-frame.epoch` requires this namespace. So this set is a roster of record KINDS, not
   of one namespace's kinds."
   #{:rf.observe/handled-event
     :rf.observe/error
@@ -587,32 +576,6 @@
   [x]
   (and (map? x) (contains? record-kinds (:kind x))))
 
-(defn ^:no-doc recognises-record-kind?
-  "Does THIS core's `project-egress` dispatch `kind` as a record kind?
-
-  The one CROSS-ARTEFACT capability probe on this door (guard G2). An
-  optional artefact that OWNS a record kind — `day8/re-frame2-epoch`
-  and `:rf/epoch-record` — publishes its per-kind projector through
-  late-bind against whatever core it finds on the classpath, and
-  `late-bind/set-fns!` validates no key at runtime. So a NEW artefact can
-  register against an OLD core in silence, and that core's door would read
-  every one of its records as a kindless VALUE and bare-walk it from
-  `:path []`, shipping declared-sensitive slots RAW. This lets the artefact
-  ask, at load, whether the core it is being loaded against dispatches its
-  kind at all, and refuse to load otherwise.
-
-  Asks the DOOR rather than a proxy for it. The late-bind DIRECTORY rosters
-  the same fact, but it is a documentation corpus that production builds
-  must DCE (pinned by `check-elision.cjs`'s
-  `re-frame.late-bind.directory/hooks` sentinel), so no `src/` namespace may
-  require it — and the roster is a description of the door, where this is
-  the door's own answer.
-
-  `^:no-doc`: not public API, and not a substitute for `project-egress` —
-  it answers a compatibility question, never a projection one."
-  [kind]
-  (contains? record-kinds kind))
-
 (defn- project-record-by-kind
   "Dispatch a recognised record to its per-kind projector. An unknown /
   kindless record is treated as a tree-shaped VALUE and walked whole — the
@@ -621,8 +584,8 @@
 
   The dispatched kinds are `record-kinds` — one vocabulary, two shapes.
   The three `:rf.observe/*` projectors are private to this namespace;
-  `:rf/epoch-record`'s is LATE-BOUND, because the epoch artefact is
-  optional and core may not require it."
+  `:rf/epoch-record`'s is LATE-BOUND, because `re-frame.epoch` requires
+  this namespace and a production build elides it."
   [record opts elision-opts]
   (case (and (map? record) (:kind record))
     :rf.observe/handled-event
@@ -636,23 +599,28 @@
 
     ;; GUARD G1 — a RECOGNISED kind whose projector is
     ;; ABSENT throws; it NEVER falls through to the kindless walk below.
+    ;; The projector is absent only in a build that elides epoch, since
+    ;; `re-frame.epoch` publishes it under `interop/debug-enabled?`.
     ;; That fall-through is the fail-open vector this arm exists to close:
     ;; a bare walk of an epoch record starts at `:path []`, so a frame's
     ;; `[:auth :token]` sensitive declaration cannot match
     ;; `[:db-after :auth :token]` and the app-db slots ship RAW. Failing
-    ;; loud with the canonical `:rf.error/epoch-artefact-missing` shape is
-    ;; the only safe answer — `require-fn!` throws before this call can
-    ;; return any payload.
+    ;; loud with `:rf.error/epoch-elided` is the only safe answer — it
+    ;; throws before this call can return any payload.
     ;;
     ;; `opts` is handed on with `:frame` ALREADY resolved by
     ;; `project-egress`'s three-step rule, so an explicit override (`nil`
     ;; included) reaches the projector and beats the record's own slot.
     :rf/epoch-record
-    ((rf.late-bind/require-fn! :epoch/project-record
-                               'rf/project-egress
-                               epoch-artefact
-                               {:kind :rf/epoch-record})
-     record opts)
+    (if-let [project (rf.late-bind/get-fn :epoch/project-record)]
+      (project record opts)
+      (rf.error/throw-error!
+        :rf.error/epoch-elided
+        'rf/project-egress
+        (str "rf/project-egress cannot project a :rf/epoch-record in a build "
+             "that elides epoch (interop/debug-enabled? false), and never "
+             "walks one as a bare value.")
+        {:extra {:kind :rf/epoch-record}}))
 
     ;; No `:kind` (or unknown kind) ⇒ treat the whole input as a
     ;; tree-shaped value and walk it. This is the direct-read / bare-value
@@ -679,12 +647,11 @@
       `:rf.observe/derived-tree` — things observed WITHIN a frame; their
       projectors are PRIVATE to this namespace;
     - `:rf/epoch-record` — a committed unit of causal history
-      (Spec-Schemas §`:rf/epoch-record`), owned by the OPTIONAL
-      `day8/re-frame2-epoch` artefact. Core may not require that artefact
-      (bundle isolation), so its projector is LATE-BOUND under
-      `:epoch/project-record`. A recognised `:rf/epoch-record` whose
-      projector is absent raises `:rf.error/epoch-artefact-missing` naming
-      the kind — it is NEVER bare-walked, because a kindless walk of an
+      (Spec-Schemas §`:rf/epoch-record`), owned by `re-frame.epoch`, which
+      requires this namespace, so its projector is LATE-BOUND under
+      `:epoch/project-record`. In a build that elides epoch the projector
+      is absent, and a recognised `:rf/epoch-record` raises
+      `:rf.error/epoch-elided` naming the kind — it is NEVER bare-walked, because a kindless walk of an
       epoch record starts at `:path []` and no app-db classification can
       match a `:db-after`-prefixed path, so the record's app-db slots would
       ship RAW.

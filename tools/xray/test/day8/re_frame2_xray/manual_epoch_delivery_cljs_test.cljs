@@ -1,54 +1,14 @@
 (ns day8.re-frame2-xray.manual-epoch-delivery-cljs-test
-  "The MANUAL-ONLY Xray epoch-delivery witness.
+  "Xray's MANUAL startup path receives epoch records.
 
-  ## What this pins
-
-  `install.cljs` carries a bare `[re-frame.epoch]` require whose only job
-  is to LOAD the epoch PRODUCER namespace on the manual startup path.
-  `day8.re-frame2-xray.core` requires `install`, never `preload`, so a
-  host that boots Xray by calling `core/init!` gets the producer through
-  that require and through nothing else. The facade reaches the producer
-  through a late-bind hook an unloaded namespace never populates, so
-  without the require `(rf/register-listener! :epoch …)` degrades to the
-  silent no-op it correctly performs for a host that must tolerate the
-  artefact's absence — and Xray's Time-Travel panel would sit empty on
-  every manual boot with nothing anywhere reporting why.
-  `tools/xray/spec/011-Launch-Modes.md` §Epoch artefact is a hard Xray
-  dependency states that contract; this namespace is its witness.
-
-  ## Why it needs its OWN build
-
-  `preload_decoupling_cljs_test` covers the manual facade's
-  inertness, but it `:require`s `day8.re-frame2-xray.preload`, and
-  `preload.cljs` carries the SAME bare `[re-frame.epoch]` anchor. So does
-  most of the always-on `:node-test` bundle. In any graph that loads the
-  preload, the producer is present however `install.cljs` is spelled, and
-  a delivery assertion there passes with or without the `install.cljs`
-  anchor — which is exactly why this file needs a graph of its own.
-
-  The discriminating surface is therefore the DEPENDENCY GRAPH, not the
-  assertions. `:node-test-xray-manual-epoch` (implementation/shadow-cljs.edn)
-  selects THIS namespace and nothing else, so the compiled bundle contains
-  only what the manual host's own graph contains: `re-frame.core`, a
-  substrate adapter, the test-support fixture, and `day8.re-frame2-xray.core`.
-  Nothing in that set reaches `re-frame.epoch` except `install.cljs`'s
-  anchor, so removing the anchor turns this namespace red under
-  `npm run test:xray-manual-epoch`.
-
-  This namespace also ends in `-cljs-test`, so it rides the always-on
-  `:node-test` build's `cljs-test$` regexp and its ASSERTIONS are graded on
-  every PR. Only the graph-isolation half needs the focused build; in the
-  aggregate bundle these tests pass whether or not the anchor is there.
-
-  ## Deliberately NOT required here
-
-  `re-frame.epoch`, `re-frame.epoch.state` and `day8.re-frame2-xray.preload`
-  are all absent from the require list ON PURPOSE — each would load the
-  producer itself and rescue a removed anchor. The producer-loading claim
-  is read through `rf/features`, which is a pure keyword lookup in the
-  always-loaded late-bind hooks atom and requires nothing optional; the
-  delivery claim is read through `rf/register-listener!` and
-  `rf/epoch-history`, the same public doors a host uses."
+  `day8.re-frame2-xray.core` requires `install`, never `preload`, so a host
+  that boots Xray by calling `core/init!` registers its epoch collector
+  without the preload's boot block. This namespace pins that the collector
+  registered there RECEIVES each dispatched event's assembled
+  `:rf/epoch-record` and that the ring Xray's Time-Travel panel re-reads
+  retains it. The preload path is pinned by the panel end-to-end suites,
+  which drive `preload/register-epoch-collector!`.
+  `tools/xray/spec/011-Launch-Modes.md` states the contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -64,26 +24,13 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- (1) the graph claim -------------------------------------------------
-
-(deftest manual-graph-alone-loads-the-epoch-producer
-  (testing "requiring the manual `core` facade — and nothing else optional —
-            LOADS the epoch producer, so the artefact reads as present
-            through the public feature-inspection door"
-    (is (true? (get-in (rf/features) [:epoch :loaded?]))
-        "re-frame.epoch is loaded by install.cljs's bare require, reached
-         through `day8.re-frame2-xray.core` alone — no preload, no direct
-         require from this namespace")))
-
-;; ---- (2) the delivery claim ----------------------------------------------
+;; ---- the delivery claim ----------------------------------------------------
 
 (deftest manual-init!-receives-a-dispatched-events-assembled-epoch
   (testing "after the manual public `core/init!`, an `:epoch` listener
             registered through the facade RECEIVES the assembled
             `:rf/epoch-record` for a dispatched event — the fan-out
-            `install/register-epoch-collector!` itself rides, proving that
-            registration is not the silent no-op an unloaded producer
-            would make of it"
+            `install/register-epoch-collector!` itself rides"
     (let [seen (atom [])]
       (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
 

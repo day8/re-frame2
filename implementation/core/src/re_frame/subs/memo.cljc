@@ -32,7 +32,8 @@
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
   `re-frame.subs/compute-and-cache!`) crosses the ns boundary once."
-  (:require [re-frame.error :as rf.error]
+  (:require [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.movement :as rf.movement]
@@ -178,13 +179,12 @@
                        the event vector that kicked off the in-flight
                        drain). Names which event invalidated this sub's
                        reactive input. Sourced from the in-flight
-                       run buffer via the `:epoch/run-cause`
-                       late-bind hook — same source the views path uses
+                       run buffer via `re-frame.epoch.capture/run-cause`
+                       — same source the views path uses
                        for `:rf.view/cause-event-id`.
                        OMITTED (key absent, not nil) when the sub runs
                        outside any cascade (a post-settle reactive flush
-                       against no live drain) or when the epoch artefact
-                       is not on the classpath. The Xray Epoch panel's
+                       against no live drain). The Xray Epoch panel's
                        SUBSCRIPTIONS section reads it to credit each
                        sub-run to the right epoch row even when the
                        physical reactive flush deferred into a chained
@@ -323,15 +323,12 @@
                 ;; dispatching run whose handler-body invalidated
                 ;; this sub's reactive input. Same source the views path
                 ;; uses for `:rf.view/cause-event-id`: the
-                ;; in-flight run buffer published by re-frame.epoch
-                ;; under the `:epoch/run-cause` late-bind hook. The
-                ;; hook walks the frame's per-run buffer and returns
+                ;; in-flight run buffer `re-frame.epoch.capture/run-cause`
+                ;; walks. It returns
                 ;; the FIRST `:rf.event/run-start` event-id it sees —
                 ;; i.e. the run's dispatching event vector head
-                ;; (`(first event)`). Resolved through late-bind so this
-                ;; .cljc subs layer stays free of a static require on
-                ;; the optional epoch artefact. Returns nil when the
-                ;; epoch artefact is absent OR the sub runs outside any
+                ;; (`(first event)`). Returns nil when the
+                ;; sub runs outside any
                 ;; in-flight run (e.g. a `:rf.sub/run` driven by a
                 ;; post-settle reactive flush against no live drain);
                 ;; the tag is OMITTED in those cases so consumers
@@ -339,8 +336,7 @@
                 ;; only when meaningful. Inside the
                 ;; `rf.interop/debug-enabled?` gate so the lookup + lift
                 ;; DCE under :advanced + goog.DEBUG=false.
-                cause-fn        (rf.late-bind/get-fn :epoch/run-cause)
-                run-cause       (when cause-fn (cause-fn frame-id))
+                run-cause       (rf.epoch.capture/run-cause frame-id)
                 cause-event-id  (:cause-event-id run-cause)]
             (rf.trace/emit! :rf.sub :rf.sub/run
                          (cond-> {:rf.sub/id             query-id

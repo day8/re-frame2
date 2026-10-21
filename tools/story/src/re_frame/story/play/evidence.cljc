@@ -773,7 +773,7 @@
 (defn failed-outcome?
   "True iff an epoch record's `:outcome` is a halt / failure outcome
   (anything other than `:ok`). Spec-Schemas §`:rf/epoch-record` §Outcomes.
-  A record with no `:outcome` (a host without the epoch artefact) is NOT a
+  A record with no `:outcome` is NOT a
   failure. Pure data → data."
   [{:keys [outcome] :as _record}]
   (boolean (and (some? outcome) (not= :ok outcome))))

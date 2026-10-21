@@ -31,7 +31,6 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]))
@@ -243,18 +242,6 @@
       (when rf.interop/debug-enabled?
         (is (some #{:rf.warning/unknown-configure-key} @seen)
             "premise: the listener received it")))))
-
-(deftest configure-epoch-history-without-the-artefact-prints-its-reason
-  ;; Dropping the published hook stands in for a build without the epoch
-  ;; artefact, which this classpath may carry.
-  (let [hook (rf.late-bind/get-fn :epoch/configure!)]
-    (try
-      (swap! rf.late-bind/hooks dissoc :epoch/configure!)
-      (expect-one-line
-        (captured-err #(rf/configure! {:epoch-history {:depth 5}}))
-        [":rf.warning/unknown-configure-key — rf/configure! applied nothing for"])
-      (finally
-        (when hook (rf.late-bind/set-fn! :epoch/configure! hook))))))
 
 (deftest a-misspelt-frame-config-key-prints-once-while-no-trace-listener-is-registered
   (testing "a misspelt bare key: one line naming it"

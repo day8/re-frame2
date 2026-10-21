@@ -516,17 +516,14 @@
   reader rather than a second filter framework.
 
   RAW RECORDS RATHER THAN THE EPOCH `:renders` PROJECTION, DELIBERATELY,
-  for two reasons. The projection is sourced FROM these emits — the epoch
-  artefact back-fills a post-settle render into the causing epoch record
+  for two reasons. The projection is sourced FROM these emits — epoch
+  back-fills a post-settle render into the causing epoch record
   — so the raw ring is strictly UPSTREAM: contamination cannot reach
   `:renders` without appearing here first. And this arm cannot go
   VACUOUSLY green, where an epoch arm could: `rf.epoch/epoch-history` answers
-  `[]` when the epoch artefact is merely absent from the build, which is
-  the very shape a clean epoch answers with, and this harness loads
-  Xray's `registry` rather than the `install` / `preload` namespaces that
-  pull `re-frame.epoch` in. The node-lane guard in `mount_cljs_test.cljs`
-  reads `:renders` and is the right instrument there, because that suite
-  does load it."
+  `[]` whenever nothing was recorded, which is the very shape a clean epoch
+  answers with. The node-lane guard in `mount_cljs_test.cljs` reads
+  `:renders` and is the right instrument there."
   []
   (rf/trace-buffer app-frame {:flat true :operation :rf.view/rendered}))
 
@@ -1030,8 +1027,8 @@
                 (is (some? (rewind-id))
                     (str "[" label "] NON-VACUITY: the application's epoch ring "
                          "carries a recorded epoch to rewind TO. `rf/epoch-"
-                         "history` answers [] when the epoch artefact is merely "
-                         "absent from the build — the same shape a clean ring "
+                         "history` answers [] when nothing was recorded — "
+                         "the same shape a clean ring "
                          "answers with — so this is the assertion that makes "
                          "the rewind below a claim about Xray rather than about "
                          "a no-op. Ring: "

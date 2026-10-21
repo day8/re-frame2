@@ -120,7 +120,7 @@ The app's dev build needs three things the MCP server does not supply, and `disc
 
 1. **`re-frame2-pair.runtime` in the build's `:devtools :preloads`** — always a `shadow-cljs.edn` line: `{:builds {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}`. The preload is required; there is no per-session inject fallback.
 2. **The linked skill's `preload/` directory on the build's classpath**, in whichever file *owns* the classpath — a `deps.edn` alias for a `:deps` app, `project.clj` for a `:lein` app, `shadow-cljs.edn` `:source-paths` only for a standalone shadow app. Under `:deps` / `:lein` shadow ignores its own `:source-paths`, so a path put there never loads and `discover-app` reports `:runtime-loaded-but-preload-missing`.
-3. **`day8/re-frame2-schemas`** (the preload requires `re-frame.schemas`; without it the build fails to compile) and, for every epoch surface, **`day8/re-frame2-epoch`** with `re-frame.epoch` required at boot. `discover-app` does not check for the epoch artefact: without it every epoch read comes back `[]` and `dispatch-dry-run` / `restore-epoch` / `replay-epoch` refuse.
+3. **`day8/re-frame2-schemas`** (the preload requires `re-frame.schemas`; without it the build fails to compile). Epoch history ships in core, so the epoch surfaces need nothing more.
 
 The classpath table, per-build-tool snippets, verification and MCP-server registration (a fresh session, not `--continue`) are in [references/setup.md](references/setup.md) — read it before editing the app's build config. (A v1→v2 migration *boot-smoke* needs no pair MCP at all — see [`skills/re-frame-migration/references/runtime-smoke-test.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/runtime-smoke-test.md).)
 

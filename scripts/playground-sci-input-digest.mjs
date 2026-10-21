@@ -91,9 +91,6 @@ export const ROSTER = [
   // --- routing: re-frame.routing (Spec 012), :require'd at bundle init
   "implementation/routing/src",
   "implementation/routing/deps.edn",
-  // --- epoch: re-frame.epoch, :require'd at bundle init
-  "implementation/epoch/src",
-  "implementation/epoch/deps.edn",
   // --- ssr: re-frame.ssr (Spec 011), :require'd at bundle init
   "implementation/ssr/src",
   "implementation/ssr/deps.edn",

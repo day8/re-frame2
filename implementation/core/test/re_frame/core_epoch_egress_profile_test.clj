@@ -1,13 +1,13 @@
-(ns re-frame.core-epoch-egress-profile-test
+(ns ^:requires-debug re-frame.core-epoch-egress-profile-test
   "The core facade wrapper `rf/project-egress` honours the named
   `:rf.egress/profile` selector and its override layer, not just the
   unqualified `:include-*` opts.
 
-  The profile rows drive a SYNTHETIC epoch record so they run under the
-  production gate too: the epoch ring is fed from the dev trace stream and is
-  empty there, and asserting on a nil record would pass vacuously. The dev-only
-  arm checks that a real captured record has the shape the synthetic one
-  assumes."
+  The profile rows drive a SYNTHETIC epoch record, and the dev-only arm
+  checks that a real captured record has the shape the synthetic one
+  assumes. Dev-only, so the `(ns ...)` form carries `^:requires-debug`: epoch
+  publishes its projector only in a development build, so under the
+  production gate the door refuses every epoch record."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -15,7 +15,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; publishes the `:epoch/*` hooks the core wrappers delegate to
             [re-frame.epoch :as rf.epoch]
             [re-frame.machines]))
 

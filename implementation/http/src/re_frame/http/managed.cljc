@@ -223,7 +223,8 @@
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
 ;; abort suppresses app replies and records stale-suppression facts. This is
-;; late-bound so the epoch artefact does not acquire an HTTP dependency.
+;; late-bound so epoch, which ships in core, does not acquire an HTTP
+;; dependency.
 (rf.late-bind/set-fn! :http/abort-in-flight-for-frame!       rf.http.registry/abort-in-flight-for-frame!)
 (rf.late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
 (rf.late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)

@@ -2,7 +2,7 @@
 
 Read this when `discover-app` reports `:runtime-loaded-but-preload-missing`, when the app fails to compile after adding the preload, when every epoch read comes back `[]`, or when the user asks how to set the skill up. The MCP server's own install and launch flags are in [`mcp-transport.md`](mcp-transport.md#install--configure-one-time).
 
-The app's dev build needs three things the MCP server does not supply: the `re-frame2-pair.runtime` preload, the `day8/re-frame2-schemas` artefact the preload requires, and — for any epoch surface — `day8/re-frame2-epoch`.
+The app's dev build needs two things the MCP server does not supply: the `re-frame2-pair.runtime` preload and the `day8/re-frame2-schemas` artefact the preload requires. Epoch history ships in core.
 
 ## The preload
 
@@ -44,11 +44,11 @@ Either way the preload stays **dev-only**, and it is the `:preloads` entry that 
 
 The MCP server (`@day8/re-frame2-pair-mcp`) does NOT ship `preload/`, so wiring only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. (Once the `@day8/re-frame2-pair` package is published to npm, `npm install -D @day8/re-frame2-pair` and point the classpath entry at `node_modules/@day8/re-frame2-pair/preload` instead — same branch, same files.)
 
-## The artefacts the preload and epochs need
+## What the preload and epochs need
 
 **`day8/re-frame2-schemas` alongside core, in the app's dev dependencies.** The preload directly requires `re-frame.schemas`; core does not bring that artefact. Use the same revision as the app's core dependency (or this clone's `implementation/schemas` as a `:local/root`). Without it compilation fails with a missing `re-frame.schemas` namespace before discovery can run. Add dependencies through the classpath owner above; the MCP server's dependencies do not enter the app's classpath.
 
-**`day8/re-frame2-epoch` for every epoch surface**, with `re-frame.epoch` required at boot. Neither the preload nor the MCP server brings it and `discover-app` does not check for it, so a core-only app passes `discover-app`, then every epoch read (`watch-epochs`, `trace-window`, `(rf.epoch/epoch-history …)`) comes back `[]`, `dispatch-dry-run` refuses, and `restore-epoch` / `replay-epoch` refuse — see [errors.md §Tool-envelope refusals](errors.md#tool-envelope-refusals) for its one loud symptom, `:rf.error/epoch-artefact-missing`.
+**Epoch history needs nothing more.** It ships in core, so every epoch read (`watch-epochs`, `trace-window`, `(rf.epoch/epoch-history …)`), `dispatch-dry-run`, `restore-epoch` and `replay-epoch` work in a dev build — at a positive epoch-history depth; see [errors.md §Tool-envelope refusals](errors.md#tool-envelope-refusals).
 
 ## Verify
 

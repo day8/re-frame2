@@ -42,12 +42,13 @@
     1. CYCLE-BREAKING  — leaf namespaces (router, subs) calling into
        higher-level namespaces without `:require`ing them, breaking a
        compile-time load cycle. Lookup-or-no-op is degenerate (the
-       producer always loads at boot); the indirection exists solely to
+       producer always loads at boot, and `re-frame.epoch`'s rows miss only
+       in a production build); the indirection exists solely to
        silence cljs.compiler's circular-dependency error.
 
     2. CROSS-ARTEFACT  — re-frame.core (or a leaf consumer in core)
        reaching into an OPTIONAL feature artefact (schemas, flows,
-       routing, machines, ssr, epoch, http, elision) without a
+       routing, machines, ssr, http, elision) without a
        static `:require`. When the artefact is absent from the
        classpath the lookup returns nil and the consumer no-ops (or
        throws a clear `:rf.error/<artefact>-artefact-missing` via
@@ -89,7 +90,8 @@
    ;; Leaf namespaces calling into higher-level namespaces without
    ;; `:require`ing them. The indirection exists to break compile-time
    ;; load cycles; the producer always loads at boot, so lookup never
-   ;; misses in production.
+   ;; misses in production — except `re-frame.epoch`'s rows, which publish
+   ;; only in a development build.
    ;; ===========================================================================
 
    ;; ---- re-frame.router (foundational dispatch seam) ------------------------
@@ -155,11 +157,39 @@
     :producer-ns 're-frame.subs.cache
     :description "Dispose every cached subscription in a destroyed frame's sub-cache, emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason :frame-destroy`. Invoked by `frame/destroy-frame!` via late-bind so `re-frame.frame` carries no static dep on `re-frame.subs.cache` (which requires `frame`)."}
 
+   ;; ---- re-frame.epoch (Tool-Pair time-travel) -----------------------------
+   ;; `re-frame.core` requires `re-frame.epoch` and calls it directly. These
+   ;; rows remain because each caller sits inside epoch's own require graph,
+   ;; named per row. Epoch publishes them under `interop/debug-enabled?`, so
+   ;; unlike the rows above they miss in production: the router and trace
+   ;; callers no-op, and `:epoch/project-record`'s caller throws.
+   {:key         :epoch/settle!
+    :producer-ns 're-frame.epoch
+    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router calls the five-argument arity `[frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]`. Skips an empty buffer (rejected/aborted dispatch). Late-bound because re-frame.epoch requires re-frame.router."}
+   {:key         :epoch/commit-halt-record!
+    :producer-ns 're-frame.epoch
+    :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback). The router's depth halt calls it on the drain with six arguments `[frame-id frame-state-after committed-at outcome halt-reason trigger-event]`. Late-bound because re-frame.epoch requires re-frame.router."}
+   {:key         :epoch/capture-event
+    :producer-ns 're-frame.epoch
+    :description "Capture an event into the in-flight epoch buffer. Called by re-frame.trace on every emit during a cascade; late-bound because re-frame.epoch requires re-frame.trace."}
+   {:key         :epoch/record-render!
+    :producer-ns 're-frame.epoch
+    :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag. Late-bound because re-frame.epoch.listeners requires re-frame.epoch.capture (through re-frame.epoch.assembly)."}
+   {:key         :epoch/record-sub-run!
+    :producer-ns 're-frame.epoch
+    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. It also carries a :rf.error/schema-validation-failure whose :where is :sub-return or :sub-override: that failure comes from the same post-settle recompute, so it follows its run into the same epoch, riding only :trace-events because it projects no :sub-runs row. Without it, :sub-runs would lag one epoch behind in Xray's per-cascade Views subs table. Late-bound because re-frame.epoch.listeners requires re-frame.epoch.capture (through re-frame.epoch.assembly)."}
+   {:key         :epoch/record-unmount!
+    :producer-ns 're-frame.epoch
+    :description "Teardown sibling of :epoch/record-render! / :epoch/record-sub-run!. Attribute a post-settle view-unmount emit (a :rf.view/unmounted op firing at React componentWillUnmount / useEffect-cleanup time, after the cascade that removed the view settled) back to the cascade that caused the teardown — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when an unmount op arrives with no in-flight cascade. Without it the unmount would fall through to the orphan-drop branch and be silently dropped, so a view teardown would produce NO signal anywhere; this back-fills it into the causing epoch's :trace-events (no structured row — an unmount is neither a :renders nor a :sub-runs entry) and re-fans the record to epoch listeners, where Xray's VIEWS-step unmounted-views-rows surfaces it. Late-bound because re-frame.epoch.listeners requires re-frame.epoch.capture (through re-frame.epoch.assembly)."}
+   {:key         :epoch/project-record
+    :producer-ns 're-frame.epoch
+    :description "The PER-KIND projector re-frame.projection/project-egress dispatches a :kind :rf/epoch-record record to. Invoked as (f record opts) where opts is project-egress's OWN closed vocabulary with :frame ALREADY resolved by the door's three-step rule (explicit opt > the record's own :frame slot > carried scope), so the projector never re-reads (:frame record) behind an explicit override. Projects each payload slot (:frame-state-*, :db-*, :trigger-event, :trace-events, :sub-runs, :effects) under that frame and the named :rf.egress/profile; the three epoch-only axes (:rf.egress/include-fx-args? / :rf.egress/include-runtime-db? / :rf.egress/include-event-args?) ARE door vocabulary (there is no standalone projected-record door); omitted, each stays fail-closed. Late-bound because re-frame.epoch requires re-frame.projection (through re-frame.epoch.tool-pair). ABSENT (a build that elides epoch) ⇒ project-egress throws :rf.error/epoch-elided naming the kind rather than bare-walking the record as a kindless tree."}
+
    ;; ===========================================================================
    ;; GROUP 2 — CROSS-ARTEFACT
    ;;
    ;; re-frame.core reaches into an OPTIONAL feature artefact (schemas,
-   ;; flows, routing, machines, ssr, epoch, http, elision) without a
+   ;; flows, routing, machines, ssr, http, elision) without a
    ;; static `:require`. When the artefact is absent from the
    ;; classpath the lookup returns nil and the consumer no-ops or
    ;; throws `:rf.error/<artefact>-artefact-missing` via `require-fn!`.
@@ -477,64 +507,6 @@
    {:key         :ssr/reg-head
     :producer-ns 're-frame.ssr.head
     :description "Register a head-fragment producer fn `(fn [db route] head-model)` under id, per Spec 011 §Head/meta contract."}
-   ;; ---- re-frame.epoch (Tool-Pair surface) ---------------------------------
-   {:key         :epoch/settle!
-    :producer-ns 're-frame.epoch
-    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router calls the five-argument arity `[frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]`. Skips an empty buffer (rejected/aborted dispatch)."}
-   {:key         :epoch/commit-halt-record!
-    :producer-ns 're-frame.epoch
-    :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback). The router's depth halt calls it on the drain with six arguments `[frame-id frame-state-after committed-at outcome halt-reason trigger-event]`."}
-   {:key         :epoch/capture-event
-    :producer-ns 're-frame.epoch
-    :description "Capture an event into the in-flight epoch buffer."}
-   {:key         :epoch/run-cause
-    :producer-ns 're-frame.epoch
-    :description "Walk a frame's in-flight event-run buffer and return {:cause-event-id :cause-subs :value-changed-subs} for :rf.view/rendered attribution — the event-pipeline-run (one traversal), keyed off the buffer's :rf.event/run-start marker (run sense, not the reactive graph). Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
-   {:key         :epoch/record-render!
-    :producer-ns 're-frame.epoch
-    :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
-   {:key         :epoch/record-sub-run!
-    :producer-ns 're-frame.epoch
-    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. It also carries a :rf.error/schema-validation-failure whose :where is :sub-return or :sub-override: that failure comes from the same post-settle recompute, so it follows its run into the same epoch, riding only :trace-events because it projects no :sub-runs row. Without it, :sub-runs would lag one epoch behind in Xray's per-cascade Views subs table."}
-   {:key         :epoch/record-unmount!
-    :producer-ns 're-frame.epoch
-    :description "Teardown sibling of :epoch/record-render! / :epoch/record-sub-run!. Attribute a post-settle view-unmount emit (a :rf.view/unmounted op firing at React componentWillUnmount / useEffect-cleanup time, after the cascade that removed the view settled) back to the cascade that caused the teardown — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when an unmount op arrives with no in-flight cascade. Without it the unmount would fall through to the orphan-drop branch and be silently dropped, so a view teardown would produce NO signal anywhere; this back-fills it into the causing epoch's :trace-events (no structured row — an unmount is neither a :renders nor a :sub-runs entry) and re-fans the record to epoch listeners, where Xray's VIEWS-step unmounted-views-rows surfaces it."}
-   {:key         :epoch/epoch-history
-    :producer-ns 're-frame.epoch
-    :description "Return the committed-epoch ring buffer (introspection). Behind re-frame.core/epoch-history, and read directly by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
-   {:key         :epoch/current-epoch-id
-    :producer-ns 're-frame.epoch
-    :description "Return the id of the epoch whose :frame-state-after the frame holds — the restore cursor. A restore records no epoch, so after one the ring's newest record is not the frame's state and this read is. Read by Story's step-debugger, which treats the epoch artefact as optional and so calls the hook when it is set rather than requiring re-frame.epoch."}
-   {:key         :epoch/restore-epoch!
-    :producer-ns 're-frame.epoch
-    :description "Restore a frame's whole frame-state to a retained epoch, returning the {:ok? …} write-result envelope. Read by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
-   {:key         :epoch/replay-epoch!
-    :producer-ns 're-frame.epoch
-    :description "Re-drive a retained epoch's recorded event through the frame's own handlers in ONE call as a strict replay (Tool-Pair §Replay): the raw :trigger-event, the post-generation :rf.cofx token under :rf.cofx/mint-policy :strict, and the record's serializable :fx-overrides / :interceptor-overrides are folded into the dispatch opts in-process, so no replay material is exported or re-supplied by hand. Same frame in and out; runs against the frame's CURRENT state and code (no implicit restore) and records a new ordinary epoch. Returns a structured envelope; refuses BEFORE dispatch on an unknown / aged-out id, a drain in flight, a halted / synthetic / incomplete record, or a recorded :rf/fn-override. A declared fact absent from the token stays the canonical :rf.error/missing-required-cofx hard error (no mint). Read by the re-frame2-pair preload, which treats the epoch artefact as optional and so calls the hook rather than requiring re-frame.epoch."}
-   {:key         :epoch/replace-frame-state!
-    :producer-ns 're-frame.epoch
-    :description "Atomically install a PARTIAL frame-state map (any subset of {:rf.db/app ... :rf.db/runtime ...}) — a present key replaces that partition, an absent key is preserved. The ONE Tool-Pair frame-state write surface, covering every partition. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns the {:ok? …} write-result envelope, shares the drain-guard + rejects a map with no recognized / an unrecognized partition key + per-present-partition schema-validation contract. Read by the re-frame2-pair preload, which treats the epoch artefact as optional and so calls the hook rather than requiring re-frame.epoch."}
-   {:key         :epoch/register-epoch-listener!
-    :producer-ns 're-frame.epoch
-    :description "Register an epoch-settled callback."}
-   {:key         :epoch/unregister-epoch-listener!
-    :producer-ns 're-frame.epoch
-    :description "Unregister a previously-registered epoch-settled callback."}
-   {:key         :epoch/configure!
-    :producer-ns 're-frame.epoch
-    :description "Configure epoch buffer size / capture policy."}
-   {:key         :epoch/current-config
-    :producer-ns 're-frame.epoch
-    :description "Read the live epoch-history config map back. The read half of `:epoch/configure!`, consulted by `re-frame.core/current-config` for its `:epoch-history` key. Bound to the STATE-level reader (`re-frame.epoch.state/current-config`) rather than the owning-ns public var, so the facade door does not depend on the owning ns's public surface. Absent hook = absent key: a build without the optional epoch artefact reports no `:epoch-history` at all rather than a fabricated default."}
-   {:key         :epoch/clear-history!
-    :producer-ns 're-frame.epoch
-    :description "Clear the committed-epoch ring buffer (test isolation)."}
-   {:key         :epoch/clear-epoch-listeners!
-    :producer-ns 're-frame.epoch
-    :description "Clear every registered epoch-settled callback (test isolation)."}
-   {:key         :epoch/project-record
-    :producer-ns 're-frame.epoch
-    :description "The PER-KIND projector re-frame.projection/project-egress dispatches a :kind :rf/epoch-record record to. Invoked as (f record opts) where opts is project-egress's OWN closed vocabulary with :frame ALREADY resolved by the door's three-step rule (explicit opt > the record's own :frame slot > carried scope), so the projector never re-reads (:frame record) behind an explicit override. Projects each payload slot (:frame-state-*, :db-*, :trigger-event, :trace-events, :sub-runs, :effects) under that frame and the named :rf.egress/profile; the three epoch-only axes (:rf.egress/include-fx-args? / :rf.egress/include-runtime-db? / :rf.egress/include-event-args?) ARE door vocabulary (there is no standalone projected-record door); omitted, each stays fail-closed. ABSENT ⇒ project-egress throws :rf.error/epoch-artefact-missing naming the kind rather than bare-walking the record as a kindless tree."}
 
    ;; ---- re-frame.event-emit (always-on event observability) ----------------
    {:key         :event-emit/dispatch-on-event

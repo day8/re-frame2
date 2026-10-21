@@ -16,7 +16,7 @@
       (fn []
         ;; The init dispatch may itself record an epoch; assert from
         ;; current state rather than absolute counts so the test is
-        ;; resilient to epoch artefact's per-dispatch contract.
+        ;; resilient to epoch's per-dispatch contract.
         (let [before-count (count (e2e/sub-xray [:rf.xray/epoch-history]))]
           (e2e/dispatch-host [:counter/inc])
           (let [after-count (count (e2e/sub-xray [:rf.xray/epoch-history]))]

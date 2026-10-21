@@ -9,7 +9,7 @@
 
     - Optional-artefact wrappers live in `re-frame.core-<feature>`
       sibling namespaces (`flows`, `routing`, `schemas`, `machines`,
-      `ssr`, `epoch`, `http`); each looks up its target fn through
+      `ssr`, `http`); each looks up its target fn through
       the late-bind hook table so requiring this ns does NOT pull
       the feature artefacts.
     - Macro-helper code is factored into three siblings —
@@ -135,7 +135,12 @@
             [re-frame.core-resources :as rf.core-resources]
             [re-frame.core-state    :as rf.core-state]
             [re-frame.core-ssr      :as rf.core-ssr]
-            [re-frame.core-epoch    :as rf.core-epoch]
+            ;; Epoch history and time-travel (Tool-Pair §Time-travel). Every
+            ;; development build records epochs, so core loads it; every
+            ;; call below and its own load-time publication sit under
+            ;; `interop/debug-enabled?`, so production eliminates it.
+            [re-frame.epoch         :as rf.epoch]
+            [re-frame.epoch.state   :as rf.epoch.state]
             [re-frame.core-http     :as rf.core-http]
             ;; Macro helpers — the macro siblings live in their own
             ;; nss; required here with `:include-macros` so CLJS callers
@@ -2212,9 +2217,9 @@
 ;;   :trace   — dev-only trace-event listener (re-frame.trace; production
 ;;              CLJS bundles DCE the registration site under a `goog.DEBUG`
 ;;              gate). The `:event` vector and all slots ride in dev only.
-;;   :epoch   — epoch-record listener, late-bound through the
-;;              optional `day8/re-frame2-epoch` artefact; degrades to nil
-;;              when the artefact is absent.
+;;   :epoch   — epoch-record listener (re-frame.epoch); the arm is gated on
+;;              `interop/debug-enabled?`, so production registers nothing
+;;              and returns nil.
 ;;
 ;; BOTH members are raw and DCE'd, so the vocabulary carries its own
 ;; tier: `register-listener!` means "raw dev stream", full stop.
@@ -2279,14 +2284,13 @@
   "Register an observation listener `f` under `id` on `stream` — one verb
   across the two raw DEV observation streams (`:trace` / `:epoch`).
   Re-registering the same `id` on the same stream replaces. Returns `id`
-  (or nil on the `:epoch` stream when the `day8/re-frame2-epoch` artefact
-  is absent).
+  (or nil on the `:epoch` stream in a production build).
 
   - `:trace`  — dev-only trace-event listener (production CLJS bundles DCE
                 the registration site when it is `goog.DEBUG`-gated).
   - `:epoch`  — epoch-record listener (Spec 009
-                §`register-epoch-listener!`); no-op returning nil when the
-                epoch artefact is absent.
+                §`register-epoch-listener!`); no-op returning nil in a
+                production build.
 
   Both members are raw and DCE'd: this verb means \"raw dev stream\".
   PRODUCTION observation is a different verb —
@@ -2304,19 +2308,21 @@
   [stream id f]
   (case stream
     :trace  (rf.trace.tooling/register-listener! id f)
-    :epoch  (rf.core-epoch/register-epoch-listener! id f)
+    :epoch  (when rf.interop/debug-enabled?
+              (rf.epoch/register-epoch-listener! id f))
     (unknown-listener-stream! 'rf/register-listener! stream)))
 
 (defn unregister-listener!
   "Drop the listener registered under `id` on `stream` (`:trace` /
-  `:epoch`). Returns nil. No-op on the `:epoch` stream when the
-  `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws
+  `:epoch`). Returns nil. No-op on the `:epoch` stream in a production
+  build. An unknown `stream` throws
   `:rf.error/unknown-listener-stream`. Per Spec 009 §Observation
   listeners."
   [stream id]
   (case stream
     :trace  (rf.trace.tooling/unregister-listener! id)
-    :epoch  (rf.core-epoch/unregister-epoch-listener! id)
+    :epoch  (when rf.interop/debug-enabled?
+              (rf.epoch/unregister-epoch-listener! id))
     (unknown-listener-stream! 'rf/unregister-listener! stream)))
 
 ;; There is deliberately NO façade `clear-listeners!` verb.
@@ -2326,8 +2332,8 @@
 ;; through the lower-level sinks directly
 ;; (`re-frame.trace.tooling/clear-listeners!`,
 ;; `re-frame.event-emit/clear-event-listeners!`,
-;; `re-frame.error-emit/clear-error-listeners!`, and the
-;; `:epoch/clear-epoch-listeners!` reset hook).
+;; `re-frame.error-emit/clear-error-listeners!`, and epoch's lifecycle
+;; `:test-reset`).
 
 (def ^{:doc "Return the named frame's event-keyed trace ring,
   oldest-first. Two arities:
@@ -2387,8 +2393,8 @@
   required step before any off-box sink. Dispatches on a record's `:kind`
   (`:rf.observe/handled-event`, `:rf.observe/error`,
   `:rf.observe/derived-tree`, or `:rf/epoch-record`, whose projector is
-  late-bound from the epoch artefact and raises
-  `:rf.error/epoch-artefact-missing` when that artefact is absent) to a
+  late-bound from `re-frame.epoch` and raises `:rf.error/epoch-elided`
+  in a build that elides epoch) to a
   private per-kind projector, falling back to walking a kindless input as a
   tree-shaped value (the direct-read path); for every tree-shaped slot it
   delegates to the internal `re-frame.elision/elide-wire-value` walker
@@ -2471,10 +2477,10 @@
 (def ^{:doc "Return the vector of `:rf/epoch-record` values for the
   frame, oldest-first: the same function as `re-frame.epoch/epoch-history`,
   which new code calls. Empty when the frame has no recorded epochs, when
-  recording is disabled, or when the `day8/re-frame2-epoch` artefact is not
-  on the classpath. Per Tool-Pair §Time-travel. Late-bound via
-  `:epoch/epoch-history`."}
-  epoch-history      rf.core-epoch/epoch-history)
+  recording is disabled, or in a production build. Per Tool-Pair
+  §Time-travel."
+       :arglists '([frame-id])}
+  epoch-history      rf.epoch/epoch-history)
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports.
@@ -2483,12 +2489,10 @@
 ;; registered through
 ;; the single stream-parameterized verb —
 ;; `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch
-;; id)` — exactly like `:trace`, the other member. Those verbs delegate
-;; to the optional-artefact wrappers (`re-frame.core-epoch/register-
-;; epoch-listener!`, late-bound via `:epoch/register-epoch-listener!`), which
-;; are the implementation and degrade to nil when the `day8/re-frame2-epoch`
-;; artefact is absent. A dedicated per-channel pair here would duplicate
-;; the stream-parameterized verb.
+;; id)` — exactly like `:trace`, the other member. Those verbs call
+;; `re-frame.epoch/register-epoch-listener!` and its sibling, which are the
+;; implementation. A dedicated per-channel pair here would duplicate the
+;; stream-parameterized verb.
 
 ;; ---- frame-state write surface -------------------------------------------
 ;;
@@ -2556,31 +2560,6 @@
                            (some? (namespace k))
                            (not (re-find #"^rf(\.|$)" (namespace k)))))))
         (keys config-map)))
-
-(defn- emit-epoch-artefact-missing-warning!
-  "Warn that `:epoch-history` reached `configure!` in a build without the
-  epoch artefact. The key is known, but nothing in this build reads it, so
-  it applies nothing exactly as a typo would and signals on the same
-  warning id. `:unavailable-keys` (in place of `:unknown-keys`) and the
-  artefact's coordinate tell the two cases apart. The coordinate comes from
-  `re-frame.features`, the table every artefact-missing message quotes.
-
-  Dev-only by construction: the only caller sits inside a
-  `rf.interop/debug-enabled?` gate."
-  []
-  (let [{maven :maven require-ns :require} (:epoch rf.features/feature-registry)]
-    (rf.trace/emit!
-      :warning
-      :rf.warning/unknown-configure-key
-      {:unavailable-keys [:epoch-history]
-       :maven            maven
-       :require          require-ns
-       :detected-at      (rf.interop/now-ms)
-       :recovery         :ignored
-       :reason           (str "rf/configure! applied nothing for "
-                              "`:epoch-history`: the epoch artefact is not "
-                              "loaded. Add " maven " to your deps and require "
-                              require-ns " at app boot.")})))
 
 (defn configure!
   "Configure process-level runtime knobs from a single nested map. v1 keys:
@@ -2669,13 +2648,8 @@
   `goog.DEBUG=false`. Per-frame settings live on frame metadata. Per
   Tool-Pair §How AI tools attach.
 
-  `:epoch-history` in a build without the `day8/re-frame2-epoch` artefact
-  applies nothing either, because nothing in that build reads it. The
-  other keys still apply, and in dev builds the call emits the same
-  `:rf.warning/unknown-configure-key`, carrying `:unavailable-keys
-  [:epoch-history]` and the artefact's `:maven` coordinate and `:require`
-  namespace, so a missing artefact is named rather than silently absent.
-  Production builds stay a silent no-op.
+  `:epoch-history` applies nothing in a production build, silently, and
+  the other keys still apply.
 
   There is no `:sub-cache` knob: sub disposal is **synchronous on
   derefer-count → 0** —
@@ -2724,11 +2698,9 @@
       ;; travels off-box without echoing app-owned configuration.
       {:recovery :pass-a-config-map
        :extra    {:received (rf.error/diag-value-summary config-map)}}))
-  (when-let [opts (:epoch-history config-map)]
-    (if-let [f (rf.late-bind/get-fn :epoch/configure!)]
-      (f opts)
-      (when rf.interop/debug-enabled?
-        (emit-epoch-artefact-missing-warning!))))
+  (when rf.interop/debug-enabled?
+    (when-let [opts (:epoch-history config-map)]
+      (rf.epoch/configure! opts)))
   (when-let [opts (:trace-buffer config-map)]
     (when-let [f (rf.late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
       (f opts)))
@@ -2798,16 +2770,13 @@
 
   A subsystem key is ABSENT — not `nil`, not a fabricated default —
   when its OWN producer is unavailable in this build. The optional keys
-  are INDEPENDENT: `:epoch-history` comes from the optional
-  `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only
-  `re-frame.trace.tooling` sibling, and each is read through its own
-  late-bind hook. So a production bundle that DCEs the tooling ns omits
-  `:trace-buffer` ALONE — a loaded epoch artefact still reports
-  `:epoch-history` beside it, and vice versa. `(get-in (current-config)
-  [:epoch-history :depth])` reads `nil` when the EPOCH artefact is
-  absent — never merely because trace tooling is — which is the answer
-  a health query wants; the facade handles the optional-availability
-  branch so callers do not resolve owning-ns vars by symbol.
+  are INDEPENDENT: `:epoch-history` comes from `re-frame.epoch`, read only
+  in a development build, and `:trace-buffer` from the dev-only
+  `re-frame.trace.tooling` sibling, read through its own late-bind hook.
+  `(get-in (current-config) [:epoch-history :depth])` reads `nil` in a
+  production build, which is the answer a health query wants; the facade
+  handles the availability branch so callers do not resolve owning-ns vars
+  by symbol.
 
   The returned map is a snapshot read key-by-key, not a transactional
   one, and it is not promised to be wire-serialisable. Namespaced
@@ -2818,19 +2787,18 @@
 
   Per Conventions §`configure!` (mutation) vs `current-config` (read)."
   []
-  (let [epoch-read (rf.late-bind/get-fn :epoch/current-config)
-        trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
+  (let [trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
         ;; Present only when a process default is DECLARED: an
         ;; undeclared policy is absent rather than `nil`, which is this fn's
         ;; standing rule (`:epoch-history` / `:trace-buffer` read the same
         ;; way) and reads correctly against the routing model — no default
         ;; means frames route on their own policy alone. It is NOT the
-        ;; optional-artefact branch those two take: `re-frame.observability`
+        ;; availability branch those two take: `re-frame.observability`
         ;; is always loaded, so the key's absence is a statement about
         ;; CONFIGURATION, never about the build.
         observability (rf.observability/current-observability-config)]
     (cond-> {:elision (rf.elision/current-config)}
-      epoch-read          (assoc :epoch-history (epoch-read))
+      rf.interop/debug-enabled? (assoc :epoch-history (rf.epoch.state/current-config))
       trace-read          (assoc :trace-buffer (trace-read))
       (some? observability) (assoc :observability observability))))
 
@@ -2968,17 +2936,17 @@
 (def ^{:doc "Return a map of every optional feature keyword to its
   inspection entry — static coordinate data (`:maven` / `:require` /
   `:spec`) merged with the live `:loaded?` status. Known features:
-  `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch`
+  `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr`
   `:resources`.
 
   The one feature-inspection door. Read the boolean out of it —
-  `(get-in (rf/features) [:epoch :loaded?])`; an unknown feature keyword
+  `(get-in (rf/features) [:routing :loaded?])`; an unknown feature keyword
   reads `nil`, because its entry is simply absent. For boot-time rather
   than first-call failure, write the guard (not an elidable `assert`):
 
-      (when-not (get-in (rf/features) [:epoch :loaded?])
-        (throw (ex-info \"re-frame.epoch is not on the classpath\"
-                        (get (rf/features) :epoch))))
+      (when-not (get-in (rf/features) [:routing :loaded?])
+        (throw (ex-info \"re-frame.routing is not on the classpath\"
+                        (get (rf/features) :routing))))
 
   Detection is a pure keyword lookup in the always-loaded late-bind
   hooks atom — no require into the optional namespace. Ships to

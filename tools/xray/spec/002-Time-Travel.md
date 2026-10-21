@@ -13,7 +13,7 @@
 >   `(rf/configure! {:epoch-history {:depth N}})` knob, the
 >   `register-listener!` / `unregister-listener!` API with the `:epoch`
 >   stream key, the `restore-epoch!` rewind with its documented failure modes,
->   and the redaction hook — all shipped in `day8/re-frame2-epoch`.
+>   and the redaction hook — all shipped in core (`re-frame.epoch`, dev-only).
 > - **Xray id catalogue** — [014-Registry-Catalogue.md §Time-travel scrubber](./014-Registry-Catalogue.md#time-travel-scrubber).
 >   The surviving Xray-side ids: `:rf.xray/selected-epoch-record`,
 >   `:rf.xray/select-epoch` (passive scrub), `:rf.xray/reset-to-epoch`

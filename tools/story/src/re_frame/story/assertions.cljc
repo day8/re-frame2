@@ -71,8 +71,8 @@
     dispatched into the frame). So the set is eight ids, only seven of
     which are registered."
   (:require [re-frame.core                :as rf]
+            [re-frame.epoch               :as rf.epoch]
             [re-frame.interop             :as rf.interop]
-            [re-frame.late-bind           :as rf.late-bind]
             [re-frame.privacy             :as rf.privacy]
             [re-frame.subs                :as rf.subs]
             [re-frame.trace               :as rf.trace]
@@ -106,11 +106,11 @@
 ;;
 ;; The projections are PURE (tape data → fact), so the handlers stay pure
 ;; data → data; the handler shell reads `epoch-history` (below) once and
-;; threads the projected facts in. A host without the epoch artefact has no
+;; threads the projected facts in. A build that elides epoch has no
 ;; tape (`epoch-history` reads `[]` there), and an empty
 ;; projection there says nothing about behaviour: `dispatched?` would fail,
-;; `no-warnings` would pass. So on such a host every tape-projected
-;; assertion records `:cannot-run` naming the missing artefact
+;; `no-warnings` would pass. So in such a build every tape-projected
+;; assertion records `:cannot-run` naming the elision
 ;; (`epoch-missing-extras`) instead of judging the empty projection.
 ;;
 ;; ## Privacy
@@ -128,34 +128,30 @@
 ;; ---------------------------------------------------------------------------
 
 (defn epoch-tape-available?
-  "True iff the epoch artefact (`re-frame.epoch`, the `day8/re-frame2-epoch`
-  jar) is loaded, so `epoch-history` returns a live tape rather than `[]`."
+  "True iff this build records epochs — a development build — so
+  `epoch-history` returns a live tape rather than `[]`. A production build
+  elides epoch."
   []
-  (some? (rf.late-bind/get-fn :epoch/epoch-history)))
+  rf.interop/debug-enabled?)
 
 (defn epoch-history
-  "`frame-id`'s retained epoch records, oldest-first — `re-frame.epoch/
-  epoch-history`, read through its `:epoch/epoch-history` late-bind hook so
-  Story carries no hard dependency on the epoch artefact (a published Story
-  jar has none). `[]` when the artefact is not loaded."
+  "`frame-id`'s retained epoch records, oldest-first —
+  `re-frame.epoch/epoch-history`. `[]` in a build that elides epoch."
   [frame-id]
-  (if-let [read-history (rf.late-bind/get-fn :epoch/epoch-history)]
-    (read-history frame-id)
-    []))
+  (rf.epoch/epoch-history frame-id))
 
 (def epoch-missing-reason
-  "The `:reason` a tape-projected assertion records when the epoch artefact
-  is not loaded — the framework's own id for that absence."
-  :rf.error/epoch-artefact-missing)
+  "The `:reason` a tape-projected assertion records in a build that elides
+  epoch — the framework's own id for that absence."
+  :rf.error/epoch-elided)
 
 (def epoch-missing-hint
-  "The fix a tape-projected assertion names when the epoch artefact is not
-  loaded."
-  "this assertion reads the epoch tape: require re-frame.epoch (the day8/re-frame2-epoch artefact) in the host")
+  "The fix a tape-projected assertion names in a build that elides epoch."
+  "this assertion reads the epoch tape, which a production build (goog.DEBUG false) elides: run the story in a development build")
 
 (defn epoch-missing-extras
-  "The record fields of a tape-projected assertion on a host without the
-  epoch artefact: `:cannot-run`, with `epoch-missing-reason` and
+  "The record fields of a tape-projected assertion in a build that elides
+  epoch: `:cannot-run`, with `epoch-missing-reason` and
   `epoch-missing-hint`, so the missing requirement reads as a refusal that
   names its fix rather than as a verdict over an empty tape."
   []
@@ -211,11 +207,11 @@
 
 (defn- frame-tape
   "The CURRENT RUN's slice of the retained epoch tape for `frame-id`, via
-  the late-bound `epoch-history` read above (the SSOT the
+  the `epoch-history` read above (the SSOT the
   run-result evidence slots read) scoped by the frame's run baseline
   (`run-slice`). A frame no run has prepared carries no baseline and reads
-  its whole ring. Degrades to `[]` on a host without the epoch artefact
-  (production Story jars) — exactly what the run-result projection sees.
+  its whole ring. Degrades to `[]` in a build that elides epoch — exactly
+  what the run-result projection sees.
   Tolerant: any read error returns `[]`."
   [frame-id]
   (try
@@ -274,8 +270,8 @@
      canonical source for stub-redirected fx, the one fact the epoch tape
      cannot carry under the original id.
 
-  Pure-ish (the only reads are the late-bound tape + the stub-log hook).
-  Production builds without the epoch artefact / without fx-stubs see both
+  Pure-ish (the only reads are the tape + the stub-log hook).
+  Production builds, which elide epoch and carry no fx-stubs, see both
   sources empty."
   [frame-id]
   (let [from-tape (into #{}
@@ -1213,7 +1209,7 @@
   epochs (the play steps before this assertion's own dispatch) are already
   on the tape when this handler runs; the assertion's own epoch has not yet
   settled — and assertion events are excluded from the projection anyway.
-  On a host without the epoch artefact these three record
+  In a build that elides epoch these three record
   `epoch-missing-extras` instead."
   [assertion-id evaluator-kind]
   (fn [{:keys [db] rt :rf.db/runtime :as cofx} event-vec]

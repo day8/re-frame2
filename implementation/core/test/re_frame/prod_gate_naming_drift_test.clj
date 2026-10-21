@@ -26,7 +26,7 @@
 (def ^:private required-artefacts
   "Artefacts the walk must reach — a floor on reach, not a census, so a new
   artefact with a claiming file is scanned without editing this set."
-  #{"core" "epoch" "routing" "ssr"})
+  #{"core" "routing" "ssr"})
 
 (defn- posix [^java.io.File f]
   (str/replace (.getPath f) "\\" "/"))

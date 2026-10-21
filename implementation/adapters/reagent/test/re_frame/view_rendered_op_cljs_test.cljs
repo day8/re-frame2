@@ -15,8 +15,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.epoch]) ;; load so :epoch/run-cause hook is bound
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each

@@ -364,12 +364,12 @@ jobs:
       # This job's hermetic step (`test:re-frame2-pair-live-hermetic-suite`,
       # below) boots shadow-cljs against `skills/re-frame2-pair/tests/fixture/`,
       # so this cache covers the fixture's classpath as well as the two MCP
-      # servers'. That fixture resolves FIVE in-repo artefacts as `:local/root`
-      # entries — core, reagent, epoch, schemas and machines (the last two
+      # servers'. That fixture resolves FOUR in-repo artefacts as `:local/root`
+      # entries — core, reagent, schemas and machines (the last two
       # because the shipped preload `:require`s `re-frame.schemas` and
       # `re-frame.machines` directly, per the fixture's own deps.edn).
       #
-      # THE KEY MUST NAME ALL FIVE. With a key naming none of them, an
+      # THE KEY MUST NAME ALL FOUR. With a key naming none of them, an
       # artefact dependency bump leaves the key unchanged: the pre-bump entry
       # keeps being restored and — because an exact key hit suppresses the
       # save — never refreshes, returning the cold-resolve cost this key
@@ -385,7 +385,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
+          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-expensive-mcp-live-
             ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
@@ -485,7 +485,7 @@ jobs:
     #      nightly's job description and not the per-PR gate's.
     #
     #   2. COST. A Windows runner (billed at twice a Linux minute) booting a
-    #      JDK, a Clojure CLI, a cold shadow-cljs resolve over five
+    #      JDK, a Clojure CLI, a cold shadow-cljs resolve over four
     #      `:local/root` artefacts, a Chromium download, and then the whole
     #      hermetic suite TWICE. Charging that to every contributor on every
     #      push buys none of them anything.
@@ -576,7 +576,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/AppData/Local/Apps/clojure
-          key: ${{ runner.os }}-expensive-mcp-live-windows-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
+          key: ${{ runner.os }}-expensive-mcp-live-windows-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-expensive-mcp-live-windows-
 

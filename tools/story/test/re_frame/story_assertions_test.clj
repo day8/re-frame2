@@ -4,8 +4,7 @@
   `:rf.assert/schema-error`, the record-don't-throw contract and
   `assertions-passing?`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            ;; The tape-projected assertions read the epoch tape, which only
-            ;; records once the epoch artefact installs its late-bind hooks.
+            ;; The tape-projected assertions read the epoch tape.
             [re-frame.epoch            :as rf.epoch]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]

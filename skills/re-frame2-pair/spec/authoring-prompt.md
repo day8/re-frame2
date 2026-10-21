@@ -15,7 +15,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *3. `spec/Tool-Pair.md` — the contract the skill consumes.*
 > *4. `spec/009-Instrumentation.md` — the trace-stream (`:operation` / `:op-type`) and epoch-record vocabulary the skill teaches.*
 > *5. `spec/002-Frames.md` — the multi-frame model the skill operates against.*
-> *6. `implementation/core/src/re_frame/{core,trace,frame}.cljc` and `implementation/epoch/src/re_frame/epoch.cljc` — the verified Tool-Pair surfaces.*
+> *6. `implementation/core/src/re_frame/{core,trace,frame,epoch}.cljc` — the verified Tool-Pair surfaces.*
 > *7. `skills/re-frame2/SKILL.md` + `skills/re-frame-migration/SKILL.md` — the voice / density / cardinal-rules style to mirror.*
 >
 > *Then write the skill at `skills/re-frame2-pair/` with this exact file structure:*

@@ -67,7 +67,7 @@
         events))
 
 (defn- epoch-source-files
-  "Every epoch-artefact `.cljc` source file, discovered off the classpath so a
+  "Every epoch `.cljc` source file, discovered off the classpath so a
   new file is scanned without editing the test."
   []
   (let [pkg-dir (-> (io/resource "re_frame/epoch/capture.cljc")

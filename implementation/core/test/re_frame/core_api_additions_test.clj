@@ -15,10 +15,8 @@
             [re-frame.flows :as rf.flows]
             [re-frame.machines]
             [re-frame.routing :as rf.routing]
-            ;; `replace-frame-state!` delegates to the epoch artefact's
-            ;; `replace-frame-state!` (synthetic-epoch recording) through the
-            ;; `:epoch/replace-frame-state!` hook; load it so the mutator
-            ;; round-trip below resolves a live hook.
+            ;; `replace-frame-state!` records a synthetic epoch, which the
+            ;; mutator round-trip below reads back.
             [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 

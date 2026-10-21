@@ -1,5 +1,5 @@
 ;; JVM probe of Story's three verbs, honesty controls and force-fx-stub.
-;; Run from tools/story:  clojure -Sdeps '{:deps {day8/re-frame2-epoch {:local/root "../../implementation/epoch"}}}' -M -i <this file>
+;; Run from tools/story:  clojure -M -i <this file>
 (ns probe
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

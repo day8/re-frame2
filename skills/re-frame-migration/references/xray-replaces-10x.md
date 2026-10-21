@@ -73,7 +73,7 @@ grep -c "rf.xray" public/js/main.js   # expect 0; any hit means Xray reached the
 
 Substitute your build's output file for `public/js/main.js`. The grep is a leak detector, not proof of zero retained bytes — see [`tools/xray/README.md` §Bundle isolation](https://github.com/day8/re-frame2/blob/main/tools/xray/README.md#bundle-isolation); [Fresco diagnostics §Verify production erasure](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/16-diagnostics.md#verify-production-erasure) runs the same check.
 
-`day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf.epoch/epoch-history` / `(rf/register-listener! :epoch …)`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
+Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf.epoch/epoch-history` / `(rf/register-listener! :epoch …)`. Epoch ships in core, so no separate add is required.
 
 ### 2a. Add the npm peer-deps Xray pulls at compile time (`@xyflow/react`, `elkjs`)
 

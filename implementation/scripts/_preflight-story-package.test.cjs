@@ -155,12 +155,12 @@ test('an empty <version> fails — an incomplete GAV is unresolvable', () => {
 });
 
 test('a leaked test-only dependency fails with a pointed hint', () => {
-  // re-frame2-epoch is test-only for Story, under its :test alias; in the
+  // test.check is test-only for Story, under its :test alias; in the
   // published pom it means the alias leaked into :deps.
   expectFail(
-    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n)), dep('day8', 're-frame2-epoch', VERSION)],
+    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n)), dep('org.clojure', 'test.check', '1.1.1')],
     'leaked test-only dep',
-    /UNEXPECTED DIRECT dependency day8\/re-frame2-epoch.*test-only for Story/s,
+    /UNEXPECTED DIRECT dependency org\.clojure\/test\.check.*:test-alias only/s,
   );
 });
 

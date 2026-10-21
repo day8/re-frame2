@@ -4,7 +4,6 @@
   absent feature is simulated by setting its late-bind probe key to nil."
   (:require #?(:clj  [clojure.test :refer [deftest is]]
                :cljs [cljs.test :refer-macros [deftest is]])
-            [re-frame.epoch]
             [re-frame.features :as rf.features]
             [re-frame.flows]
             [re-frame.http.managed]
@@ -34,8 +33,8 @@
           (str feature " entry shape: coordinate data + :loaded?, no :probe-key leak"))
       (is (true? (:loaded? entry))
           (str feature " probe key should be populated in the test build")))
-    (is (= {:maven "day8/re-frame2-epoch" :require "re-frame.epoch"}
-           (select-keys (:epoch m) [:maven :require])))))
+    (is (= {:maven "day8/re-frame2-routing" :require "re-frame.routing"}
+           (select-keys (:routing m) [:maven :require])))))
 
 (deftest features-not-loaded-arm
   (with-probe-absent :routing

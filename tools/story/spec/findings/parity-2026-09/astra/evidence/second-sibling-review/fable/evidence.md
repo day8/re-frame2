@@ -70,7 +70,7 @@ Ceremony as exercised: ≥ 9 (`rubric.md` §4). With the page fixed and the npm 
 
 ## P1 · First JVM probe (`probe.clj`, recorded from the earlier part of the session)
 
-Run from `tools/story` with `clojure -Sdeps '{:deps {day8/re-frame2-epoch {:local/root "../../implementation/epoch"}}}' -M -i <scratch>/probe.clj` (~10 s, exit 0). Fixture pattern copied from `tools/story/test/re_frame/story/story_is_test.clj`: `story/clear-all!`, `rf.registrar/clear-all!`, `(reset! rf.frame/frames {})`, `(rf/init! plain-atom/adapter)`, `(reset! runner-events/run-state {})`, `install-canonical-vocabulary!`, `ensure-default-frame!`.
+Run from `tools/story` with `clojure -M -i <scratch>/probe.clj` (~10 s, exit 0). Fixture pattern copied from `tools/story/test/re_frame/story/story_is_test.clj`: `story/clear-all!`, `rf.registrar/clear-all!`, `(reset! rf.frame/frames {})`, `(rf/init! plain-atom/adapter)`, `(reset! runner-events/run-state {})`, `install-canonical-vocabulary!`, `ensure-default-frame!`.
 
 | Case | What | Result |
 |---|---|---|

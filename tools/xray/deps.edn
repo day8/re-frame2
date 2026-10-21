@@ -20,10 +20,6 @@
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
 
-         ;; Time travel reads epoch history and registers an epoch
-         ;; listener, so epoch is part of Xray's compile-time contract.
-         day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
-
          ;; The Routes lens compiles and ranks candidates through
          ;; `re-frame.routing.match`, including when the host registry is empty.
          day8/re-frame2-routing {:local/root "../../implementation/routing"}

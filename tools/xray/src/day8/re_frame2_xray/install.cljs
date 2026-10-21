@@ -13,15 +13,10 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            ;; Compile-time anchor. Both collectors attach through the
-            ;; `rf/register-listener!` facade, so no home-namespace alias
-            ;; is needed; this bare require exists to LOAD the epoch
-            ;; PRODUCER on every startup path. The facade reaches that
-            ;; producer through a late-bind hook an unloaded namespace
-            ;; never populates, so manual `core/init!` startup (which
-            ;; requires this namespace but not `preload`) would otherwise
-            ;; register a silent no-op. `preload.cljs` uses the same
-            ;; bare-require shape.
+            ;; Both collectors attach through the `rf/register-listener!`
+            ;; facade, so no home-namespace alias is needed. `re-frame.core`
+            ;; already loads epoch; this bare require names the dependency
+            ;; on every startup path, as `preload.cljs` does.
             [re-frame.epoch]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]
@@ -147,7 +142,7 @@
 (defn register-epoch-collector!
   "Register Xray's epoch-settle pump under `:rf.xray/epoch-collector`.
 
-  On every dequeued event's settle the framework's epoch artefact fires
+  On every dequeued event's settle the framework's epoch fires
   this callback with the assembled `:rf/epoch-record` (one record per
   event's run-to-completion, not per drain-settle). The cb notes the
   record's frame and requests a task-coalesced drain, which dispatches

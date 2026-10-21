@@ -78,8 +78,6 @@
                 ;; placement (flat under implementation/).
                 "ssr-ring/src"
                 "ssr-ring/test"
-                "epoch/src"
-                "epoch/test"
                 ;; The optional Resources artefact (Spec 016,
                 ;; EP-0003). Source + test paths here so the
                 ;; consolidated :node-test build picks up the resources
@@ -859,37 +857,6 @@
    ;; redefinition to excuse, so this build overrides the default above.
    :compiler-options {:warnings {:redef true}}}
 
-  ;; The MANUAL-ONLY Xray epoch-delivery witness.
-  ;; Same shape as the three focused `:node-test` siblings above; here the
-  ;; narrow `:ns-regexp` is not an ergonomic convenience but the WHOLE
-  ;; TEETH of the gate.
-  ;;
-  ;; `install.cljs` carries a bare `[re-frame.epoch]` require that loads the
-  ;; epoch PRODUCER on the manual `core/init!` startup path (which requires
-  ;; `install`, never `preload`). Without it `(rf/register-listener! :epoch …)`
-  ;; degrades to the silent no-op it correctly performs for a host that
-  ;; tolerates the artefact's absence, and Xray's Time-Travel panel sits
-  ;; empty on every manual boot with nothing reporting why.
-  ;;
-  ;; That claim can only be tested in a graph that has no OTHER route to the
-  ;; producer, and the always-on `:node-test` bundle has several — starting
-  ;; with `day8.re-frame2-xray.preload`, which carries the identical anchor
-  ;; and is required by `preload_decoupling_cljs_test`. So a delivery
-  ;; assertion in the aggregate bundle passes whether or not `install.cljs`
-  ;; still spells its require: it cannot tell the two worlds apart. This
-  ;; build selects ONE namespace, whose require list reaches
-  ;; `re-frame.epoch` through `install.cljs` and nowhere else.
-  ;;
-  ;; The witness namespace also ends in `-cljs-test`, so it rides the
-  ;; always-on `:node-test` build too and its ASSERTIONS are graded on every
-  ;; PR; only the graph-isolation half needs this id.
-  ;;
-  ;; Run by `npm run test:xray-manual-epoch`.
-  :node-test-xray-manual-epoch
-  {:target    :node-test
-   :output-to "out/node-test-xray-manual-epoch.js"
-   :ns-regexp "^day8\\.re-frame2-xray\\.manual-epoch-delivery-cljs-test$"}
-
   ;; The Fresco artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
   ;;
@@ -1159,17 +1126,22 @@
   ;; same :advanced Closure mode as :examples/counter, with goog.DEBUG=true:
   ;; the bodies sit behind `rf.interop/debug-enabled?`, so this is the same
   ;; compile with their gate open, where the counter's goog.DEBUG=false
-  ;; release is the OFF half. One module per claim, depending on no other:
-  ;; the checker inspects the exact module file, and Closure hoists a
-  ;; constant several modules share into their common base module, where it
-  ;; would satisfy a claim its own body never emits.
+  ;; release is the OFF half. One module per claim: the checker inspects the
+  ;; exact module file, and Closure hoists a constant several modules share
+  ;; into their common base module, where it would satisfy a claim its own
+  ;; body never emits. So no module is a base shared by two others. `:epoch`
+  ;; depends on `:trace-tooling` because shadow-cljs needs one root and
+  ;; epoch's require graph contains trace tooling's; a constant lands in
+  ;; trace-tooling.js only when trace tooling's own body uses it.
   :bundle-isolation-positive-control
   {:target           :browser
    :output-dir       "out/bundle-isolation-positive-control"
    :asset-path       "."
    :compiler-options {:closure-defines {goog.DEBUG true}}
    :modules
-   {:trace-tooling {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}}}
+   {:trace-tooling {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}
+    :epoch         {:init-fn    re-frame.bundle-isolation-positive-control.epoch/run
+                    :depends-on #{:trace-tooling}}}}
 
   ;; ============================================================================
   ;; Example apps.

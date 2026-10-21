@@ -33,8 +33,8 @@ carry no `goog.DEBUG` gate (§Force-disable):
    via `re-frame.core/register-listener!` (sentinel-guarded).
 4. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
    via `re-frame.core/register-listener!` on the `:epoch` stream
-   (sentinel-guarded). Xray hard-depends on `day8/re-frame2-epoch`, and
-   `install.cljs` loads its producer; see §Trace / epoch surfaces.
+   (sentinel-guarded). Epoch ships in core, which loads it; see
+   §Trace / epoch surfaces.
 5. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
 6. Attaches the global keydown listener. The shipped chords (the
@@ -544,7 +544,7 @@ reference:
 | Surface | Spec | What Xray reads |
 |---|---|---|
 | `(rf/register-listener! :trace key callback)` | Spec 009 | The trace bus (every operation). Xray attaches through the facade, like any other listener — what keeps the collector out of a production build is preload placement plus the `goog.DEBUG` gate, not the namespace the call names (per [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)). |
-| `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records. `day8/re-frame2-epoch` is a hard Xray dependency (`tools/xray/deps.edn`) and `install.cljs` carries a bare `[re-frame.epoch]` require, so the producer is loaded on every startup path and the facade's absent-artefact no-op cannot arise for a compiled Xray. |
+| `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records. Epoch ships in core and `re-frame.core` loads it, so the producer is loaded on every startup path of a development build. |
 | `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)` | Spec 009 | The named frame's bounded trace ring (default 50 retained events, per-frame override via `:rf.trace/events-retained`). `opts` is the Spec 009 filter map; `{:flat true}` yields raw trace events instead of event bundles. |
 | `(rf.epoch/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf.epoch/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |

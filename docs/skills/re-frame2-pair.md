@@ -87,11 +87,9 @@ Two steps, both on your side, before the first session:
       `:source-paths` key and warns about it, so a preload put there never loads.
     - Add `re-frame2-pair.runtime` to the build's `:devtools :preloads` in
       `shadow-cljs.edn`.
-    - Add two dev dependencies at the same revision as the app's core:
+    - Add one dev dependency at the same revision as the app's core:
       `day8/re-frame2-schemas`, which the preload requires (without it the build
-      fails on a missing `re-frame.schemas` namespace), and `day8/re-frame2-epoch`,
-      with `re-frame.epoch` required at boot, which the epoch and time-travel
-      tools need.
+      fails on a missing `re-frame.schemas` namespace).
 
     The snippets for each build tool are in [`references/setup.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/setup.md).
 
@@ -130,7 +128,7 @@ Runtime refusals carry `{:ok? false :reason …}`; the skill reports the reason 
 
 A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the hint names the URL to reload. The skill reloads it only when it has browser controls and the page is one it opened for the task; otherwise it asks you to. With `:unknown`, freshness could not be verified, so reads may work but are unverified; the reply says what could not be read and names one next step. Don't answer `:unknown` with `npx shadow-cljs stop`: it stops every shadow-cljs server on the machine, other projects' watches included.
 
-If epoch reads stay `[]` after the app has dispatched, check that `day8/re-frame2-epoch` was added and required in step 2 — `discover-app` does not check for it. Without it `dispatch-dry-run`, `restore-epoch` and `replay-epoch` refuse too, and `replace-app-db` fails with `:rf.error/epoch-artefact-missing`. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+If epoch reads stay `[]` after the app has dispatched, check that the build is a development build and that epoch history depth is positive — `discover-app` does not check either. Without recording, `dispatch-dry-run`, `restore-epoch`, `replay-epoch` and `replace-app-db` refuse too. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 Fresco evidence depends on what the running build has loaded, not on its adapter. Without `re-frame.fresco.tool` loaded, the three Fresco reads return `:evidence-tier-unavailable`; outside a debug build they return `:evidence-tier-inactive`. Those replies mean the evidence is unavailable, not that no views are mounted. An app on any adapter can load the namespace — Xray's preload does — and then gets valid envelopes about its Fresco boundaries only, so an empty roster says nothing about Reagent or UIx views and does not show a Fresco migration. DOM reads and the frame-level tools work whatever the adapter.
 
