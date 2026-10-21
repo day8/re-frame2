@@ -421,16 +421,17 @@
   user value, passes through as the arm passes it. Story's `:epoch-id`
   stamp passes through too.
 
-  `include?` returns the rows as recorded: Story MCP's trusted-local
-  opt-in ships them raw."
+  `include?` keeps Story MCP's trusted-local opt-in exactly as
+  `project-narrative` does: `mcp-tool-profile` names `:rf.egress/local-raw`,
+  which lifts the app-db axes inside the projection and never bypasses it,
+  so a sub-run's query vectors ship as recorded while an effect's `:args`
+  stay redacted, and each row still equals its beat's row."
   [outcome variant-id include?]
   (let [rows (into {} (map (fn [slot] [slot (vec (get outcome slot))])) epoch-row-slots)]
-    (if include?
-      rows
-      (select-keys (rf/project-egress
-                     (assoc rows :kind :rf/epoch-record :frame variant-id)
-                     {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile false)})
-                   epoch-row-slots))))
+    (select-keys (rf/project-egress
+                   (assoc rows :kind :rf/epoch-record :frame variant-id)
+                   {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile include?)})
+                 epoch-row-slots)))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime and captured values

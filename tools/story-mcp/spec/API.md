@@ -449,7 +449,8 @@ sends epochs through, trace events included: its `:db-before` /
 The top-level epoch rows — `:effects`, `:sub-runs` and `:renders` — cross
 the same projector, so each reads as it does in its beat: an effect's
 `:args` redact and a sub-run's query vectors keep only their ids. Under
-`:include-sensitive` they ship as recorded.
+`:include-sensitive` they still cross it, and still equal their beat's
+rows: the query vectors ship as recorded, the effect args stay redacted.
 
 **Output.** The unified run-result (rf2-ba86n.17 clean break — the same
 shape the human Story UI reads; `re-frame.story.result/run-result`):
