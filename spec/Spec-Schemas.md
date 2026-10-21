@@ -3284,9 +3284,9 @@ The normalized **algebra view** every declared fact / process lowers to — the 
 > **Layer:** Runtime
 > **Owner:** [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
 > **Status:** v1-required
-> **Conformance:** `implementation/core/test/re_frame/reply_cljs_test.cljc` (the `re-frame.reply` substrate — schema validity, the functor laws, and stale suppression)
+> **Conformance:** `implementation/core/test/re_frame/reply_cljs_test.cljc` (the `re-frame.reply` substrate — schema validity, completion, and stale suppression)
 
-The canonical shape every managed *async* surface — HTTP ([014](014-HTTPRequests.md)), resources + mutations ([016](016-Resources.md)), machine async work ([005](005-StateMachines.md)), route loaders ([012](012-Routing.md)), and any future managed timer / background-job surface — completes through ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). One standard **reply map** delivered to one standard **reply target**. The shared `re-frame.reply` substrate (`implementation/core`) realises the pure core: target normalization, completion (append per `:delivery`), the reply-mapping functor law, this schema's validation, and the stale-suppression helper. The reply map is **data only** — it MUST NOT carry functions, promises, `AbortController`s, timer handles, DOM nodes, or any host resource (those live in a host-transient side-table keyed by `[frame-id work-id]`, never in durable reply data).
+The canonical shape every managed *async* surface — HTTP ([014](014-HTTPRequests.md)), resources + mutations ([016](016-Resources.md)), machine async work ([005](005-StateMachines.md)), route loaders ([012](012-Routing.md)), and any future managed timer / background-job surface — completes through ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). One standard **reply map** delivered to one standard **reply target**. The shared `re-frame.reply` substrate (`implementation/core`) realises the pure core: target normalization, completion (append the reply map to the target's event), this schema's validation, and the stale-suppression helper. The reply map is **data only** — it MUST NOT carry functions, promises, `AbortController`s, timer handles, DOM nodes, or any host resource (those live in a host-transient side-table keyed by `[frame-id work-id]`, never in durable reply data).
 
 ```clojure
 (def ReplyStatus
@@ -3325,9 +3325,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:completed-at  {:optional true} [:maybe :int]]
    [:deadline-at   {:optional true} [:maybe :int]]
    [:correlation   {:optional true} :map]                    ;; data-only correlation metadata (request-id, scope, generation, owner, …)
-   [:stale?        {:optional true} :boolean]               ;; required true for :status :stale
    [:rf.reply/stale-reason  {:optional true} [:maybe :keyword]]
-   [:cancelled?    {:optional true} :boolean]               ;; required true for :status :cancelled — the intentional-cancellation marker
    [:rf.reply/cancel-reason {:optional true} [:maybe :keyword]]
    [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via re-frame.elision/elide-wire-value)
    [:meta          {:optional true} :any]])                  ;; effect-family data
@@ -3335,10 +3333,9 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
 (def ReplyTarget
   ;; Where a completion is dispatched. The public short form is an
   ;; event-vector prefix; the descriptor form is for framework internals
-  ;; and future public surfaces needing explicit delivery options. The
-  ;; runtime appends the reply map as the final event argument on :append
-  ;; (the only public delivery mode). :suppress carries data-only stale
-  ;; gates. A STALE completion is UNIVERSALLY non-delivering:
+  ;; and adds :suppress, the data-only stale gates. The runtime appends the
+  ;; reply map as the final event argument. A STALE completion is
+  ;; UNIVERSALLY non-delivering:
   ;; the app reply target is NEVER dispatched for a superseded async result, so
   ;; a reply target — app/data that could itself carry a capability — can never
   ;; carry stale-delivery authority through it. There is no per-target opt-in
@@ -3349,11 +3346,10 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:vector :any]                                            ;; short form: an event-vector prefix [:event-id arg …]
    [:map
     [:event           [:vector :any]]                        ;; the event-vector prefix to complete
-    [:delivery        {:optional true} [:enum :append]]      ;; :append is the only PUBLIC delivery mode
     [:suppress        {:optional true} :map]]])              ;; data-only gates that must still match before delivery
 ```
 
-`:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:rf.reply/cancel-reason` on `:cancelled`; `:stale? true` + `:rf.reply/stale-reason` and no `:value` on `:stale`), the work-identity correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:rf.reply/work-status` is `:suppressed` and the attempt (`ResourceWorkRecord`, above) reaches `:suppressed` — the reply target and an attempt record are the same fact, the attempt's reply targets being this target made durable.
+`:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:rf.reply/cancel-reason` on `:cancelled`; `:rf.reply/stale-reason` and no `:value` on `:stale`), the work-identity correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:rf.reply/work-status` is `:suppressed` and the attempt (`ResourceWorkRecord`, above) reaches `:suppressed` — the reply target and an attempt record are the same fact, the attempt's reply targets being this target made durable.
 
 **Cross-record work-identity spelling.** The one work-identity fact is deliberately spelled two ways across the record↔reply boundary: bare `:work/id` (and `:work/kind`) on the DURABLE attempt record (`ResourceWorkRecord`), the runtime verification payload, and the entry's `:current-work`; single-rooted `:rf.reply/work-id` (and `:rf.reply/work-kind`) on the TRANSIENT reply envelope + its trace tags. An attempt record is a durable, queryable status record; a reply is a transient causal envelope — the same fact living in two layers, exactly as a resource's decoded result is `:value` on the reply and `:data` on the durable entry ([016 §The uniform reply envelope](016-Resources.md#the-uniform-reply-envelope-and-the-canonical-reply-map)). The reply's `:correlation` slot spells the resource cache key `:rf.reply/resource-key` (bare `:resource/key` is the STRUCTURAL runtime-db carrier). The carried/current stale-suppression GATES nested under `:rf.reply/carried` / `:rf.reply/current` keep the bare `:work/id` spelling as plain correlation data.
 
@@ -3638,7 +3634,7 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
    [:completed-at {:optional true} :any]])                                ;; OPTIONAL reply completion time — the recordable :rf/time-ms fact on the reply token; when a stale completion supplies it, the suppressed reply/trace carries it
 ```
 
-Registered under spec id `:rf.fx/with-nav-token-args`. The continuation is named by the canonical `:rf/reply-to` reply target (the [EP-0011](Managed-Effects.md#the-uniform-reply-envelope) lowering — the wrapper normalizes + completes the target through the shared `re-frame.reply` substrate, exercising the reply-completion/mapping law at the actual navigation wrapper); `:rf/reply-to` is the single, required continuation surface. The wrapper checks the carried `:nav-token` against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token` (the [stale-suppression](Managed-Effects.md#stale-suppression) gate). Match → complete the continuation (`:status :ok`). Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace; the app reply target does NOT run — a stale completion is universally non-delivering, so no reply target, however authored, receives a stale reply.
+Registered under spec id `:rf.fx/with-nav-token-args`. The continuation is named by the canonical `:rf/reply-to` reply target (the [EP-0011](Managed-Effects.md#the-uniform-reply-envelope) lowering — the wrapper normalizes + completes the target through the shared `re-frame.reply` substrate at the actual navigation wrapper); `:rf/reply-to` is the single, required continuation surface. The wrapper checks the carried `:nav-token` against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token` (the [stale-suppression](Managed-Effects.md#stale-suppression) gate). Match → complete the continuation (`:status :ok`). Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace; the app reply target does NOT run — a stale completion is universally non-delivering, so no reply target, however authored, receives a stale reply.
 
 The capture-side facts are supplied by two framework coeffects a handler declares via `:rf.cofx/requires` (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)): `:rf.route/nav-token` (the live navigation epoch token) and `:rf.route/route-id` (the live route id). Declaring BOTH and threading them into this fx makes the route-loader work-id `[:rf.work/route route-id nav-token loader-id]` carry its complete attempt identity, so the documented path cannot emit a nil-route route work-id.
 
