@@ -178,7 +178,7 @@
   "Rewrite one var row's generated cells. Returns `[text changes]`."
   [{:keys [column-index]} line text cells row authored-spec]
   (let [values  (generated-values line (nth cells (column-index "M/Fn")) row)
-        ident   (str/trim (first cells))
+        ident   (second (re-matches var-ident-re (str/trim (first cells))))
         columns (cond->> generated-columns
                   (contains? authored-spec [(:namespace row) (:var row)]) (remove #{"Spec"}))
         [cells' changes]

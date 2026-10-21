@@ -69,6 +69,8 @@
     (is (= [[7 "M/Fn" "(UIx hook)" "Fn (UIx hook)"] [7 "Status" "" "v1"]
             [7 "Tier" "" "adapter"] [7 "Spec" "002, 006" "006"]]
            (map (juxt :line :column :from :to) changes)))
+    (is (= #{"rf.adapter.uix/use-sub"} (set (map :raw changes)))
+        "a change names the var, not the back-ticked cell")
     (is (= [{:namespace "re-frame.adapter.uix" :line 5 :rows 2}] tables))))
 
 (deftest the-rewrite-is-a-fixed-point
