@@ -11,7 +11,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.http.stub-transport :as rf.http.stub-transport]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; boot.core
@@ -111,7 +111,7 @@
     ;; `:initial-events` then drain synchronously instead of being treated
     ;; as a mid-cascade child-frame creation, and the post-boot state is
     ;; observable.
-    {:adapter       rf.adapter.reagent/adapter
+    {:adapter       rf.integration-adapter/adapter
      :ambient-frame nil}))
 
 ;; ============================================================================

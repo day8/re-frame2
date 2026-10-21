@@ -4,7 +4,7 @@
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [re-frame.views]
@@ -21,7 +21,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter       rf.adapter.reagent/adapter
+    {:adapter       rf.integration-adapter/adapter
      :ambient-frame nil
      :async?        true
      :app-ns        "realworld-http."}))

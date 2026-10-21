@@ -6,7 +6,7 @@
             [clojure.set :as set]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
@@ -18,7 +18,7 @@
   (rf.test-support/make-reset-runtime-fixture
     ;; Each test makes its own top-level frame, so its `:initial-events`
     ;; drain synchronously rather than as a mid-cascade child frame.
-    {:adapter       rf.adapter.reagent/adapter
+    {:adapter       rf.integration-adapter/adapter
      :ambient-frame nil}))
 
 (defn- snapshot [frame]

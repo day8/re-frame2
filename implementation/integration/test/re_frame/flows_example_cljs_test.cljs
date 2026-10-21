@@ -17,7 +17,7 @@
    events, subs and views register at ns-load."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; the flows artefact (the example requires it too; explicit here
@@ -31,7 +31,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
+    {:adapter rf.integration-adapter/adapter}))
 
 (defn- cart [] (:cart (rf/app-db-value :rf/default)))
 

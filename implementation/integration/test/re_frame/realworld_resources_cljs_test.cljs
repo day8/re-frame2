@@ -8,7 +8,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-store :as rf.source-store]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [malli.core :as m]
@@ -82,7 +82,7 @@
 (use-fixtures :each
   isolate-trace-bus-fixture
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :init-fn init!
      :async?  true
      :app-ns  "realworld-resources."}))

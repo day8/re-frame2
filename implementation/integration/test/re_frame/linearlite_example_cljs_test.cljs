@@ -16,7 +16,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-store :as rf.source-store]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [re-frame.http.managed]
@@ -86,7 +86,7 @@
   (rf.test-support/make-reset-runtime-fixture
     ;; Every co-loaded example registers `:rf.route/not-found`; `:app-ns`
     ;; keeps this app's rows out of other suites' baselines.
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :app-ns  "linearlite."
      :init-fn init!}))
 

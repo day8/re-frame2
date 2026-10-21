@@ -2,7 +2,7 @@
   "The example policy routes one already-redacted error and remains closed without a policy."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
@@ -13,7 +13,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :init-fn (fn []
                 (rf.error-emit/clear-error-listeners!)
                 (rf.observability/clear-observability-sinks!))}))

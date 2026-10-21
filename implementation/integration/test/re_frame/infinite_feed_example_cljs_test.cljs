@@ -35,7 +35,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-store :as rf.source-store]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; production HTTP + resources surfaces (so the resource runtime,
@@ -154,7 +154,7 @@
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
     ;; this suite's own tests.
-    {:adapter rf.adapter.reagent/adapter
+    {:adapter rf.integration-adapter/adapter
      :app-ns  "infinite-feed."
      :init-fn init!}))
 
