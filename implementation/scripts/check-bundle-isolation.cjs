@@ -36,10 +36,11 @@
  *     in it. Only the emitted bytes can answer, so the entry greps the
  *     `:advanced` output for string literals the bodies emit (Closure renames
  *     symbols but never rewrites string literals), and proves each literal
- *     live in an emitted module that does reach the bodies, since a grep for
- *     a literal that exists nowhere passes vacuously. `trace-tooling` is the
- *     canonical case: core requires `re-frame.trace.tooling` statically, and
- *     the counter bundle stays clean only because it never calls that surface.
+ *     live in the same compile with the bodies reached and their gate open,
+ *     since a grep for a literal that exists nowhere passes vacuously.
+ *     `trace-tooling` is the canonical case: core requires
+ *     `re-frame.trace.tooling` statically, and its bodies reach no production
+ *     bundle.
  *
  * The allow-list budgets are grep too: a small set of consumer-side keyword
  * strings (e.g. `flows/reg-flow`, `rf.http/managed`) intentionally remain in
@@ -203,11 +204,12 @@ const ARTEFACTS = [
   // both platforms, and the facade's `:trace` arm plus `rf/trace-buffer` /
   // `rf/clear-trace-buffer!` name `re-frame.trace.tooling/…` directly —
   // `re-frame.trace` publishes no listener/buffer surface of its own. The
-  // counter bundle stays clean because it never CALLS that surface, so Closure
-  // drops the bodies. The sentinel is a distinctive string fragment from the
-  // tooling's `trace-buffer` filter-predicate body that does NOT appear
-  // anywhere else in the framework source. A non-zero hit means an ungated
-  // call site (one not behind `goog.DEBUG`) reached the tooling.
+  // counter bundle stays clean because those bodies sit behind
+  // `rf.interop/debug-enabled?` and the counter never calls them, so Closure
+  // drops them. The sentinel is the `:trace-events` slot of the tooling's
+  // `trace-buffer` event-bundle projection; the only other code emitting it is
+  // the epoch artefact, which the `epoch` graph claim keeps out of this bundle.
+  // A non-zero hit means one of the two reached a production bundle.
   {
     name: 'trace-tooling',
     internalSentinels: [
@@ -332,12 +334,15 @@ const ARTEFACTS = [
 //
 // So each elision claim names one module of the dedicated
 // :bundle-isolation-positive-control release, whose focused entrypoint reaches
-// the bodies, built in the same :advanced mode with goog.DEBUG=false as the
-// counter bundle, and every sentinel must be PRESENT in that exact emitted
-// module file. Exact module ownership is load-bearing: an occurrence emitted
-// by a sibling module cannot satisfy the entry. Comments, docstrings, JVM-only
-// reader branches and DCE'd CLJS forms cannot satisfy it either, because the
-// check reads emitted JavaScript only.
+// the bodies, and every sentinel must be PRESENT in that exact emitted module
+// file. That release is the counter's :advanced compile with goog.DEBUG=true:
+// the bodies sit behind `rf.interop/debug-enabled?`, so it is the ON half of
+// the claim, the gate open, where the counter's goog.DEBUG=false release is
+// the OFF half. Each module stands alone, because Closure hoists a constant
+// several modules share into their common base module, where it would satisfy
+// a claim its own body never emits. Comments, docstrings, JVM-only reader
+// branches and DCE'd CLJS forms cannot satisfy it either, because the check
+// reads emitted JavaScript only.
 //
 // assertPositiveControlComplete() requires every elision claim to appear here
 // and nothing else to, so none can ship negative-only.
