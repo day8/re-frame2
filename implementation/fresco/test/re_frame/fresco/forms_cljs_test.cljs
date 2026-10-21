@@ -8,7 +8,7 @@
   | § | tier | what it decides |
   |---|---|---|
   | 1 | pure | the concern's spelling, which two gates pin, and its `app-db` layout |
-  | 2 | L0 | every transition, driven through a real frame |
+  | 2 | L0 | every transition, driven through a real frame — one made with explicit `:images` included |
   | 3 | L0 | the addressing trap: one draft per control, and a bad control refused by name |
   | 4 | L2 | the body as a semantic tree — props, ownership, and the absence of a function |
   | 5 | hooks | the count, taken at React's own dispatcher |
@@ -41,9 +41,10 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             ;; Side-effecting: the `:dispatch` fx a commit hands the
-            ;; caller's event to. The module names it too; a suite that
-            ;; relied on some other namespace having loaded it would be
-            ;; asserting about the bundle rather than about the module.
+            ;; caller's event to. The module loads it through
+            ;; `re-frame.core`; a suite that relied on some other namespace
+            ;; having loaded it would be asserting about the bundle rather
+            ;; than about the module.
             [re-frame.fx]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
@@ -395,6 +396,40 @@
       (is (= {} (:ui (db-of frame)))
           "and the concern map is pruned rather than left holding an empty
            entry — one representation of unset, not two"))))
+
+(defn- resolves? [frame kind id]
+  (some? (rf/handler-meta {:frame frame :kind kind :id id})))
+
+(deftest a-frame-whose-image-selects-the-module-runs-it
+  ;; Spec 002 §Image resolution and composition: a frame made with explicit
+  ;; `:images` resolves what its images' `:select-ns` selects plus the
+  ;; framework base, and the framework base holds only `:rf`-rooted ids. The
+  ;; concern's sub and setter and the three protocol events are the module's
+  ;; own registrations, so an application that selects
+  ;; `re-frame.fresco.forms` beside its own namespace gets all of them.
+  (rf/with-new-frame [frame (rf/make-frame
+                              {:images         [(rf/image {:id        ::with-forms
+                                                           :select-ns {:include ["re-frame.fresco.forms"
+                                                                                 "re-frame.fresco.forms-cljs-test"]}})]
+                               :initial-events [[::seed]]})]
+    (is (= {:drafts-sub true :drafts-setter true :edit true :commit true :cancel true}
+           {:drafts-sub    (resolves? frame :sub rf.fresco.forms/drafts)
+            :drafts-setter (resolves? frame :event rf.fresco.forms/drafts)
+            :edit          (resolves? frame :event rf.fresco.test.forms/edit-id)
+            :commit        (resolves? frame :event rf.fresco.test.forms/commit-id)
+            :cancel        (resolves? frame :event rf.fresco.test.forms/cancel-id)})
+        "every registration the module makes resolves in the selecting frame")
+    (testing "the concern's own setter writes a draft its sub reads back"
+      (send! frame [rf.fresco.forms/drafts control {:revision 0 :draft "set by hand"}])
+      (is (= {:revision 0 :draft "set by hand"} (record-of frame)))
+      (send! frame [:rf.state/clear rf.fresco.forms/drafts control])
+      (is (nil? (record-of frame)) "and the framework clear ends it"))
+    (testing "and the field's protocol runs a session end to end"
+      (type! frame 0 "Buy oat milk")
+      (is (= {:revision 0 :draft "Buy oat milk"} (record-of frame)))
+      (commit! frame 0)
+      (is (= [[7 "Buy oat milk"]] (committed-log frame)))
+      (is (nil? (record-of frame)) "the session is over"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The addressing trap

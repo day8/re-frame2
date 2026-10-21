@@ -96,7 +96,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.core-state :as rf.core-state]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.forms :as rf.fresco.forms]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -135,15 +134,12 @@
 (defn- fresh!
   "A frame seeded to one immutable request snapshot.
 
-  `forms/drafts` is re-registered here rather than at the top level
-  because the runtime reset between rows clears the state registry; a
-  repeat replaces the registration with an identical one. It goes through
-  the `rf.core-state/reg-state` fn door, as `re-frame.fresco.forms` does,
-  because the `rf/reg-state` macro would record THIS namespace beside the
-  module's own registration and make the id ambiguous."
+  `forms/drafts` is not registered here: `re-frame.fresco.forms` registers
+  it when it loads, ahead of this namespace's fixture baseline, so every
+  row's reset keeps it. A registration from THIS namespace would sit
+  beside the module's own and make the id ambiguous."
   [open?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.core-state/reg-state :re-frame.fresco.forms/drafts {:default nil})
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:fresco.arms/seed open?]))
   frame-id)

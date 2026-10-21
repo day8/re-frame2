@@ -39,13 +39,14 @@
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
   `docs/design/fresco/product/forms-recipes.md`."
-  (:require ;; `reg-state` and `ui-root` (see `draft-path`), from their home.
+  (:require ;; `rf/reg-state` and `rf/reg-event` as the MACROS, so the
+            ;; concern and the three protocol events record this namespace
+            ;; and an explicit image that selects it carries them (Spec 002
+            ;; §Image resolution and composition). Also loads `re-frame.fx`,
+            ;; whose `:dispatch` the commit and cancel handlers emit.
+            [re-frame.core :as rf]
+            ;; `ui-root` (see `draft-path`), from its home.
             [re-frame.core-state :as rf.core-state]
-            [re-frame.events :as rf.events]
-            ;; Side-effecting: registers `:dispatch`, which the commit and
-            ;; cancel handlers emit. Named here so the module is correct
-            ;; standing alone rather than through `re-frame.core`.
-            [re-frame.fx]
             [re-frame.fresco :as rf.fresco]))
 
 ;; ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@
   release bundle for this exact string; a namespace rename would move a
   `::drafts` keyword while the scan went on matching nothing
   (`forms-cljs-test/the-concern-is-what-the-bundle-gate-pins`)."
-  (rf.core-state/reg-state :re-frame.fresco.forms/drafts {:default nil}))
+  (rf/reg-state :re-frame.fresco.forms/drafts {:default nil}))
 
 (defn- draft-path
   "`reg-state`'s `[:ui <concern> <ikey>]` layout for `control`. The
@@ -113,7 +114,7 @@
 ;; the field by hand.
 ;; ---------------------------------------------------------------------------
 
-(rf.events/reg-event ::edit
+(rf/reg-event ::edit
   {:doc "`[::edit control revision text]` — the keystroke event, on
          `:on-input`. Write `{:revision revision :draft text}` at `control`, replacing
          whole whatever was there: a record a reset made ineligible is
@@ -123,7 +124,7 @@
   (fn [{:keys [db]} [_ control revision text]]
     {:db (assoc-in db (draft-path control) {:revision revision :draft text})}))
 
-(rf.events/reg-event ::commit
+(rf/reg-event ::commit
   {:doc "`[::commit control revision on-commit]` — Enter and blur alike,
          since D016 makes them one operation.
          End the session at `control` and hand the caller its candidate:
@@ -150,7 +151,7 @@
           (seq on-commit)
           (assoc :fx [[:dispatch (conj (vec on-commit) (:draft record))]]))))))
 
-(rf.events/reg-event ::cancel
+(rf/reg-event ::cancel
   {:doc "`[::cancel control revision on-cancel]` — Escape.
          Abandon the session at `control`: when the record is live under
          `revision`, remove it and dispatch `on-cancel` if one was given;
