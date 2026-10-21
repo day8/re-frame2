@@ -46,7 +46,7 @@
 
    The example tree is test-free; the coverage lives in the framework test
    tree at ns `re-frame.long-running-work-cljs-test`
-   (implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs),
+   (implementation/integration/test/re_frame/long_running_work_cljs_test.cljs),
    which rides `npm run test:cljs`."
   ;; Plain Reagent here, through the `re-frame.adapter.reagent` client root.
   ;; The trick worth watching is in views.cljs: a `r/with-let`

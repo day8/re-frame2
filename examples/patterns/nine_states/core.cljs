@@ -68,7 +68,7 @@
      machine there and checks its tags + `:ui/render`, no browser
      required. The example tree itself is test-free; the fixtures live in
      the framework test tree at
-     `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`.
+     `implementation/integration/test/re_frame/nine_states_cljs_test.cljs`.
 
    It all lives in one file so you can read it top to bottom. A real
    codebase would spread it across schema / events / subs / views /

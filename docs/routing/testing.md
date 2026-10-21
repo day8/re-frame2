@@ -225,5 +225,5 @@ reports the protected URL, the app's real `:initial-events`, and a managed-HTTP 
 that records the request and does not answer until the test says so. A stub that
 answers at once, or a test that navigates to a public page first, cannot see the
 problem. `realworld-cold-boot-deep-link-race` in
-`implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs` is a worked
+`implementation/integration/test/re_frame/realworld_cljs_test.cljs` is a worked
 example.

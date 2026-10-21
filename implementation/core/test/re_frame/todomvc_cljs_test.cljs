@@ -2,8 +2,8 @@
   "Event handlers and sub graph of the TodoMVC example (`todomvc.core`). The
   active filter is never stored: `:todo/showing` derives it from the route id,
   so the sub reads take a full frame-state value with the route id injected.
-  The cold-boot sorted-map invariant on the add path lives in the adapter
-  tree's `re-frame.todomvc-example-cljs-test`."
+  The cold-boot sorted-map invariant on the add path lives in the
+  integration suite's `re-frame.todomvc-example-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
