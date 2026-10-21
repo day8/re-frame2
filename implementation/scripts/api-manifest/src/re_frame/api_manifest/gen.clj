@@ -533,8 +533,8 @@
      ;; The test-only fixture namespace, the sibling of
      ;; `re-frame.routing.test-support` above. Required directly by test
      ;; suites, again
-     ;; for the LOAD EFFECT: the require publishes the
-     ;; `:resources/reset-resources!` late-bind hook, and the consumer-facing
+     ;; for the LOAD EFFECT: the require merges the resources reset into its
+     ;; lifecycle contribution, and the consumer-facing
      ;; name is `re-frame.test-support/make-reset-runtime-fixture` — already
      ;; rowed at :testing with a docs/api page — which FIRES the one public var
      ;; here. No consumer calls `reset-resources!` itself, so the namespace

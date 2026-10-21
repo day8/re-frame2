@@ -31,7 +31,7 @@
     (Spec-Schemas §`:rf/epoch-record`). The
     instance-token mint, the `*render-key*` binding, and the late-
     bind emit must elide.
-  - `re-frame.frame/safe-call-hook!` — the EP-0008 R2 per-hook
+  - `re-frame.frame/safe-call-contribution!` — the EP-0008 R2 per-failure
     `:rf.warning/teardown-hook-exception` DEV DIAGNOSTIC.
     The diagnostic emit rides `rf.trace/emit-error!` (gated on
     `interop/debug-enabled?`), so its body — including the
@@ -45,11 +45,10 @@
   to root the dead-code-elimination graph at every surface. The grep
   test is the assertion."
   (:require [re-frame.core         :as rf]
- [re-frame.frame :as rf.frame]
+            [re-frame.frame        :as rf.frame]
             [re-frame.registrar    :as rf.registrar]
             [re-frame.schemas      :as rf.schemas]
             [re-frame.trace        :as rf.trace]
-            [re-frame.late-bind    :as rf.late-bind]
             ;; The listener + buffer surface lives in
             ;; `re-frame.trace.tooling` (production-DCE split). The
             ;; probe touches it to keep both surfaces reachable so
@@ -401,8 +400,8 @@
 
 ;; ---- EP-0008 R2 teardown-hook DEV DIAGNOSTIC ------------------------------
 ;;
-;; `re-frame.frame/safe-call-hook!` runs the late-bound optional-artefact
-;; cleanup hooks during `destroy-frame!`. When a hook throws it does two
+;; `re-frame.frame/safe-call-contribution!` runs each artefact's lifecycle
+;; contribution during `destroy-frame!`. When a member throws it does two
 ;; things on two channels (Spec 009 §Observability channels):
 ;;
 ;;   1. ALWAYS-ON axis — accumulates a `:hook-failures` entry that
@@ -417,23 +416,23 @@
 ;; A probe that never touched the destroy/teardown path would leave the R2
 ;; diagnostic body outside the DCE reachability graph, with no
 ;; check-elision.cjs sentinel for it — its production absence would be
-;; UNVERIFIED. This touch installs a throwing late-bound cleanup hook and
-;; calls `destroy-frame!`, rooting the `safe-call-hook!` catch arm + the
+;; UNVERIFIED. This touch registers a throwing lifecycle contribution and
+;; calls `destroy-frame!`, rooting the `safe-call-contribution!` catch arm + the
 ;; gated warn emit so the control build (DEBUG=true) contains the
 ;; `:rf.warning/teardown-hook-exception` keyword sentinel and the production
 ;; build (DEBUG=false) must DCE it.
 
 (defn ^:export touch-teardown! []
-  ;; Install a throwing cleanup hook under a late-bound teardown hook key,
-  ;; snapshotting the prior binding so the install doesn't leak. The hook
-  ;; key (`:ssr/on-frame-destroyed`) is one safe-call-hook! fires during the
-  ;; teardown recipe; a throw routes through safe-call-hook!'s catch arm,
-  ;; which emits the gated `:rf.warning/teardown-hook-exception` diagnostic.
-  (let [hook-key :ssr/on-frame-destroyed
-        original (rf.late-bind/get-fn hook-key)]
-    (rf.late-bind/set-fn! hook-key
-                       (fn [& _] (throw (ex-info "probe teardown-hook throw"
-                                                 {:hook :probe}))))
+  ;; Register a throwing :post-dead contribution, snapshotting the list so the
+  ;; registration doesn't leak. Its throw routes through
+  ;; safe-call-contribution!'s catch arm, which emits the gated
+  ;; `:rf.warning/teardown-hook-exception` diagnostic.
+  (let [saved @rf.frame/lifecycle-contributions]
+    (rf.frame/contribute-lifecycle!
+      {:id                 :rf.probe/teardown
+       :phase              #{:post-dead}
+       :on-frame-destroyed (fn [_ _] (throw (ex-info "probe teardown throw"
+                                                     {:hook :probe})))})
     ;; ENGINE seat (rf.frame/upsert-frame!, generation-less): this probe's
     ;; documented contract deliberately does NOT root the image-loading path
     ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
@@ -445,7 +444,7 @@
       ;; per-hook DEV diagnostic emits at its causal position (DCEs in prod).
       (rf/destroy-frame! :rf.probe/teardown-frame)
       (finally
-        (rf.late-bind/set-fn! hook-key original)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 ;; ---- pure-documentation registration metadata (:doc) ----------------------
 ;;

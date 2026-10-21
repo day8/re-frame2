@@ -202,15 +202,15 @@ Together, `:handled-events` tells you that something is wrong (a spike in `:erro
 
 ### The frame-teardown report
 
-When a frame is destroyed it runs best-effort cleanup hooks: [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, trace-ring release. Any of them may throw, and the runtime reports all the failures together in one record with no `:event` and no top-level `:exception`.
+When a frame is destroyed it runs best-effort cleanup: each artefact's teardown ([flow](../glossary.md#flow) memo, [resource](../../resources/glossary.md#resource) caches, in-flight HTTP) and the trace-ring release. Any of them may throw, and the runtime reports all the failures together in one record with no `:event` and no top-level `:exception`.
 
 The runtime builds the record with flat, category-specific keys:
 
 ```clojure
 {:rf.error/id   :rf.error/frame-teardown-failed
  :frame         :some-frame-id
- :hook-failures [{:hook :flows/teardown-on-frame-destroy! :exception <ex> :where :safe-call-hook!}
-                 {:hook :resources/on-frame-destroyed!    :exception <ex> :where :safe-call-hook!}]
+ :hook-failures [{:hook :flows     :phase :post-dead :exception <ex> :where :safe-call-contribution!}
+                 {:hook :resources :phase :post-dead :exception <ex> :where :safe-call-contribution!}]
  :reason        "..."        ;; one human-readable sentence
  :time          1718900000000}
 ```
@@ -235,7 +235,7 @@ On the way to a sink, every key other than the summary keys (`:frame`, `:rf.erro
       (report-error! record))))
 ```
 
-Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Inspect the failed hooks and correct their cleanup; best-effort teardown lets later steps run but does not make a failed release harmless.
+Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw — `:hook` is the artefact (`:flows`, `:resources`, `:http`, …) with the `:phase` it threw in, or one of the runtime's own steps such as `:frame/pre-dead` — carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-contribution!` or `:safe-teardown-step!`). Inspect the failed steps and correct their cleanup; best-effort teardown lets later steps run but does not make a failed release harmless.
 
 The runtime groups failures from one teardown into one record. Repeated failures across SSR requests still produce repeated records. If teardown aborts partway, the failures collected so far are still reported.
 

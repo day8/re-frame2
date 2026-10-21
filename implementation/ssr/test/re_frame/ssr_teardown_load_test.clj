@@ -24,8 +24,8 @@
        `re-frame.ssr/request-slots`, a defonce side-channel atom keyed
        by frame-id.
     5. Per-frame epoch ring buffer — owned by `re-frame.epoch`, a
-       defonce side-channel atom keyed by frame-id (cleaned by the
-       `:epoch/on-frame-destroyed` late-bind hook).
+       defonce side-channel atom keyed by frame-id (cleaned by epoch's
+       lifecycle contribution).
 
   This test drives the documented per-request SSR flow N times against
   the same process and asserts:
@@ -35,8 +35,8 @@
        releases.
     b. After every iteration, the SSR side-channel atoms
        (`pending-error-traces`, `request-slots`, `response-slots`) are
-       back to baseline. Verifies the `:ssr/on-frame-destroyed` hook
-       fires and clears every slot.
+       back to baseline. Verifies the SSR lifecycle contribution's
+       destroy member runs and clears every slot.
     c. After a triggered GC, the JVM heap delta is small relative to
        the total bytes the test churned — proves no large object graph
        is retained past frame destruction.
@@ -133,8 +133,8 @@
     3. Drain settles synchronously via dispatch-sync.
     4. ssr/flush-response-result! settles the response accumulator.
     5. render-to-string against a registered view emits HTML.
-    6. ssr/clear-request! is INTENTIONALLY omitted here so the
-       `:ssr/on-frame-destroyed` hook is the only path that clears the
+    6. ssr/clear-request! is INTENTIONALLY omitted here so the SSR
+       contribution's destroy member is the only path that clears the
        slot — the contract is that destroy-frame! is sufficient even
        when the host adapter forgets to clear inline.
     7. destroy-frame!
@@ -259,19 +259,19 @@
       (is (= 0 (:end-pending result))
           (str "pending-error-traces leaked across destroy-frame! — "
                "end-count " (:end-pending result) " > 0; the "
-               ":ssr/on-frame-destroyed hook didn't clear the slot, or "
-               "the hook isn't wired into frame/destroy-frame!"))
+               "SSR contribution's destroy member didn't clear the slot, "
+               "or it isn't on the lifecycle contribution list"))
       (is (= 0 (:end-requests result))
           (str "request-slots leaked across destroy-frame! — "
                "end-count " (:end-requests result) " > 0; the "
-               ":ssr/on-frame-destroyed hook didn't clear the slot, or "
-               "the hook isn't wired into frame/destroy-frame! — and "
+               "SSR contribution's destroy member didn't clear the slot, "
+               "or it isn't on the lifecycle contribution list — and "
                "this test intentionally omits clear-request! so the "
-               "destroy hook is the ONLY release path."))
+               "destroy member is the ONLY release path."))
       (is (= 0 (:end-responses result))
           (str "response-slots leaked across destroy-frame! — "
                "end-count " (:end-responses result) " > 0; the "
-               ":ssr/on-frame-destroyed hook didn't clear the slot. "
+               "SSR contribution's destroy member didn't clear the slot. "
                "Per Spec 011 §Response storage substrate "
                "the accumulator is a per-frame side-channel atom whose "
                "release path is the destroy-frame! teardown hook; each "

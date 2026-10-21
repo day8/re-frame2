@@ -140,7 +140,7 @@ A frame runs the flows its config names, and no others. `:flows` is a vector of 
 
 Definitions live in the registrar, not in the frame, so teardown touches no definition and no other frame's memo: a sibling frame running the same flow keeps its own rows, and a frame later made under the same id starts with an empty memo and whatever `:flows` its own config names. Teardown is idempotent: destroying a frame that never ran a flow changes nothing.
 
-The teardown contract is symmetric with the machines artefact's `:machines/teardown-on-frame-destroy!` hook — every per-feature artefact that holds frame-scoped state hangs its cleanup off the single normative `destroy-frame!` teardown boundary documented at [002 §Destroy](002-Frames.md#destroy). A new feature artefact MUST add its hook to the destroy cascade; a feature that holds frame-scoped state without one leaks on every `destroy-frame!`.
+The teardown contract is symmetric with the machines artefact's — every per-feature artefact that holds frame-scoped state hangs its cleanup off the single normative `destroy-frame!` teardown boundary documented at [002 §Destroy](002-Frames.md#destroy), through its lifecycle contribution ([002 §Lifecycle contributions](002-Frames.md#lifecycle-contributions)). The flows contribution joins the post-dead phase. A new feature artefact MUST contribute its teardown the same way; a feature that holds frame-scoped state without one leaks on every `destroy-frame!`.
 
 ## Drain integration
 

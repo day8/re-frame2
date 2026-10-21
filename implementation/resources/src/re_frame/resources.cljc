@@ -359,9 +359,7 @@
   (rf.resources.revalidate-listeners/on-frame-destroyed! frame-id)
   nil)
 
-(rf.late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)
-
-;; Fires at the end of both `upsert-frame!` branches, after `:initial-events`
+;; Runs at the end of both `upsert-frame!` branches, after `:initial-events`
 ;; ran; re-registration reconciles rather than stacking listeners.
 (defn- on-frame-registered!
   "Reconciles the frame's focus / reconnect listeners against its committed
@@ -373,8 +371,15 @@
     (:revalidate-on (rf.frame/frame-meta frame-id)))
   nil)
 
-(rf.late-bind/set-fn! :resources/on-frame-registered! on-frame-registered!)
-(rf.frame/add-config-keys! #{:revalidate-on})
+;; The test reset is `re-frame.resources.test-support`'s, merged into this
+;; contribution by id, so no production build carries it. Spec 002 §Lifecycle
+;; contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                  :resources
+   :phase               #{:post-dead}
+   :config-keys         #{:revalidate-on}
+   :on-frame-registered on-frame-registered!
+   :on-frame-destroyed  (fn [frame-id _phase] (release-resources-host-caches! frame-id))})
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;; `:resources/reg-resource` doubles as the `:resources` feature probe.

@@ -1,11 +1,12 @@
 (ns re-frame.test-support-test
   "The public `re-frame.test-support` helpers (Spec 008 §Built-in test-runner
-  namespace): `assert-path-equals`, `poll-until`, and the hook cascades of
-  `make-reset-runtime-fixture` and `destroy-frame!` — every late-bind reset
-  hook fires the documented number of times, so a dropped row breaks here at
-  the seam rather than as long-range cross-test pollution."
+  namespace): `assert-path-equals`, `poll-until`, and the lifecycle cascades of
+  `make-reset-runtime-fixture` and `destroy-frame!` — every contributed reset
+  runs the documented number of times, so a dropped reset breaks here at the
+  seam rather than as long-range cross-test pollution."
   (:require [clojure.test :refer [deftest is testing use-fixtures report]]
             [re-frame.core :as rf]
+            [re-frame.epoch]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.flows :as rf.flows]
@@ -75,36 +76,31 @@
                (rf.test-support/assert-path-equals [:n] 5 {:frame f})
                (rf.test-support/assert-path-equals [:n] nil {:frame f})))))))
 
-;; ---- make-reset-runtime-fixture hook cascade ------------------------------
+;; ---- make-reset-runtime-fixture reset cascade -----------------------------
 
-(def ^:private reset-hook-expected-counts
-  "Per-fixture-invocation call count for every reset-hook-table row.
-  `:flows/reset-flows!` fires twice — pre-test and in the `finally` — so a
-  failing test leaves no residue for the next."
-  {:flows/reset-flows!                2
-   :machines/reset-timers!            1
-   :fx/reset-dispatch-later-timers!   1
-   :routing/reset-counters!           1
-   :routing/reset-nav-counters!       1
-   :routing/reset-url-listener!       1
-   :resources/reset-resources!        1
-   :http/clear-all-in-flight!         1
-   :http/clear-all-http-interceptors! 1
-   :epoch/clear-history!              1
-   :epoch/clear-epoch-listeners!      1
-   :epoch/reset-config!               1
-   :adapter/clear-warn-once-caches!   1})
-
-(deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times
-  (let [snapshot     @rf.late-bind/hooks
-        call-counts  (atom (zipmap (keys reset-hook-expected-counts) (repeat 0)))]
+(deftest make-reset-runtime-fixture-runs-every-reset-the-documented-number-of-times
+  ;; Every contribution's :test-reset runs once. The flows memo reset runs
+  ;; twice — pre-test and in the `finally` — so a failing test leaves no
+  ;; residue for the next; the chained adapter reset runs once.
+  (let [snapshot  @rf.late-bind/hooks
+        saved     @rf.frame/lifecycle-contributions
+        counts    (atom {})
+        count!    (fn [k] (fn [& _] (swap! counts update k (fnil inc 0)) nil))
+        resetters (into #{} (keep #(when (:test-reset %) (:id %))) saved)]
     (try
-      (doseq [k (keys reset-hook-expected-counts)]
-        (rf.late-bind/set-fn! k (fn [& _] (swap! call-counts update k inc) nil)))
+      (doseq [id resetters]
+        (rf.frame/contribute-lifecycle! {:id id :test-reset (count! id)}))
+      (doseq [k [:flows/reset-flows! :adapter/clear-warn-once-caches!]]
+        (rf.late-bind/set-fn! k (count! k)))
       ((fixture) (fn [] :ran))
-      (is (= reset-hook-expected-counts @call-counts))
+      (is (every? resetters [:fx :machines :routing :epoch])
+          "FIXTURE — the artefacts this lane loads contribute their resets")
+      (is (= (merge (zipmap resetters (repeat 1))
+                    {:flows/reset-flows! 2 :adapter/clear-warn-once-caches! 1})
+             @counts))
       (finally
-        (reset! rf.late-bind/hooks snapshot)))))
+        (reset! rf.late-bind/hooks snapshot)
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 (deftest make-reset-runtime-fixture-rolls-back-a-schema-registered-in-the-body
   (let [present? #(some? (rf.schemas/app-schema-meta {:frame :rf/default :path [:counter]}))
@@ -127,17 +123,20 @@
          afterwards, so a test checks only the schemas it registers")))
 
 (deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
-  ;; :pre-dispose (flows) runs before :post-dispose (epoch); the finally-block
-  ;; flows reset is third
+  ;; the pre-dispose flows reset runs before the post-dispose contributed
+  ;; resets; the finally-block flows reset is third
   (let [snapshot @rf.late-bind/hooks
+        saved    @rf.frame/lifecycle-contributions
         order    (atom [])]
     (try
       (rf.late-bind/set-fn! :flows/reset-flows! (fn [] (swap! order conj :pre)))
-      (rf.late-bind/set-fn! :epoch/clear-history! (fn [] (swap! order conj :post)))
+      (rf.frame/contribute-lifecycle! {:id         ::post-marker
+                                       :test-reset (fn [] (swap! order conj :post))})
       ((fixture) (fn [] :ran))
       (is (= [:pre :post :pre] @order))
       (finally
-        (reset! rf.late-bind/hooks snapshot)))))
+        (reset! rf.late-bind/hooks snapshot)
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 ;; ---- make-reset-runtime-fixture observer isolation ------------------------
 
@@ -231,40 +230,36 @@
             "the handler registered inside the bracket no longer runs once the bracket is restored")
         (finally (rf/destroy-frame! f))))))
 
-;; ---- destroy-frame! hook cascade ------------------------------------------
+;; ---- destroy-frame! contribution cascade ----------------------------------
 
-(deftest destroy-frame-cleanup-hooks-receive-frame-id
-  ;; each cleanup hook fires exactly once with the destroyed id; the epoch
-  ;; teardown spans the PRE-dissoc snapshot hook (id halt) and the POST-dissoc
-  ;; hook (id evidence), and the post hook runs after the snapshot
-  ;; was captured
-  (let [snapshot      @rf.late-bind/hooks
-        calls         (atom {})
-        record!       (fn [k v] (swap! calls update k (fnil conj []) v))
-        original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
-        fid           :t/arg-target]
+(deftest destroy-frame-calls-each-contribution-with-the-frame-id-and-phase
+  ;; each member runs once per phase it joins, with the destroyed id; epoch's
+  ;; after-dissoc publication runs once the frame has left the registry; an
+  ;; immediate destroy has no event boundary, so it carries no halt evidence
+  (let [saved   @rf.frame/lifecycle-contributions
+        calls   (atom {})
+        record! (fn [k v] (swap! calls update k (fnil conj []) v))
+        fid     :t/arg-target]
     (try
-      (doseq [k [:ssr/on-frame-destroyed :machines/on-frame-destroyed!]]
-        (rf.late-bind/set-fn! k (fn [id] (record! k id))))
-      (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-        (fn [id halt]
-          (record! :epoch/snapshot-frame-destroyed [id halt])
-          (when original-snap (original-snap id halt))))
-      (rf.late-bind/set-fn! :epoch/on-frame-destroyed
-        (fn [id _evidence]
-          (record! :epoch/on-frame-destroyed
-                   [id (contains? @calls :epoch/snapshot-frame-destroyed)])))
+      (doseq [{:keys [id on-frame-destroyed]} saved
+              :when (#{:ssr :machines :epoch} id)]
+        (rf.frame/contribute-lifecycle!
+          {:id id
+           :on-frame-destroyed
+           (fn [frame-id phase]
+             (record! id [frame-id phase rf.frame/*destroy-halt*])
+             (when-let [after (on-frame-destroyed frame-id phase)]
+               (fn []
+                 (record! id [frame-id :after-dissoc (contains? @rf.frame/frames frame-id)])
+                 (after))))}))
       (rf/make-frame {:id fid})
       (rf.frame/destroy-frame! fid)
-      ;; an immediate destroy has no event boundary, so it hands the snapshot
-      ;; no halt evidence
-      (is (= {:ssr/on-frame-destroyed         [fid]
-              :machines/on-frame-destroyed!   [fid]
-              :epoch/snapshot-frame-destroyed [[fid nil]]
-              :epoch/on-frame-destroyed       [[fid true]]}
+      (is (= {:ssr      [[fid :post-dead nil]]
+              :machines [[fid :pre-dead nil] [fid :post-dead nil]]
+              :epoch    [[fid :post-dead nil] [fid :after-dissoc false]]}
              @calls))
       (finally
-        (reset! rf.late-bind/hooks snapshot)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 ;; ---- poll-until (JVM / CLJS parity) ---------------------------------------
 

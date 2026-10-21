@@ -1223,8 +1223,9 @@
   Runs under the serialization `claim-frame-owner!` and
   `commit-frame-owner-record!` share, so a claim or commit racing it lands
   wholly before the drop or wholly after it. It compares no owner token.
-  The one caller is destroy step 10 (`listeners/on-frame-destroyed!`), which
-  runs while the destroy still holds the id's reservation: no same-id
+  The one caller is the epoch contribution's after-dissoc publication
+  (`listeners/on-frame-destroyed!`), which runs while the destroy still holds
+  the id's reservation: no same-id
   incarnation can have claimed the stores, so everything under `frame-id` is
   the dying incarnation's to drop, and a token other than its own could only
   be a dead incarnation's."

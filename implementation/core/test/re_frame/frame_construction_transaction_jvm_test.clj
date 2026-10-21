@@ -7,7 +7,6 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support])
@@ -139,18 +138,19 @@
   (let [id              :construction-destroy/dead-window
         dead-window     (CountDownLatch. 1)
         release-destroy (CountDownLatch. 1)
-        hook-key        :elision/clear-warning-cache!
-        original-hook   (rf.late-bind/get-fn hook-key)]
+        saved           @rf.frame/lifecycle-contributions]
     (rf/make-frame {:id id :tags #{:original}})
     (try
-      ;; this cleanup hook runs after mark-frame-destroyed! and before the
+      ;; a :post-dead member runs after mark-frame-destroyed! and before the
       ;; registry dissoc: the lifecycle-dead raw-row window
-      (rf.late-bind/set-fn!
-        hook-key
-        (fn []
-          (when original-hook (original-hook))
-          (.countDown dead-window)
-          (.await release-destroy 10 TimeUnit/SECONDS)))
+      (rf.frame/contribute-lifecycle!
+        {:id    ::dead-window
+         :phase #{:post-dead}
+         :on-frame-destroyed
+         (fn [_id _phase]
+           (.countDown dead-window)
+           (.await release-destroy 10 TimeUnit/SECONDS)
+           nil)})
       (let [destroyer (future (rf.frame/destroy-frame! id))]
         (is (.await dead-window 10 TimeUnit/SECONDS))
         ;; public lookup is dead while the raw row remains; ordinary and
@@ -174,4 +174,4 @@
             "destroy completes its removal and a clean retry succeeds"))
       (finally
         (.countDown release-destroy)
-        (rf.late-bind/set-fn! hook-key original-hook)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))

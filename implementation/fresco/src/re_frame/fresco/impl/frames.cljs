@@ -55,9 +55,9 @@
   built to be long-lived.
 
   `forget-frame-ops!` is therefore ALSO wired to frame destruction,
-  through core's `:fresco/on-frame-destroyed!` late-bind hook — the same
-  shape every other artefact releases its frame-keyed bookkeeping through
-  in `destroy-frame!`'s step 6. It changes nothing above: a row a destroyed
+  through fresco's `:post-dead` lifecycle contribution — the same shape
+  every other artefact releases its frame-keyed bookkeeping through. It
+  changes nothing above: a row a destroyed
   incarnation leaves behind is already unreachable by every branch of
   `frame-row`, so dropping it earlier is hygiene and never safety.
 
@@ -72,8 +72,7 @@
   coupling is structural, not a rule somebody has to keep."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
-            [re-frame.late-bind :as rf.late-bind]))
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]))
 
 ;; frame-kw -> {:incarnation <token or nil>   the exact incarnation this row
 ;;                                            was minted under
@@ -170,21 +169,20 @@
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
 
 (defn- on-frame-destroyed!
-  "Core's step-6 destroy hook — retire the dying frame's install epoch into
-  the commit basis, then drop the destroyed frame's row.
+  "Fresco's `:post-dead` destroy member — retire the dying frame's install
+  epoch into the commit basis, then drop the destroyed frame's row.
 
   UNCONDITIONAL by key, and it needs no incarnation token to be safe about
-  it: the destroy holds the id's reservation until step 10 has finished, so no
-  same-id successor can be constructed before this fires at step 6, and
-  whatever row stands under `frame-kw` here belongs to an incarnation that is
-  already dead — the dying one, or an earlier one whose successor never looked
-  up. The retire reads the dying incarnation's epoch because core clears it
-  only at `dissoc-frame!` (step 9).
-
-  A 1-arity fn rather than `forget-frame-ops!` itself, so the hook's arity
-  is the contract rather than an accident of that door having two."
-  [frame-kw]
+  it: the destroy holds the id's reservation until its teardown has finished,
+  so no same-id successor can be constructed before this runs, and whatever
+  row stands under `frame-kw` here belongs to an incarnation that is already
+  dead — the dying one, or an earlier one whose successor never looked up. The
+  retire reads the dying incarnation's epoch because core clears it only at
+  `dissoc-frame!`, after the `:post-dead` phase."
+  [frame-kw _phase]
   (rf.fresco.impl.generation/retire-frame-epoch! frame-kw)
-  (forget-frame-ops! frame-kw))
+  (forget-frame-ops! frame-kw)
+  nil)
 
-(rf.late-bind/set-fn! :fresco/on-frame-destroyed! on-frame-destroyed!)
+(rf.frame/contribute-lifecycle!
+  {:id :fresco :phase #{:post-dead} :on-frame-destroyed on-frame-destroyed!})

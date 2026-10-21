@@ -501,8 +501,8 @@
   value. The ex-data carries `{:frame frame-id}` so the diagnostic names
   the offending frame.
 
-  Published as the `:routing/preflight-frame-config!` late-bind hook on
-  BOTH hosts; the frame engine `re-frame.frame/upsert-frame!` (the one
+  Routing's `:preflight-config` lifecycle member on BOTH hosts; the frame
+  engine `re-frame.frame/upsert-frame!` (the one
   frame-config commit
   chokepoint) invokes it with the final expanded config BEFORE any
   candidate-derived write — the frame-record build, the

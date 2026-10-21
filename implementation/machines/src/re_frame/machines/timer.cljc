@@ -80,9 +80,8 @@
   ;;       O(timers-this-frame) instead of O(timers-all-frames).
   ;;
   ;; Cancellation (state exit, actor destroy) clears the entry and
-  ;; releases the handle. Frame-teardown clears the
-  ;; entire inner map via the `:machines/on-frame-destroyed!` late-bind
-  ;; hook invoked from `rf.frame/destroy-frame!`.
+  ;; releases the handle. Frame-teardown clears the entire inner map in the
+  ;; machines lifecycle contribution's `:post-dead` member.
   (atom {}))
 
 (defn- after-timer-key
@@ -715,9 +714,9 @@
 
   The 1-arity is a BATCH with the others' shape: it snapshots the frame's keys
   and cancels each key's current occupant (`cancel-after-timer-entry!`). No arm
-  re-arms a key under it: the destroy runs it at step 6, after its claim has
-  stopped the frame's events, and holds the id's reservation until step 10 has
-  finished. The 0-arity fixture-reset stays a SILENT bulk release (no traces —
+  re-arms a key under it: the destroy runs it in the `:post-dead` phase, after
+  its claim has stopped the frame's events, and holds the id's reservation
+  until its teardown has finished. The 0-arity fixture-reset stays a SILENT bulk release (no traces —
   test-isolation cleanup)."
   ([]
    (doseq [inner (vals @after-timers)

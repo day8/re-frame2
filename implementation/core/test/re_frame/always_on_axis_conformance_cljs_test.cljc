@@ -101,9 +101,10 @@
     ;; non-empty, or the report fn no-ops
     (rf.error-emit/dispatch-frame-teardown-report!
       :conformance/frame
-      [{:hook :ssr/on-frame-destroyed
-        :exception (ex-info "teardown hook threw" {})
-        :where :safe-call-hook!}]
+      [{:hook      :ssr
+        :phase     :post-dead
+        :exception (ex-info "teardown member threw" {})
+        :where     :safe-call-contribution!}]
       0)
 
     (contains? record-categories cat)

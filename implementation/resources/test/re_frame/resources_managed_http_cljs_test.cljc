@@ -307,12 +307,14 @@
 ;; out-of-cascade teardown aborts the underlying managed-HTTP request
 ;; ===========================================================================
 ;;
-;; `clear-resource` and frame destroy run no cascade, so they route through
+;; `clear-resource` runs no cascade, so it routes through
 ;; `rf.resources.work-ledger/abort-handle!`, which for a managed-HTTP slot aborts
 ;; the slot's frame's request under the frame-qualified request-id the lowering
 ;; registered (`re-frame.http.registry/abort-in-flight-in-frame!`). A managed
 ;; slot carries no `:abort-fn` (the transport owns the AbortController), so
-;; dropping only the side-table slot would leave the request alive.
+;; dropping only the side-table slot would leave the request alive. Frame
+;; destroy detaches the slot and leaves the request to http's frame sweep,
+;; which aborts it with its reply suppressed.
 
 (defn- seed-in-flight!
   "Seed the REAL in-flight registry with a request `frame-id` issued under
@@ -363,10 +365,10 @@
               (pos? high-water)])
           "FIXTURE — in flight, with a handle and a generation high-water")
       (rf.frame/destroy-frame! fa)
-      (is (= [[[request-id :resource-superseded]] nil nil high-water]
+      (is (= [[[request-id :frame-destroyed]] nil nil high-water]
              [@aborted (rf.http.registry/lookup-in-flight fa request-id) (rf.resources.work-ledger/get-handle fa wid)
               (rf.resources.state/generation-snapshot)])
-          "exactly one abort fires by request id; no in-flight entry or handle survives, and the high-water does"))))
+          "http's frame sweep aborts it once; no in-flight entry or handle survives, and the high-water does"))))
 
 (deftest frame-destroy-leaves-a-sibling-frames-requests-alone
   ;; Two frames hold the same work id when both run on the same recorded

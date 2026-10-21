@@ -64,7 +64,7 @@
 (def ^:private last-managed-args (atom nil))
 
 ;; The shared `make-reset-runtime-fixture`'s post-dispose
-;; `:resources/reset-resources!` hook CLEARS the `:resource` registrar kind
+;; resources `:test-reset` CLEARS the `:resource` registrar kind
 ;; between tests. CLJS has no `(require … :reload)`, so snapshot the example's
 ;; ns-load `:resource` registration ONCE here (right after the
 ;; `infinite-feed.core` require above ran it) and re-install it in `init!`
@@ -96,7 +96,7 @@
    the same shape as the LinearLite suite). A `:url-bound?` frame
    performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
    `frame/upsert-frame!`'s post-create hook -> routing's
-   `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
+   routing's `:on-frame-registered` -> `reconcile-url-listener!` — and under
    Node that URL is `\"/\"`. So a route registered at `\"/\"` has its route-entry
    resource plan run INSIDE `make-frame`. Construct the frame before the
    `registrar/register!` loop below and that plan sees the `:resource` kind

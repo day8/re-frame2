@@ -60,8 +60,8 @@
   frame-ids; values are the accumulator map (`{:status :headers :cookies
   :redirect}`). Framework-private —
   not stored in `app-db` so the accumulator never rides the hydration
-  payload to the client. Cleared per-frame by the
-  `:ssr/on-frame-destroyed` hook."}
+  payload to the client. Cleared per-frame by the SSR lifecycle
+  contribution."}
   response-slots
   (atom {}))
 
@@ -591,8 +591,8 @@
 
 (defn clear-response!
   "Drop `frame-id`'s response slot. Called from
-  `re-frame.ssr.request/on-frame-destroyed!` via the
-  `:ssr/on-frame-destroyed` late-bind hook. Idempotent — tolerates a frame-id
+  `re-frame.ssr.request/on-frame-destroyed!` through the SSR lifecycle
+  contribution. Idempotent — tolerates a frame-id
   with no slot."
   [frame-id]
   (swap! response-slots dissoc (rf.frame/frame-address frame-id))

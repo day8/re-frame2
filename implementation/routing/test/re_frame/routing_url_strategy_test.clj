@@ -10,6 +10,21 @@
 (defn- thrown-data [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
+(defn- without-routing
+  "Run `f` as if the routing artefact were absent: its feature probe
+  unpublished and its lifecycle contribution off the list."
+  [f]
+  (let [probe (rf.late-bind/get-fn :routing/reg-route)
+        saved @rf.frame/lifecycle-contributions]
+    (try
+      (rf.late-bind/set-fn! :routing/reg-route nil)
+      (swap! rf.frame/lifecycle-contributions
+             (fn [cs] (filterv #(not= :routing (:id %)) cs)))
+      (f)
+      (finally
+        (rf.late-bind/set-fn! :routing/reg-route probe)
+        (reset! rf.frame/lifecycle-contributions saved)))))
+
 (deftest custom-url-strategy-missing-leg-tripwire
   (testing "the ungated preflight counts a non-callable leg as missing"
     (is (= [:encode]
@@ -95,38 +110,34 @@
     (is (nil? (rf.frame/frame-meta :ktmto9/bad-jvm)))))
 
 (deftest make-frame-missing-routing-artefact-fails-loud
-  (testing "declaring :url-strategy while the :routing/preflight-frame-config!
-            hook is unpublished fails loud and seats no frame — storing a
-            strategy nobody can validate is worse than a dependency error"
-    (let [preflight (rf.late-bind/get-fn :routing/preflight-frame-config!)]
-     (try
-      (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
-      (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :ktmto9/no-artefact}
-             (select-keys (thrown-data #(rf.frame/upsert-frame! :ktmto9/no-artefact
-                                                                {:url-bound?   true
-                                                                 :url-strategy rf.routing.strategy/history-url-strategy}))
-                          [:rf.error/id :frame])))
-      (is (nil? (rf.frame/frame-meta :ktmto9/no-artefact)))
-      (finally
-        (rf.late-bind/set-fn! :routing/preflight-frame-config! preflight))))))
+  (testing "declaring :url-strategy while the routing artefact is absent fails
+            loud and seats no frame — storing a strategy nobody can validate is
+            worse than a dependency error"
+    (without-routing
+      (fn []
+        (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :ktmto9/no-artefact}
+               (select-keys (thrown-data #(rf.frame/upsert-frame! :ktmto9/no-artefact
+                                                                  {:url-bound?   true
+                                                                   :url-strategy rf.routing.strategy/history-url-strategy}))
+                            [:rf.error/id :frame])))
+        (is (nil? (rf.frame/frame-meta :ktmto9/no-artefact)))))))
 
 (deftest make-frame-url-bound-without-routing-artefact-fails-loud
-  (testing "declaring :url-bound? true while the :routing/preflight-frame-config!
-            hook is unpublished fails loud and seats no frame — the one-owner
-            check cannot run — while :url-bound? false still registers"
-    (let [preflight (rf.late-bind/get-fn :routing/preflight-frame-config!)]
-      (try
-        (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
-        (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :m6reb/early-owner}
-               (select-keys (thrown-data #(rf.frame/upsert-frame! :m6reb/early-owner
-                                                                  {:url-bound? true}))
-                            [:rf.error/id :frame])))
-        (is (nil? (rf.frame/frame-meta :m6reb/early-owner)))
-        (rf.frame/upsert-frame! :m6reb/early-plain {:url-bound? false})
-        (is (false? (:url-bound? (rf.frame/frame-meta :m6reb/early-plain))))
-        (finally
-          (rf.late-bind/set-fn! :routing/preflight-frame-config! preflight)
-          (rf.frame/destroy-frame! :m6reb/early-plain))))))
+  (testing "declaring :url-bound? true while the routing artefact is absent
+            fails loud and seats no frame — the one-owner check cannot run —
+            while :url-bound? false still registers"
+    (try
+      (without-routing
+        (fn []
+          (is (= {:rf.error/id :rf.error/routing-artefact-missing :frame :m6reb/early-owner}
+                 (select-keys (thrown-data #(rf.frame/upsert-frame! :m6reb/early-owner
+                                                                    {:url-bound? true}))
+                              [:rf.error/id :frame])))
+          (is (nil? (rf.frame/frame-meta :m6reb/early-owner)))
+          (rf.frame/upsert-frame! :m6reb/early-plain {:url-bound? false})
+          (is (false? (:url-bound? (rf.frame/frame-meta :m6reb/early-plain))))))
+      (finally
+        (rf.frame/destroy-frame! :m6reb/early-plain)))))
 
 (deftest url-strategy-for-an-unregistered-frame-is-the-history-default
   ;; A declared, an undeclared and a nil frame are the route-link SSR parity

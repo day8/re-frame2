@@ -6,9 +6,9 @@
   A destroy requested while A's drain is on the stack is PENDING (Spec 002
   §Destroy): A's event finishes as an ordinary event, and the teardown runs at
   its boundary. A destroy holds its id's reservation until its teardown, the
-  step-10 epoch notify included, has finished, so a same-id B can be
-  constructed only after that. These barriers pause A inside its post-dissoc
-  epoch notify; B is seated once A's teardown has finished.
+  epoch publication after the dissoc included, has finished, so a same-id B
+  can be constructed only after that. These barriers pause A inside that
+  publication; B is seated once A's teardown has finished.
 
   Which token is live, whose db write commits, whose child dispatch runs and
   which corpus-wide `:errors` record ships are production behaviour and
@@ -25,6 +25,7 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.frame :as rf.frame]
             [re-frame.interceptor :as rf.interceptor]
@@ -47,6 +48,24 @@
     (is (.await latch 5 TimeUnit/SECONDS)
         "the executor reached the deterministic barrier")))
 
+(defn- wrap-epoch-member!
+  "Replace the epoch contribution's destroy member with `(wrap original)`. The
+  caller puts the saved contribution list back."
+  [wrap]
+  (let [original (:on-frame-destroyed (rf.frame/lifecycle-contribution :epoch))]
+    (rf.frame/contribute-lifecycle! {:id :epoch :on-frame-destroyed (wrap original)})))
+
+(defn- before-publish
+  "A wrap whose member hands back epoch's after-dissoc publication preceded by
+  `(pause! frame-id)`."
+  [pause!]
+  (fn [original]
+    (fn [frame-id phase]
+      (let [publish (original frame-id phase)]
+        (fn []
+          (pause! frame-id)
+          (when publish (publish)))))))
+
 (deftest a-same-id-make-frame-fails-fast-until-teardown-has-published
   ;; A's handler destroys A and returns a db and a child dispatch. Both land in
   ;; A: the db commits (A's :on-destroy reads it) and the child joins A's queue,
@@ -62,7 +81,7 @@
         child-runs     (atom 0)
         cleanup-saw    (atom nil)
         traces         (atom [])
-        original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)
+        saved          @rf.frame/lifecycle-contributions
         make-b         (fn []
                          (deref (future
                                   (try (some? (rf/make-frame {:id id}))
@@ -92,20 +111,18 @@
                               (:operation ev)))
           (swap! traces conj ev))))
     (try
-      (rf.late-bind/set-fn!
-        :epoch/on-frame-destroyed
-        (fn [& args]
-          (when (and (= id (first args))
-                     (compare-and-set! first-epoch? true false))
-            (.countDown in-notify)
-            (.await release-a 10 TimeUnit/SECONDS))
-          (when original-epoch
-            (apply original-epoch args))))
+      (wrap-epoch-member!
+        (before-publish
+          (fn [frame-id]
+            (when (and (= id frame-id)
+                       (compare-and-set! first-epoch? true false))
+              (.countDown in-notify)
+              (.await release-a 10 TimeUnit/SECONDS)))))
       (let [dispatch-a (future
                          (rf/dispatch-sync [:destroy/reservation-a]
                                            {:frame id}))]
         (is (.await in-notify 10 TimeUnit/SECONDS)
-            "A's event settled, and its boundary teardown is inside the epoch notify")
+            "A's event settled, and its boundary teardown is inside the epoch publication")
         (is (= [nil :rf.error/frame-construction-in-progress]
                [(rf.frame/frame id) (make-b)])
             "A is dissociated, yet a same-id make-frame on another thread fails fast")
@@ -142,16 +159,17 @@
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :trace ::reservation-through-publish)
-        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
-(deftest snapshot-hook-failure-leaves-no-residual-ring
-  ;; A throwing snapshot hook's warning is an ordinary ring push under A's bare
-  ;; id. The snapshot runs before A's ring release, so the release clears it;
-  ;; run after, the warning would recreate a residual ring for destroyed A.
+(deftest post-dead-member-failure-leaves-no-residual-ring
+  ;; A throwing :post-dead member's warning is an ordinary ring push under A's
+  ;; bare id. The post-dead phase runs before A's ring release, so the release
+  ;; clears it; run after, the warning would recreate a residual ring for
+  ;; destroyed A.
   (let [id           :destroy/ring-snapshot-fail
         warnings     (atom [])
         reports      (atom [])
-        original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+        saved        @rf.frame/lifecycle-contributions]
     (rf/reg-event :destroy/ring-snap-a
       (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
     (rf/make-frame {:id id})
@@ -166,21 +184,22 @@
                    (= id (:frame r)))
           (swap! reports conj r))))
     (try
-      ;; Fail the pre-dissoc snapshot hook for this pending destroy.
-      (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-        (fn [& args]
-          (if (= id (first args))
-            (throw (ex-info "snapshot blew" {}))
-            (when original-snap (apply original-snap args)))))
+      ;; Fail epoch's post-dead member for this pending destroy.
+      (wrap-epoch-member!
+        (fn [original]
+          (fn [frame-id phase]
+            (if (= id frame-id)
+              (throw (ex-info "snapshot blew" {}))
+              (original frame-id phase)))))
       (rf/dispatch-sync [:destroy/ring-snap-a] {:frame id})
       (executor-barrier!)
-      (is (= [[[:epoch/snapshot-frame-destroyed]] nil]
-             [(mapv #(mapv :hook (:hook-failures %)) @reports)
+      (is (= [[[[:epoch :post-dead]]] nil]
+             [(mapv #(mapv (juxt :hook :phase) (:hook-failures %)) @reports)
               (rf.frame/frame-incarnation-token id)])
-          "one always-on report names the snapshot hook, and the destroy completes")
+          "one always-on report names the epoch member, and the destroy completes")
       (when rf.interop/debug-enabled?
-        (is (= [[:epoch/snapshot-frame-destroyed] true true]
-               [(mapv #(get-in % [:tags :hook]) @warnings)
+        (is (= [[[:epoch :post-dead]] true true]
+               [(mapv #(vector (get-in % [:tags :hook]) (get-in % [:tags :phase])) @warnings)
                 (empty? (rf/trace-buffer id {:flat true}))
                 (empty? (rf/trace-buffer id))])
             "the warning reaches the global listener and no residual ring survives A"))
@@ -188,18 +207,18 @@
         (rf/unregister-listener! :trace ::ring-snap-warn)
         (rf.error-emit/unregister-error-listener! ::ring-snap-warn)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
-        (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
-(deftest snapshot-hook-failure-still-publishes-and-reports
-  ;; A throwing pre-dissoc snapshot hook does not abort teardown: the
-  ;; post-dissoc publish still runs (with a nil bundle, so it fabricates no
-  ;; evidence), and one always-on report names the hook.
+(deftest snapshot-failure-still-publishes-and-reports
+  ;; A throwing pre-dissoc snapshot does not abort teardown: the post-dissoc
+  ;; publication still runs (with a nil bundle, so it fabricates no evidence
+  ;; and still drops A's epoch stores), and one always-on report names epoch.
   (let [id             :destroy/snap-fail-integrated
         report-key     ::snap-fail-reports
         reports        (atom [])                       ; :rf.error/frame-teardown-failed
         publish-calls  (atom 0)
-        original-snap  (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
-        original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
+        original-snap  rf.epoch.listeners/snapshot-terminal-destroy-evidence!
+        original-epoch rf.epoch.listeners/on-frame-destroyed!]
     (rf/reg-event :snap-fail/seed (fn [_ _] {:db {:n 0}}))
     (rf/make-frame {:id id})
     ;; A settles one event, so it owns real epoch state when it is destroyed.
@@ -208,33 +227,31 @@
       (fn [r] (when (= :rf.error/frame-teardown-failed (:rf.error/id r))
                 (swap! reports conj r))))
     (try
-      ;; Fail the PRE-dissoc snapshot for this id (delegate every other id).
-      (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-        (fn [& args]
-          (if (= id (first args))
-            (throw (ex-info "snapshot blew" {}))
-            (when original-snap (apply original-snap args)))))
-      ;; Spy the POST-dissoc publish to prove it ran, then delegate to the real
+      ;; Fail the PRE-dissoc snapshot for this id (delegate every other id), and
+      ;; spy the POST-dissoc publish to prove it ran, delegating to the real
       ;; (nil-bundle → no-op) publish.
-      (rf.late-bind/set-fn! :epoch/on-frame-destroyed
-        (fn [& args]
-          (when (= id (first args))
-            (swap! publish-calls inc))
-          (when original-epoch (apply original-epoch args))))
-      (rf.frame/destroy-frame! id)
+      (with-redefs [rf.epoch.listeners/snapshot-terminal-destroy-evidence!
+                    (fn [frame-id halt]
+                      (if (= id frame-id)
+                        (throw (ex-info "snapshot blew" {}))
+                        (original-snap frame-id halt)))
+                    rf.epoch.listeners/on-frame-destroyed!
+                    (fn [frame-id evidence]
+                      (when (= id frame-id)
+                        (swap! publish-calls inc))
+                      (original-epoch frame-id evidence))]
+        (rf.frame/destroy-frame! id))
       (executor-barrier!)
 
-      (is (= [1 [{:frame id :hooks [:epoch/snapshot-frame-destroyed] :recovery :ignored}] nil]
+      (is (= [1 [{:frame id :hooks [[:epoch :after-dissoc]] :recovery :ignored}] nil]
              [@publish-calls
               (mapv (fn [r] {:frame    (:frame r)
-                             :hooks    (mapv :hook (:hook-failures r))
+                             :hooks    (mapv (juxt :hook :phase) (:hook-failures r))
                              :recovery (:recovery r)})
                     @reports)
               (rf.frame/frame id)])
-          "the publish still ran, one report names only the snapshot hook, and the frame is gone")
+          "the publish still ran, one report names epoch once, and the frame is gone")
       (finally
-        (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
-        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (rf.error-emit/unregister-error-listener! report-key)))))
 
 ;; A's :halted-destroy record fans to the listener registry snapshotted before
@@ -253,7 +270,7 @@
         first-epoch?   (atom true)
         old-received   (atom 0)
         new-received   (atom 0)
-        original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
+        saved          @rf.frame/lifecycle-contributions]
     (rf/reg-event :vxgfnd245/regen-a-settle
       (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :vxgfnd245/regen-a-destroy
@@ -267,13 +284,13 @@
     (rf/register-listener! :epoch cb (fn [_] (swap! old-received inc)))
     (rf/dispatch-sync [:vxgfnd245/regen-a-settle] {:frame id})
     (try
-      (rf.late-bind/set-fn! :epoch/on-frame-destroyed
-        (fn [& args]
-          (when (and (= id (first args))
-                     (compare-and-set! first-epoch? true false))
-            (.countDown a-after-dissoc)
-            (.await release-a 10 TimeUnit/SECONDS))
-          (when original-epoch (apply original-epoch args))))
+      (wrap-epoch-member!
+        (before-publish
+          (fn [frame-id]
+            (when (and (= id frame-id)
+                       (compare-and-set! first-epoch? true false))
+              (.countDown a-after-dissoc)
+              (.await release-a 10 TimeUnit/SECONDS)))))
       (let [dispatch-a (future
                          (rf/dispatch-sync [:vxgfnd245/regen-a-destroy] {:frame id}))]
         (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
@@ -297,7 +314,7 @@
         (.countDown release-a)
         (rf/unregister-listener! :epoch cb)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
-        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 ;; Structural delivery turns epoch capture, frame policy and ring retention off
 ;; around its emit, and restores ordinary defaults around the listener fan-out,
@@ -305,20 +322,23 @@
 ;; policed as that frame's own. Only a dispatching listener can see the scope.
 
 (defn- with-failing-epoch-publish
-  "Run `f` with `:epoch/on-frame-destroyed` throwing for `frame-id` (every other
-  id delegates), so that frame's top-level destroy fans a real structural
-  terminal fact: the `:rf.warning/teardown-hook-exception` naming the hook."
+  "Run `f` with epoch's after-dissoc publication throwing for `frame-id` (every
+  other id delegates), so that frame's top-level destroy fans a real structural
+  terminal fact: the `:rf.warning/teardown-hook-exception` naming epoch."
   [frame-id f]
-  (let [original (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
-    (rf.late-bind/set-fn! :epoch/on-frame-destroyed
-      (fn [& args]
-        (if (= frame-id (first args))
-          (throw (ex-info "epoch publish blew" {}))
-          (when original (apply original args)))))
+  (let [saved @rf.frame/lifecycle-contributions]
+    (wrap-epoch-member!
+      (fn [original]
+        (fn [id phase]
+          (let [publish (original id phase)]
+            (fn []
+              (if (= frame-id id)
+                (throw (ex-info "epoch publish blew" {}))
+                (when publish (publish))))))))
     (try
       (f)
       (finally
-        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original)))))
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 (deftest listener-dispatch-during-structural-terminal-fact-runs-under-normal-scope
   ;; A's top-level destroy fans a structural terminal fact; a listener reacting
@@ -401,9 +421,10 @@
         (when (rf.frame/frame d-id) (rf.frame/destroy-frame! d-id))))))
 
 (deftest an-epoch-publish-failure-leaves-no-residual-ring
-  ;; Step 10 runs after step 8 released A's ring. A destroy issued from another
-  ;; frame's event runs under that event's dispatch-id, so a step-10 warning
-  ;; pushed under ordinary delivery would recreate a ring for A's bare id.
+  ;; The after-dissoc publication runs after A's ring was released. A destroy
+  ;; issued from another frame's event runs under that event's dispatch-id, so
+  ;; its warning pushed under ordinary delivery would recreate a ring for A's
+  ;; bare id.
   ;; Structural delivery streams it live and retains it nowhere.
   (let [a-id     :destroy/ring-publish-fail
         c-id     :destroy/ring-publish-caller
@@ -426,13 +447,13 @@
     (try
       (with-failing-epoch-publish a-id
         #(rf/dispatch-sync [:destroy/ring-publish-from-c] {:frame c-id}))
-      (is (= [[[:epoch/on-frame-destroyed]] nil]
-             [(mapv #(mapv :hook (:hook-failures %)) @reports)
+      (is (= [[[[:epoch :after-dissoc]]] nil]
+             [(mapv #(mapv (juxt :hook :phase) (:hook-failures %)) @reports)
               (rf.frame/frame a-id)])
-          "one always-on report names the epoch hook, and the destroy completes")
+          "one always-on report names epoch's publication, and the destroy completes")
       (when rf.interop/debug-enabled?
-        (is (= [[:epoch/on-frame-destroyed] true true true]
-               [(mapv #(get-in % [:tags :hook]) @warnings)
+        (is (= [[[:epoch :after-dissoc]] true true true]
+               [(mapv #(vector (get-in % [:tags :hook]) (get-in % [:tags :phase])) @warnings)
                 (some? (get-in (first @warnings) [:tags :rf.trace/dispatch-id]))
                 (empty? (rf/trace-buffer a-id {:flat true}))
                 (empty? (rf/trace-buffer a-id))])

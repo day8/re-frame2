@@ -331,8 +331,8 @@
 ;;      serialise it, and tuck it into the HTML.
 ;;   7. destroy-frame!, in a `finally`. This step isn't optional bookkeeping —
 ;;      on a server that runs for weeks, it's what stops you leaking a frame
-;;      per request. It drops the frame record and fires
-;;      `:ssr/on-frame-destroyed`, which hands back the request slot, the
+;;      per request. It drops the frame record, and the SSR artefact's teardown
+;;      hands back the request slot, the
 ;;      response accumulator, and the error-trace buffer. The `finally` covers
 ;;      the happy path, the 503 path and the throw path, so no request strands
 ;;      a half-built frame.
@@ -427,7 +427,7 @@
                      "<script src='/main.js'></script>"
                      "</body></html>")})))
          ;; Whatever happened above — success or exception — the frame goes
-         ;; away here. destroy-frame! fires `:ssr/on-frame-destroyed`, which
+         ;; away here. destroy-frame! runs the SSR artefact's teardown, which
          ;; clears the request slot and the SSR side-channel atoms for us, so
          ;; there's no separate `clear-request!` to remember.
          (finally

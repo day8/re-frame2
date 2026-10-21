@@ -2,7 +2,7 @@
   "Test-only reset for the resources artefact, kept out of the
   `re-frame.resources` façade so no production build carries it; CLJS
   `:advanced` trims it as unreferenced. Mirrors `re-frame.routing.test-support`."
-  (:require [re-frame.late-bind :as rf.late-bind]
+  (:require [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.resources.mutation-events :as rf.resources.mutation-events]
             [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
@@ -33,6 +33,6 @@
   (rf.resources.mutation-events/reset-mutation-target-skipped-warnings!)
   nil)
 
-;; The shared CLJS reset-fixture table consults this key and no-ops when this
-;; namespace is absent, which it always is in production.
-(rf.late-bind/set-fn! :resources/reset-resources! reset-resources!)
+;; Merged into the resources lifecycle contribution, which the runtime-reset
+;; fixture walks; absent in production, where this namespace never loads.
+(rf.frame/contribute-lifecycle! {:id :resources :test-reset reset-resources!})

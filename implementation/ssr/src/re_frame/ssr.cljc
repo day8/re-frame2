@@ -409,12 +409,14 @@ explicitly."
 ;; nothing on the façade to late-bind.
 
 (rf.late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
-;; `make-frame` recognises the `:ssr` frame-config key this artefact reads.
-(rf.frame/add-config-keys! #{:ssr})
-;; Frame teardown looks up this hook and clears the SSR side-channel atoms
-;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
-;; destroyed frame.
-(rf.late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
+;; A destroy clears the SSR side-channel atoms (`pending-error-traces`,
+;; `request-slots`, `response-slots`) for the frame, or a long-lived server
+;; keeps one entry per request served. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :ssr
+   :phase              #{:post-dead}
+   :config-keys        #{:ssr}
+   :on-frame-destroyed (fn [frame-id _phase] (on-frame-destroyed! frame-id))})
 
 ;; `re-frame.ssr.head` is required above so its `:ssr/reg-head` late-bind
 ;; hook lands at ssr-ns load time on both JVM and CLJS. Reading a head is a

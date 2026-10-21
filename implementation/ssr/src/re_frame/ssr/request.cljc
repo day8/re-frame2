@@ -75,18 +75,16 @@
 ;; so are NOT cleared by the frame's app-db / sub-cache teardown in
 ;; `frame/destroy-frame!`.
 ;;
-;; This fn is the cleanup hook. Wired into `frame/destroy-frame!` via the
-;; `:ssr/on-frame-destroyed` late-bind key — `core` calls it from its
-;; ordered teardown step list when the SSR artefact is on the classpath;
-;; the hook resolves to nil and the destroy proceeds without it when the
-;; SSR artefact is absent. Idempotent: tolerates a frame-id with no slot
-;; in any of the three atoms.
+;; This fn is the cleanup step: `frame/destroy-frame!` runs it as the SSR
+;; lifecycle contribution's `:post-dead` member, and an absent SSR artefact
+;; contributes nothing. Idempotent: tolerates a frame-id with no slot in any
+;; of the three atoms.
 
 (defn on-frame-destroyed!
   "Drop
   the per-frame entries in `pending-error-traces`, `request-slots`, and
   `response-slots` for `frame-id`. Called from `frame/destroy-frame!`
-  via the `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a
+  through the SSR lifecycle contribution. Idempotent — a
   second call against the same frame-id sees the atoms already cleared
   and does nothing.
 

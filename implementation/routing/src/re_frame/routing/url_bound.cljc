@@ -3,7 +3,7 @@
 
   Per Spec 012 §Multi-frame routing, at most one live frame carries
   `:url-bound? true`. The routing-owned registration preflight
-  (`:routing/preflight-frame-config!`, which `re-frame.frame/upsert-frame!`
+  (routing's `:preflight-config` lifecycle member, which `re-frame.frame/upsert-frame!`
   calls with the final config BEFORE any write) refuses a second one with
   `:rf.error/duplicate-url-binding`, so the frames store never holds two
   bindings and `re-frame.routing.nav-fx/url-owner-frame-id` reads the owner

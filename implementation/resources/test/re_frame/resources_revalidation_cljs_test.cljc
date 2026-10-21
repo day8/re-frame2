@@ -153,10 +153,13 @@
     (rf.frame/destroy-frame! fa)))
 
 (deftest revalidate-on-without-the-resources-artefact-fails-loud
-  ;; the check is the presence of the :resources/on-frame-registered! hook
-  (let [original (rf.late-bind/get-fn :resources/on-frame-registered!)]
+  ;; absent: the feature probe unpublished and the contribution off the list
+  (let [probe (rf.late-bind/get-fn :resources/reg-resource)
+        saved @rf.frame/lifecycle-contributions]
     (try
-      (rf.late-bind/set-fn! :resources/on-frame-registered! nil)
+      (rf.late-bind/set-fn! :resources/reg-resource nil)
+      (swap! rf.frame/lifecycle-contributions
+             (fn [cs] (filterv #(not= :resources (:id %)) cs)))
       (let [thrown (try (rf/make-frame {:id :rv/no-artefact :revalidate-on #{:focus}})
                         nil
                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
@@ -165,7 +168,8 @@
                (select-keys (ex-data thrown) [:rf.error/id :where :frame-id])))
         (is (nil? (rf.frame/frame-meta :rv/no-artefact)) "no frame was registered"))
       (finally
-        (rf.late-bind/set-fn! :resources/on-frame-registered! original)))))
+        (rf.late-bind/set-fn! :resources/reg-resource probe)
+        (reset! rf.frame/lifecycle-contributions saved)))))
 
 ;; ---- host listener wiring (CLJS, against a DOM stub) --------------------------
 ;; visibilitychange is a document event, never a window one; the node runtime

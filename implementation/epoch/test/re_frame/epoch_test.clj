@@ -33,6 +33,7 @@
             [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.routing]
@@ -1157,11 +1158,11 @@
     (is (nil? (rf/app-db-value :no.such/frame))
         "for a never-registered frame, app-db-value returns nil")))
 
-;; `destroy-frame!` snapshots terminal evidence before dissoc
-;; (`:epoch/snapshot-frame-destroyed`) and publishes it after
-;; (`:epoch/on-frame-destroyed`). A throwing snapshot reaches the publish half as
-;; a nil bundle, which must still clean the destroyed incarnation's stores (or a
-;; same-id successor inherits them) and must fabricate no evidence.
+;; Epoch's lifecycle contribution snapshots terminal evidence in the post-dead
+;; phase, before dissoc, and publishes it after. A throwing snapshot reaches the
+;; publication as a nil bundle, which must still clean the destroyed
+;; incarnation's stores (or a same-id successor inherits them) and must
+;; fabricate no evidence.
 
 (deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil
   (testing "when the pre-dissoc snapshot hook throws, destroy still drops each
@@ -1170,7 +1171,7 @@
     (let [id            :test/nil-evidence-cleanup
           render-key    ::nil-evidence-view
           records       (atom [])
-          original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
+          original-snap rf.epoch.listeners/snapshot-terminal-destroy-evidence!
           stores        (fn []
                           {:history      (seq (rf.epoch.state/history-for id))
                            :buffer       (seq (rf.epoch.state/buffer-for id))
@@ -1189,15 +1190,12 @@
       (rf.epoch.state/record-mount-epoch! id render-key (rf.epoch.state/last-settled-epoch-id id))
       (rf.epoch.state/record-render-deps! id render-key ::a-sub)
       (is (every? some? (vals (stores))) "precondition: every store holds A's state")
-      (try
-        (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-          (fn [& args]
-            (if (= id (first args))
-              (throw (ex-info "snapshot blew" {}))
-              (when original-snap (apply original-snap args)))))
-        (rf/destroy-frame! id)
-        (finally
-          (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))
+      (with-redefs [rf.epoch.listeners/snapshot-terminal-destroy-evidence!
+                    (fn [frame-id halt]
+                      (if (= id frame-id)
+                        (throw (ex-info "snapshot blew" {}))
+                        (original-snap frame-id halt)))]
+        (rf/destroy-frame! id))
       (is (= {} (into {} (filter val) (stores))) "every exact-owner store dropped")
       (is (= [] (filterv #(= :halted-destroy (:outcome %)) @records))
           "no fabricated record"))))

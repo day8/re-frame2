@@ -146,8 +146,8 @@
               (fn []
                 (rf.error-emit/dispatch-frame-teardown-report!
                   :rf/default
-                  [{:hook :fu75/step :exception (ex-info "teardown" {})
-                    :where :safe-call-hook!}]
+                  [{:hook :fu75/step :phase :post-dead :exception (ex-info "teardown" {})
+                    :where :safe-call-contribution!}]
                   1234)))]
         (is (= 1 (count console)))
         (let [[prefix summary record] (first console)]

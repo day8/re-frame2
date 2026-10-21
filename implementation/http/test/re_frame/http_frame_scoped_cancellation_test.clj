@@ -9,11 +9,11 @@
   — the sibling's request stays live but unabortable."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
-            [re-frame.late-bind :as rf.late-bind]
             ;; The destroy-cascade cases drive the real machines teardown
             ;; (machines is a test-only dep of this artefact).
             [re-frame.machines]
@@ -173,15 +173,17 @@
   (testing "core's `destroy-frame!` fallback, taken when the machines artefact
             is absent, passes the destroyed frame to the hook"
     (register-two-frame-actor-app!)
-    (let [seen (atom [])
-          orig (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+    (let [seen  (atom [])
+          saved @rf.frame/lifecycle-contributions]
       (seed-actor-handle! seen :frame/a)
       (seed-actor-handle! seen :frame/b)
       (try
-        (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! nil)
+        ;; with no machines contribution, core's stand-in tears the actors down
+        (swap! rf.frame/lifecycle-contributions
+               (fn [cs] (filterv #(not= :machines (:id %)) cs)))
         (rf/destroy-frame! :frame/a)
         (finally
-          (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! orig)))
+          (reset! rf.frame/lifecycle-contributions saved)))
       (is (= #{:frame/a} (set (map first @seen))))
       (is (actor-live? :frame/b)))))
 
