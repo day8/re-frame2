@@ -2384,6 +2384,17 @@ else
             # bundle recompiles against `src/` + `deps.edn`, so every non-spec-md
             # change here can break the self-hosting recipe the README documents.
             machines_viz_viewer_page=true
+            # bundle_isolation, for the src files a `test:bundle-isolation`
+            # release compiles: `:examples/counter-with-stories` reaches the
+            # chart through Xray for the Story elision claim. The files named
+            # first are not in its manifest.edn, nor is anything outside src/.
+            # A new src file arms until the manifest shows it is not compiled.
+            case "$file" in
+              tools/machines-viz/src/day8/re_frame2_machines_viz/adapters/react_chart.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/adapters/uix.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/ai_generate.cljc|tools/machines-viz/src/day8/re_frame2_machines_viz/export.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/scxml.cljc|tools/machines-viz/src/day8/re_frame2_machines_viz/share.cljs)
+                : ;;
+              tools/machines-viz/src/*)
+                bundle_isolation=true ;;
+            esac
             ;;
         esac
         ;;
