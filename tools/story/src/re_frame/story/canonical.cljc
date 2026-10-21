@@ -268,4 +268,8 @@
 ;; registrar consults this hook from each `reg-*!` runtime helper —
 ;; see `re-frame.story.registrar/maybe-auto-install!`. Late-bound to
 ;; avoid a circular require (registrar → canonical → registrar).
-(rf.story.late-bind/set-fn! :ensure-canonical-installed ensure-installed!)
+;; Behind `enabled?` because a top-level call is a Closure root: ungated,
+;; it would keep the whole canonical install in an `enabled?` false build
+;; (005-SOTA-Features.md §Production elision).
+(when rf.story.config/enabled?
+  (rf.story.late-bind/set-fn! :ensure-canonical-installed ensure-installed!))

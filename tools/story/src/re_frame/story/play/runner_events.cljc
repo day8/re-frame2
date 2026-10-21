@@ -2111,13 +2111,18 @@
 ;; `play.cljc` owns the step-debugger substrate but cannot `:require`
 ;; this ns (the cycle: runner-events → play). It fetches `run-step!` via
 ;; the `:run-play-step` late-bind hook. Registered at ns load so it is
-;; available as soon as the play module drives a stepped run.
+;; available as soon as the play module drives a stepped run. Both
+;; registrations here sit behind `enabled?` because a top-level call is a
+;; Closure root: ungated, they would keep the play runner in an `enabled?`
+;; false build (005-SOTA-Features.md §Production elision).
 
-(rf.story.late-bind/set-fn! :run-play-step run-step!)
+(when rf.story.config/enabled?
+  (rf.story.late-bind/set-fn! :run-play-step run-step!))
 
 ;; The stepper appends a settle boundary per `run-step!`, so a fresh
 ;; stepping session (`rf.story.play/begin-stepper!`) must reset the frame's
 ;; boundaries first — the stepper analogue of `run!`'s reset. Exposed via the
 ;; same late-bind seam since `play.cljc` cannot `:require` this ns.
 
-(rf.story.late-bind/set-fn! :clear-step-boundaries clear-step-boundaries!)
+(when rf.story.config/enabled?
+  (rf.story.late-bind/set-fn! :clear-step-boundaries clear-step-boundaries!))
