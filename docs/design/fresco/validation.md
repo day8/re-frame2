@@ -162,6 +162,22 @@ Between the two lines a candidate is *"UIx-rule cleared, K3 open until a path
 down is named"* — never plain green. **943 B/read remains the number a native
 layer actually has to beat.**
 
+**[Re-measured 2026-10-21, `rf2-x8rva`.] Neither line's source measures its own
+figure at tip any more, and both have moved the safe way.** The same P0
+instrument now reads the Reagent donor at **1,448 B/read** [1,447–1,449] and the
+UIx donor at **3,184 B/read** [3,183–3,185], over six interleaved rounds in each
+of two runs that agree to the byte. Most of the Reagent move is core's
+render-owned subscription holdings, which a Reagent view pays on every read;
+[`budgets.md` §4](product/budgets.md) carries the ablation. Neither line is
+restated here. Restating a gate line is an operator ruling, as the UIx line's
+was, and this drift runs the other way from that one: each line is now
+*tighter* than the shipped path it was sourced from, which is the safe
+direction for a gate. The candidate's verdict does not move. Its ratom-family
+slope, 1,462 B/read, is 1.55× the K3 line and level with the same-run Reagent
+donor (1.0095×, inside the 5% this page calls instrument-limited), and its
+spine slope, 2,144 B/read, clears the UIx line. **943 B/read is still the line;
+it is no longer what the shipped Reagent path costs.**
+
 **The UIx line was restated on 2026-07-31** (Mike's ruling, option (a),
 `rf2-e3flf`). It stood at 3,552 B/read while it was sourced from the reads
 ladder, which measured a spine one heap-moving production landing ago:
@@ -763,7 +779,7 @@ as published and are not restated, re-derived or re-adjudicated here:
 > |---|---|
 > | Mount (K1) | **Missed decisively**: 1.1718x / 1.1976x vs direct UIx, canonical, both intervals above 1.10x — the priced capability premium |
 > | Bulk (K2) | Gated on the Reagent pair only (ruled); all gated intervals straddle 1.0 — unresolved, instrument-limited |
-> | Per-read heap (K3) | Misses the governed Reagent row (~1.4x); beats the UIx parent by ~29% — both reported, disposition owed explicitly |
+> | Per-read heap (K3) | **Re-measured 2026-10-21: level with the governed Reagent row** — 1.0095x, 1,462 vs 1,448 B/read, where 2026-08-12 read ~1.4x; the donor's per-read cost rose, Fresco's did not fall, and the registered 943 B/read K3 line is still 1.55x away; beats the UIx parent by ~33% — all reported, disposition owed explicitly |
 > | Controlled input | Strong in Chromium; the WebKit half of the matrix is no longer open (K4). Controlled text is verified on all three engines, and the native-IME cells read **Green** — by operator ruling of 2026-08-13 (`rf2-hic-016`) |
 
 What the ruling does and does not do to each, with the record that owns it named
@@ -801,6 +817,12 @@ rather than summarised:
   `product/k3-disposition.md`, the three-scoreboard
   record that is operative by default and operator-overturnable; no denominator
   is substituted and no scoreboard stands in for another.
+  **[Re-measured 2026-10-21, `rf2-x8rva`.]** The K3 row quoted above now carries
+  the re-take. The ruling saw *"Misses the governed Reagent row (~1.4x)"*; at tip
+  the same instrument reads Fresco level with that row, because the donor's
+  per-read cost rose by 500 B/read in core while Fresco's rose by 45
+  ([`product/budgets.md` §4](product/budgets.md)). The disposition, the frozen
+  governed baseline and the three scoreboards are untouched.
 - **K4** — the WebKit half of the control matrix is **no longer a Phase 1
   obligation**, and it was not this ruling that discharged it. The
   controlled-text matrix — echo, rejection, caret preservation, selection range
@@ -852,6 +874,12 @@ and the measurement contract remain materially equivalent, and its revert
 trigger **deletes the acceptance, never keeps it as a floor**, the moment a
 qualifying shell arm lands under `1,024 B`. Everything else in the paragraph
 above stands exactly as written.
+
+**[2026-10-21, `rf2-x8rva`.]** The S1/S2 re-take is one of the acceptance's named
+reopen conditions, and run B's highest Reagent-segment round read `1,108 B`, one
+byte beyond the `1,107 B` bound, which on the record's own text lapses the
+acceptance; [`budgets.md` §5](product/budgets.md#the-breach-is-carried-never-normalised)
+records it.
 
 ## Timing (HD-015)
 

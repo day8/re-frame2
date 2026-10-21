@@ -397,12 +397,30 @@ Neither row moves: that arm is not `S6`'s cold-mount estimator nor `S7`'s
 allocation instrument, and neither has been re-taken. `S6` and `S7` stay
 **carried**, exactly as stated.
 
+**[Re-taken 2026-10-21, `rf2-x8rva`.]** S1–S4 below are the re-take, and each row
+keeps its 2026-08-12 pin beside it. The instrument is the same P0 ladder
+(`bench/fresco/src/re_frame/bench/p0_run.cjs --only ladder`): B = 1,200, Q = E,
+rungs 0/1/3/7/20, six rounds with the arms interleaved in each, run twice — the
+count fixed at two before the first run started, and the two runs reported
+apart rather than pooled. The tree is trunk at `68e3cafdf1` plus the harness fix
+that awaits the Fresco reapers' drain after every release (`rf2-mqcca`): without
+it an R=20 arm's draining cells land in the next arm's window and read it low.
+P-DEV-1, Chromium 147.0.7727.15, React 19.3.0; run A 20:35–20:38 and run B
+20:38–20:41 AUSEST, in a measurement window the coordinator held with five other
+workers live. `\Processor(_Total)\% Processor Time`, five 3 s samples: 18.1 /
+20.9 / 16.1 / 15.4 / 21.2 % before, 16.7 / 10.2 / 13.6 / 12.2 / 15.0 % after.
+Both runs exited 0, with the positive control inside its band in every round,
+0 unverified of 154 mounts, every structural count answered, the arm-order
+guard `reportable` and every fit a line in 6 of 6 rounds. S5's teardown residue,
+read in the same runs, still straddles zero on all ten candidate rungs. Each
+figure is the run's mean with its per-round range.
+
 | # | Estimand | Pinned figure | Instrument | Status |
 |---|---|---|---|---|
-| S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
-| S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
-| S3 | Per-read retained, Fresco vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
-| S4 | Per-read retained, Fresco vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
+| S1 | R=0 boundary shell, Reagent segment | `1,097 B` [1,089–1,106] run A · `1,098 B` [1,092–1,108] run B, re-taken 2026-10-21; pinned `1,100 B` [1,091–1,107] on 2026-08-12 | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round; run B's highest round is 1 B beyond the `1,107 B` acceptance bound ([§5](#the-breach-is-carried-never-normalised)) |
+| S2 | R=0 boundary shell, UIx segment | `1,094 B` [1,092–1,099] run A · `1,095 B` [1,093–1,101] run B, re-taken 2026-10-21; pinned `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round; run B's highest round sits on the `1,101 B` acceptance bound |
+| S3 | Per-read retained, Fresco vs Reagent | `1,462` [1,460–1,464] vs `1,448 B/read` [1,447–1,449] run A; `1,462` [1,460–1,463] vs `1,448` [1,447–1,448] run B — **1.0095× / 1.0096×**, re-taken 2026-10-21; pinned `1,417` vs `948 B/read` (`1.4953×`) | as S1 | **package figure**; K3 scoreboard (a) — level per read, and the move is the donor's (note below); dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
+| S4 | Per-read retained, Fresco vs UIx | `2,144` [2,139–2,146] vs `3,184 B/read` [3,183–3,185] in both runs — **0.6734× / 0.6733×**, re-taken 2026-10-21; pinned `2,115` vs `2,980 B/read` (`0.7098×`) | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by `rf2-hic-070` (`docs/design/fresco/product/k3-disposition.md`) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
@@ -429,9 +447,47 @@ attribution names the cost rather than removing it. The bisection is
 on the ladder (`docs/design/fresco/studio/reads-per-boundary-heap-ladder.md`);
 the disposition is [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide).
 
+**[Re-measured 2026-10-21, `rf2-x8rva`.] S3's contrast no longer holds at tip,
+and the move is the donor's.** Against the 2026-08-12 pin the candidate's
+ratom-family slope moved `1,417 → 1,462 B/read` (+45 B, +3.2%) and the Reagent
+donor's moved `948 → 1,448 B/read` (+500 B, +53%), so the governed contrast falls
+from `1.4953×` to `1.0095×` in run A and `1.0096×` in run B. The candidate sits
+`+13.8` and `+13.9 B/read` above the donor, positive in every round of both runs
+([+11.4–+15.7] and [+11.9–+15.6]): a consistent difference, and one inside the
+5% that [validation.md](../validation.md#the-per-read-gates) calls
+instrument-limited, so the two are **level per read** on this instrument —
+neither a miss nor a win. Fresco did not get cheaper; Reagent got dearer.
+
+**What moved the donor**, found by ablation on smoke runs (two rounds each,
+outside the window, so the deltas attribute and the figures publish nothing):
+
+- **Core's render-owned reference holdings, about 370 of the 500 B.** Switching
+  off `claim-render-owned-ref!` in `re-frame.subs`, with the slot-keeping path
+  that releases what it claims, takes the Reagent slope from 1,448 to
+  1,080 B/read and leaves the candidate column where it was. The mechanism makes
+  a ratom-family view's `:ref-count` count readers rather than renders: every
+  subscription read inside a Reagent render records one holding on the rendering
+  component and one on the read reaction, with a holders map and a release
+  callback. A Reagent view therefore pays it per read; Fresco's collector reads
+  outside a ratom render and does not.
+- **The adapter's exactly-once dispose guard, about 31 B, paid by both.**
+  Building the Reagent adapter's Reactions without it takes the donor from 1,448
+  to 1,416 B/read and the candidate from 1,462 to 1,431.
+- **About 100 B/read of the donor's move is unattributed.**
+
+The UIx donor moved as well, `2,980 → 3,184 B/read`, also unattributed, and that
+is most of why S4's contrast deepens from `0.7098×` to `0.6734×`. The candidate's
+spine column moved `2,115 → 2,144 B/read`: +1.4% over K3's frozen governed
+baseline, inside its `2,326.5 B/read` trip point (§9.2).
+
 **S1 and S2 carry the substantive news for the shell.** The breach is not an
 artefact of the prototype — it survives the move to the package essentially
 unchanged, at `1,100` and `1,095 B` against `1,103` and `1,097 B`.
+
+**[Re-taken 2026-10-21, `rf2-x8rva`.]** It still survives: `1,097` / `1,098 B` and
+`1,094` / `1,095 B` in runs A / B, over the line in every round. What the
+re-take changes is §5's scoped acceptance, and
+[§5](#the-breach-is-carried-never-normalised) records how.
 
 **S6 carries a standing prohibition, and ratification did not lift it.** The
 `1.25x` cold-mount ceiling was ratified and made operative on 2026-08-13 by
@@ -1082,6 +1138,7 @@ and the freeze is **not load-bearing for the present verdict** on either tree:
 | pinned baseline row (bench tree) | 1,103 B | 1,097 B | — | over |
 | ladder re-take on the shipping bench tree | 1,099.5 B | 1,097 B | — | over |
 | **the package (S1 / S2)** | **1,100 B** | **1,095 B** | 1,091 / 1,087 B | **1.074× / 1.069× — over, in every round** |
+| **the package re-take, 2026-10-21 (S1 / S2, runs A · B)** | **1,097 · 1,098 B** | **1,094 · 1,095 B** | 1,089 / 1,092 B | **over, in every round of both runs** |
 | frame-prop variant (bench tree) | 1,054 B | 1,051 B | 1,047 B | over |
 
 Every one of the twelve package readings sits at or above **1,087 B**, so the
@@ -1176,6 +1233,21 @@ lineage behind them rather than the live rows. That the package reading landed
 within 3 B and 2 B of the bench-tree one is a result, not a formality — it is
 the reason the whole prior lineage remains readable as evidence about the same
 design.
+
+**[Re-taken 2026-10-21, `rf2-x8rva`.] The re-take reopens the scoped acceptance,
+and one of its readings lapses it.** The shell reads `1,097` / `1,098 B` on the
+Reagent segment and `1,094` / `1,095 B` on the UIx segment (runs A / B), within
+3 B of the 2026-08-12 pin and over `1,024 B` in every round, so `S1`, `S2` and
+`C5` stay `BREACH`. Two clauses of the acceptance in this section's head-note now
+bite. **Any S1/S2 re-take is a named reopen condition**, and this is one. And the
+acceptance **lapses immediately if a same-instrument reading exceeds the scoped
+ceiling**: run B's highest Reagent-segment round read `1,108 B`, one byte beyond
+the `1,107 B` bound. Run A's highest read `1,106 B`, and the UIx segment's
+highest, `1,101 B`, sits exactly on its bound. On the record's own text the
+undispositioned plain red has resumed for S1. One effective-revision input has
+moved as well: the acceptance names React 19.2.0, and the tree has carried
+19.3.0 since 2026-09-10. Re-dispositioning the breach is an operator ruling,
+not this page's.
 
 ---
 
@@ -1353,6 +1425,11 @@ the standing invitation); a package-resident heap instrument producing shell or
 per-read figures materially apart from S1–S4 (§6 says how to build it); the
 operator freezing the byte line somewhere other than the §5 recommendation; or
 any deterministic row D1–D16 moving without a topology change to explain it.
+
+**[2026-10-21, `rf2-x8rva`.]** The per-read half of that clause has fired, from
+the donor side: the same ladder now reads the Reagent donor at `1,448 B/read`
+against S3's pinned `948`, a change in core rather than in the instrument, and
+§4 carries the re-take and the attribution.
 
 **On the scope of the run above.** The table records the confirmation this page
 took at `0c0aa22898`, which is the browser lane and therefore D1–D9. D10–D13 and

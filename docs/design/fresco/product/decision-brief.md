@@ -31,7 +31,7 @@ Fresco is the second row, chosen with eyes open; the fourth row stays alive as t
 
 About 70% of that premium is read-count *capability*: ambient `sub` in loops and helpers declares fine reads a hook twin cannot spell; per read, Fresco is cheaper; read-matched pages run near parity. The dogfood verdict prefers the capability, and the selection is made. The **scoped amendment** is the selection's honest record — the accepted price, the use-cases it buys, the escape route, and the reconsideration trigger — drafted in Phase 0 and **ratified on 2026-08-13 by operator ruling rather than at the sitting** (see the closing section); the original result is never recoloured and no threshold widens.
 
-Bulk is gated on the Reagent pair only, unresolved and instrument-limited. Heap keeps **three scoreboards, no denominator substitution**: viability against the best shipped path (Reagent, the governed K3 row); architecture progress against the UIx parent (~29% better, reported beside); and author preference (the verdict). None replaces another.
+Bulk is gated on the Reagent pair only, unresolved and instrument-limited. Heap keeps **three scoreboards, no denominator substitution**: viability against the best shipped path (Reagent, the governed K3 row); architecture progress against the UIx parent (~33% better on the 2026-10-21 re-take, reported beside); and author preference (the verdict). None replaces another.
 
 **5. Semantics live in React, so the server renders with React.** The server/hydration contract is **core, per public surface**: every view, host, root, and escape either renders deterministically with React server bytes or refuses at its source with recovery — only the deployable Node *service* is optional in the packaging sense (**its "caller-gated" condition is removed — amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`; the service is v0 scope, and *optional* now describes how the namespace is packaged and reached, never whether it ships**). The Node sidecar is ruled; one emitter; no JVM twin ever. And **numbers never pool across instruments** — every claim carries its witness, commit, substrate, and instrument.
 
@@ -41,8 +41,8 @@ Bulk is gated on the Reagent pair only, unresolved and instrument-limited. Heap 
 |---|---|
 | Mount (K1) | **Missed decisively**: 1.1718x / 1.1976x vs direct UIx, canonical, both intervals above 1.10x — the priced capability premium |
 | Bulk (K2) | Gated on the Reagent pair only (ruled); all gated intervals straddle 1.0 — unresolved, instrument-limited |
-| Per-read heap (K3) | Misses the governed Reagent row (~1.4x); beats the UIx parent by ~29% — both reported, disposition owed explicitly |
-| Boundary shell (R=0) | **1,103 B / 1,097 B on the pinned segments — above the registered 1 KB paper-fail line**; a live pressure, owned by the Phase 1 substrate adjudication |
+| Per-read heap (K3) | **Re-measured 2026-10-21: level with the governed Reagent row** — 1.0095x, 1,462 vs 1,448 B/read, where 2026-08-12 read ~1.4x; the donor's per-read cost rose, Fresco's did not fall, and the registered 943 B/read K3 line is still 1.55x away; beats the UIx parent by ~33% — all reported, disposition owed explicitly |
+| Boundary shell (R=0) | **1,097 B / 1,094 B on the package, re-measured 2026-10-21 — above the registered 1 KB paper-fail line**; a live pressure, owned by the Phase 1 substrate adjudication |
 | Warm allocation | No fitted series clears the instrument's quality floor — no claim publishable yet |
 | Teardown | Zero retained bytes and objects on the pinned heap arms — the proven invariant |
 | Interpreter walk | Faster than stock Reagent — interpretation itself is solved |
