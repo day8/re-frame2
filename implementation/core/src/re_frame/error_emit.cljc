@@ -985,9 +985,8 @@
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
 ;;
-;; The frame-destroy teardown recipe runs many optional late-bound cleanup
-;; hooks plus a few guarded direct steps (notably the
-;; `:frame/notify-machine-destruction!` machine cascade). A teardown STEP
+;; The frame-destroy teardown recipe runs every artefact's lifecycle
+;; contribution plus a few guarded steps of core's own. A teardown STEP
 ;; throwing is production-reachable (long-lived SSR / tooling), is a
 ;; resource-leakage class (skipped teardown the next operation cannot see
 ;; locally), and compounds with process lifetime — all three legs of the
@@ -1000,8 +999,8 @@
 ;; (`:rf.warning/teardown-hook-exception`, DCE'd in prod) stays at its
 ;; causal positions, funneled through the shared
 ;; `frame/record-teardown-failure!` boundary both catch sites route through
-;; (`frame/safe-call-hook!` for the late-bound hooks,
-;; `frame/safe-teardown-step!` for the guarded direct steps).
+;; (`frame/safe-call-contribution!` for a contribution member,
+;; `frame/safe-teardown-step!` for core's own steps).
 
 (defn dispatch-frame-teardown-report!
   "Surface ONE always-on `:rf.error/frame-teardown-failed` report through
@@ -1027,13 +1026,13 @@
   require this ns — `error-emit` → `elision` → `frame` is a load cycle).
 
   `hook-failures` is a non-empty vector of
-  `{:hook <step-key> :exception <ex> :where <catch-boundary>}` entries — one
-  per failed teardown step, accumulated during the teardown walk through the
-  shared `record-teardown-failure!` boundary. `:hook` names the late-bound
-  cleanup-hook key that threw OR the guarded direct-step key (e.g.
-  `:frame/notify-machine-destruction!`); `:where` is the catch boundary that
-  recorded it — `:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!`
-  for a guarded direct step.
+  `{:hook <id> :phase <phase> :exception <ex> :where <catch-boundary>}`
+  entries — one per failed teardown step, accumulated during the teardown walk
+  through the shared `record-teardown-failure!` boundary. `:hook` names the
+  lifecycle contribution that threw, with the `:phase` it threw in, OR core's
+  own step key (e.g. `:frame/pre-dead`, which carries no `:phase`); `:where` is
+  the catch boundary that recorded it — `:safe-call-contribution!` for a
+  contribution member, `:safe-teardown-step!` for core's own step.
   Returns nil; a no-op when `hook-failures` is empty (no failures, no
   report)."
   ([frame-id hook-failures time]
@@ -1051,9 +1050,9 @@
         :hook-failures  (vec hook-failures)
         :recovery       :ignored
         ;; "step(s)", not "cleanup hook(s)": a `:hook-failures`
-        ;; entry names a late-bound cleanup hook OR a guarded direct step
-        ;; (e.g. `:frame/notify-machine-destruction!`), so hook-only wording
-        ;; would misreport a destroy whose only failure was a direct step.
+        ;; entry names a contribution member OR one of core's own steps, so
+        ;; hook-only wording would misreport a destroy whose only failure was
+        ;; core's.
         :reason         (str (count hook-failures)
                              " frame-teardown step(s) threw"
                              " during destroy; teardown continued"

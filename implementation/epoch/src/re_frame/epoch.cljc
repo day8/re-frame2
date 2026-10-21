@@ -834,12 +834,6 @@
    ;; capture seam. Back-fills it into the causing (most-recently-settled)
    ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
    :epoch/record-unmount!     rf.epoch.listeners/record-unmount!
-   ;; `destroy-frame!` fires this BEFORE dissoc to bind the
-   ;; dying incarnation's terminal halted-destroy evidence to a bundle while it
-   ;; still solely owns its id-keyed epoch stores; the bundle is threaded to the
-   ;; post-dissoc `:epoch/on-frame-destroyed` hook.
-   :epoch/snapshot-frame-destroyed rf.epoch.listeners/snapshot-terminal-destroy-evidence!
-   :epoch/on-frame-destroyed  rf.epoch.listeners/on-frame-destroyed!
 
    ;; ---- introspection + Tool-Pair write surface --------------------
    ;; Read by `re-frame.core/epoch-history` and by tools that treat this
@@ -858,11 +852,6 @@
    ;; the STATE-level reader; this ns has no reader of its own, so the
    ;; facade is the only spelling.
    :epoch/current-config             rf.epoch.state/current-config
-   ;; Test-support config-isolation hook. `re-frame.test-
-   ;; support`'s reset-hook table fires this to restore epoch config to
-   ;; the shipped default between tests, keeping the private `state/config`
-   ;; var out of test namespaces.
-   :epoch/reset-config!              rf.epoch.state/reset-config!
    :epoch/clear-history!             clear-history!
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
@@ -872,3 +861,35 @@
    ;; projector; there is no standalone second spelling, so there is no
    ;; second name to drift against.
    :epoch/project-record      project-record})
+
+;; ---- lifecycle contribution ------------------------------------------------
+
+(defn- on-frame-destroyed
+  "Epoch's `:post-dead` member: snapshot the destroyed incarnation's terminal
+  `:halted-destroy` evidence while it still solely owns its id-keyed stores,
+  and hand back the publication core runs once the frame has left the
+  registry. A failed snapshot still hands back the publication, which drops
+  the stores whatever the evidence, then rethrows for core to report."
+  [frame-id _phase]
+  (let [[evidence failure]
+        (try
+          [(rf.epoch.listeners/snapshot-terminal-destroy-evidence!
+             frame-id rf.frame/*destroy-halt*)
+           nil]
+          (catch #?(:clj Throwable :cljs :default) ex
+            [nil ex]))]
+    (fn []
+      (rf.epoch.listeners/on-frame-destroyed! frame-id evidence)
+      (when failure (throw failure)))))
+
+;; The test reset restores the shipped config — `(rf/configure! {:epoch-history
+;; ...})` merges, so a prior test's depth would leak — and drops history and
+;; listeners. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :epoch
+   :phase              #{:post-dead}
+   :on-frame-destroyed on-frame-destroyed
+   :test-reset         (fn []
+                         (clear-history!)
+                         (clear-epoch-listeners!)
+                         (rf.epoch.state/reset-config!))})

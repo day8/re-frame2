@@ -2,7 +2,7 @@
   "`:dispatch-later` timers belong to their frame. Each armed handle is
   retained in `re-frame.fx/dispatch-later-timers` under its frame, a fired
   timer drops its own slot, and `destroy-frame!` cancels and drops the
-  frame's slots through the `:fx/on-frame-destroyed!` late-bind hook.
+  frame's slots through fx's `:post-dead` lifecycle member.
 
   The slot is also the callback's dispatch authority: host cancellation
   cannot un-run a callback that has already started, so a callback whose slot
@@ -57,8 +57,8 @@
 ;; ---- through the real runtime ---------------------------------------------
 
 (deftest dispatch-later-handle-retained-then-cancelled-on-destroy
-  ;; The one test that sees destroy-frame! reach the timer table through the
-  ;; :fx/on-frame-destroyed! hook.
+  ;; The one test that sees destroy-frame! reach the timer table through fx's
+  ;; lifecycle contribution.
   (rf/make-frame {:id test-frame})
   (rf/reg-event :destroy/target (fn [{:keys [db]} _] {:db db}))
   (rf/reg-event :destroy/arm-later

@@ -348,7 +348,6 @@
 ;; Core cannot statically require this optional artefact. Keep each publication
 ;; as a literal call so the late-bind drift gate can discover it.
 
-(rf.frame/add-config-keys! #{:flows})
 (rf.late-bind/set-fn! :flows/reg-flow           reg-flow)
 (rf.late-bind/set-fn! :flows/clear-flow         rf.flows.registry/clear-flow)
 (rf.late-bind/set-fn! :flows/check-activation!  rf.flows.registry/check-activation!)
@@ -357,6 +356,12 @@
 ;; Epoch's tool writes install frame-state outside any event, so the memo stops
 ;; vouching for what it cached.
 (rf.late-bind/set-fn! :flows/distrust-memo!     rf.flows.registry/distrust-memo!)
-;; Frame destruction drops the frame's memo.
-(rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
-                      rf.flows.registry/teardown-on-frame-destroy!)
+;; Frame destruction drops the frame's memo: the flow definitions are registrar
+;; rows a destroy leaves alone, and the output marks leave with the frame
+;; value, so the memo is the whole teardown. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :flows
+   :phase              #{:post-dead}
+   :config-keys        #{:flows}
+   :on-frame-destroyed (fn [frame-id _phase]
+                         (rf.flows.registry/teardown-on-frame-destroy! frame-id))})

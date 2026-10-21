@@ -10,15 +10,13 @@
        failing cb emits `:rf.epoch.cb/listener-exception` so devtools
        can surface the broken consumer.
 
-    2. `snapshot-terminal-destroy-evidence!` — the late-bind hook
-       `re-frame.frame/destroy-frame!` invokes against the
-       `:epoch/snapshot-frame-destroyed` slot BEFORE dissoc, binding the
-       dying incarnation's `:halted-destroy` record (and the listeners it
-       fans to) while it still solely owns its id-keyed stores.
+    2. `snapshot-terminal-destroy-evidence!` — run by epoch's `:post-dead`
+       lifecycle member BEFORE dissoc, binding the dying incarnation's
+       `:halted-destroy` record (and the listeners it fans to) while it still
+       solely owns its id-keyed stores.
 
-    3. `on-frame-destroyed!` — the late-bind hook
-       `re-frame.frame/destroy-frame!` invokes against the
-       `:epoch/on-frame-destroyed` slot AFTER dissoc. It delivers the
+    3. `on-frame-destroyed!` — the publication that member hands back, which
+       `re-frame.frame/destroy-frame!` runs AFTER dissoc. It delivers the
        pre-dissoc bundle's `:halted-destroy` record (the work a pending
        destroy dropped at its boundary), if any, to listeners rather than the
        ring, and drops the frame's id-keyed stores.
@@ -38,7 +36,7 @@
 
   `terminal?` marks the destroy fan-out of a destroyed incarnation's
   `:halted-destroy` record. That fan-out runs after teardown released the
-  frame's trace ring and no-emit flag (Spec 002 §Destroy step 8), so a failing
+  frame's trace ring and no-emit flag (Spec 002 §Destroy), so a failing
   listener's `:rf.epoch.cb/listener-exception` diagnostic is delivered
   STRUCTURALLY — no ring retention, epoch capture or bare-id policy — because
   an ordinary emit would recreate a ring under an id whose frame is gone (Spec
@@ -283,10 +281,10 @@
   "Snapshot a destroyed incarnation's terminal halted-destroy evidence while it
   is STILL the sole owner of its id-keyed epoch stores.
 
-  `re-frame.frame/destroy-frame!` calls this (via `:epoch/snapshot-frame-
-  destroyed`) BEFORE `dissoc-frame!`, while the frame still resolves under its
-  id. The destroy holds the id's reservation until step 10 has finished, so no
-  same-id incarnation exists between this snapshot and its publication.
+  Epoch's `:post-dead` lifecycle member calls this BEFORE `dissoc-frame!`,
+  while the frame still resolves under its id. The destroy holds the id's
+  reservation until its teardown has finished, so no same-id incarnation
+  exists between this snapshot and its publication.
 
   `halt` is the drain's evidence from the destroying event's boundary, nil for
   an immediate destroy: `{:frame-state :committed-at :trigger-event
@@ -348,7 +346,7 @@
   conditional on a non-nil bundle — the evidence was bound to A's exact
   incarnation before dissoc and is A's to deliver; a nil bundle bound nothing
   and publishes nothing. All terminal emits use structural delivery: they
-  arrive after step 8 released the frame's ring and no-emit flag, and an
+  arrive after the destroy released the frame's ring and no-emit flag, and an
   ordinary emit would recreate a ring under an id whose frame is gone (Spec 009
   §Retention boundary). Repeated destroys are idempotent (a re-destroyed frame
   has no boundary record, so nothing is owed)."
@@ -361,8 +359,8 @@
   (when rf.interop/debug-enabled?
     ;; (1) STORE CLEANUP — runs whether or not terminal-evidence is nil.
     ;; Cleanup authority is the reserved frame-id, NOT the snapshot bundle: a
-    ;; throwing `:epoch/snapshot-frame-destroyed` hook yields nil
-    ;; terminal-evidence (frame.cljc converts the throw to nil), but the
+    ;; throwing snapshot yields nil terminal-evidence (epoch's destroy member
+    ;; converts the throw to nil and reports it afterwards), but the
     ;; destroyed incarnation's id-keyed stores must STILL be dropped, or A's
     ;; history / buffer / last-settled-epoch / mount attribution outlive the
     ;; frame under its id. While this destroy holds the id's reservation no

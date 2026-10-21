@@ -165,7 +165,7 @@ The error axis is small — an alert on it should *mean something*. Most failure
 
 ### The first promoted category: `:rf.error/frame-teardown-failed`
 
-One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs a best-effort recipe of teardown steps — optional late-bound cleanup hooks plus a few guarded direct steps (notably the `:frame/notify-machine-destruction!` machine cascade). A throwing step is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed step, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Each entry's `:hook` names the step that threw (either kind — the `:hook-failures` / `:hook` wire names are deliberately stable) and `:where` records the boundary that caught it: `:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step.
+One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs a best-effort recipe of teardown steps — each loaded artefact's lifecycle teardown (the machines `:exit` cascade, resource caches, in-flight HTTP, …) plus a few of the runtime's own steps. A throwing step is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed step, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Each entry's `:hook` names the step that threw — the artefact, with the `:phase` it threw in, or one of the runtime's own steps — and `:where` records the boundary that caught it: `:safe-call-contribution!` for an artefact's teardown, `:safe-teardown-step!` for the runtime's own.
 
 **This is a NON-EVENT record, and on the sink route its category slots ride `:tags`.** The non-event projector keeps a **different, shorter** summary set than the per-event one above: only `:frame`, `:rf.error/id`, `:event-id`, `:elapsed-ms`, `:time` and `:correlation` stay at the top level (those the producer actually supplied), beside the `:kind` it stamps and the `:exception` it handles separately. **Every other slot the producer wrote flat — `:hook-failures`, `:reason`, `:recovery` — is lifted onto `:tags`**, so the projector walks and redacts it under frame classification (a `:hook-failures` entry's nested ex-data included). This is the shape your `:errors` sink body must handle, with `:rf.error/id` — not `:operation` — as the discriminator:
 
@@ -176,8 +176,8 @@ One always-on category beyond the per-failure errors is worth knowing because it
  :time  1715600000000
  :tags  {:recovery      :ignored          ;; teardown stays best-effort
          :reason        "2 frame-teardown step(s) threw during destroy; ..."
-         :hook-failures [{:hook :http/abort-inflight :exception #object[...] :where :safe-call-hook!}
-                         {:hook :timers/clear        :exception #object[...] :where :safe-call-hook!}]}}
+         :hook-failures [{:hook :http     :phase :post-dead :exception #object[...] :where :safe-call-contribution!}
+                         {:hook :machines :phase :post-dead :exception #object[...] :where :safe-call-contribution!}]}}
 ```
 
 So read `(get-in record [:tags :hook-failures])` and `(get-in record [:tags :reason])`. **`(:hook-failures record)` on a sink record is `nil`** — top level is where the *implementation-tier* `re-frame.error-emit` envelope carries them (`{:rf.error/id :frame :hook-failures :reason :recovery :time}`, flat), and that envelope reaches framework source and framework-internal capture brackets, never a sink.

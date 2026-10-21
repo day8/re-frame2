@@ -653,7 +653,7 @@ An application persists a frame by reading it and restores it by dispatching one
 A fact lives in **runtime-db iff it must survive epoch-restore and SSR-hydration** — i.e. it is a serializable durable fact. Everything else is **transient**: frame-scoped, torn down on destroy, never serialized.
 
 - **Durable (runtime-db):** machine snapshots + spawn registry + spawn-counter; the route slice + pending-nav; elision declarations; SSR hydration metadata (the hydration payload's `:rf/version`).
-- **Transient (NOT runtime-db):** host handles (timers, AbortControllers, listeners, promises); in-flight HTTP registries; the saved scroll-position cache + nav-token / pending-nav counters (host-derived, meaningless after a restore — held outside the frame value so an epoch restore cannot rewind + recycle a token; cleared by `:routing/on-frame-destroyed!`); SSR request/response accumulators, head snapshots, pending-error buffers; trace rings; epoch capture buffers; sub-cache entries; flow evaluation memos (the dirty-check rows).
+- **Transient (NOT runtime-db):** host handles (timers, AbortControllers, listeners, promises); in-flight HTTP registries; the saved scroll-position cache (host-derived, meaningless after a restore; released by routing's frame teardown); the nav-token / pending-nav counters (process-global allocators held outside the frame value, so neither an epoch restore nor a same-id successor can rewind and recycle a token); SSR request/response accumulators, head snapshots, pending-error buffers; trace rings; epoch capture buffers; sub-cache entries; flow evaluation memos (the dirty-check rows).
 
 Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destroy](#destroy)) but full-frame serialization, hydration, restore, and time-travel MUST NOT pull it in.
 
@@ -715,7 +715,7 @@ The full set of config keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-o
 
 **Inheritance from the process default.** The same policy can be declared once for the whole process with `(rf/configure! {:observability …})` ([API §Configure keys](API.md#configure-keys)), and a frame's key is read against it **per stream**: a frame that declares a stream uses its own entries for that stream, a frame that omits the stream inherits the process default's, and `{:errors []}` declares the stream while naming no sink — that frame's opt-out. Declaration is by key **presence**, not truthiness, which is what makes the empty vector say something an omitted key does not. Exactly one source is consulted per record per stream, so a sink id named by both is invoked once, and declaring one stream never silently disables the other. What a frame inherits is the **sink list**: its records are still projected under its OWN classification, so two frames inheriting the same entries can project the same payload differently. The full model, including the records no frame policy can route, is normative in [015 §The process default](015-Data-Classification.md#the-process-default).
 
-**There are no frame `:sensitive` / `:large` classification keys.** Durable app-db data classification is not a frame-config annotation (a frame is not app-db's definition site); it is the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns alongside its `:db` write (normative in [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)). HTTP carrier classification (the `:sensitive {:http …}` block) is not a frame annotation either — it lives on the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case, normative in [014-HTTPRequests §HTTP carriers](014-HTTPRequests.md#http-carriers-ep-0025)). A frame config carrying `:sensitive` (or the top-level `:large` frame key) **fails loudly at frame registration** (`:rf.error/bad-frame-classification`). **Unknown classification keys and malformed observability entries also fail loudly** (`:rf.error/bad-frame-classification`, the canonical thrown-error shape) — before any state mutates and before any setup event runs, so a bad declaration leaves no half-registered frame. Optional-artefact frame-config keys preflight at the same pre-commit point through late-bind — an explicitly-declared `:url-strategy` is validated by the routing artefact before any write, on construction and re-construction alike, per [012 §URL strategies](012-Routing.md#url-strategies). `:platform` is the frame's ONE platform declaration: `:server` or `:client`, a single keyword — one active platform per frame. **An UNTAGGED frame takes the HOST DEFAULT** — `:client` on CLJS (including CLJS-on-Node), `:server` on the JVM — and there is no process-wide override; the frame key is the only thing that moves it. A per-request server render therefore tags its own frame: `(rf/make-frame {:id :ssr/request :platform :server :initial-events [[:app/server-init]]})`. `:rf.trace/events-retained` defaults to 50 when omitted; per-frame override is useful for inspector frames (e.g. `:rf/xray` may want 200 for deep diagnostic walks) and transient story-variant frames (which may want fewer). (There is no `:on-error` recovery-policy slot; recovery is framework-owned. Error observability is the frame-owned `:observability :errors` sink ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production) #2).)
+**There are no frame `:sensitive` / `:large` classification keys.** Durable app-db data classification is not a frame-config annotation (a frame is not app-db's definition site); it is the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns alongside its `:db` write (normative in [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)). HTTP carrier classification (the `:sensitive {:http …}` block) is not a frame annotation either — it lives on the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case, normative in [014-HTTPRequests §HTTP carriers](014-HTTPRequests.md#http-carriers-ep-0025)). A frame config carrying `:sensitive` (or the top-level `:large` frame key) **fails loudly at frame registration** (`:rf.error/bad-frame-classification`). **Unknown classification keys and malformed observability entries also fail loudly** (`:rf.error/bad-frame-classification`, the canonical thrown-error shape) — before any state mutates and before any setup event runs, so a bad declaration leaves no half-registered frame. Optional-artefact frame-config keys preflight at the same pre-commit point through the owning artefact's lifecycle contribution ([§Lifecycle contributions](#lifecycle-contributions)) — an explicitly-declared `:url-strategy` is validated by the routing artefact before any write, on construction and re-construction alike, per [012 §URL strategies](012-Routing.md#url-strategies). `:platform` is the frame's ONE platform declaration: `:server` or `:client`, a single keyword — one active platform per frame. **An UNTAGGED frame takes the HOST DEFAULT** — `:client` on CLJS (including CLJS-on-Node), `:server` on the JVM — and there is no process-wide override; the frame key is the only thing that moves it. A per-request server render therefore tags its own frame: `(rf/make-frame {:id :ssr/request :platform :server :initial-events [[:app/server-init]]})`. `:rf.trace/events-retained` defaults to 50 when omitted; per-frame override is useful for inspector frames (e.g. `:rf/xray` may want 200 for deep diagnostic walks) and transient story-variant frames (which may want fewer). (There is no `:on-error` recovery-policy slot; recovery is framework-owned. Error observability is the frame-owned `:observability :errors` sink ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production) #2).)
 
 **Frames always start with `app-db = {}`.** There is no `:db` config key — seeding app-db is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step. This keeps "events are the unit of state change" as a single, consistent mechanism: the initial state is built by the same dispatch pipeline that handles all subsequent state changes (per [EP-0027](../docs/EP/EP-0027-frame-initial-events.md)).
 
@@ -767,21 +767,26 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 
 **Two teardown grammars — exact-value vs address-directed.** The two spellings above are **not** interchangeable. A frame **value** returned by `make-frame` is an opaque **exact-incarnation lifecycle token**: `destroy-frame!` on it tears down ONLY the incarnation that construction produced, so a stale value for incarnation A **no-ops** against a fresh same-id successor B seated in between — the owner (`with-new-frame`, a Story replay, an SSR per-request scope) that created the value releases exactly what it created, never a successor reseated under the same id. A frame **id keyword** is **address-directed**: `destroy-frame!` on it tears down whatever incarnation is currently live under that id when the call begins. (A token-less *derived-read* value — one obtained from an internal `live-frame` / image-view read rather than the construction call — carries no authority and is address-directed too.) This lifecycle authority is unique to `destroy-frame!`: the routing operations (`dispatch` / `subscribe` / `app-db-value` / `frame-provider`) merely **normalize** a value to its id, so for them a value and its id are byte-identical targets — none is incarnation-pinned. The token's representation stays hidden; there is no accessor that unwraps it.
 
-**One ownership path (EP-0024).** `destroy-frame!` removes the **one unified frame value** from the **one** live registry and runs per-subsystem teardown exactly once. Because a live frame is a single value (not an image-loaded object paired with a separate backing record), there is **no second public registry whose cleanup can succeed or fail independently** — teardown walks one structure. Teardown remains best-effort where individual cleanup hooks are host-transient, but the ownership path is one path (per [EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#teardown)).
+**One ownership path (EP-0024).** `destroy-frame!` removes the **one unified frame value** from the **one** live registry and runs per-subsystem teardown exactly once. Because a live frame is a single value (not an image-loaded object paired with a separate backing record), there is **no second public registry whose cleanup can succeed or fail independently** — teardown walks one structure. Teardown remains best-effort where an individual artefact's host-transient cleanup fails, but the ownership path is one path (per [EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#teardown)).
 
 - Claims the exact frame incarnation, atomically acquires the shared per-id construction/destruction reservation, and cuts off its ordinary router queue — at once, or at the next event boundary for a pending destroy (below). The reservation is held until teardown and its terminal publication have finished, so no same-id incarnation coexists with any part of the dying one.
 - Runs the optional `:on-destroy` cleanup cascade against the still-live frame.
 - Disposes the sub-cache (each cached reactive is torn down so nothing leaks listeners).
 - Drops the frame from the one live-frame registry after every frame-owned subsystem is released.
-- **Releases every per-feature artefact's frame-scoped state.** `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, SSR side-channels, epoch history, …) MUST hang its frame-scoped cleanup off. Each artefact publishes a teardown hook the core invokes during destroy; an artefact that holds frame-scoped state without publishing such a hook leaks definitions and cached state on every `destroy-frame!`. Per-artefact contracts: flows tear down per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown); machines tear down per [005 §Cross-Spec Interactions §1](005-StateMachines.md); SSR and epoch tear down per their respective specs. App-db schemas publish no hook: they are registrations (the registrar kind `:app-schema`, per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)), not frame-scoped state, so destroy has nothing schema-specific to drop.
+- **Releases every per-feature artefact's frame-scoped state.** `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, SSR side-channels, epoch history, …) MUST hang its frame-scoped cleanup off. Each artefact joins the teardown through its lifecycle contribution ([§Lifecycle contributions](#lifecycle-contributions)); an artefact that holds frame-scoped state without one leaks definitions and cached state on every `destroy-frame!`. Per-artefact contracts: flows tear down per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown); machines tear down per [005 §Cross-Spec Interactions §1](005-StateMachines.md); SSR and epoch tear down per their respective specs. App-db schemas contribute nothing: they are registrations (the registrar kind `:app-schema`, per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)), not frame-scoped state, so destroy has nothing schema-specific to drop.
 - Subsequent `(dispatch [...] {:frame :todo})` / `(subscribe [...] {:frame :todo})` to a destroyed frame **recovers** — `dispatch` / `dispatch-sync` no-op (the event is not enqueued), `subscribe` returns `nil` — **and emits a production-survivable `:rf.error/frame-destroyed`** through the always-on error-emit listener (the substrate the `:observability :errors` sink rides — surface #2 per [009-Instrumentation §What IS available in production](009-Instrumentation.md#what-is-available-in-production)). The record carries `{:error :rf.error/frame-destroyed :frame :todo :event <attempted-vector> :event-id <head> …}`. Recovery (rather than throwing) is the framework default: the runtime cannot distinguish a benign teardown / hot-reload **race** from a real use-after-destroy bug, so it recovers (race-safe) while keeping the diagnostic observable on the production-watched stream — a real bug surfaces in your error monitor rather than going silent. Recovery here is the framework's typed default (no-op); there is no app-steering recovery policy.
 
-**When teardown runs — a pending destroy waits for the event boundary.** If the target frame's drain is on the current stack when `destroy-frame!` is called — from the frame's own event (its handler, interceptors or effects), or from another frame's handler reached through a nested cross-frame `dispatch-sync` inside that event — the destroy is **pending**: the call claims the exact incarnation, takes the per-id reservation, and returns. The event in flight runs to its end as an ordinary event: its `:db` commits, its flows and `:fx` run (a `:dispatch` to another, live frame included), its trailers emit, and its epoch settles `:ok`; a handler throw is captured and reported as usual. Teardown runs at the next event boundary, before the drain dequeues anything else (a throw that escapes the drain ends the event too, and teardown runs as the drain unwinds): the drain drops every envelope still queued in both lanes — the destroying event's own descendants included — counts them in one `:rf.frame/drain-interrupted`, and runs steps 2–10 below. A second `destroy-frame!` of the same incarnation before that boundary joins the pending request. Otherwise the destroy is **immediate**: the claim cuts the ordinary queue at once and steps 2–10 run before `destroy-frame!` returns. Either way the reservation is held from the request until step 10 has finished, on an exceptional exit too, so a same-id `make-frame` in between fails fast with `:rf.error/frame-construction-in-progress`.
+**When teardown runs — a pending destroy waits for the event boundary.** If the target frame's drain is on the current stack when `destroy-frame!` is called — from the frame's own event (its handler, interceptors or effects), or from another frame's handler reached through a nested cross-frame `dispatch-sync` inside that event — the destroy is **pending**: the call claims the exact incarnation, takes the per-id reservation, and returns. The event in flight runs to its end as an ordinary event: its `:db` commits, its flows and `:fx` run (a `:dispatch` to another, live frame included), its trailers emit, and its epoch settles `:ok`; a handler throw is captured and reported as usual. Teardown runs at the next event boundary, before the drain dequeues anything else (a throw that escapes the drain ends the event too, and teardown runs as the drain unwinds): the drain drops every envelope still queued in both lanes — the destroying event's own descendants included — counts them in one `:rf.frame/drain-interrupted`, and runs steps 2–9 below. A second `destroy-frame!` of the same incarnation before that boundary joins the pending request. Otherwise the destroy is **immediate**: the claim cuts the ordinary queue at once and steps 2–9 run before `destroy-frame!` returns. Either way the reservation is held from the request until step 9 has finished, on an exceptional exit too, so a same-id `make-frame` in between fails fast with `:rf.error/frame-construction-in-progress`.
 
-**Teardown invocation order — normative.** `destroy-frame!` uses the exact-incarnation
-claim as its linearization point, then invokes the per-feature teardown hooks in the
-strict order below — at once for an immediate destroy, at the destroying event's boundary
-for a pending one. The ordering is pattern contract — a conformant port MUST mirror it.
+**Teardown phases — normative.** `destroy-frame!` uses the exact-incarnation claim as
+its linearization point, then runs the steps below — at once for an immediate destroy, at
+the destroying event's boundary for a pending one. Each optional artefact joins the
+teardown through its lifecycle contribution ([§Lifecycle contributions](#lifecycle-contributions)),
+in one or both of two phases: **pre-dead** (step 3), while the frame is still
+lifecycle-live, and **post-dead** (step 6), once it is lifecycle-dead and its reactive
+state is disposed. A conformant port MUST mirror the steps and the three orderings set
+out after them. Which artefact runs before another within one phase is not contract: no
+artefact's teardown may depend on another's having run first.
 A destroy interrupts nothing that has started: the event in flight when it is requested
 completes, and the destroy discards only ordinary work not yet dequeued. After the queue
 is cut, the private exact-token `:on-destroy` cascade (step 2) is the only event work
@@ -796,7 +801,7 @@ that runs in the frame.
    A foreign construction owner makes destroy a prompt idempotent no-op; construction
    rollback on the owning host thread joins its own reservation. A stale claim for
    incarnation A does not fence a fresh same-id incarnation B. The reservation is released
-   only after step 10 has finished, including when a step throws.
+   only after step 9 has finished, including when a step throws.
 2. **Run the user `:on-destroy` cleanup cascade** (if configured) — once; for a pending
    destroy, after the destroying event, so it sees that event's committed db. Seed a
    private, token-scoped router and drain the seed plus its synchronous same-frame
@@ -805,51 +810,64 @@ that runs in the frame.
    target frame, and actual host thread; conveyed JVM dynamic bindings do not grant it.
    Throws are caught and converted to `:rf.error/on-destroy-handler-exception` traces;
    teardown continues.
-3. **Machines teardown** via `:machines/teardown-on-frame-destroy!` — walk active machines
-   in reverse-creation order, run each `:exit` cascade against the live container, apply
-   the unified teardown projection, unregister per-actor handlers, and emit
-   `:rf.machine.lifecycle/destroyed` with `:reason :parent-frame-destroyed`.
+3. **Pre-dead phase.** Every pre-dead member runs against the still-live container, inside
+   the frame's own registration resolution, so a definition, `:exit` action or effect
+   handler it resolves comes from the frame's own images. The machines artefact's member
+   runs here: it walks active machines in reverse-creation order, runs each `:exit`
+   cascade, applies the unified teardown projection, unregisters per-actor handlers, and
+   emits `:rf.machine.lifecycle/destroyed` with `:reason :parent-frame-destroyed`. With the
+   machines artefact absent, the runtime stands in: for each machine snapshot in
+   runtime-db it aborts that actor's managed HTTP in this frame and emits the same
+   destroyed trace — there are no `:exit` cascades to run and no actor handlers to
+   unregister.
 4. **Publish lifecycle-dead.** CAS-flip `:destroyed?` only while the claimed incarnation
    token still matches. From this point public dispatch recovers as a no-op, public
    subscribe recovers to `nil`, and both emit the production-survivable
    `:rf.error/frame-destroyed` diagnostic described above.
 5. **Dispose reactive state.** Dispose the sub-cache first, then the app-db/runtime-db
    partition projections whose source watches the cache reactions used.
-6. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
-   machine `:after` timers; flows; routing host caches and URL ownership;
-   Resources work handles; plain managed HTTP; `:dispatch-later` host timers; and the
-   Fresco substrate's memoised frame-ops row (`:fresco/on-frame-destroyed!`).
-7. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
-   Lifecycle-dead is already published, so public metadata lookup does not resolve the
-   frame; the trace is self-contained and carries the dying frame id in `:tags :frame`.
-8. **Release trace policy state.** Clear the per-frame trace ring and frame-no-emit flag
-   after the destroyed trace has flowed.
-9. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
+6. **Post-dead phase.** Every post-dead member releases its artefact's frame-scoped host
+   state: SSR side-channels, machine `:after` timers, the flow evaluation memo, routing's
+   host caches and URL listener, Resources work handles, in-flight managed HTTP,
+   `:dispatch-later` host timers, the elision warning cache, and Fresco's memoised
+   frame-ops row. A member may hand back a continuation for step 9.
+7. **Emit `:rf.frame/destroyed`, then release trace policy state.** Every artefact's
+   teardown has completed. Lifecycle-dead is already published, so public metadata lookup
+   does not resolve the frame; the trace is self-contained and carries the dying frame id
+   in `:tags :frame`. The per-frame trace ring and frame-no-emit flag are cleared after
+   the destroyed trace has flowed.
+8. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
    have no second registrar row to unregister.
-10. **Notify epoch listeners** — publish the terminal `:halted-destroy` record, if the
-    boundary drop removed any queued work, and drop the frame's epoch stores.
-    This is the PUBLISH half of the epoch destroy contract: it ships the terminal
-    evidence the pre-dissoc snapshot (below) bound. It is the destroy's terminal
-    publication: the id's reservation is released only once it has finished, so the
-    record reaches listeners before any same-id incarnation can exist.
+9. **Run the after-dissoc continuations** step 6 handed back, in order. This is the
+   destroy's terminal publication: the epoch artefact publishes the terminal
+   `:halted-destroy` record here, if the boundary drop removed any queued work, and drops
+   the frame's epoch stores. The id's reservation is released only once this step has
+   finished, so the record reaches listeners before any same-id incarnation can exist.
 
-Steps 3, 6, 8, and 10's optional/per-artefact calls are **best-effort**: an unbound
-hook silently no-ops and the rest of the recipe continues. The relative order between
-registered hooks does not change.
+Steps 2–9 are **best-effort**: a throw — from an artefact's member or from one of the
+runtime's own steps — is recorded, the rest of the teardown continues, and one always-on
+`:rf.error/frame-teardown-failed` report lists every failure
+([009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). An artefact
+that is not loaded contributes nothing, so its part of the teardown is simply absent.
 
-**The epoch layer's terminal evidence is snapshotted before the dissoc — a step in its
-own right.** Between step 7 and step 8 — before the trace-ring release, and before the
-step-9 registry dissoc — `destroy-frame!` invokes `snapshot-terminal-destroy-evidence!`
-(the `:epoch/snapshot-frame-destroyed` hook). It binds the dying incarnation's terminal
-`:halted-destroy` evidence (the record for the work the boundary drop removed, and the
-listeners it fans to) while the incarnation's id-keyed epoch stores are still intact, and
-step 10 publishes exactly what it bound. The
-snapshot is best-effort like the numbered hooks above: a throw is caught, recorded on both
-Spec 009 channels, and teardown continues; a nil bundle (no epoch layer, or debug disabled)
-publishes nothing — step 10 fabricates no evidence the snapshot did not bind. It runs before
-the trace-ring release so a snapshot-hook failure's ordinary-delivery warning rides the
-incarnation's ring and is cleared by that release rather than recreating an already-freed
-one.
+**Three orderings are contract.**
+
+- **Machine exits run against a live container.** The `:exit` cascades are pre-dead work:
+  they run before lifecycle-dead, so an `:exit` action's effects land in the dying frame's
+  own app-db and runtime-db, and every `:rf.machine.lifecycle/destroyed` trace precedes
+  `:rf.frame/destroyed`. The machines-absent stand-in runs at the same point.
+- **URL ownership ends before routing's teardown.** Routing's member is post-dead, so when
+  it reconciles the browser URL listener the dying frame no longer resolves as the URL
+  owner: a destroyed owner's listener comes down rather than being re-established for a
+  frame that is gone.
+- **Epoch terminal evidence is published after the dissoc.** The epoch artefact binds the
+  dying incarnation's terminal `:halted-destroy` evidence — the record for the work the
+  boundary drop removed, and the listeners it fans to — in its post-dead member, while the
+  incarnation's id-keyed epoch stores are still intact, and step 9 publishes exactly what
+  it bound, once the frame has left the registry. A nil bundle (no epoch layer, or debug
+  disabled) publishes nothing: step 9 fabricates no evidence the binding did not capture.
+  A failed binding is reported like any other teardown failure, and the epoch stores are
+  still dropped.
 
 **The claim-to-dead dispatch window is distinct from dispatch after death.** An ordinary
 dispatch that linearizes after the claim but before lifecycle-dead still appends to the
@@ -872,19 +890,48 @@ queued work is still discarded.
 
 - Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); a listener simply receives no more records for the frame) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
-<a id="two-destroy-hook-verbs"></a>
-#### Two destroy-hook verbs — a naming rule
+**`:on-destroy` handler throw semantics — trace-and-continue.** A throw from the user-supplied `:on-destroy` event handler (or any handler in its dispatch drain) MUST NOT abort teardown. The runtime catches the throw, emits a `:rf.error/on-destroy-handler-exception` error trace (`:tags` `{:frame <id> :rf.event/v <on-destroy-event-vector> :exception <ex> :where :fire-on-destroy-event!}`, `:op-type :error`), and continues with every downstream teardown step — machine cascade, sub-cache disposal, post-dead cleanup, `:rf.frame/destroyed` emission, registry dissoc, epoch publication. A frame that began destruction MUST end fully destroyed; a throw is not an "abort teardown" signal (a half-torn-down frame leaks reactions and registrar entries and is the worse failure mode by far). User code that needs to react to the exception consumes the error trace; user code that wants to *prevent* destruction must guard the caller of `destroy-frame!`, not throw from inside `:on-destroy`.
 
-The per-artefact destroy hooks above carry **two distinct verb forms**, and the distinction is **semantic, not stylistic** — they name two different kinds of work, so an artefact may legitimately publish both (the machines artefact does):
+**Re-entrant `destroy-frame!` is a silent no-op.** If the user's `:on-destroy` handler (or any code reachable from it — a machine `:exit` cascade, an artefact's teardown) calls `(destroy-frame! <same-id>)` while the outer destroy is still on the stack, the re-entrant call MUST silently no-op. The outer call's teardown is already in flight; re-running the recipe would re-fire `:on-destroy`, re-walk the machine cascade against an already-cleared snapshot, and corrupt half-torn-down state. Destroy is idempotent (a subsequent `destroy-frame!` against an already-destroyed-and-dissoc'd frame short-circuits because `(frame id)` returns nil); the re-entrancy guard closes the window BEFORE `:destroyed?` flips to true. No trace event is emitted for the re-entrant no-op — silent idempotency matches the broader "destroy is a single normative event" contract.
 
-- **`<feature>/on-frame-destroyed!`** — a **destroyed-frame cleanup callback**. It drops host-transient side-table entries keyed to the now-gone frame (timer registries, nav/scroll caches, SSR side-channels). These callbacks run in step 6's auxiliary-cleanup pass against an already-marked-`:destroyed?` frame and are pure side-table bookkeeping.
-- **`<feature>/teardown-on-frame-destroy!`** — an **artefact-owned teardown recipe** with lifecycle/registrar-consistency invariants rather than a simple side-table sweep. Its exact position follows what the recipe needs: machines run in step 3 before lifecycle-dead because their reverse-order `:exit` cascades require the live container; flows run in step 6 after lifecycle-dead and release the destroyed frame's flow evaluation memo — every memo row it holds — without executing a live-frame cascade.
+### Lifecycle contributions
 
-So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) runs the actor `:exit` cascade and unregisters per-actor handlers; `:machines/on-frame-destroyed!` (step 6) cancels the per-frame `:after` timer registry and epoch counters. The two names are distinct teardown kinds. Flows' step-6 `:flows/teardown-on-frame-destroy!` uses the recipe verb because it releases the destroyed frame's evaluation memo as one unit — every memo row it holds — while leaving every sibling frame's memo and every flow definition in the registrar untouched, even though it runs after lifecycle-dead; routing / SSR / resources use the callback verb because their cleanup is side-table-only.
+An optional artefact — machines, flows, routing, Resources, managed HTTP, SSR, epoch, the
+`:dispatch-later` fx, elision, Fresco — joins the frame lifecycle through **one lifecycle
+contribution**, registered when the artefact loads. The runtime keeps the contributions in
+one internal list in load order, an artefact's reload replacing its entry in place, and
+each lifecycle engine walks that list: `destroy-frame!` ([§Destroy](#destroy)), construction
+and re-registration ([§`make-frame`](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),
+the frame-config key vocabulary, and the runtime-reset test fixture
+([008 §Fixture-granularity ladder](008-Testing.md#fixture-granularity-ladder)). An
+artefact's lifecycle needs therefore touch no core file. A contribution is a map
+([`:rf/lifecycle-contribution`](Spec-Schemas.md#rflifecycle-contribution)):
 
-**`:on-destroy` handler throw semantics — trace-and-continue.** A throw from the user-supplied `:on-destroy` event handler (or any handler in its dispatch drain) MUST NOT abort teardown. The runtime catches the throw, emits a `:rf.error/on-destroy-handler-exception` error trace (`:tags` `{:frame <id> :rf.event/v <on-destroy-event-vector> :exception <ex> :where :fire-on-destroy-event!}`, `:op-type :error`), and continues with every downstream teardown step — machine cascade, sub-cache disposal, cleanup hooks, `:rf.frame/destroyed` emission, registry dissoc, epoch notification. A frame that began destruction MUST end fully destroyed; a throw is not an "abort teardown" signal (a half-torn-down frame leaks reactions and registrar entries and is the worse failure mode by far). User code that needs to react to the exception consumes the error trace; user code that wants to *prevent* destruction must guard the caller of `destroy-frame!`, not throw from inside `:on-destroy`.
+| Key | Value | Called |
+|---|---|---|
+| `:id` | keyword | — names the contribution; a teardown failure is reported under it |
+| `:phase` | subset of `#{:pre-dead :post-dead}` | — the destroy phases `:on-frame-destroyed` joins |
+| `:on-frame-destroyed` | `(fn [frame-id phase])` | once per joined phase of [§Destroy](#destroy) (steps 3 and 6); a `:post-dead` call may return a zero-argument fn, which runs after the dissoc (step 9) |
+| `:on-frame-registered` | `(fn [frame-id])` | at the end of a first construction and of every re-registration, with the frame live |
+| `:preflight-config` | `(fn [frame-id config])` | before anything is written, on construction and re-registration alike, against the final expanded config |
+| `:test-reset` | `(fn [])` | by the runtime-reset fixture, after it disposes the frames |
+| `:config-keys` | set of bare keywords | — the frame-config keys the artefact reads, which `make-frame`'s dev-time unknown-key warning accepts |
 
-**Re-entrant `destroy-frame!` is a silent no-op.** If the user's `:on-destroy` handler (or any code reachable from it — a machine `:exit` cascade, a cleanup hook) calls `(destroy-frame! <same-id>)` while the outer destroy is still on the stack, the re-entrant call MUST silently no-op. The outer call's teardown is already in flight; re-running the recipe would re-fire `:on-destroy`, re-walk the machine cascade against an already-cleared snapshot, and corrupt half-torn-down state. Destroy is idempotent (a subsequent `destroy-frame!` against an already-destroyed-and-dissoc'd frame short-circuits because `(frame id)` returns nil); the re-entrancy guard closes the window BEFORE `:destroyed?` flips to true. No trace event is emitted for the re-entrant no-op — silent idempotency matches the broader "destroy is a single normative event" contract.
+Every key but `:id` is optional. The list is runtime plumbing, not a plugin API: a
+contribution declares no dependencies or capabilities, and its members run in list order
+with no ordering of their own. A failure in a destroy member is best-effort, per
+§Destroy; a `:preflight-config` or `:on-frame-registered` throw propagates and fails the
+construction, which refuses or rolls back like any other construction failure
+([§`make-frame`](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)). A second namespace of the
+same artefact may add a member to its entry — the Resources test-support namespace adds
+the Resources `:test-reset`.
+
+**An absent artefact contributes nothing, so the runtime refuses its keys itself.** A
+config declaring `:url-strategy`, or `:url-bound? true`, while the routing artefact is not
+loaded fails with `:rf.error/routing-artefact-missing`; one declaring `:revalidate-on`
+without the Resources artefact fails with `:rf.error/resources-artefact-missing`. Both
+refuse before anything is written, because storing a declaration nobody can check or
+honour is worse than a dependency error.
 
 ### Re-registration — surgical update
 
@@ -1924,7 +1971,7 @@ The drain operates under a **single-drainer invariant**: only one thread execute
 
 On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push — to the head of the internal lane — under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
 
-**JVM threading — one lifecycle writer per frame.** Any thread may dispatch to, subscribe to, or read a frame; the runtime serialises its drain, so work from the executor, timers and async replies is safe. Lifecycle writes against one frame id — `make-frame`, `destroy-frame!`, and the dev-time tool writes `restore-epoch!` / `replace-frame-state!` — are ordered by their caller. A per-request SSR frame satisfies this by construction. Overlapping same-id lifecycle writes from different threads are unsupported: the per-id reservation still turns the common overlap into `:rf.error/frame-construction-in-progress`, and nothing further is promised. Frames on different ids are independent, so concurrent frames on different threads stay fully supported. "One lifecycle writer" means the caller orders an id's lifecycle operations; it does not mean one physical thread, nor one writer to every runtime store. A hot-reload reprojection, which can run on any thread, captures the frame's incarnation when it starts and publishes the new generation only if the registry still holds that incarnation, dropping it otherwise. A long-lived server-side session frame touched by many request threads has no caller ordering its lifecycle, which is one reason it is undesigned (see the [Abstract](#abstract)).
+**JVM threading — one lifecycle writer per frame.** Any thread may dispatch to, subscribe to, or read a frame; the runtime serialises its drain, so work from the executor, timers and async replies is safe. Lifecycle writes against one frame id — `make-frame`, `destroy-frame!`, and the dev-time tool writes `restore-epoch!` / `replace-frame-state!` — are ordered by their caller. A per-request SSR frame satisfies this by construction. Overlapping same-id lifecycle writes from different threads are unsupported: the per-id reservation still turns the common overlap into `:rf.error/frame-construction-in-progress`, and nothing further is promised. Frames on different ids are independent, so concurrent frames on different threads stay fully supported. "One lifecycle writer" means the caller orders an id's lifecycle operations; it does not mean one physical thread, nor one writer to every runtime store. A hot-reload reprojection, which can run on any thread, reads the frame's incarnation, generation and descriptor pool from one record when it starts, and publishes the new generation only if the registry still holds that incarnation carrying that generation and pool. It drops the new generation when the incarnation changed, and re-resolves from the moved record when a same-id re-registration or another reprojection replaced the pair in between. A long-lived server-side session frame touched by many request threads has no caller ordering its lifecycle, which is one reason it is undesigned (see the [Abstract](#abstract)).
 
 ### What is and isn't drained
 
@@ -2046,7 +2093,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;; Destruction-ownership check fires BEFORE dequeue (Edge case #4), so it
       ;; is the event boundary: a destroy requested while the previous event
       ;; ran (a pending destroy) is seen here, after that event settled, and
-      ;; its teardown (§Destroy steps 2-10) runs once the drop below is
+      ;; its teardown (§Destroy steps 2-9) runs once the drop below is
       ;; reported. Exact-incarnation claim, lifecycle-dead, or absent all halt an
       ;; ordinary drain. The private on-destroy driver passes the exact claim
       ;; token and drains an isolated router; ordinary drains have no exemption.
@@ -2857,7 +2904,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Per-instance frames via the one `make-frame` constructor (EP-0024 — image-selection + record-config opts in one call; returns the frame value; pass it directly — routing ops normalize a value one way to its id, no accessor; `destroy-frame!` alone reads a returned value as exact-incarnation authority) for per-mount lifecycles | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`; frame-level `:interceptors` ref chain (no per-call additive `:interceptors` — EP-0022) | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
 | Registered interceptors (EP-0022): event/frame `:interceptors` carry serializable interceptor **refs** (bare keyword or `[id arg]`), not inline values; `:interceptor-overrides` matches by exact canonical reference (replace with another ref, or `nil` to remove); effective ordering frame-refs → event-refs → handler-wrapper → subsystem dispatch-time interceptors; refs resolve at chain assembly (registration-time + app-value validation; dispatch-time defensive guard); one standard interceptor `[:rf.interceptor/path path-vector]` (the canonical `:factory` consumer) preserving the frame-commit `identical?` no-op; no standard `unwrap` | [§Registered interceptors and the chain grammar](#registered-interceptors-and-the-chain-grammar), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) |
-| `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
+| `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, SSR, epoch) hangs its frame-scoped cleanup off, through its lifecycle contribution's pre-dead and post-dead phases | [§Destroy](#destroy), [§Lifecycle contributions](#lifecycle-contributions), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
 | Per-frame trace rings, event-keyed retention — each frame owns an independent ring sized by event count (`:rf.trace/events-retained`, default 50); trace events route to the in-flight frame; frameless events bypass rings and stream live only; every hot-reload re-registration emits, with no dedup by shape | [§What lives in a frame](#what-lives-in-a-frame), [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only), [009 §Hot-reload](009-Instrumentation.md#hot-reload--every-re-registration-emits) |
 | Event-id collisions on re-registration — re-registering an id from a *different* source location does not silently clobber; a provenance-preserving registration source store (keyed by `[kind id provenance-namespace]`, EP-0023) retains both descriptors, cross-namespace duplicates fail image assembly, and the dev-time `:rf.warning/registration-collision` source-coord warning is the early signal (same-source re-eval is the ordinary hot-reload replacement) | [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning) |
 | Sub-cache invalidation across frames — re-registering a `:sub` disposes that sub's cache slot in **every** frame; the next subscribe rebuilds. Other kinds have no caches, so no invalidation is needed | [001 §The hot-reload contract](001-Registration.md#the-hot-reload-contract) |

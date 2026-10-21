@@ -220,20 +220,11 @@
 ;; points through the late-bind hook registry; consumers look the fns
 ;; up at call time.
 
-(rf.frame/add-config-keys! #{:http-interceptors})
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
 ;; abort suppresses app replies and records stale-suppression facts. This is
 ;; late-bound so the epoch artefact does not acquire an HTTP dependency.
 (rf.late-bind/set-fn! :http/abort-in-flight-for-frame!       rf.http.registry/abort-in-flight-for-frame!)
-;; Frame destroy aborts the destroyed frame's still-in-flight PLAIN managed
-;; HTTP. Called from core `frame/destroy-frame!` AFTER machine +
-;; resource teardown, suppressing app replies (`:reason :frame-destroyed`) so no
-;; late completion routes into the dead frame. Late-bound so core does not
-;; acquire an HTTP dependency; the frame-teardown counterpart of the restore hook.
-(rf.late-bind/set-fn! :http/on-frame-destroyed!              rf.http.registry/abort-in-flight-on-frame-destroyed!)
-(rf.late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
-(rf.late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
 (rf.late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
 (rf.late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
 (rf.late-bind/set-fn! :http/register-managed-machine!        rf.http.machine-wrapper/register-managed-machine!)
@@ -244,3 +235,17 @@
 ;; registration `:sensitive` path cannot express.
 (rf.late-bind/set-fn! :http/project-managed-fx-args          rf.http.privacy/project-managed-fx-args)
 (rf.http.machine-wrapper/register-managed-machine!)
+;; Frame destroy aborts every managed request the frame still has in flight,
+;; replies suppressed (`:reason :frame-destroyed`), so no late completion routes
+;; into the dead frame; the frame-teardown counterpart of the restore sweep. The
+;; test reset drops the in-flight registry and every interceptor definition.
+;; Spec 002 §Lifecycle contributions, Spec 014 §Abort on frame destroy.
+(rf.frame/contribute-lifecycle!
+  {:id                 :http
+   :phase              #{:post-dead}
+   :config-keys        #{:http-interceptors}
+   :on-frame-destroyed (fn [frame-id _phase]
+                         (rf.http.registry/abort-in-flight-on-frame-destroyed! frame-id))
+   :test-reset         (fn []
+                         (clear-all-in-flight!)
+                         (clear-all-http-interceptors!))})

@@ -90,7 +90,7 @@
   stacks a listener. Nil or `#{}` removes them all; unknown members select
   nothing. It replaces rather than diffs: identical triggers re-attach fresh
   handlers, which is observationally inert. The JVM arm only drops the
-  side-table slot. Called by the `:resources/on-frame-registered!` hook.
+  side-table slot. Called by the resources contribution's `:on-frame-registered`.
   Returns nil. Spec 016 §Revalidation is a frame property (`:revalidate-on`)."
   [frame-id triggers]
   #?(:cljs
@@ -132,7 +132,7 @@
   (reconcile-listeners! frame-id nil))
 
 (defn on-frame-destroyed!
-  "The listener half of the `:resources/on-frame-destroyed!` teardown hook,
+  "The listener half of the resources contribution's `:post-dead` teardown,
   which the façade composes with the attempt-handle and timer releases.
   Returns nil. Runtime-Subsystems §5. Teardown"
   [frame-id]

@@ -155,20 +155,6 @@
     :producer-ns 're-frame.subs.cache
     :description "Dispose every cached subscription in a destroyed frame's sub-cache, emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason :frame-destroy`. Invoked by `frame/destroy-frame!` via late-bind so `re-frame.frame` carries no static dep on `re-frame.subs.cache` (which requires `frame`)."}
 
-   ;; ---- re-frame.fx (:dispatch-later host-timer side table) -----------------
-   ;; Core (NOT an optional artefact): `re-frame.fx` is side-effect-required at
-   ;; boot, so these hooks are bound in every canonical build. Reached via
-   ;; late-bind because `re-frame.frame/destroy-frame!` (and the test-support
-   ;; reset fixture) cannot static-require `re-frame.fx` — fx requires nothing
-   ;; of frame, and a back-require would invert the load order — exactly the
-   ;; `:subs.cache/dispose-all-for-frame-destroy!` cycle-break above.
-   {:key         :fx/on-frame-destroyed!
-    :producer-ns 're-frame.fx
-    :description "Cancel + drop the destroyed frame's still-pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers, keyed by [frame-id timer-id] → host handle). Each `:dispatch-later` arms a host-clock timer whose thunk dispatches the deferred event into the frame; left armed across destroy it fires a dead-on-arrival dispatch into a torn-down frame and its armed handle + captured closure leak until the delay elapses (unbounded under frame churn). Host-side transient state (NOT runtime-db, off the epoch/SSR egress wire), mirroring the resources / machines timer tables. Invoked by `frame/destroy-frame!` by key."}
-   {:key         :fx/reset-dispatch-later-timers!
-    :producer-ns 're-frame.fx
-    :description "Test-isolation reset: cancel + drop EVERY frame's pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers). Host-side transient state the runtime / frames reset does not touch; the shared CLJS make-reset-runtime-fixture reset-hooks table fires it per test so a stale armed timer from a sibling test can't fire mid-next-test (mirrors :machines/reset-timers!)."}
-
    ;; ===========================================================================
    ;; GROUP 2 — CROSS-ARTEFACT
    ;;
@@ -197,13 +183,6 @@
    ;; does not apply to it: reg-event / reg-fx / reg-cofx / reg-sub call it by
    ;; DIRECT REQUIRE. See the per-key notes below.
    ;; ===========================================================================
-
-   ;; ---- re-frame.elision (frame-owned app-db egress registry) ---------------
-   ;; Durable app-db classification is the commit-plane classification
-   ;; effects (Spec 015 §Durable app-db), which feed this registry — not schemas.
-   {:key         :elision/clear-warning-cache!
-    :producer-ns 're-frame.elision
-    :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.classification (EP-0025 data classification) --------------
    ;; NOT an optional-artefact decoupling: `re-frame.classification` ships IN
@@ -253,9 +232,6 @@
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Drop every frame's flow evaluation memo (test isolation). Flow definitions are registrar rows, which the reset fixture snapshots and restores."}
-   {:key         :flows/teardown-on-frame-destroy!
-    :producer-ns 're-frame.flows
-    :description "Drop the destroyed frame's flow evaluation memo. Definitions live in the registrar and the frame's elision registry dies with its frame-state container, so nothing else is frame-owned. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook — without it a long-running SSR JVM with per-request frame churn grows the memo table unboundedly."}
 
    ;; ---- re-frame.schemas -----------------------------------------------------
    {:key         :schemas/validate-event!
@@ -312,24 +288,15 @@
    {:key         :machines/machine-meta
     :producer-ns 're-frame.machines
     :description "Return registration metadata for a named machine."}
-   {:key         :machines/reset-timers!
-    :producer-ns 're-frame.machines
-    :description "Cancel in-flight `:after` wall-clock timers (test isolation)."}
    {:key         :machines/install-runtime!
     :producer-ns 're-frame.machines
     :description "EP-0026 §Framework Standard Registrations: re-register the machine runtime (`:rf.machine/*` fx + `:rf/machine*` subs) into BOTH the regular registrar AND the image standard registry. Consulted by `re-frame.test-support`'s reset fixture after a sibling ns's `registrar/clear-all!` / `image-assembly/clear-standards!` wipes them, so a Story variant frame's sealed generation (which carries only the standard union + its image selection, no registrar fallback) still resolves the framework machine runtime. The machine analogue of `re-frame.events/register-set-db-standard!` (the `:rf/set-db` re-seed). A no-op when machines is not loaded."}
-   {:key         :machines/on-frame-destroyed!
-    :producer-ns 're-frame.machines
-    :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame!."}
    {:key         :machines/on-frame-restored!
     :producer-ns 're-frame.machines
-    :description "Epoch-restore host-transient quiesce for machine `:after` timers. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: releases the restored frame's in-flight `:after` host-clock handles (the orphaned async host work the unwound epochs spawned — NOT frame-state) so a leaked wall-clock timer never fires against the restored state. Emits one `:rf.machine.timer/cancelled :reason :on-restore` per entry. The restore counterpart of `:machines/on-frame-destroyed!` (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
+    :description "Epoch-restore host-transient quiesce for machine `:after` timers. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: releases the restored frame's in-flight `:after` host-clock handles (the orphaned async host work the unwound epochs spawned — NOT frame-state) so a leaked wall-clock timer never fires against the restored state. Emits one `:rf.machine.timer/cancelled :reason :on-restore` per entry. The restore counterpart of the machines lifecycle contribution's `:post-dead` timer release (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :machines/rearm-after-hydration!
     :producer-ns 're-frame.machines
     :description "Installed-snapshot RECONSTRUCTION of machine `:after` timers and machine classification claims — the client-side counterpart of the server-side wire projection `:machines/project-ssr-runtime-db`, and the deliberate OPPOSITE of `:machines/on-frame-restored!`. The server suppresses `:after` timers (Spec 005 §SSR mode) and the wire carries only durable snapshot facts, so a machine hydrated in an `:after`-bearing state arrived with the right `:state` / `:data` / `:after` epochs and NO live timer. Consulted by `re-frame.ssr.hydrate/hydrate-event-handler*` and by `re-frame.events/install-frame-state-handler` (whose persisted machines subtree likewise carries no live timer) as a PRESENCE gate (absent hook → no machines artefact → no re-arm fx emitted); the `:rf.machine/hydrate-rearm` fx it gates runs this same body AFTER the installed runtime-db has committed. It first re-derives each installed actor's machine-owned `:sensitive` / `:large` claims into the frame's elision registry, on every platform, from the machine definition dispatch resolves for the actor: the registry rides neither the wire nor a persisted machines subtree, and an installed snapshot never spawns or boots, so the birth-time lowering never reaches it. It then re-arms the timers, walking the hydrated snapshots' ACTIVE configuration (flat/compound ancestors + leaf, each parallel region's active path, and the root-owned parallel `:after`) and RECONCILING the frame's host timer table to exactly that set: entries the replacement snapshots no longer declare are cancelled (`:reason :on-destroy` for a dropped actor, `:on-exit` for a declaring node no longer on the active path — no seventh reason), then each live declaration is armed at the epoch the snapshot already carries. A reconcile rather than a union because `:rf/hydrate` replaces runtime-db wholesale while this table is host state that survives it, so a pre-hydration or previous-hydration handle is otherwise never visited — superseding only reaches the one key it arms. Re-runs NO entry / action / raise / spawn and writes no snapshot — the whole point is host work without replayed history (Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\"). Restore keeps CANCELLING; only hydration arms."}
-   {:key         :machines/teardown-on-frame-destroy!
-    :producer-ns 're-frame.machines
-    :description "Frame-destroy machine-cascade orchestrator: walks active machines in reverse-creation order, runs each `:exit` cascade, applies the unified teardown projection (snapshot + spawn-slot prune), unregisters handlers, and emits `:rf.machine.lifecycle/destroyed` per actor with `:reason :parent-frame-destroyed`. Invoked by `frame/destroy-frame!` BEFORE sub-cache / adapter teardown per Spec 005 §Cross-Spec Interactions §1."}
    {:key         :machines/spawn-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/spawn."}
@@ -374,12 +341,6 @@
    {:key         :routing/clear-route
     :producer-ns 're-frame.routing
     :description "Remove a registered route, emitting `:rf.route/cleared` (Spec 012 §Trace events) so route-lifecycle subscribers observe the removal; a no-op when the id was not registered. The dispatch target of `(rf/clear :route id)`. Routing `:route` removal MUST go through the owning fn rather than short-cutting to `re-frame.registrar/unregister!`, which would drop the trace event."}
-   {:key         :routing/reset-counters!
-    :producer-ns 're-frame.routing
-    :description "Reset the route-registration counter (test isolation)."}
-   {:key         :routing/reset-nav-counters!
-    :producer-ns 're-frame.routing
-    :description "Reset the host-side nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache). They are host-side transient state (not runtime-db), so a runtime/frames reset does not clear them; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so \"nav-1\" / \"pn-1\" assertions stay deterministic (test isolation)."}
    {:key         :routing/route-sub-egress-path
     :producer-ns 're-frame.routing
     :description "Resolve a framework route read sub-id (`:rf/route` / `:rf.route/query` / `:rf.route/params`) to the runtime-db storage position its sub value projects onto (`[:rf.runtime/routing :current …]`), or nil for a non-route sub. Consumed by `re-frame.elision/elide-wire-value`'s `:query-v` opt so the direct-read off-box egress surfaces (Pair MCP read-sub / list-subscriptions :include-values / snapshot :sub-cache / Xray) re-seed the walk at the slice's storage position — letting the per-frame elision registry's re-rooted absolute route decls (`:source :route`, lowered at activation) match the bare slice the sub returns. Core stays decoupled from routing; absent the artefact the hook is unbound and a route sub value walks at the whole-value root (no route slice to leak)."}
@@ -398,18 +359,6 @@
    {:key         :routing/activate-link!
     :producer-ns 're-frame.routing
     :description "CLJS-only route-link activation op `(fn [event on-click frame payload native?])` consumed by every non-Reagent route-link view (Fresco's `h/route-link`): THE router-attributed click decision — run the caller `:on-click` first, defer to the browser on `defaultPrevented` / native? / a non-plain-left (modifier or auxiliary-button) click, else `.preventDefault` and dispatch the payload with `:source :router` through `frame`: the `capture-frame` bundle of the incarnation that rendered the link, which refuses once that incarnation is destroyed, or a bare frame id, which addresses whichever frame holds the id when the click fires. Keeps the modifier/native/veto click law inside routing so a view artefact reimplements NONE of it (footgun-ownership). Unbound on the JVM (SSR emits a handler-free anchor) and when routing is absent."}
-   {:key         :routing/preflight-frame-config!
-    :producer-ns 're-frame.routing
-    :description "Registration-time frame-config PREFLIGHT `(fn [frame-id config])` — PURE validation of routing-owned frame-config keys, invoked by the frame engine (frame/upsert-frame!, the one frame-config commit chokepoint) with the FINAL expanded config (after preset expansion + source-coordinate merging) BEFORE any candidate-derived write: the frame-record build, the trace-policy flags, the frames swap, the :initial-events setup dispatch, and any trace emit. Validates an explicitly-declared :url-strategy for host-required shape/callability (validate-url-strategy!, fail-loud :rf.error/invalid-url-strategy with {:frame frame-id} ex-data); PRESENCE semantics — a config with NO :url-strategy key is a no-op (omission alone selects the default history strategy), while a PRESENT key INCLUDING explicit nil is an explicit declaration and fails loud when malformed. Refuses a :url-bound? true config while another live frame carries :url-bound? true (re-frame.routing.url-bound/preflight-url-binding!, :rf.error/duplicate-url-binding with {:existing-frame :offending-frame} ex-data); re-registering the owner is not a second binding. Published on BOTH hosts. When the hook is UNPUBLISHED (routing not loaded) and a config declares :url-strategy or :url-bound? true, core fails loud with :rf.error/routing-artefact-missing rather than storing a declaration nobody can check. Routing owns the meaning; core owns the timing. Per Spec 012 §URL strategies / Spec 002 §frame construction failure-atomicity."}
-   {:key         :routing/on-frame-registered!
-    :producer-ns 're-frame.routing
-    :description "Fired by the frame engine (frame/upsert-frame!) AFTER the frame container exists (first registration: after :initial-events ran; re-registration: after the surgical config update) — THE frame (re-)registration lifecycle extension point (frames do not flow through registrar/register!, so there is no registrar registration hook for frames). Published on BOTH hosts; the facade body is the CLJS-only strategy-aware browser-listener reconcile (a no-op on the JVM): when the just-(re)registered frame is the URL owner, (re)installs its :url-strategy browser listener (popstate or hashchange), and an owner opting out with :url-bound? false tears it down. There is no imperative install-url-listener! / install-history-listener! export; the :url-bound? frame lifecycle does that job."}
-   {:key         :routing/reset-url-listener!
-    :producer-ns 're-frame.routing
-    :description "Test-isolation hook: unconditionally tear down the installed browser URL-change listener (re-frame.routing.history/history-listener-atom). Wired into the shared make-reset-runtime-fixture reset-hooks table — a raw frame/frames reset does not run destroy-frame!'s teardown chain, so without this a listener installed during one test would survive into the next. CLJS-only."}
-   {:key         :routing/on-frame-destroyed!
-    :producer-ns 're-frame.routing
-    :description "Release the destroyed frame's host-side transient scroll-position cache (re-frame.routing.scroll/scroll-positions-cache), and tear down its browser URL-change listener when it held the URL, which leaves no URL owner. The scroll cache is not runtime-db state — it lives in a module-level atom (host-derived, ephemeral, off the epoch/SSR egress wire), so it needs explicit per-frame teardown like the other transient caches. The nav-token / pending-nav counters (re-frame.routing.nav-counters/nav-counters-cache) are process-wide and a destroy leaves them alone, so a same-id successor never re-issues a predecessor's token. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
    ;; ---- re-frame.resources (EP-0003) ---------------------------------------
    ;; The optional Resources artefact (Spec 016) publishes its public-API
@@ -457,15 +406,6 @@
    {:key         :resources/project-resource-sub-egress
     :producer-ns 're-frame.resources
     :description "Project a resource or mutation read sub's value for egress — `(fn [query-v value opts]) -> projected-value`, where `opts` carries `:frame` — redacting the slots the OWNER's projection-relative :sensitive / :large declaration names (a coarse :sensitive? / :large? resource claim covering the whole data projection), re-rooted onto the sub's value: the entry's data under :data / :previous-data / :items / :pages or the whole value, a mutation instance's result under :result or the whole value, and the scoped keys the value carries (:previous-key, :affected-keys) by the same owner projection the family's trace rows use. The query vector names the owner: a resource sub's payload names its :resource, and a mutation sub's :instance is looked up in the frame's runtime-db. A four-argument arity `(fn [query-v value opts prior-inputs])` projects a PRIOR value (:rf.sub/prev-value): `prior-inputs` are the inputs it was computed from, which carry a cleared mutation instance the live runtime-db no longer holds. The declaration is read from the owner spec, not the elision registry, so a prior value stays redacted after an evict or a clear drops the lowered claims. A no-op pass-through for any other sub. Consumed by the trace chokepoint re-frame.classification/project-sub-tags for the :rf.sub/run :rf.sub/value / :rf.sub/prev-value slots. Unbound (resources absent) ⇒ pass-through: without the artefact these subs are not registered."}
-   {:key         :resources/reset-resources!
-    :producer-ns 're-frame.resources.test-support
-    :description "Test-isolation reset: clear the :resource-kind + :mutation-kind + :resource-scope-kind registrar entries + the host-side generation high-water marks + the host-side attempt / timer / revalidation handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
-   {:key         :resources/on-frame-destroyed!
-    :producer-ns 're-frame.resources
-    :description "Release the destroyed frame's host-side TRANSIENT resource caches — the in-flight attempts' host handles (AbortControllers / timer handles keyed by [frame-id work-id], re-frame.resources.work-ledger/handle-table), the stale/GC timer handles (re-frame.resources.timers/timer-table), and the focus/reconnect revalidation window listeners (re-frame.resources.revalidate-listeners/listener-table). None is runtime-db state; all are module-level atoms off the epoch/SSR egress wire. The resource generation high-water mark (re-frame.resources.state/generation-cache) is host-side too but process-global, so destroy leaves it alone and a same-id successor frame never re-mints a predecessor's generation. Invoked by frame/destroy-frame! by key; no-op when re-frame.resources is absent (the artefact is optional, post-v1). Per Spec 016 [Runtime-Subsystems] clause 5."}
-   {:key         :resources/on-frame-registered!
-    :producer-ns 're-frame.resources
-    :description "Reconcile the (re-)registered frame's `:revalidate-on` host focus/reconnect listeners against its committed config (Spec 016 §Stale and GC scheduling). Reads (:revalidate-on (frame/frame-meta frame-id)) — a set drawn from the closed enum #{:focus :reconnect} — and installs exactly that subset: :focus wires window `focus` + document `visibilitychange`-to-visible, :reconnect wires window `online`; each dispatches [:rf.resource/window-focused] / [:rf.resource/network-reconnected] at the frame, whose handlers scan the frame's active-owner STALE entries and refetch them with cause :focus / :reconnect (a cause, never an owner — generation + stale-suppression protect late replies). Replace-don't-stack: every (re-)registration detaches whatever the frame had and attaches exactly the declared subset, so a repeated registration never STACKS a listener, and a re-registration that DROPS the key removes them. A replace, not a diff — identical triggers still detach and re-attach, deliberately (re-registration is a deliberate act, and the re-attach is observationally inert). Absent key or an empty set installs nothing. CLJS-only host listeners; the JVM arm records nothing (no DOM under SSR/JVM). Fired by frame/fire-frame-registered-hook! at the END of BOTH upsert-frame! branches, AFTER routing's own hook (the roster is ordered) and after the container is live. Listeners are cancelled on frame destroy via the single :resources/on-frame-destroyed! hook. Its presence is also what core checks to fail a `:revalidate-on` config loud with :rf.error/resources-artefact-missing when the artefact is absent — the mirror of the :url-strategy-without-routing rule."}
    {:key         :routing/extra-route-keys
     :producer-ns 're-frame.resources.route
     :description "Cross-feature LATE-BOUND route-metadata accepted-key extension (Spec 016 §Route integration). Returns a SET of extra bare route-metadata keys routing unions into its accepted set; the Resources artefact publishes #{:resources} so routing accepts the :resources route key (mirrors how :head is a cross-feature key owned by SSR). Resources is the first publisher; consumed by re-frame.routing.registry/accepted-route-keys."}
@@ -500,27 +440,18 @@
    ;; ---- re-frame.http.managed -----------------------------------------------
    ;; The stub transports have no façade wrapper, so they carry no late-bind
    ;; hook — callers reach them directly via `re-frame.http.stub-transport`.
-   {:key         :http/clear-all-in-flight!
-    :producer-ns 're-frame.http.managed
-    :description "Abort every in-flight managed request (test isolation)."}
    {:key         :http/reg-http-interceptor
     :producer-ns 're-frame.http.managed
     :description "Register an HTTP interceptor definition under the registrar kind :http-interceptor; a frame runs it by naming it in its :http-interceptors config."}
    {:key         :http/clear-http-interceptor
     :producer-ns 're-frame.http.managed
     :description "Clear a single registered HTTP interceptor."}
-   {:key         :http/clear-all-http-interceptors!
-    :producer-ns 're-frame.http.managed
-    :description "Clear every registered HTTP interceptor (test isolation)."}
    {:key         :http/abort-on-actor-destroy
     :producer-ns 're-frame.http.managed
     :description ":spawn cancellation cascade tied to actor destruction."}
    {:key         :http/abort-in-flight-for-frame!
     :producer-ns 're-frame.http.managed
     :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
-   {:key         :http/on-frame-destroyed!
-    :producer-ns 're-frame.http.managed
-    :description "Frame-DESTROY host-transient abort for managed HTTP. Consulted by core `frame/destroy-frame!` AFTER machine + resource teardown: aborts every in-flight `:rf.http/managed` request the destroyed frame issued with the reply-suppressing `:reason :frame-destroyed` (no delivery into the now-destroyed frame's `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts with `:recovery :suppressed-on-frame-destroy`. The frame-teardown counterpart of `:http/abort-in-flight-for-frame!` (epoch restore); catches the exposed PLAIN managed-HTTP path (ordinary event-handler issuance, no actor id) that actor/resource teardown does not, cancelling the live fetch/future or sleeping backoff timer, detaching any external `:abort-signal` listener, and clearing both indexes so no host I/O outlives the frame (Managed-Effects §Cancellation; the hard frame-ownership boundary for SSR per-request frames, Story/test variants, hot reload, and multi-frame apps)."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http.managed
     :description "Register the machine-shape wrapper for managed HTTP requests."}
@@ -535,9 +466,6 @@
    {:key         :ssr/reg-error-projector
     :producer-ns 're-frame.ssr
     :description "Register a fn projecting SSR render errors to user-facing markup."}
-   {:key         :ssr/on-frame-destroyed
-    :producer-ns 're-frame.ssr
-    :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The `:rf/response` accumulator lives in response-slots rather than `app-db`, so it neither leaks into the hydration payload nor costs a full app-db swap per fx."}
    {:key         :ssr/capture-error-record
     :producer-ns 're-frame.ssr
     :description "SSR's always-on error capture `(fn [record])`: buffers a promoted error-emit record that names a `:platform :server` frame for that frame's status projection (Spec 011 §Server error projection). Called by `re-frame.error-emit`'s corpus fan-out for every promoted record, after the listener registry and before the sink route; a throw is dropped. UNGATED — it fires under `goog.DEBUG=false` and `-Dre-frame.debug=false`, because status projection is a production contract. A hook, not an `:errors` listener: it owns no record for the dev console fallback and `clear-error-listeners!` never removes it. Unbound when the ssr artefact is absent, so nothing is captured."}
@@ -598,21 +526,12 @@
    {:key         :epoch/current-config
     :producer-ns 're-frame.epoch
     :description "Read the live epoch-history config map back. The read half of `:epoch/configure!`, consulted by `re-frame.core/current-config` for its `:epoch-history` key. Bound to the STATE-level reader (`re-frame.epoch.state/current-config`) rather than the owning-ns public var, so the facade door does not depend on the owning ns's public surface. Absent hook = absent key: a build without the optional epoch artefact reports no `:epoch-history` at all rather than a fabricated default."}
-   {:key         :epoch/reset-config!
-    :producer-ns 're-frame.epoch
-    :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! {:epoch-history ...}) merge can't leak :depth / :trace-events-keep. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
     :description "Clear the committed-epoch ring buffer (test isolation)."}
    {:key         :epoch/clear-epoch-listeners!
     :producer-ns 're-frame.epoch
     :description "Clear every registered epoch-settled callback (test isolation)."}
-   {:key         :epoch/snapshot-frame-destroyed
-    :producer-ns 're-frame.epoch
-    :description "Snapshot the destroyed incarnation's terminal halted-destroy evidence BEFORE dissoc-frame!, while it is still the sole owner of its id-keyed epoch stores. Invoked as (f frame-id halt): halt is the drain's evidence from a pending destroy's event boundary — {:frame-state <the committed frame-state> :committed-at <the trigger's causal time> :trigger-event <the event the drain would have dequeued next> :dropped-count <n> :last-event-id <the destroying event's id>} — or nil for an immediate destroy. Returns the {:record :listener-snapshot} bundle threaded to :epoch/on-frame-destroyed (or nil when no epoch layer participates / debug disabled) — binding A's terminal record to A's exact incarnation while the frame still resolves under its id. The destroy holds the id's reservation until step 10 has finished, so no same-id incarnation exists between this snapshot and its publication. :record is the :halted-destroy record when the boundary drop removed at least one event, else nil; :listener-snapshot is the {cb-id → callback} registry that record fans to, read at destroy time."}
-   {:key         :epoch/on-frame-destroyed
-    :producer-ns 're-frame.epoch
-    :description "Publish a destroyed frame's terminal epoch record and drop its id-keyed stores AFTER dissoc-frame!. Invoked as (f frame-id terminal-evidence). Two concerns split INSIDE the interop/debug-enabled? gate — NEITHER folded into the gate condition. (1) STORE CLEANUP — dropping A's history / buffer / last-settled-epoch / mount-attribution and its ownership-ledger entry (state/cleanup-frame-owner!) — runs UNCONDITIONALLY of terminal-evidence and compares no owner token: the destroy holds the id's reservation until this step has finished, so no same-id incarnation can have claimed the stores and everything under the id is A's to drop. A throwing pre-dissoc snapshot hook (nil terminal-evidence) STILL frees A's stores, so they never outlive the frame under its id (cleanup authority is the reserved frame-id, not the snapshot bundle). (2) TERMINAL-RECORD PUBLICATION — A's :halted-destroy record and its structural :rf.epoch/snapshotted trailer — is CONDITIONAL on a bundle that bound a record yet INDEPENDENT of the cleanup: the evidence was bound to A's exact incarnation before dissoc and is A's to deliver, and it is delivered before the destroy releases the id, so it never overlaps a same-id incarnation. terminal-evidence is the bundle :epoch/snapshot-frame-destroyed captured before dissoc."}
    {:key         :epoch/project-record
     :producer-ns 're-frame.epoch
     :description "The PER-KIND projector re-frame.projection/project-egress dispatches a :kind :rf/epoch-record record to. Invoked as (f record opts) where opts is project-egress's OWN closed vocabulary with :frame ALREADY resolved by the door's three-step rule (explicit opt > the record's own :frame slot > carried scope), so the projector never re-reads (:frame record) behind an explicit override. Projects each payload slot (:frame-state-*, :db-*, :trigger-event, :trace-events, :sub-runs, :effects) under that frame and the named :rf.egress/profile; the three epoch-only axes (:rf.egress/include-fx-args? / :rf.egress/include-runtime-db? / :rf.egress/include-event-args?) ARE door vocabulary (there is no standalone projected-record door); omitted, each stays fail-closed. ABSENT ⇒ project-egress throws :rf.error/epoch-artefact-missing naming the kind rather than bare-walking the record as a kindless tree."}
@@ -812,9 +731,6 @@
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace`'s `ambient-frame-id`: `stamp-frame` uses it to tag an emit inside a run that carries no `:frame` of its own (e.g. sub recompute / view render emits inside an in-flight cascade), and the frame-policy gate `tagged-frame-trace-disabled?` uses it for every un-tagged emit. `re-frame.trace.tooling/push-to-ring!` routes by the event's `:frame` tag alone, with no fallback to this hook."}
 
    ;; ---- re-frame.fresco (native-tier substrate; day8/re-frame2-fresco) ---
-   {:key         :fresco/on-frame-destroyed!
-    :producer-ns 're-frame.fresco.impl.frames
-    :description "Drop the Fresco frame-ops row on frame destroy — step 6 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id): re-frame.fresco.impl.frames memoises ONE row per frame — the `rf/capture-frame` bundle plus the ambient dispatch closure over it, both pinned to the incarnation that minted them — and its own eviction is LAZY, done by the SUCCESSOR's first lookup under the same id. That bounds a client frame id, which is reused across incarnations, and bounds nothing for an id that never gets a successor: `re-frame.fresco.server/render` mints a fresh `(gensym \"request-\")` per request, so without this hook a long-lived SSR process would retain one captured bundle per request served. UNCONDITIONAL by key and carrying NO incarnation token — the destroy holds the id's reservation until step 10 has finished, so no same-id successor can be constructed before this hook runs and every row standing at hook time already belongs to a dead incarnation. RETENTION ONLY: eviction-on-destruction is not Fresco's reincarnation SAFETY mechanism — the lazy replacement is the safety argument, and this hook merely stops an unreachable row outliving the process. No-op when the day8/re-frame2-fresco artefact is absent (unbound). Published by re-frame.fresco.impl.frames, consumed by frame/destroy-frame!."}
    {:key         :fresco/drain-client-roots!
     :producer-ns 're-frame.fresco.impl.mount
     :description "Release every React Root Fresco's own client-root door still holds, as part of process teardown. Invoked as (f) with no arguments, from `re-frame.substrate.adapter/dispose-adapter!` BEFORE the installed adapter's own `:dispose-adapter!`, so React unmounts run while the substrate is still whole. A throwing drain skips neither the adapter disposer nor the lifecycle finalization below it, and when the disposer throws too, the drain's failure is the one rethrown. The implementation is `re-frame.fresco.impl.mount/drain-active-roots!`: it empties the package's active-roots cell FIRST — so a handle whose Root the drain took finds itself already released and a later `h/render!` mounts afresh — then unmounts each Root under its own catch and rethrows the first failure once every root has been attempted, the shape `spine/dispose-active-roots-and-caches!` uses. WHY IT IS A PROCESS HOOK RATHER THAN AN ADAPTER CHAIN: a Fresco root is the PACKAGE's, not any adapter's — `h/render!` reaches createRoot / hydrateRoot through `re-frame.fresco.impl.mount` and never through the substrate contract's `render` slot, so no adapter's own active-root set ever sees one. Chained onto the Fresco adapter's `dispose-adapter!`, the drain would be reached only when Fresco was ALSO the installed adapter, and Fresco over UIx or over Reagent is supported use (the migrated HMR testbed installs UIx, Story's own-root control installs Reagent, and the migration skill preserves an app's existing Reagent adapter). In that composition `rf/destroy-adapter!` would leave the Root mounted with its `:live?` closure still true and a `render!` through the retained handle would UPDATE the leaked Root instead of mounting afresh — against Spec 006 §The client root's Teardown clause, which carries no adapter qualifier. Published at `re-frame.fresco.impl.mount`'s NS LOAD rather than from a once-body, per late-bind's own contract and for the reload reason spelled out on `:live-frame/call-with-frame-resolution`; that namespace is loaded by every door that can create a root, so the hook is bound before the first Root can exist. No-op when the day8/re-frame2-fresco artefact is absent (unbound), and on every JVM host. Published by re-frame.fresco.impl.mount, consumed by substrate.adapter/dispose-adapter!."}

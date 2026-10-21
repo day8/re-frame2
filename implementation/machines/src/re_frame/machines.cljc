@@ -208,9 +208,9 @@
   `re-frame.test-support`'s `reset-runtime` and per-feature artefact test
   fixtures. Clears the entire frame-scoped table.
 
-  1-arity: just the given frame's timers — the `rf.frame/destroy-frame!`
-  hook shape used to release a destroyed frame's host-clock handles
-  without touching sibling frames.
+  1-arity: just the given frame's timers — the shape the machines lifecycle
+  contribution's `:post-dead` member uses to release a destroyed frame's
+  host-clock handles without touching sibling frames.
 
   Spawn-id allocation lives inside the parent snapshot's
   `[:rf/runtime :spawn-counter]` slot (declarative `:spawn`) or the frame's
@@ -418,14 +418,20 @@
 ;; hook publishes `resolver/spec-from-registry` directly, with no public alias
 ;; in between.
 (rf.late-bind/set-fn! :machines/machine-meta           rf.machines.lifecycle-fx.resolver/spec-from-registry)
-(rf.late-bind/set-fn! :machines/reset-timers!          reset-timers!)
-;; Per-frame timer-table cleanup wired into `rf.frame/destroy-frame!`.
-;; The timer table is partitioned `{<frame-id> {…}}`; without this
-;; hook a destroyed frame's inner table would linger as dead
-;; bookkeeping and in-flight host-clock handles would survive teardown.
-;; Late-bound so core never statically requires the machines artefact.
-(rf.late-bind/set-fn! :machines/on-frame-destroyed!
-                   (fn [frame-id] (rf.machines.timer/cancel-all-timers! frame-id)))
+(rf.frame/contribute-lifecycle!
+  {:id    :machines
+   :phase #{:pre-dead :post-dead}
+   ;; :pre-dead — each active machine's `:exit` cascade runs against a live
+   ;; container, in reverse-creation order (Spec 005 §Cross-Spec Interactions
+   ;; §1). :post-dead — the frame's slice of the partitioned timer table goes,
+   ;; or its in-flight host-clock handles would outlive the frame.
+   :on-frame-destroyed
+   (fn [frame-id phase]
+     (case phase
+       :pre-dead  (rf.machines.lifecycle-fx.frame-destroy/teardown-on-frame-destroy! frame-id)
+       :post-dead (reset-timers! frame-id))
+     nil)
+   :test-reset reset-timers!})
 ;; Epoch-restore host-transient quiesce. The epoch restore boundary
 ;; (`perform-restore!`) installs the captured durable frame-state WHOLESALE,
 ;; but the in-flight `:after` host-clock timers the unwound epochs armed are
@@ -451,12 +457,6 @@
 ;; Late-bound so SSR never statically requires the machines artefact.
 (rf.late-bind/set-fn! :machines/rearm-after-hydration!
                    rf.machines.hydrate/rearm-after-timers!)
-;; Frame-destroy machine-cascade hook. `rf.frame/destroy-frame!` calls this
-;; hook BEFORE the sub-cache / adapter teardown so each active machine's
-;; `:exit` cascade runs against a live container in reverse-creation order
-;; per Spec 005 §Cross-Spec Interactions §1.
-(rf.late-bind/set-fn! :machines/teardown-on-frame-destroy!
-                   rf.machines.lifecycle-fx.frame-destroy/teardown-on-frame-destroy!)
 (rf.late-bind/set-fn! :machines/spawn-fx              spawn-fx)
 (rf.late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 ;; The lazy actor-handler resolver. Core's dispatch consults this hook on

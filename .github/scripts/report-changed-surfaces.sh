@@ -1282,8 +1282,8 @@ else
         # no jvm output. `implementation/scripts/_changed-surfaces.test.cjs`
         # pins all three facts.
         #
-        # NOT cljs_prod: no `-elision-prod-test$` namespace. bundle_isolation
-        # is armed below, for the src files its releases compile.
+        # cljs_prod and bundle_isolation are armed below, for the files the
+        # jobs they schedule compile.
         cljs_node_test=true
         # cljs_browser: the package owns `-dom-cljs-test` namespaces under
         # implementation/fresco/test/, and only the browser lane mounts them.
@@ -1362,6 +1362,18 @@ else
             : ;;
           implementation/fresco/src/*)
             bundle_isolation=true ;;
+        esac
+        # cljs_prod, for what `cljs-browser-prod-elision` grades here.
+        # `:browser-test-prod-elision` selects this tree's `-elision-prod-test$`
+        # namespaces and compiles them with the facade and its impl tree; the
+        # overlay and presence impls are not in its manifest.edn.
+        # check_source_coord_elision.cjs then reads coord_sentinel_source.cljs
+        # against that bundle. The other jobs cljs_prod schedules over-fire.
+        case "$file" in
+          implementation/fresco/src/re_frame/fresco/impl/overlay.cljs|implementation/fresco/src/re_frame/fresco/impl/presence.cljs|implementation/fresco/src/re_frame/fresco/impl/presence_react.cljs)
+            : ;;
+          implementation/fresco/src/re_frame/fresco.cljc|implementation/fresco/src/re_frame/fresco/impl/*|implementation/fresco/test/*_elision_prod_test.clj[sc]|implementation/fresco/test/re_frame/fresco/coord_sentinel_source.cljs|implementation/fresco/scripts/check_source_coord_elision.cjs)
+            cljs_prod=true ;;
         esac
         # The docs' live-cell SCI bundle bakes in `re-frame.fresco` and its
         # forms, overlay and motion modules, so a source or deps change must
@@ -2384,6 +2396,17 @@ else
             # bundle recompiles against `src/` + `deps.edn`, so every non-spec-md
             # change here can break the self-hosting recipe the README documents.
             machines_viz_viewer_page=true
+            # bundle_isolation, for the src files a `test:bundle-isolation`
+            # release compiles: `:examples/counter-with-stories` reaches the
+            # chart through Xray for the Story elision claim. The files named
+            # first are not in its manifest.edn, nor is anything outside src/.
+            # A new src file arms until the manifest shows it is not compiled.
+            case "$file" in
+              tools/machines-viz/src/day8/re_frame2_machines_viz/adapters/react_chart.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/adapters/uix.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/ai_generate.cljc|tools/machines-viz/src/day8/re_frame2_machines_viz/export.cljs|tools/machines-viz/src/day8/re_frame2_machines_viz/scxml.cljc|tools/machines-viz/src/day8/re_frame2_machines_viz/share.cljs)
+                : ;;
+              tools/machines-viz/src/*)
+                bundle_isolation=true ;;
+            esac
             ;;
         esac
         ;;

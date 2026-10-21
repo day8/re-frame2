@@ -858,7 +858,7 @@
   buggy custom-substrate `-dispose` would be invisible.
 
   Per Spec 009 §Observability channels (the `:rf.warning/teardown-hook-
-  exception` precedent in `rf.frame/safe-call-hook!`): the throw is swallowed
+  exception` precedent in `rf.frame/safe-call-contribution!`): the throw is swallowed
   to keep teardown best-effort AND a per-input `:rf.warning/sub-input-
   dispose-exception` trace is emitted at its CAUSAL position so the leaked
   release is traceable in long-lived SSR / test / tooling processes. It

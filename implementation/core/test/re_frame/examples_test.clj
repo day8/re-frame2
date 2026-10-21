@@ -55,7 +55,7 @@
   ;;   re-frame.machines           `:rf/machine`, which the walkthrough's subs chain off
   ;;   re-frame.ssr                `:rf/hydrate`, the `:rf.ssr/*` / `:rf.server/*` fxs
   ;;                               and cofx, and the late-bind hooks
-  ;;                               (`:ssr/on-frame-destroyed` releases the request slot)
+  ;;                               (the SSR contribution releases the request slot)
   ;;   re-frame.resources          the resource kind, events, subs and SSR hooks
   (require 're-frame.cofx :reload)
   (require 're-frame.http.managed :reload)

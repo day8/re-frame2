@@ -41,8 +41,8 @@
 
   Reconciliation runs from TWO lifecycle points:
 
-    - `re-frame.routing`'s `:routing/on-frame-registered!` hook body — the
-      frame engine (`re-frame.frame/upsert-frame!`) POST-CREATE hook, fired
+    - `re-frame.routing`'s `:on-frame-registered` lifecycle member — run by
+      the frame engine (`re-frame.frame/upsert-frame!`) post-create,
       AFTER the frame container exists (and, on first registration, after
       `:initial-events` ran), so the listener's synchronous initial URL sync
       always targets a live frame. It reconciles after every
@@ -190,7 +190,7 @@
                                                           sync.
 
      `excluded-frame-id` (destroy path) is the frame being torn down. By the time
-     `:routing/on-frame-destroyed!` fires, the destroyed frame's `:destroyed?`
+     routing's `:post-dead` member runs, the destroyed frame's `:destroyed?`
      flag is already flipped, so `frame-meta` reads it as absent and the
      owner read cannot resolve it — the exclusion is defence in
      depth (an explicit contract rather than a timing-derived one): a
@@ -232,18 +232,18 @@
    (defn remove-url-listener!
      "Tear down the browser URL-change listener (whichever kind the strategy
      wired — `popstate` or `hashchange`) unconditionally. No-op when none is
-     installed. Published as the `:routing/reset-url-listener!` test-isolation
-     hook (the shared `make-reset-runtime-fixture` reset-hook table calls it
-     between tests — a raw `frame/frames` reset does not run `destroy-frame!`'s
-     teardown chain, so a leftover installed listener would otherwise survive
-     into the next test). The `:routing/on-frame-destroyed!` teardown reconciles
+     installed. Part of routing's contributed `:test-reset`, which
+     `make-reset-runtime-fixture` runs between tests — a raw `frame/frames`
+     reset does not run `destroy-frame!`'s teardown, so a leftover installed
+     listener would otherwise survive into the next test. Routing's destroy
+     teardown reconciles
      instead (`reconcile-url-listener!`), which tears the destroyed owner's
      listener down."
      []
      (teardown-current!)))
 
 ;; The post-(re-)registration listener reconcile is the facade's
-;; `:routing/on-frame-registered!` hook body (`re-frame.routing`). The facade
+;; `:on-frame-registered` lifecycle member (`re-frame.routing`). The facade
 ;; calls `reconcile-url-listener!` directly — ownership-driven, so it does the
 ;; right thing on every registration path: a frame declaring `:url-bound?
 ;; true` installs; an owner re-registering with a changed `:url-strategy`

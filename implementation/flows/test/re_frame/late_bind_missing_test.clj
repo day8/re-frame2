@@ -6,10 +6,10 @@
   duration, the same mechanism a CLJS test would use.
 
   The framework-internal hooks (`:flows/run-flows-on-db`,
-  `:flows/reset-flows!`, `:flows/teardown-on-frame-destroy!`) no-op when
-  absent instead; every test lane without the flows artefact dispatches,
-  resets and destroys frames through them, so a regression there fails
-  those lanes."
+  `:flows/reset-flows!`) no-op when absent instead, and an absent artefact
+  contributes nothing to a frame's lifecycle; every test lane without the
+  flows artefact dispatches, resets and destroys frames, so a regression there
+  fails those lanes."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

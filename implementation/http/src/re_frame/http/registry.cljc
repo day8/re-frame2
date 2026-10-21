@@ -259,7 +259,7 @@
   frame's issuance counter and installed stub transport. Test fixtures use
   this between runs.
 
-  Symmetric with `:machines/reset-timers!`: a request sleeping in its retry
+  Symmetric with the machines timer reset: a request sleeping in its retry
   backoff holds an armed `js/setTimeout` / `ScheduledFuture` that would
   otherwise outlive the synchronous test and issue its next attempt into a
   runtime the next test owns. The whole registry is taken in one step and each
@@ -474,11 +474,11 @@
   any external `:abort-signal` listener, and delivers NOTHING to the original
   `:rf/reply-to` target.
 
-  Published as the `:http/on-frame-destroyed!` late-bind hook and called from
-  core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
-  work gets its more specific `:actor-destroyed` semantics and resource-owned
-  work its attempt/owner cleanup first; this sweep then catches the remaining
-  requests. Then drops the destroyed frame's issuance counter and installed
+  The http lifecycle contribution's `:post-dead` member, so it runs after the
+  machines `:pre-dead` cascade gave actor-owned work its more specific
+  `:actor-destroyed` semantics; it aborts every request the frame still has in
+  flight, resource-owned ones included, whichever of http and resources tears
+  down first (an abort is idempotent). Then drops the destroyed frame's issuance counter and installed
   stub transport: every id it minted is terminal by then, both maps stay
   bounded by the live frames, and a frame later made under the same id starts
   on the host adapter. Idempotent; returns nil."

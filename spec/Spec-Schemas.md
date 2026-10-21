@@ -4180,13 +4180,26 @@ There is no EP-0013 *runtime realm* — no internal installation-container recor
 
 The design record for the realm/app/module construction model, with its worked schema examples, is [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md), read alongside [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) / [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md). The composition model — `rf/image` assembly and frame creation + the event stream — is owned by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) and [002-Frames](002-Frames.md).
 
-### `:rf/host-transient-descriptor` (EP-0013)
+### `:rf/lifecycle-contribution`
 
 > **Layer:** Runtime
-> **Owner:** [Runtime-Subsystems §Host-transient subsystem state](Runtime-Subsystems.md#host-transient-subsystem-state)
-> **Status:** **None.** There is no realm-owned host-transient *descriptor inventory* ([EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)). Host-transient state itself is owned per-frame.
+> **Owner:** [002-Frames §Lifecycle contributions](002-Frames.md#lifecycle-contributions)
+> **Status:** reference-runtime internal — no public API registers one. A port MAY organise its lifecycle plumbing differently; what it MUST preserve is [002 §Destroy](002-Frames.md#destroy)'s phase contract.
 
-There is no `HostTransientDescriptor` record and no host-transient registration inventory walked on teardown: the shipped subsystems tear down via named ordered frame-destroy hooks.
+The one entry through which an optional artefact joins the frame lifecycle, registered when the artefact loads, and the host-transient descriptor of every subsystem the artefact owns ([Runtime-Subsystems §Host-transient subsystem state](Runtime-Subsystems.md#host-transient-subsystem-state)). The runtime keeps the contributions in one ordered list and walks it on destroy, construction, re-registration, the dev-time config-key check and the runtime-reset test fixture.
+
+```clojure
+(def LifecycleContribution
+  [:map {:closed true}
+   [:id                  :keyword]                                      ;; the artefact; teardown failures report under it
+   [:phase               {:optional true} [:set [:enum :pre-dead :post-dead]]]
+   [:on-frame-destroyed  {:optional true} fn?]   ;; (fn [frame-id phase]) — once per joined phase; a :post-dead
+                                                 ;;   call may return a zero-arg fn, run after the registry dissoc
+   [:on-frame-registered {:optional true} fn?]   ;; (fn [frame-id]) — end of construction and of re-registration
+   [:preflight-config    {:optional true} fn?]   ;; (fn [frame-id config]) — before any write; a throw refuses
+   [:test-reset          {:optional true} fn?]   ;; (fn []) — the runtime-reset fixture, after frame disposal
+   [:config-keys         {:optional true} [:set :keyword]]])            ;; bare frame-config keys the artefact reads
+```
 
 Host-transient *state* is a first-class storage class: the framework-owned operational state that is **not** durable frame-state — HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles, adapter render roots/disposers. It is owned per-frame, torn down on frame destroy, and **MUST NOT ride the wire**. Its storage-class membership (`:host-transient`, alongside `:ephemeral` / `:app-db` / `:runtime-db`) is owned by [Derivations §the storage axis](Derivations.md); the per-subsystem teardown/test-reset grading lives in [Runtime-Subsystems](Runtime-Subsystems.md).
 

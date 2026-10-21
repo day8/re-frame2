@@ -969,8 +969,8 @@
 ;; The resources restore hook reconciles its
 ;; Resources subsystem's runtime-db slice + clears its host transients. This is
 ;; the restore counterpart for the OTHER managed async subsystems — the mirror
-;; of destroy-frame!'s `:machines/on-frame-destroyed!` /
-;; `:http/abort-on-actor-destroy` teardown chain. Each subsystem publishes a
+;; of the machines and http lifecycle contributions' destroy teardown. Each
+;; subsystem publishes a
 ;; restore hook keyed by frame-id:
 ;;
 ;;   :machines/on-frame-restored!        — cancel/clear the frame's in-flight
@@ -990,7 +990,8 @@
 ;; machines / http artefacts — absent the artefact the hook is nil and quiesce is
 ;; a clean no-op (an app with no async host work pays nothing). Each hook is
 ;; fired best-effort: a throwing hook is swallowed so one bad subsystem cleanup
-;; cannot strand the others, matching destroy-frame!'s `safe-call-hook!` posture.
+;; cannot strand the others, matching destroy-frame!'s `safe-call-contribution!`
+;; posture.
 
 (def ^:private restore-quiesce-hooks
   "The late-bind hook keys perform-restore! fires to quiesce orphaned async host

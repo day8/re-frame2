@@ -8,7 +8,6 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -69,8 +68,7 @@
   ;; restores the config, policy authority and revision without erasing the
   ;; intervening generation or the runtime write made during the callback.
   (let [id            :prod/rollback
-        hook-key      :routing/on-frame-registered!
-        original-hook (rf.late-bind/get-fn hook-key)
+        saved         @rf.frame/lifecycle-contributions
         reached       (CountDownLatch. 1)
         release       (CountDownLatch. 1)]
     (rf.frame/upsert-frame! id
@@ -82,13 +80,14 @@
           prior-policy-token (:trace-policy-token prior-record)
           prior-revision     (get-in prior-record [:construction :revision])]
       (try
-        (rf.late-bind/set-fn!
-          hook-key
-          (fn [candidate-id]
+        (rf.frame/contribute-lifecycle!
+          {:id ::failing-registration
+           :on-frame-registered
+           (fn [candidate-id]
             (when (= id candidate-id)
               (rf.frame/replace-runtime-db! id {:foreign-runtime true})
               (throw (ex-info "registration hook failed"
-                              {:test/outcome :hook-failed})))))
+                              {:test/outcome :hook-failed}))))})
         (let [owner (binding [rf.frame/*upsert-policy-probe*
                               (window-probe id reached release)]
                       (future
@@ -122,4 +121,4 @@
                               (get-in (rf.frame/frame id) [:construction :revision]))])))
         (finally
           (.countDown release)
-          (rf.late-bind/set-fn! hook-key original-hook))))))
+          (reset! rf.frame/lifecycle-contributions saved))))))

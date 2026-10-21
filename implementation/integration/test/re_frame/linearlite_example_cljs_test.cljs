@@ -30,7 +30,7 @@
 
 (def ^:private last-managed-args (atom nil))
 
-;; The reset fixture's `:resources/reset-resources!` hook clears the
+;; The reset fixture's resources `:test-reset` clears the
 ;; `:resource` and `:mutation` kinds between tests, and CLJS cannot re-require
 ;; the example, so its ns-load registrations are snapshotted here and
 ;; reinstalled by `init!`.

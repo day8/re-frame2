@@ -6,6 +6,7 @@
   artefact carries none of their code."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.reg-meta :as rf.reg-meta]
@@ -257,7 +258,7 @@
 
 (defn release-frame!
   "Cancel and drop every pending `:dispatch-later` timer of a destroyed
-  `frame-id`, through the `:fx/on-frame-destroyed!` hook. Idempotent; returns
+  `frame-id`, from fx's lifecycle contribution. Idempotent; returns
   nil. An `arming-sentinel` slot is dropped without `clear-timeout!`, as its
   arming caller cancels the real handle."
   [frame-id]
@@ -280,10 +281,15 @@
       (rf.interop/clear-timeout! handle)))
   nil)
 
-;; `re-frame.frame` cannot require this namespace without inverting the load
-;; order, so these hooks are the seam.
-(rf.late-bind/set-fn! :fx/on-frame-destroyed!           release-frame!)
-(rf.late-bind/set-fn! :fx/reset-dispatch-later-timers!  reset-dispatch-later-timers!)
+;; A pending `:dispatch-later` timer outliving its frame would fire a
+;; dead-on-arrival dispatch into it and pin its closure until the delay
+;; elapses, and neither a destroy nor a runtime reset reaches this host table
+;; otherwise. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :fx
+   :phase              #{:post-dead}
+   :on-frame-destroyed (fn [frame-id _phase] (release-frame! frame-id))
+   :test-reset         reset-dispatch-later-timers!})
 
 ;; ---- reserved fx-id table -------------------------------------------------
 ;;

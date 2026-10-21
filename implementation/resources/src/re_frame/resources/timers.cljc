@@ -5,7 +5,7 @@
   entry's durable timestamps and writes nothing when the facts have moved
   on, so a late, coalesced or never-fired timer is harmless. The table is
   transient host state (never runtime-db, never serialized), cleared per
-  frame through the single `:resources/on-frame-destroyed!` hook.
+  frame by the resources contribution's single `:post-dead` teardown.
 
   Timer writes ride the `:rf.resource/schedule-timers` fx, which is a no-op
   on a `:server?` frame: SSR never arms wall-clock timers. The skip reads the
@@ -337,7 +337,7 @@ poll timer is armed). Per Spec 016 §Polling."})
 ;; ---- frame teardown -------------------------------------------------------
 
 (defn on-frame-destroyed!
-  "The timer half of the `:resources/on-frame-destroyed!` teardown hook, which
+  "The timer half of the resources contribution's `:post-dead` teardown, which
   the façade composes with the attempt-handle and revalidation-listener releases.
   Returns nil. Runtime-Subsystems §5. Teardown."
   [frame-id]

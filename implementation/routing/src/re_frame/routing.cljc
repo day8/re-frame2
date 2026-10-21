@@ -339,19 +339,13 @@
 (rf.fx/reg-fx :rf.nav/capture-scroll rf.routing.scroll/capture-scroll-meta rf.routing.scroll/capture-scroll-handler)
 (rf.fx/reg-fx :rf.nav/scroll         rf.routing.scroll/scroll-fx-meta      rf.routing.scroll/scroll-fx-handler)
 
-;; Frame (re-)registration lifecycle hook (frames do not flow
-;; through `rf.registrar/register!`, so
-;; the frame engine's `:routing/on-frame-registered!` late-bind hook is
-;; THE lifecycle point, fired AFTER the frame container exists and, on first
-;; registration, after `:initial-events` ran). Its body is the CLJS
-;; browser-listener reconcile; on the JVM it does nothing. Published via
-;; `rf.late-bind/set-fn!` (key-idempotent — a facade `:reload` re-publishes,
-;; never stacks).
+;; Frame (re-)registration: reconcile the CLJS browser listener once the frame
+;; container exists and, on first registration, after `:initial-events` ran;
+;; on the JVM it does nothing.
 (defn- on-frame-registered!
   [_frame-id]
   #?(:cljs (rf.routing.history/reconcile-url-listener!))
   nil)
-(rf.late-bind/set-fn! :routing/on-frame-registered! on-frame-registered!)
 
 ;; Framework-shipped subs over routing runtime-db state. The derived
 ;; `:rf.route/*` subscriptions chain from `:rf/route`.
@@ -463,10 +457,6 @@
 ;; `re-frame.routing/match-url` / `route-url` directly; a routing app requires
 ;; this namespace at boot regardless. `current-url`'s home is
 ;; `re-frame.routing.history/current-url`.
-(rf.late-bind/set-fn! :routing/reset-counters!    reset-counters!)
-;; Reset hooks clear host-side routing state that a raw frame-container reset
-;; cannot reach.
-(rf.late-bind/set-fn! :routing/reset-nav-counters! reset-nav-counters!)
 ;; No :routing/route-sub-fn hook and no `re-frame.routing/route-sub-fn`
 ;; alias. `route-sub-fn` is registered
 ;; DIRECTLY as the `:rf/route` sub above, in this already-loaded facade, so
@@ -474,19 +464,15 @@
 
 ;; Registration-time frame-config preflight: routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs) and of
-;; `:url-bound?` (one live owner), core owns the TIMING — the frame engine
-;; (`re-frame.frame/upsert-frame!`) invokes this hook with the
-;; final expanded config BEFORE any candidate-derived write, so a malformed
-;; declaration or a second URL owner fails with zero residue (first
+;; `:url-bound?` (one live owner), core owns the TIMING — `upsert-frame!` runs
+;; it with the final expanded config BEFORE any candidate-derived write, so a
+;; malformed declaration or a second URL owner fails with zero residue (first
 ;; registration) / preserves the previous frame untouched (re-registration).
-;; Published on BOTH hosts — the JVM validates its two host-agnostic legs the
-;; same way.
+;; The JVM validates its two host-agnostic legs the same way.
 (defn- preflight-frame-config!
   [frame-id config]
   (rf.routing.strategy/preflight-frame-config! frame-id config)
   (rf.routing.url-bound/preflight-url-binding! frame-id config))
-(rf.late-bind/set-fn! :routing/preflight-frame-config! preflight-frame-config!)
-(rf.frame/add-config-keys! #{:url-bound? :url-strategy})
 
 ;; Route classifications are stored at runtime-db-absolute paths, while route
 ;; subscriptions return projections below those paths. These hooks let core's
@@ -502,37 +488,45 @@
 ;; through this hook, by the declaration of the route they name.
 (rf.late-bind/set-fn! :routing/project-url-change-event-args rf.routing.resolve/project-nav-event-arg)
 
-;; Frame teardown reaches all routing-owned host-side state through one
-;; optional late-bound hook.
 (defn- release-routing-host-caches!
   "Release a destroyed frame's scroll cache and reconcile the browser URL
-  listener. The `:routing/on-frame-destroyed!`
-  teardown body. The nav allocators are process-global and outlive the
-  frame, so a same-id successor never re-issues a predecessor's token."
+  listener. The nav allocators are process-global and outlive the frame, so a
+  same-id successor never re-issues a predecessor's token."
   [frame-id]
   (rf.routing.scroll/release-frame! frame-id)
   ;; Reconcile the browser listener via the single strategy-aware op: a
   ;; destroyed owner leaves no owner, so its listener comes down, and a
   ;; destroyed non-owner leaves the owner's instance untouched. `frame-id` is passed
-  ;; as the EXCLUDED owner as defence in depth: by hook time the destroyed
-  ;; frame's `:destroyed?` flag is already flipped so `frame-meta` reads it as
-  ;; absent, but the exclusion keeps the must-not-resolve-as-owner contract
-  ;; explicit rather than timing-derived.
+  ;; as the EXCLUDED owner as defence in depth: this runs after the dead flip,
+  ;; so `frame-meta` already reads the destroyed frame as absent, but the
+  ;; exclusion keeps the must-not-resolve-as-owner contract explicit rather
+  ;; than timing-derived.
   #?(:cljs (rf.routing.history/reconcile-url-listener! frame-id))
   nil)
 
-(rf.late-bind/set-fn! :routing/on-frame-destroyed! release-routing-host-caches!)
+(defn- reset-routing-host-state!
+  "Test reset: the route-registration and nav counters, and the browser URL
+  listener, which a fixture that resets frame containers without
+  `destroy-frame!` would otherwise leave installed."
+  []
+  (reset-counters!)
+  (reset-nav-counters!)
+  #?(:cljs (rf.routing.history/remove-url-listener!))
+  nil)
 
 ;; Browser URL-change wiring is strategy-aware and follows the URL-owning
-;; frame's lifecycle. It is CLJS-only; SSR feeds request URLs through
-;; `:rf.route/handle-url-change`. The listener reconcile rides the composed
-;; `:routing/on-frame-registered!` hook published above — it runs after the
-;; frame container exists, so the listener's synchronous initial URL dispatch
-;; has a valid target; only the URL owner installs.
-;;
-;; The reset hook covers test fixtures that reset frame containers without
-;; executing `destroy-frame!`.
-#?(:cljs (rf.late-bind/set-fn! :routing/reset-url-listener!  rf.routing.history/remove-url-listener!))
+;; frame's lifecycle; it is CLJS-only, and SSR feeds request URLs through
+;; `:rf.route/handle-url-change`. Teardown is :post-dead, so the dying frame no
+;; longer resolves as the URL owner when the listener is reconciled. Spec 002
+;; §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                  :routing
+   :phase               #{:post-dead}
+   :config-keys         #{:url-bound? :url-strategy}
+   :preflight-config    preflight-frame-config!
+   :on-frame-registered on-frame-registered!
+   :on-frame-destroyed  (fn [frame-id _phase] (release-routing-host-caches! frame-id))
+   :test-reset          reset-routing-host-state!})
 
 ;; route-link is exposed on both platforms so .cljc render trees
 ;; resolve identically server- and client-side. On CLJS the hook carries the
