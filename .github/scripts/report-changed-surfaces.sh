@@ -1384,6 +1384,18 @@ else
         implementation_jvm=true
         cljs_node_test=true
         ;;
+      implementation/integration/*)
+        # The framework integration suite: the examples' and the features'
+        # end-to-end tests, run on the one adapter
+        # `re-frame.integration-adapter` names. Every namespace is a plain
+        # `-cljs-test` `.cljs` file on the consolidated :node-test classpath,
+        # so cljs_node_test is the one lane that runs the tree. No JVM lane
+        # reads `.cljs` (implementation/deps.edn's `:test` alias carries the
+        # tree for REPL use only), no `-dom-cljs-test` lives here for the
+        # browser lane, and the tree ships no source, so no production,
+        # bundle or examples gate can observe it.
+        cljs_node_test=true
+        ;;
       implementation/spec-resource/*)
         # day8/re-frame2-spec-resource is the ONE build-time reader for
         # committed spec/ data — the api-manifest CLJS probe expands
@@ -2008,9 +2020,9 @@ else
         # (implementation/shadow-cljs.edn lists ../examples/core,
         # ../examples/real-apps, ../examples/capabilities/*, … as
         # :source-paths), and framework/adapter test namespaces may
-        # `:require` it. The reagent-adapter test
+        # `:require` it. The integration test
         # re-frame.realworld-resources-cljs-test
-        # (implementation/adapters/reagent/test/re_frame/realworld_resources_cljs_test.cljs
+        # (implementation/integration/test/re_frame/realworld_resources_cljs_test.cljs
         # — its ns matches the :node-test build's `cljs-test$` ns-regexp)
         # `:require`s realworld-resources.core + realworld-resources.scope
         # from examples/real-apps/realworld_resources/. So an examples-only
