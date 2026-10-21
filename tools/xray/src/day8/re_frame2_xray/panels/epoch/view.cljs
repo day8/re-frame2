@@ -2462,7 +2462,7 @@
   framework-auto `:db`, `:event`) are filtered at projection time
   (the `system-cofx-ids` set)."
   ([step] (render-coeffect-step step nil))
-  ([{:keys [id value input no-value? step-number violations errors]} instance]
+  ([{:keys [id value input no-value? step-number errors]} instance]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta {:kind :cofx :id id})
                           (catch :default _ nil)))
@@ -2525,10 +2525,7 @@
      ;; A coeffect-injection EXCEPTION attaches here as the
      ;; shared inline 'Exception Thrown' card (button-19), under the
      ;; COEFFECT step where it occurred (not collapsed onto HANDLER).
-     (error-blocks :coeffect errors instance)
-     ;; `:cofx` boundary violations attach to the matching
-     ;; COEFFECT step by cofx-id.
-     (violation-blocks :coeffect violations instance)])))
+     (error-blocks :coeffect errors instance)])))
 
 ;; ---- RECORDABLE COEFFECTS step (EP-0010 · EP-0017 §9) --------------------
 
@@ -5446,7 +5443,7 @@
 ;; ---- SCHEMA VIOLATION sub-block ------------------------------------------
 ;;
 ;; The violation sub-block rides INSIDE its owning pipeline step's
-;; body. Each step renderer (DISPATCH / COEFFECT / HANDLER / FX /
+;; body. Each step renderer (DISPATCH / HANDLER / FX /
 ;; SUBSCRIPTIONS) injects `(violation-blocks (:violations step))`
 ;; under its primary body; FX / SUBSCRIPTIONS additionally inject
 ;; per-row blocks via the row's own `:violations` slot.

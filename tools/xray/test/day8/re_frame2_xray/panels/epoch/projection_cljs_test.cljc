@@ -1304,11 +1304,6 @@
       [{:step :dispatch :violations [{:where :event :failing-id :counter/inc}]}
        {:step :handler}]
 
-      [{:step :coeffect :id :session} {:step :coeffect :id :session/now}]
-      {:where :cofx :failing-id :session/now}
-      [{:step :coeffect :id :session}
-       {:step :coeffect :id :session/now :violations [{:where :cofx :failing-id :session/now}]}]
-
       [{:step :side-effects :rows [{:fx-id :http/post} {:fx-id :db}]}]
       {:where :fx-args :failing-id :http/post}
       [{:step :side-effects

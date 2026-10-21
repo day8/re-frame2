@@ -2649,12 +2649,12 @@
 ;; Two trace operations carry violations:
 ;;
 ;;   :rf.error/schema-validation-failure — runtime per-event boundary
-;;     check (app-db / cofx / sub-return / fx-args). Tags:
-;;       :where       — `:app-db | :cofx | :sub-return | :fx-args | …`
+;;     check (event / app-db / machine-data / sub-return / fx-args). Tags:
+;;       :where       — `:event | :app-db | :machine-data | :sub-return | :fx-args | …`
 ;;       :path        — `[k k …]` (where applicable)
 ;;       :value       — failing value (already redacted to `:rf/redacted`
 ;;                       when slot was `:sensitive?`)
-;;       :failing-id  — the handler / cofx / sub / fx whose boundary
+;;       :failing-id  — the handler / sub / fx whose boundary
 ;;                       failed
 ;;       :rollback?   — true when app-db was rolled back
 ;;       :explain     — Malli explain data (optional)
@@ -2793,7 +2793,6 @@
 ;;   :where slot    | owning step
 ;;   ---------------|-----------------------------------------------
 ;;   :event         | DISPATCH (one step)
-;;   :cofx          | COEFFECT step matching :failing-id against :id
 ;;   :app-db        | SIDE EFFECTS step :db row (the handler db write)
 ;;   :fx-args       | SIDE EFFECTS step (row-level :fx-id match)
 ;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
@@ -2939,20 +2938,6 @@
             (if i
               (update s i attach-step-violation row)
               (attach-violation-to-handler s row)))
-
-          :cofx
-          (let [fid (:failing-id row)
-                i   (index-of #(and (= :coeffect (:step %))
-                                    (= fid (:id %))) s)]
-            (if i
-              (update s i attach-step-violation row)
-              ;; Fallback: attach to the FIRST COEFFECT step so the
-              ;; violation still surfaces (the operator at least
-              ;; sees it nested in the cofx region of the cascade
-              ;; rather than disappearing).
-              (if-let [j (index-of #(= :coeffect (:step %)) s)]
-                (update s j attach-step-violation row)
-                (attach-violation-to-handler s row))))
 
           :app-db
           ;; :where :app-db violations
