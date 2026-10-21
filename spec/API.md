@@ -180,7 +180,7 @@ The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
 | `clear` | Fn | `(clear kind id)` → `id`. The ONE registrar inverse. `kind` is the registrar kind set MINUS `:frame` (a live runtime object, torn down by `destroy-frame!`). No frame argument. See the note above. | v1 (preserved) | advanced | 001 |
-| `destroy-frame!` | Fn | `(destroy-frame! frame-id)` — the normative teardown boundary. A frame **value** target carries **exact-incarnation** authority (tears down only the incarnation it names — a stale value no-ops against a same-id successor), while a frame-**id** keyword is **address-directed** (tears down whatever incarnation is currently live), per [002 §Destroy](002-Frames.md#destroy). Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this call; flows release per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). | v1 | front-porch | 002 |
+| `destroy-frame!` | Fn | `(destroy-frame! frame-id)` — the normative teardown boundary. A frame **value** target carries **exact-incarnation** authority (tears down only the incarnation it names — a stale value no-ops against a same-id successor), while a frame-**id** keyword is **address-directed** (tears down whatever incarnation is currently live), per [002 §Destroy](002-Frames.md#destroy). Per-feature artefacts (flows, machines, schemas, SSR) and epoch hang their frame-scoped cleanup off this call; flows release per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). | v1 | front-porch | 002 |
 | `clear-sub-cache!` | Fn | `(clear-sub-cache! frame-id?)` | v1 (preserved) | advanced | 002 |
 
 ---

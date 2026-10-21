@@ -3,7 +3,7 @@
 
   Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention):
   each per-feature carve-out (`flows`, `routing`, `schemas`, `machines`,
-  `ssr`, `epoch`, `http`) ships its public-API in a sibling
+  `ssr`, `http`, `resources`) ships its public-API in a sibling
   `re-frame.core-<artefact>` namespace whose fns look the producing impl
   up through the late-bind hook registry at call time. Apps that omit
   the artefact see either a silent safe-default (nil / [] / false) or
