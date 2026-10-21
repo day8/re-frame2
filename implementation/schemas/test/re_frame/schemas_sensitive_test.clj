@@ -5,8 +5,10 @@
   When a registered schema declares a slot `:sensitive?`, a validation
   failure replaces every value-bearing tag (`:value`, `:received`,
   `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) with
-  `:rf/redacted`, scrubs value-bearing segments out of `:path`, and stamps
-  the event's top-level `:sensitive? true`. Structural tags ride unchanged.
+  `:rf/redacted`, redacts every app-db `:path` segment past the declared
+  `:map` keys, and stamps the event's top-level `:sensitive? true`. The
+  decision is schema-wide, so it covers an app-db failure's narrowed
+  `:value` too. Structural tags ride unchanged.
   A schema the walker cannot see into fails closed; a `:large?` slot elides
   to a size marker unless sensitivity already redacted it.
 
@@ -23,7 +25,6 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.schemas.validate :as rf.schemas.validate]
-            [re-frame.schemas.walker :as rf.schemas.walker]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
@@ -87,14 +88,6 @@
           schema [:map [:id [:= 7]] [:ssn {:sensitive? true} :string]]]
       (is (= {[:ssn] {:sensitive? true :source :schema}} (hook schema []))))))
 
-(deftest sanitize-sensitive-path-transparent-through-maybe
-  (testing ":maybe contributes no :in segment, so the map keys either side of
-            it stay navigable locators"
-    (is (= [:s :k]
-           (rf.schemas.walker/sanitize-sensitive-path
-             [:map [:s [:maybe [:map [:k {:sensitive? true} :string]]]]]
-             [:s :k])))))
-
 (deftest schema-has-opaque-child-predicate
   (testing "a bare fn or symbol is flag-free nested as a slot tail (its entry is
             where a flag would live) but fails closed used as the whole schema"
@@ -128,11 +121,10 @@
                                          :failing-id :where :large?])))
           (is (not (str/includes? (pr-str v) secret))))))))
 
-;; Malli's :in carries collection indices and keys the walker's index-free
-;; declaration paths do not, and some segments are VALUES rather than
-;; locators: a :set element, a sensitive :map-of key, a closed map's extra
-;; key, and anything past a wrapper whose branch the path cannot identify.
-;; Each value-bearing segment is the sentinel in :path; navigable ones survive.
+;; A sensitive failure's :path keeps the declared :map keys of Malli's :in and
+;; redacts every later segment: a :set element, a :map-of key and a closed
+;; map's extra key can be the caller's data, and an index or a branch tail sits
+;; where the schema cannot name what follows.
 
 ;; ---- the frame's elision registry ------------------------------------------
 ;;
@@ -219,65 +211,70 @@
               (:sensitive? trace)])
           ":value is the unclassified leaf; :explain is a size marker"))))
 
-(deftest app-db-validation-scrubs-value-bearing-path-segments
+(deftest app-db-validation-sensitive-path-keeps-declared-map-keys
   (testing "each sensitive failure shape redacts :value and :explain, stamps
-            :sensitive?, keeps navigable :path segments, scrubs value-bearing
-            ones, and leaks no secret anywhere in the trace"
+            :sensitive?, keeps the declared :map keys of :path, redacts every
+            later segment, and leaks no secret anywhere in the trace"
     (doseq [{:keys [desc path schema db expected-path secrets]}
-            [{:desc          ":vector element map — the index does not block the match"
+            [{:desc          ":maybe contributes no :in segment, so declared keys either side survive"
+              :path          [:root]
+              :schema        [:map [:s [:maybe [:map [:k {:sensitive? true} :string]]]]]
+              :db            {:root {:s {:k 99}}}
+              :expected-path [:root :s :k]}
+             {:desc          ":vector element map — the index ends the declared prefix"
               :path          [:items]
               :schema        [:vector [:map [:token {:sensitive? true} :string]]]
               :db            {:items [{:token "ok"} {:token 99}]}
-              :expected-path [:items 1 :token]}
-             {:desc          ":map-of value map — a plain map-of key stays a locator"
+              :expected-path [:items :rf/redacted :rf/redacted]}
+             {:desc          ":map-of value map — the key is data"
               :path          [:by-id]
               :schema        [:map-of :string [:map [:secret {:sensitive? true} :string]]]
               :db            {:by-id {"a" {:secret 99}}}
-              :expected-path [:by-id "a" :secret]}
+              :expected-path [:by-id :rf/redacted :rf/redacted]}
              {:desc          ":sequential element map, as :vector"
               :path          [:log]
               :schema        [:sequential [:map [:pw {:sensitive? true} :string]]]
               :db            {:log [{:pw 1}]}
-              :expected-path [:log 0 :pw]}
-             {:desc          "map -> vector -> map chain (mixed map-key and index segments)"
+              :expected-path [:log :rf/redacted :rf/redacted]}
+             {:desc          "map -> vector -> map chain keeps the declared key above the index"
               :path          [:accounts]
               :schema        [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
               :db            {:accounts {:items [{:tok 99}]}}
-              :expected-path [:accounts :items 0 :tok]}
+              :expected-path [:accounts :items :rf/redacted :rf/redacted]}
              {:desc          ":tuple sensitive element 0 fails"
               :path          [:point]
               :schema        [:tuple [:string {:sensitive? true}] :int]
               :db            {:point [99 7]}
-              :expected-path [:point 0]}
+              :expected-path [:point :rf/redacted]}
              {:desc          "a leaf under a sensitive ancestor wrapped in a single-child :and"
               :path          [:root]
               :schema        [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
               :db            {:root {:s {:k "SECRET-AND-9f3a"}}}
-              :expected-path [:root :s :k]
+              :expected-path [:root :s :rf/redacted]
               :secrets       ["SECRET-AND-9f3a"]}
              {:desc          ":set element map — the element segment carries the sibling :ssn"
               :path          [:members]
               :schema        [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
               :db            {:members #{{:token 123456789 :ssn "078-05-1120"}}}
-              :expected-path [:members :rf/redacted :token]
+              :expected-path [:members :rf/redacted :rf/redacted]
               :secrets       ["078-05-1120" "123456789"]}
              {:desc          ":map-of with a :sensitive? KEY schema"
               :path          [:by-token]
               :schema        [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
               :db            {:by-token {"secret-token-123" {:age "not-an-int"}}}
-              :expected-path [:by-token :rf/redacted :age]
+              :expected-path [:by-token :rf/redacted :rf/redacted]
               :secrets       ["secret-token-123"]}
              {:desc          ":map-of with a COMPILED :sensitive? KEY"
               :path          [:by-token]
               :schema        [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
               :db            {:by-token {"SECRET-KEY-XYZ" {:age "not-an-int"}}}
-              :expected-path [:by-token :rf/redacted :age]
+              :expected-path [:by-token :rf/redacted :rf/redacted]
               :secrets       ["SECRET-KEY-XYZ"]}
              {:desc          ":map-of whose KEY is a vector wrapper hiding a compiled schema"
               :path          [:by-token]
               :schema        [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
               :db            {:by-token {"NESTED-SECRET-ABC" {:age "not-an-int"}}}
-              :expected-path [:by-token :rf/redacted :age]
+              :expected-path [:by-token :rf/redacted :rf/redacted]
               :secrets       ["NESTED-SECRET-ABC"]}
              {:desc          "sensitive :map-of KEY in a later conjunct of a multi-child :and"
               :path          [:secrets]
@@ -287,7 +284,7 @@
               :db            {:secrets {"secret-token-xyz" {:age "not-an-int"}}}
               :expected-path [:secrets :rf/redacted :rf/redacted]
               :secrets       ["secret-token-xyz"]}
-             {:desc          ":set of sensitive scalars under an :orn — the element rides the fail-closed tail"
+             {:desc          ":set of sensitive scalars under an :orn — the element is data"
               :path          [:tokens]
               :schema        [:orn [:tokens [:set [:string {:sensitive? true}]]]]
               :db            {:tokens #{123456789}}
@@ -307,36 +304,38 @@
         (doseq [secret secrets]
           (is (not (str/includes? (pr-str v) secret)) (str desc " — " secret)))))))
 
-(deftest app-db-validation-collection-sibling-narrowed-value-verbatim-whole-explain-redacted
-  (testing "a failure at a NON-sensitive leaf beside a conforming sensitive
-            sibling: :value is narrowed to the leaf and rides verbatim, while
-            :explain carries the whole value and redacts; a :set element
-            segment carries the sibling too, so :path scrubs it"
-    (doseq [{:keys [desc path schema db expected-value expected-path secret]}
-            [{:desc           ":vector element"
-              :path           [:people]
-              :schema         [:vector [:map [:secret {:sensitive? true} :string] [:age :int]]]
-              :db             {:people [{:secret "SECRET-OK-9f3a" :age "no"}]}
-              :expected-value "no"
-              :expected-path  [:people 0 :age]
-              :secret         "SECRET-OK-9f3a"}
-             {:desc           ":tuple position"
-              :path           [:point]
-              :schema         [:tuple [:string {:sensitive? true}] :int]
-              :db             {:point ["SECRET-TUP-ok" "not-an-int"]}
-              :expected-value "not-an-int"
-              :expected-path  [:point 1]
-              :secret         "SECRET-TUP-ok"}
-             {:desc           ":set element"
-              :path           [:sessions]
-              :schema         [:set [:map [:uid :int] [:token {:sensitive? true} :string]]]
-              :db             {:sessions #{{:uid "not-an-int" :token "SECRET-TOKEN-A1"}}}
-              :expected-value "not-an-int"
-              :expected-path  [:sessions :rf/redacted :uid]
-              :secret         "SECRET-TOKEN-A1"}]]
+(deftest app-db-validation-non-sensitive-leaf-beside-sensitive-sibling-redacts
+  (testing "one rule for every slot: a failure at a NON-sensitive leaf beside a
+            conforming sensitive sibling redacts the narrowed :value as well as
+            :explain, and :path keeps only the declared :map keys"
+    (doseq [{:keys [desc path schema db expected-path secret]}
+            [{:desc          ":map sibling"
+              :path          [:user]
+              :schema        [:map [:secret {:sensitive? true} :string] [:age :int]]
+              :db            {:user {:secret "SECRET-SIB-4b1d" :age "not-an-int"}}
+              :expected-path [:user :age]
+              :secret        "SECRET-SIB-4b1d"}
+             {:desc          ":vector element"
+              :path          [:people]
+              :schema        [:vector [:map [:secret {:sensitive? true} :string] [:age :int]]]
+              :db            {:people [{:secret "SECRET-OK-9f3a" :age "no"}]}
+              :expected-path [:people :rf/redacted :rf/redacted]
+              :secret        "SECRET-OK-9f3a"}
+             {:desc          ":tuple position"
+              :path          [:point]
+              :schema        [:tuple [:string {:sensitive? true}] :int]
+              :db            {:point ["SECRET-TUP-ok" "not-an-int"]}
+              :expected-path [:point :rf/redacted]
+              :secret        "SECRET-TUP-ok"}
+             {:desc          ":set element"
+              :path          [:sessions]
+              :schema        [:set [:map [:uid :int] [:token {:sensitive? true} :string]]]
+              :db            {:sessions #{{:uid "not-an-int" :token "SECRET-TOKEN-A1"}}}
+              :expected-path [:sessions :rf/redacted :rf/redacted]
+              :secret        "SECRET-TOKEN-A1"}]]
       (let [v (app-db-failure-trace path schema db :sibling/bad)]
         (is (true? (:sensitive? v)) desc)
-        (is (= {:value expected-value :explain :rf/redacted :path expected-path}
+        (is (= {:value :rf/redacted :explain :rf/redacted :path expected-path}
                (select-keys (:tags v) [:value :explain :path]))
             desc)
         (is (not (str/includes? (pr-str v) secret)) desc)))))
@@ -378,8 +377,9 @@
         (is (not (str/includes? (pr-str v) secret)) desc)))))
 
 ;; A regex element consumes zero or many values, so a :cat input index is not
-;; its schema child index: the redaction decision fails closed on that node
-;; alone, and ordinary failures elsewhere keep their value.
+;; its schema child index. The redaction decision is schema-wide, so a sequence
+;; of any width redacts when the schema marks anything sensitive, and one
+;; declaring nothing sensitive keeps its value.
 
 (def ^:private seq-secret "SEQ-WIDTH-SECRET-gwye11")
 
@@ -401,14 +401,14 @@
             :schema   [:cat [:* :int] [:map [:name :string]]]
             :value    [{:name 5}]
             :expected {:name 5}}
-           {:desc     "a fixed-width :cat keeps sibling precision"
+           {:desc     "a fixed-width :cat failing beside a sensitive element"
             :schema   [:cat :int seq-sensitive-map]
             :value    ["not-an-int" {:token 1}]
-            :expected "not-an-int"}
-           {:desc     "a slot outside a variable-width sequence stays precise"
+            :expected :rf/redacted}
+           {:desc     "a slot outside a variable-width sequence holding a sensitive element"
             :schema   [:map [:seq [:cat [:* :int] seq-sensitive-map]] [:label :string]]
             :value    {:seq [{:token 1}] :label 42}
-            :expected 42}]]
+            :expected :rf/redacted}]]
     (let [v (app-db-failure-trace [:items] schema {:items value} :items/bad)]
       (is (= expected (-> v :tags :value)) desc)
       (when (= :rf/redacted expected)
@@ -551,10 +551,9 @@
     (is (contains? (-> v :tags :value) :rf.size/large-elided))
     (is (not (str/includes? (pr-str v) blob)))))
 
-(deftest app-db-validation-large-leaf-beside-sensitive-sibling-elides
-  (testing "a sensitive sibling elsewhere in the schema redacts the whole-value
-            :explain but does not switch the size arm off for the narrowed
-            :value, whose marker describes the leaf"
+(deftest app-db-validation-large-leaf-beside-sensitive-sibling-redacts
+  (testing "sensitive wins over large for every slot: a large leaf beside a
+            sensitive sibling redacts, with no size marker and no :large? stamp"
     (let [blob (apply str "BLOB-SENTINEL-" (repeat 500 "L"))
           v    (app-db-failure-trace [:doc]
                                      [:map
@@ -562,9 +561,9 @@
                                       [:pdf {:large? true} :int]]
                                      {:doc {:token "TOKEN-OK-7c1e" :pdf blob}}
                                      :doc/bad)]
-      (is (= {:path [:doc :pdf] :explain :rf/redacted :large? true}
-             (select-keys (:tags v) [:path :explain :large?])))
-      (is (= :string (-> v :tags :value :rf.size/large-elided :type)))
+      (is (true? (:sensitive? v)))
+      (is (= {:path [:doc :pdf] :value :rf/redacted :explain :rf/redacted}
+             (select-keys (:tags v) [:path :value :explain :large?])))
       (is (not (str/includes? (pr-str v) blob)))
       (is (not (str/includes? (pr-str v) "TOKEN-OK-7c1e"))))))
 

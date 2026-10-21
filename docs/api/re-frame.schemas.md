@@ -304,7 +304,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id frame-id db-before runtime-db-after) → boolean
   ```
 - **Description**: Validates the handler's proposed `app-db` before installation, against every schema the frame resolves whose path the proposed `app-db` has. A path it lacks is skipped in every arity, and a present `nil` is checked. A schema the frame's images do not select is ignored.
-    - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
+    - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. When any slot in the schema is `:sensitive?`, or the walker cannot fully inspect it, every value-bearing slot is redacted — `:value` (the failing leaf) as well as `:explain` and `:explain-humanized` (the whole registered value) — and `:path` keeps only the leading keys the schema declares on a `:map`, with `:rf/redacted` in place of every later segment.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
     - `db-before` (optional, and what the runtime passes) is the `app-db` the candidate replaces. A schema whose slice the candidate leaves `identical?` to it is skipped, since the commit does not write that slice. A parent path is still checked when a write lands beneath it, and `[]` whenever the db changed.
@@ -414,18 +414,6 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
   (schema-has-large? schema) → boolean
   ```
 - **Description**: Returns `true` when any slot is `:large? true`; the `:large?` counterpart of `schema-has-sensitive?`. When it is `true`, the validation trace carries the `:rf.size/large-elided` marker in place of the value-bearing slots. A slot that is both sensitive and large is treated as sensitive.
-
-#### `schema-sensitive-at?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (schema-sensitive-at? schema in-path) → boolean
-  ```
-- **Description**: Returns `true` when the slot at `in-path` is sensitive: either a slot along the path is `:sensitive?` (the failing slot sits inside a sensitive container), or a slot inside it is (its value holds a sensitive child).
-    - `in-path` is the value-relative path Malli reports as `:in`. A `nil` or empty `in-path` is equivalent to `(or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))`.
-    - It fails closed: an opaque child the walker reaches, or cannot align past, counts as sensitive.
-    - The `app-db` validation path uses it to redact the narrowed `:value` slot of a failure, so a non-sensitive failing leaf whose sibling is sensitive is not over-redacted.
 
 #### `schema-opaque?`
 

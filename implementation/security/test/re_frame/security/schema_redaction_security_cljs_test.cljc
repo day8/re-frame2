@@ -74,7 +74,7 @@
             {sentinel {:age [sentinel]}})]
     (is (= [true :rf/redacted :rf/redacted false] (stamp-redaction-and-leak v))
         (pr-str (:tags v)))
-    (is (= [:root :rf/redacted :age] (-> v :tags :path)))))
+    (is (= [:root :rf/redacted :rf/redacted] (-> v :tags :path)))))
 
 ;; Generated leaves are sensitive themselves; these unmarked leaves rely on the ancestor.
 (deftest ancestor-sensitive-wrapper-corpus-all-redacted
