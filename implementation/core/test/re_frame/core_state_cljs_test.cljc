@@ -9,6 +9,8 @@
             [re-frame.core :as rf]
             [re-frame.core-state :as rf.core-state]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.events :as rf.events]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -99,6 +101,56 @@
     (testing "a concern registered with no options at all defaults to nil"
       (rf/reg-state ::no-opts)
       (is (nil? (read* f [::no-opts :x]))))))
+
+;; ---------------------------------------------------------------------------
+;; A frame with explicit :images — the concern belongs to its caller's image
+;; ---------------------------------------------------------------------------
+
+(defn- imaged-frame!
+  "A frame whose one image selects exactly the namespaces `include`."
+  [id include]
+  (rf/make-frame {:id id :images [(rf/image {:id (keyword "core-state.img" (name id))
+                                             :select-ns {:include include}})]})
+  id)
+
+(defn- resolves? [frame-id kind id]
+  (some? (rf/handler-meta {:frame frame-id :kind kind :id id})))
+
+(defn- reg-from-other-app!
+  "An event registered from namespace `core-state.other-app`, recorded the way
+  that namespace's `reg-*` macro would record it."
+  []
+  (binding [rf.source-coords/*pending-coords* {:ns   'core-state.other-app
+                                               :file "core_state/other_app.cljc"
+                                               :line 1}]
+    (rf.events/reg-event :core-state.other-app/boot (fn [_ _] {}))))
+
+(deftest an-explicit-image-selecting-the-caller-resolves-its-concern
+  (testing "a concern registered here belongs to this namespace, so an image
+           that selects this namespace carries its sub and setter beside the
+           namespace's other registrations, and the shared clear resolves from
+           the framework base"
+    (rf/reg-event ::boot (fn [_ _] {}))
+    (rf/reg-state ::open? {:default false})
+    (let [f (imaged-frame! ::imaged ["re-frame.core-state-cljs-test"])]
+      (is (= [true true true]
+             [(resolves? f :sub ::open?) (resolves? f :event ::open?)
+              (resolves? f :event :rf.state/clear)]))
+      (is (= false (read* f [::open? :billing])) "unwritten reads the default")
+      (send! f [::open? :billing true])
+      (is (= true (read* f [::open? :billing])))
+      (send! f [:rf.state/clear ::open? :billing])
+      (is (= false (read* f [::open? :billing])) "cleared back to the default"))))
+
+(deftest an-explicit-image-not-selecting-the-caller-still-resolves-clear
+  (testing "the clear event is the framework's, whichever namespace registered
+           a concern, so it resolves where the concern does not"
+    (reg-from-other-app!)
+    (rf/reg-state ::open? {:default false})
+    (let [f (imaged-frame! ::elsewhere ["core-state.other-app"])]
+      (is (= [false false true]
+             [(resolves? f :sub ::open?) (resolves? f :event ::open?)
+              (resolves? f :event :rf.state/clear)])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Clear — a framework-named EVENT, and a removal
