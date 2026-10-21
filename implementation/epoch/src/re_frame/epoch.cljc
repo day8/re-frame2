@@ -269,7 +269,7 @@
         ;; Record + last-settled anchor publish as one transaction under the
         ;; epoch stores' owner lock; the trailers follow only a publish.
         (when (rf.epoch.state/commit-frame-owner-record! frame-id owner-token record)
-          (rf.epoch.assembly/emit-snapshotted+outcome!
+          (rf.epoch.assembly/emit-snapshotted!
             frame-id (:epoch-id record) (:event-id record) outcome)
           (rf.epoch.listeners/notify-listeners! record)
           record)))))

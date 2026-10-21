@@ -88,8 +88,7 @@
       (fn [ev]
         (when (and (= id (get-in ev [:tags :frame]))
                    (contains? #{:rf.frame/drain-interrupted
-                                :rf.epoch/snapshotted
-                                :rf.epoch/outcome}
+                                :rf.epoch/snapshotted}
                               (:operation ev)))
           (swap! traces conj ev))))
     (try
@@ -126,14 +125,14 @@
             ;; report and one :halted-destroy record, all published before B
             ;; existed. B's history, buffer and ring hold only B's own event.
             (let [by-op        (group-by :operation a-facts)
-                  outcomes     #(mapv (fn [ev] (get-in ev [:tags :outcome])) (get by-op %))
+                  snapshotted  #(mapv (fn [ev] (get-in ev [:tags %])) (get by-op :rf.epoch/snapshotted))
                   dispatch-ids #(into #{} (keep (fn [ev] (get-in ev [:tags :rf.trace/dispatch-id]))) %)
                   b-ring       (rf/trace-buffer id {:flat true})]
               (is (= [[1] [:ok :ok :halted-destroy] [:ok :ok :blocked]]
                      [(mapv #(get-in % [:tags :dropped-count])
                             (get by-op :rf.frame/drain-interrupted))
-                      (outcomes :rf.epoch/snapshotted)
-                      (outcomes :rf.epoch/outcome)]))
+                      (snapshotted :outcome)
+                      (snapshotted :summary)]))
               (is (= [[:destroy/reservation-b] true true #{}]
                      [(mapv :event-id (rf.epoch/epoch-history id))
                       (empty? (rf.epoch.state/buffer-for id))

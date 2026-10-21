@@ -39,8 +39,6 @@
 (def skip-ops
   #{;; Event-settle emit, after harvest emptied the buffer.
     :rf.epoch/snapshotted
-    ;; Consumer-facing outcome emitted beside `:rf.epoch/snapshotted`.
-    :rf.epoch/outcome
     ;; restore-epoch! success + the six documented failure modes.
     :rf.epoch/restored
     :rf.epoch/restore-unknown-epoch

@@ -375,10 +375,10 @@
     ;; same-id incarnation; consumers treat it as HISTORICAL for A (Tool-Pair
     ;; late-record consumer rule).
     (when-let [record (:record terminal-evidence)]
-      ;; Same detailed/coarse trailer pair as normal commits, delivered
+      ;; Same trailer as normal commits, delivered
       ;; structurally: it arrives after A's ring was released, so no ring or
       ;; capture buffer may retain it under the dead id.
       (rf.trace/call-with-structural-delivery
-        #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                                     (:event-id record) :halted-destroy))
+        #(rf.epoch.assembly/emit-snapshotted! frame-id (:epoch-id record)
+                                              (:event-id record) :halted-destroy))
       (deliver-listener-snapshot! record (:listener-snapshot terminal-evidence)))))
