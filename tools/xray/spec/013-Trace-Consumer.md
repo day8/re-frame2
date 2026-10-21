@@ -612,24 +612,24 @@ machines / timers:
 
 ### "What is still running?" and the stale-races view
 
-Both questions are answered from the **work ledger joined to reply
+Both questions are answered from the **attempt records joined to reply
 status + trace cause, uniformly across families** — never per-family:
 
-- **`live-work`** reads the live (non-terminal) work-ledger rows
-  (`:rf.runtime/work-ledger`, the durable substrate — Managed-Effects
-  §Work-ledger integration) and joins each to the **latest
+- **`live-work`** reads the live (non-terminal) attempts (each entry's
+  and mutation instance's `:work`, the durable substrate — Managed-Effects
+  §Attempt records) and joins each to the **latest
   reply-envelope trace phase** for its `:work/id`, so the operator sees
   "the app is waiting on resource K (issued), HTTP req-5
   (cancel-requested), …" with one query. The join keys on the canonical
-  `:work/id` **vector** carried on the ledger RECORD (`ledger-row` reads
-  `(:work/id record)`, falling back to the map key only for legacy /
-  nonconforming records) — the production `:rf.runtime/work-ledger` map is
-  keyed on the opaque CEDN-1 byte `work-id-id` STRING, so reading the record
-  field (not the map key) is what lets a live row join to the vector-keyed
-  trace rows and infer `:work-kind` from the kind-preserving head.
+  `:work/id` **vector** carried on the attempt RECORD (`ledger-row` reads
+  `(:work/id record)`, falling back to the map key only for nonconforming
+  records) — the gathered map's key leads with the owner's byte id, so
+  reading the record field (not the map key) is what lets a live row join to
+  the vector-keyed trace rows and infer `:work-kind` from the kind-preserving
+  head.
 - **The stale-races view keys on `:work/id`** (Managed-Effects
   §Work-id correlation — `:work/id` is the *single* attempt identity,
-  the key the ledger, stale suppression, and this view all share).
+  the key the attempt record, stale suppression, and this view all share).
   `races-by-work-id` groups every cross-family work/reply row by work id
   into an attempt arc (`:phases`, `:terminal-status`, `:suppressed?`);
   `stale-suppressions` + `stale-tally-by-kind` surface the

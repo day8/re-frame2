@@ -534,7 +534,7 @@ The framework registers a few `:rf/*` events that you dispatch like any other. R
 - **Description**: Installs saved frame state, for app-authored persistence. [`frame-state-value`](#frame-state-value) reads the state to save. A present `:rf.db/app` replaces `app-db`; a present `:rf.db/runtime` replaces each `runtime-db` subtree it carries and keeps the rest; an absent partition is left alone.
     - When the payload carries `:rf.runtime/machines` and the machines artefact is loaded, the restored machines' `:after` timers are re-armed after the commit.
     - The whole payload is classified `:sensitive`, so traces and egress records show `:rf/redacted` in its place.
-    - A non-map payload, a present non-map partition, or a resource runtime subtree (`:rf.runtime/resources`, `:rf.runtime/work-ledger`, `:rf.runtime/mutations`) throws; the router reports it as `:rf.error/handler-exception` and nothing is installed.
+    - A non-map payload, a present non-map partition, or a resource runtime subtree (`:rf.runtime/resources`, `:rf.runtime/mutations`) throws; the router reports it as `:rf.error/handler-exception` and nothing is installed.
 - **Example**:
   ```clojure
   ;; at boot, re-install a value saved earlier from (rf/frame-state-value :rf/default)

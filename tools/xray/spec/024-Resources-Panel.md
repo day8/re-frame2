@@ -8,7 +8,7 @@ is it stale?" lens.
 
 > **Owning framework spec.** [`spec/016-Resources.md`](../../../spec/016-Resources.md)
 > is the normative source for *what a resource IS* (identity, scope
-> policy, status FSM, owners vs causes, the work ledger, invalidation,
+> policy, status FSM, owners vs causes, in-flight attempts, invalidation,
 > GC, SSR/restore). This doc is the Xray-side consumer contract: the
 > panel sections, the `:rf.xray/*` registry surface, the `:rf.resource/*`
 > trace family Xray colours/filters, and the
@@ -22,8 +22,8 @@ is it stale?" lens.
 > a refetch storm and I cannot see WHY. Which route owns this read? Is it
 > stale or just fetching? Did the last background refresh fail? Is this
 > cache growing without bound? Is a `/me` read accidentally global?"
-> **Insight Xray provides:** the resource cache, the in-flight work
-> ledger, the route/resource ownership graph, the lifecycle timeline, the
+> **Insight Xray provides:** the resource cache, its in-flight
+> attempts, the route/resource ownership graph, the lifecycle timeline, the
 > invalidation graph, the cache-growth view, and the scope audit — all as
 > data, all summarized (never raw), all read-only.
 
@@ -33,7 +33,7 @@ Two distinct facts that must not be conflated:
 
 - **The Resources PANEL (this doc, 024) reads the runtime/registry data
   decoupled** — it does NOT `:require` `re-frame.resources.*`; it reads
-  the static registry, the live runtime-db cache/ledger slice, and the
+  the static registry, the live runtime-db cache and mutation slices, and the
   trace family through the spine seams the way the Routing tab reads the
   route slice and the Machine Inspector reads machine snapshots. An app
   that omits the Resources artefact still sees the panel render its
@@ -74,7 +74,9 @@ machine snapshots:
   slice at `[:rf.runtime/resources :entries]` (EP-0001 — the resource
   cache is framework-owned runtime-db state, never app-db), sourced from
   `:rf.xray/target-frame-runtime-db`;
-- the **live per-frame work ledger** from `[:rf.runtime/work-ledger]`;
+- the **live per-frame attempts**, gathered from each entry's and each
+  mutation instance's `:work` and `:recent-work` (`frame-work`, which
+  stamps each attempt with its owner's key);
 - the **trace stream** (`:rf.resource/*` rows) from
   `:rf.xray/trace-buffer`.
 
@@ -196,10 +198,11 @@ Two elision layers compose:
    carries the RESOLVER id, not a resource-id, so a resource-id-keyed set
    cannot decide them and gating that surface on it would be dead code.
 
-   The **work-ledger** rows (§3) take the same gate. They are runtime-db
-   state, but no per-instance declaration is lowered under the work
-   ledger, so the instance gate has nothing to match there either, and a
-   work record names its resource-id in its scoped key. A **work id** needs
+   The **attempt** rows (§3) take the same gate. They are runtime-db
+   state, but no per-instance declaration is lowered under an entry's
+   `:work` or `:recent-work`, so the instance gate has nothing to match
+   there either, and each gathered attempt names its resource-id in its
+   owner's scoped key. A **work id** needs
    no gate: a resource work id `[:rf.work/resource <resource-id>
    <generation>]` names its attempt without its scope or params, and a
    mutation work id `[:rf.work/resource [:rf.mutation <instance-id>]
@@ -289,10 +292,10 @@ stacked sections:
    the distinguishing durable fact is the in-flight work record's
    **`:page-index`** (a positive tail index = a load-more APPEND), surfaced
    on the §3 work-ledger row, where the panel reads it.
-3. **Work ledger** (per frame) — per work record: work id (the single
-   attempt identity — one durable `:work/id` per record, no separate
-   stale-suppression synonym; Spec 016 §Ledger row retention), kind, linked
-   resource key, generation, status (+ terminal flag), owners, causes
+3. **Work ledger** (per frame) — the panel's name for its attempts table; per attempt: work id (the single
+   attempt identity — one durable `:work/id` per attempt, no separate
+   stale-suppression synonym; Spec 016 §Attempt identity), kind, owner
+   key, generation, status (+ terminal flag), owners, causes
    (summarized), cancellable?, deadline, attempt, transport, **`:page-index`**
    (EP-0021 — an infinite-feed work record's page index: `0` for a page-0
    first-load / whole-feed refetch, a positive tail index for a load-more
@@ -300,13 +303,13 @@ stacked sections:
    `:fetching-next?` derived sub; `nil` for a non-infinite record),
    outcome. **Raw host handles** (AbortControllers, timeout handles,
    promises) are structurally inaccessible — they live in side tables
-   outside durable frame-state. Non-terminal (live) rows lead; the
-   terminal recent-races tail trails dimmed.
+   outside durable frame-state. Non-terminal (live) rows lead; each
+   owner's terminal tail (its last three settled attempts) trails dimmed.
 3a. **What is still running?** (EP-0011 live-work) — the cross-family
    **uniform** reply-envelope read (NOT resource-private; see §Uniform
-   reply-envelope reads below): the live (non-terminal) work-ledger rows
+   reply-envelope reads below): the live (non-terminal) attempts
    joined to their latest reply-envelope trace **phase + emitting op** per
-   `:work/id`, each row carrying work-kind, ledger status, the joined
+   `:work/id`, each row carrying work-kind, attempt status, the joined
    latest phase/op, attempt, owner count, and the work id, which is also
    the row's key and join key.
    Below the rows, the **per-kind suppression tally** headline (the
@@ -328,7 +331,7 @@ stacked sections:
    `:when` fns are recorded as declared without being invoked, and its
    `:scope` — a declared override (a concrete value or a `{:from-db <id>}`
    reference; never a function, rf2-kuky.83) — is read verbatim. The graph is **live, not just static** (rf2-m5u3gt): it joins
-   the static route plan against the live instance rows, work ledger, and
+   the static route plan against the live instance rows, attempts, and
    routing slice — each resource node carries a `:live` freshness rollup
    (`:fresh` / `:stale` / `:loading` / `:error` / `:idle` / `:none`, plus
    the active work count) over its cache entries — `:error` is tested
@@ -543,7 +546,7 @@ reserved-namespace fallback — recognised as a family member, classed
 | `:rf.resource/owner-attached` | lifecycle | `events.cljc` (ensure — a new owner lands) |
 | `:rf.resource/cache-hit` | dedupe | `events.cljc` (ensure — fresh-skip cache serve) |
 | `:rf.resource/deduped` | dedupe | `events.cljc` (ensure — join in-flight work) |
-| `:rf.resource/work-started` | lifecycle | `events.cljc` (work-LEDGER row created — the transport request started; carries `:status :running` + `:superseded`) |
+| `:rf.resource/work-started` | lifecycle | `events.cljc` (attempt started — the transport request started; carries `:status :running` + `:superseded`) |
 | `:rf.resource/fetch-started` | lifecycle | `events.cljc` (the cache ENTRY transitioned — carries the entry's `:status`, `:fetching` first-load or stale-revalidate; emitted alongside `work-started` on the same start) |
 | `:rf.resource/work-abort-requested` | lifecycle | `events.cljc` (abort/cancel of in-flight work) |
 | `:rf.resource/work-completed` | success | `events.cljc` (work row settled terminal) |
@@ -576,7 +579,7 @@ reserved-namespace fallback — recognised as a family member, classed
 | `:rf.resource/restore-clock-skew` | hydration | `ssr.cljc` (`:warning` — restore stale-at skew) |
 
 `:rf.resource/stale-suppressed` is the single suppression op (entry +
-ledger stale/superseded-reply suppression); an earlier draft also named
+attempt stale/superseded-reply suppression); an earlier draft also named
 `:rf.resource/work-suppressed`, now folded into it (the runtime never
 emitted a distinct work-suppressed row). It carries the canonical
 reply-envelope vocabulary ADDITIVELY (rf2-mn4j89) — `:rf.reply/status
@@ -677,7 +680,7 @@ The key-axis filter helpers that served those accessors went too
 `select-raw-entries`, `filter-work-rows` and `filter-history-rows` were
 deleted once no source caller remained. **The panel selects nothing** —
 `project-instances` projects the WHOLE `:entries` map of the observed
-frame, `project-work-ledger` the whole ledger, and the operator narrows
+frame, `project-work-ledger` every attempt `frame-work` gathers, and the operator narrows
 by reading the rendered table. So the by-presence axis semantics those
 helpers carried (rf2-7iw0bw — an OMITTED axis a wildcard, an explicit
 **nil** an EXACT match against a nil-valued key part) govern nothing in
@@ -693,9 +696,9 @@ key only for a legacy entry that lacks it) — never off the byte map-key,
 which carries none of the three. The byte map-key is not discarded: it is
 threaded to the egress fn as the entry's `key-id`, which is what lets
 each payload slot re-root at its absolute runtime-db coordinate.
-Symmetrically, the work-ledger projection reads each
-row's kind-preserving `:work/id` vector from the record, not its byte
-`work-id-id` map-key.
+Symmetrically, the attempt projection reads each row's kind-preserving
+`:work/id` vector from the record, not its map key, which leads with the
+owner's byte id.
 
 ## `:rf.xray/*` registry surface
 
@@ -716,7 +719,7 @@ override input layered on top; see §Events below.
 | `:rf.xray/registered-resources` | `:rf.xray/trace-buffer` | `(rf/registrations {:kind :resource})` — the static registry map. |
 | `:rf.xray/registered-scope-resolvers` | `:rf.xray/trace-buffer` | `(rf/registrations {:kind :resource-scope})` — the static named-scope-resolver registry map (rf2-hls77w, EP-0016 D3). |
 | `:rf.xray/resource-entries` | `:rf.xray/target-frame-runtime-db` | the live cache entries map at `[:rf.runtime/resources :entries]`. |
-| `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
+| `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the frame's attempts, gathered by `frame-work` from each entry's and mutation instance's `:work` and `:recent-work`. |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db` | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
 | `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + `:rf.xray/observed-frame` (rf2-9zix0u — the frame whose `:sensitive` / `:large` classification governs the on-box payload egress; already an upstream dep transitively, named directly so the entries project under THEIR frame). The route registry is NOT an input: it is read inside the computation via `(rf/registrations {:kind :route})` | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
@@ -744,7 +747,7 @@ carried+current) the SAME way for **every** managed-async family, via
 [`panels/reply_envelope.cljc`](../src/day8/re_frame2_xray/panels/reply_envelope.cljc).
 They are **rendered** by §3a ("What is still running?") and §3b ("Stale
 races") above — silent-by-default so a settled app surfaces neither.
-"What is still running?" is the live (non-terminal) work-ledger rows
+"What is still running?" is the live (non-terminal) attempts
 joined to the latest reply-envelope trace phase per `:work/id`; the
 stale-races view groups every cross-family work/reply row by `:work/id`.
 All three read the trace buffer restricted to the **observed frame's** rows
@@ -754,16 +757,15 @@ carries no frame identity, so an unscoped join could label one
 frame's running work with another frame's outcome. The
 scope is by frame only; the reads stay cross-family.
 The live-work join keys on the canonical `:work/id` **vector** carried on
-the ledger record (`reply_envelope/ledger-row` reads `(:work/id record)`,
-falling back to the opaque CEDN-1 byte map key only for legacy records),
-so a live ledger row correctly joins to the vector-keyed reply-envelope
-trace rows. A `:stale-suppressed` row preserves the canonical EP-0011
+the attempt record (`reply_envelope/ledger-row` reads `(:work/id record)`,
+falling back to the map key only for a record that lacks it), so a live
+attempt correctly joins to the vector-keyed reply-envelope trace rows. A `:stale-suppressed` row preserves the canonical EP-0011
 `:status :stale` + `:status-class :suppression` read off the unambiguous
-`:rf.reply/status` (never misreading a bare ledger `:status`), the same
+`:rf.reply/status` (never misreading a bare attempt `:status`), the same
 cross-surface badge contract a `:completed` row renders.
-The resource family is the only ledger writer today, so the rows are all
-`:work/kind :resource` (and `:mutation`) for now; as HTTP / route /
-machine / timer families write their own ledger rows and emit their
+The resource family is the only one keeping attempt records today, so the
+rows are all `:work/kind :resource` (and `:mutation`) for now; as HTTP /
+route / machine / timer families keep their own and emit their
 reply-envelope trace ops, these surfaces pick them up with no panel
 change. The mutation phase ops are explicitly classified onto the
 reply-envelope phases (EP-0016 D1): `:rf.mutation/started` → `:issued`,
@@ -789,8 +791,8 @@ single-source-of-truth guarded by `panel_enum_guard_cljs_test.cljs`).
 ## Cross-references
 
 - [`spec/016-Resources.md`](../../../spec/016-Resources.md) — the owning
-  framework contract (§Xray and AI tooling, §Status semantics, §Frame
-  work ledger, §Scope resolution, §Active owners and causes,
+  framework contract (§Xray and AI tooling, §Status semantics, §In-flight
+  attempts, §Scope resolution, §Active owners and causes,
   §Invalidation, §Route integration).
 - [`007-UX-IA.md`](./007-UX-IA.md) §Mountable surface inventory — the
   panel's tier-1 L3-tab row + mount fn.

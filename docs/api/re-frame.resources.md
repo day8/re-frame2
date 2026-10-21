@@ -114,7 +114,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 - `:stale-after-ms` — how long a loaded entry stays fresh, in milliseconds. Absent means it never goes stale by time alone; invalidation can still mark it stale. `0` means it is stale as soon as it loads. Any value other than a non-negative number, `nil` included, raises `:rf.error/resource-bad-spec` at registration.
 - `:gc-after-ms` — how long an entry with no owner and no load in flight stays cached. The GC check's timer is armed when a load settles and armed again, for the full interval, when the last owner is released; when it fires on an entry that is still loading, it re-arms for another interval, and on an entry that is still owned it arms nothing, because the release arms it. So an idle entry is removed this long after its last owner is released, or after its load settles if nothing ever owned it, and a re-attach inside that window reuses it. Absent defaults to `300000` (5 minutes); `:never` keeps it. Otherwise it must be a positive number of milliseconds; `nil`, `0` or any other value raises `:rf.error/resource-bad-spec`.
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling). A value that is neither a number nor `nil` raises `:rf.error/resource-bad-spec`.
-- `:timeout-ms` — stamps each fetch's work-ledger record with `:deadline-at`, its `:started-at` plus this many milliseconds, which Xray's Resources panel shows. It is recorded, not enforced: nothing cancels a fetch at its deadline. Bound the request itself with the `:timeout-ms` of the managed-HTTP args your request fn returns.
+- `:timeout-ms` — stamps each fetch's attempt with `:deadline-at`, its `:started-at` plus this many milliseconds, which Xray's Resources panel shows. It is recorded, not enforced: nothing cancels a fetch at its deadline. Bound the request itself with the `:timeout-ms` of the managed-HTTP args your request fn returns.
 - `:tags` — `(fn [params data] → #{tag …})`, the tags that [`invalidate-tags`](#rfresourceinvalidate-tags-) and mutations match.
 - `:infinite`, plus the infinite-only keys `:next-page-param`, `:page->items`, `:initial-page-param` and `:refetch`. See [Infinite resources](#infinite-resources). `:infinite` takes only the literal `true`; any other value raises `:rf.error/resource-bad-spec`. There is no `:page-data-schema`; supplying one raises the same error.
 - `:sensitive?` / `:large?` — classify the whole entry. The SSR hydration payload withholds such an entry entirely, so neither its data nor its scope and params ride, and the client loads it again if its route still needs it. Off-box trace and epoch exports replace its params with opaque tokens, as they replace every resource's non-global scope. The same properties on a schema affect only how validation failures are redacted.
@@ -623,7 +623,7 @@ The cell below prints the whole view-model for two keys, before and after an `en
 
 - **Kind**: event
 - **Payload**: `{:instance …}` to clear one instance, or `{:mutation …}` to clear every instance of a mutation id
-- **Description**: Resets mutation runtime state. It clears the addressed rows, aborts their in-flight work where possible and drops their work-ledger rows; the `:rf.mutation/cleared` trace names the aborted work. A pending optimistic apply is rolled back first: each touched entry is restored to its snapshot, marked stale and refetched if it has an owner, and `:rf.mutation/optimistic-rolled-back` is traced. A payload with neither key clears nothing. To remove the registration instead, call `(rf/clear :mutation mutation-id)`.
+- **Description**: Resets mutation runtime state. It clears the addressed rows, aborts their in-flight work where possible and drops their attempts with them; the `:rf.mutation/cleared` trace names the aborted work. A pending optimistic apply is rolled back first: each touched entry is restored to its snapshot, marked stale and refetched if it has an owner, and `:rf.mutation/optimistic-rolled-back` is traced. A payload with neither key clears nothing. To remove the registration instead, call `(rf/clear :mutation mutation-id)`.
 - **Example**:
   ```clojure
   ;; reset one runtime instance's row (e.g. in a completion continuation)
@@ -772,12 +772,11 @@ A feed's `:tags` fn receives the whole page vector as `data`. For a resource tha
 Resource and mutation runtime state lives in the runtime-db partition (`:rf.db/runtime`), not in `app-db`:
 
 - the resource cache, only at `:rf.runtime/resources`
-- the frame work ledger, at `:rf.runtime/work-ledger`
 - mutation instance rows, at `:rf.runtime/mutations`
 
-All three are reserved runtime-db keys: framework-owned, isolated per frame and allocated lazily. App code reads them through the subscriptions and the functions below and never edits them by hand.
+Both are reserved runtime-db keys: framework-owned, isolated per frame and allocated lazily. App code reads them through the subscriptions and the functions below and never edits them by hand.
 
-Cache entries (durable facts) and work-ledger attempts (in-flight records) are kept separately. Host handles (AbortControllers, timers, promises) live in side tables and are never serialized. Cancellation is best-effort; stale-reply suppression by work id and generation always applies. See [The cache you don't own](../resources/concepts.md#the-cache-you-dont-own) in the guide.
+Each cache entry and mutation instance carries its own in-flight attempt and a short tail of settled ones. Host handles (AbortControllers, timers, promises) live in side tables and are never serialized. Cancellation is best-effort; stale-reply suppression by work id and generation always applies. See [The cache you don't own](../resources/concepts.md#the-cache-you-dont-own) in the guide.
 
 ## Errors
 
@@ -929,7 +928,7 @@ Both subtrees are allocated lazily: `:rf.runtime/resources` is absent until the 
 
 ### Xray
 
-Xray's Resources panel shows the same shapes, plus the route/resource graph, the work-ledger table and the scope audit, a standing list of every `:rf.scope/global` resource. Its projections prefer summaries to raw values, and params and scopes get the same privacy and size elision as data. Xray has no read-only resource accessors (no `list-resources` / `get-resource-state` family); an out-of-process reader uses `re-frame2-pair` against the framework's registry, runtime-db and trace surfaces.
+Xray's Resources panel shows the same shapes, plus the route/resource graph, the attempts table and the scope audit, a standing list of every `:rf.scope/global` resource. Its projections prefer summaries to raw values, and params and scopes get the same privacy and size elision as data. Xray has no read-only resource accessors (no `list-resources` / `get-resource-state` family); an out-of-process reader uses `re-frame2-pair` against the framework's registry, runtime-db and trace surfaces.
 
 ### Internal events and trace ops
 

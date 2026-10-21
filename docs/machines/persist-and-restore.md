@@ -74,7 +74,7 @@ timers are automatically re-armed, each with its full delay.
   are yours. `frame-state-value` returns actual values; trace redaction does
   not sanitize what this `save!` writes. Select or remove fields as needed.
   Leave the resource runtime (`:rf.runtime/resources`,
-  `:rf.runtime/work-ledger`, `:rf.runtime/mutations`) out: the install refuses
+  `:rf.runtime/mutations`) out: the install refuses
   it, because a resource cache is not persisted. Resources refetch.
 - **Versioning and migration.** A saved snapshot whose `:state` a later deploy
   removed restarts from `:initial` on its first event, with

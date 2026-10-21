@@ -584,7 +584,7 @@ artifact (see 024's dependency boundary).
 | `:rf.xray/registered-scope-resolvers-override` | Test override slot. |
 | `:rf.xray/resource-entries` | The live cache entries map from the target frame's runtime-db at `[:rf.runtime/resources :entries]`. Test override. |
 | `:rf.xray/resource-entries-override` | Test override slot. |
-| `:rf.xray/resource-work-ledger` | The live work-ledger map at `[:rf.runtime/work-ledger]`. Test override. |
+| `:rf.xray/resource-work-ledger` | The frame's attempts, gathered from each entry's and mutation instance's `:work` and `:recent-work`. Test override. |
 | `:rf.xray/resource-work-ledger-override` | Test override slot. |
 | `:rf.xray/resource-routing-slice` | The live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. Test override. |
 | `:rf.xray/resource-routing-slice-override` | Test override slot. |
