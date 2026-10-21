@@ -36,9 +36,9 @@
   `#?(:cljs ...)` reader conditional) and on CLJS it requires ONLY the
   host-facing `day8.re-frame2-xray.core/focus!` façade — never an Xray
   panel-view ns. So the Story bundle carries the focus channel, not Xray's
-  panel internals (bundle-isolation: `tools/story → tools/xray` is fine, but
-  it must be the host-facing seam, not panel interiors — see the
-  bundle-isolation gate).
+  panel internals (`tools/story → tools/xray` is fine under the
+  bundle-isolation contract, but it must be the host-facing seam, not panel
+  interiors).
 
   ## Evidence strength (spec/020 §3 — label honestly)
 

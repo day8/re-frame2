@@ -4,8 +4,8 @@
   opt-in through `register-substrate!` from the consuming app, so no Story
   source may `:require` a `uix.core` / `uix.dom` namespace — a host app
   embedding Story does not get UIx on its classpath. Keyword references to
-  `:uix` are fine. `implementation/scripts/check-bundle-isolation.cjs` guards
-  the output side; this guards the input side."
+  `:uix` are fine. This guards the input side, the requires; no gate
+  builds a Story-embedding bundle to check the output side."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
