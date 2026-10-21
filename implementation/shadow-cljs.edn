@@ -236,8 +236,7 @@
                 ;; :rf.reply/work-id / canonical-stale shape) and
                 ;; the egress projection (`trace-summary`) that keeps
                 ;; classified and large reply slots off the wire. Core owns
-                ;; the `project-egress` profiles, and core and its timer probe
-                ;; own the reply-target functor laws. The tests sit ABOVE several
+                ;; the `project-egress` profiles. The tests sit ABOVE several
                 ;; artefacts (core, http, resources, machines, routing), so
                 ;; — like security/ — they live in their own top-level
                 ;; reply-conformance/ surface; the cross-artefact node-test
