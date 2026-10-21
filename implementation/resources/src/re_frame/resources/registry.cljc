@@ -493,23 +493,26 @@
 
 (defn validate+canonicalize-params
   "The canonical params for `resource-id`, validated against its
-  `:params-schema`; throws `:rf.error/resource-invalid-params` (with redacted
-  params) on a conformance failure. An explicit nil is passed to the schema,
-  not defaulted, so `{:params nil}` and an omitted `:params` stay distinct
-  identities. The pipeline is shared with mutations in
-  `re-frame.resources.params`. Spec 016 §Resource identity."
+  `:params-schema`; throws `:rf.error/resource-invalid-params` on a failure,
+  carrying the slots `re-frame.resources.params` builds from the seam's
+  diagnosis (`:reason :malformed-schema` when the schema itself is broken).
+  An explicit nil is passed to the schema, not defaulted, so `{:params nil}`
+  and an omitted `:params` stay distinct identities. The pipeline is shared
+  with mutations. Spec 016 §Resource identity."
   [resource-id spec params where]
   (rf.resources.params/validate+canonicalize
     resource-id spec params where
-    (fn [redacted-params redacted-error]
+    (fn [slots]
       (registration-error
         :rf.error/resource-invalid-params
         where
-        (str "resource " resource-id " params do not conform to "
-             ":params-schema. Per Spec 016 §Resource identity.")
-        {:resource-id resource-id
-         :params      redacted-params
-         :error       redacted-error}))))
+        (if (= :malformed-schema (:reason slots))
+          (str "resource " resource-id "'s :params-schema is malformed: the "
+               "validator threw, so its params could not be checked. "
+               "Per Spec 010 §Per-step recovery.")
+          (str "resource " resource-id " params do not conform to "
+               ":params-schema. Per Spec 016 §Resource identity."))
+        (assoc slots :resource-id resource-id)))))
 
 ;; ---- scope resolution -----------------------------------------------------
 ;; Scope is the cache's leak boundary, so neither path ever falls through to
