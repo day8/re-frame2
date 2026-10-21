@@ -81,8 +81,9 @@
             #(seq (ops traces :rf.error/http-reply-tail-failed))
             {:timeout-ms 3000
              :label "cljs completion-fence :rf.error/http-reply-tail-failed surfaced"})
-          ;; A poll timeout must still reach the fetch-count assertion below.
-          (.catch (fn [_] nil))
+          ;; A poll timeout fails as itself, then still reaches the fetch-count
+          ;; assertion below.
+          (.catch (fn [e] (is false (.-message e)) nil))
           (.then (fn [_] (js/Promise. (fn [resolve _] (js/setTimeout resolve 200)))))
           (.then (fn [_]
                    (is (empty? (ops traces :rf.http/replied))
