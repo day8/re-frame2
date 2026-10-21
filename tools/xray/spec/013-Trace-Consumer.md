@@ -506,8 +506,8 @@ envelope](../../../spec/Managed-Effects.md) (EP-0011): a single **reply
 map** carrying one closed `:status`, value/error data, `:rf.reply/work-id`
 work correlation, `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`,
 `:rf.frame/id`, the durable timestamps, and the cancellation/staleness facts
-(the reply map single-roots the work identity under `:rf.reply/*` post-l7s7b7;
-the durable work-ledger row keeps the bare `:work/id` cross-record spelling).
+(the reply map single-roots the work identity under `:rf.reply/*`;
+the durable attempt record keeps the bare `:work/id` cross-record spelling).
 Property 9
 / §Tracing require each family to emit its trace rows **from those
 reply-envelope facts, not from private callback facts**.
@@ -606,7 +606,7 @@ machines / timers:
   unified `STALE` rendering). A `:stale-suppressed` row preserves the
   canonical EP-0011 `:status :stale` + `:status-class :suppression` read off
   the **unambiguous `:rf.reply/status`** (NEVER the bare `:status`, which on
-  a suppression row may carry the LEDGER status `:completed`/`:failed`/
+  a suppression row may carry the attempt's work status `:completed`/`:failed`/
   `:suppressed`) — so a suppression row renders the SAME status/badge
   contract a `:completed` row does, not just the `:stale?` phase flag.
 
@@ -637,9 +637,9 @@ status + trace cause, uniformly across families** — never per-family:
 
 The resources composite (`:rf.xray/resources-tab-data`) carries the
 uniform reads (`:live-work` / `:stale-races` / `:stale-tally`) alongside
-the resource-specific surfaces. The resource family is the only ledger
-writer today; as HTTP / route / machine / timer families write their own
-ledger rows and emit their reply-envelope trace ops, these surfaces pick
+the resource-specific surfaces. The resources artefact is the only family
+keeping attempt records today; as HTTP / route / machine / timer families
+keep their own and emit their reply-envelope trace ops, these surfaces pick
 them up with **no panel change** — one vocabulary, many families.
 
 ### What consumers MAY rely on
