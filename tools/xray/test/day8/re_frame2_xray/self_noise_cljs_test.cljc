@@ -5,6 +5,7 @@
   `collect-trace!` end-to-end."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
+            [day8.re-frame2-xray.filters.matcher :as matcher]
             [day8.re-frame2-xray.self-noise :as self-noise]
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
@@ -50,3 +51,17 @@
   (let [buffer [(dispatched-event 1 100 [:counter/inc]          :below)
                 (dispatched-event 2 101 [:rf.xray/select-tab :a] :rf/default)]]
     (is (= [[:counter/inc]] (mapv :event (self-noise/filtered-event-bundles buffer))))))
+
+(deftest an-unattributed-run-trace-survives-the-view-scope
+  (testing "a run's trace with no frame tag, whose dispatch id ran in two
+            frames, groups into a bundle whose :frame is nil rather than one
+            filed under :rf/default; the view scope treats a frameless bundle
+            as frame-agnostic, so the operator still sees it"
+    (let [bundles (self-noise/filtered-event-bundles
+                    [(dispatched-event 1 7 [:cart/add] :cart-frame)
+                     (dispatched-event 2 7 [:checkout/go] :checkout-frame)
+                     {:id 3 :op-type :error :operation :rf.error/handler-exception
+                      :tags {:rf.trace/dispatch-id 7 :event-id :cart/add}}])]
+      (is (= [[:cart-frame 7] [nil 7]]
+             (mapv (juxt :frame :dispatch-id)
+                   (matcher/filter-event-bundles-by-view-scope bundles :cart-frame)))))))

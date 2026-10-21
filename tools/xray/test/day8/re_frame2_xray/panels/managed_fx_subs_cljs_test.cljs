@@ -59,14 +59,16 @@
 
 (defn- cascade-evs-two-managed-fx
   "One cascade carrying TWO managed-fx invocations: the composite map has THREE
-  entries, so a renderer handed the map instead of the vector cannot answer 2."
+  entries, so a renderer handed the map instead of the vector cannot answer 2.
+  Each trace carries the `:frame` tag every in-run trace carries."
   [dispatch-id id-base]
   [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
-    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v [:user/load]}}
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default :rf.event/v [:user/load]}}
    {:id (+ id-base 2) :op-type :rf.fx :operation :rf.fx/do-fx
-    :tags {:rf.trace/dispatch-id dispatch-id}}
+    :tags {:rf.trace/dispatch-id dispatch-id :frame :rf/default}}
    {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/handled
     :tags {:rf.trace/dispatch-id dispatch-id
+           :frame :rf/default
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/1"}
                         :request-id :req-a
@@ -74,6 +76,7 @@
                         :on-failure nil}}}
    {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
     :tags {:rf.trace/dispatch-id dispatch-id
+           :frame :rf/default
            :rf.fx/id :rf.http/managed
            :rf.fx/args {:request    {:method :get :url "/api/users/2"}
                         :request-id :req-b
