@@ -55,7 +55,7 @@ not require testing React:
 
 ```clojure
 (let [handler (:handler-fn
-                (rf/handler-meta {:source :store :kind :event :id :counter/inc}))]
+                (rf/handler-meta {:kind :event :id :counter/inc}))]
   (= {:db {:count 6}} (handler {:db {:count 5}} [:counter/inc])))
 ;; => true
 

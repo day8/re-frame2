@@ -51,7 +51,7 @@
   (rf/dispatch-sync [:tlf4if/seed 7])
   (rf/dispatch-sync [:tlf4if/probed [:rf.machine/start]])
   (rf/dispatch-sync [:tlf4if/probed [:go]])
-  (let [source (fn [kind id] (:rf.handler/source (rf/handler-meta {:source :store :kind kind :id id})))
+  (let [source (fn [kind id] (:rf.handler/source (rf/handler-meta {:kind kind :id id})))
         state  (rf/frame-state-value :rf/default)]
     (is (every? string? [(source :event :tlf4if/seed)
                          (source :machine-guard [:tlf4if/probed :ready?])

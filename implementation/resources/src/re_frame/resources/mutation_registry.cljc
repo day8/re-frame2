@@ -237,8 +237,8 @@
 
 ;; ---- registry-side introspection -----------------------------------------
 ;; Artefact-internal, like `resource-meta`. Outside callers use
-;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
-;;   (keys (rf/registrations {:source :store :kind :mutation}))
+;;   (:rf/mutation (rf/handler-meta {:kind :mutation :id id}))
+;;   (keys (rf/registrations {:kind :mutation}))
 
 (defn mutation-meta
   "The registered spec map for `mutation-id`, or nil. Source coords sit on

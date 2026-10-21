@@ -46,7 +46,7 @@
 ;; There is no `resource-meta` wrapper. Reading a resource's registered
 ;; spec needs no artefact at all — it is the generic registrar read plus the
 ;; documented `:rf/resource` inner-key projection:
-;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;;   (:rf/resource (rf/handler-meta {:kind :resource :id id}))
 
 ;; ---- Mutations (EP-0003 §Mutations) ---------------------------------------
 
@@ -80,7 +80,7 @@
   ([mutation-id] :delegate))
 
 ;; There is no `mutation-meta` wrapper —
-;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
+;;   (:rf/mutation (rf/handler-meta {:kind :mutation :id id}))
 
 ;; ---- Named resource-scope resolvers (EP-0016 D3) --------------------------
 

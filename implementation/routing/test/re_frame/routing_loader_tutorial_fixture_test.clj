@@ -22,7 +22,7 @@
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (defn- article-meta []
-  (rf/handler-meta {:source :store :kind :route :id :app/article}))
+  (rf/handler-meta {:kind :route :id :app/article}))
 
 ;; ---- (1) reg-route is full replacement — Step 7 keeps the loader -------------
 

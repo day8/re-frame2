@@ -2,9 +2,9 @@
   "The facade's frame-generation reads: `{:frame f ...}` queries on
   `rf/registrations` / `rf/handler-meta` resolve through the target frame's OWN
   sealed image generation, and `rf/frame-generation` returns that generation.
-  `:frame` takes a frame id or a frame value. An unresolvable frame, and a query
-  naming no source or both, fail loud. The `{:source :store ...}` form is pinned
-  in `registrar-query-source-cljs-test`.
+  `:frame` takes a frame id or a frame value. An unresolvable frame, a query
+  carrying a key outside the grammar, and a non-map argument fail loud. The
+  `{:kind k}` store read is pinned in `registrar-query-source-cljs-test`.
 
   Frames resolve against explicit synthetic descriptor pools (`make-frame`'s
   2-arity), so nothing here depends on the live source store."
@@ -117,21 +117,39 @@
           (err-id #(rf/frame-generation :nope/missing))
           (err-id #(rf/registrations {:frame {:totally :fake} :kind :event}))])))
 
-(deftest query-naming-no-single-source-fails-loud
-  ;; a read names exactly one source: neither and both are errors, and
-  ;; :source admits only :store
+(defn- refusal
+  "The `[:rf.error/id :reason <slot>]` of a refused registrar query, or nil."
+  [slot thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         ((juxt :rf.error/id :reason slot) (ex-data e)))))
+
+(deftest a-key-outside-the-grammar-fails-loud
+  ;; :kind, :frame and handler-meta's :id are the whole grammar. A misspelled
+  ;; :frame would otherwise read the store without a word, so every other key
+  ;; is refused, and the ex-data names it.
   (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (is (= [:rf.error/registrar-query-needs-source
-          :rf.error/registrar-query-needs-source
-          :rf.error/registrar-query-needs-source
-          :rf.error/registrar-query-needs-source]
-         [(err-id #(rf/handler-meta {:kind :event :id :ff/inc}))
-          (err-id #(rf/registrations {:source :store :frame :nope/missing :kind :event}))
-          (err-id #(rf/registrations {:source :registrar :kind :event}))
-          (err-id #(rf/registrations {:source nil :kind :event}))])))
+  (let [unknown (partial refusal :unknown-keys)
+        bad     [:rf.error/registrar-query-invalid :unknown-key]]
+    (is (= [(conj bad [:source])
+            (conj bad [:source])
+            (conj bad [:source])
+            (conj bad [:fram])
+            (conj bad [:fram])
+            (conj bad [:id])]
+           [(unknown #(rf/registrations {:source :store :kind :event}))
+            (unknown #(rf/handler-meta {:source :store :kind :event :id :ff/inc}))
+            (unknown #(rf/ambiguous-registrations {:source :store :kind :event}))
+            (unknown #(rf/registrations {:fram :nope/missing :kind :event}))
+            (unknown #(rf/handler-meta {:fram :nope/missing :kind :event :id :ff/inc}))
+            (unknown #(rf/registrations {:kind :event :id :ff/inc}))]))))
 
 (deftest non-map-argument-fails-loud
   ;; a leftover positional call gets the catalogued error, not a host error
   ;; from inside the query parse
-  (is (= :rf.error/registrar-query-needs-source (err-id #(rf/handler-meta :event))))
-  (is (= :rf.error/registrar-query-needs-source (err-id #(rf/registrations :event)))))
+  (is (= [[:rf.error/registrar-query-invalid :not-a-map :event]
+          [:rf.error/registrar-query-invalid :not-a-map :event]
+          [:rf.error/registrar-query-invalid :not-a-map nil]]
+         [(refusal :received #(rf/handler-meta :event))
+          (refusal :received #(rf/registrations :event))
+          (refusal :received #(rf/ambiguous-registrations nil))])))

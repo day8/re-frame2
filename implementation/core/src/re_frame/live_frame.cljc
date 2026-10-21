@@ -328,8 +328,8 @@
 
 (defn live-view
   "Build the resolver a frame made without `:images` resolves through for one
-  cascade — the value `rf.registrar/*live-view*` is bound to, and the view the
-  `{:source :store}` registrar queries answer from. It closes over ONE
+  cascade — the value `rf.registrar/*live-view*` is bound to, and the view a
+  registrar query without `:frame` answers from. It closes over ONE
   snapshot of the registration table and the framework standards:
 
     (view kind id) — the descriptor `[kind id]` resolves to, nil when nothing

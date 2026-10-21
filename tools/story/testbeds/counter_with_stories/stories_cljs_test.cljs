@@ -66,8 +66,7 @@
 
 (deftest recorder-redaction-sensitive-handler-registered-self-contained
   (is (= [[:password]]
-         (:sensitive (rf/handler-meta {:source :store
-                                      :kind :event
+         (:sensitive (rf/handler-meta {:kind :event
                                       :id :counter/sign-in})))))
 
 (deftest recorder-redaction-variant-runs-self-contained

@@ -17,7 +17,7 @@
 ;; + `:rf/machine` projection (Spec 005 §Querying machines). nil unless the
 ;; `:event` registration carries `:rf/machine? true`.
 (defn- machine-spec [machine-id]
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+  (:rf/machine (rf/handler-meta {:kind :event :id machine-id})))
 
 ;; Read a co-located reference-site `:source-coords` off the MAP node
 ;; (state-node / transition map) at `spec-path` in the registered spec.

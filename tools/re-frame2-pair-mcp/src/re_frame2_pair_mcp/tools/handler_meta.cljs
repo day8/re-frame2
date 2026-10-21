@@ -27,7 +27,7 @@
 
   ## handler-meta
 
-  Returns `(rf/handler-meta {:source :store :kind kind :id id})` for the requested
+  Returns `(rf/handler-meta {:kind kind :id id})` for the requested
   `(kind, id)` pair — the registration-metadata map carrying the flat
   top-level source-coord keys `:ns` / `:line` / `:column` / `:file`
   (per Spec-Schemas `:rf/source-coord-meta` — merged flat onto
@@ -186,7 +186,7 @@
   out. `re-frame.registrar/kinds` RESERVES the slot, but nothing is ever
   written to it: frames live in `rf/frame-ids` / `rf/frame-meta`. Querying
   it is LOUD at the framework —
-  `(rf/registrations {:source :store :kind :frame})` throws
+  `(rf/registrations {:kind :frame})` throws
   `:rf.error/registrar-kind-not-queryable`, whose message names the real
   door. The preload's kind-agnostic `registrar-list` /
   `registrar-describe` do not catch, so were this set to carry it, a

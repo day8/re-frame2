@@ -70,7 +70,7 @@
   (transient walk over an in-memory map) so the cost lives in the
   downstream fuzzy pass.
 
-  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  Read via `rf/registrations` without `:frame` (the SOURCE-STORE read, which never
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray/palette-index` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
@@ -82,7 +82,7 @@
     (->> kinds
          (mapcat
            (fn [kind]
-             (->> (rf/registrations {:source :store :kind kind})
+             (->> (rf/registrations {:kind kind})
                   (map (fn [[id meta]]
                          {:id   id
                           :kind kind

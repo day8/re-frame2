@@ -64,8 +64,8 @@
 (def ^:private alias-entries
   "The registrar entries `rf.fresco/defview` published at namespace load,
   captured before any fixture clears them; `reset-all!` folds them back."
-  {card-id  (rf/handler-meta {:source :store :kind :view :id card-id})
-   panel-id (rf/handler-meta {:source :store :kind :view :id panel-id})})
+  {card-id  (rf/handler-meta {:kind :view :id card-id})
+   panel-id (rf/handler-meta {:kind :view :id panel-id})})
 
 ;; ---- the recipe under test -------------------------------------------------
 

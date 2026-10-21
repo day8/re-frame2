@@ -134,7 +134,7 @@
 (def ^:private deaf-route
   "W2's DEAF CONTROL, and its deafness is structural rather than lucky.
   `:rf.xray/resources-tab-data` reads the route registry INSIDE its own
-  handler body — `(rf/registrations {:source :store :kind :route})` — and
+  handler body — `(rf/registrations {:kind :route})` — and
   that read is NOT one of its declared `:inputs`. So registering a route
   moves what the composite WOULD compute while invalidating nothing it
   watches, which is precisely the shape W2 needs.
@@ -366,7 +366,7 @@
                                   {:path      "/deaf"
                                    :resources [{:resource :aaa/one :blocking? true}]})
           (is (contains? (rf/with-frame :rf/xray
-                           (rf/registrations {:source :store :kind :route}))
+                           (rf/registrations {:kind :route}))
                          deaf-route)
               "PRECONDITION: the read's UNDERLYING data now carries the route
                — so a missing row below is the panel failing to re-render,

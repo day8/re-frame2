@@ -21,7 +21,7 @@
   ## Read-only — Xray MUST NOT become an owner by observing
 
   Spec 016 §Active owners and causes: opening this panel pins NOTHING.
-  Every section is a pure read of `(rf/registrations {:source :store :kind …})` + the runtime-db
+  Every section is a pure read of `(rf/registrations {:kind …})` + the runtime-db
   cache/ledger slices + the trace buffer. The panel dispatches no
   `:rf.resource/ensure`, attaches no owner, refetches nothing, and
   extends no GC. (A future explicit 'pin this resource' debug action
@@ -44,7 +44,7 @@
   `:require`s `re-frame.resources.tooling`.
   `tools/xray/spec/024-Resources-Panel.md` §Decoupling keeps the two
   apart; do not collapse them. The panel reads
-  decoupled: the static registry via `(rf/registrations {:source :store :kind :resource})`, the
+  decoupled: the static registry via `(rf/registrations {:kind :resource})`, the
   live cache/ledger from the runtime-db partition slice the spine already
   publishes (`:rf.xray/target-frame-runtime-db`), and the trace family
   from `:rf.xray/trace-buffer`. Identical posture to the Routing tab
@@ -254,7 +254,7 @@
 
 ;; ---- §1b NAMED SCOPE RESOLVERS (EP-0016 D3) -----------------------------
 ;;
-;; The static `(rf/registrations {:source :store :kind :resource-scope})` registry: each named
+;; The static `(rf/registrations {:kind :resource-scope})` registry: each named
 ;; resolver's id + its DECLARED inputs (the `[:db path]` sources that decide a
 ;; resource identity, paths summarized) + the whole-db-sugar cost flag. Per
 ;; Spec 016 §Named resource-scope resolvers. The LIVE per-resolution input
@@ -1338,17 +1338,17 @@
 ;; not duplicated across production and test surfaces.
 
 ;; Host-registry reads (`:resource` / `:resource-scope` / `:route`) go through
-;; `{:source :store …}` (the SOURCE-STORE read, which never consults a
+;; a query without `:frame` (the SOURCE-STORE read, which never consults a
 ;; bound image generation), NOT `{:frame …}`: these run inside the Resources subs' COMPUTATION, and
 ;; Xray seats in its OWN image-loaded `:rf/xray` frame, so the sub build binds
 ;; the registrar to Xray's image generation — a bare read would resolve through
 ;; Xray's OWN image (no host `:resource*` ids) and lose the host registry. See
 ;; spec/API.md §Public registrar query API.
 (defn- registered-resources-value []
-  (rf/registrations {:source :store :kind :resource}))
+  (rf/registrations {:kind :resource}))
 
 (defn- registered-scope-resolvers-value []
-  (rf/registrations {:source :store :kind :resource-scope}))
+  (rf/registrations {:kind :resource-scope}))
 
 (defn- resource-entries-value [target-runtime-db]
   (when (map? target-runtime-db)
@@ -1404,7 +1404,7 @@
 
   Registers (all under the `:rf.xray/*` isolation prefix):
 
-    - `:rf.xray/registered-resources` — `(rf/registrations {:source :store :kind :resource})`
+    - `:rf.xray/registered-resources` — `(rf/registrations {:kind :resource})`
       (process-global, frame-agnostic; the static registry). Test
       override via `:registered-resources-override`.
     - `:rf.xray/resource-entries` — the live cache entries map from the
@@ -1487,7 +1487,7 @@
     (fn [[registrations entries ledger trace-buffer routing-slice
           scope-resolvers observed-frame] _]
       (let [now-ms        (.now js/Date)
-            routes-map    (rf/registrations {:source :store :kind :route})
+            routes-map    (rf/registrations {:kind :route})
             registry-rows (h/project-registry registrations routes-map)
             ;; The ON-BOX gate for the TRACE-BORNE sections. The §2 instance
             ;; rows route their payload slots through the observed frame's

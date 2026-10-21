@@ -24,7 +24,7 @@
    :after  (fn [] (rf.registrar/clear-kind! :resource))})
 
 (defn- stored [id]
-  (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id})))
+  (:rf/resource (rf/handler-meta {:kind :resource :id id})))
 
 (deftest reg-resource-registers-under-resource-kind
   (rf.resources/reg-resource :test/article (valid-spec) valid-request)

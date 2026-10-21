@@ -87,7 +87,7 @@
            ;; pending coords — so the relative reader `:file` clobbers the
            ;; absolutised value bound into `*pending-coords*` (see
            ;; `coord-form` below), shipping a relative `:file` into
-           ;; `(rf/handler-meta {:source :store :kind :view :id id})` and breaking Xray / IDE
+           ;; `(rf/handler-meta {:kind :view :id id})` and breaking Xray / IDE
            ;; open-in-editor for views. The `reg-event-*` path never hits
            ;; this because it splices args verbatim and contributes no
            ;; symbol-position meta as user-meta — its public `:file` is the

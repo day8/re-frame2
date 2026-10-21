@@ -326,7 +326,7 @@
   Source-coord shape: `{:file :line :column :ns}` per
   `re-frame.source-coords`. Xray receives source-coords on the trace
   events it buffers (`:source-coord` slot) and on the registry's
-  `(rf/handler-meta {:source :store :kind kind :id id})` reads."
+  `(rf/handler-meta {:kind kind :id id})` reads."
   [source-coord]
   (when-let [uri (resolve-uri source-coord)]
     (let [editor (config/get-editor)]

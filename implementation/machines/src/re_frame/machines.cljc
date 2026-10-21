@@ -165,11 +165,11 @@
 ;;
 ;;   ;; every registered machine-id
 ;;   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-;;               (rf/registrations {:source :store :kind :event})))
+;;               (rf/registrations {:kind :event})))
 ;;
 ;;   ;; ONE machine's registered SPEC — nil unless that registration
 ;;   ;; carries `:rf/machine? true`
-;;   (:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))
+;;   (:rf/machine (rf/handler-meta {:kind :event :id id}))
 ;;
 ;; Both inner-key projections are DOCUMENTED contracts (Spec 005 §Querying
 ;; machines, spec/API.md §Public registrar query API), not helpers.

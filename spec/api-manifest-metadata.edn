@@ -1511,8 +1511,8 @@
   ;; There are no `route-ids` / `route-meta` static-registry
   ;; accessors (nor any sibling `<kind>-ids` /
   ;; `<kind>-meta` pair). Routing introspection is the generic registrar
-  ;; grammar — `(keys (rf/registrations {:source :store :kind :route}))` and
-  ;; `(rf/handler-meta {:source :store :kind :route :id id})` — so there is
+  ;; grammar — `(keys (rf/registrations {:kind :route}))` and
+  ;; `(rf/handler-meta {:kind :route :id id})` — so there is
   ;; no row here to carry.
   ;; The two shipped frame-level `:url-strategy` maps —
   ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
@@ -1598,7 +1598,7 @@
   ;;       the facade, so they are that here.
   ;;   (b) There are no per-kind `<kind>-ids` / `<kind>-meta`
   ;;       accessors here — enumeration is
-  ;;       `(keys (rf/registrations {:source :store :kind k}))` and a
+  ;;       `(keys (rf/registrations {:kind k}))` and a
   ;;       registered spec is the documented inner-key projection off
   ;;       `rf/handler-meta` (`:rf/resource`, `:rf/mutation`,
   ;;       `:rf/resource-scope`). `resource-meta` / `mutation-meta` exist

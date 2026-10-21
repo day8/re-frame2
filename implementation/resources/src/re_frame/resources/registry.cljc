@@ -466,7 +466,7 @@
 
 ;; ---- registry-side introspection -----------------------------------------
 ;; Artefact-internal: outside callers spell this
-;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;;   (:rf/resource (rf/handler-meta {:kind :resource :id id}))
 
 (defn resource-meta
   "The registered spec map for `resource-id`, or nil. Source coords live on

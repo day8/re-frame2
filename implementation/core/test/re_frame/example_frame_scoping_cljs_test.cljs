@@ -38,7 +38,7 @@
 ;; Read at this ns's load, right after the requires above ran the examples'
 ;; registrations, before any fixture or later suite can move the table.
 (def ^:private example-schema-provenance-at-load
-  (let [registered (rf/registrations {:source :store :kind :app-schema})]
+  (let [registered (rf/registrations {:kind :app-schema})]
     (into {}
           (map (fn [[ns-name path]]
                  [ns-name (:rf.provenance/ns (get registered path))]))
@@ -51,8 +51,7 @@
 
 (deftest a-schema-registers-with-no-frame-in-scope
   (is (= [:regression/bare] (rf/reg-app-schema [:regression/bare] [:map])))
-  (is (= [:map] (:schema (rf/handler-meta {:source :store
-                                           :kind   :app-schema
+  (is (= [:map] (:schema (rf/handler-meta {:kind   :app-schema
                                            :id     [:regression/bare]})))))
 
 ;; A durable id must be folded from a recordable cofx, never minted at the

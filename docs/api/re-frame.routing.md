@@ -557,10 +557,10 @@ a string, and a non-integer id is flagged `:validation-failed?`.
 There is no `route-ids` or `route-meta` function. Use the generic registrar queries, [`registrations`](re-frame.core.md#registrations) and [`handler-meta`](re-frame.core.md#handler-meta):
 
 ```clojure
-(keys (rf/registrations {:source :store :kind :route}))
+(keys (rf/registrations {:kind :route}))
 ;; => (:route/cart :user/show)
 
-(rf/handler-meta {:source :store :kind :route :id :route/cart})
+(rf/handler-meta {:kind :route :id :route/cart})
 ;; => the registered metadata map, or nil
 ```
 

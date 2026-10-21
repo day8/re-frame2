@@ -49,9 +49,9 @@
                {:inputs [[:cart :items]] :output-path [:cart :subtotal]}
                (fn [items] (reduce + (map :price items))))))))
   (testing "the registrar queries return it"
-    (is (= [:cart/subtotal] (keys (rf/registrations {:source :store :kind :flow}))))
+    (is (= [:cart/subtotal] (keys (rf/registrations {:kind :flow}))))
     (is (= {:id :cart/subtotal :inputs [[:cart :items]] :output-path [:cart :subtotal]}
-           (select-keys (rf/handler-meta {:source :store :kind :flow :id :cart/subtotal})
+           (select-keys (rf/handler-meta {:kind :flow :id :cart/subtotal})
                         [:id :inputs :output-path])))))
 
 ;; ---- activation ------------------------------------------------------------
@@ -159,7 +159,7 @@
   (with-ops
     (fn [ops]
       (rf/clear :flow :cart/total)
-      (is (= {} (select-keys (rf/registrations {:source :store :kind :flow}) [:cart/total])))
+      (is (= {} (select-keys (rf/registrations {:kind :flow}) [:cart/total])))
       (rf/dispatch-sync [:cart/touch] {:frame :t/f})
       (is (= {:subtotal 9700} (dissoc (:cart (rf/app-db-value :t/f)) :items)))
       (is (= 1 (count (filter #{:rf.warning/unregistered-flow} @ops)))

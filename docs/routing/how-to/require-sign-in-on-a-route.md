@@ -333,7 +333,7 @@ Reduce each to one `{:id <route-id> :params <map>}` target, or `nil`, and decide
      (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                        (rf/compute-sub [:rf/route]
                                                        (get-in ctx [:coeffects :rf.db/runtime])))]
-       (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
+       (let [route-meta  (rf/handler-meta {:kind :route :id id})
              needs-auth? (contains? (:tags route-meta) :requires-auth)
              signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]
          (if (and needs-auth? (not signed-in?))

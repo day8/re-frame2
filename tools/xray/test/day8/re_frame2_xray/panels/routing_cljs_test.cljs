@@ -142,7 +142,7 @@
 (defn- real-route-entry
   "`route-id`'s registrar entry exactly as the registrar holds it."
   [route-id]
-  (select-keys (rf/registrations {:source :store :kind :route}) [route-id]))
+  (select-keys (rf/registrations {:kind :route}) [route-id]))
 
 ;; ---- (2) three sections render (always-visible base layer) --------------
 

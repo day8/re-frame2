@@ -76,9 +76,10 @@ This Spec inherits the constraints and goals from 000 and adds three frame-speci
 A *frame-scoped operation* is any API that reads, writes, clears, registers,
 projects, or dispatches against frame-local state — app-db, runtime-db, the
 subscription cache, route, machine, HTTP, SSR, trace, epoch, mark, or elision
-state. (Process-global registrar enumeration — `frame-ids`, `frame-meta`,
-`registrations` — is **frame-neutral**: it does not invent a current frame and is
-not routed through this resolver.)
+state. (Process-global registrar enumeration — `frame-ids`, `frame-meta`, and a
+registrar query without `:frame` — is **frame-neutral**: it does not invent a
+current frame, consults no bound frame view, and is not routed through this
+resolver.)
 
 **Absence is the corollary error.** A causal token that carries no frame stamp, in
 no established scope, cannot be honoured. The operation fails with
@@ -2732,7 +2733,7 @@ An image built over these namespaces (via `:select-ns`, or by listing them as in
 `handler-meta` for an event exposes its authored interceptor **refs** (not resolved values):
 
 ```clojure
-(rf/handler-meta {:source :store :kind :event :id :cart/add})
+(rf/handler-meta {:kind :event :id :cart/add})
 ;; => {:interceptors [:auth/required [:rf.interceptor/path [:cart]]] ...}
 ```
 
@@ -2795,11 +2796,11 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/registrations {:source :store :kind kind})` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:interceptor` (every `reg-interceptor` handler — per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md)), `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are the registrar kind `:app-schema`, keyed by canonical path (per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)): this read lists every registered path, and `schemas/app-schemas {:frame f}` / `schemas/app-schema-meta {:frame f :path p}` read the set one frame resolves. | Yes |
+| `(rf/registrations {:kind kind})` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:interceptor` (every `reg-interceptor` handler — per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md)), `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are the registrar kind `:app-schema`, keyed by canonical path (per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)): this read lists every registered path, and `schemas/app-schemas {:frame f}` / `schemas/app-schema-meta {:frame f :path p}` read the set one frame resolves. | Yes |
 | `(rf/registrations {:frame f :kind kind})` | Same, resolved through live frame `f`'s own view — the ids its sealed image generation carries, or, for a frame made without `:images`, the ids it can run from the live store (an ambiguous id is not one of them). | Yes |
-| `(rf/handler-meta {:source :store :kind kind :id id})` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
+| `(rf/handler-meta {:kind kind :id id})` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/handler-meta {:frame f :kind kind :id id})` | Same, resolved through live frame `f`'s own view; for a frame made without `:images`, an ambiguous id throws the `:rf.error/ambiguous-registration` the frame raises. | Yes |
-| `(rf/ambiguous-registrations {:source :store :kind kind})` / `(rf/ambiguous-registrations {:frame f :kind kind})` | The ambiguous ids of `kind` — those more than one namespace registers, which no frame made without `:images` can run — as `{id {provenance-ns metadata}}`, every registration of each keyed by the namespace that made it; `{}` when there are none, and always `{}` for a frame running a sealed image generation. They are the ids `registrations` omits and `handler-meta` throws `:rf.error/ambiguous-registration` for, the `{:source :store}` read included, so a tool asks here before it reads one. | Yes |
+| `(rf/ambiguous-registrations {:kind kind})` / `(rf/ambiguous-registrations {:frame f :kind kind})` | The ambiguous ids of `kind` — those more than one namespace registers, which no frame made without `:images` can run — as `{id {provenance-ns metadata}}`, every registration of each keyed by the namespace that made it; `{}` when there are none, and always `{}` for a frame running a sealed image generation. They are the ids `registrations` omits and `handler-meta` throws `:rf.error/ambiguous-registration` for, the store read (no `:frame`) included, so a tool asks here before it reads one. | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |

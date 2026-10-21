@@ -410,7 +410,7 @@ A chain is data, so the introspection that works on events and subs works on
 interceptors too. `handler-meta` reads an interceptor's metadata and source location:
 
 ```clojure
-(rf/handler-meta {:source :store :kind :interceptor :id :todo/persist})
+(rf/handler-meta {:kind :interceptor :id :todo/persist})
 ;; => {:doc "After the handler, save the todos if it changed them."
 ;;     :ns todo.events :line 12 :file "..." ...}
 ```
@@ -420,7 +420,7 @@ framework's handler wrapper (a map with `:rf/default? true`).
 `(remove :rf/default? (:interceptors m))` is the chain as written:
 
 ```clojure
-(rf/handler-meta {:source :store :kind :event :id :todo/toggle})
+(rf/handler-meta {:kind :event :id :todo/toggle})
 ;; => {:doc "Flip one todo between done and not done."
 ;;     :interceptors [:todo/persist {:id :rf/event-handler :rf/default? true ...}] ...}
 ```

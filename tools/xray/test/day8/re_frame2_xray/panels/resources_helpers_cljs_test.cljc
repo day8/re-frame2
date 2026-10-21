@@ -16,7 +16,7 @@
 (def ^:private session-scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
 
 (def ^:private registrations
-  "A `(rf/registrations {:source :store :kind :resource})` shape."
+  "A `(rf/registrations {:kind :resource})` shape."
   {:article/by-slug
    {:doc  "Article detail by slug."
     :file "app/articles.cljs" :line 12

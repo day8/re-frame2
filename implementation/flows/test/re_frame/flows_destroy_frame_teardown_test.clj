@@ -44,7 +44,7 @@
   (rf.frame/destroy-frame! :fc/scratch)
   (is (= [{} #{:creds :blob}]
          [(rf.flows.registry/frame-last-inputs-snapshot :fc/scratch)
-          (set (keys (rf/registrations {:source :store :kind :flow})))]))
+          (set (keys (rf/registrations {:kind :flow})))]))
   (rf/make-frame {:id :fc/scratch :flows [:blob]})
   (rf/dispatch-sync [:seed] {:frame :fc/scratch})
   (is (= [{:n 1 :derived {:blob {:bytes 1}}} #{:blob}]

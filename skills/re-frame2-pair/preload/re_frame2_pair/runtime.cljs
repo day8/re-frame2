@@ -656,11 +656,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn registrar-list
-  "Enumerate registered ids under a kind. (rf/registrations {:source :store :kind kind}) returns
+  "Enumerate registered ids under a kind. (rf/registrations {:kind kind}) returns
    `{id meta}`; we return the id vector sorted by `pure/compare-ids`, which
    orders the app-db paths `:app-schema` ids are where `compare` would throw."
   [kind]
-  (-> (rf/registrations {:source :store :kind kind}) keys pure/sort-ids))
+  (-> (rf/registrations {:kind kind}) keys pure/sort-ids))
 
 ;; ---------------------------------------------------------------------------
 ;; Call-time id validation
@@ -726,7 +726,7 @@
    `:images` runs its own sealed image generation, so an `:reg-sub` /
    `:reg-event` defined INLINE IN AN IMAGE is registered for that frame and
    absent from the process store — an ordinary supported definition the
-   skill explicitly teaches. Reading `{:source :store}` here would reject
+   skill explicitly teaches. Reading the store (no `:frame`) here would reject
    exactly those ids
    with `:reason :unknown-id :known-count 0`, telling the operator
    'nothing is registered' about an app that dispatches and subscribes
@@ -737,7 +737,7 @@
    cannot serve it.
 
    Process-wide DISCOVERY (`registrar-list`, orient's `:basis :process`
-   counts) deliberately stays on `{:source :store}` — it is asking what the HOST
+   counts) deliberately reads the store (no `:frame`) — it is asking what the HOST
    PROCESS registered, which is a different question from what THIS FRAME
    runs.
 
@@ -845,7 +845,7 @@
     :else           x))
 
 (defn registrar-describe
-  "Return public handler metadata for kind+id. (rf/handler-meta {:source :store :kind kind :id id})
+  "Return public handler metadata for kind+id. (rf/handler-meta {:kind kind :id id})
    already gives the source coords (:ns :line :file :column), the
    :handler-fn, the :rf/machine? flag where applicable, and any extra
    keys the registrar carries (e.g. retained source forms when present).
@@ -868,7 +868,7 @@
    resource-scope's `:inputs` map + `:whole-db?` flag, a mutation's
    declared consequences, a resource's scope policy) survives on the wire."
   [kind id]
-  (if-let [m (rf/handler-meta {:source :store :kind kind :id id})]
+  (if-let [m (rf/handler-meta {:kind kind :id id})]
     (-> m
         (assoc :handler-fn-hash (handler-fn-hash m))
         (dissoc :handler-fn)
@@ -881,7 +881,7 @@
    changes when the handler function is replaced, including closures with
    identical printed source. Re-registering the same fn retains the hash."
   [kind id]
-  (handler-fn-hash (rf/handler-meta {:source :store :kind kind :id id})))
+  (handler-fn-hash (rf/handler-meta {:kind kind :id id})))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame-derived registrar introspection
@@ -1327,11 +1327,11 @@
    filter IS the documented contract."
   []
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-               (rf/registrations {:source :store :kind :event}))))
+               (rf/registrations {:kind :event}))))
 
 (defn machines-list
   "All registered machine ids, SORTED — the `:rf/machine?` filter over
-   `(rf/registrations {:source :store :kind :event})`.
+   `(rf/registrations {:kind :event})`.
 
    The sort is the contract, not a courtesy: `registrar-list` sorts, the
    MCP `list-handlers` tool documents one stable id vector across every
@@ -1355,7 +1355,7 @@
    wire. `dissoc :handler-fn` first for the top-level slot, exactly as
    `registrar-describe` does."
   [machine-id]
-  (if-let [spec (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id}))]
+  (if-let [spec (:rf/machine (rf/handler-meta {:kind :event :id machine-id}))]
     (-> spec (dissoc :handler-fn) strip-fns)
     {:ok? false :reason :not-a-machine :id machine-id}))
 
@@ -2789,7 +2789,7 @@
           attr-coord (some-> (.getAttribute view-root "data-rf2-source-coord")
                              parse-rf2-coord)
           meta-coord (when (some? view-id)
-                       (try (rf/handler-meta {:source :store :kind :view :id view-id}) (catch :default _ nil)))
+                       (try (rf/handler-meta {:kind :view :id view-id}) (catch :default _ nil)))
           coord      (when (or attr-coord meta-coord)
                        (merge (select-keys meta-coord [:ns :line :column :file])
                               attr-coord))
@@ -3808,7 +3808,7 @@
   "Count of registered ids under `kind`, defensively zero on a registrar
    that doesn't exist (an app that registered nothing of that kind)."
   [kind]
-  (count (try (keys (rf/registrations {:source :store :kind kind})) (catch :default _ nil))))
+  (count (try (keys (rf/registrations {:kind kind})) (catch :default _ nil))))
 
 (defn- process-registry-view
   "The PROCESS-WIDE registry view — counts for every registrar kind plus the
@@ -3899,7 +3899,7 @@
                       multi-frame ambiguous session or against an
                       operating frame id naming no frame.
      :machines        the registered machine ids (the `:rf/machine?` filter
-                      over `(rf/registrations {:source :store :kind :event})`).
+                      over `(rf/registrations {:kind :event})`).
 
    Summarized by design: counts + the high-value id vectors + per-frame
    top-keys, NOT the full app-db. The MCP `orient` op routes here and caps

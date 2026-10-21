@@ -316,10 +316,10 @@ child epoch in the spine.
 | Target instance id (`:title/flow-instance-42`) | `:rf.machine/transition` `:tags {:machine-id …}` | available | the head trace's `:machine-id` tag |
 | `from → to` states | `:rf.machine/transition` `:tags` | available | from/to are first-class fields on the transition trace per [Spec 005 §Trace events](../../../spec/005-StateMachines.md#trace-events) |
 | Guard id (`:token?`) | `:rf.machine/guard-evaluated` `:tags {:guard-id …}` per [Spec 005 §Trace events — guard evaluations and action runs](../../../spec/005-StateMachines.md#trace-events--guard-evaluations-and-action-runs) | available | one trace per user-declared guard call site |
-| Guard **fn source** | `(:rf.handler/source (rf/handler-meta {:source :store :kind :machine-guard :id [<machine-id> <guard-id>]}))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | the `reg-machine` macro walks the literal spec at expansion time and co-locates `pr-str` of each guard fn-form onto the spec's `:guards` entry; `handler-meta` **derives** it from the machine's `:event` registration (NOT a registrar kind); DEBUG-elided in production |
+| Guard **fn source** | `(:rf.handler/source (rf/handler-meta {:kind :machine-guard :id [<machine-id> <guard-id>]}))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | the `reg-machine` macro walks the literal spec at expansion time and co-locates `pr-str` of each guard fn-form onto the spec's `:guards` entry; `handler-meta` **derives** it from the machine's `:event` registration (NOT a registrar kind); DEBUG-elided in production |
 | Guard return (`true`) | `:rf.machine/guard-evaluated` `:tags {:outcome :pass \| :fail}` | available | binary outcome on the trace |
 | Action id (`:fetch!`) | `:rf.machine/action-ran` `:tags {:action-id …}` | available | one trace per user-declared action invocation |
-| Action **fn source** | `(:rf.handler/source (rf/handler-meta {:source :store :kind :machine-action :id [<machine-id> <action-id>]}))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | same shape as guard; the macro co-locates each action fn-form's `pr-str` onto the spec's `:actions` entry, derived back via `handler-meta` |
+| Action **fn source** | `(:rf.handler/source (rf/handler-meta {:kind :machine-action :id [<machine-id> <action-id>]}))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | same shape as guard; the macro co-locates each action fn-form's `pr-str` onto the spec's `:actions` entry, derived back via `handler-meta` |
 | Action `:fx` output | `:rf.machine/action-ran` `:tags {:outcome <return-value>}` | available | the action's return value rides the trace (`:ok` for nil; otherwise the literal `{:fx …}` map) |
 | Downstream `:dispatch [...]` | cascade child-epoch link via the spine | available | the `:dispatch` is a child epoch off the focused cascade; the lens reads the link from the spine's epoch graph |
 
@@ -339,19 +339,19 @@ registrar kinds — `registrar/kinds` is a closed set. The `reg-machine`
 macro walks the literal spec at expansion time, captures `pr-str` of every
 guard / action fn-form, and co-locates it onto the spec's `:guards` /
 `:actions` entries; that spec is stored under `:rf/machine` in the
-machine's `:event` registration. `(rf/handler-meta {:source :store :kind :machine-guard :id [mid
+machine's `:event` registration. `(rf/handler-meta {:kind :machine-guard :id [mid
 gid]})` **derives** the meta on demand from that `:event` spec (the
 addressing is unchanged — the lens call sites do not change):
 
 ```clojure
-(rf/handler-meta {:source :store :kind :machine-guard :id [<machine-id> <guard-id>]})
+(rf/handler-meta {:kind :machine-guard :id [<machine-id> <guard-id>]})
 ;; => {:rf/guard-id   <guard-id>
 ;;     :rf/machine-id <machine-id>
 ;;     :rf.handler/source  "(fn [data] ...)"
 ;;     :handler-fn    <fn>
 ;;     :ns :line :file [:column]}
 
-(rf/handler-meta {:source :store :kind :machine-action :id [<machine-id> <action-id>]})
+(rf/handler-meta {:kind :machine-action :id [<machine-id> <action-id>]})
 ;; => {:rf/action-id  <action-id>
 ;;     :rf/machine-id <machine-id>
 ;;     :rf.handler/source  "(fn [data] {:fx ...})"
@@ -375,7 +375,7 @@ value-registered machine — `(defmachine m …)` then `(reg-machine :id m)`
 does. The `reg-machine*` plain-fn surface and a plain `(def m {…})`
 value bypass both walkers, so those registrations carry no fn-source —
 tools fall back to the call-site coords on the top-level
-`(rf/handler-meta {:source :store :kind :event :id <machine-id>})`, per the standard
+`(rf/handler-meta {:kind :event :id <machine-id>})`, per the standard
 `reg-machine` / `reg-machine*` contract (Spec 005
 §reg-machine vs reg-machine* and §Value-registered machines —
 defmachine).
@@ -1854,7 +1854,7 @@ Per Spec 005 and Spec 009:
 
 | Surface | Used for |
 |---|---|
-| `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?` | Enumerate registered machines (the Static browse-list; the Dynamic panel has no picker). Per Spec 005 §Querying machines — no per-kind accessor. |
+| `(rf/registrations {:kind :event})` filtered on `:rf/machine?` | Enumerate registered machines (the Static browse-list; the Dynamic panel has no picker). Per Spec 005 §Querying machines — no per-kind accessor. |
 | `[:rf.runtime/machines :snapshots <id>]` slot in the **runtime-db partition** (EP-0001 rf2-vzld77) | Read current snapshot; deref drives the live-highlight. The host passes the snapshot's `:state` straight through as the chart's `:current-state`; for a **parallel** machine that `:state` is a region-map and the chart highlights **every** active region leaf simultaneously (parity gap G1; resolution via `chart.layout/highlight-ids` — see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). |
 | `:rf.machine/transition` traces | `project-focused-event-transitions` folds the focused event's cascade into transition records, and `pick-focused-transition` picks the one the panel binds to. There is no transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |

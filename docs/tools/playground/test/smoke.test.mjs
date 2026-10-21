@@ -634,7 +634,7 @@ await page.evaluate(() => {
   cell.className = "language-cljs-rf2";
   cell.textContent = [
     "(ns rf2smoke.p1 (:require [re-frame.core :as rf]))",
-    "(def entry-denied (:handler-fn (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))",
+    "(def entry-denied (:handler-fn (rf/handler-meta {:kind :event :id :rf.route/entry-denied})))",
     "(rf/reg-event :rf.route/entry-denied (fn [_ _] {}))",
     "(rf/reg-event :page1/stale",
     "  (fn [{:keys [db]} _] {:db (assoc db :leaked-registration true)}))",
@@ -671,7 +671,7 @@ await page.evaluate(() => {
     "             :on  {:on {:flip {:target :off}}}}})",
     "(rf/dispatch-sync [:rf2nav/toggle2 [:flip]])",
     "(def restored? (identical? rf2smoke.p1/entry-denied",
-    "                           (:handler-fn (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied}))))",
+    "                           (:handler-fn (rf/handler-meta {:kind :event :id :rf.route/entry-denied}))))",
     "(defn tog2 []",
     "  (let [snap @(rf/subscribe [:rf/machine :rf2nav/toggle2])]",
     "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]",

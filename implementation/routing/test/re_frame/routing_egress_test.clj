@@ -77,7 +77,7 @@
   ;; Land on a route with params so the next navigation's :from carries them.
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "secret-doc-id"}}])
   (is (= [[:from :params] [:from :query] [:to :params] [:to :query] [:fragment]]
-         (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
+         (:sensitive (rf/handler-meta {:kind :fx :id :rf.nav/scroll})))
       "the trace redaction rides on this registrar declaration, which the production gate can see")
   ;; Dev-instrumentation arm (see ns docstring).
   (when rf.interop/debug-enabled?
@@ -193,7 +193,7 @@
                       (swap! seen conj denial)
                       {:db (assoc-in db [:auth :return-to] destination)}))
       (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied}))))
+             (:sensitive (rf/handler-meta {:kind :event :id :rf.route/entry-denied}))))
       (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
         ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
@@ -209,7 +209,7 @@
     (rf/reg-event :rf.route/navigation-blocked
                   (fn [_ [_ pending]] (swap! seen conj pending) {}))
     (is (= [[:requested-url] [:destination] [:target]]
-           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked}))))
+           (:sensitive (rf/handler-meta {:kind :event :id :rf.route/navigation-blocked}))))
     (let [payload (traced-event-payload
                     :rf.route/navigation-blocked
                     #(rf/dispatch-sync [:rf.route/navigate {:url "/cart?coupon=SECRET100"}]))]
@@ -226,7 +226,7 @@
   (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
   (rf/reg-event :rf.route/entry-denied {:sensitive [[:guard]]} (fn [_ _] {}))
   (is (= [[:requested-url] [:destination] [:target] [:guard]]
-         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))))
+         (:sensitive (rf/handler-meta {:kind :event :id :rf.route/entry-denied})))))
 
 ;; ---- the retention is order-independent -----------------------------------------
 ;;
@@ -269,7 +269,7 @@
     ;; :images does (Spec 012), so it converges on the application descriptor
     ;; and the same union in this order too.
     (is (= {:sensitive [[:requested-url] [:destination] [:target] [:guard]]}
-           (select-keys (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})
+           (select-keys (rf/handler-meta {:kind :event :id :rf.route/entry-denied})
                         [:sensitive :rf/framework-default?])))
     (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
       ;; Dev-instrumentation arm (see ns docstring).

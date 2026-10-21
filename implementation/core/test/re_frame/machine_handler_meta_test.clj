@@ -10,8 +10,8 @@
   stamped spec under `:rf/machine` in the machine's `:event` registration.
   Tools read
 
-      (rf/handler-meta {:source :store :kind :machine-guard :id [<machine-id> <guard-id>]})
-      (rf/handler-meta {:source :store :kind :machine-action :id [<machine-id> <action-id>]})
+      (rf/handler-meta {:kind :machine-guard :id [<machine-id> <guard-id>]})
+      (rf/handler-meta {:kind :machine-action :id [<machine-id> <action-id>]})
 
   which derives the meta on demand: `:rf/guard-id` / `:rf/action-id`,
   `:rf/machine-id`, `:rf.handler/source`, `:handler-fn`, and the coords from
@@ -40,10 +40,10 @@
 (use-fixtures :each reset-runtime)
 
 (defn- guard-meta [machine-id id]
-  (rf/handler-meta {:source :store :kind :machine-guard :id [machine-id id]}))
+  (rf/handler-meta {:kind :machine-guard :id [machine-id id]}))
 
 (defn- action-meta [machine-id id]
-  (rf/handler-meta {:source :store :kind :machine-action :id [machine-id id]}))
+  (rf/handler-meta {:kind :machine-action :id [machine-id id]}))
 
 ;; ---- the macro captures every guard and action ------------------------------
 
@@ -82,8 +82,8 @@
      :states  {:idle {:on {:e {:target :idle :guard :ok? :action :go!}}}}})
   (let [spec (:rf/machine (rf.registrar/lookup :event :rf2-ftrcv/enum))]
     (is (= [{} {} true true]
-           [(rf/registrations {:source :store :kind :machine-guard})
-            (rf/registrations {:source :store :kind :machine-action})
+           [(rf/registrations {:kind :machine-guard})
+            (rf/registrations {:kind :machine-action})
             (string? (get-in spec [:guards  :ok? :source-code]))
             (string? (get-in spec [:actions :go! :source-code]))]))))
 

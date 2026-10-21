@@ -30,7 +30,7 @@
     {:initial :closed
      :states  {:closed {:on {:open :opened}}
                :opened {:on {:close :closed}}}})
-  (let [registration (rf/handler-meta {:source :store :kind :event :id ::door})
+  (let [registration (rf/handler-meta {:kind :event :id ::door})
         row          (first (h/project-rows [::door]
                                             {::door (:rf/machine registration)}
                                             {::door (h/lift-source-coord registration)}

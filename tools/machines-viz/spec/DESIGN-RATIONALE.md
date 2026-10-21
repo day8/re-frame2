@@ -132,8 +132,7 @@ exactly what it is handed.
 
 ```clojure
 [viz/MachineChart {:machine-id          :auth/login-flow
-                   :definition          (:rf/machine (rf/handler-meta {:source :store
-                                                       :kind   :event
+                   :definition          (:rf/machine (rf/handler-meta {:kind   :event
                                                        :id     :auth/login-flow}))
                    :current-state       :authing
                    :on-state-click      (fn [path] ...)

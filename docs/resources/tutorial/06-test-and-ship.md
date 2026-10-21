@@ -52,7 +52,7 @@ An event handler is a pure function: coeffects and an event in, an [effect map](
 
 ```clojure
 (deftest edit-field-updates-the-draft
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :auth.login-form/edit-field}))
+  (let [handler (:handler-fn (rf/handler-meta {:kind :event :id :auth.login-form/edit-field}))
         result  (handler {:db {:auth {:login-form {:draft {:email "" :password ""}}}}}
                          [:auth.login-form/edit-field :email "ada@example.com"])]
     (is (= "ada@example.com" (get-in result [:db :auth :login-form :draft :email])))))
@@ -66,7 +66,7 @@ payload, including the current generation, then inspect the request it describes
 ```clojure
 (deftest saved-token-starts-session-verification
   (let [handler (:handler-fn (rf/handler-meta
-                              {:source :store :kind :event :id :auth/session-read}))
+                              {:kind :event :id :auth/session-read}))
         result (handler {:db {:auth-generation 1 :auth {:user nil :token nil}}}
                         [:auth/session-read {:generation 1 :token "jwt-fixture"}])]
     (is (= "jwt-fixture" (get-in result [:db :auth :token])))
@@ -90,10 +90,10 @@ generation and must produce no effects against the current session:
                    :correlation {:request-id [:auth/restore 3]}}]
     (doseq [id [:auth/session-restored :auth/session-expired
                 :auth.login-form/submit-success :auth.login-form/submit-failed]]
-      (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id id}))]
+      (let [handler (:handler-fn (rf/handler-meta {:kind :event :id id}))]
         (is (= {} (handler cofx [id old-reply])))))
     (let [logout (:handler-fn (rf/handler-meta
-                               {:source :store :kind :event :id :auth/logout}))]
+                               {:kind :event :id :auth/logout}))]
       (is (= {} (logout cofx [:auth/logout {:generation 3}]))))))
 ```
 

@@ -70,7 +70,7 @@
    {:interceptors [:my/logging                       ; same ref → collapses
                    {:id :rf/event-handler :rf/default? true :before identity}]}})
 
-;; A stub resolver standing in for `(rf/handler-meta {:source :store :kind :interceptor :id id})` so the
+;; A stub resolver standing in for `(rf/handler-meta {:kind :interceptor :id id})` so the
 ;; pure helper test never needs a live registrar.
 (defn- stub-resolve-ref [icpt-id]
   (get {:my/logging          {:rf/interceptor-descriptor {:before identity}
@@ -160,7 +160,7 @@
                                    (some-> (:file meta)
                                            (str/replace "\\" "/")
                                            (str/includes? "tools/xray/src/"))))
-                         (rf/registrations {:source :store :kind :event}))]
+                         (rf/registrations {:kind :event}))]
       (is (seq (panel/collect-interceptors xray-own))
           "NON-VACUITY: Xray's own registrations carry interceptor chains, so
            an unfiltered catalogue has rows to show")

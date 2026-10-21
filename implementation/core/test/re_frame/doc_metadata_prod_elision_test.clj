@@ -28,14 +28,14 @@
                   {:doc "elided in prod" :schema :int :tags #{:probe}}
                   (fn [{:keys [db]} _] {:db db}))
     (is (= {:schema :int :tags #{:probe}}
-           (select-keys (rf/handler-meta {:source :store :kind :event :id :rf2-9wwkcm/prod-event})
+           (select-keys (rf/handler-meta {:kind :event :id :rf2-9wwkcm/prod-event})
                         [:doc :schema :tags])))))
 
 (deftest doc-retained-in-handler-meta-under-enabled-debug-gate
   (rf/reg-event :rf2-9wwkcm/dev-event
                 {:doc "kept in dev"}
                 (fn [{:keys [db]} _] {:db db}))
-  (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-9wwkcm/dev-event})]
+  (let [meta (rf/handler-meta {:kind :event :id :rf2-9wwkcm/dev-event})]
     ;; Both postures: the doc-only metadata map, rewritten to `{}` by the reg-*
     ;; macro under the gate, still registers the handler the call site supplied.
     (is (= {:db {:seen true}}

@@ -970,7 +970,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
   panel's FLOW step and the Static Flows tab surface.
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
   framework substrate the Routing tab projects: the registrar
-  (`reg-route` + `(rf/registrations {:source :store :kind :route})`), the current-route
+  (`reg-route` + `(rf/registrations {:kind :route})`), the current-route
   slice (at `[:rf.runtime/routing :current]` in runtime-db), and the
   `:rf.route.nav-token/allocated` emit the panel scans for the
   FROM/TO marker derivation.

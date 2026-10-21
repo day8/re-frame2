@@ -105,7 +105,7 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 The router stamps `:rf/time-ms` on every dispatch, which is why the second test runs without mentioning it. Left alone it is the live clock, and an assertion on `:requested-at` would be flaky, so the first test pins it. Facts supplied under `:rf.cofx` win, and the runtime fills in only what is missing.
 
-A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/fetch})`.
+A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:kind :event :id :todo/fetch})`.
 
 ### Answer the HTTP: a stub transport
 

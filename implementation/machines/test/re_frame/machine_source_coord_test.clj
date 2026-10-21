@@ -11,10 +11,10 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- machine-spec [machine-id]
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+  (:rf/machine (rf/handler-meta {:kind :event :id machine-id})))
 
 (defn- element-meta [kind machine-id id]
-  (rf/handler-meta {:source :store :kind kind :id [machine-id id]}))
+  (rf/handler-meta {:kind kind :id [machine-id id]}))
 
 (deftest reg-machine-stamps-named-element-source
   (rf/reg-machine :src/named

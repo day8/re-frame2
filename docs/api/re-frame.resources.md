@@ -843,19 +843,19 @@ The reads here return one-shot, non-reactive snapshots for Xray, unit tests and 
 `rf/registrations` lists the ids registered under a kind, and `rf/handler-meta` plus the kind's inner key (`:rf/resource`, `:rf/mutation`, `:rf/resource-scope`) returns one registered spec, or `nil`. These reads take no frame and need no artefact. Source coords are on the enclosing `handler-meta` map, not in the projected spec.
 
 ```clojure
-(keys (rf/registrations {:source :store :kind :resource}))        ;; => (:article/by-slug :feed/timeline)
-(keys (rf/registrations {:source :store :kind :mutation}))        ;; => (:article/save)
-(keys (rf/registrations {:source :store :kind :resource-scope}))  ;; => (:realworld/session)
+(keys (rf/registrations {:kind :resource}))        ;; => (:article/by-slug :feed/timeline)
+(keys (rf/registrations {:kind :mutation}))        ;; => (:article/save)
+(keys (rf/registrations {:kind :resource-scope}))  ;; => (:realworld/session)
 
-(:rf/resource (rf/handler-meta {:source :store :kind :resource
+(:rf/resource (rf/handler-meta {:kind :resource
                                 :id     :article/by-slug}))
 ;; => {:scope :rf.scope/global :params-schema [...] :request #fn ... :doc "…"}
 
-(:rf/mutation (rf/handler-meta {:source :store :kind :mutation
+(:rf/mutation (rf/handler-meta {:kind :mutation
                                 :id     :article/save}))
 ;; => {:request #fn ... :params-schema :app/article :invalidates #fn ... :scope :rf.scope/global …}
 
-(:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope
+(:rf/resource-scope (rf/handler-meta {:kind :resource-scope
                                       :id     :realworld/session}))
 ;; => {:inputs {:username [:db [:auth :user :username]]} :resolve #fn :whole-db? false :doc nil}
 ```
@@ -909,8 +909,8 @@ The registry, the whole live table and one entry are three different reads. The 
 
 ```clojure
 ;; 1. REGISTRY — every registered id, no frame.
-(keys (rf/registrations {:source :store :kind :resource}))  ;; => (:article/by-slug :feed/timeline)
-(keys (rf/registrations {:source :store :kind :mutation}))  ;; => (:article/save)
+(keys (rf/registrations {:kind :resource}))  ;; => (:article/by-slug :feed/timeline)
+(keys (rf/registrations {:kind :mutation}))  ;; => (:article/save)
 
 ;; 2. WHOLE LIVE TABLE — the reserved runtime-db path off the frame-state projection.
 (get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/resources :entries])

@@ -59,7 +59,7 @@
 
 (deftest time-consuming-handlers-declare-time-ms-cofx
   (is (= [] (remove #(contains? (set (:rf.cofx/requires
-                                       (rf/handler-meta {:source :store :kind :event :id %})))
+                                       (rf/handler-meta {:kind :event :id %})))
                                 :rf/time-ms)
                     time-consuming-resource-events))))
 

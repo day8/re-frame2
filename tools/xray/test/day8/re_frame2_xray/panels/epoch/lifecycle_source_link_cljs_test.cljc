@@ -47,7 +47,7 @@
   "The registered spec of `machine-id` — the metadata Xray resolves keys
   against."
   [machine-id]
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+  (:rf/machine (rf/handler-meta {:kind :event :id machine-id})))
 
 (defn- key-of-row-running
   "The source key of the `:action` cascade row whose action is `f`."

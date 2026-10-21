@@ -681,8 +681,8 @@
 ;; There is no `route-ids` / `route-meta` pair. "Which routes
 ;; are registered, and what is route X's spec?" is the generic registrar
 ;; grammar every tool already speaks:
-;;   (keys (rf/registrations {:source :store :kind :route}))
-;;   (rf/handler-meta {:source :store :kind :route :id id})
+;;   (keys (rf/registrations {:kind :route}))
+;;   (rf/handler-meta {:kind :route :id id})
 ;; A per-kind alias is a second encoding of that grammar, and the routing
 ;; registrar carries its metadata at the top level of the registration —
 ;; there is no inner-key projection to remember either.

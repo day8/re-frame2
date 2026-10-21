@@ -226,8 +226,8 @@ beyond the dup-id: when a `:rf.xray/*` subscription RECOMPUTES, the framework
 binds registrar resolution to the seated frame's sealed image generation for the
 extent of the sub build (`re-frame.registrar/*generation*`, bound by
 `re-frame.live-frame/call-with-frame-resolution` around every subscribe targeting
-an image-loaded frame). So a bare `(rf/registrations {:source :store :kind :route})` /
-`(rf/handler-meta {:source :store :kind :event :id id})` *inside a sub computation* resolved through Xray's
+an image-loaded frame). So a bare `(rf/registrations {:kind :route})` /
+`(rf/handler-meta {:kind :event :id id})` *inside a sub computation* resolved through Xray's
 OWN image — which selects only Xray's `:rf.xray/*` namespaces, NOT the host app's
 registrations. The inspector then saw only its own handlers / routes / resources:
 the Routing panel rendered `currentId:null` with an empty route table (the
@@ -237,18 +237,16 @@ registry. The node-test suite did NOT catch it (a frame-only node-fixture path;
 the failure is browser-only). This is correct framework behaviour (a frame
 resolves its own image) and exactly the wrong thing for an INSPECTOR, which reads
 the registry of the INSPECTED app — the **process-global registrar** — not its
-own image's resolver. The fix is the framework's own `{:source :store …}` query
-form: `(rf/registrations {:source :store :kind k})` /
-`(rf/handler-meta {:source :store :kind k :id id})` read the process source
+own image's resolver. The fix is the framework's own store query, which
+carries no `:frame`: `(rf/registrations {:kind k})` /
+`(rf/handler-meta {:kind k :id id})` read the process source
 store and NEVER consult a bound `re-frame.registrar/*generation*`, so they
 answer the same regardless of which frame's sub build the call sits inside.
-(Framework rf2-kuky.30 added `:source` and retired the positional arity that
-DOCUMENTED itself as a store read while silently resolving through the bound
-generation. Xray previously carried a `host_registry.cljs` helper that deref'd
+(Xray previously carried a `host_registry.cljs` helper that deref'd
 the private `re-frame.registrar/kind->id->metadata` atom to get the same
 answer; that helper is DELETED, and its nine requiring namespaces now use the
 public form.) Every Xray host-registry read inside a sub computation uses
-`{:source :store …}`; view-time reads (no generation bound) are unaffected.
+the store query; view-time reads (no generation bound) are unaffected.
 With this in place the production singleton ships flipped and the
 `routes-epochs` gate is green.
 
@@ -381,10 +379,10 @@ resolves zero descriptors does not (there is no image content to show).
   `xray-image-excludes-its-own-test-registrations` (a pool carrying a production
   id and its `*-cljs-test` sibling selects ONLY the production descriptor and
   assembles without a dup-id).
-- The `{:source :store …}` query form — the host-app registry read that
+- The store query (a registrar query without `:frame`) — the host-app registry read that
   survives Xray running in its OWN image-loaded frame.
-  `(rf/registrations {:source :store :kind k})` and
-  `(rf/handler-meta {:source :store :kind k :id id})` read the process source
+  `(rf/registrations {:kind k})` and
+  `(rf/handler-meta {:kind k :id id})` read the process source
   store and NEVER consult a bound `re-frame.registrar/*generation*`. Every Xray
   host-registry read INSIDE a sub computation (the Routing route table, the
   palette handler index, the Static Flows / Interceptors / Schemas registries,
@@ -400,7 +398,7 @@ resolves zero descriptors does not (there is no image content to show).
   :rf/xray` → `rf/make-frame {:id :rf/xray :images [(xray-image)]}`). The dup-id
   blocker is resolved by the `:select-ns :exclude` globs on `xray-image`
   (§8.1), and the host-registry read regression under image-loaded seating is
-  resolved by the `{:source :store …}` query form (the source-store reads
+  resolved by the store query (the source-store reads
   above); both node-test and the `routes-epochs` nightly xray-feature-gate are
   green with the flip. The runtime-reset test fixture
   (`re-frame.test-support/make-reset-runtime-fixture`) clears the ONE
@@ -440,7 +438,7 @@ pair tool also uses:
   those descriptors with their provenance, exactly as an image row does.
 - **What it refuses as ambiguous** — that query omits an id more than one
   namespace registers, so the read compares it against
-  `(rf/registrations {:source :store :kind k})` and confirms each missing id
+  `(rf/registrations {:kind k})` and confirms each missing id
   through `(rf/handler-meta {:frame f :kind k :id id})`, whose
   `:rf.error/ambiguous-registration` names the namespaces. The row lists each
   such id first, outside the descriptor cap, as `ambiguous — <ns> <ns>`, so it

@@ -25,7 +25,7 @@
   decoupled, exactly the way the Routing tab reads the route slice and
   the Machine Inspector reads machine snapshots:
 
-    - the STATIC resource registry via `(rf/registrations {:source :store :kind :resource})`
+    - the STATIC resource registry via `(rf/registrations {:kind :resource})`
       (process-global registrar) — no require;
     - the LIVE per-frame instance table from the runtime-db partition
       slice at `[:rf.runtime/resources :entries]` — no require;
@@ -516,7 +516,7 @@
 
 (defn registry-row
   "Project ONE static registry entry `[resource-id meta]` (a
-  `(rf/registrations {:source :store :kind :resource})` row, whose `:rf/resource` slot carries
+  `(rf/registrations {:kind :resource})` row, whose `:rf/resource` slot carries
   the registration spec) into a render-safe registry row. Per Spec 016
   §Xray and AI tooling (the static resource registry):
 
@@ -565,7 +565,7 @@
   registry row, attach the vector of route-ids whose `:resources`
   metadata declares that resource (Spec 016 §Route integration — Xray
   can display which routes own a resource). `routes-map` is
-  `(rf/registrations {:source :store :kind :route})` (`{<route-id> <meta>}`); pure, no require
+  `(rf/registrations {:kind :route})` (`{<route-id> <meta>}`); pure, no require
   on the routing artefact."
   [rows routes-map]
   (let [rid->routes (reduce-kv
@@ -582,7 +582,7 @@
 (defn project-registry
   "Project the full static resource registry into sorted render-safe
   rows with declaring-routes joined. `registrations` is
-  `(rf/registrations {:source :store :kind :resource})`; `routes-map` is `(rf/registrations {:source :store :kind :route})` (or nil). Per Spec 016 §Xray and AI tooling."
+  `(rf/registrations {:kind :resource})`; `routes-map` is `(rf/registrations {:kind :route})` (or nil). Per Spec 016 §Xray and AI tooling."
   [registrations routes-map]
   (-> (mapv registry-row (or registrations {}))
       (attach-declaring-routes routes-map)
@@ -593,7 +593,7 @@
 ;; Spec 016 §Named resource-scope resolvers). The `:resource-scope` registrar
 ;; kind carries each resolver's canonical spec under `:rf/resource-scope`
 ;; (`{:inputs {name [:db rf-path]} :whole-db? :resolve …}`). The panel reads
-;; it decoupled via `(rf/registrations {:source :store :kind :resource-scope})` — no require on the
+;; it decoupled via `(rf/registrations {:kind :resource-scope})` — no require on the
 ;; resources artefact, exactly like the resource/route registries above.
 ;; ---------------------------------------------------------------------------
 
@@ -615,7 +615,7 @@
      :path   (summarize descriptor)}))
 
 (defn scope-resolver-row
-  "Project ONE `(rf/registrations {:source :store :kind :resource-scope})` entry `[scope-id meta]`
+  "Project ONE `(rf/registrations {:kind :resource-scope})` entry `[scope-id meta]`
   (whose `:rf/resource-scope` slot carries the canonical resolver spec) into
   a render-safe row. Per Spec 016 §Named resource-scope resolvers / §Xray and
   AI tooling:
@@ -650,7 +650,7 @@
 
 (defn project-scope-resolvers
   "Project the full static resource-scope resolver registry into sorted
-  render-safe rows. `registrations` is `(rf/registrations {:source :store :kind :resource-scope})`
+  render-safe rows. `registrations` is `(rf/registrations {:kind :resource-scope})`
   (`{<scope-id> <meta>}`). Per Spec 016 §Named resource-scope resolvers /
   §Xray and AI tooling."
   [registrations]
@@ -1078,7 +1078,7 @@
   §Route integration): for every route declaring `:resources`, a node
   carrying its declared resources, blocking-vs-non-blocking split, SSR
   wait points (the blocking nodes), and any `:after` dependency waterfall.
-  `routes-map` is `(rf/registrations {:source :store :kind :route})`.
+  `routes-map` is `(rf/registrations {:kind :route})`.
 
       [{:route-id     :route/article
         :path         \"/articles/:slug\"

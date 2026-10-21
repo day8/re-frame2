@@ -65,7 +65,7 @@ The 3-slot grammar is `(reg-flow flow-id metadata derive-fn)` — id first, the 
 - **From the first event.** A frame evaluates every flow it names on its first event, so a seed in `:initial-events` already writes their outputs.
 - **Hot reload needs nothing.** Saving the namespace re-runs the top-level `reg-flow`; each frame running it uses the edited definition from its next event. A moved `:output-path` vacates the old path on that event. No `^:dev/after-load` re-registration hook.
 - **Changing a frame's set** is re-making the frame (`make-frame` with the same `:id`); an added flow runs from the next event, a dropped one has its output vacated. A mounted `frame-root` refuses a changed `:flows` (`:rf.error/frame-root-reconfigured`).
-- **Introspection is the registrar.** `(rf/registrations {:source :store :kind :flow})`, `(rf/handler-meta {:frame f :kind :flow :id id})`, and `(:flows (rf/frame-meta f))` for the ids a frame runs. There is no flows-specific read API.
+- **Introspection is the registrar.** `(rf/registrations {:kind :flow})`, `(rf/handler-meta {:frame f :kind :flow :id id})`, and `(:flows (rf/frame-meta f))` for the ids a frame runs. There is no flows-specific read API.
 
 ## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
 

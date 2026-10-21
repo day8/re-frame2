@@ -69,7 +69,7 @@
   registrar's coord, which equals the descriptor's always-on one."
   [ev kind id]
   (let [ks   [:ns :file :line :column]
-        meta (select-keys (rf/handler-meta {:source :store :kind kind :id id}) ks)
+        meta (select-keys (rf/handler-meta {:kind kind :id id}) ks)
         errc (assert-always-on-coord kind id)
         t    (:rf.trace/trigger-handler ev)]
     (is (= (select-keys meta [:ns :file :line]) (select-keys errc [:ns :file :line])))

@@ -238,7 +238,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
        ))
 ```
 
-**`:rf/route-rank`** is a spec-internal schema, specified in [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank) and not registered at runtime. Tooling reads each route's rank vector via `(rf/handler-meta {:source :store :kind :route :id route-id})` (under a `:rf.route/rank` slot the registrar attaches at registration time).
+**`:rf/route-rank`** is a spec-internal schema, specified in [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank) and not registered at runtime. Tooling reads each route's rank vector via `(rf/handler-meta {:kind :route :id route-id})` (under a `:rf.route/rank` slot the registrar attaches at registration time).
 
 **Conformance.** Fixture `route-ranking-precedence.edn` exercises every cascade rule with overlapping registrations and asserts the same winner across implementations. Hosts that register routes in a different *internal* order MUST sort by registration *time* (the order user code called `reg-route`) for rule 6, not by hash-map iteration order. The corpus harness registers a fixture's routes in ascending id order ([conformance README §Fixture lifecycle](conformance/README.md#fixture-lifecycle)), so a fixture's rule-6 rows follow from its route ids, never from the order a reader yields the registry map.
 
@@ -248,8 +248,8 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 - The path is **parseable both ways**: a path-pattern matched against an incoming URL produces a params map; a route-id + params map produces a URL.
 - The params shape is described by the host's idiom (Malli for CLJS dynamic; types for static hosts; per [000-Vision.md](000-Vision.md) on the schema/type duality).
-- Routes are **stably-id'd**, queryable via `(rf/registrations {:source :store :kind :route})`, source-coordinated.
-- Route metadata is an **open map**. The pattern reserves a small set of keys (see "Reserved route-metadata keys" below); hosts and applications may add their own keys (e.g. `:myapp/analytics-id`, `:myapp/layout`) under a chosen namespace. Interceptors, guards, layouts, and analytics tooling read those keys via `(rf/handler-meta {:source :store :kind :route :id route-id})`.
+- Routes are **stably-id'd**, queryable via `(rf/registrations {:kind :route})`, source-coordinated.
+- Route metadata is an **open map**. The pattern reserves a small set of keys (see "Reserved route-metadata keys" below); hosts and applications may add their own keys (e.g. `:myapp/analytics-id`, `:myapp/layout`) under a chosen namespace. Interceptors, guards, layouts, and analytics tooling read those keys via `(rf/handler-meta {:kind :route :id route-id})`.
 
 #### Reserved route-metadata keys
 
@@ -266,7 +266,7 @@ The keys cluster into four axes by what each controls (the value-slot `:path` be
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
 | **Classification** — data hygiene | `:sensitive`, `:large` | Projection-relative paths (rooted at the route's `{:query … :params …}` projection) whose values are redacted (`:sensitive`) or kept off the wire (`:large`) at egress while the route is active. Lowered into the per-frame elision registry at activation, dropped on route change. See [§Route data classification](#route-data-classification). |
 
-The axes are documentation, not data structure — the keys are flat on the metadata map rather than nesting lifecycle hooks under `:hooks {...}`, because (a) the registration metadata is read by `(rf/handler-meta {:source :store :kind :route :id id})` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
+The axes are documentation, not data structure — the keys are flat on the metadata map rather than nesting lifecycle hooks under `:hooks {...}`, because (a) the registration metadata is read by `(rf/handler-meta {:kind :route :id id})` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
 
 ##### Authoring-boundary key validation
 
@@ -415,7 +415,7 @@ Programmatic navigation is one event carrying ONE flat **request map**. Like eve
                          (requested-url request)
                          (rf.routing/route-url {:to route-id :params params
                                                 :query query :fragment fragment}))
-            route-meta (rf/handler-meta {:source :store :kind :route :id route-id})
+            route-meta (rf/handler-meta {:kind :route :id route-id})
             push-fx-id (if (:replace? request) :rf.nav/replace-url :rf.nav/push-url)
             nav-token  (rf/gen-nav-token)]
         {:rf.db/runtime (-> rt
@@ -577,7 +577,7 @@ The handler:
    :platforms #{:client :server}}                 ;; same handler is used by SSR
   (fn handler-route-handle-url-change [{rt :rf.db/runtime} [_ url]]
     (let [{:keys [route-id params query fragment validation-failed?]} (rf.routing/match-url url)
-          route-meta                                                  (rf/handler-meta {:source :store :kind :route :id route-id})
+          route-meta                                                  (rf/handler-meta {:kind :route :id route-id})
           prev-route                                                  (get-in rt [:rf.runtime/routing :current])
           fragment-only?                                              (and prev-route
                                                                            (= route-id (:route-id prev-route))
@@ -970,7 +970,7 @@ Its contract is fire-and-forget (EP-0037 §`:on-match` is activation work):
 2. It **does not drive route readiness.** `:on-match` never sets `:rf.route/transition` to `:loading` or `:error`, never queues a settle, does not await the asynchronous effects its events start, does not infer when their transitive work finished, and does not correlate later global error records back to the route. Route readiness is the resource projection, independent of `:on-match`.
 3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical id/params/query do not re-fire, and a fragment-only change does not re-fire — this is the exact re-fire key set (request spelling and policy keys are irrelevant; the runtime compares the resolved facts).
 4. `:on-match` events run **server- and client-side**. SSR dispatches them through the request-local frame so synchronous event effects stay symmetric, but SSR does **not** wait for an arbitrary asynchronous tail (the only route-owned server wait is a blocking `:resources` requirement; see [§Server-side rendering integration](#server-side-rendering-integration)). Hydration does *not* re-fire `:on-match` — the seeded `app-db` already contains the data.
-5. Each `:on-match` event is an ordinary event vector, dispatched with the activation target appended as its last argument (see [the activation target](#the-activation-target-arrives-as-the-last-argument) below). Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta {:source :store :kind :route :id :route/cart})` returns the metadata, so tooling can render activation dependency graphs.
+5. Each `:on-match` event is an ordinary event vector, dispatched with the activation target appended as its last argument (see [the activation target](#the-activation-target-arrives-as-the-last-argument) below). Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta {:kind :route :id :route/cart})` returns the metadata, so tooling can render activation dependency graphs.
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what runs when this route activates?" `:on-match` is the canonical surface.
 
@@ -1105,7 +1105,7 @@ Semantics:
 5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and the URL-change handler (`:rf.route/handle-url-change`) writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`) Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
 6. **Reserved id.** `:rf.route/not-found` is the **single locked id** for this purpose. Implementations and tools depend on it; users do not redefine the meaning of the keyword. Hosts that want a different visual treatment per error kind branch inside the `:rf.route/not-found` view (e.g., on `:reason`).
 
-Tooling enumerates `(rf/handler-meta {:source :store :kind :route :id :rf.route/not-found})` to confirm the route is registered; while it isn't, the navigation emits the warning trace event on every unmatched URL.
+Tooling enumerates `(rf/handler-meta {:kind :route :id :rf.route/not-found})` to confirm the route is registered; while it isn't, the navigation emits the warning trace event on every unmatched URL.
 
 ## Per-route error handling
 
@@ -1742,7 +1742,7 @@ The two registrations carry the reserved registration-meta marker **`:rf/framewo
 
     **The frame-targeted read is the effective one.** A tool asking what classification actually applies asks a *frame*: `(rf/handler-meta {:frame f :kind :event :id :rf.route/entry-denied})`. That is the arity that resolves through the frame's own view (its sealed image generation, or the live store for a frame made without `:images`) — the single seam every dispatch, subscription and trace projection already resolves registrations through — so it is the read that answers the question the classification exists to answer. It reports the union, and it identifies the application descriptor (its provenance, not the framework marker).
 
-    The positional `(rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})` reads the **process registration table** the way a frame made without `:images` resolves it, so it reports the same application descriptor and the same union. It is not frame-resolved: a frame made with `:images` answers from its own sealed generation.
+    The positional `(rf/handler-meta {:kind :event :id :rf.route/entry-denied})` reads the **process registration table** the way a frame made without `:images` resolves it, so it reports the same application descriptor and the same union. It is not frame-resolved: a frame made with `:images` answers from its own sealed generation.
 
     **The redaction is independent of namespace load order.** `re-frame.core` does not pull the routing artefact in, so an application namespace that registers the id and never requires `re-frame.routing` itself may be loaded *before* the façade seeds its defaults. In either order the frame-targeted read, the positional read and every trace / off-box projection converge on the same union — require order is not something an author has to reason about to keep the redaction. The framework's seeding, arriving second, unions its carriers into the application descriptor it finds rather than displacing it, so no application metadata is folded into the framework's own descriptor.
 
@@ -1868,7 +1868,7 @@ A cross-cutting guard interceptor **must cover both entry doors**, or it fails *
      (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                        (get-in ctx [:coeffects :rf.db/runtime
                                                     :rf.runtime/routing :current]))]
-       (let [route-meta (rf/handler-meta {:source :store :kind :route :id id})
+       (let [route-meta (rf/handler-meta {:kind :route :id id})
              gated?     (boolean (some #{:beta-section} (:tags route-meta)))
              enabled?   (get-in ctx [:coeffects :db :flags :beta])]
          (if (and gated? (not enabled?))
@@ -1911,8 +1911,8 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 
 ## Tooling and AI-amenability
 
-- `(rf/registrations {:source :store :kind :route})` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
-- `(rf/handler-meta {:source :store :kind :route :id :route/cart})` returns the route's metadata: path, params shape, query shape, `:on-match`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render activation dependency graphs without parsing handler bodies.
+- `(rf/registrations {:kind :route})` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
+- `(rf/handler-meta {:kind :route :id :route/cart})` returns the route's metadata: path, params shape, query shape, `:on-match`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render activation dependency graphs without parsing handler bodies.
 - The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate` and `:rf.route/handle-url-change` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.

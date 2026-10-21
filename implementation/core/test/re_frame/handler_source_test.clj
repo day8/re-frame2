@@ -22,7 +22,7 @@
 (use-fixtures :each reset-runtime)
 
 (defn- handler-source [id]
-  (:rf.handler/source (rf/handler-meta {:source :store :kind :event :id id})))
+  (:rf.handler/source (rf/handler-meta {:kind :event :id id})))
 
 (deftest ^:requires-debug reg-event-captures-form-source
   (rf/reg-event :rf2-xhfxcs/event-sample
