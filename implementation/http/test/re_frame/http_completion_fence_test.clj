@@ -40,10 +40,12 @@
     (.start server)
     {:server server :port (.getPort (.getAddress server))}))
 
-(defn- settled? [pred label]
-  (try
-    (rf.test-support/poll-until pred {:timeout-ms 5000 :interval-ms 10 :label label})
-    (catch Exception _ false)))
+(defn- await!
+  "Wait for `pred`. An expired wait throws `:rf.error/poll-until-timeout`
+  naming `label`, so a slow settle fails as a timeout, not as the state
+  assertion after it."
+  [pred label]
+  (rf.test-support/poll-until pred {:timeout-ms 5000 :interval-ms 10 :label label}))
 
 (deftest completion-throw-is-fenced-and-torn-down-not-swallowed
   (let [hits     (AtomicInteger. 0)
@@ -68,15 +70,15 @@
                     :request-id :fence/req
                     :reply-to   [:fence/reply]}]]}))
         (rf/dispatch-sync [:fence/load])
-        (settled? #(seq (ops :rf.error/http-reply-tail-failed)) "reply-tail-failed surfaced")
+        (await! #(seq (ops :rf.error/http-reply-tail-failed)) "reply-tail-failed surfaced")
         (is (empty? (ops :rf.http/replied))
             "PRECONDITION: the throw landed above the reply tail, so no reply envelope was built")
         (is (= [:rf.error/schemas-artefact-missing]
                (mapv (comp :reply-error-id :tags) (ops :rf.error/http-reply-tail-failed)))
             "surfaced exactly once, carrying the caught throw's own id")
         (is (= 1 (.get hits)) "not retried as a transport rejection")
-        (is (settled? #(not (contains? (rf.http.registry/in-flight-snapshot) :fence/req))
-                      "in-flight registry cleared")
+        (is (await! #(not (contains? (rf.http.registry/in-flight-snapshot) :fence/req))
+                    "in-flight registry cleared")
             "the fence's teardown clears the in-flight entry")
         (is (nil? (:reply (rf/app-db-value :rf/default)))))
       (finally

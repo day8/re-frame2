@@ -51,16 +51,8 @@
 (defn- stop-server! [{:keys [^HttpServer server]}]
   (.stop server 0))
 
-(defn- await-condition!
-  ([pred] (await-condition! pred 5000))
-  ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (cond
-         (pred) true
-         (> (System/currentTimeMillis) deadline)
-         (throw (ex-info "timed out awaiting condition" {}))
-         :else (do (Thread/sleep 10) (recur)))))))
+(defn- await-condition! [pred label]
+  (rf.test-support/poll-until pred {:timeout-ms 5000 :interval-ms 10 :label label}))
 
 (def ^:private reply-shape (juxt :status (comp :kind :error) (comp :reason :error)))
 
@@ -68,6 +60,8 @@
 ;; race (the connection-refused completion runs on the HttpClient's own
 ;; thread), so the abort is injected at the completion's commit boundary: the
 ;; `:rf.http/transport` failure is already classified when the abort lands.
+;; The hook is process-global and a completion left over from an earlier test
+;; can still reach it, so it answers only this test's own request id.
 (deftest transport-classification-loses-to-abort-at-commit-boundary
   (let [replies (atom [])
         rows    (atom [])
@@ -83,18 +77,18 @@
       (fn [_ _]
         {:fx [[:rf.http/managed {:request    {:url "http://127.0.0.1:1/"}
                                  :decode     :text
-                                 :request-id :race
+                                 :request-id ::commit-boundary
                                  :on-failure [:reply/recorder]
                                  :on-success [:reply/recorder]}]]}))
     (rf.http.transport/set-test-interleave-hook!
       (fn [point ctx]
         (when (and (= point :completed/before-commit)
-                   (= :race (:request-id ctx))
+                   (= ::commit-boundary (:request-id ctx))
                    (compare-and-set! fired? false true))
-          (rf.http.registry/abort-in-flight-in-frame! :rf/default :race :user))))
+          (rf.http.registry/abort-in-flight-in-frame! :rf/default ::commit-boundary :user))))
     (try
       (rf/dispatch-sync [:issue])
-      (await-condition! #(seq @replies))
+      (await-condition! #(seq @replies) "commit-boundary reply")
       (finally
         (rf.http.transport/set-test-interleave-hook! nil)
         (rf.trace.tooling/unregister-listener! cb-id)))
@@ -141,7 +135,7 @@
         ;; Destroying the actor walks the actor index and aborts with :actor-destroyed.
         (rf/dispatch-sync [:sup/race [:cancel]])
         (.countDown decoder-may-throw)
-        (await-condition! #(seq @replies))
+        (await-condition! #(seq @replies) "actor-destroy reply")
         (is (= [[:cancelled :rf.http/aborted :actor-destroyed]] (mapv reply-shape @replies)))
         (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
         (finally

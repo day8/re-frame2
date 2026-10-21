@@ -34,15 +34,21 @@
                                     :label "http-abort-body-prep-race condition"}))
 
 (defn- await-blocked!
-  "True iff `t` is observed BLOCKED (waiting to enter a monitor) within the
-  budget. A thread that must take a held monitor enters BLOCKED and stays
-  there; one with no monitor to take never does."
+  "True once `t` is observed BLOCKED (waiting to enter a monitor). A thread
+  that must take a held monitor enters BLOCKED and stays there; one with no
+  monitor to take never does. Past the budget it returns the expired wait and
+  the thread's last state instead of false: TERMINATED means the thread
+  finished without ever blocking, any other state that it had not reached the
+  monitor in time. The caller runs inside the host call, where a throw would
+  be reclassified as a transport failure, so the expiry travels as a value."
   [^Thread t timeout-ms]
   (let [deadline (+ (System/nanoTime) (* (long timeout-ms) 1000000))]
     (loop []
       (cond
         (= Thread$State/BLOCKED (.getState t)) true
-        (> (System/nanoTime) deadline)         false
+        (> (System/nanoTime) deadline)         {:timed-out    :await-blocked!
+                                                :after-ms     timeout-ms
+                                                :thread-state (str (.getState t))}
         :else                                  (do (Thread/sleep 5) (recur))))))
 
 (defn- register-recorder-and-issue! [replies request-id request]

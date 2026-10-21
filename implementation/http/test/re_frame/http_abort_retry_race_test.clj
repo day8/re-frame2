@@ -69,13 +69,16 @@
   "Issue a retrying request against an always-500 server and fire the abort
   once at `inject-point`. Every window must give the same outcome: one aborted
   reply, one server hit, clean registries, and no phantom `:retried`
-  retry-attempt row for an attempt that never ran."
+  retry-attempt row for an attempt that never ran. The request id is the
+  case's own, because the hook is process-global and a completion left over
+  from an earlier test can still reach it."
   [inject-point]
   (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
         replies     (atom [])
         traces      (atom [])
         listener-id ::retry-timeline-honesty
-        fired?      (atom false)]
+        fired?      (atom false)
+        rid         (keyword "abort-race" (name inject-point))]
     (try
       (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :reply/recorder
@@ -86,13 +89,13 @@
                  {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
                   :decode     :json
                   :retry      retry-config
-                  :request-id :race
+                  :request-id rid
                   :on-failure [:reply/recorder]
                   :on-success [:reply/recorder]}]]}))
       (rf.http.transport/set-test-interleave-hook!
         (fn [point ctx]
           (when (and (= point inject-point)
-                     (= :race (:request-id ctx))
+                     (= rid (:request-id ctx))
                      (compare-and-set! fired? false true))
             (rf.http.registry/abort-in-flight-in-frame! :rf/default (:request-id ctx) :user))))
       (rf/dispatch-sync [:issue])
@@ -176,12 +179,15 @@
         replies (atom [])
         fired?  (atom false)
         hook-done (CountDownLatch. 1)
+        ;; The case's own request id: the hook is process-global, and a
+        ;; completion left over from an earlier test can still reach it.
+        rid     (keyword "successor-race" (name inject-point))
         args    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
                  :decode     :json
                  :retry      {:on           #{:rf.http/http-5xx}
                               :max-attempts 3
                               :backoff      {:base-ms 50 :factor 1 :max-ms 50}}
-                 :request-id :race
+                 :request-id rid
                  :on-failure [:reply/recorder]
                  :on-success [:reply/recorder]}]
     (try
@@ -190,10 +196,11 @@
           (swap! replies conj [(:status p) (get-in p [:error :reason]) (:rf.reply/work-id p)])
           {}))
       (rf/reg-event :issue (fn [_ _] {:fx [[:rf.http/managed args]]}))
-      (rf/reg-event :abort (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
+      (rf/reg-event :abort (fn [_ _] {:fx [[:rf.http/managed-abort rid]]}))
       (rf.http.transport/set-test-interleave-hook!
         (fn [point ctx]
           (when (and (= point inject-point)
+                     (= rid (:request-id ctx))
                      (= 1 (:issuance ctx))
                      (compare-and-set! fired? false true))
             (rf.http.managed/managed-handler {:frame :rf/default :event [:issue]} args)
@@ -204,7 +211,7 @@
       ;; R1's transition resumes on its own thread the instant the hook returns
       ;; and finishes in microseconds; this bound only lets it get there.
       (Thread/sleep 300)
-      (is (= 2 (:issuance (get (rf.http.registry/in-flight-snapshot :rf/default) :race)))
+      (is (= 2 (:issuance (get (rf.http.registry/in-flight-snapshot :rf/default) rid)))
           "the successor R2 still holds the request id after R1's transition")
       (rf/dispatch-sync [:abort])
       (await-condition! #(seq @replies))
