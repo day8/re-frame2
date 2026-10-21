@@ -737,24 +737,21 @@
            :recovery          :replaced-with-default})))))
 
 (defn- produce-input-queries-or-emit!
-  "Run [[produce-input-queries]] inside the shared try/produce/catch/
-  discriminate-bad-return wrapper that both the reactive cache path and the
-  `compute-sub` path use identically. Returns `[input-qs
+  "Run [[produce-input-queries]] inside the try/produce/catch/
+  discriminate-bad-return wrapper [[sub-node-step]] applies on both the
+  reactive cache path and the `compute-sub` path. Returns `[input-qs
   input-error?]`: `[(produce-input-queries sub-meta query-v) false]` on
   success, or — when the parametric `input-fn` throws OR returns a bad shape
   (the tagged `:rf.error/sub-input-fn-bad-return` ex-info from
   `normalize-sub-inputs`) — emits LOUDLY via [[emit-sub-input-fn-error!]] and
-  returns `[recovery-qs true]`. The exception is discriminated into
+  returns `[nil true]`. The exception is discriminated into
   `:rf.error/sub-input-fn-bad-return` vs `:rf.error/sub-input-fn-exception` by
   its `:rf.error/id`.
 
   `where` (`:reactive` / `:compute-sub`) tags the emission site; `frame-id` is
   the reactive path's owning frame (nil on the pure `compute-sub` path).
-  `recovery-qs` is the input-qs the caller wants on failure (`[]` reactive / nil
-  compute-sub — both yield `(count …) 0`, and the `input-error?` flag
-  short-circuits every downstream use, so the choice is cosmetic). Layer-1 /
-  `:static` never throw here — only the parametric `input-fn` can."
-  [sub-meta query-v query-id frame-id where recovery-qs]
+  Layer-1 / `:static` never throw here — only the parametric `input-fn` can."
+  [sub-meta query-v query-id frame-id where]
   (try
     [(produce-input-queries sub-meta query-v) false]
     (catch #?(:clj Throwable :cljs :default) e
@@ -780,7 +777,7 @@
                             "returned a value outside the input grammar"
                             "threw")
                           " while materializing.")})
-        [recovery-qs true]))))
+        [nil true]))))
 
 (defn- kept-ref-count
   "The `:ref-count` slot `k` of cache map `m` keeps when the substrate, not
@@ -908,18 +905,19 @@
 
 (def ^:dynamic *subs-under-construction*
   "Per-thread stack of `[frame-id query-v]` build keys currently resolving their
-  declared inputs in `build-and-cache!*` — the reactive declared-input cycle
-  guard. A re-entry for a key already on the stack is a dependency
-  cycle. Bound only across input resolution, so it is empty at the outermost
-  subscribe entry AND during the cache-install phase (the collision-retry
-  rebuild therefore never trips the guard)."
+  declared inputs in `build-and-cache!*` — the reactive build's stack for the
+  declared-input cycle guard in [[sub-node-step]]. A re-entry for a key already
+  on the stack is a dependency cycle. Bound only across input resolution, so it
+  is empty at the outermost subscribe entry AND during the cache-install phase
+  (the collision-retry rebuild therefore never trips the guard)."
   [])
 
 (defn- sub-cycle-path
-  "Closing-repeat cycle-id path for a detected reactive declared-input cycle: the sub-ids
-  on the build `stack` from the first occurrence of the re-entered
-  `construction-key`, closed by re-entering `query-v`'s id — e.g. `[:a :b :a]`
-  for `:a` over `:b` / `:b` over `:a`, or `[:self :self]` for a self-edge."
+  "Closing-repeat cycle-id path for a detected declared-input cycle: the sub-ids
+  on the build `stack` of `[frame-id query-v]` keys from the first occurrence
+  of the re-entered `construction-key`, closed by re-entering `query-v`'s id —
+  e.g. `[:a :b :a]` for `:a` over `:b` / `:b` over `:a`, or `[:self :self]` for
+  a self-edge."
   [stack construction-key query-v]
   (-> (into [] (comp (drop-while #(not= construction-key %))
                      (map (fn [[_frame qv]] (first qv))))
@@ -959,12 +957,91 @@
                       :where          where
                       :recovery       :replaced-with-default}))
 
-(defn- compute-sub-cycle-path
-  "Closing-repeat cycle-id path from the `compute-sub` per-call `building` stack
-  (a vector of query-vectors) for a re-entered `query-v`."
-  [building query-v]
-  (-> (into [] (comp (drop-while #(not= query-v %)) (map first)) building)
-      (conj (first query-v))))
+(defn- emit-no-such-sub!
+  "Report `query-v` naming an unregistered sub as `:rf.error/no-such-sub`. The
+  tags follow Spec 009 §Error catalogue: `:unresolved-input` is the full
+  query-vector that failed to resolve, and `:resolved-inputs` is empty because
+  the miss is found on the registrar lookup, before any declared input
+  resolves. `where` discriminates the emission site and is omitted when nil;
+  `frame-id` attributes the record. The recovery, a nil value that is never
+  cached, is the caller's (Spec 006 §What happens when a sub references an
+  unknown sub).
+
+  Fans both channels through the shared helper: the always-on listener, so a
+  read of a never-registered sub survives `:advanced` + `goog.DEBUG=false` and
+  reaches off-box shippers, and the dev trace. No exception — an invalid op —
+  and `elapsed-ms 0`. Reached via the `:error-emit/emit-error-both` hook (subs
+  cannot static-require error-emit — load cycle). Returns nil."
+  [query-v frame-id where]
+  (when-let [emit-error-both!
+             (rf.late-bind/get-fn :error-emit/emit-error-both)]
+    (let [query-id (first query-v)]
+      (emit-error-both!
+        :rf.error/no-such-sub
+        query-v               ;; attempted query-vector (as :event)
+        query-id              ;; sub-id (as :event-id)
+        frame-id
+        nil                   ;; no exception — invalid op
+        0                     ;; elapsed-ms
+        (rf.interop/now-ms)   ;; time
+        (cond-> {:rf.sub/id        query-id
+                 :unresolved-input query-v
+                 :resolved-inputs  []
+                 :frame            frame-id
+                 :recovery         :replaced-with-default}
+          where (assoc :where where)))))
+  nil)
+
+(defn- sub-node-step
+  "One node of a subscription build: the part the reactive build
+  (`build-and-cache!*`) and the pure compute (`compute-sub*`) share. In order:
+
+    1. checks the node's `[frame-id query-v]` key against the caller's build
+       `stack` of such keys, and on a re-entry returns the closing-repeat
+       cycle path ([[sub-cycle-path]]);
+    2. looks the sub up; a miss is reported through [[emit-no-such-sub!]] when
+       `miss` is a `{:frame … :where …}` report, and stays silent when `miss`
+       is nil;
+    3. calls `on-found` (when given) with the registration, then produces the
+       input query-vectors through [[produce-input-queries-or-emit!]], tagged
+       `where`;
+    4. resolves each input as `(resolve-input stack' input-q)`, where `stack'`
+       is `stack` with this node on top, so a resolution that re-enters the
+       node is caught by step 1.
+
+  Returns a tagged outcome, and each caller applies its own recovery:
+
+    {:outcome :cycle       :cycle <path>}
+    {:outcome :no-such-sub}
+    {:outcome :input-error :sub-meta m}
+    {:outcome :resolved    :sub-meta m :input-qs [q …] :inputs [v …]}
+
+  `frame-id` is the reactive build's frame and nil on the pure path. The step
+  acquires nothing itself: whatever resolving an input acquires — a counted
+  subscribe on the reactive path, nothing on the pure one — is the
+  resolver's."
+  [query-v stack {:keys [frame-id where miss on-found resolve-input]}]
+  (let [node-key [frame-id (cache-key query-v)]]
+    (if (some #(= node-key %) stack)
+      {:outcome :cycle
+       :cycle   (sub-cycle-path stack node-key query-v)}
+      (let [query-id (first query-v)
+            sub-meta (rf.registrar/lookup :sub query-id)]
+        (if (nil? sub-meta)
+          (do (when miss
+                (emit-no-such-sub! query-v (:frame miss) (:where miss)))
+              {:outcome :no-such-sub})
+          (do (when on-found (on-found sub-meta))
+              (let [[input-qs input-error?]
+                    (produce-input-queries-or-emit!
+                      sub-meta query-v query-id frame-id where)]
+                (if input-error?
+                  {:outcome :input-error :sub-meta sub-meta}
+                  (let [stack' (conj stack node-key)]
+                    {:outcome  :resolved
+                     :sub-meta sub-meta
+                     :input-qs input-qs
+                     :inputs   (mapv #(resolve-input stack' %) input-qs)})))))))))
 
 (defn- emit-frame-destroyed-recovery!
   "Fan the always-on + dev-trace `:rf.error/frame-destroyed` recovery signal for a
@@ -1031,11 +1108,14 @@
   for `:parametric`), build the reaction, attach on-dispose to evict the
   cache slot.
 
-  The materialisation worker behind the cycle-guarding `compute-and-cache!`
-  entry: it pushes the per-thread under-construction marker
-  ONLY across its input resolution, so a re-entrant declared-input cycle is detected by
-  the entry while the legitimate collision-retry rebuild (which runs after the
-  marker is popped) is not.
+  The materialisation worker behind `compute-and-cache!`, which holds the
+  outermost cycle recovery. The node's cycle check, lookup, input production
+  and input resolution are [[sub-node-step]]'s; this build's resolver binds the
+  per-thread `*subs-under-construction*` marker ONLY across input resolution,
+  so a re-entrant declared-input cycle is detected while the legitimate
+  collision-retry rebuild (which runs after the marker is popped) is not. A
+  detected cycle throws the `:rf.error/sub-cycle` sentinel ([[sub-cycle-ex]]),
+  unwinding the whole partial build to that recovery.
 
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
@@ -1057,7 +1137,8 @@
   nil-yielding reaction, but DO NOT store it in the cache. The miss is
   transient — a later registration (boot order, lazy load) must let the
   next subscribe build a fresh reaction against the real body. We
-  achieve this by branching here on nil meta.
+  achieve this by branching here on the step's `:no-such-sub` outcome (nil
+  meta).
 
   `expected-incarnation` is the EXACT incarnation token a captured
   subscribe pinned, threaded through from `subscribe-in-frame`. It makes the
@@ -1093,50 +1174,57 @@
      ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
      ;; ambient/address-directed path.
   (let [query-id      (first query-v)
-        sub-meta      (rf.registrar/lookup :sub query-id)
-        _             (when (nil? sub-meta)
-                        ;; Per Spec 009 §Error catalogue (`:rf.error/no-such-sub`
-                        ;; tags `:rf.sub/id` / `:unresolved-input` /
-                        ;; `:resolved-inputs`): the unregistered sub is the one
-                        ;; being subscribed here (`query-id`); `:unresolved-input`
-                        ;; carries the full query-vector that failed to resolve
-                        ;; and `:resolved-inputs` is empty — the miss is detected
-                        ;; on `sub-meta` lookup, before any declared input is
-                        ;; resolved. The emit tag-shape follows Spec 009;
-                        ;; recovery is a nil-yielding reaction, not cached.
-                        ;;
-                        ;; Fan out through the
-                        ;; always-on error-emit listener (surface #4) so a
-                        ;; subscribe to a never-registered sub survives
-                        ;; `:advanced` + `goog.DEBUG=false` and reaches off-box
-                        ;; shippers — a production-meaningful runtime error.
-                        ;; An invalid op whose recovery is the built-in
-                        ;; `:replaced-with-default`. The `:frame`-stampable
-                        ;; record carries `frame-id` + the attempted `query-v`
-                        ;; for frame + shipper attribution.
-                        ;;
-                        ;; Both channels via the shared helper:
-                        ;; axis 1 the always-on listener (survives prod elision),
-                        ;; axis 2 the dev trace (DCEs under `:advanced` +
-                        ;; `goog.DEBUG=false`). No exception — invalid op;
-                        ;; `elapsed-ms 0`. Reached via the
-                        ;; `:error-emit/emit-error-both` hook (subs cannot
-                        ;; static-require error-emit — load cycle).
-                        (when-let [emit-error-both!
-                                   (rf.late-bind/get-fn :error-emit/emit-error-both)]
-                          (emit-error-both!
-                            :rf.error/no-such-sub
-                            query-v               ;; attempted query-vector (as :event)
-                            query-id              ;; sub-id (as :event-id)
-                            frame-id
-                            nil                   ;; no exception — invalid op
-                            0                     ;; elapsed-ms
-                            (rf.interop/now-ms)      ;; time
-                            {:rf.sub/id        query-id
-                             :unresolved-input query-v
-                             :resolved-inputs  []
-                             :frame            frame-id
-                             :recovery         :replaced-with-default})))
+        ;; The inputs this build has subscribed so far, as `[input-q reaction]`
+        ;; pairs, so a declared-input cycle detected in a NON-FIRST input can
+        ;; release the earlier inputs it already ref-bumped. On a cycle,
+        ;; `subscribe-in-frame` for input N throws the sub-cycle sentinel and
+        ;; the WHOLE partial build unwinds to the outermost
+        ;; `compute-and-cache!` recovery WITHOUT ever wiring this reaction's
+        ;; on-dispose — so nothing else would release inputs 1..N-1 (a bounded
+        ;; dev-only ref-count leak). `subscribe-in-frame` bumps the input's
+        ;; ref-count before it returns, so `acquired` holds exactly the inputs
+        ;; whose ref must be undone; the cyclic input threw before its own
+        ;; bump, so it is (correctly) absent. The unwind releases the CONCRETE
+        ;; reaction it took, and only on the sub-cycle sentinel; any other
+        ;; (theoretical) throw re-propagates unchanged.
+        acquired      (volatile! [])
+        step          (try
+                        (sub-node-step
+                          query-v *subs-under-construction*
+                          {:frame-id      frame-id
+                           :where         :reactive
+                           ;; A reactive miss always reports, with no `:where`.
+                           :miss          {:frame frame-id}
+                           ;; Push this node onto the per-thread build stack
+                           ;; for the duration of input resolution ONLY: a
+                           ;; nested input `subscribe-in-frame` that recurses
+                           ;; back to this query-v re-enters with the key
+                           ;; still on the stack, and the step detects the
+                           ;; cycle there. The recursive input subscribes are
+                           ;; fenced to the SAME captured incarnation, so a
+                           ;; same-id successor installed mid-build cannot
+                           ;; have this layer-2+ sub resolve its inputs in it;
+                           ;; nil (ambient) is the plain input read.
+                           :resolve-input (fn [stack input-q]
+                                            (binding [*subs-under-construction* stack]
+                                              (let [r (subscribe-in-frame
+                                                        frame-id input-q
+                                                        expected-incarnation)]
+                                                (vswap! acquired conj [input-q r])
+                                                r)))})
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                          (when (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+                            (doseq [[input-q input-r] @acquired]
+                              (release-input-ref! frame-id input-q input-r :sub-cycle-unwind)))
+                          (throw e)))
+        ;; This query-v is already resolving its inputs higher on the stack —
+        ;; a declared-input cycle. Throw the sentinel to unwind the WHOLE
+        ;; partial build so no half-wired cyclic reaction is cached; the
+        ;; outermost `compute-and-cache!` catches it, emits the diagnostic
+        ;; error and recovers to nil.
+        _             (when (= :cycle (:outcome step))
+                        (throw (sub-cycle-ex frame-id query-v (:cycle step))))
+        sub-meta      (:sub-meta step)
         body-fn       (:handler-fn sub-meta)
         ;; Read the discriminator ONCE — it drives the single-source detection,
         ;; the container resolution, and the memoised-body dispatch below.
@@ -1157,96 +1245,40 @@
         ;; nil for the producer kinds (`:static` / `:parametric` / a miss). One
         ;; lookup shared by the `inputs` and `memoised-body` cond branches below.
         container-fn  (single-source-container-for input-kind)
-        ;; Produce the realized input query-vectors for THIS concrete
-        ;; cache entry from the sub's input producer (Spec 006
-        ;; §Subscription input producers): `[]` for layer-1, the literal
-        ;; `:inputs` list for `:static`, or `(input-fn query-v)` (validated by
-        ;; `normalize-sub-inputs`) for `:parametric`. The `input-fn` runs
-        ;; ONCE here at materialization — NOT on the hot recompute path —
-        ;; so the entry's topology is FIXED for its lifetime (the
-        ;; fixed-topology-per-cache-entry invariant). On a parametric
-        ;; failure (`input-fn` throws, or returns a non-vector-of-query-
-        ;; vectors) we emit LOUDLY and recover to a nil-yielding reaction
-        ;; that is NOT cached (so a later registration fix re-materializes
-        ;; cleanly) — the same recovery posture as a no-such-sub miss.
-        ;; `input-error?` flags that recovery so the cache + dispose wiring
-        ;; below treats the entry like an uncached miss. (Layer-1 / static
-        ;; never throw here — only the parametric `input-fn` can.)
-        [input-qs input-error?]
-        (when sub-meta
-          (produce-input-queries-or-emit! sub-meta query-v query-id frame-id :reactive []))
-        ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive
-        ;; subs over the realized input query-vectors. A failed parametric
-        ;; production yields an empty `input-qs` and a constant-nil body.
-        ;; Single-source readers (`:db` / `:runtime-db` / `:frame-state`) watch
-        ;; ONE resolved container; the `single-source-container-for` lookup
-        ;; picks the app-db / runtime-db / whole-frame-state container — the
-        ;; `:frame-state` container propagates on a change to EITHER partition.
-        ;; Layer-2+ subscribes each realized input.
-        inputs        (cond
+        ;; The realized input query-vectors for THIS concrete cache entry
+        ;; (Spec 006 §Subscription input producers), produced by the step:
+        ;; `[]` for layer-1, the literal `:inputs` list for `:static`, or
+        ;; `(input-fn query-v)` (validated by `normalize-sub-inputs`) for
+        ;; `:parametric`. The `input-fn` runs ONCE at materialization — NOT on
+        ;; the hot recompute path — so the entry's topology is FIXED for its
+        ;; lifetime (the fixed-topology-per-cache-entry invariant). A
+        ;; parametric failure (`input-fn` throws, or returns a non-vector-of-
+        ;; query-vectors) is emitted LOUDLY by the step and recovers to a
+        ;; nil-yielding reaction that is NOT cached (so a later registration
+        ;; fix re-materializes cleanly) — the same recovery posture as a
+        ;; no-such-sub miss. `input-error?` flags that recovery so the cache +
+        ;; dispose wiring below treats the entry like an uncached miss.
+        ;; (Layer-1 / static never fail here — only the parametric `input-fn`
+        ;; can.)
+        input-qs      (:input-qs step)
+        input-error?  (= :input-error (:outcome step))
+        ;; The reaction's signal sources. Single-source readers (`:db` /
+        ;; `:runtime-db` / `:frame-state`) watch ONE resolved container; the
+        ;; `single-source-container-for` lookup picks the app-db / runtime-db /
+        ;; whole-frame-state container — the `:frame-state` container
+        ;; propagates on a change to EITHER partition. Layer-2+ watches the
+        ;; input reactions the step resolved; a miss or a failed parametric
+        ;; production has none, and gets a constant-nil body below.
+        inputs        (if container-fn
                         ;; A CAPTURED build reads its lone single-source
                         ;; signal off the VALIDATED record (never a bare-id
                         ;; re-resolve that could land on a same-id successor); the
                         ;; ambient/address-directed build re-resolves by id.
-                        container-fn [(if (some? expected-incarnation)
-                                        (get frame-record
-                                             (single-source-container-slot-for input-kind))
-                                        (container-fn frame-id))]
-                        input-error? []
-                        ;; Push this query-v onto the per-thread build stack for
-                        ;; the duration of input resolution ONLY:
-                        ;; a nested input `subscribe-in-frame` that recurses back
-                        ;; to this query-v re-enters `compute-and-cache!` with the
-                        ;; key still on the stack → the cycle is detected there.
-                        :else        (binding [*subs-under-construction*
-                                               (conj *subs-under-construction*
-                                                     [frame-id (cache-key query-v)])]
-                                       ;; Track the inputs successfully subscribed
-                                       ;; so far so a declared-input cycle detected in a
-                                       ;; NON-FIRST input can release the earlier
-                                       ;; inputs it already ref-bumped.
-                                       ;; On a cycle, `subscribe-
-                                       ;; in-frame` for input N throws the
-                                       ;; sub-cycle sentinel and the WHOLE partial
-                                       ;; build unwinds to the outermost
-                                       ;; `compute-and-cache!` recovery WITHOUT
-                                       ;; ever wiring this reaction's on-dispose —
-                                       ;; so nothing else would release inputs
-                                       ;; 1..N-1 (a bounded dev-only ref-count
-                                       ;; leak). `subscribe-in-frame` bumps the
-                                       ;; input's ref-count before it returns, so
-                                       ;; `acquired` holds exactly the inputs
-                                       ;; whose ref must be undone; the cyclic
-                                       ;; input threw before its own bump, so it
-                                       ;; is (correctly) absent. Release is
-                                       ;; scoped to the sub-cycle sentinel only;
-                                       ;; any other (theoretical) throw
-                                       ;; re-propagates unchanged.
-                                       ;; `acquired` holds `[input-q reaction]`
-                                       ;; pairs, not bare addresses: the unwind
-                                       ;; releases the CONCRETE reaction it
-                                       ;; took.
-                                       (let [acquired (volatile! [])]
-                                         (try
-                                           ;; Fence the recursive input
-                                           ;; subscribes to the SAME captured
-                                           ;; incarnation — a same-id successor
-                                           ;; installed mid-build cannot have this
-                                           ;; layer-2+ sub recursively resolve its
-                                           ;; inputs in it. nil (ambient) is the
-                                           ;; plain 2-arity input read.
-                                           (mapv (fn [input-q]
-                                                   (let [r (subscribe-in-frame
-                                                             frame-id input-q
-                                                             expected-incarnation)]
-                                                     (vswap! acquired conj [input-q r])
-                                                     r))
-                                                 input-qs)
-                                           (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                                             (when (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
-                                               (doseq [[input-q input-r] @acquired]
-                                                 (release-input-ref! frame-id input-q input-r :sub-cycle-unwind)))
-                                             (throw e))))))
+                        [(if (some? expected-incarnation)
+                           (get frame-record
+                                (single-source-container-slot-for input-kind))
+                           (container-fn frame-id))]
+                        (:inputs step []))
         memoised-body (cond
                         input-error?
                         ;; Recovery body: a constant nil reaction (Spec 009
@@ -1480,13 +1512,14 @@
         reaction))))))
 
 (defn- compute-and-cache!
-  "Cycle-guarding entry to the reactive sub build. Detects a
-  declared-input dependency cycle — a re-entry for a query-v already mid-build on this
-  thread's `*subs-under-construction*` stack — and, at the OUTERMOST build,
-  recovers it to a structured `:rf.error/sub-cycle` + nil-yielding reaction
-  instead of a raw host StackOverflowError. Delegates the actual
-  materialisation to `build-and-cache!*`, which pushes the per-thread marker
-  across its input resolution.
+  "Entry to the reactive sub build, and its cycle recovery. A declared-input
+  dependency cycle — a re-entry for a query-v already mid-build on this
+  thread's `*subs-under-construction*` stack — is detected by
+  `build-and-cache!*`'s [[sub-node-step]], which throws the
+  `:rf.error/sub-cycle` sentinel. At the OUTERMOST build this entry catches
+  it and recovers to a structured `:rf.error/sub-cycle` + nil-yielding
+  reaction instead of a raw host StackOverflowError; a nested build lets the
+  sentinel unwind to it.
 
   `expected-incarnation` (3-arity) is the captured incarnation token
   threaded straight through to `build-and-cache!*`'s exact-incarnation fence; nil
@@ -1494,37 +1527,28 @@
   the bare-id build."
   ([frame-id query-v] (compute-and-cache! frame-id query-v nil))
   ([frame-id query-v expected-incarnation]
-   (let [construction-key [frame-id (cache-key query-v)]
-         stack            *subs-under-construction*]
-     (when (some #(= construction-key %) stack)
-       ;; This query-v is already resolving its inputs higher on the stack — a
-       ;; declared-input cycle. Throw the sentinel to unwind the WHOLE partial build so no
-       ;; half-wired cyclic reaction is cached; the outermost build (below)
-       ;; catches it, emits the diagnostic error and recovers to nil.
-       (throw (sub-cycle-ex frame-id query-v
-                (sub-cycle-path stack construction-key query-v))))
-     (if (empty? stack)
-       ;; Outermost build: a cycle thrown anywhere in the input recursion unwinds
-       ;; to here. Emit the structured error (diagnostic, mirroring flow-cycle)
-       ;; and recover to a nil-yielding reaction — NOT cached, mirroring the
-       ;; no-such-sub miss so a later registration fix rebuilds cleanly.
-       (try
-         (build-and-cache!* frame-id query-v expected-incarnation)
-         (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-           (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
-             (do
-               (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
-               ;; Observation-port acquire path only: record the
-               ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
-               ;; (fail-loud → the ViewCell error boundary) rather than acquire
-               ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
-               ;; catalogue) — the port throws the typed carrier but does NOT
-               ;; promote it to the always-on axis. No-op on the subscribe path.
-               (record-acquire-recovery! :cycle {:cycle   (:cycle (ex-data e))
-                                                 :query-v query-v})
-               (rf.substrate.adapter/make-derived-value [] (constantly nil)))
-             (throw e))))
-       (build-and-cache!* frame-id query-v expected-incarnation)))))
+   (if (empty? *subs-under-construction*)
+     ;; Outermost build: a cycle thrown anywhere in the input recursion unwinds
+     ;; to here. Emit the structured error (diagnostic, mirroring flow-cycle)
+     ;; and recover to a nil-yielding reaction — NOT cached, mirroring the
+     ;; no-such-sub miss so a later registration fix rebuilds cleanly.
+     (try
+       (build-and-cache!* frame-id query-v expected-incarnation)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+           (do
+             (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
+             ;; Observation-port acquire path only: record the
+             ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
+             ;; (fail-loud → the ViewCell error boundary) rather than acquire
+             ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
+             ;; catalogue) — the port throws the typed carrier but does NOT
+             ;; promote it to the always-on axis. No-op on the subscribe path.
+             (record-acquire-recovery! :cycle {:cycle   (:cycle (ex-data e))
+                                               :query-v query-v})
+             (rf.substrate.adapter/make-derived-value [] (constantly nil)))
+           (throw e))))
+     (build-and-cache!* frame-id query-v expected-incarnation))))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
 ;;
@@ -2166,32 +2190,6 @@
   behaviour."
   ::observation-opts)
 
-(defn- maybe-emit-cold-probe-no-such-sub!
-  "Emit the always-on `:rf.error/no-such-sub` for an unregistered sub hit
-  MID-GRAPH under an ownership-free read whose `memo` carries
-  [[observation-opts-key]]. No-op for every other `compute-sub` caller.
-  Mirrors the reactive build's emission shape (`build-and-cache!*`) with a
-  `:where :observation-cold-probe` discriminator. Returns nil."
-  [memo query-v]
-  (when-let [{:keys [frame]} (get @memo observation-opts-key)]
-    (when-let [emit-error-both!
-               (rf.late-bind/get-fn :error-emit/emit-error-both)]
-      (emit-error-both!
-        :rf.error/no-such-sub
-        query-v               ;; attempted query-vector (as :event)
-        (first query-v)       ;; sub-id (as :event-id)
-        frame
-        nil                   ;; no exception — invalid op
-        0                     ;; elapsed-ms
-        (rf.interop/now-ms)      ;; time
-        {:rf.sub/id        (first query-v)
-         :unresolved-input query-v
-         :resolved-inputs  []
-         :where            :observation-cold-probe
-         :frame            frame
-         :recovery         :replaced-with-default})))
-  nil)
-
 (defn- compute-sub*
   "Recursive worker for `compute-sub`. Threads a per-call `memo` atom
   (`{query-v -> value}`) through the declared-input recursion so each DISTINCT
@@ -2203,221 +2201,229 @@
   (id + args) is value-identical to re-computing because, for a fixed
   `db`, a sub's value is a pure function of `db` + its inputs.
 
+  `stack` holds the `[nil query-v]` keys of the subs on THIS call's recursion
+  that are still resolving their inputs — the pure path's stack for the
+  declared-input cycle guard in [[sub-node-step]]; a top-level call passes
+  `[]`. There is no reactive frame, cache or ref-count here: an input
+  resolves by recursing.
+
   EP-0001: `db` may be a bare app-db map OR a full frame-state
   value. A `:runtime-db` sub's body receives the runtime-db partition (Spec
   002 §Subscriptions read the partition they belong to); the partition is
   resolved per-sub via `partition-value-for-sub`."
-  [query-v db memo]
+  [query-v db memo stack]
   ;; `contains?` (not a sentinel + `identical?`) so a memoised nil value
   ;; is honoured as a HIT — unregistered subs and recovery-to-nil both
   ;; memoise nil, and a keyword sentinel is not reliably reference-equal
   ;; under `identical?` on CLJS.
-  (cond
-    ;; declared-input dependency cycle: query-v is already mid-computation
-    ;; on THIS call's recursion — a re-entry while it sits on the per-call
-    ;; `::building` stack. Emit the structured `:rf.error/sub-cycle`
-    ;; (diagnostic) and recover to nil, memoising the recovery so the rest of
-    ;; the call sees nil rather than re-detecting. The per-call memo doubles as
-    ;; the under-construction marker here (there is no reactive frame / cache).
-    (some #(= % query-v) (::building @memo))
-    (do (emit-sub-cycle! nil query-v (compute-sub-cycle-path (::building @memo) query-v)
-                         :compute-sub)
-        (swap! memo assoc query-v nil)
-        nil)
-
-    (contains? @memo query-v)
+  ;;
+  ;; The hit is checked ahead of the step's cycle check, which is sound
+  ;; because a sub on `stack` is never memoised: its value lands only once
+  ;; its own inputs and body resolve, and a cycle's nil recovery (below) is
+  ;; not memoised. So every re-entry while it is mid-computation still reaches
+  ;; the cycle check, and reports.
+  (if (contains? @memo query-v)
     (get @memo query-v)
-
-    :else
     (let [query-id (first query-v)
-          meta     (rf.registrar/lookup :sub query-id)]
-      (if-not meta
-        ;; Unregistered sub computes to nil; memoise so a repeated
-        ;; reference within the same call is also a single resolution.
-        ;; Under an opted-in ownership-free read (and ONLY there — see
-        ;; `observation-opts-key`) the miss additionally emits the
-        ;; always-on `:rf.error/no-such-sub`, matching the reactive
-        ;; graph's one-error-event / nil-substituted contract. The memo
-        ;; dedupes: a repeated reference is a memo HIT and never reaches
-        ;; this branch again, so the error event fires once per distinct
-        ;; unknown input per slice.
-        (do (maybe-emit-cold-probe-no-such-sub! memo query-v)
-            (swap! memo assoc query-v nil)
+          step     (sub-node-step
+                     query-v stack
+                     {:where         :compute-sub
+                      ;; Under an opted-in ownership-free read (and ONLY there —
+                      ;; see `observation-opts-key`) an unregistered sub reports
+                      ;; the always-on `:rf.error/no-such-sub`, matching the
+                      ;; reactive graph's one-error-event / nil-substituted
+                      ;; contract. The public `compute-sub` stays silent.
+                      :miss          (when-let [{:keys [frame]}
+                                                (get @memo observation-opts-key)]
+                                       {:frame frame :where :observation-cold-probe})
+                      ;; Per Spec 009 §:op-type vocabulary: :rf.sub/run marks a
+                      ;; sub recompute. The pure compute-sub form fires the same
+                      ;; op-type as the reactive recompute path so tools can
+                      ;; observe both call sites uniformly, once the sub is
+                      ;; found and before its inputs are produced.
+                      ;;
+                      ;; The reactive recompute path (subs.memo/validate-
+                      ;; and-trace) enriches its `:rf.sub/run` tag with value-change +
+                      ;; cascade attribution (`:value-changed?` / `:prev-value` /
+                      ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
+                      ;; bypasses the per-frame reactive cache (it's the pure-snapshot
+                      ;; form per Spec 008 §Testing), so it has NO prior cached value to
+                      ;; diff for `:value-changed?` and NO reactive context to attribute a
+                      ;; cascade against — each DISTINCT declared input is re-resolved fresh
+                      ;; against the supplied `db`, not observed as a changed upstream
+                      ;; signal. It therefore emits the BASE `:rf.sub/run` shape only;
+                      ;; attribution is a reactive-path concern. Consumers (Xray) read
+                      ;; attribution off the reactive epoch records, never off
+                      ;; compute-sub emissions.
+                      :on-found      (fn [_]
+                                       (rf.trace/emit! :rf.sub :rf.sub/run
+                                                    {:rf.sub/id      query-id
+                                                     :rf.sub/query-v query-v}))
+                      :resolve-input (fn [stack input-q]
+                                       (compute-sub* input-q db memo stack))})]
+      (case (:outcome step)
+        ;; Declared-input dependency cycle: query-v is already mid-computation
+        ;; on THIS call's recursion. Emit the structured `:rf.error/sub-cycle`
+        ;; (diagnostic) and recover to nil.
+        :cycle
+        (do (emit-sub-cycle! nil query-v (:cycle step) :compute-sub)
             nil)
-        (do
-          ;; Mark query-v mid-computation for the cycle guard above; popped
-          ;; after its inputs resolve + its body runs.
-          (swap! memo update ::building (fnil conj []) query-v)
-          ;; Per Spec 009 §:op-type vocabulary: :rf.sub/run marks a sub recompute.
-          ;; The pure compute-sub form fires the same op-type as the reactive
-          ;; recompute path so tools can observe both call sites uniformly.
-          ;;
-          ;; The reactive recompute path (subs.memo/validate-
-          ;; and-trace) enriches its `:rf.sub/run` tag with value-change +
-          ;; cascade attribution (`:value-changed?` / `:prev-value` /
-          ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
-          ;; bypasses the per-frame reactive cache (it's the pure-snapshot
-          ;; form per Spec 008 §Testing), so it has NO prior cached value to
-          ;; diff for `:value-changed?` and NO reactive context to attribute a
-          ;; cascade against — each DISTINCT declared input is re-resolved fresh
-          ;; against the supplied `db`, not observed as a changed upstream
-          ;; signal. It therefore emits the BASE `:rf.sub/run` shape only;
-          ;; attribution is a reactive-path concern. Consumers (Xray) read
-          ;; attribution off the reactive epoch records, never off
-          ;; compute-sub emissions.
-          (rf.trace/emit! :rf.sub :rf.sub/run
-                       {:rf.sub/id      query-id
-                        :rf.sub/query-v query-v})
-          (let [body-fn    (:handler-fn meta)
-                input-kind (:input-kind meta)
-                ;; EP-0001: `:db` and `:runtime-db` are both
-                ;; single-source readers — `compute-sub` passes the supplied
-                ;; value straight to the body for either. For a `:runtime-db`
-                ;; sub the caller supplies the runtime-db value (or a
-                ;; frame-state value, from which `compute-sub` extracts the
-                ;; right partition — see below).
-                layer-1?   (single-source-input-kinds input-kind)
-                ;; Produce the realized input query-vectors from the sub's
-                ;; input producer — the SAME three-mode model as the
-                ;; reactive cache path (Spec 006 §Subscription input
-                ;; producers / Spec 008 §`compute-sub` algorithm). For a
-                ;; parametric sub the `input-fn` runs here (pure over
-                ;; `query-v`); `normalize-sub-inputs` enforces the
-                ;; vector-of-query-vectors grammar. This keeps `compute-sub`
-                ;; pure + JVM-runnable: the `input-fn` returns query-vectors
-                ;; (data), never live reactions. On a parametric production
-                ;; failure (`input-fn` throws / bad return) we emit LOUDLY
-                ;; with `:where :compute-sub` and recover this sub to nil
-                ;; (a bad return is NEVER silently treated as no inputs).
-                [input-qs input-error?]
-                (produce-input-queries-or-emit! meta query-v query-id nil :compute-sub nil)
-                ;; Per Spec 009 §Error contract — body throws emit
-                ;; :rf.error/sub-exception and recover to nil. Mirrors
-                ;; `subs.memo/validate-and-trace` (the reactive sibling), so
-                ;; SSR + JVM-runnable consumers driving subs through
-                ;; `compute-sub` get the same debuggable signal the reactive
-                ;; path produces. The `:where :compute-sub` tag distinguishes
-                ;; this emission site from the reactive memo path; the rest of
-                ;; the envelope mirrors the sibling exactly.
-                v       (if input-error?
-                          ;; Parametric input production failed — recover the
-                          ;; whole sub to nil (already emitted above).
-                          nil
-                          (try
-                          (let [raw (if layer-1?
-                                      ;; Layer-1-shaped (`:db` / `:runtime-db` /
-                                      ;; `:frame-state` — see the `layer-1?` set
-                                      ;; above): `:db` reads app-db directly,
-                                      ;; `:runtime-db` reads the runtime-db
-                                      ;; partition, `:frame-state` reads the
-                                      ;; whole frame-state value (both
-                                      ;; partitions, EP-0016 D3).
-                                      ;; `partition-value-for-sub` extracts the
-                                      ;; right slice when `db` is a frame-state
-                                      ;; value.
-                                      (body-fn (partition-value-for-sub db input-kind) query-v)
 
-                                      ;; DECLARED dependencies (`{:inputs …}`,
-                                      ;; literal or producer) deliver a VECTOR
-                                      ;; of resolved input values in producer
-                                      ;; order at ANY count — `[]` for
-                                      ;; `{:inputs []}`, `[v]` for one, `[a b]`
-                                      ;; for two. One arm, so `compute-sub`,
-                                      ;; `subscribe-once` and the reactive path
-                                      ;; cannot disagree about the argument.
-                                      (body-fn (mapv #(compute-sub* % db memo) input-qs) query-v))]
-                            ;; `compute-sub` is the pure testing form
-                            ;; (Spec 008 §Testing): a compute against a SUPPLIED db,
-                            ;; outside any reactive cascade. No in-flight reaction
-                            ;; frame to attribute to, so `frame-id` is nil — the
-                            ;; `:where :sub-return` trace from this path is not tied
-                            ;; to a per-frame epoch (mirrors the direct-caller
-                            ;; 4-arity contract).
-                            (rf.subs.memo/maybe-validate-sub! raw query-v query-id meta nil))
-                          (catch #?(:clj Throwable :cljs :default) e
-                            (let [msg (rf.error/ex-message-safe e) ; nil-safe
-                                  reason (str "Subscription `" query-id
-                                              "` threw while computing: "
-                                              msg ". Returning nil.")
-                                  ;; The pure `compute-sub` path has no in-flight
-                                  ;; reaction frame to attribute to (it computes
-                                  ;; against a SUPPLIED db, outside any reactive
-                                  ;; cascade — Spec 008 §Testing), so `:frame` is
-                                  ;; nil. A `compute-sub`-driven SSR harness that
-                                  ;; wants the per-frame 500 projection must use
-                                  ;; the reactive `subscribe` path (which knows
-                                  ;; its frame).
-                                  tags  {:failing-id        query-id
-                                         :rf.sub/id         query-id
-                                         :sub-query         query-v
-                                         :frame             nil
-                                         :where             :compute-sub
-                                         :exception         e
-                                         :exception-message msg
-                                         :reason            reason
-                                         :recovery          :replaced-with-default}]
-                              ;; The pure `compute-sub` path fans the always-on
-                              ;; listener too. Trace-ONLY, under
-                              ;; `rf.interop/debug-enabled? = false`
-                              ;; (CLJS `:advanced` + `goog.DEBUG=false`; JVM
-                              ;; `-Dre-frame.debug=false`) the `rf.trace/emit-error!`
-                              ;; below DCEs / no-ops, so a sub that threw via
-                              ;; `compute-sub` would recover to nil with NO
-                              ;; always-on emission — the fail-open class the
-                              ;; REACTIVE path closes too. A head fn / JVM render
-                              ;; harness that resolves subs via `compute-sub`
-                              ;; during SSR could then ship a silent 200 with
-                              ;; recovered-to-nil broken HTML. Routed through the
-                              ;; always-on listener (axis 1 / surface #4),
-                              ;; corpus-wide shippers (Sentry / Datadog) see the
-                              ;; compute-sub throw under production hardening,
-                              ;; symmetric with `subs/memo.cljc`'s reactive
-                              ;; sibling. NOTE: the per-frame epoch capture +
-                              ;; SSR per-frame 500 projection are frame-tagged;
-                              ;; the pure `compute-sub` path has no reactive frame
-                              ;; (`:frame` nil), so a `compute-sub`-driven SSR
-                              ;; harness that wants the per-frame projection MUST
-                              ;; resolve subs via the reactive `subscribe` path
-                              ;; (which knows its frame). The always-on
-                              ;; corpus-wide stream fires regardless — closing the
-                              ;; silent-recovery fail-open for off-box monitors.
-                              ;;
-                              ;; A sub-exception's recovery is the framework's
-                              ;; built-in 'return nil'; there is no app-steering
-                              ;; recovery policy. Reached via the
-                              ;; `:error-emit/dispatch-on-error` late-bind hook
-                              ;; (subs cannot static-require `re-frame.error-emit`
-                              ;; — load cycle). A pure `compute-sub` has no
-                              ;; triggering event vector OR reactive frame, so
-                              ;; `:frame` is nil; the failing sub's
-                              ;; `query-v` / `query-id` ride `:event` / `:event-id`
-                              ;; (mirroring the sub-input-fn path) so the kind-aware
-                              ;; error-emit lookup resolves the sub's `:source-coord`
-                              ;; under `[:sub query-id]` for off-box shippers.
-                              ;; Both channels via the shared helper:
-                              ;; axis 1 the always-on listener
-                              ;; (survives prod elision), axis 2 the dev trace
-                              ;; (DCEs under `:advanced` + `goog.DEBUG=false`).
-                              ;; Reached via the `:error-emit/emit-error-both`
-                              ;; hook (subs cannot static-require error-emit —
-                              ;; load cycle). `elapsed-ms 0`.
-                              (when-let [emit-error-both!
-                                         (rf.late-bind/get-fn :error-emit/emit-error-both)]
-                                (emit-error-both!
-                                  :rf.error/sub-exception
-                                  query-v                   ;; failing query-vector (as :event)
-                                  query-id                  ;; sub-id (as :event-id) — drives [:sub …] coord lookup
-                                  nil                       ;; frame (pure compute — no reactive frame)
-                                  e
-                                  0                         ;; elapsed-ms
-                                  (rf.interop/now-ms)          ;; time
-                                  tags)))
-                            nil)))]
-            ;; Pop the under-construction marker now that this sub's inputs +
-            ;; body have resolved (LIFO — our own query-v is last).
-            (swap! memo update ::building pop)
-            (swap! memo assoc query-v v)
-            v))))))
+        ;; Unregistered sub computes to nil; memoise so a repeated reference
+        ;; within the same call is a memo HIT — so an opted-in read's error
+        ;; event fires once per distinct unknown input per slice.
+        :no-such-sub
+        (do (swap! memo assoc query-v nil)
+            nil)
+
+        ;; `:input-error` / `:resolved`
+        (let [meta         (:sub-meta step)
+              body-fn      (:handler-fn meta)
+              input-kind   (:input-kind meta)
+              ;; EP-0001: `:db` and `:runtime-db` are both
+              ;; single-source readers — `compute-sub` passes the supplied
+              ;; value straight to the body for either. For a `:runtime-db`
+              ;; sub the caller supplies the runtime-db value (or a
+              ;; frame-state value, from which `compute-sub` extracts the
+              ;; right partition — see below).
+              layer-1?     (single-source-input-kinds input-kind)
+              ;; The step produced the realized input query-vectors from the
+              ;; sub's input producer — the SAME three-mode model as the
+              ;; reactive cache path (Spec 006 §Subscription input
+              ;; producers / Spec 008 §`compute-sub` algorithm). For a
+              ;; parametric sub the `input-fn` runs there (pure over
+              ;; `query-v`); `normalize-sub-inputs` enforces the
+              ;; vector-of-query-vectors grammar. This keeps `compute-sub`
+              ;; pure + JVM-runnable: the `input-fn` returns query-vectors
+              ;; (data), never live reactions. On a parametric production
+              ;; failure (`input-fn` throws / bad return) the step emits LOUDLY
+              ;; with `:where :compute-sub` and this sub recovers to nil
+              ;; (a bad return is NEVER silently treated as no inputs).
+              input-error? (= :input-error (:outcome step))
+              ;; Per Spec 009 §Error contract — body throws emit
+              ;; :rf.error/sub-exception and recover to nil. Mirrors
+              ;; `subs.memo/validate-and-trace` (the reactive sibling), so
+              ;; SSR + JVM-runnable consumers driving subs through
+              ;; `compute-sub` get the same debuggable signal the reactive
+              ;; path produces. The `:where :compute-sub` tag distinguishes
+              ;; this emission site from the reactive memo path; the rest of
+              ;; the envelope mirrors the sibling exactly.
+              v       (if input-error?
+                        ;; Parametric input production failed — recover the
+                        ;; whole sub to nil (already emitted above).
+                        nil
+                        (try
+                        (let [raw (if layer-1?
+                                    ;; Layer-1-shaped (`:db` / `:runtime-db` /
+                                    ;; `:frame-state` — see the `layer-1?` set
+                                    ;; above): `:db` reads app-db directly,
+                                    ;; `:runtime-db` reads the runtime-db
+                                    ;; partition, `:frame-state` reads the
+                                    ;; whole frame-state value (both
+                                    ;; partitions, EP-0016 D3).
+                                    ;; `partition-value-for-sub` extracts the
+                                    ;; right slice when `db` is a frame-state
+                                    ;; value.
+                                    (body-fn (partition-value-for-sub db input-kind) query-v)
+
+                                    ;; DECLARED dependencies (`{:inputs …}`,
+                                    ;; literal or producer) deliver a VECTOR
+                                    ;; of resolved input values in producer
+                                    ;; order at ANY count — `[]` for
+                                    ;; `{:inputs []}`, `[v]` for one, `[a b]`
+                                    ;; for two. One arm, so `compute-sub`,
+                                    ;; `subscribe-once` and the reactive path
+                                    ;; cannot disagree about the argument.
+                                    (body-fn (:inputs step) query-v))]
+                          ;; `compute-sub` is the pure testing form
+                          ;; (Spec 008 §Testing): a compute against a SUPPLIED db,
+                          ;; outside any reactive cascade. No in-flight reaction
+                          ;; frame to attribute to, so `frame-id` is nil — the
+                          ;; `:where :sub-return` trace from this path is not tied
+                          ;; to a per-frame epoch (mirrors the direct-caller
+                          ;; 4-arity contract).
+                          (rf.subs.memo/maybe-validate-sub! raw query-v query-id meta nil))
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (let [msg (rf.error/ex-message-safe e) ; nil-safe
+                                reason (str "Subscription `" query-id
+                                            "` threw while computing: "
+                                            msg ". Returning nil.")
+                                ;; The pure `compute-sub` path has no in-flight
+                                ;; reaction frame to attribute to (it computes
+                                ;; against a SUPPLIED db, outside any reactive
+                                ;; cascade — Spec 008 §Testing), so `:frame` is
+                                ;; nil. A `compute-sub`-driven SSR harness that
+                                ;; wants the per-frame 500 projection must use
+                                ;; the reactive `subscribe` path (which knows
+                                ;; its frame).
+                                tags  {:failing-id        query-id
+                                       :rf.sub/id         query-id
+                                       :sub-query         query-v
+                                       :frame             nil
+                                       :where             :compute-sub
+                                       :exception         e
+                                       :exception-message msg
+                                       :reason            reason
+                                       :recovery          :replaced-with-default}]
+                            ;; The pure `compute-sub` path fans the always-on
+                            ;; listener too. Trace-ONLY, under
+                            ;; `rf.interop/debug-enabled? = false`
+                            ;; (CLJS `:advanced` + `goog.DEBUG=false`; JVM
+                            ;; `-Dre-frame.debug=false`) the `rf.trace/emit-error!`
+                            ;; below DCEs / no-ops, so a sub that threw via
+                            ;; `compute-sub` would recover to nil with NO
+                            ;; always-on emission — the fail-open class the
+                            ;; REACTIVE path closes too. A head fn / JVM render
+                            ;; harness that resolves subs via `compute-sub`
+                            ;; during SSR could then ship a silent 200 with
+                            ;; recovered-to-nil broken HTML. Routed through the
+                            ;; always-on listener (axis 1 / surface #4),
+                            ;; corpus-wide shippers (Sentry / Datadog) see the
+                            ;; compute-sub throw under production hardening,
+                            ;; symmetric with `subs/memo.cljc`'s reactive
+                            ;; sibling. NOTE: the per-frame epoch capture +
+                            ;; SSR per-frame 500 projection are frame-tagged;
+                            ;; the pure `compute-sub` path has no reactive frame
+                            ;; (`:frame` nil), so a `compute-sub`-driven SSR
+                            ;; harness that wants the per-frame projection MUST
+                            ;; resolve subs via the reactive `subscribe` path
+                            ;; (which knows its frame). The always-on
+                            ;; corpus-wide stream fires regardless — closing the
+                            ;; silent-recovery fail-open for off-box monitors.
+                            ;;
+                            ;; A sub-exception's recovery is the framework's
+                            ;; built-in 'return nil'; there is no app-steering
+                            ;; recovery policy. Reached via the
+                            ;; `:error-emit/dispatch-on-error` late-bind hook
+                            ;; (subs cannot static-require `re-frame.error-emit`
+                            ;; — load cycle). A pure `compute-sub` has no
+                            ;; triggering event vector OR reactive frame, so
+                            ;; `:frame` is nil; the failing sub's
+                            ;; `query-v` / `query-id` ride `:event` / `:event-id`
+                            ;; (mirroring the sub-input-fn path) so the kind-aware
+                            ;; error-emit lookup resolves the sub's `:source-coord`
+                            ;; under `[:sub query-id]` for off-box shippers.
+                            ;; Both channels via the shared helper:
+                            ;; axis 1 the always-on listener
+                            ;; (survives prod elision), axis 2 the dev trace
+                            ;; (DCEs under `:advanced` + `goog.DEBUG=false`).
+                            ;; Reached via the `:error-emit/emit-error-both`
+                            ;; hook (subs cannot static-require error-emit —
+                            ;; load cycle). `elapsed-ms 0`.
+                            (when-let [emit-error-both!
+                                       (rf.late-bind/get-fn :error-emit/emit-error-both)]
+                              (emit-error-both!
+                                :rf.error/sub-exception
+                                query-v                   ;; failing query-vector (as :event)
+                                query-id                  ;; sub-id (as :event-id) — drives [:sub …] coord lookup
+                                nil                       ;; frame (pure compute — no reactive frame)
+                                e
+                                0                         ;; elapsed-ms
+                                (rf.interop/now-ms)          ;; time
+                                tags)))
+                          nil)))]
+          (swap! memo assoc query-v v)
+          v)))))
 
 (defn compute-sub
   "Compute a subscription's value against a supplied db, bypassing the
@@ -2472,7 +2478,7 @@
   [query-v db]
   ;; Seed a fresh per-call memo for the recursion. The memo is purely an
   ;; internal accumulator.
-  (compute-sub* query-v db (atom {})))
+  (compute-sub* query-v db (atom {}) []))
 
 ;; ---- re-frame-native view-substrate entry points -------------------------
 ;;
@@ -2507,7 +2513,7 @@
   Pure apart from that emission; creates no cache entry, no watch, no
   disposal obligation. Same value contract as `compute-sub`."
   [query-v db memo]
-  (compute-sub* query-v db memo))
+  (compute-sub* query-v db memo []))
 
 (defn ^:no-doc peek-cache-reaction
   "INTERNAL (re-frame-native view substrate) — the seam's PEEK: the reaction
