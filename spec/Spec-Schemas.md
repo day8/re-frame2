@@ -2337,9 +2337,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-timeout {:optional true} [:or Transition [:vector Transition]]]])    ;; EP-0029 A4 — the parent transition taken when the spawn-level `:timeout` deadline elapses; same `:on`-shaped grammar as `:on-error`. REQUIRES a sibling `:timeout`. Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 ;; The spawn-level `:timeout` / `:on-timeout` (above, EP-0029 A4)
 ;; lowers onto the spawn-bearing state's `:after`, anchored to entry so it bounds
-;; the child's whole lifetime. `:timeout-ms` is not a spawn key —
-;; registration rejects a `:timeout-ms` key on
-;; `:spawn` / `:spawn-all` with `:rf.error/spawn-timeout-ms-removed`. General
+;; the child's whole lifetime. `:timeout-ms` is not a spawn key — registration
+;; refuses it as an unknown key (`:rf.error/machine-unknown-spawn-key`). General
 ;; (non-deadline) delayed transitions use the parent state's `:after`. See
 ;; [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
@@ -2384,9 +2383,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; `:spawn-all` carries NO spawn-level `:timeout` of its own (unlike single
 ;; `:spawn`, EP-0029 A4). A wall-clock deadline bounding a `:spawn-all`-bearing
 ;; state uses the STATE-level `:timeout` / `:on-timeout` (above) or a general
-;; parent-state `:after`. `:timeout-ms` is not a spawn key —
-;; registration rejects a `:timeout-ms` key on `:spawn-all` with
-;; `:rf.error/spawn-timeout-ms-removed`. See
+;; parent-state `:after`. `:timeout-ms` is not a `:spawn-all` key —
+;; registration refuses it as an unknown block key
+;; (`:rf.error/machine-spawn-all-bad-shape`). See
 ;; [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
 ;; The snapshot's location in app-db is the reserved path [:rf.runtime/machines :snapshots <id>]
@@ -2457,7 +2456,7 @@ The recursive `::state-node` ref carries the spec id `:rf/state-node` so individ
 
 **Root parallel `:on` — the ancestor fallback.** The parallel root's OWN `:on` IS consulted — it is the ANCESTOR FALLBACK for its regions (deepest-wins with parent fallthrough, the parallel analog of the flat / compound machine-root `:on` fallback). It is selected ONLY when NO region-local transition was selected for the event; a region match suppresses the root transition ENTIRELY (atomic). A root `:on` transition's `:target` MUST be **region-qualified** — either a single `[<region> & <in-region-path>]` (a vector whose head is a declared region) or multiple `[[<region> …] [<region> …]]` (a vector of vectors); a targetless / action-only transition is permitted. A bare keyword target, or a target whose head is not a declared region, is rejected at registration with `:rf.error/machine-parallel-root-on-bad-target` (a root-only parallel machine has no flat sibling state to land a non-region-qualified target on). The root `:on` GUARD is selected against the frozen pre-event snapshot (per the parallel two-phase frozen-selection model). A `:type :parallel` root MAY also declare its OWN `:after` — a **root-owned** delayed transition (the timer-driven analog of the root `:on` ancestor fallback), scheduled at machine birth and stale-gated by the root's own per-path epoch at the flat `[:rf/runtime :after-epoch []]` slot. A root `:after` `:target` reuses the EXACT region-qualified target grammar above, so a non-region-qualified root `:after` target is rejected with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword. Per [005 §Transition broadcast §Root parallel `:on`](005-StateMachines.md#transition-broadcast) and [§Root parallel `:after`](005-StateMachines.md#root-parallel-on--the-ancestor-fallback).
 
-**`:timeout` / `:on-timeout` (EP-0029 A4).** A state node — or a `:spawn` spec — MAY declare a `:timeout` duration plus an `:on-timeout` transition (the named-intent wall-clock-deadline grammar). `:timeout` REQUIRES `:on-timeout` and vice-versa; the duration is a POSITIVE INTEGER (literal ms) or an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, …) — the XState `"5s"` / `"10ms"` readable shorthand is REJECTED (a deliberate divergence from XState). `:timeout` / `:on-timeout` desugars at registration onto the existing `:after` timer mechanism (distinct authoring intent, ONE mechanism — `:timeout` and `:after` coexist); a spawn `:timeout` lowers onto the spawn-bearing state's `:after`, anchored to that state's entry so it bounds the child's whole lifetime. Registration rejects malformed timeouts with `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, or `:rf.error/machine-timeout-after-collision`. `:timeout-ms` is not a spawn key — registration rejects a `:timeout-ms` key on `:spawn` / `:spawn-all` with `:rf.error/spawn-timeout-ms-removed`. See [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
+**`:timeout` / `:on-timeout` (EP-0029 A4).** A state node — or a `:spawn` spec — MAY declare a `:timeout` duration plus an `:on-timeout` transition (the named-intent wall-clock-deadline grammar). `:timeout` REQUIRES `:on-timeout` and vice-versa; the duration is a POSITIVE INTEGER (literal ms) or an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, …) — the XState `"5s"` / `"10ms"` readable shorthand is REJECTED (a deliberate divergence from XState). `:timeout` / `:on-timeout` desugars at registration onto the existing `:after` timer mechanism (distinct authoring intent, ONE mechanism — `:timeout` and `:after` coexist); a spawn `:timeout` lowers onto the spawn-bearing state's `:after`, anchored to that state's entry so it bounds the child's whole lifetime. Registration rejects malformed timeouts with `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, or `:rf.error/machine-timeout-after-collision`. `:timeout-ms` is not a spawn key — registration refuses it as an unknown key (`:rf.error/machine-unknown-spawn-key` on a `:spawn`, `:rf.error/machine-spawn-all-bad-shape` on a `:spawn-all` block). See [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
 **`:type :choice` / `:choice` (EP-0029 A5).** A state node MAY be a TRANSIENT / CHOICE state by declaring `:type :choice` plus a `:choice` candidate vector — a routing node that resolves IMMEDIATELY on entry to the first guard-passing candidate (no event needed). `:type :choice` REQUIRES `:choice` and vice-versa; the `:choice` value MUST be a declarative, NON-EMPTY vector of guarded-candidate maps (`[{:guard … :target …} … {:target <default>}]`) — a function-valued `:choice` is REJECTED (the A2 / C1 divergence from XState: re-frame2's `:choice` is a declarative candidate ARRAY, never XState's `choice`-function — the edge topology stays data). A choice state ONLY routes: it MUST NOT declare `:entry` / `:exit` / `:on` / `:always` / `:after` / `:timeout` / `:on-timeout` / `:spawn` / `:spawn-all` / `:initial` / `:states` / `:final?` / `:output-key`. The candidate vector MUST include an unguarded DEFAULT / else branch so the choice state always resolves (the static "no matching candidate + no default" rejection). `:type :choice` / `:choice` desugars at registration onto the existing `:always` eventless-transition mechanism (distinct authoring intent, ONE mechanism); a transient INITIAL choice leaf resolves on birth. Registration rejects malformed choice states with `:rf.error/machine-choice-missing-choice`, `:rf.error/machine-choice-without-type`, `:rf.error/machine-bad-choice`, `:rf.error/machine-choice-extra-keys`, `:rf.error/machine-choice-no-default`, or `:rf.error/machine-choice-self-loop`. See [005 §`:type :choice`](005-StateMachines.md#type-choice-transient--choice-states).
 
@@ -4026,8 +4025,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; EP-0007 one-name-per-fact: this fx writes an HTTP `Location` response header,
 ;; so it uses header vocabulary (routing/navigation surfaces may use :url / :to). Documented
 ;; in [011 §Standard fx](011-SSR.md#standard-fx) and read by re-frame.ssr.response/redirect-fx.
-;; :url / :to are NOT accepted: redirect-fx throws
-;; :rf.error/redirect-retired-target-key naming :location (no alias).
+;; There is no alias: a map spelling the target :url / :to carries no :location,
+;; so it is the target-less redirect below.
 ;; :location is OPTIONAL and a redirect with NO :location is NOT a structural error: it is
 ;; the established graceful-degradation path (the fx accepts it — :location is
 ;; optional — and the host adapter emits a warning trace plus a 3xx with no
@@ -4123,8 +4122,8 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     ;; the HTTP carrier block lives on the `:rf.http/managed` `reg-fx`
     ;; registration (`:carriers`). A frame config
     ;; carrying either is REJECTED fail-loud (`:rf.error/bad-frame-classification`)
-    ;; through the frame `validate!` seam. `:observability` is the sole
-    ;; frame-owned classification key.
+    ;; by the frame's config preflight. `:observability` is the sole
+    ;; frame-owned classification key; its grammar is `re-frame.observability`'s.
     [:observability {:optional true} FrameObservability]
     ]])
 
