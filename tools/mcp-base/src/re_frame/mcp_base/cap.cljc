@@ -365,9 +365,12 @@
     :cap  — integer cap in tokens, or `nil` to disable. Usually the
             output of `max-tokens` against the consumer's
             `:max-tokens` arg.
-    :hint — string next-step hint embedded in the marker. The
-            consumer's per-tool hint table resolves this from `tool`;
-            absent ⇒ `rf.mcp-base.overflow/overflow-hint-fallback`."
+    :hint — string next-step hint embedded in the marker, or a `delay`
+            of one. The consumer's per-tool hint table resolves this
+            from `tool`; absent ⇒ `rf.mcp-base.overflow/overflow-hint-fallback`.
+            A `delay` is forced only when the cap trips, so a consumer
+            can measure the over-budget payload to name the slot that
+            overflowed without paying for that on an under-budget call."
   [io result {:keys [tool cap hint]}]
   (cond
     (nil? cap)    result
@@ -393,5 +396,5 @@
                        {:tool        tool
                         :token-count (reported-count tokens chars cap)
                         :cap         cap
-                        :hint        hint})]
+                        :hint        (force hint)})]
           (build-overflow-result io marker result))))))

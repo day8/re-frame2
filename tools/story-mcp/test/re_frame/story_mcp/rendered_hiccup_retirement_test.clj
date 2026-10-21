@@ -26,14 +26,11 @@
   (rf.story-mcp.config/set-allow-writes! false)
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
   (rf.story.recorder/clear!)
-  ;; Keep epoch evidence out of the wire budget on a wider test classpath.
-  (rf/configure! {:epoch-history {:depth 0}})
   (rf.story/reg-story :story.cart
     {:doc "A cart." :component :app.ui/cart :tags #{:dev :test} :args {}})
   (rf.story/reg-variant :story.cart/full
     {:doc "A cart variant with a view." :tags #{:dev :test} :args {:label "Checkout"}})
-  (try (t)
-       (finally (rf/configure! {:epoch-history {:depth 50}}))))
+  (t))
 
 (use-fixtures :each reset-story)
 
