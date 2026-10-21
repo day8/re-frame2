@@ -2043,7 +2043,7 @@ def m0_publication_route_problems() -> list[str]:
 # M-27..M-33 source rewrite WITHOUT the module that implements it, and the app
 # then fails at the `:require` or at the first call
 # (`:rf.error/<artefact>-artefact-missing`, `:rf.error/no-such-fx` /
-# `no-such-handler`, or epoch's silent degrade - auto-cross-cutting.md
+# `no-such-handler` - auto-cross-cutting.md
 # "Per-feature artefact adds"), not in the report a deferral would write.
 #
 # Rule 6b is not a wider scan but a NEGATION-AWARE one: the same shapes over
@@ -2210,8 +2210,8 @@ LISTENER_RETIRED_CUE_RE = re.compile(
 )
 LISTENER_STREAM_PROBLEM = (
     "LISTENER-STREAM-VOCAB: `register-listener!` / `unregister-listener!` take "
-    "a stream from a CLOSED TWO-member vocabulary — `:trace` (dev-only) and "
-    "`:epoch` (via the epoch artefact). There are no always-on "
+    "a stream from a CLOSED TWO-member vocabulary — `:trace` and "
+    "`:epoch`, both dev-only. There are no always-on "
     "`:events` / `:errors` members; they have no listener replacement, and "
     "either one in the stream slot throws "
     "`:rf.error/unknown-listener-stream`, so the recipe installs no monitor. "

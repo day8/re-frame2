@@ -4,7 +4,7 @@
   A cell runs in an SCI context that exposes re-frame2's public API, then
   renders its last form. The bundle is a shadow-cljs `:browser` build of SCI,
   re-frame2 core, Reagent, Fresco and every optional artefact (machines,
-  flows, schemas, HTTP, resources, routing, epoch and SSR), with React 19
+  flows, schemas, HTTP, resources, routing and SSR), with React 19
   bundled in. It installs `window.rf2sci` for the bootstrap
   (`src/playground.mjs`) to call. It is not a Scittle plugin, because
   Scittle's plugins ship stock reagent and re-frame.

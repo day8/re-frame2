@@ -51,7 +51,7 @@ by the same change:
    with `:version "../../VERSION"` and `:src-dirs ["src" "resources" "test_kit/src"]` — the second entry
    because the clj-kondo export reaches a consumer over the classpath, the third because `:src-dirs` is the
    only key that decides jar content and the testing kit would otherwise ship in no jar at all (rf2-rxf49).
-2. It is **in the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array now names fourteen
+2. It is **in the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array now names twelve
    artefacts and Fresco is one of them. The array is not decorative: the same script fails the build when a
    directory declares a `:clein/build` without a matching inventory entry, so the presence is enforced in
    both directions.

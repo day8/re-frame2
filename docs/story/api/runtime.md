@@ -35,7 +35,7 @@ A loader that throws, or a `:loaders-complete-when` that never holds, records a 
 
 All under `re-frame.story`. These are the verbs a test calls. The [tutorial's chapter 4](../04-the-variant-is-a-test.md) shows them in a test namespace.
 
-A test namespace that runs variants needs a substrate adapter installed and `re-frame.epoch` loaded, because the runner reads each run's evidence from the epoch tape. `re-frame.test-support/make-reset-runtime-fixture` with `{:adapter re-frame.substrate.plain-atom/adapter}` installs the adapter; add `:async? true` for `cljs.test` async tests.
+A test namespace that runs variants needs a substrate adapter installed and a development build, because the runner reads each run's evidence from the epoch tape. `re-frame.test-support/make-reset-runtime-fixture` with `{:adapter re-frame.substrate.plain-atom/adapter}` installs the adapter; add `:async? true` for `cljs.test` async tests.
 
 ### `run`
 

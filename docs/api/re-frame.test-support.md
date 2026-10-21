@@ -47,7 +47,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
     - **Baseline.** The fixture captures its baseline when it is built, at the `use-fixtures` form, which runs when the test namespace loads. Register, or require, everything the suite needs above that form: a registration made below it is outside the baseline, so frames the test makes with `rf/make-frame` do not see it, and another namespace's fixture can roll it back. Setup that must run later belongs in `:init-fn`.
     - **Before each test**, the fixture:
         - reinstates the baseline registrations, so tests do not depend on run order inside a shared test bundle, then snapshots the registrar;
-        - drops every frame, clears the trace listeners, cancels pending `:dispatch-later` timers, and resets each loaded artefact's state (flows, machines, routing, resources, http, epoch); an artefact that is not on the classpath is skipped;
+        - drops every frame, clears the trace listeners, cancels pending `:dispatch-later` timers, and resets epoch history and each loaded artefact's state (flows, machines, routing, resources, http); an artefact that is not on the classpath is skipped;
         - returns epoch-history configuration to its defaults, so a suite that needs another `:depth` sets it in `:init-fn`;
         - disposes the adapter, then installs `:adapter` if given;
         - clears the kinds named in `:clear-kinds`, registers the `:app-ns` registrations again, and runs `:init-fn`.
