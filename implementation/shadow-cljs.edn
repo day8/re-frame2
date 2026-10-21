@@ -788,8 +788,8 @@
   ;; run doesn't compile + run the full node suite.
   ;;
   ;; The same namespaces ALSO match the default `:node-test` build's
-  ;; broader `cljs-test$` regex (`...-security-cljs-test` ends with
-  ;; `cljs-test`), so they additionally ride the always-on `npm run
+  ;; broader `-test$` regex (`...-security-cljs-test` ends with
+  ;; `-test`), so they additionally ride the always-on `npm run
   ;; test:cljs` gate for free — the tier is covered on every PR whether or
   ;; not `test:security` is invoked. This build is the *named* surface; it
   ;; is not an additional required gate over `test:cljs`.
@@ -834,7 +834,7 @@
   ;; :node-test-testbed-support above: the ns-regexp selects
   ;; only `re-frame.fresco.*` suites, and nothing else in the repo lives
   ;; under that prefix. Those namespaces also match the always-on
-  ;; :node-test build's broader `cljs-test$` regex, so the package is
+  ;; :node-test build's broader `-test$` regex, so the package is
   ;; covered on every PR whether or not this focused build is invoked —
   ;; this is the *named* surface, not an additional required gate.
   ;;
