@@ -80,7 +80,13 @@ fi
 # tree — release.yml's clein always runs inside its checkout.
 mkdir -p "${REPO_ROOT}/target"
 SCRATCH="$(mktemp -d "${REPO_ROOT}/target/consumer-classpath.XXXXXX")"
-trap 'status=$?; rm -rf "${SCRATCH}"; rmdir "${REPO_ROOT}/target" 2>/dev/null || true; exit "${status}"' EXIT
+cleanup() {
+  local status=$?
+  rm -rf "${SCRATCH}"
+  rmdir "${REPO_ROOT}/target" 2>/dev/null || true
+  exit "${status}"
+}
+trap cleanup EXIT
 TREE="${SCRATCH}/tree"
 M2="${SCRATCH}/m2"
 SETS="${SCRATCH}/sets"
