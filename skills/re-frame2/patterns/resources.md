@@ -276,7 +276,7 @@ For the hand-rolled-slice shape Resources *supersedes*, `examples/real-apps/real
 
 ## Pointers
 
-- Spec: `SKILL-REDIRECT.md` → *EP — Resources (016)* (full identity rules, scope resolution, the lifecycle FSM, the work ledger, race/in-flight semantics, route integration, SSR/hydration, the `:rf.resource/*` and `:rf.mutation/*` surfaces).
+- Spec: `SKILL-REDIRECT.md` → *EP — Resources (016)* (full identity rules, scope resolution, the lifecycle FSM, in-flight attempts, race/in-flight semantics, route integration, SSR/hydration, the `:rf.resource/*` and `:rf.mutation/*` surfaces).
 - Write side: [`patterns/resources-mutations.md`](resources-mutations.md) (`reg-mutation`, `:reply-to`, descriptors, populate/patch/removes, optimistic plans).
 - Transport: `SKILL-REDIRECT.md` → *EP — HTTP requests (014)* (the `:rf.http/managed` surface resources lower onto).
 - Compose: [`patterns/remote-data.md`](remote-data.md) (the hand-rolled slice form, and the slice-vs-resource decision); [`patterns/stale-detection.md`](stale-detection.md) (the epoch idiom — resources own generation-based stale suppression internally, so you rarely hand-roll it for a resource read).

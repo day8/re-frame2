@@ -388,8 +388,8 @@
 ;; plain `:rf.http/managed` request in flight is host work — an AbortController
 ;; / CompletableFuture and a registry record, NOT frame-state — so the install
 ;; leaves it attached to the pre-restore timeline. Unlike resource-backed HTTP
-;; (whose work-ledger row the resources reconcile dangles), a plain managed
-;; request has no ledger gate: its late completion would still deliver to its
+;; (whose live attempt the resources reconcile dangles), a plain managed
+;; request has no attempt gate: its late completion would still deliver to its
 ;; original `:rf/reply-to` target against the restored state. Frame destroy is
 ;; the same problem with the target frame already gone.
 ;;
@@ -477,7 +477,7 @@
   Published as the `:http/on-frame-destroyed!` late-bind hook and called from
   core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
   work gets its more specific `:actor-destroyed` semantics and resource-owned
-  work its ledger/owner cleanup first; this sweep then catches the remaining
+  work its attempt/owner cleanup first; this sweep then catches the remaining
   requests. Then drops the destroyed frame's issuance counter and installed
   stub transport: every id it minted is terminal by then, both maps stay
   bounded by the live frames, and a frame later made under the same id starts

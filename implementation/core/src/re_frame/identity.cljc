@@ -8,7 +8,7 @@
 
   The *semantics* are normative; the *names* are NOT public API. No
   `re-frame.core` facade export, no classification. Resources, routing,
-  the work ledger, and schema digests are the consumers; a name graduates
+  attempt identity, and schema digests are the consumers; a name graduates
   to public once two-plus of them use it through this namespace unchanged.
 
   ## Why canonical identity, not stringification
@@ -22,8 +22,8 @@
 
   ## Identity vs digest (EP-0012 disposition 5)
 
-  The canonical EDN value IS the identity everywhere — storage, work
-  ledger, traces, epoch/replay. `canonical` returns that normalized
+  The canonical EDN value IS the identity everywhere — storage, attempt
+  records, traces, epoch/replay. `canonical` returns that normalized
   value. A *digest* is an OPTIONAL, versioned, always-recomputable
   projection for size-constrained surfaces; it is never an independent
   identity fact, never required for correctness, never the authoritative
@@ -527,7 +527,7 @@
 
 (defn canonical
   "Return the canonical normalized EDN identity of `value` — the storage,
-  work-ledger, trace, and replay identity (EP-0012 disposition 5: canonical
+  attempt, trace, and replay identity (EP-0012 disposition 5: canonical
   EDN IS the identity).
 
   The normalization recurses through maps, sets, vectors and lists,

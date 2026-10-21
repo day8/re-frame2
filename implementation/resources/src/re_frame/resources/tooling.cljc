@@ -176,7 +176,7 @@
     (assoc projected-key 0 (rf.resources.trace-egress/project-scope (nth scoped-key 0)))))
 
 (defn- live-work-link
-  "Assocs the `:work-ledger` summary of `entry`'s live attempt `work-id` and
+  "Assocs the `:work` summary of `entry`'s live attempt `work-id` and
   its `:host-transient` handle address onto `acc`. The summary names the
   entry's projected `:resource/key`, the key the attempt serves. The work-id
   carries no scope or params, so it rides as-is."
@@ -189,7 +189,7 @@
                   (some? record)
                   (assoc :resource/key (project-key (:resource/key entry))))]
     (assoc acc
-           :work-ledger    {:work/id work-id :record rec'}
+           :work           {:work/id work-id :record rec'}
            :host-transient [[:rf.http/in-flight work-id]])))
 
 (defn- collision-key
@@ -205,7 +205,7 @@
   "Sort key for a collision group, built only from what the nodes already
   show, so an ordinal reveals nothing; tied members are indistinguishable."
   [node]
-  (let [axes (select-keys node [:status :lifecycle :work-ledger :host-transient])]
+  (let [axes (select-keys node [:status :lifecycle :work :host-transient])]
     (try
       (rf.identity/canonical-bytes axes)
       (catch #?(:clj Throwable :cljs :default) _t

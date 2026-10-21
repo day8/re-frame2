@@ -223,7 +223,7 @@
 ;; the LIVE resource IDENTITY path — a live resource node carries its
 ;; sensitive scope/params NOT in a value-bearing field but in its scoped-key
 ;; identity (node key / `:id` / `:output` / realized `:inputs` / the
-;; work-ledger record's `:resource/key`), positions the value walk is
+;; `:work` record's `:resource/key`), positions the value walk is
 ;; structurally blind to. This ONE smoke proves the Xray delegate carries the
 ;; core-owned identity projection through; the COMPREHENSIVE per-position +
 ;; idempotence coverage lives in the
@@ -246,7 +246,7 @@
 (def ^:private live-resource-node
   ;; mirrors `resource-cache-algebra-view`'s live-node-for shape: the scoped
   ;; key is the :id; the realized [:scope …]/[:param …] inputs; the concrete
-  ;; :output entry address embeds the scoped key; the in-flight work-ledger
+  ;; :output entry address embeds the scoped key; the in-flight :work
   ;; record carries the scoped key, and it and the host-transient address
   ;; name the attempt by its work-id.
   {:id             live-scoped-key
@@ -260,7 +260,7 @@
    :evaluation     #{:on-route}
    :lifecycle      {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
    :status         :loading
-   :work-ledger    {:work/id live-work-id
+   :work           {:work/id live-work-id
                     :record  {:work/id      live-work-id
                               :status       :pending
                               :resource/key live-scoped-key}}
@@ -305,11 +305,11 @@
         scoped-key      (second node-key)]
     (is (not (contains-secret? redacted))
         "NO raw secret survives in any identity position — node key, :id,
-         :inputs, :output, work-ledger, host-transient, edges")
+         :inputs, :output, :work, host-transient, edges")
     (is (= :article/by-slug (nth scoped-key 1))
         "the registration resource-id stays visible")
     (is (= node-key (:to (first (:edges redacted))))
         "the :param edge is remapped to the projected key (connectivity)")
     (is (= scoped-key (:id node) (last (second (:output node)))
-           (get-in node [:work-ledger :record :resource/key]))
+           (get-in node [:work :record :resource/key]))
         "every identity position projects to the SAME opaque scoped key")))

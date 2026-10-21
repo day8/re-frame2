@@ -231,9 +231,9 @@ in its **identity**, a place that walk can never reach: the concrete scoped
 key `[cache-scope resource-id canonical-params]` is the node **key**
 (`[:resource <scoped-key>]`), the node `:id`, and is embedded in the
 `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`,
-and the in-flight `:work-ledger :record :resource/key`; a route-owned
+and the in-flight `:work :record :resource/key`; a route-owned
 activation names it on a `:param` edge endpoint. The resource work-id under
-`:work-ledger` and in the `:host-transient` in-flight handle address is
+`:work` and in the `:host-transient` in-flight handle address is
 `[:rf.work/resource <resource-id> <generation>]` — it names the attempt
 without its scope or params, so it carries nothing to project. So
 `redact-graph-for-egress` **also** projects each scoped key's secret-bearing
@@ -245,7 +245,7 @@ survives) but the raw scope/params can never be read back off the wire
 non-sensitive registration `resource-id` is **preserved** so a tool still
 sees *which* resource the node is. The **same** projection is applied
 consistently to the `:nodes` keys, the identity positions inside node bodies
-(`:id` / `:output` / `:inputs` / the `:work-ledger` record's `:resource/key`), **and**
+(`:id` / `:output` / `:inputs` / the `:work` record's `:resource/key`), **and**
 every `:edges` endpoint that names a resource node — a redacted resource
 node is still a node, and the edges naming it still connect. Structure
 survives; the identity-embedded secret does not egress.

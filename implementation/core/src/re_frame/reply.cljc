@@ -64,7 +64,7 @@
 
 (def work-statuses
   "The operational `:rf.reply/work-status` vocabulary on a reply map. Narrower /
-  more operational than reply `:status` (the ledger row may carry the same
+  more operational than reply `:status` (an attempt record may carry the same
   value). `:suppressed` is the stale terminal; `:timed-out` is an error
   work-status (timeout is an error KIND + a work status, never a top-level
   reply status)."
@@ -99,7 +99,7 @@
 ;;
 ;; EPHEMERAL vs DURABLE. `::post` is the one ephemeral, host-bearing slot a
 ;; normalized target may carry while in-flight, so a MAPPED target is
-;; ephemeral. A target that could become DURABLE (persisted to a ledger row,
+;; ephemeral. A target that could become DURABLE (persisted to an attempt record,
 ;; a stored continuation, a replay log) MUST be data-only: see
 ;; `durable-target`, which refuses a mapped target and asserts data-only.
 ;; ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@
       (complete (map-completed-event f target) reply) == (f (complete target reply))
 
   `complete` does NOT dispatch, validate, or suppress — issuance, stale
-  checks, ledger writes, and tracing are the family/runtime's job and are
+  checks, attempt-record writes, and tracing are the family/runtime's job and are
   unaffected by `map-completed-event` (the functor law). A nil target yields
   nil (no delivery)."
   [target reply]
@@ -428,7 +428,7 @@
 ;; the reply-target-as-data contract — and §Reply mapping and the functor
 ;; law). A normalized target may carry the ephemeral, non-data slot `::post`
 ;; (a fn) WHILE IN-FLIGHT, but a target that can become DURABLE (a stored
-;; continuation, a ledger row, a replay log) MUST be data-only.
+;; continuation, an attempt record, a replay log) MUST be data-only.
 ;; `durable-target` makes that boundary explicit and fails LOUD rather than
 ;; letting a function leak into durable reply data or a mapping silently fall
 ;; off it.
@@ -436,7 +436,7 @@
 
 (defn durable-target
   "Project `target` to a DURABLE, data-only normalized descriptor, for a
-  target about to be persisted (a stored continuation, a ledger row, a replay
+  target about to be persisted (a stored continuation, an attempt record, a replay
   log). A nil target yields nil (no continuation to persist).
 
   Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) when:
@@ -753,14 +753,14 @@
   Returns:
     {:deliver? false           ;; ALWAYS false ⇒ never dispatch the app target
      :reply    <stale reply>    ;; :status :stale, data-only, app-state-safe
-     :rf.reply/work-status :suppressed   ;; the ledger terminal for a stale completion
+     :rf.reply/work-status :suppressed   ;; the attempt's terminal for a stale completion
      :trace    <data-only trace facts carrying CARRIED + CURRENT>}
 
   The caller's contract: it MUST NOT run the app reply target, MUST mark any
-  ledger row `:suppressed`, and SHOULD emit the `:trace` facts onto the trace
+  attempt record `:suppressed`, and SHOULD emit the `:trace` facts onto the trace
   bus (routing wire slots through `trace-summary` / `elide-wire-value`). The
   stale reply MUST NOT produce any user-visible app-db / runtime-db mutation
-  beyond framework-owned ledger / trace bookkeeping."
+  beyond framework-owned attempt-record / trace bookkeeping."
   ([target carried current] (suppress target carried current nil))
   ([target carried current extra]
    ;; `target` is accepted for call-site uniformity but not consulted — a stale

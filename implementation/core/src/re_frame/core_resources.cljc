@@ -73,7 +73,7 @@
   ([mutation-id metadata request-fn] :delegate))
 
 (defwrapper clear-mutation
-  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Remove a registered
+  "Per Spec 016 §Mutations / EP-0003 §Mutations. Remove a registered
   mutation (a registration-lifecycle operation — NOT a form-error reset;
   for the causal runtime-instance reset use the `[:rf.mutation/clear …]`
   event). Late-bound via `:resources/clear-mutation`."
