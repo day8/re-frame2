@@ -172,10 +172,11 @@ async function runSpec(baseUrl) {
   });
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
 
-  // A false `ready` has already printed the owner's reason. The exit is
-  // reported here, code and signal both, only when it cost the run its server;
-  // the owner's own exit line is suppressed so teardown's kill is not reported
-  // as a crash.
+  // A false `ready` has already printed the owner's reason, and the owner
+  // reports a server that dies on its own with a non-zero code, mid-run
+  // included. The exit is reported here too, code and signal both, when it
+  // cost the run its server before readiness, so a clean or signal-only exit
+  // is not left unexplained.
   let serverExit = null;
   const { ready } = await startLocalHttpServer({
     cleanup,
@@ -184,7 +185,6 @@ async function runSpec(baseUrl) {
     port,
     cwd: IMPL_ROOT,
     onExit: (code, signal) => { serverExit = { code, signal }; },
-    suppressExitDiagnostic: () => true,
   });
   if (!ready) {
     if (serverExit) {
