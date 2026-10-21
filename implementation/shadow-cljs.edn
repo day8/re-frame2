@@ -1183,20 +1183,6 @@
     ;; counter bundle proves absence.
     :fresco           {:init-fn re-frame.bundle-isolation-positive-control.fresco/run
                         :depends-on #{:trace-tooling}}
-    :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run
-                        :depends-on #{:trace-tooling}}
-    :flows-tooling     {:init-fn re-frame.bundle-isolation-positive-control.flows-tooling/run
-                        :depends-on #{:flows}}
-    :resources-tooling {:init-fn re-frame.bundle-isolation-positive-control.resources-tooling/run
-                        :depends-on #{:trace-tooling}}
-    :routing-tooling   {:init-fn re-frame.bundle-isolation-positive-control.routing-tooling/run
-                        :depends-on #{:routing}}
-    :machines-tooling  {:init-fn re-frame.bundle-isolation-positive-control.machines-tooling/run
-                        :depends-on #{:trace-tooling}}
-    :derivation-graph  {:init-fn re-frame.bundle-isolation-positive-control.derivation-graph/run
-                        :depends-on #{:subs-tooling}}
-    :derivation-egress {:init-fn re-frame.bundle-isolation-positive-control.derivation-egress/run
-                        :depends-on #{:trace-tooling}}
     :story             {:init-fn re-frame.bundle-isolation-positive-control.story/run
                         :depends-on #{:trace-tooling}}
     :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run
