@@ -1,6 +1,8 @@
 (ns re-frame.fresco.coord-sentinel-source
   "THE SENTINEL DECLARATIONS — one `defview` and one
-  `defhost`, declared for their SOURCE COORDINATES and nothing else.
+  `defhost`, declared for their SOURCE COORDINATES, and one `defview`
+  declared to be DROPPED: nothing references [[dropped-row]], so the
+  release build must not carry it at all.
 
   ## Why they are not in the suite that asserts about them
 
@@ -35,6 +37,16 @@
   string is not in the artefact."
   [_]
   [:li "sentinel"])
+
+(rf.fresco/defview dropped-row
+  "Declared and never referenced, here or anywhere: keep it that way, and
+  never name it in a string either. A release mint is a pure allocation,
+  so `:advanced` drops this view with its body, and
+  `check_source_coord_elision.cjs` requires its name absent from the bundle
+  that carries [[sentinel-row]]'s — two views differing by reachability
+  alone."
+  [_]
+  [:li "dropped"])
 
 (rf.fresco/defhost sentinel-host
   "The declaration channel's half of the same proof — `defhost` opens the

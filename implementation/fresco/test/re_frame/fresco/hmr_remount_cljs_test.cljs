@@ -213,16 +213,16 @@
 (deftest a-save-re-mints-the-head-and-with-it-the-element-type
   ;; Both generations share the SAME body function object, so the type
   ;; change below is not conditional on the body having changed:
-  ;; `mint-view!` allocates a fresh component and memo wrapper on every
-  ;; call, and editing one line anywhere in a source file remounts every
-  ;; boundary that file defines.
+  ;; `mint-view!` allocates a fresh component on every call, and with it a
+  ;; fresh memo wrapper at its first element, so editing one line anywhere
+  ;; in a source file remounts every boundary that file defines.
   (let [g1 (load-namespace! panel-body)
         g2 (load-namespace! panel-body)]
 
     ;; NEGATIVE CONTROL, taken FIRST so the instrument is proven able to
     ;; report SAMENESS before it is asked to report a change. A head's memo
-    ;; wrapper is minted once at definition and never per element, so two
-    ;; elements from one head carry one type — if `element-type-of` allocated
+    ;; wrapper is built once, at its first element, and kept on the head, so
+    ;; two elements from one head carry one type — if `element-type-of` allocated
     ;; per call, every comparison below would report "changed" vacuously.
     (is (true? (same-object? (element-type-of g1) (element-type-of g1)))
         "one head, one element type — the instrument can see sameness")
