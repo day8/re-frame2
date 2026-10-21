@@ -33,15 +33,15 @@
    share one adapter. `login.core/root-view` is a substrate-agnostic
    `reg-view`, so it doesn't mind which one.
 
-   ## Elision — none of this reaches production
+   ## Production
 
-   Compile under `:advanced` with `:closure-defines
-   {re-frame.story.config/enabled? false}` and the whole Story layer simply
-   evaporates: every `reg-*` in `login.stories` compiles to nil and
-   `mount-shell!` short-circuits, so not a byte of showcase code rides into a
-   production bundle. That's not a promise on trust, either — the
-   bundle-isolation gate fails the build if any Story or Xray sentinel sneaks
-   into the plain `:examples/login` output."
+   This page is a dev showcase. The production build is the plain
+   `:examples/login`, whose entry never requires this namespace or
+   `login.stories`. Under `:advanced` with `:closure-defines
+   {re-frame.story.config/enabled? false}`, every `reg-*` in
+   `login.stories` compiles to nil and `mount-shell!` short-circuits, but
+   no gate builds this host that way, so nothing checks how much of Story
+   and Xray it would still carry."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.config :as xray-config]

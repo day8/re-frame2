@@ -874,10 +874,10 @@ specified in [`017-Testing-Story.md`](017-Testing-Story.md) §Composition.
 `implementation/scripts/check-bundle-isolation.cjs` (per
 [`tools/README.md`](../../README.md)) reads the `manifest.edn` of the
 counter consumer that does not import Story, and fails if it lists any
-Story source. This verifies the no-import dependency boundary. The
-separate disabled-registration
-consumer is exercised by `tools/story/bench/bundle-size.cjs`; its
-historical measurement below is not a current CI result.
+Story source. This verifies the no-import dependency boundary only.
+Nothing builds a Story-importing consumer with `enabled?` false — neither
+that gate nor `tools/story/bench/bundle-size.cjs` — so the elision this
+section specifies is not verified.
 
 ### Bundle-size comparison (rf2-xgay8)
 
@@ -889,8 +889,9 @@ Measured 2026-05-13 on `tools/story/testbeds/counter_with_stories` via
   That's the JS Story would add to a consumer's bundle if shipped
   to production.
 - Counter with Story disabled (`:advanced` +
-  `re-frame.story.config/enabled?=false`): **0 additional bytes**.
-  Elision verified by `scripts/check-bundle-isolation.cjs`.
+  `re-frame.story.config/enabled?=false`): not measured. The bench
+  builds no disabled variant, and no gate checks one (see
+  §Verification).
 
 For reference, Storybook 9's `storybook` core package alone is
 ~35 MB unpacked (npm registry, 9.1.20), and a working SB9 project
@@ -898,7 +899,8 @@ is typically tens to hundreds of MB on disk. Storybook is a
 separate dev-server with manager + preview iframes; Story is a
 runtime registry that mounts inside the consumer's existing app —
 the categories differ, but the consumer-cost answer is "~118 KiB
-gz in dev / 0 bytes in prod" either way.
+gz in dev / 0 bytes in a production build that imports no Story"
+either way.
 
 One-shot measurement; not a CI gate. Rerun via
 `node tools/story/bench/bundle-size.cjs` from `implementation/`.
