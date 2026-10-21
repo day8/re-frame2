@@ -8,6 +8,7 @@
   drift to an unknown qualifier and still pass. Bare rows keep by-name
   latitude and the bare-name allowlist."
   (:require [clojure.test :refer [deftest is]]
+            [re-frame.api-manifest.api-md-cells :as rf.api-manifest.api-md-cells]
             [re-frame.api-manifest.api-md-check :as rf.api-manifest.api-md-check]))
 
 (deftest reconcile-grades-qualified-and-bare-rows
@@ -51,7 +52,7 @@
                                     :tier :front-porch :kind :macro}]
               :api-rows           [api-row]
               :known-unmanifested allow
-              :aliases            rf.api-manifest.api-md-check/adapter-aliases}))
+              :aliases            rf.api-manifest.api-md-cells/adapter-aliases}))
         (:raw api-row))))
 
 (deftest parse-var-rows-reads-var-rows-and-flags-the-unclassifiable
