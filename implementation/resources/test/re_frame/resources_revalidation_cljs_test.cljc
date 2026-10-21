@@ -113,7 +113,7 @@
     (let [e (entry k)]
       (is (= [#{[:route :r 1]} true]
              [(:active-owners e)
-              (boolean (some #{:focus} (:causes (rf.resources.work-ledger/get-record (runtime-db) (:current-work e)))))])
+              (boolean (some #{:focus} (:causes (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work e)))))])
           "the refetch records a :focus cause and attaches no owner"))))
 
 (deftest back-to-back-focus-coalesces-to-one-refetch

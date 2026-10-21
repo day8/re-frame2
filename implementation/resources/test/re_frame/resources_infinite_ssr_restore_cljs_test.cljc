@@ -65,22 +65,20 @@
           [[p0 nil 1000] [p1 "c1" 1100] [p2 "c2" 1200]]))
 
 ;; the load-more appends at page index 3, the evidence fetching-next? reads
-(def ^:private load-more-wid (rf.resources.work-ledger/resource-work-id fkey 7))
+(def ^:private load-more-wid (rf.resources.work-ledger/resource-work-id :feed/timeline 7))
 
 (defn- feed-with-load-more-in-flight
-  "A runtime-db holding the feed :fetching under `load-more-wid`, with a
-  :running page-3 work row stamped for `frame-id`."
-  [frame-id]
+  "A runtime-db holding the feed :fetching under `load-more-wid`, its live
+  attempt the :running page-3 fetch."
+  []
   {rf.resources.state/resources-key
    {:entries   {(rf.resources.state/key-id fkey)
-                (assoc (loaded-feed-entry) :status :fetching :current-work load-more-wid :resource/key fkey)}
-    :tag-index {} :owner-index {}}
-   rf.resources.state/work-ledger-key
-   {(rf.resources.work-ledger/work-id-id load-more-wid)
-    (-> (rf.resources.work-ledger/work-record
-          {:work-id load-more-wid :frame-id frame-id :resource/key fkey
-           :generation 7 :transport :rf.http/managed :started-at 1300 :page-index 3})
-        (assoc :status :running))}})
+                (assoc (loaded-feed-entry)
+                       :status :fetching :current-work load-more-wid :resource/key fkey
+                       :work (rf.resources.work-ledger/work-record
+                               {:work-id load-more-wid :generation 7 :transport :rf.http/managed
+                                :started-at 1300 :page-index 3}))}
+    :tag-index {} :owner-index {}}})
 
 (defn- fkey-entry [rdb]
   (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)]))
@@ -98,20 +96,20 @@
 
 (deftest restore-rehydrates-page-vector-and-cursor-intact
   (reg-feed!)
-  (let [out (rf.resources.ssr/reconcile-on-restore (feed-with-load-more-in-flight :app/main) :app/main)
+  (let [out (rf.resources.ssr/reconcile-on-restore (feed-with-load-more-in-flight) :app/main)
         e   (fkey-entry out)
-        row (get-in out [rf.resources.state/work-ledger-key (rf.resources.work-ledger/work-id-id load-more-wid)])]
+        row (rf.resources.work-ledger/find-attempt e load-more-wid)]
     (is (= [true expected-page-facts false expected-items]
            [(rf.resources.state/infinite-entry? e) (page-facts e)
             (rf.resources.state/terminal? (:next-page-param e)) (merged-items* e)])
         "pages, params, cursor and prev mirror rehydrate intact, in order")
     (is (= [:loaded nil :suppressed :dangling]
            [(:status e) (:current-work e) (:status row) (get-in row [:outcome :reason])])
-        "the vanished load-more settles to last-stable :loaded and its row dangles")))
+        "the vanished load-more settles to last-stable :loaded and its attempt dangles")))
 
 (deftest ssr-round-trip-project-then-hydrate-rehydrates-feed-intact
   (reg-feed!)
-  (let [projected (rf.resources.ssr/project-resources-runtime-db (feed-with-load-more-in-flight :app/main))
+  (let [projected (rf.resources.ssr/project-resources-runtime-db (feed-with-load-more-in-flight))
         es        (get-in projected [rf.resources.state/resources-key :entries])
         we        (val (first es))
         out       (rf.resources.ssr/hydrate-runtime-db projected :app/main)

@@ -1,6 +1,6 @@
 (ns re-frame.resources
-  "Resources: declarative server-state as a runtime-managed read model over a
-  frame work ledger. Spec 016 §Abstract.
+  "Resources: declarative server-state as a runtime-managed read model whose
+  entries carry their own in-flight attempts. Spec 016 §Abstract.
 
   This namespace is the **public boot point and façade** for the
   resources artefact: apps boot it with `(:require [re-frame.resources])`.
@@ -140,7 +140,7 @@
            rf.resources.state/commit-generation-handler)
 
 ;; Host side-table writes (work handles, timers) ride fx because the tables
-;; are host-transient, not runtime-db. Spec 016 §Frame work ledger
+;; are host-transient, not runtime-db. Spec 016 §In-flight attempts
 (rf.fx/reg-fx :rf.resource/record-work-handle
            rf.resources.work-ledger/record-work-handle-meta
            rf.resources.work-ledger/record-work-handle-handler)
@@ -350,7 +350,7 @@
 ;; The generation high-water mark is process-global, so destroy leaves it and
 ;; a same-id successor never re-mints a predecessor's generation.
 (defn- release-resources-host-caches!
-  "Releases the destroyed frame's host-transient caches: work-ledger handles,
+  "Releases the destroyed frame's host-transient caches: attempt handles,
   timer handles and revalidation listeners. Durable records leave with the
   frame value. Runtime-Subsystems §5. Teardown"
   [frame-id]

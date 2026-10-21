@@ -1356,7 +1356,7 @@
     ;; resource-entries / resource-work-ledger / resource-routing-slice
     ;; subs + the `:rf.xray/resources-tab-data` composite + test-only
     ;; overrides. Reads the static registry via `(rf/registrations
-    ;; :resource)` and the live cache/ledger off
+    ;; :resource)` and the live cache and its attempts off
     ;; `:rf.xray/target-frame-runtime-db` (registered by
     ;; `app-db-diff/install!` above) — THIS panel's read path requires
     ;; no `re-frame.resources.*` ns. That is a fact about the panel, not

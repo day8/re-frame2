@@ -138,10 +138,10 @@
   `:ready`, or genuinely live work will settle it. Adoption issues no request,
   so adopting anything else would leave a blocking slot nothing drains.
   Pure. Spec 016 §Plan diff and owner handoff"
-  [runtime-db entry]
+  [entry]
   (case (requirement-state entry)
     :ready   true
-    :pending (rf.resources.work-ledger/live-work? runtime-db (:current-work entry))
+    :pending (rf.resources.work-ledger/live-work? entry)
     false))
 
 (defn- route-blocking-error
@@ -683,7 +683,7 @@
         ;; takes the ordinary ensure path.
         adopted?  (fn [{:keys [key-id]}]
                     (and (contains? prev-by-id key-id)
-                         (adoptable? runtime-db (entry-of key-id))))
+                         (adoptable? (entry-of key-id))))
         req-fx    (mapv
                     (fn [{:keys [resource scope cparams keep-previous?] :as req}]
                       (let [base {:resource resource :scope scope :params cparams

@@ -354,16 +354,15 @@
     (succeed! loaded-key {:title "L"})
     (ensure! :cr/article "inflight" [:app :cr 2])
     (let [inflight-wid (:current-work (entry inflight-key))]
-      (is (some? (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))
-          "precondition: the in-flight row is present")
+      (is (some? (rf.resources.work-ledger/attempt-record (runtime-db) inflight-wid))
+          "precondition: the in-flight attempt is present")
       (rf.resources.registry/clear-resource :cr/article)
       (is (nil? (rf.resources.registry/resource-meta :cr/article)))
       (is (= [nil nil] [(entry loaded-key) (entry inflight-key)]))
       (is (empty? (get-in (runtime-db) (rf.resources.state/tag-index-path))))
       (is (empty? (get-in (runtime-db) (rf.resources.state/owner-index-path))))
-      (testing "the disposed entries' ledger rows are dropped"
-        (is (not-any? (fn [[_ r]] (contains? #{loaded-key inflight-key} (:resource/key r)))
-                      (get-in (runtime-db) [:rf.runtime/work-ledger]))))
+      (testing "the disposed entries' attempts go with them"
+        (is (nil? (rf.resources.work-ledger/attempt-record (runtime-db) inflight-wid))))
       (testing "a late reply for the cleared in-flight entry cannot recreate it"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key inflight-key :work/id inflight-wid

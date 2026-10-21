@@ -26,8 +26,8 @@
 
 (def work-kind-mutation
   "The `:work/kind` of a mutation write attempt. Mutation work reuses the
-  resource work-id head with a mutation-instance key, so the ledger row's
-  kind is what distinguishes the writer. Managed-Effects §Work-id correlation"
+  resource work-id head with a mutation-instance key, so the attempt's kind
+  is what distinguishes the writer. Managed-Effects §Work-id correlation"
   :mutation)
 
 ;; ---- aborted-failure detector ---------------------------------------------

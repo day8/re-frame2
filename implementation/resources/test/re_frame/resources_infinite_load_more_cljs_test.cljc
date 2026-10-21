@@ -81,7 +81,7 @@
   (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
 (defn- work-status [work-id]
-  (:status (rf.resources.work-ledger/get-record (runtime-db) work-id)))
+  (:status (rf.resources.work-ledger/attempt-record (runtime-db) work-id)))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
@@ -358,7 +358,7 @@
       (is (= [1 :warning [:wrong :owner] true]
              [(count warns) (:op-type w) (get-in w [:tags :owner]) (some? (get-in w [:tags :hint]))])
           "a supplied owner raises one recoverable warning naming it, with a fix hint"))
-    (let [rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k)))]
+    (let [rec (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work (entry k)))]
       (is (= [:fetching "c2" #{[:test :w]} #{[:test :w]} #{[:test :w]} [[:user :feed/load-more]]]
              [(:status (entry k)) (get-in @last-managed-args [:request :params :cursor])
               (:active-owners (entry k)) (owners-for-key k) (:owners rec) (:causes rec)])
@@ -378,7 +378,7 @@
         k   (feed-key :own/feed)
         a   [:test :a]
         b   [:test :b]
-        rec #(rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k)))]
+        rec #(rf.resources.work-ledger/attempt-record (runtime-db) (:current-work (entry k)))]
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner b)])
     (reply-success! (page [:a] "c1"))

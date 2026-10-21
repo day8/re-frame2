@@ -5,11 +5,10 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
-            ;; The live `:entries` / `:rf.runtime/work-ledger` maps are keyed
+            ;; The live `:entries` and `:rf.runtime/mutations` maps are keyed
             ;; on the CEDN-1 byte id STRING, with the kind-preserving vector on
-            ;; the record; the fixtures build that shape with the real id fns.
-            [re-frame.resources.state :as rf.resources.state]
-            [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
+            ;; the owner; the fixtures build that shape with the real id fn.
+            [re-frame.resources.state :as rf.resources.state]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -196,16 +195,27 @@
 
 ;; ---- project-work-ledger ---------------------------------------------------
 
-(defn- byte-keyed-ledger
-  "The LIVE-shape `:rf.runtime/work-ledger` map from a seq of records, each
-  carrying its own `:work/id`."
+(defn- owner-held-work
+  "`h/frame-work` over a runtime-db whose entries hold `records` the way the
+  runtime does: a live record as the entry's `:work`, a terminal one in its
+  `:recent-work`. Each record's `:resource/key` names its entry and is moved
+  onto it, so the stamp the rows read is the gatherer's."
   [records]
-  (into {}
-        (map (fn [record] [(rf.resources.work-ledger/work-id-id (:work/id record)) record]))
-        records))
+  (h/frame-work
+    {:rf.runtime/resources
+     {:entries
+      (reduce (fn [es {k :resource/key :as record}]
+                (let [record (dissoc record :resource/key)]
+                  (update es (rf.resources.state/key-id k)
+                          (fn [e]
+                            (let [e (or e {:resource/id (second k) :resource/key k})]
+                              (if (contains? h/terminal-work-statuses (:status record))
+                                (update e :recent-work (fnil conj []) record)
+                                (assoc e :work record)))))))
+              {} records)}}))
 
 (def ^:private ledger
-  (byte-keyed-ledger
+  (owner-held-work
     [{:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
       :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
       :generation 4 :status :running}
@@ -217,9 +227,27 @@
   (let [rows (h/project-work-ledger ledger)]
     (testing "live work sorts before the terminal tail"
       (is (= [[:running false] [:completed true]] (mapv (juxt :status :terminal?) rows))))
-    (testing "the displayed :work-id is the record's kind-preserving :work/id, not the byte map key"
+    (testing "the displayed :work-id is the record's kind-preserving :work/id, not the map key"
       (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-             (:work-id (first rows)))))))
+             (:work-id (first rows)))))
+    (testing "each row names its owner's scoped key"
+      (is (= [[:article/by-slug true] [:article/by-slug true]]
+             (mapv (fn [row slug]
+                     [(:resource-id row)
+                      (str/includes? (get-in row [:resource/key :params :preview]) slug)])
+                   rows ["welcome" "old"]))))))
+
+(deftest frame-work-gathers-entries-and-mutation-instances
+  (let [rid   [:rf.mutation [:row 7]]
+        work  (h/frame-work
+                {:rf.runtime/mutations
+                 {"i-1" {:instance/id [:row 7]
+                         :work        {:work/id [:rf.work/resource rid 2] :status :running}
+                         :recent-work [{:work/id [:rf.work/resource rid 1] :status :completed}]}}})]
+    (is (= [[[:rf.work/resource rid 1] :completed [:rf.mutation [:row 7]]]
+            [[:rf.work/resource rid 2] :running [:rf.mutation [:row 7]]]]
+           (sort-by #(nth (first %) 2) (map (juxt :work/id :status :resource/key) (vals work)))))
+    (is (= {} (h/frame-work {})) "a frame with no owners has no attempts")))
 
 ;; ---- infinite feeds --------------------------------------------------------
 
@@ -787,7 +815,7 @@
                     :causes       [[:route-entry :route/article work-secret]]
                     :outcome      {:error {:http-status 401 :body work-secret}
                                    :completed-at 42}}))]
-    (byte-keyed-ledger [(record :article/by-slug) (record :comments/list)])))
+    (owner-held-work [(record :article/by-slug) (record :comments/list)])))
 
 (defn- work-row-for [rows rid]
   (first (filter #(= rid (:resource-id %)) rows)))

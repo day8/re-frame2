@@ -3,8 +3,8 @@
   the receiving frame (Spec 016 §Transport — stale suppression;
   `re-frame.resources.reply-handlers/live-slot-for-reply`). Two frames can hold
   the same work-id — a work-id carries no frame, and its generation is a
-  recorded allocation value — so the receiving frame's slot, ledger row and
-  host handle under that work-id are its OWN live attempt, and a misrouted
+  recorded allocation value — so the receiving frame's slot, the attempt it
+  holds and the host handle under that work-id are its OWN live attempt, and a misrouted
   reply must leave all three as they were.
 
   Each case runs one family's reply handler — the scalar resource reply, the
@@ -89,11 +89,11 @@
 
 (defn- held-by
   "What `frame-id` holds for `work-id`: the durable slot at `slot-path`, the
-  ledger row, and the host handle."
+  attempt record, and the host handle."
   [frame-id slot-path work-id]
   (let [rdb (:rf.db/runtime (rf/frame-state-value frame-id))]
     {:slot   (get-in rdb slot-path)
-     :row    (rf.resources.work-ledger/get-record rdb work-id)
+     :row    (rf.resources.work-ledger/attempt-record rdb work-id)
      :handle (rf.resources.work-ledger/get-handle frame-id work-id)}))
 
 (defn- misrouted-reply-leaves-receiving-frame-untouched!
@@ -114,7 +114,7 @@
             "FIXTURE — frame B's own live attempt holds frame A's work-id")
         (rf/dispatch-sync reply {:frame fb})
         (is (= before (held-by fb slot-path wid))
-            "frame A's reply delivered into frame B leaves B's slot, ledger row and handle as they were"))
+            "frame A's reply delivered into frame B leaves B's slot, attempt and handle as they were"))
       (rf/dispatch-sync reply {:frame fa})
       (let [settled (held-by fa slot-path wid)]
         (is (= [nil nil] [(:current-work (:slot settled)) (:handle settled)])

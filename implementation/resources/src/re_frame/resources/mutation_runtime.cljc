@@ -6,8 +6,8 @@
   impure swaps live in `re-frame.resources.mutation-events`.
 
   Instances are keyed by instance id, not mutation id, so two concurrent
-  submissions of one mutation never clobber each other; each points at its
-  in-flight work-ledger record through `:current-work`.
+  submissions of one mutation never clobber each other; each keeps its
+  in-flight attempt under `:work`, named by `:current-work`.
   Spec 016 §Mutations (first public-beta gate)."
   (:require [re-frame.error :as rf.error]
             [re-frame.resources.state :as rf.resources.state]))
@@ -52,7 +52,7 @@
   (and (vector? instance-id) (= :rf.mutation/instance (first instance-id))))
 
 ;; ---- durable mutation-instance shape -------------------------------------
-;; Plain EDN facts only: host handles live in the work-ledger side table, and
+;; Plain EDN facts only: host handles live in the attempt side table, and
 ;; `:pending?` / `:settled?` are derived in the subs layer.
 
 (def terminal-statuses
@@ -170,7 +170,7 @@
             :invalidated-at nil
             :refresh-error  nil
             ;; A read in flight is superseded by this write (the caller settles
-            ;; its row), so its late reply fails the work-id gate.
+            ;; its attempt), so its late reply fails the work-id gate.
             :current-work   nil)
           ;; Or the next load-more settle would chain its legs over the
           ;; written pages.
@@ -342,19 +342,24 @@
 
   Restoring them would orphan a refetch started while the mutation was
   pending: a read start does not bump `:revision`, so the settle would choose
-  `:restore` and put back the pre-read `:generation` / `:current-work`, the
-  read's own valid reply would then be suppressed, and its owner dropped."
-  [:generation :current-work :request-id :attempt :active-owners])
+  `:restore` and put back the pre-read `:generation` / `:current-work` and
+  `:work`, the read's own valid reply would then be suppressed, and its owner
+  dropped. The terminal tail rides with them, so an attempt settled while the
+  mutation was pending keeps its summary."
+  [:generation :current-work :request-id :attempt :active-owners :work :recent-work])
 
 (defn reconcile-restored-entry
   "The entry a `:restore` seats: `before` carrying `current`'s
-  `live-work-keys`, with `:status` following a still-live `:current-work`
-  (`:fetching` / `:loading`) so it never reads settled while a reply is due.
-  `before` unchanged when `current` is nil or holds the same work facts."
+  `live-work-keys` (absent ones absent), with `:status` following a still-live
+  `:current-work` (`:fetching` / `:loading`) so it never reads settled while a
+  reply is due. With `current` gone, `before` is seated without its live
+  attempt, which left with the removed entry: its late reply finds nothing to
+  settle and is suppressed. Spec 016 §Optimistic settle — commit / rollback / reconcile."
   [before current]
   (if (nil? current)
-    before
-    (let [reconciled (merge before (select-keys current live-work-keys))]
+    (dissoc before :work)
+    (let [reconciled (merge (apply dissoc before live-work-keys)
+                            (select-keys current live-work-keys))]
       (cond-> reconciled
         (some? (:current-work reconciled))
         (assoc :status (rf.resources.state/next-status
@@ -406,7 +411,7 @@
         [rdb' (mapv :resource/key inverse)]))))
 
 ;; ---- fail-closed boundary validation --------------------------------------
-;; Pure, so `mutation-events` runs them before any runtime-db, ledger or HTTP
+;; Pure, so `mutation-events` runs them before any runtime-db or HTTP
 ;; write. Registry lookup is injected (`registered-resource?`) to keep this
 ;; namespace free of a registry require.
 
@@ -621,7 +626,7 @@
          "(a scalar — keyword / string / safe-range integer / UUID / "
          "instant — or an EDN collection recursively built from such); got "
          (pr-str instance-id) ". The instance id is stored "
-         "in runtime-db, the work-ledger work id, and the "
+         "in runtime-db, the attempt's work id, and the "
          "reply payloads — all durable + trace-visible + "
          "epoch / restore-safe — so it follows the same "
          "serializable-identity discipline as resource "

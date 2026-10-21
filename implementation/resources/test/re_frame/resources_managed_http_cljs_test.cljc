@@ -65,7 +65,7 @@
 (defn- reply-failure! [args failure]
   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
-(defn- work-record [work-id] (rf.resources.work-ledger/get-record (runtime-db) work-id))
+(defn- work-record [work-id] (rf.resources.work-ledger/attempt-record (runtime-db) work-id))
 
 (defn- article-spec []
   {:scope         :rf.scope/global

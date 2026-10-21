@@ -1,18 +1,21 @@
 (ns re-frame.resources.work-ledger
-  "The frame work ledger: in-flight attempts as work facts, linked to but
-  never merged into the cache entries they serve.
+  "Resource and mutation attempts: the work id, the attempt record its owner
+  keeps, and the host-handle side table.
 
-  Two halves. Serializable rows live at `[:rf.runtime/work-ledger <id>]` in
-  runtime-db and carry no host handles, so they ride epoch snapshots and the
-  Xray projection; SSR hydration ships none of them. Host handles live in a
-  module-level side table keyed by `[frame-id work-id]`, are never serialized,
-  and are released on frame destroy.
+  An attempt lives on the entry or mutation instance it serves: the live one
+  under `:work`, the summaries of the last few terminal ones under
+  `:recent-work`. Both are serializable and carry no host handles, so they
+  ride epoch snapshots and the Xray projection, and they leave with their
+  owner; SSR hydration ships neither. Host handles live in a module-level side
+  table keyed by `[frame-id work-id]`, are never serialized, and are released
+  on frame destroy.
 
   Abort is opportunistic; correctness rests on stale suppression by work-id
-  and generation, enforced on the entry by `re-frame.resources.events`.
-  The ledger is written only by the Resources artefact's event handlers.
-  Spec 016 §Frame work ledger and Spec 016 §Ledger row retention and identity."
+  and generation against the owner's `:current-work`, enforced by
+  `re-frame.resources.events` and `re-frame.resources.mutation-events`.
+  Spec 016 §In-flight attempts."
   (:require [re-frame.http.registry :as rf.http.registry]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
             [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -20,38 +23,36 @@
 ;; ---- work-id ----------------------------------------------------------------
 
 (def work-kind-resource
-  "The `:work/kind` of a resource or mutation attempt.
-  Spec 016 §Frame work ledger."
+  "The `:work/kind` of a resource attempt; a mutation's is `:mutation`.
+  Spec 016 §In-flight attempts."
   :resource)
 
 (defn resource-work-id
-  "The work-id `[:rf.work/resource <subject> <generation>]`: the ledger row
-  key, the entry's `:current-work` pointer and the stale-suppression
+  "The work-id `[:rf.work/resource <subject> <generation>]`: the attempt's
+  `:work/id`, its owner's `:current-work` pointer and the stale-suppression
   identity. `subject` is the resource id for a read and
   `[:rf.mutation <instance-id>]` for a mutation.
 
-  It carries no scope or params: the row's `:resource/key` records which
-  scoped key the attempt serves. It carries no frame either, and a recorded
-  allocation can hand two frames the same generation, so transport
-  correlation uses the frame-qualified `managed-request-id`.
-  Spec 016 §Ledger row retention and identity."
+  It carries no scope or params: the attempt lives on the entry for the
+  scoped key it serves. It carries no frame either, and a recorded allocation
+  can hand two frames the same generation, so transport correlation uses the
+  frame-qualified `managed-request-id`. Spec 016 §Attempt identity."
   [subject generation]
   [:rf.work/resource subject generation])
 
 (defn work-id-resource-id
   "The resource id a read work-id names, or nil for a mutation work-id or a
   non-work-id. Attempt-scoped trace rows stamp it as `:resource/id`, so a row
-  names its resource even when its ledger row is gone."
+  names its resource even when its attempt has left with its entry."
   [work-id]
   (when (and (vector? work-id) (= :rf.work/resource (first work-id)))
     (let [subject (nth work-id 1 nil)]
       (when (keyword? subject) subject))))
 
 (def work-id-id
-  "The ledger map key for a work-id: its canonical-bytes string. A mutation
+  "The side-table key for a work-id: its canonical-bytes string. A mutation
   work-id embeds the caller's instance id, and two ids differing only by list
-  vs vector are `=` but distinct identities. The vector stays the `:work/id`
-  carried on the row and the wire. Spec 016 §Frame work ledger."
+  vs vector are `=` but distinct identities. Spec 016 §Attempt identity."
   rf.resources.state/key-id)
 
 (defn managed-request-id
@@ -66,41 +67,37 @@
 ;; ---- status sets -------------------------------------------------------------
 
 (def non-terminal-statuses
-  "The live work statuses. Only these rows' summaries ride the epoch-restore
-  wire. Spec 016 §Ledger row retention and identity."
+  "The statuses of a live attempt, the ones a restore dangles.
+  Spec 016 §Restore and replay."
   #{:queued :running :abort-requested})
 
 (def terminal-statuses
-  "The terminal work statuses, re-bound from
+  "The terminal attempt statuses, re-bound from
   `re-frame.resources.state/terminal-work-statuses`.
-  Spec 016 §Ledger row retention and identity."
+  Spec 016 §In-flight attempts."
   rf.resources.state/terminal-work-statuses)
 
 (defn terminal?
-  "True iff `status` is a terminal work status."
+  "True iff `status` is a terminal attempt status."
   [status]
   (contains? terminal-statuses status))
 
-;; ---- serializable work record -----------------------------------------------
+;; ---- serializable attempt record --------------------------------------------
 
 (defn work-record
-  "A serializable `:running` row for a fresh attempt; never carries host
-  handles. Opts: `:work-id`, `:frame-id` (stamped `:work/frame`),
-  `:resource/key`, `:generation`, `:transport`, `:owner` and `:owners`
-  (unioned, so a new read starts from the entry's active owners and one
-  release never orphans work another owner needs), `:cause`, `:cancellable?`
-  (default true), `:started-at`, `:deadline-at`, `:page-index` (an infinite
-  feed's page; a positive index marks a load-more) and `:reply-targets`
-  (call-site continuations; a read joins in flight, so they accumulate on the
-  row). `:page-index` and `:reply-targets` are omitted when absent.
-  Spec 016 §Frame work ledger."
-  [{:keys [work-id frame-id generation transport
-           owner owners cause cancellable? started-at deadline-at page-index reply-targets]
-    resource-key :resource/key}]
+  "A serializable `:running` record for a fresh attempt, which its owner keeps
+  under `:work`; never carries host handles. Opts: `:work-id`, `:generation`,
+  `:transport`, `:owner` and `:owners` (unioned, so a new read starts from the
+  entry's active owners and one release never orphans work another owner
+  needs), `:cause`, `:cancellable?` (default true), `:started-at`,
+  `:deadline-at`, `:page-index` (an infinite feed's page; a positive index
+  marks a load-more) and `:reply-targets` (call-site continuations; a read
+  joins in flight, so they accumulate on the attempt). `:page-index` and
+  `:reply-targets` are omitted when absent. Spec 016 §In-flight attempts."
+  [{:keys [work-id generation transport
+           owner owners cause cancellable? started-at deadline-at page-index reply-targets]}]
   (cond-> {:work/id      work-id
            :work/kind    work-kind-resource
-           :work/frame   frame-id
-           :resource/key resource-key
            :generation   generation
            :transport    transport
            :status       :running
@@ -113,7 +110,7 @@
     (seq reply-targets) (assoc :reply-targets (vec reply-targets))))
 
 (defn join-owner+cause
-  "Joins a supplementary ensure onto a live row: adds `owner` and appends
+  "Joins a supplementary ensure onto a live attempt: adds `owner` and appends
   `cause`, with no status change. Nil-safe. Spec 016 §Race and in-flight semantics."
   [record owner cause]
   (cond-> record
@@ -140,188 +137,144 @@
   (update record :owners (fnil disj #{}) owner))
 
 (defn mark-terminal
-  "Sets a terminal `status` and a small serializable `outcome` summary.
-  Prefer `settle-terminal`, which also prunes."
+  "Sets a terminal `status` and a small serializable `outcome` summary on a
+  record. On an owner, use `settle-attempt`, which also moves the attempt to
+  its terminal tail."
   [record status outcome]
   (assoc record :status status :outcome outcome))
 
 (defn mark-abort-requested
-  "Moves a row to the non-terminal `:abort-requested`: a cancel was issued
-  but the attempt has not settled. Spec 016 §Frame work ledger."
+  "Moves an attempt to the non-terminal `:abort-requested`: a cancel was
+  issued but the attempt has not settled. Spec 016 §In-flight attempts."
   [record]
   (assoc record :status :abort-requested))
 
 (defn serializable-record?
   "True iff `record` is host-handle-free serializable EDN, the invariant
-  every row must hold. Spec 016 §Frame work ledger."
+  every attempt record must hold. Spec 016 §In-flight attempts."
   [record]
   (rf.resources.state/serializable-edn? record))
 
-;; ---- runtime-db record bookkeeping ------------------------------------------
-
-(defn record-path
-  "Runtime-db path to a row, keyed on the byte `work-id-id`."
-  [work-id]
-  [:rf.runtime/work-ledger (work-id-id work-id)])
-
-;; ---- resource-key → work-id inverse index -----------------------------------
+;; ---- the attempt on its owner -------------------------------------------------
 ;;
-;; `{<rk-id> #{<work-id-id> …}}` lets the per-settle prune visit only the
-;; settling key's rows instead of the whole ledger. It is a derived projection,
-;; never trusted from a snapshot: a wholesale ledger install (epoch restore,
-;; replace-frame-state!, router rollback, fixtures) arrives without it, and the
-;; per-key droppers rebuild it once on finding the ledger populated but the
-;; index absent. So the incremental maintainers act only when the index already
-;; exists: a `put-record` that half-built it would mask that rebuild.
+;; An entry or mutation instance keeps its live attempt under `:work` and the
+;; summaries of its last terminal attempts, newest first, under
+;; `:recent-work`. The owner's `:current-work` and `:generation` stay the stale
+;; gate; `:work` holds the attempt's facts.
 
-(def work-ledger-by-key-key
-  "Reserved runtime-db key of the resource-key → work-id-id inverse index.
-  Spec 016 §Ledger row retention and identity."
-  :rf.runtime/work-ledger-by-key)
+(def recent-work-limit
+  "Terminal summaries an owner keeps for Xray's dimmed tail. Small because
+  they ride every epoch snapshot. Spec 016 §In-flight attempts."
+  3)
 
-(defn recompute-ledger-index
-  "Rebuilds the inverse index from the ledger in `runtime-db`. Returns the
-  updated runtime-db."
-  [runtime-db]
-  (let [ledger (:rf.runtime/work-ledger runtime-db)
-        idx    (reduce-kv
-                 (fn [acc wid-id record]
-                   (let [rk-id (rf.resources.state/key-id (:resource/key record))]
-                     (update acc rk-id (fnil conj #{}) wid-id)))
-                 {}
-                 ledger)]
-    (assoc runtime-db work-ledger-by-key-key idx)))
+(defn attempt-summary
+  "The terminal summary an owner keeps of a settled attempt: its work id,
+  kind, generation, status, outcome, start time and page index."
+  [record]
+  (select-keys record [:work/id :work/kind :generation :status :outcome :started-at :page-index]))
 
-(defn- index-present? [runtime-db] (contains? runtime-db work-ledger-by-key-key))
+(defn live-attempt
+  "`owner`'s live attempt when its id is `work-id`, else nil."
+  [owner work-id]
+  (let [record (:work owner)]
+    (when (and (some? work-id) (= work-id (:work/id record)))
+      record)))
 
-(defn- index-add
-  "Adds `work-id-id*` to its bucket, only when the index exists."
-  [runtime-db rk-id work-id-id*]
-  (if (index-present? runtime-db)
-    (update-in runtime-db [work-ledger-by-key-key rk-id] (fnil conj #{}) work-id-id*)
-    runtime-db))
-
-(defn- ensure-ledger-index
-  "Rebuilds the index once when the ledger is populated but the index is
-  absent (the post-install shape). An empty ledger leaves it absent, keeping
-  the rebuild signal for whatever installs rows next."
-  [runtime-db]
-  (if (and (seq (:rf.runtime/work-ledger runtime-db))
-           (not (index-present? runtime-db)))
-    (recompute-ledger-index runtime-db)
-    runtime-db))
-
-(defn put-record
-  "Writes `record` under `work-id` and registers it in the live index.
-  Returns the updated runtime-db."
-  [runtime-db work-id record]
-  (-> runtime-db
-      (assoc-in (record-path work-id) record)
-      (index-add (rf.resources.state/key-id (:resource/key record)) (work-id-id work-id))))
-
-(defn get-record
-  "The row under `work-id`, or nil."
-  [runtime-db work-id]
-  (get-in runtime-db (record-path work-id)))
+(defn find-attempt
+  "`owner`'s attempt `work-id`: the live record, else its terminal summary,
+  else nil."
+  [owner work-id]
+  (or (live-attempt owner work-id)
+      (some #(when (= work-id (:work/id %)) %) (:recent-work owner))))
 
 (defn live-work?
-  "True iff `work-id`'s row exists and is neither terminal nor
-  `:abort-requested`. An entry's `:current-work` pointer is not proof of
-  work: it survives a route supersession and an aborted settlement, so the
-  linked row's status is the liveness fact. The one definition used by the
-  ensure join, load-more dedupe and route-plan adoption.
+  "True iff `owner`'s `:current-work` names its live attempt and that attempt
+  is neither terminal nor `:abort-requested`. The pointer alone is not proof
+  of work: it outlives an abort request, so the attempt's status is the
+  liveness fact. The one definition the ensure join, load-more dedupe, the
+  revalidation scans and route readiness use.
   Spec 016 §Race and in-flight semantics."
-  [runtime-db work-id]
-  (let [status (:status (get-record runtime-db work-id))]
+  [owner]
+  (let [status (:status (live-attempt owner (:current-work owner)))]
     (boolean (and (some? status)
                   (not (terminal? status))
                   (not= :abort-requested status)))))
 
-(defn update-record
-  "Applies `f` and `args` to the row under `work-id`; a no-op when the row is
-  gone. Returns the updated runtime-db."
-  [runtime-db work-id f & args]
-  (if (get-record runtime-db work-id)
-    (apply update-in runtime-db (record-path work-id) f args)
-    runtime-db))
+(defn update-attempt
+  "`owner` with `f` and `args` applied to its live attempt `work-id`; a no-op
+  when that is not the live attempt."
+  [owner work-id f & args]
+  (if (live-attempt owner work-id)
+    (apply update owner :work f args)
+    owner))
 
-(defn update-record-by-id
-  "`update-record` keyed by an already-computed byte `work-id-id`, for a
-  caller iterating the ledger map; re-transforming it would miss."
-  [runtime-db work-id-id f & args]
-  (if (get-in runtime-db [:rf.runtime/work-ledger work-id-id])
-    (apply update-in runtime-db [:rf.runtime/work-ledger work-id-id] f args)
-    runtime-db))
+(defn settle-attempt
+  "`owner` with attempt `work-id` settled terminal `status` with the small
+  serializable `outcome`. A live attempt moves to the head of `:recent-work`,
+  which keeps the newest `recent-work-limit`; every settle trims, not only a
+  success, so an owner that never succeeds, such as a poll against a failing
+  endpoint, keeps a bounded tail. An attempt already in the tail is re-marked
+  in place, so the late reply of a superseded attempt still records what it
+  reported. A no-op for any other id. Spec 016 §In-flight attempts."
+  [owner work-id status outcome]
+  (if-let [record (live-attempt owner work-id)]
+    (-> owner
+        (dissoc :work)
+        (assoc :recent-work
+               (into [(attempt-summary (mark-terminal record status outcome))]
+                     (take (dec recent-work-limit))
+                     (:recent-work owner))))
+    (if (some #(= work-id (:work/id %)) (:recent-work owner))
+      (update owner :recent-work
+              (fn [tail] (mapv #(cond-> % (= work-id (:work/id %)) (mark-terminal status outcome))
+                               tail)))
+      owner)))
 
-(def default-terminal-tail
-  "Terminal rows retained per resource key for Xray's recent-races view.
-  Small because the ledger rides every epoch snapshot.
-  Spec 016 §Ledger row retention and identity."
-  3)
+(defn start-attempt
+  "`owner` with `record` as its live attempt. A live attempt it displaces can
+  never settle the owner again, since `:current-work` has moved on, so it
+  settles `:suppressed`, superseded by `record`.
+  Spec 016 §Race and in-flight semantics."
+  [owner record]
+  (let [prior (:work owner)]
+    (-> (if (some? prior)
+          (settle-attempt owner (:work/id prior) :suppressed
+                          {:reason :superseded :by (:work/id record)})
+          owner)
+        (assoc :work record))))
 
-(defn prune-terminal-for-key
-  "Prunes `resource-key`'s terminal rows, keeping the `keep-tail` (default
-  `default-terminal-tail`) most recently started; live rows are never
-  pruned. Returns the updated runtime-db. Callers use `settle-terminal`.
-  Spec 016 §Ledger row retention and identity."
-  ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
-  ([runtime-db resource-key keep-tail]
-   (let [runtime-db (ensure-ledger-index runtime-db)
-         ;; Byte identity, so a list- and a vector-params key never prune
-         ;; each other's rows.
-         rk-id  (rf.resources.state/key-id resource-key)
-         ledger (:rf.runtime/work-ledger runtime-db)
-         this-key-ids (get-in runtime-db [work-ledger-by-key-key rk-id])
-         terminal-for-key
-         (->> this-key-ids
-              (keep (fn [wid-id]
-                      (let [r (get ledger wid-id)]
-                        (when (and r (terminal? (:status r)))
-                          [wid-id r]))))
-              (sort-by (fn [[_ r]] (or (:started-at r) 0)) >))
-         drop-ids (->> terminal-for-key (drop keep-tail) (map first))]
-     (if (seq drop-ids)
-       (-> runtime-db
-           (update :rf.runtime/work-ledger
-                   (fn [l] (reduce dissoc l drop-ids)))
-           (update-in [work-ledger-by-key-key rk-id]
-                      (fn [s] (let [s' (reduce disj (or s #{}) drop-ids)]
-                                (when (seq s') s'))))
-           ;; No empty buckets: match the recompute shape.
-           (as-> rdb (if (nil? (get-in rdb [work-ledger-by-key-key rk-id]))
-                       (update rdb work-ledger-by-key-key dissoc rk-id)
-                       rdb)))
-       runtime-db))))
+;; ---- finding an attempt's owner -----------------------------------------------
 
-(defn settle-terminal
-  "Marks the row under `work-id` terminal and prunes its key's tail in one
-  step; the seam the bounded-ledger promise rests on. Pruning only on success
-  would bound nothing for a key that never succeeds, such as a poll against a
-  failing endpoint. The prune key comes from the settled row, which survives
-  as the newest terminal row. A no-op when the row is gone. Returns the
-  updated runtime-db. Spec 016 §Ledger row retention and identity."
-  [runtime-db work-id status outcome]
-  (let [runtime-db (update-record runtime-db work-id mark-terminal status outcome)]
-    (if-let [resource-key (:resource/key (get-record runtime-db work-id))]
-      (prune-terminal-for-key runtime-db resource-key)
-      runtime-db)))
+(defn attempt-owner-path
+  "The runtime-db path of the entry or mutation instance holding attempt
+  `work-id`, live or among its terminal summaries, or nil. A read work id
+  names its resource, so only that resource's entries are searched, and a
+  live attempt wins over a summary; a mutation work id names its instance.
+  Spec 016 §Attempt identity."
+  [runtime-db work-id]
+  (let [subject (when (vector? work-id) (nth work-id 1 nil))]
+    (cond
+      (and (vector? subject) (= :rf.mutation (first subject)))
+      (let [path (rf.resources.mutation-runtime/instance-path (second subject))]
+        (when (find-attempt (get-in runtime-db path) work-id)
+          path))
 
-(defn drop-rows-for-key
-  "Drops every row linked to `resource-key`, live or terminal, and its index
-  bucket. Returns the updated runtime-db. Call it wherever the linked entry
-  or mutation instance leaves the cache: a removed key has no recent-races
-  view to serve, so a retained tail would be unbounded growth. Live rows go
-  too, because the caller has already settled and aborted them and a late
-  reply is stale-suppressed. Spec 016 §Ledger row retention and identity."
-  [runtime-db resource-key]
-  (let [runtime-db (ensure-ledger-index runtime-db)
-        rk-id      (rf.resources.state/key-id resource-key)
-        row-ids    (get-in runtime-db [work-ledger-by-key-key rk-id])]
-    (if (seq row-ids)
-      (-> runtime-db
-          (update :rf.runtime/work-ledger (fn [l] (reduce dissoc l row-ids)))
-          (update work-ledger-by-key-key dissoc rk-id))
-      runtime-db)))
+      (keyword? subject)
+      (let [entries (get-in runtime-db (rf.resources.state/entries-path))
+            holder  (fn [held?]
+                      (some (fn [[k-id entry]]
+                              (when (and (= subject (:resource/id entry)) (held? entry))
+                                (rf.resources.state/entry-path-by-id k-id)))
+                            entries))]
+        (or (holder #(live-attempt % work-id))
+            (holder #(find-attempt % work-id)))))))
+
+(defn attempt-record
+  "Attempt `work-id`'s record in `runtime-db`: the live record, or its
+  terminal summary, or nil when it has left with its owner."
+  [runtime-db work-id]
+  (when-let [path (attempt-owner-path runtime-db work-id)]
+    (find-attempt (get-in runtime-db path) work-id)))
 
 ;; ---- host-side handle side table --------------------------------------------
 
@@ -427,7 +380,7 @@
 (defn abort-fx
   "The best-effort abort fx `[:rf.http/managed-abort <managed-request-id>]`
   for a superseded or released attempt, or nil for a transport with no abort
-  capability. `frame-id` is the row's `:work/frame`; the token must be the
+  capability. `frame-id` is the issuing frame's id; the token must be the
   frame-qualified one the lower registered, or the abort misses.
   Spec 014 §`:request-id` (internal)."
   [transport frame-id work-id]
@@ -441,7 +394,7 @@
 
 (def record-work-handle-meta
   "Registration metadata for the `:rf.resource/record-work-handle` fx."
-  {:doc "Record a work-ledger host handle in the host-side side table, keyed
+  {:doc "Record an attempt's host handle in the host-side side table, keyed
 by `[frame-id work-id]`. Args: `{:frame-id … :work-id … :transport …
 :request-id …}`. The `:request-id` is the frame-QUALIFIED transport
 correlation token (`managed-request-id`), NOT the bare work-id — it is the
@@ -454,7 +407,7 @@ transport owns the AbortController (keyed by the request-id), so no live
 `:rf.http/managed-abort` fx; the slot records the correlation so frame-destroy
 teardown can enumerate the frame's in-flight work. A future transport that
 hands the runtime a direct handle fills the `:abort-fn` slot. Per Spec 016
-§Frame work ledger."})
+§In-flight attempts."})
 
 (defn record-work-handle-handler
   "`:rf.resource/record-work-handle` fx handler. Args:
@@ -467,10 +420,10 @@ hands the runtime a direct handle fills the `:abort-fn` slot. Per Spec 016
 
 (def clear-work-handle-meta
   "Registration metadata for the `:rf.resource/clear-work-handle` fx."
-  {:doc "Drop a work-ledger host handle from the host-side side table, keyed
+  {:doc "Drop an attempt's host handle from the host-side side table, keyed
 by `[frame-id work-id]`. Args: `{:frame-id … :work-id …}`. Emitted when an
 attempt is superseded / settled so a stale handle does not leak. Per Spec 016
-§Frame work ledger."})
+§In-flight attempts."})
 
 (defn clear-work-handle-handler
   "`:rf.resource/clear-work-handle` fx handler. Args:
@@ -485,7 +438,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   "Detaches and best-effort aborts every handle of a destroyed `frame-id`.
   Detaching first means an abort callback that seats a same-id successor
   keeps its handle, and a re-entrant call finds nothing to abort twice. The
-  durable rows go with the frame value. Idempotent; returns nil.
+  attempts go with their owners in the frame value. Idempotent; returns nil.
   Runtime-Subsystems §5. Teardown."
   [frame-id]
   (abort-detached! (detach-slots! (fn [[fid _]] (= fid frame-id)))))
@@ -498,7 +451,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   (abort-detached! (first (reset-vals! handle-table {}))))
 
 (defn on-frame-destroyed!
-  "The work-ledger half of the `:resources/on-frame-destroyed!` teardown
+  "The attempt half of the `:resources/on-frame-destroyed!` teardown
   hook, which the façade composes with the timer and revalidation-listener
   releases. Returns nil. Runtime-Subsystems §5. Teardown."
   [frame-id]

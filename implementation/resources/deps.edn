@@ -4,14 +4,14 @@
 ;; (`reg-resource`, `clear-resource`, `resource-meta`, `resource-state`,
 ;; `resources`, the `:rf.resource/*` events and passive subs, the
 ;; `:resource` registrar kind, the `:rf.runtime/resources` + the
-;; `:rf.runtime/work-ledger` runtime-db slots, managed-HTTP lowering,
+;; `:rf.runtime/mutations` runtime-db slots, managed-HTTP lowering,
 ;; route `:resources` metadata, and SSR preload/hydration) ships as a
 ;; separate Maven artefact so apps that don't register any resources
-;; don't drag the namespace, the resource lifecycle FSM, the work-
-;; ledger machinery, or any of the `:rf.resource/*` / `:rf.scope/*` /
+;; don't drag the namespace, the resource lifecycle FSM, the attempt
+;; machinery, or any of the `:rf.resource/*` / `:rf.scope/*` /
 ;; `:rf.work/*` trace strings onto the classpath.
 ;;
-;; The artefact contains the public surface, work-ledger substrate, resource runtime
+;; The artefact contains the public surface, in-flight attempts, resource runtime
 ;; (entries, scopes, status transitions, dedupe), the managed-HTTP
 ;; transport, invalidation / GC / owners, focus/reconnect revalidation,
 ;; mutations, and the routing + SSR/hydration integrations.

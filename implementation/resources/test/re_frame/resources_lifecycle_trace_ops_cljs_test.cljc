@@ -164,7 +164,7 @@
           "the carried-vs-current generation pair")
       (is (= [2 false :suppressed]
              [(:generation (entry k)) (= {:stale "data"} (:data (entry k)))
-              (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))])
+              (:status (rf.resources.work-ledger/attempt-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))])
           "the stale reply wrote nothing and its work row settled :suppressed"))))
 
 (def ^:private attempt-ops

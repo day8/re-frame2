@@ -126,8 +126,8 @@
 (def ^:private extra-key  (rf.resources.state/scoped-resource-key :rf.scope/global :t/extra {}))
 
 (defn- owned? [k] (contains? (:active-owners (entry k)) (route-owner)))
-(defn- work-record [k] (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k))))
-(defn- live? [k] (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k))))
+(defn- work-record [k] (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work (entry k))))
+(defn- live? [k] (rf.resources.work-ledger/live-work? (entry k)))
 (defn- request-count [] (count @requests))
 
 (defn- settle-loaded!

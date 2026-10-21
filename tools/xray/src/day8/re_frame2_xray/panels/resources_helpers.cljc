@@ -5,7 +5,7 @@
   ## Why a `.cljc` helpers split
 
   Same contract as every other panel's `*_helpers.cljc`: the projection
-  algebra (registry rows, live-instance rows, work-ledger rows, the
+  algebra (registry rows, live-instance rows, attempt rows, the
   route/resource graph, the lifecycle timeline, the invalidation graph,
   the cache-growth view, and the lints) is PURE data — no substrate,
   no Reagent/UIx, no DOM. Keeping it here means the algebra runs
@@ -29,7 +29,8 @@
       (process-global registrar) — no require;
     - the LIVE per-frame instance table from the runtime-db partition
       slice at `[:rf.runtime/resources :entries]` — no require;
-    - the LIVE per-frame work ledger from `[:rf.runtime/work-ledger]`;
+    - the LIVE per-frame attempts from each entry's and each mutation
+      instance's `:work` and `:recent-work` (`frame-work`);
     - the trace stream (`:rf.resource/*` op rows) from the trace buffer.
 
   The reserved key paths below are duplicated as small literal constants
@@ -39,7 +40,7 @@
   reserved runtime-db keys fixed in [Conventions §Reserved runtime-db
   keys]; a drift in `resources-key` fails the on-box redaction rows, which
   declare sensitivity at the real entry path, while nothing checks
-  `work-ledger-key` or `routing-key`.
+  `mutations-key` or `routing-key`.
 
   ## PRIVACY (Spec 016 §Xray and AI tooling — load-bearing)
 
@@ -72,10 +73,12 @@
   artefact (see the ns docstring's read-path note)."
   :rf.runtime/resources)
 
-(def work-ledger-key
-  "Reserved runtime-db key for the frame work ledger subtree
-  (`:rf.runtime/work-ledger`). Per Spec 016 §Frame work ledger."
-  :rf.runtime/work-ledger)
+(def mutations-key
+  "Reserved runtime-db key for the mutation-instance map
+  (`:rf.runtime/mutations`). Per Spec 016 §`:rf.runtime/mutations` —
+  mutation-instance runtime. Duplicated literal (see the ns docstring's
+  read-path note)."
+  :rf.runtime/mutations)
 
 (def entries-rel-path
   "Runtime-db-relative path to the cache entries map. Per Spec 016."
@@ -428,10 +431,11 @@
 ;; trace-borne sections: a row that NAMES a `:sensitive?` resource redacts its
 ;; value-bearing slots, exactly as that resource's instance row does.
 ;;
-;; The WORK-LEDGER rows take the same gate. They are runtime-db state, but no
-;; per-instance declaration is lowered under `[:rf.runtime/work-ledger …]`, so
-;; the frame-classification gate has nothing to match there either, and a
-;; work record names its resource-id in its scoped key.
+;; The ATTEMPT rows take the same gate. They are runtime-db state, but no
+;; per-instance declaration is lowered under an entry's `:work` or
+;; `:recent-work`, so the frame-classification gate has nothing to match there
+;; either, and `frame-work` stamps each record with its owner's scoped key,
+;; which names its resource-id.
 ;;
 ;; The rule is deliberately ROW-level rather than slot-level: a row's scope,
 ;; params, cause and matched keys are all identity-bearing evidence about the
@@ -506,7 +510,7 @@
   lowers params → a Spec 014 managed-HTTP args map). The fn body is
   opaque, so the summary names the one transport, `:rf.http/managed`, and
   that the request is fn-derived; the live wire details surface
-  per-instance via the work ledger's `:transport`."
+  per-instance via each attempt's `:transport`."
   [spec]
   (let [transport :rf.http/managed]
     {:transport transport
@@ -825,7 +829,7 @@
        ;; `:fetching-next?` (a load-more vs a whole-feed refresh) is NOT a pure
        ;; function of the entry — it joins the in-flight work record's
        ;; `:page-index` (see `work-row` `:page-index`); the panel reads it off
-       ;; the §3 work-ledger join, not here.
+       ;; the §3 attempt rows, not here.
        (:infinite? entry)
        (merge (let [next-param (:next-page-param entry)]
                 {:infinite?      true
@@ -862,23 +866,43 @@
         vec)))
 
 ;; ---------------------------------------------------------------------------
-;; Live work-ledger table projection (Spec 016 §Frame work ledger —
-;; the per-frame work-ledger table joined to resource entries).
+;; Live attempt table projection (Spec 016 §In-flight attempts — each
+;; entry's and mutation instance's live attempt and terminal tail).
 ;; ---------------------------------------------------------------------------
 
+(defn frame-work
+  "A frame's attempts as `{[<owner-key-id> <work-id>] <record>}`, gathered
+  from where they live: each cache entry's and mutation instance's live
+  `:work` and terminal `:recent-work` tail. Each record is stamped with its
+  owner's identity as `:resource/key` — the scoped key for an entry,
+  `[:rf.mutation <instance-id>]` for a mutation — which is how `work-row`
+  names its resource. The map key leads with the owner's byte id, because
+  Clojure `=` equates two instance ids that differ only in collection kind.
+  Spec 016 §In-flight attempts."
+  [runtime-db]
+  (let [attempts (fn [[k-id owner] resource-key]
+                   (for [record (cons (:work owner) (:recent-work owner))
+                         :when  (map? record)]
+                     [[k-id (:work/id record)] (assoc record :resource/key resource-key)]))]
+    (into {}
+          (concat
+            (mapcat #(attempts % (:resource/key (val %)))
+                    (get-in runtime-db entries-rel-path))
+            (mapcat #(attempts % [:rf.mutation (:instance/id (val %))])
+                    (get runtime-db mutations-key))))))
+
 (def terminal-work-statuses
-  "Terminal work-ledger statuses (Spec 016 §Ledger row retention). A
-  terminal row is pruned on the linked entry's next successful
-  transition; the panel marks them so the operator distinguishes live
-  work from a recent-races tail."
+  "Terminal attempt statuses (Spec 016 §In-flight attempts). A settled
+  attempt stays in its owner's short `:recent-work` tail; the panel marks
+  them so the operator distinguishes live work from a recent-races tail."
   #{:completed :failed :timed-out :suppressed :cancelled})
 
 (defn work-row
-  "Project ONE work-ledger record `[work-id record]` into a render-safe
-  row (Spec 016 §Frame work ledger). Raw host
+  "Project ONE attempt `[key record]`, as `frame-work` gathers it, into a
+  render-safe row (Spec 016 §In-flight attempts). Raw host
   handles (AbortControllers, timeout handles, promises) live OUTSIDE
   durable frame-state in side tables and are STRUCTURALLY inaccessible to
-  this projection — the ledger record carries only serializable facts:
+  this projection — the attempt record carries only serializable facts:
 
       {:work-id      <id>
        :kind         :resource
@@ -909,12 +933,10 @@
                             (names-sensitive? sensitive-rids
                                               [(scoped-key-resource-id rkey)]))
          {:keys [scope resource-id params]} (scoped-key-summary rkey eg)
-         ;; The `:rf.runtime/work-ledger` map is keyed
-         ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
-         ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
-         ;; there (fall back to the map key for a record that lacks the
-         ;; stamp) so the displayed `:work-id` is the kind-preserving identity,
-         ;; NOT the byte string.
+         ;; The kind-preserving work-id VECTOR is carried on the record as
+         ;; `:work/id`; the map key also carries the owner's byte id. Read it
+         ;; from the record (fall back to the map key for a record that lacks
+         ;; the stamp) so the displayed `:work-id` is the attempt's identity.
          work-id (or (:work/id record) map-key)]
      {:work-id      work-id
       :kind         (or (:work/kind record) (:kind record))
@@ -940,10 +962,10 @@
                       (summarize (eg (:outcome record))))})))
 
 (defn project-work-ledger
-  "Project a frame's work-ledger map `{<work-id> <record>}` into sorted
+  "Project a frame's attempts, as `frame-work` gathers them, into sorted
   render-safe rows — non-terminal (live) work first, then the terminal
   recent-races tail; within each group sorted by generation descending.
-  Per Spec 016 §Frame work ledger.
+  Per Spec 016 §In-flight attempts.
 
   Optional `sensitive-rids` is threaded to `work-row`, which redacts the
   value-bearing slots of a record naming a `:sensitive?` resource. The
@@ -1000,13 +1022,13 @@
   `instance-rows` + `work-rows`. The route graph node is static
   (a registry declaration), but the operator's bug-class question is whether
   THIS route's read is stale, fresh, or just fetching — so each node carries
-  a `:live` rollup over the cache entries + work ledger for its resource-id:
+  a `:live` rollup over the cache entries + attempts for its resource-id:
 
       {:entry-count 2      ; cached entries for this resource-id (any scope/params)
        :has-data?   true   ; ≥1 cached entry currently carries data
        :stale?      false  ; ≥1 cached entry is derived-stale
        :statuses    #{:loaded}   ; the set of live entry statuses
-       :active-work 1      ; non-terminal work-ledger rows for this resource-id
+       :active-work 1      ; live attempts for this resource-id
        :freshness   :fresh}  ; :fresh / :stale / :loading / :error / :idle / :none
 
   `:freshness` is the headline: `:loading` (active work and no usable data
@@ -1102,7 +1124,7 @@
   optional `live` map joins the runtime state the panel reads decoupled:
 
       {:instance-rows  <projected live instances>
-       :work-rows      <projected work-ledger rows>
+       :work-rows      <projected attempt rows>
        :current        {:route-id <route-id> :nav-token <token>}   ; routing slice
        :blocking-keys  [<scoped-key> …]}  ; the live unsettled-blocking set
                                           ;   SCOPED to the current route's
@@ -1952,7 +1974,7 @@
                    :reason      (:reason tags)}))))))
 
 (defn cache-growth
-  "Project the live instance rows + the work ledger into the cache-growth
+  "Project the live instance rows + the attempt rows into the cache-growth
   view (Spec 016 §Paginated and previous data / §Xray — the cache-growth
   view). Aggregates per-resource-id:
 
@@ -1963,7 +1985,7 @@
                      …]
        :total-entries 14
        :total-gc-eligible 12
-       :live-work 2}                        ; non-terminal ledger rows
+       :live-work 2}                        ; live attempts
 
   Surfaces unbounded list-param growth (many entries, few owners) so the
   operator sees a cache that is growing without owners pinning it. Pure

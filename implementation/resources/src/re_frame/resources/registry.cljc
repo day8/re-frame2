@@ -396,9 +396,9 @@
 
 (defn- dispose-resource-runtime!
   "Disposes `resource-id`'s live entries in one frame. One atomic runtime-db
-  swap removes the entries and their ledger rows, marks in-flight work
-  terminal `:suppressed` and recomputes the indexes; then the host side
-  cancels timers and best-effort aborts in-flight attempts. Emits
+  swap removes the entries, their attempts with them, and recomputes the
+  indexes; then the host side cancels timers and best-effort aborts in-flight
+  attempts. Emits
   `:rf.resource/removed` when anything was disposed. Returns the disposed
   scoped keys. Spec 016 §Cancellation is opportunistic; stale suppression is mandatory."
   [frame-id resource-id]
@@ -410,7 +410,7 @@
                                     (let [e   (get-in runtime-db (rf.resources.state/entry-path k))
                                           wid (:current-work e)]
                                       (when wid
-                                        [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
+                                        [wid (:transport (rf.resources.work-ledger/live-attempt e wid))]))))
                             keys')]
         (rf.frame/swap-runtime-db!
           frame-id
@@ -418,16 +418,6 @@
             (-> (or rdb {})
                 (update-in (rf.resources.state/entries-path)
                            (fn [es] (reduce dissoc es (map rf.resources.state/key-id keys'))))
-                (as-> db (reduce (fn [d [wid _]]
-                                   (rf.resources.work-ledger/update-record
-                                     d wid rf.resources.work-ledger/mark-terminal
-                                     :suppressed {:reason :clear-resource}))
-                                 db in-flight))
-                ;; The resource is deregistered, so nothing can join these rows
-                ;; to an entry again: drop every row for the key, not a bounded
-                ;; tail. Spec 016 §Ledger row retention and identity.
-                (as-> db (reduce rf.resources.work-ledger/drop-rows-for-key
-                                 db keys'))
                 (update rf.resources.state/resources-key rf.resources.state/recompute-indexes))))
         ;; Correctness rests on the removed entry, not on the abort landing.
         (doseq [k keys']

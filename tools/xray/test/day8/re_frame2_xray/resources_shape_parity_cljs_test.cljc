@@ -1,14 +1,15 @@
 (ns day8.re-frame2-xray.resources-shape-parity-cljs-test
   "Shape parity for the RESOURCES fixture family.
 
-  The Resources panel projects the cache entries and work-ledger records
-  the resources runtime writes, and its suites hand-type both (the helper
-  suite's `entries` / `ledger`, the shapes the `set-resource-*-override`
-  seams carry). The REAL side here comes from the runtime's own pure
-  constructors, once: `rf.resources.state` walks an entry through
-  `empty-entry` → `entry-start-load` → `entry-succeeded`, and
-  `rf.resources.work-ledger/work-record` builds a running record, which
-  `mark-terminal` settles.
+  The Resources panel projects the cache entries and the attempts the
+  resources runtime keeps on them, and its suites hand-type both (the
+  helper suite's `entries` / `ledger`, the shapes the
+  `set-resource-*-override` seams carry). The REAL side here comes from the
+  runtime's own pure constructors, once: `rf.resources.state` walks an
+  entry through `empty-entry` → `entry-start-load` → `entry-succeeded`, and
+  `rf.resources.work-ledger/work-record` builds a running attempt, which
+  the entry holds through `start-attempt` and settles through
+  `settle-attempt`; the panel's `frame-work` gathers each.
 
   WHY THIS ASSERTS NO PHANTOM KEYS RATHER THAN EQUAL KEY SETS. The
   defect this family guards against is a fixture carrying a key the
@@ -17,8 +18,8 @@
   here. Equality is the stronger statement and does not hold: the
   runtime writes every entry slot, nil-valued or not (`:error`,
   `:refresh-error`, `:invalidated-at`, `:current-work`, `:previous-key`,
-  `:revision`), and every work record's `:work/frame`, while the hand-typed
-  fixtures carry only the facts each row needs. Closing that gap means
+  `:revision`), and every attempt's transport and timing slots, while the
+  hand-typed fixtures carry only the facts each row needs. Closing that gap means
   building those fixtures from the constructors above, in the suites that
   own them.
 
@@ -28,6 +29,7 @@
             [clojure.set :as set]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [day8.re-frame2-xray.panels.resources-helpers :as h]
             [day8.re-frame2-xray.panels.resources-helpers-cljs-test :as resources-suite]))
 
 (def ^:private scoped-key [[:rf.scope/global] :parity/article {:slug "parity"}])
@@ -41,12 +43,27 @@
         {:data {:title "t"} :loaded-at 1 :stale-at 2 :tags #{}})))
 
 (def ^:private real-record
-  "A `:running` work-ledger record, as the runtime's constructor builds one."
+  "A `:running` attempt, as the runtime's constructor builds one."
   (rf.resources.work-ledger/work-record
-    {:work-id [:rf.work/resource scoped-key 1] :frame-id :rf/default
-     :resource/key scoped-key :generation 1 :transport :rf.http/managed
+    {:work-id [:rf.work/resource :parity/article 1] :generation 1
+     :transport :rf.http/managed
      :owner [:route :r "nav-1"] :cause [:route-entry :r "nav-1"]
      :started-at 1 :deadline-at 2}))
+
+(defn- gathered
+  "The one attempt `entry` holds, as the panel reads it through `frame-work`."
+  [entry]
+  (first (vals (h/frame-work {:rf.runtime/resources
+                              {:entries {(rf.resources.state/key-id scoped-key) entry}}}))))
+
+(def ^:private real-running
+  (gathered (rf.resources.work-ledger/start-attempt real-entry real-record)))
+
+(def ^:private real-settled
+  (gathered (-> real-entry
+                (rf.resources.work-ledger/start-attempt real-record)
+                (rf.resources.work-ledger/settle-attempt
+                  (:work/id real-record) :completed {:ok true}))))
 
 (defn- phantom-keys
   "The keys `fixtures` carry that `real` does not."
@@ -64,7 +81,5 @@
           "PRECONDITION: the suite's fixtures were found")
       (is (= [#{} #{} #{}]
              [(phantom-keys real-entry entries)
-              (phantom-keys real-record running)
-              (phantom-keys (rf.resources.work-ledger/mark-terminal
-                              real-record :completed {:ok true})
-                            settled)])))))
+              (phantom-keys real-running running)
+              (phantom-keys real-settled settled)])))))

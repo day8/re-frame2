@@ -148,7 +148,7 @@
     (let [e (entry k)]
       (is (= [#{[:route :r 1]} true]
              [(:active-owners e)
-              (boolean (some #{:poll} (:causes (rf.resources.work-ledger/get-record (runtime-db) (:current-work e)))))])
+              (boolean (some #{:poll} (:causes (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work e)))))])
           "the refetch records a :poll cause and attaches no owner"))))
 
 (deftest last-owner-release-cancels-poll-timer

@@ -1,8 +1,9 @@
 (ns re-frame.resources-work-ledger-cljs-test
-  "The resource work ledger (Spec 016 §Frame work ledger): one serializable
-  record per attempt keyed by work id, host handles in a side table, terminal
-  settles, opportunistic abort, mandatory stale suppression, a bounded
-  terminal tail per key, and the key -> work inverse index."
+  "Resource attempts on their entries (Spec 016 §In-flight attempts): the live
+  attempt under the entry's `:work`, host handles in a side table, terminal
+  settles into a bounded `:recent-work` tail, opportunistic abort, mandatory
+  stale suppression, and a reply finding its entry through the attempt it
+  holds."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -49,23 +50,11 @@
   ([frame-id scoped-key]
    (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
-(defn- record
-  ([work-id] (record :rf/default work-id))
+(defn- attempt
+  "Attempt `work-id` in the frame, live or as its terminal summary."
+  ([work-id] (attempt :rf/default work-id))
   ([frame-id work-id]
-   (rf.resources.work-ledger/get-record (runtime-db frame-id) work-id)))
-
-(defn- bucket
-  "This key's bucket in the ledger's key -> work inverse index, or nil."
-  [scoped-key]
-  (get-in (runtime-db)
-          [rf.resources.work-ledger/work-ledger-by-key-key
-           (rf.resources.state/key-id scoped-key)]))
-
-(defn- rows-for
-  "Every ledger row linked to `scoped-key`, by a full scan rather than the index."
-  [scoped-key]
-  (into {} (filter (fn [[_wid-id r]] (= scoped-key (:resource/key r))))
-        (get-in (runtime-db) [:rf.runtime/work-ledger])))
+   (rf.resources.work-ledger/attempt-record (runtime-db frame-id) work-id)))
 
 (defn- removed-traces
   "Run `f`; return the :rf.resource/removed trace events it emitted."
@@ -107,7 +96,7 @@
                      {:resource/key k :work/id wid :generation (nth wid 2) :error error}]
                     opts))
 
-;; ---- records ----------------------------------------------------------------
+;; ---- the live attempt ---------------------------------------------------------
 
 (deftest ensure-writes-work-record
   (rf/reg-resource :wl/article (article-spec) article-spec-request)
@@ -117,18 +106,19 @@
                         :params {:slug "w"} :owner [:route :r 1]
                         :cause [:route-entry :route/article 1]}])
     (let [wid (:current-work (entry k))
-          r   (record wid)]
+          r   (:work (entry k))]
       (is (= [:rf.work/resource :wl/article 1] wid)
           "the work id names the resource id and generation, never the scoped key")
       (is (= [:rf.req :rf/default [:rf.work/resource :wl/article 1]]
              (:request-id @last-managed-args))
           "the transport request id keeps its frame")
-      (is (= {:work/id wid :work/kind :resource :work/frame :rf/default :resource/key k
+      (is (= {:work/id wid :work/kind :resource
               :generation 1 :status :running :owners #{[:route :r 1]}
               :causes [[:route-entry :route/article 1]]}
-             (select-keys r [:work/id :work/kind :work/frame :resource/key :generation
-                             :status :owners :causes])))
-      (is (rf.resources.work-ledger/serializable-record? r) "no host handles in the record"))))
+             (select-keys r [:work/id :work/kind :generation :status :owners :causes])))
+      (is (not-any? #(contains? r %) [:resource/key :work/frame])
+          "the attempt names neither key nor frame: its entry and frame do")
+      (is (rf.resources.work-ledger/serializable-record? r) "no host handles in the attempt"))))
 
 (deftest work-record-started-at-deadline-at-from-token-time-ms
   ;; :started-at is the triggering token's :time-ms and :deadline-at adds the
@@ -138,8 +128,8 @@
   (ensure! :wlt/article [:route :r 1] {:rf.cofx {:rf/time-ms 1781078400123}})
   (ensure! :wlnt/article [:route :r 1] {:rf.cofx {:rf/time-ms 1781079000000}})
   (is (= [1781078400123 (+ 1781078400123 5000)]
-         ((juxt :started-at :deadline-at) (record (:current-work (entry (gkey :wlt/article)))))))
-  (is (nil? (:deadline-at (record (:current-work (entry (gkey :wlnt/article)))))) "no policy, no deadline"))
+         ((juxt :started-at :deadline-at) (:work (entry (gkey :wlt/article))))))
+  (is (nil? (:deadline-at (:work (entry (gkey :wlnt/article))))) "no policy, no deadline"))
 
 ;; ---- terminal settles -------------------------------------------------------
 
@@ -157,7 +147,11 @@
       (ensure! rid [:app rid 1])
       (let [wid (:current-work (entry k))]
         (settle! k wid)
-        (is (= expected (select-keys (record wid) (keys expected))) (str rid))
+        (is (nil? (:work (entry k))) (str rid " leaves no live attempt"))
+        (is (= [wid expected]
+               [(:work/id (first (:recent-work (entry k))))
+                (select-keys (first (:recent-work (entry k))) (keys expected))])
+            (str rid " heads the terminal tail"))
         (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid)) (str rid))))))
 
 ;; ---- supersession, dedupe, owners -------------------------------------------
@@ -170,9 +164,9 @@
       (rf/dispatch-sync [:rf.resource/refetch {:resource :ss/article :scope :rf.scope/global
                                                :params {:slug "w"}}])
       (is (contains? (set @aborts) (req wid1)) "a best-effort abort for the old work")
-      (is (= [:suppressed :superseded] ((juxt :status (comp :reason :outcome)) (record wid1))))
+      (is (= [:suppressed :superseded] ((juxt :status (comp :reason :outcome)) (attempt wid1))))
       (fail! k wid1 {:kind :rf.http/aborted :reason :aborted} nil)
-      (is (= [:suppressed 2] [(:status (record wid1)) (:generation (entry k))])
+      (is (= [:suppressed 2] [(:status (attempt wid1)) (:generation (entry k))])
           "its late aborted reply stays :suppressed, never :cancelled"))))
 
 (deftest dedupe-joins-existing-record
@@ -184,9 +178,10 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :x 2]
                                             :cause [:event :open]}])
-    (is (= 1 (count (rows-for k))) "no new attempt")
+    (is (= [1 nil] [(:generation (entry k)) (:recent-work (entry k))])
+        "no new attempt, and none displaced")
     (is (= {:owners #{[:route :r 1] [:app :x 2]} :causes [[:route-entry :r 1] [:event :open]]}
-           (select-keys (record (:current-work (entry k))) [:owners :causes])))))
+           (select-keys (:work (entry k)) [:owners :causes])))))
 
 (deftest new-attempt-inherits-the-entrys-held-owners
   ;; A new attempt starts from the entry's :active-owners, so releasing one
@@ -204,26 +199,26 @@
     (testing "an ownerless refetch inherits both held owners; releasing one does not abort it"
       (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
       (let [wid (:current-work (entry k))]
-        (is (= #{a b} (:owners (record wid))))
+        (is (= #{a b} (:owners (attempt wid))))
         (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
         (is (not (contains? (set @aborts) (req wid))))
-        (is (= [#{b} #{b}] [(:active-owners (entry k)) (:owners (record wid))]))
+        (is (= [#{b} #{b}] [(:active-owners (entry k)) (:owners (attempt wid))]))
         (settle!)
-        (is (= [:loaded :completed] [(:status (entry k)) (:status (record wid))]))))
+        (is (= [:loaded :completed] [(:status (entry k)) (:status (attempt wid))]))))
     (testing "a refetch carrying one owner keeps the other; the last release aborts once"
       (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
       (rf/dispatch-sync [:rf.resource/refetch (assoc q :owner a :cause [:user :refresh])])
       (let [wid (:current-work (entry k))]
-        (is (= #{a b} (:owners (record wid))))
+        (is (= #{a b} (:owners (attempt wid))))
         (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
         (is (not (contains? (set @aborts) (req wid))))
         (rf/dispatch-sync [:rf.resource/release-owner {:owner b}])
         (is (= 1 (count (filter #{(req wid)} @aborts))))
-        (is (= :abort-requested (:status (record wid))))))))
+        (is (= :abort-requested (:status (attempt wid))))))))
 
 ;; ---- removal ----------------------------------------------------------------
-;; A clear-scope or remove cancellation is a completion: the key's rows are
-;; dropped with the entry, so the :rf.resource/removed trace carries the causal
+;; A clear-scope or remove cancellation is a completion: the entry leaves with
+;; its attempts, so the :rf.resource/removed trace carries the causal
 ;; :completed-at and the aborted work id.
 
 (deftest clear-scope-aborts-in-flight-work-and-traces-its-completion
@@ -233,21 +228,21 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
                                             :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid  (:current-work (entry ka))
-          _    (is (seq (rows-for ka)) "precondition: the key holds a row")
+          _    (is (some? (attempt wid)) "precondition: the entry holds the attempt")
           rows (removed-traces
                  #(rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
                                     {:rf.cofx {:rf/time-ms 1781649764222}}))]
       (is (contains? (set @aborts) (req wid)))
       (is (= [{:completed-at 1781649764222 :reason :clear-scope :aborted [wid]}]
              (mapv #(select-keys (:tags %) [:completed-at :reason :aborted]) rows)))
-      (is (empty? (rows-for ka)) "the key's rows are dropped, not left as a tail"))))
+      (is (nil? (attempt wid)) "the attempt left with its entry"))))
 
 (deftest remove-aborts-in-flight-work-and-traces-its-completion
   (rf/reg-resource :rmt/article (article-spec) article-spec-request)
   (let [k (gkey :rmt/article)]
     (ensure! :rmt/article [:app :rm 1])
     (let [wid  (:current-work (entry k))
-          _    (is (seq (rows-for k)) "precondition: the key holds a row")
+          _    (is (some? (attempt wid)) "precondition: the entry holds the attempt")
           rows (removed-traces
                  #(rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
                                                           :params {:slug "w"}}]
@@ -255,11 +250,11 @@
       (is (contains? (set @aborts) (req wid)))
       (is (= [{:completed-at 1781649764333 :reason :remove :aborted [wid]}]
              (mapv #(select-keys (:tags %) [:completed-at :reason :aborted]) rows)))
-      (is (empty? (rows-for k))))))
+      (is (nil? (attempt wid))))))
 
 (deftest repeated-failing-settles-keep-the-ledger-bounded
-  ;; Pruning happens on every terminal settle, not only a success, so a key
-  ;; that never succeeds (a polled failing endpoint) keeps a bounded tail.
+  ;; The tail is trimmed on every terminal settle, not only a success, so a
+  ;; key that never succeeds (a polled failing endpoint) keeps a bounded tail.
   (rf/reg-resource :fl/article (article-spec) article-spec-request)
   (let [q     {:resource :fl/article :scope :rf.scope/global :params {:slug "w"}}
         k     (gkey :fl/article)
@@ -267,27 +262,28 @@
                  (conj (:on-failure @last-managed-args)
                        {:status :error
                         :error  {:kind :rf.http/server-error :http-status 500}}))]
-    (is (> 12 rf.resources.work-ledger/default-terminal-tail) "precondition: more attempts than the tail")
+    (is (> 12 rf.resources.work-ledger/recent-work-limit) "precondition: more attempts than the tail")
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :fl 1])])
     (fail!)
     (dotimes [_ 11]
       (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause [:user :retry])])
       (fail!))
-    (is (= (repeat rf.resources.work-ledger/default-terminal-tail :failed)
-           (map (comp :status val) (rows-for k))))))
+    (is (= (repeat rf.resources.work-ledger/recent-work-limit :failed)
+           (map :status (:recent-work (entry k)))))
+    (is (= [12 11 10] (map :generation (:recent-work (entry k)))) "newest first")))
 
-(deftest removal-drops-the-keys-inverse-index-bucket
-  ;; A row census misses a leaked bucket. The index is built lazily by the
-  ;; first prune, so the key is settled first to give it a bucket to lose.
+(deftest removal-takes-the-terminal-tail-with-the-entry
+  ;; A settled attempt survives only as its entry's summary, so removing the
+  ;; entry leaves nothing behind to grow.
   (rf/reg-resource :bk/article (article-spec) article-spec-request)
   (let [q {:resource :bk/article :scope :rf.scope/global :params {:slug "w"}}
         k (gkey :bk/article)]
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :bk 1])])
-    (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:title "W"}}))
-    (is (seq (bucket k)) "precondition: the settled key has a bucket")
-    (rf/dispatch-sync [:rf.resource/remove q])
-    (is (empty? (rows-for k)))
-    (is (nil? (bucket k)))))
+    (let [wid (:current-work (entry k))]
+      (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:title "W"}}))
+      (is (= :completed (:status (attempt wid))) "precondition: the settled attempt is in the tail")
+      (rf/dispatch-sync [:rf.resource/remove q])
+      (is (nil? (attempt wid))))))
 
 (deftest cross-frame-request-id-does-not-collide
   ;; Two frames' work-ids collide when both run on the same recorded
@@ -318,13 +314,13 @@
                           :rf.frame/id fa :data {:title "A"}}]
                         {:frame fa})
       (is (= {:title "A"} (:data (entry fa k))))
-      (is (= :running (:status (record fb wid))))
+      (is (= :running (:status (:work (entry fb k)))))
       (is (not= :loaded (:status (entry fb k)))))))
 
-;; ---- a reply resolves its key through the ledger row ------------------------
+;; ---- a reply finds its entry through the attempt it holds -------------------
 ;; The internal reply payload names only the attempt (work id + generation +
-;; frame); the receiving frame's ledger row is the one place that says which
-;; scoped key that attempt serves.
+;; frame); the receiving frame's entry holding that attempt is the one place
+;; that says which scoped key it serves.
 
 (deftest a-reply-resolves-its-entry-through-the-ledger-row
   (rf/reg-resource :rk/article (article-spec) article-spec-request)
@@ -335,13 +331,13 @@
                          {:work/id wid :generation 1 :rf.frame/id :rf/default}
                          {:status :ok :value {:title "W"}}])
       (is (= [:loaded {:title "W"}] [(:status (entry k)) (:data (entry k))])
-          "a payload with no key settles the entry its ledger row names")
-      (is (= :completed (:status (record wid)))))))
+          "a payload with no key settles the entry holding its attempt")
+      (is (= :completed (:status (attempt wid)))))))
 
 (deftest a-reply-whose-ledger-row-is-gone-is-suppressed
-  ;; The entry still points at the attempt but its row is gone, so the reply has
-  ;; nothing to resolve a key through — and a key the payload names itself is
-  ;; not trusted.
+  ;; The entry still points at the attempt but no longer holds it, so the reply
+  ;; has nothing to find its entry through — and a key the payload names
+  ;; itself is not trusted.
   (rf/reg-resource :rk/article (article-spec) article-spec-request)
   (let [k (gkey :rk/article)]
     (ensure! :rk/article [:app :rk 1])
@@ -349,7 +345,7 @@
           suppressed (atom [])]
       (rf.frame/replace-runtime-db!
         :rf/default
-        (update (runtime-db) :rf.runtime/work-ledger dissoc (rf.resources.work-ledger/work-id-id wid)))
+        (update-in (runtime-db) (rf.resources.state/entry-path k) dissoc :work))
       (rf/register-listener! :trace ::stale
                              (fn [ev] (when (= :rf.resource/stale-suppressed (:operation ev))
                                         (swap! suppressed conj ev))))
@@ -365,7 +361,7 @@
 
 (deftest two-live-attempts-of-one-resource-settle-their-own-entries
   ;; Same resource, different params, both in flight in one frame: the work ids
-  ;; differ by generation, and each reply settles only the entry its row names.
+  ;; differ by generation, and each reply settles only the entry holding it.
   (rf/reg-resource :rk/article (article-spec) article-spec-request)
   (let [ka      (rf.resources.state/scoped-resource-key :rf.scope/global :rk/article {:slug "a"})
         kb      (rf.resources.state/scoped-resource-key :rf.scope/global :rk/article {:slug "b"})
@@ -385,81 +381,57 @@
       (rf/dispatch-sync (conj (get @replies "a") {:status :ok :value {:title "A"}}))
       (is (= [{:title "A"} {:title "B"}] [(:data (entry ka)) (:data (entry kb))])))))
 
-;; ---- the key -> work inverse index ------------------------------------------
-;; The prune visits only the settling key's rows through the index; these pin
-;; it against a full-scan reference, and the index against a full rebuild.
+;; ---- the owner-side attempt fns ------------------------------------------------
+;; Pinned against a reference model: the tail is the newest settled attempts,
+;; newest first, never longer than `recent-work-limit`, and a live attempt is
+;; never in it.
 
-(defn- reference-prune-full-scan
-  "Index-free oracle: drop the key's terminal rows beyond the `keep-tail`
-  newest by :started-at."
-  [runtime-db resource-key keep-tail]
-  (let [rk-id    (rf.resources.state/key-id resource-key)
-        drop-ids (->> (:rf.runtime/work-ledger runtime-db)
-                      (filter (fn [[_ r]] (and (= rk-id (rf.resources.state/key-id (:resource/key r)))
-                                               (rf.resources.work-ledger/terminal? (:status r)))))
-                      (sort-by (fn [[_ r]] (or (:started-at r) 0)) >)
-                      (drop keep-tail)
-                      (map key))]
-    (update runtime-db :rf.runtime/work-ledger (fn [l] (reduce dissoc l drop-ids)))))
+(defn- record-for [generation]
+  (rf.resources.work-ledger/work-record
+    {:work-id    (rf.resources.work-ledger/resource-work-id :wl/r generation)
+     :generation generation :transport :rf.http/managed :started-at generation}))
 
-(defn- record-for [scoped-key generation status started-at]
-  {:work/id      [:rf.work/resource (second scoped-key) generation]
-   :work/kind    :resource
-   :resource/key scoped-key
-   :generation   generation
-   :status       status
-   :started-at   started-at})
+(deftest start-attempt-settles-a-displaced-live-attempt-as-superseded
+  (let [owner (-> {:resource/id :wl/r}
+                  (rf.resources.work-ledger/start-attempt (record-for 1))
+                  (rf.resources.work-ledger/start-attempt (record-for 2)))]
+    (is (= [:rf.work/resource :wl/r 2] (:work/id (:work owner))))
+    (is (= [{:work/id [:rf.work/resource :wl/r 1] :status :suppressed
+             :outcome {:reason :superseded :by [:rf.work/resource :wl/r 2]}}]
+           (mapv #(select-keys % [:work/id :status :outcome]) (:recent-work owner))))
+    (is (= [[:rf.work/resource :wl/r 2] [[:suppressed {:reason :aborted}]]]
+           (let [o (rf.resources.work-ledger/settle-attempt
+                     owner [:rf.work/resource :wl/r 1] :suppressed {:reason :aborted})]
+             [(:work/id (:work o)) (mapv (juxt :status :outcome) (:recent-work o))]))
+        "a late settle of a tail attempt re-marks it in place, leaving the live one")
+    (is (= owner (rf.resources.work-ledger/settle-attempt
+                   owner [:rf.work/resource :wl/r 9] :completed {}))
+        "an attempt the owner does not hold settles nothing")))
 
-(defn- index-drift [rdb]
-  (when (not= (-> rdb rf.resources.work-ledger/recompute-ledger-index :rf.runtime/work-ledger-by-key)
-              (:rf.runtime/work-ledger-by-key rdb))
-    rdb))
-
-(deftest prune-terminal-for-key-matches-full-scan-reference
-  (let [ka  (rf.resources.state/scoped-resource-key :rf.scope/global :wl/a {:id 1})
-        kb  (rf.resources.state/scoped-resource-key :rf.scope/global :wl/b {:id 2})
-        rdb (reduce (fn [rdb r] (rf.resources.work-ledger/put-record rdb (:work/id r) r))
-                    {}
-                    [(record-for ka 1 :completed 100)
-                     (record-for ka 2 :failed    300)
-                     (record-for ka 3 :completed 200)
-                     (record-for ka 4 :cancelled 500)
-                     (record-for ka 5 :suppressed 400)
-                     (record-for ka 6 :running   600)
-                     (record-for kb 1 :completed 50)
-                     (record-for kb 2 :failed    70)])]
-    (doseq [keep-tail [0 1 3 10]]
-      (let [new-rdb (rf.resources.work-ledger/prune-terminal-for-key rdb ka keep-tail)]
-        (is (= (:rf.runtime/work-ledger (reference-prune-full-scan rdb ka keep-tail))
-               (:rf.runtime/work-ledger new-rdb))
-            (str "tail " keep-tail))
-        (is (nil? (index-drift new-rdb)) (str "tail " keep-tail))))))
-
-(deftest ledger-inverse-index-equals-full-rebuild-under-random-mutation
+(deftest recent-work-matches-a-reference-under-random-attempts
   ;; A deterministic LCG, so the sequence is identical on every host.
   (let [seed    (atom 88172645)
         nextint (fn [n]
                   (let [x (-> (* @seed 1103515245) (+ 12345) (bit-and 0x7fffffff))]
                     (reset! seed x)
                     (mod x n)))
-        keys'   (mapv #(rf.resources.state/scoped-resource-key :rf.scope/global :wl/r {:id %})
-                      (range 5))
-        drift   (loop [step 0
-                       rdb  (rf.resources.work-ledger/recompute-ledger-index {:rf.runtime/work-ledger {}})
-                       gen  0
-                       drift []]
+        limit   rf.resources.work-ledger/recent-work-limit
+        drift   (loop [step 0, gen 0, owner {:resource/id :wl/r}, settled '(), drift []]
                   (if (= step 500)
                     drift
-                    (let [op   (nextint 2)
-                          k    (nth keys' (nextint (count keys')))
-                          rdb' (case op
-                                 0 (let [g (inc gen)
-                                         r (record-for k g
-                                                       (nth [:running :completed :failed :cancelled]
-                                                            (nextint 4))
-                                                       (nextint 1000))]
-                                     (rf.resources.work-ledger/put-record rdb (:work/id r) r))
-                                 1 (rf.resources.work-ledger/prune-terminal-for-key rdb k (nextint 3)))]
-                      (recur (inc step) rdb' (if (zero? op) (inc gen) gen)
-                             (cond-> drift (index-drift rdb') (conj [step op]))))))]
+                    (let [live     (:work owner)
+                          start?   (or (nil? live) (zero? (nextint 2)))
+                          g        (inc gen)
+                          owner'   (if start?
+                                     (rf.resources.work-ledger/start-attempt owner (record-for g))
+                                     (rf.resources.work-ledger/settle-attempt
+                                       owner (:work/id live)
+                                       (nth [:completed :failed :cancelled] (nextint 3)) {}))
+                          settled' (if live (conj settled (:work/id live)) settled)
+                          expected (take limit settled')
+                          ok?      (and (= expected (map :work/id (:recent-work owner')))
+                                        (not-any? #(= (:work/id (:work owner')) (:work/id %))
+                                                  (:recent-work owner')))]
+                      (recur (inc step) (if start? g gen) owner' settled'
+                             (cond-> drift (not ok?) (conj step))))))]
     (is (= [] drift))))

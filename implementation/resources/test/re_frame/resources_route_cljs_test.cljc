@@ -154,7 +154,7 @@
   (:tags (first (record-traces! #(= :rf.resource/route-plan (:operation %)) body-fn))))
 
 (defn- work-record-for [scoped-key]
-  (rf.resources.work-ledger/get-record (rdb) (:current-work (entry scoped-key))))
+  (rf.resources.work-ledger/attempt-record (rdb) (:current-work (entry scoped-key))))
 
 (defn- plan-dispatches
   "The event vectors dispatched by a plan's fx, in fx order."
@@ -221,7 +221,7 @@
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (rdb) wid1))))
+      (is (= :abort-requested (:status (rf.resources.work-ledger/attempt-record (rdb) wid1))))
       (navigate-article! "intro")
       (let [token-2 (:nav-token (slice))]
         (is (= [:loading (inc gen1) :running true true]
@@ -841,27 +841,24 @@
 ;; EP-0037 R2 — retained-entry adoption and contributor attribution
 ;; ===========================================================================
 
-(defn- ledger-with
-  "A `:rf.runtime/work-ledger` carrying `work-id` at `status`, keyed by the
-  CEDN-1 byte identity as the runtime keys it."
+(defn- attempt-at
+  "A live attempt for `work-id` at `status`, as an entry carries it under `:work`."
   [work-id status]
-  {(rf.resources.work-ledger/work-id-id work-id) {:work/id work-id :status status}})
+  {:work/id work-id :status status})
 
 (defn- rdb-with-entries
-  "A runtime-db carrying only durable cache `entries-by-key` (plus an optional
-  work ledger) — the AT-COMMIT facts routing threads into the plan hook."
-  ([entries-by-key] (rdb-with-entries entries-by-key nil))
-  ([entries-by-key ledger]
-   (cond-> {:rf.runtime/resources {:entries (into {} (map (fn [[k e]] [(rf.resources.state/key-id k) e]))
-                                                  entries-by-key)}}
-     ledger (assoc :rf.runtime/work-ledger ledger))))
+  "A runtime-db carrying only durable cache `entries-by-key` — the AT-COMMIT
+  facts routing threads into the plan hook."
+  [entries-by-key]
+  {:rf.runtime/resources {:entries (into {} (map (fn [[k e]] [(rf.resources.state/key-id k) e]))
+                                         entries-by-key)}})
 
 (deftest r2-retained-identity-is-adopted-only-when-genuinely-reusable
   ;; Prior-plan MEMBERSHIP alone does not make an identity adoptable:
   ;; adopt-owner issues no fetch, so adopting an entry that vanished or cannot
   ;; progress commits a blocking slot nothing can drain. A retained identity is
   ;; adopted only with own usable data or genuinely live work — `:current-work`
-  ;; alone is not proof of work, the linked record's status is.
+  ;; alone is not proof of work, the live attempt's status is.
   (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
   (let [branch     [{:route-id :route/p
@@ -885,21 +882,21 @@
       (is (= [[:sh/v] [:lf/b] false] (shape (plan-for loaded)))
           "LOADED — the partial-revalidation law; nothing left to wait for")
       (is (= [[:sh/v] [:lf/b] true]
-             (shape (plan-for (rdb-with-entries (shared {:status :loading :current-work "w-1"})
-                                                (ledger-with "w-1" :running)))))
+             (shape (plan-for (rdb-with-entries (shared {:status :loading :current-work "w-1"
+                                                         :work (attempt-at "w-1" :running)})))))
           "IN-FLIGHT — its own settle drains the slot"))
     (testing "an unusable retained identity takes the ordinary ensure path, and holds the route"
-      (doseq [[label entries ledger]
-              [["missing (adopt-owner would be a no-op on it)" {} nil]
-               ["settled with no data and no work" (shared {:status :idle}) nil]
-               ["enqueued but never attempted" (shared {:status :idle :attempt 0}) nil]
-               ["a failed first load" (shared {:status :error :error {:kind :rf.http/server}}) nil]
-               ["its work is abort-requested" (shared {:status :loading :current-work "w-doomed"})
-                (ledger-with "w-doomed" :abort-requested)]
-               ["its work is cancelled" (shared {:status :loading :current-work "w-dead"})
-                (ledger-with "w-dead" :cancelled)]
-               ["a work pointer with no record at all" (shared {:status :loading :current-work "w-pruned"}) nil]]]
-        (is (= [[] [:sh/v :lf/b] true] (shape (plan-for (rdb-with-entries entries ledger)))) label)))
+      (doseq [[label entries]
+              [["missing (adopt-owner would be a no-op on it)" {}]
+               ["settled with no data and no work" (shared {:status :idle})]
+               ["enqueued but never attempted" (shared {:status :idle :attempt 0})]
+               ["a failed first load" (shared {:status :error :error {:kind :rf.http/server}})]
+               ["its work is abort-requested" (shared {:status :loading :current-work "w-doomed"
+                                                       :work (attempt-at "w-doomed" :abort-requested)})]
+               ["its work is cancelled" (shared {:status :loading :current-work "w-dead"
+                                                 :work (attempt-at "w-dead" :cancelled)})]
+               ["a work pointer with no attempt at all" (shared {:status :loading :current-work "w-pruned"})]]]
+        (is (= [[] [:sh/v :lf/b] true] (shape (plan-for (rdb-with-entries entries)))) label)))
     (testing "attach-before-release on every route — the release is LAST"
       (doseq [runtime-db [loaded (rdb-with-entries {})]]
         (let [release (last (plan-dispatches (plan-for runtime-db)))]
@@ -959,7 +956,7 @@
     (let [after (entry banner-key)]
       (is (= [(:generation before) work false]
              [(:generation after) (:current-work after)
-              (rf.resources.work-ledger/terminal? (:status (rf.resources.work-ledger/get-record (rdb) work)))])
+              (rf.resources.work-ledger/terminal? (:status (rf.resources.work-ledger/attempt-record (rdb) work)))])
           "the same generation and work record, still live — adopted, not restarted or aborted"))
     (settle-success! banner-key {:name "Ada"})
     (is (= :idle (:transition (slice))) "the adopted work's own settle lands the route")

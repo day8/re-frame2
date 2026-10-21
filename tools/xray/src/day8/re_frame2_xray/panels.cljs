@@ -513,7 +513,7 @@
 (defn mount-resources!
   "Mount Xray's Resources tab in isolation at `mount-point` (Spec 016
   §Xray and AI tooling). Renders the static resource registry, the live
-  per-frame instance + work-ledger tables, the route/resource graph, the
+  per-frame instance + attempt tables, the route/resource graph, the
   lifecycle timeline, the invalidation graph, the cache-growth view, and
   the scope audit + lints. Read-only — observing pins no resource."
   ([mount-point]      (mount-resources! mount-point nil))

@@ -294,7 +294,13 @@
         work-id    (rf.resources.work-ledger/resource-work-id :article/by-slug 1)
         entry      (-> (rf.resources.state/empty-entry :article/by-slug scoped-key)
                        (rf.resources.state/attach-owner owner-a)
-                       (assoc :status :fetching :current-work work-id))
+                       (assoc :status :fetching :current-work work-id
+                              :work (rf.resources.work-ledger/work-record
+                                      {:work-id    work-id
+                                       :generation 1
+                                       :transport  :rf.http/managed
+                                       :owner      owner-a
+                                       :cause      :test/materialize})))
         live       #(rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         resources  (fn [g] (filterv #(= :resources (:rf/family %)) (vals (:nodes g))))
         params     (fn [g] (filterv #(= :param (:role %)) (:edges g)))]
@@ -304,16 +310,7 @@
         (-> (or rdb {})
             (assoc-in (rf.resources.state/entry-path scoped-key) entry)
             (assoc-in (conj (rf.resources.state/owner-index-path) owner-a)
-                      #{(rf.resources.state/key-id scoped-key)})
-            (rf.resources.work-ledger/put-record
-              work-id
-              (rf.resources.work-ledger/work-record {:work-id      work-id
-                                                     :frame-id     :rf/default
-                                                     :resource/key scoped-key
-                                                     :generation   1
-                                                     :transport    :rf.http/managed
-                                                     :owner        owner-a
-                                                     :cause        :test/materialize})))))
+                      #{(rf.resources.state/key-id scoped-key)}))))
     (let [g-a       (live)
           [res-key] (keep (fn [[k n]] (when (= :resources (:rf/family n)) k)) (:nodes g-a))]
       (is (= [[#{owner-a}] [[:rf/route res-key owner-a]]]
@@ -661,19 +658,16 @@
     (rf.frame/swap-runtime-db!
       real-egress-frame
       (fn [rdb]
-        (-> (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key)
-                      (assoc (rf.resources.state/empty-entry :secret/tenant-article scoped-key)
-                             :status :fetching :active-owners #{owner} :current-work work-id))
-            (rf.resources.work-ledger/put-record
-              work-id
-              (rf.resources.work-ledger/work-record {:work-id      work-id
-                                                     :frame-id     real-egress-frame
-                                                     :resource/key scoped-key
-                                                     :generation   1
-                                                     :transport    :rf.http/managed
-                                                     :owner        owner
-                                                     :cause        :test/materialize}))))))
-  (let [g                  (rf.derivation.graph/live-derivation-graph real-egress-frame all-contributors)
+        (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key)
+                  (assoc (rf.resources.state/empty-entry :secret/tenant-article scoped-key)
+                         :status :fetching :active-owners #{owner} :current-work work-id
+                         :work (rf.resources.work-ledger/work-record
+                                 {:work-id    work-id
+                                  :generation 1
+                                  :transport  :rf.http/managed
+                                  :owner      owner
+                                  :cause      :test/materialize}))))))
+  (let [g                 (rf.derivation.graph/live-derivation-graph real-egress-frame all-contributors)
         [res-key res-node] (first (filter (fn [[_ n]] (= :resources (:rf/family n))) (:nodes g)))]
     (is (not (contains-secret? g)))
     (is (= [:secret/tenant-article res-key :fetching true true]

@@ -1167,12 +1167,12 @@
   :rf/install-frame-state)
 
 (def ^:private unpersistable-runtime-subtrees
-  "Runtime-db subtrees `:rf/install-frame-state` refuses. The resource cache,
-  the work ledger and the mutation runtime carry in-flight work and active
-  owners that belong to the page session that wrote them: installed as saved,
-  a pending mutation would stay busy and an entry would stay pinned by owners
-  that no longer exist. A resource cache is not persisted; it refetches."
-  #{:rf.runtime/resources :rf.runtime/work-ledger :rf.runtime/mutations})
+  "Runtime-db subtrees `:rf/install-frame-state` refuses. The resource cache
+  and the mutation runtime carry in-flight work and active owners that belong
+  to the page session that wrote them: installed as saved, a pending mutation
+  would stay busy and an entry would stay pinned by owners that no longer
+  exist. A resource cache is not persisted; it refetches."
+  #{:rf.runtime/resources :rf.runtime/mutations})
 
 (defn- install-frame-state-refusal
   "nil when `payload` is an installable frame-state, else the ex-data the
@@ -1227,10 +1227,10 @@
   epoch its snapshot carries, without replaying entry.
 
   A non-map payload, a present non-map partition, or a resource-runtime
-  subtree (`:rf.runtime/resources`, `:rf.runtime/work-ledger`,
-  `:rf.runtime/mutations`) THROWS an ex-info carrying `{:reason …}`. The
-  router reports it as `:rf.error/handler-exception` and discards the event's
-  effects, so the frame-state is left exactly as it was."
+  subtree (`:rf.runtime/resources`, `:rf.runtime/mutations`) THROWS an
+  ex-info carrying `{:reason …}`. The router reports it as
+  `:rf.error/handler-exception` and discards the event's effects, so the
+  frame-state is left exactly as it was."
   [{runtime-db :rf.db/runtime} [_ payload]]
   (when-let [refusal (install-frame-state-refusal payload)]
     (throw (ex-info (:reason refusal) refusal)))
