@@ -545,6 +545,160 @@
               tree
               slot-keys))))
 
+;; ---- trace tags off-box: the allow-list -----------------------------------
+;;
+;; A trace event's `:tags` is an open bag (Spec 009 §`:tags` is the open-ended
+;; bag), so a tag added tomorrow carries whatever its emit site put there. Off
+;; box, a tag value therefore ships only when this list names its key AND the
+;; value is structural; everything else ships as `:rf/redacted`. A new tag
+;; fails closed until someone names it, rather than shipping raw until someone
+;; writes an arm to catch it.
+
+(defn structural?
+  "Whether `v` is built only from keywords, numbers, booleans and nil, in maps,
+  vectors, lists and sets of those. Such a value names, counts or flags; it
+  cannot carry a string, so it cannot carry prose, a token or an email address."
+  [v]
+  (cond
+    (or (nil? v) (keyword? v) (number? v) (boolean? v)) true
+    (map? v)  (every? (fn [[k x]] (and (structural? k) (structural? x))) v)
+    (coll? v) (every? structural? v)
+    :else     false))
+
+(defn- id-summary
+  "`v` reduced to its identity: a vector headed by a keyword id keeps the id and
+  redacts every argument, the shape `:trigger-event` takes off-box. A nil rides,
+  because it carries nothing (a conditional `:fx` entry is legally nil); anything
+  else has no id to keep and redacts whole."
+  [v]
+  (cond
+    (nil? v) v
+    (and (sequential? v) (seq v) (keyword? (first v)))
+    (into [(first v)] (repeat (dec (count v)) :rf/redacted))
+    :else :rf/redacted))
+
+(def trace-tag-allow-list
+  "The CLOSED set of `:tags` keys a trace event ships off-box, each with how its
+  value ships:
+
+    - `:structural`  — as-is when `structural?`, else `:rf/redacted`;
+    - `:id-vector`   — an event or query vector, its head id kept and its args
+                       redacted (`[:user/by-email \"a@b\"]` ships as
+                       `[:user/by-email :rf/redacted]`);
+    - `:id-vectors`  — a vector of those, each reduced the same way.
+
+  The members are the correlation spine, ids, enums, flags, counts and timings
+  of Spec 009 §`:tags` is the open-ended bag, plus the render tags re-frame2-pair
+  re-derives `:render-events` from. A key carrying a payload — an app-db value,
+  a sub value, render args, an HTTP body, prose — is absent on purpose.
+  `:sensitive?` is the flag an owner projector stamps on a row it redacted."
+  {;; correlation and routing
+   :frame                         :structural
+   :rf.frame/id                   :structural
+   :rf.trace/dispatch-id          :structural
+   :rf.trace/parent-dispatch-id   :structural
+   :rf.trace/event-id             :structural
+   :rf.trace/trace-id             :structural
+   :rf.trace/phase                :structural
+   :sensitive?                    :structural
+   ;; event
+   :rf.event/v                    :id-vector
+   :rf.event/origin               :structural
+   :rf.event/sync?                :structural
+   :rf.event/fx                   :id-vectors
+   :rf.event/db-present?          :structural
+   :rf.event/elapsed-ms           :structural
+   ;; sub
+   :rf.sub/id                     :structural
+   :rf.sub/query-v                :id-vector
+   :rf.sub/input-kind             :structural
+   :rf.sub/input-signals          :id-vectors
+   :rf.sub/inputs                 :id-vectors
+   :rf.sub/input-paths-unchanged  :id-vectors
+   :rf.sub/value-changed?         :structural
+   :rf.sub/cascade?               :structural
+   :rf.sub/cause-sub              :id-vector
+   :rf.sub/cause-event-id         :structural
+   :rf.sub/reader-render-key      :structural
+   :rf.sub/reason                 :structural
+   :rf.sub/elapsed-ms             :structural
+   ;; view
+   :rf.view/id                    :structural
+   :rf.view/render-key            :structural
+   :rf.view/mount?                :structural
+   :rf.view/deref-subs            :id-vectors
+   :rf.view/cause-subs            :id-vectors
+   :rf.view/triggered-by          :id-vector
+   :rf.view/cause-event-id        :structural
+   :rf.view/elapsed-ms            :structural
+   :rf.view/dropped-after         :structural
+   ;; fx, cofx, interceptor, epoch
+   :rf.fx/id                      :structural
+   :rf.fx/from                    :structural
+   :rf.fx/to                      :structural
+   :rf.fx/platform                :structural
+   :rf.fx/registered-platforms    :structural
+   :rf.fx/elapsed-ms              :structural
+   :rf.cofx/id                    :structural
+   :rf.cofx/elapsed-ms            :structural
+   :rf.interceptor/override-summary :structural
+   :rf.epoch/id                   :structural
+   ;; error and diagnostic attribution
+   :event                         :id-vector
+   :event-id                      :structural
+   :failing-id                    :structural
+   :handler-id                    :structural
+   :query-v                       :id-vector
+   :where                         :structural
+   :phase                         :structural
+   :source                        :structural
+   :kind                          :structural
+   :outcome                       :structural
+   :summary                       :structural
+   :depth                         :structural
+   :queue-size                    :structural
+   :last-event-id                 :structural
+   :dropped-count                 :structural
+   :cycle                         :structural
+   ;; machine and route identity
+   :machine-id                    :structural
+   :actor-id                      :structural
+   :parent-id                     :structural
+   :child-id                      :structural
+   :child-ids                     :structural
+   :spawned-id                    :structural
+   :invoke-id                     :structural
+   :guard-id                      :structural
+   :action-id                     :structural
+   :region                        :structural
+   :microstep-index               :structural
+   :route-id                      :structural})
+
+(defn- allow-listed-tag-value
+  [tag-key v]
+  (case (get trace-tag-allow-list tag-key)
+    :structural (if (structural? v) v :rf/redacted)
+    :id-vector  (id-summary v)
+    :id-vectors (if (sequential? v) (mapv id-summary v) :rf/redacted)
+    :rf/redacted))
+
+(defn project-trace-tags
+  "Project one trace event's `tags` for off-box egress through
+  `trace-tag-allow-list`: a named tag ships as its entry allows, every other tag
+  as `:rf/redacted`, and a nil tag rides as nil because it carries nothing. A
+  non-map `tags` redacts whole. Idempotent.
+  Security.md §Epoch privacy posture; Spec-Schemas §Redacted slot values."
+  [tags]
+  (cond
+    (nil? tags) tags
+    (map? tags)
+    (reduce-kv (fn [projected tag-key v]
+                 (assoc projected tag-key
+                        (if (nil? v) v (allow-listed-tag-value tag-key v))))
+               {}
+               tags)
+    :else :rf/redacted))
+
 ;; ---- dispatch ------------------------------------------------------------
 
 (def ^:private record-kinds

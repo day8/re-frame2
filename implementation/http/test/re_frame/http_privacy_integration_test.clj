@@ -8,7 +8,6 @@
             [clojure.string :as str]
             [malli.registry :as mr]
             [re-frame.core :as rf]
-            [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.fx :as rf.fx]
             [re-frame.http.managed :as rf.http.managed]
             ;; load-bearing: binds the shared schema walker hooks the
@@ -75,10 +74,14 @@
   (rf.fx/reg-fx :rf.http/managed {:carriers carriers} rf.http.managed/managed-handler))
 
 (defn- off-box
-  "The trace row as epoch's off-box trace-events projector leaves it: the body
-  slot of an `:omit`-stamped row is replaced, a `:classify` row passes as is."
+  "The trace row as an off-box epoch projection ships it: an `:omit`-stamped
+  body ships `:rf/redacted`, a `:classify`-stamped body as its schema classified
+  it."
   [ev]
-  (first (#'rf.epoch.tool-pair/omit-off-box-http-bodies [ev] {})))
+  (first (:trace-events (rf/project-egress {:kind         :rf/epoch-record
+                                            :frame        :rf/default
+                                            :trace-events [ev]}
+                                           {:rf.egress/profile :rf.egress/off-box-tool}))))
 
 ;; ---- failure rows: headers and URL ------------------------------------------
 
