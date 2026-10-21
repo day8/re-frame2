@@ -2047,8 +2047,10 @@ else
         #
         #   * cljs-bundle-isolation (bundle_isolation) releases
         #     :examples/counter, :examples/counter-uix, :examples/login,
-        #     :examples/login-uix and :examples/realworld-resources, then greps
-        #     the five bundles for tools/* symbols.
+        #     :examples/login-uix and :examples/login-fresco (with the gate's
+        #     positive-control build), then reads the counter's manifest.edn for
+        #     per-feature and tools/* sources and greps the bundles for each
+        #     view substrate's fingerprints.
         #   * cljs-perf-bundle (cljs_prod) releases :examples/counter
         #     and :examples/counter-perf — both counter.core/run — and greps the
         #     perf-OFF bundle for the ABSENCE and the perf-ON twin for the
