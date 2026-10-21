@@ -8,9 +8,15 @@ const path = require('path');
 const {
   ARTEFACTS,
   POSITIVE_CONTROL,
+  MANIFEST_ON_CONTROL,
   DEDICATED_ISOLATION_GATES,
   assertPositiveControlComplete,
   checkArtefact,
+  checkGraphClaim,
+  assertForbiddenSourcesLive,
+  readBuildClasspath,
+  listJarEntries,
+  resolveForbiddenSource,
   pathDeclaresBuildAlias,
   discoverBrowserOptionalRuntimes,
   genericCoveragePaths,
@@ -19,28 +25,66 @@ const {
   OPTIONAL_ARTEFACT_FACADES,
   assertExampleCoLoadIsolation,
 } = require('./check-bundle-isolation.cjs');
+const { readBuildManifest } = require('./lib/read-release-bundle.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 const { listPublishableRuntimes } = require('./lib/publishable-runtimes.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-
-const thirdParty = new Set(['xyflow', 'elkjs', 'zprint', 'editscript']);
+const IMPLEMENTATION_ROOT = path.join(REPO_ROOT, 'implementation');
 
 const completeness = assertPositiveControlComplete();
 assert.deepStrictEqual(completeness, {
   missing: [],
   extra: [],
   malformed: [],
+  unclaimed: [],
+  malformedSources: [],
   sharedModules: [],
   sharedSentinels: [],
+  sharedSources: [],
   ok: true,
 });
 
-// Every sentinel is caught on its own, both missing from the positive control
-// and leaked into a production bundle.
-for (const artefact of ARTEFACTS) {
+const graphClaims = ARTEFACTS.filter((a) => a.forbiddenSources);
+const elisionClaims = ARTEFACTS.filter((a) => a.internalSentinels);
+
+// Every forbidden source is caught on its own: a manifest listing that file,
+// or a file under that directory, fails the claim on exactly that source.
+for (const artefact of graphClaims) {
+  for (const forbidden of artefact.forbiddenSources) {
+    const leak = forbidden.endsWith('/') ? `${forbidden}leaked.cljc` : forbidden;
+    assert.deepStrictEqual(checkGraphClaim([MANIFEST_ON_CONTROL, leak], artefact).leaked, [leak],
+      `${artefact.name}: a manifest listing ${leak} must fail on exactly that source`);
+  }
+  assert(checkGraphClaim([MANIFEST_ON_CONTROL, 'goog/base.js'], artefact).ok,
+    `${artefact.name}: a manifest of core sources must pass`);
+}
+
+// Matching is by whole path segment: a directory does not catch the file that
+// shares its stem, nor core's own facade for the artefact.
+{
+  const probe = { name: 'probe', forbiddenSources: ['re_frame/flows.cljc', 're_frame/flows/'] };
+  assert(checkGraphClaim(['re_frame/core_flows.cljc', 're_frame/flowsy/x.cljc', 're_frame/flows.cljs'], probe).ok,
+    'a source merely sharing a forbidden path\'s stem is not that source');
+}
+
+// Every allow-list budget fails on its own plant, one consumer-side string over
+// its ceiling. A budget added without a sample here fails this test by name.
+const BUDGET_SAMPLES = { flows: 'flows/reg-flow', http: 'rf.http/managed', epoch: 'epoch/settle!' };
+for (const artefact of ARTEFACTS.filter((a) => a.consumerAllowList)) {
+  const sample = BUDGET_SAMPLES[artefact.name];
+  assert(sample, `${artefact.name}: a budgeted artefact needs a plant in BUDGET_SAMPLES`);
+  const atCeiling = Array(artefact.expectedAllowListHits).fill(sample).join('\n');
+  assert(checkArtefact(atCeiling, artefact).allowListOk,
+    `${artefact.name}: ${artefact.expectedAllowListHits} hit(s) is within budget`);
+  assert(!checkArtefact(`${atCeiling}\n${sample}`, artefact).allowListOk,
+    `${artefact.name}: one hit over the ceiling must fail the budget`);
+}
+
+// Every elision sentinel is caught on its own, both missing from the positive
+// control and leaked into a production bundle.
+for (const artefact of elisionClaims) {
   const sentinels = artefact.internalSentinels;
-  assert(sentinels.length > 0, `${artefact.name}: positive control must inspect at least one sentinel`);
 
   const completeBlob = sentinels.map(({ sentinel }) => sentinel).join('\n');
   const present = assertSentinelSet(completeBlob, sentinels, { mustContain: true, count: true });
@@ -59,34 +103,112 @@ for (const artefact of ARTEFACTS) {
     assert.strictEqual(leaked.internalFailures, 1,
       `${artefact.name}: leaking ${JSON.stringify(removed.sentinel)} must fail the negative control on exactly that sentinel`);
   }
-
-  if (thirdParty.has(artefact.name)) {
-    assert(POSITIVE_CONTROL[artefact.name].onModule,
-      `${artefact.name}: third-party owner must use a real emitted module`);
-  }
 }
 
-// Ownership confusion: two artefacts may not claim one emitted module, and one
-// literal may not be attributed to two owners.
-const moduleControls = Object.entries(POSITIVE_CONTROL).filter(([_name, pc]) => pc.onModule);
-assert(moduleControls.length >= 2, 'ownership mutation needs at least two module controls');
-const confusedControls = Object.fromEntries(
-  Object.entries(POSITIVE_CONTROL).map(([name, pc]) => [name, { ...pc }])
-);
-confusedControls[moduleControls[1][0]].onModule = moduleControls[0][1].onModule;
-const confused = assertPositiveControlComplete(ARTEFACTS, confusedControls);
-assert(!confused.ok && confused.sharedModules.length === 1,
-  'two owners sharing one emitted module must fail completeness');
+// Completeness is fail-closed on every malformed table. Each mutation adds one
+// synthetic entry to the real tables and must fail on exactly its own list.
+const ELISION_PROBE = {
+  name: 'probe-elision',
+  internalSentinels: [{ source: 'probe', sentinel: 'probe-only-literal' }],
+};
+const GRAPH_PROBE = { name: 'probe-graph', forbiddenSources: ['re_frame/probe.cljc'] };
+const TRACE_MODULE = POSITIVE_CONTROL['trace-tooling'].onModule;
+for (const [artefacts, controls, list, why] of [
+  [[ELISION_PROBE], {}, 'missing', 'an elision claim with no positive control'],
+  [[GRAPH_PROBE], { 'probe-graph': { onModule: 'probe' } }, 'extra', 'a positive control for a graph claim'],
+  [[ELISION_PROBE], { 'probe-elision': { onBundle: 'login' } }, 'malformed', 'a control naming no emitted module'],
+  [[{ name: 'probe-none' }], {}, 'unclaimed', 'an entry with no claim'],
+  [[{ ...GRAPH_PROBE, ...ELISION_PROBE, name: 'probe-both' }], {}, 'unclaimed', 'an entry with both claims'],
+  [[{ ...GRAPH_PROBE, forbiddenSources: ['../escape.cljc'] }], {}, 'malformedSources', 'a source climbing out of its root'],
+  [[{ ...GRAPH_PROBE, forbiddenSources: ['/'] }], {}, 'malformedSources', 'a bare-root source'],
+  [[ELISION_PROBE], { 'probe-elision': { onModule: TRACE_MODULE } }, 'sharedModules', 'two owners of one emitted module'],
+  [[{ ...ELISION_PROBE, internalSentinels: [{ source: 'dup', sentinel: 'trace-events' }] }],
+    { 'probe-elision': { onModule: 'probe' } }, 'sharedSentinels', 'one sentinel with two owners'],
+  [[GRAPH_PROBE, { ...GRAPH_PROBE, name: 'probe-graph-2' }], {}, 'sharedSources', 'one forbidden source with two owners'],
+]) {
+  const res = assertPositiveControlComplete([...ARTEFACTS, ...artefacts], { ...POSITIVE_CONTROL, ...controls });
+  const failing = Object.keys(res).filter((key) => Array.isArray(res[key]) && res[key].length > 0);
+  assert.deepStrictEqual({ ok: res.ok, failing }, { ok: false, failing: [list] }, why);
+}
 
-const confusedArtefacts = ARTEFACTS.map((artefact) => ({
-  ...artefact,
-  internalSentinels: artefact.internalSentinels.map((entry) => ({ ...entry })),
-}));
-confusedArtefacts[1].internalSentinels[0].sentinel =
-  confusedArtefacts[0].internalSentinels[0].sentinel;
-const duplicated = assertPositiveControlComplete(confusedArtefacts, POSITIVE_CONTROL);
-assert(!duplicated.ok && duplicated.sharedSentinels.length === 1,
-  'one sentinel attributed to two owners must fail completeness');
+// ----- forbidden sources resolve on the classpath ----------------------------
+// A forbidden source naming nothing can never match, so it must fail the gate
+// rather than pass forever. Resolution is by kind: a directory path must name a
+// directory and a file path a file.
+{
+  const classpath = readBuildClasspath();
+  const noJars = () => null;
+  const resolve = (source) => resolveForbiddenSource(source, classpath, noJars);
+  assert.strictEqual(resolve(MANIFEST_ON_CONTROL), 'core/src', 'a file under a :source-paths root resolves');
+  assert.strictEqual(resolve('re_frame/subs/'), 'core/src', 'a directory under a :source-paths root resolves');
+  assert.strictEqual(resolve('node_modules/react/'), 'node_modules', 'an npm package resolves under node_modules');
+  assert.strictEqual(resolve(`${MANIFEST_ON_CONTROL}/`), null, 'a file named as a directory does not resolve');
+  assert.strictEqual(resolve('re_frame/subs'), null, 'a directory named as a file does not resolve');
+  assert.strictEqual(resolve('re_frame/no_such_namespace.cljc'), null, 'a missing source does not resolve');
+
+  const ghost = assertForbiddenSourcesLive(
+    [{ name: 'ghost', forbiddenSources: [MANIFEST_ON_CONTROL, 're_frame/no_such_namespace.cljc'] }],
+    () => classpath);
+  assert.deepStrictEqual({ ok: ghost.ok, resolved: ghost.resolved, dead: ghost.dead },
+    { ok: false, resolved: 1, dead: [{ name: 'ghost', source: 're_frame/no_such_namespace.cljc' }] },
+    'a forbidden source that names no real source fails the gate, by name');
+
+  const unreadable = assertForbiddenSourcesLive(ARTEFACTS, () => { throw new Error('no config'); });
+  assert(!unreadable.ok && /no config/.test(unreadable.error), 'an unreadable classpath fails closed');
+}
+
+// Jar sources resolve from the archive's own central directory. The launcher
+// jar the shadow-cljs npm package installs is a real zip in every lane that
+// installs node_modules.
+{
+  const jar = path.join(IMPLEMENTATION_ROOT, 'node_modules', 'shadow-cljs-jar', 'bin', 'shadow-cljs.jar');
+  const entries = listJarEntries(jar);
+  assert(entries && entries.includes('META-INF/MANIFEST.MF'), `a real jar lists its entries: ${jar}`);
+  const jarOnly = { root: IMPLEMENTATION_ROOT, dirs: [], jars: [{ lib: 'shadow-cljs-jar', file: jar }] };
+  assert.strictEqual(resolveForbiddenSource('META-INF/', jarOnly), 'shadow-cljs-jar', 'a directory inside a jar resolves');
+  assert.strictEqual(resolveForbiddenSource('META-INF/MANIFEST.MF', jarOnly), 'shadow-cljs-jar', 'a file inside a jar resolves');
+  assert.strictEqual(resolveForbiddenSource('no_such_root/', jarOnly), null, 'a path the jar does not hold does not resolve');
+  assert.strictEqual(listJarEntries(path.join(os.tmpdir(), `bundle-iso-no-such-${process.pid}.jar`)), null,
+    'an absent jar reads as absent, not as a jar holding nothing');
+  assert.throws(() => listJarEntries(__filename), /not a zip archive/, 'a file that is not a zip fails loud');
+}
+
+// ----- the real counter manifest, and an injected leak ----------------------
+// The graph claims' positive control: copy the counter build's real manifest,
+// inject one forbidden source, and the claim that forbids it — and only that
+// one — goes red. It needs the release, so it runs in `test:bundle-isolation`,
+// after the release and before the gate reads the same file. In a lane with no
+// build (`test:scripts`) it says so and stops; the gate itself refuses a
+// missing manifest, so the chain stays fail-closed.
+{
+  const counterDir = path.join(IMPLEMENTATION_ROOT, 'out', 'examples', 'counter');
+  const real = readBuildManifest(counterDir);
+  if (real.status === 'missing') {
+    console.log(`SKIP real-manifest mutation: no counter build at ${counterDir}`);
+  } else {
+    assert.strictEqual(real.status, 'ok', `the counter manifest must read: ${real.reason}`);
+    assert(real.sources.includes(MANIFEST_ON_CONTROL), 'the real counter manifest carries its on-control');
+    for (const artefact of graphClaims) {
+      assert(checkGraphClaim(real.sources, artefact).ok, `the real counter manifest must pass ${artefact.name}`);
+    }
+    const text = fs.readFileSync(real.file, 'utf8');
+    for (const [injected, owner] of [
+      ['re_frame/schemas.cljc', 'schemas'],
+    ]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-manifest-'));
+      try {
+        fs.writeFileSync(path.join(dir, 'manifest.edn'),
+          text.replace(':sources [', `:sources [${JSON.stringify(injected)} `));
+        const mutated = readBuildManifest(dir);
+        assert.strictEqual(mutated.sources.length, real.sources.length + 1, `${injected} was injected`);
+        const failing = graphClaims.filter((a) => !checkGraphClaim(mutated.sources, a).ok).map((a) => a.name);
+        assert.deepStrictEqual(failing, [owner], `injecting ${injected} must fail ${owner}, and only ${owner}`);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+}
 
 // ----- enrolment is fail-closed ----------------------------------------------
 // A newly publishable runtime mapped to no valid isolation gate turns the gate
@@ -455,4 +577,5 @@ assert(coLoad('trailing-comment.cljs', `(ns fixture.trailing
 
 fs.rmSync(CO_LOAD_FIXTURE_DIR, { recursive: true, force: true });
 
-console.log(`PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts, enrolment and co-load mutations`);
+console.log(`PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts ` +
+  `(${graphClaims.length} graph, ${elisionClaims.length} elision), enrolment and co-load mutations`);
