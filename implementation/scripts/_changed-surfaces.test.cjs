@@ -659,28 +659,36 @@ test('the v1 codemod lane arms on its own tree and does not arm implementation_j
 // Core's own fan-out plus every reverse edge into it: the tools JVM and CLJS
 // lanes whose suites exercise core over a :local/root, the v1 codemod's
 // :integration alias, the template's emitted app, the adapter JVM probes, the
-// docs playground bundle and the two skill fixtures.
+// docs playground bundle and the two skill fixtures. Epoch ships in core, so
+// its source is a core path, and the core arm's mcp_live is what arms the
+// live epoch redaction gate.
 test('implementation/core arms its fan-out and every reverse-edge lane (rf2-fk5jy, rf2-wq17m, rf2-jdj17.1)', () => {
-  const result = classify('implementation/core/src/re_frame/core.cljc');
-  for (const output of [
-    'implementation_jvm',
-    'cljs_node_test',
-    'adapter_diagnostic',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'tools_jvm',
-    'template_expensive',
-    'mcp_conformance',
-    'mcp_live',
-    'playground',
-    'tools_jvm_machines_viz',
-    'tools_jvm_testbed_support',
-    'tools_cljs_machines_viz',
-    'migration_v1_codemod',
-    'skills_structural',
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/core/src/re_frame/epoch.cljc',
+    'implementation/core/src/re_frame/epoch/tool_pair.cljc',
   ]) {
-    assert.equal(result[output], 'true', `a core change must arm ${output}`);
+    const result = classify(file);
+    for (const output of [
+      'implementation_jvm',
+      'cljs_node_test',
+      'adapter_diagnostic',
+      'cljs_browser',
+      'cljs_prod',
+      'bundle_isolation',
+      'tools_jvm',
+      'template_expensive',
+      'mcp_conformance',
+      'mcp_live',
+      'playground',
+      'tools_jvm_machines_viz',
+      'tools_jvm_testbed_support',
+      'tools_cljs_machines_viz',
+      'migration_v1_codemod',
+      'skills_structural',
+    ]) {
+      assert.equal(result[output], 'true', `a core change (${file}) must arm ${output}`);
+    }
   }
 });
 
@@ -914,9 +922,9 @@ test('the wire-vocab source trees arm mcp_conformance, src text only (rf2-01dix,
 });
 
 // The docs' live-cell SCI bundle bakes in fresco and the optional artefacts.
-// For these six, source and deps arm the playground job; their tests are not
+// For these five, source and deps arm the playground job; their tests are not
 // baked in.
-test('fresco, http, resources, routing, epoch and ssr arm playground from src and deps.edn only', () => {
+test('fresco, http, resources, routing and ssr arm playground from src and deps.edn only', () => {
   for (const file of [
     'implementation/fresco/src/re_frame/fresco.cljc',
     'implementation/fresco/deps.edn',
@@ -926,8 +934,6 @@ test('fresco, http, resources, routing, epoch and ssr arm playground from src an
     'implementation/resources/deps.edn',
     'implementation/routing/src/re_frame/routing.cljc',
     'implementation/routing/deps.edn',
-    'implementation/epoch/src/re_frame/epoch.cljc',
-    'implementation/epoch/deps.edn',
     'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/ssr/deps.edn',
   ]) {
@@ -1216,8 +1222,6 @@ test('every skill-fixture :local/root arms skills_structural, and only src + dep
     'implementation/fresco/src/re_frame/fresco/server.cljs',
     'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
     'implementation/adapters/reagent/deps.edn',
-    'implementation/epoch/src/re_frame/epoch.cljc',
-    'implementation/epoch/deps.edn',
     'implementation/schemas/src/re_frame/schemas.cljc',
     'implementation/schemas/deps.edn',
     'implementation/machines/src/re_frame/machines.cljc',
@@ -1250,7 +1254,6 @@ test('every per-feature artefact keeps its production fan-out (rf2-qxg24, rf2-f9
     'bundle_isolation',
   ];
   for (const [file, extra] of [
-    ['implementation/epoch/src/re_frame/epoch.cljc', ['mcp_conformance', 'mcp_live']],
     [
       'implementation/machines/src/re_frame/machines.cljc',
       ['tools_jvm_machines_viz', 'tools_cljs_machines_viz', 'playground'],
@@ -2733,7 +2736,7 @@ const PROSE_PINS_ARMING_JVM = [
   ['docs/design/fresco/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'implementation/routing'],
   ['spec/005-StateMachines.md', 'transition_geometry_terminology_jvm_test.clj', 'implementation/machines'],
   ['spec/009-Instrumentation.md', 'error_catalogue_channel_conformance_test.clj', 'implementation/core'],
-  ['spec/Spec-Schemas.md', 'four suites in three artefacts', 'implementation/{core,epoch,machines}'],
+  ['spec/Spec-Schemas.md', 'three readers in two artefacts', 'implementation/{core,machines}'],
 ];
 
 pinnedRoster(

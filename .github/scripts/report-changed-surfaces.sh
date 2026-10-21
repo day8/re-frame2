@@ -599,7 +599,7 @@ else
       # closure: the all-examples compiler has no edge to a test-only tree.
       # Arming it here would make the ~10-minute all-examples job the
       # critical path of every security-only change.
-      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+      examples/*|implementation/adapters/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
       # Top-level testbed CLJS sources. The extensions are the
@@ -686,14 +686,13 @@ else
     #
     # THE ROSTER IS THE UNION OF BOTH FIXTURES' CLASSPATHS. The two fixtures
     # share core and the Reagent adapter, and share this one output. But
-    # `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FIVE in-repo
-    # artefacts, not two — the shipped preload `:require`s `re-frame.epoch`,
-    # `re-frame.schemas` and `re-frame.machines` directly for its
-    # epoch-history/`get-path`/`orient`/list-machines surfaces, which are not
-    # on the `re-frame.core` facade. Without those three roots, three fifths
-    # of that job's own in-repo classpath would classify
-    # `skills_structural=false`, and an owned-namespace API or behaviour
-    # change in any of the three could break `re_frame2_pair.pure` or the
+    # `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FOUR in-repo
+    # artefacts, not two — the shipped preload `:require`s `re-frame.schemas`
+    # and `re-frame.machines` directly for its `get-path`/`orient`/
+    # list-machines surfaces, which are not on the `re-frame.core` facade.
+    # Without those two roots, half of that job's own in-repo classpath would
+    # classify `skills_structural=false`, and an owned-namespace API or
+    # behaviour change in either could break `re_frame2_pair.pure` or the
     # runtime preload while the only job that compiles and tests that shipped
     # source is skipped — and a skipped required job is an accepted result, so
     # nothing would go red.
@@ -701,20 +700,20 @@ else
     # ONE DISPATCH FOR BOTH FIXTURES rather than a second `case` beside this
     # one, because they gate the identical output: two rosters setting one
     # variable is a distinction with no behavioural difference, and the union
-    # is what `skills_structural=true` actually means here. The epoch, schemas
-    # and machines roots each have an arm in the big `case` below too (the
+    # is what `skills_structural=true` actually means here. The schemas and
+    # machines roots each have an arm in the big `case` below too (the
     # per-feature fan-out), so the shadowing argument above applies to them
-    # as well — epoch keeps `mcp_conformance`/`mcp_live`, schemas keeps its
+    # as well — schemas keeps its
     # own per-feature lanes (implementation_jvm, cljs_*, bundle_isolation),
     # machines keeps the machines-viz and `playground` lanes. This dispatch
     # only ever SETS the flag; it cannot narrow them.
     #
     # The over-fire trade is the same one, and no larger: ssr and fresco
-    # over-fire `re-frame2-pair-fixture-pure`, epoch/schemas/machines over-fire
-    # `reagent-fresco-migration-fixture-cold-start`, and all seven over-fire the cheap
+    # over-fire `re-frame2-pair-fixture-pure`, schemas/machines over-fire
+    # `reagent-fresco-migration-fixture-cold-start`, and all six over-fire the cheap
     # Babashka `skills-structural` job. Still no output of its own.
     case "$file" in
-      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/fresco/src/*|implementation/fresco/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/epoch/src/*|implementation/epoch/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
+      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/fresco/src/*|implementation/fresco/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
         skills_structural=true
         ;;
     esac
@@ -785,6 +784,16 @@ else
         bundle_isolation=true
         tools_jvm=true
         template_expensive=true
+        # Epoch ships in core (`re-frame.epoch` and its `re-frame.epoch.*`
+        # siblings under implementation/core/src), so these two are also what
+        # arms the live redaction gate for it. The hermetic
+        # `mcp-conformance-re-frame2-pair` job, gated on mcp_live, runs
+        # `live-re-frame2-pair-redaction.cjs`: the egress-protection net for
+        # the pull-mode epoch tools (trace-window / watch-epochs), asserting a
+        # declared-sensitive epoch is WHOLE-DROPPED gate-OFF and shipped
+        # gate-ON across the MCP wire. Without mcp_live an epoch change that
+        # broke that contract would merge green, a false-green on a data-leak
+        # guard.
         mcp_conformance=true
         mcp_live=true
         # The docs/cljs live-cell SCI bundle BAKES IN re-frame2
@@ -1017,38 +1026,6 @@ else
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
-      implementation/epoch/*)
-        # Epoch is the ONLY per-feature
-        # artefact wired into a LIVE MCP conformance gate: the
-        # re-frame2-pair live fixture
-        # (skills/re-frame2-pair/tests/fixture/deps.edn) resolves
-        # `day8/re-frame2-epoch` as a :local/root, and the hermetic
-        # `mcp-conformance-re-frame2-pair` job's INNER_TESTS include
-        # `live-re-frame2-pair-redaction.cjs` — the egress-protection
-        # regression net for the pull-mode epoch tools (trace-window /
-        # watch-epochs) that asserts a declared-sensitive epoch is
-        # WHOLE-DROPPED gate-OFF / shipped gate-ON across the MCP wire.
-        # That job is gated on mcp_live='true'.
-        # Folded into the generic per-feature bucket below, an
-        # `implementation/epoch/src/...` change would set NEITHER mcp_live NOR
-        # mcp_conformance — so a PR that broke the epoch egress/redaction
-        # contract would merge GREEN at PR time (a conformance false-green on
-        # a DATA-LEAK guard), surfacing only in the nightly cron. Split
-        # out here so epoch source changes arm the live redaction gate.
-        # All the generic per-feature gates fire too (epoch is not in
-        # the scaffold, so no template_expensive). The docs' live-cell SCI
-        # bundle bakes in epoch's source, so source and deps arm playground.
-        implementation_jvm=true
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        mcp_conformance=true
-        mcp_live=true
-        case "$file" in
-          implementation/epoch/src/*|implementation/epoch/deps.edn) playground=true ;;
-        esac
-        ;;
       implementation/ssr-node/*)
         # The ssr-node package's own lane, and ONE output.
         #
@@ -1129,7 +1106,6 @@ else
         # cljs_node_test, cljs_browser, cljs_prod, bundle_isolation. Add an
         # arm here only WITH a real emitted dependency and a fixture that
         # compiles it.
-        # (epoch has its own case above.)
         # The docs/cljs live-cell SCI bundle BAKES IN
         # the machines, flows and schemas artefacts (`re-frame.machines`,
         # `re-frame.flows` and `re-frame.schemas` are :require'd at bundle
@@ -1203,8 +1179,8 @@ else
         # an HTTP source change would set neither it nor mcp_live — so a diff
         # that renamed a pinned reply-envelope key in the very file these
         # suites read would merge GREEN at PR time with its designated gate
-        # SKIPPED. Same shape as the epoch case above, reached by a text read
-        # rather than a classpath edge, which is why no dependency graph would
+        # SKIPPED. Same shape as epoch's live redaction gate in the core arm,
+        # reached by a text read rather than a classpath edge, which is why no dependency graph would
         # find it.
         #
         # SCOPED TWO WAYS, and both halves are load-bearing. Narrowed to
@@ -1215,8 +1191,8 @@ else
         # roster that lives in the suites, free to drift the moment a
         # third HTTP source file emits the vocabulary — and it would drift in
         # the REASSURING direction, the missing row being a skipped gate rather
-        # than a red one. `mcp_live` stays OFF: that is epoch's, for a live
-        # fixture :local/root this artefact has no part in.
+        # than a red one. `mcp_live` stays OFF: it is the live fixture's, whose
+        # :local/root classpath this artefact has no part in.
         #
         # THE REST OF THE ROSTER, DECIDED PER TREE. The suites'
         # roster is ELEVEN implementation files rather than two: the same
@@ -1586,7 +1562,7 @@ else
       # per-artefact JVM leg; a per-lane arm would mean one new output and one
       # predicate change in scripts/jvm-lanes.txt per JVM lane, for a saving
       # the spec roster above would not even collect (its pins span the core,
-      # machines, epoch, ssr and routing legs). So the narrowing is
+      # machines, ssr and routing legs). So the narrowing is
       # on the PATH axis instead: prose a suite reads arms the JVM tier, and
       # prose nothing reads arms nothing.
       #
