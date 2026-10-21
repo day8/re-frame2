@@ -84,6 +84,10 @@
                  ;; reachability: no shipping namespace requires the kit.
                  "fresco/test"
                  "fresco/test_kit/src"
+                 ;; The framework integration suite: the examples' and the
+                 ;; features' end-to-end tests. CLJS-only, so the :node-test
+                 ;; build is what runs it; here it is REPL convenience.
+                 "integration/test"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example
                  ;; source namespaces like `ssr.core` (under
@@ -92,8 +96,8 @@
                  ;; tree is test-free: every example's headless test
                  ;; fixtures live in the framework test tree
                  ;; (re-frame.examples-test for the JVM-driven ssr /
-                 ;; state_machine_walkthrough; the reagent
-                 ;; adapter-test bridges for the CLJS ones).
+                 ;; state_machine_walkthrough; the integration suite under
+                 ;; integration/test for the CLJS ones).
                  "../examples/core"
                  "../examples/capabilities/machines"
                  "../examples/capabilities/routing"
