@@ -78,13 +78,16 @@
       (rf/reg-route :route/article
                     {:params (fn [{:keys [id]}] (string/starts-with? (or id "") "a"))} "/articles/:id")
       (testing "non-conforming path params throw :rf.error/route-url-validation
-                carrying the slot, the value and the explainer payload"
+                carrying the slot and the explainer payload; a predicate
+                schema is opaque, so nothing proves the value non-sensitive
+                and it is withheld"
         (let [data (thrown-data #(rf.routing/route-url {:to :route/article :params {:id "zoo"}}))]
           (is (= {:rf.error/id :rf.error/route-url-validation
                   :route-id    :route/article
                   :slot        :params
-                  :value       {:id "zoo"}}
-                 (select-keys data [:rf.error/id :route-id :slot :value])))
+                  :value       :rf/redacted
+                  :sensitive?  true}
+                 (select-keys data [:rf.error/id :route-id :slot :value :sensitive?])))
           (is (some? (:error data)))))
       (testing "conforming path params still build the URL"
         (is (= "/articles/aardvark"
@@ -116,9 +119,9 @@
                                           (contains? #{"name" "date"} (get m "sort"))))}
                       "/search")
         (is (= "/search" (rf.routing/route-url {:to :route/search :query {:sort nil}})))
-        (is (= {:rf.error/id :rf.error/route-url-validation :slot :query :value {"sort" "123"}}
+        (is (= {:rf.error/id :rf.error/route-url-validation :slot :query}
                (select-keys (thrown-data #(rf.routing/route-url {:to :route/search :query {:sort 123}}))
-                            [:rf.error/id :slot :value])))
+                            [:rf.error/id :slot])))
         (finally (restore))))))
 
 ;; ============================================================================
