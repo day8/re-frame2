@@ -501,7 +501,7 @@
   with mutations. Spec 016 §Resource identity."
   [resource-id spec params where]
   (rf.resources.params/validate+canonicalize
-    resource-id spec params where
+    resource-id spec params where :resource-params
     (fn [slots]
       (registration-error
         :rf.error/resource-invalid-params

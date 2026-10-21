@@ -40,15 +40,17 @@
   `(build-invalid-error slots)`, the family's error over
   `invalid-params-slots`; a malformed schema first emits the seam's
   `:rf.error/malformed-schema` trace, as every validating surface does.
-  `where` names the calling public surface.
+  `where` names the calling public surface; `boundary` is the `:where` the
+  seam stamps on the failure (`:resource-params` or `:mutation-params`).
   Spec 016 §Resource identity; Spec 010 §The validation seam."
-  [id spec params where build-invalid-error]
+  [id spec params where boundary build-invalid-error]
   (let [params (rf.resources.state/default-omitted-params params)
         schema (:params-schema spec)]
     (rf.resources.state/reject-non-edn! params where :params id)
     (when schema
       (when-let [check! (rf.late-bind/get-fn :schemas/check!)]
-        (when-let [failure (check! {:id         id
+        (when-let [failure (check! {:where      boundary
+                                    :id         id
                                     :schema     schema
                                     :value      params
                                     :tags-only? true})]
