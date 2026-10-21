@@ -60,7 +60,6 @@
 (def extract-large-paths-from-schema  rf.schemas.walker/extract-large-paths-from-schema)
 (def extract-sensitive-paths-from-schema rf.schemas.walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            rf.schemas.walker/schema-has-sensitive?)
-(def schema-sensitive-at?             rf.schemas.walker/schema-sensitive-at?)
 ;; Opaque schemas cannot be inspected for flags and therefore take the
 ;; conservative failure-redaction path.
 (def schema-has-large?                rf.schemas.walker/schema-has-large?)
