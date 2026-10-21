@@ -89,20 +89,3 @@
             @nested-outcome
             (rf.frame/frame id)
             (some? (rf/make-frame {:id id :tags #{:clean-retry}}))]))))
-
-(deftest a-construction-handoff-permits-exactly-one-engine-entry
-  (let [id    :construction-handoff/a
-        owner (rf.frame/claim-frame-construction! id :plan-preflight)]
-    (try
-      (is (= [[true :rf.error/frame-construction-in-progress] #{:handed-off}]
-             [(rf.frame/call-with-frame-construction-handoff!
-                owner id
-                (fn []
-                  [(some? (rf/make-frame {:id id :tags #{:handed-off}}))
-                   (err-id #(rf/make-frame {:id id :tags #{:second-entry}}))]))
-              (get-in (rf.frame/frame id) [:config :tags])])
-          "one handoff permits exactly one engine entry")
-      (finally
-        (rf.frame/release-frame-construction! owner)))
-    (is (some? (rf/make-frame {:id id :tags #{:after-release}}))
-        "the owner's release frees the id for ordinary construction")))

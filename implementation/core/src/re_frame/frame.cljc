@@ -216,8 +216,6 @@
 
 (def ^:dynamic ^:private *frame-transaction-owner* nil)
 
-(def ^:dynamic ^:private *frame-construction-handoff* nil)
-
 (defn- current-host-holder []
   #?(:clj (Thread/currentThread) :cljs true))
 
@@ -298,92 +296,19 @@
                registry))))
   nil)
 
-(defn ^:no-doc call-with-frame-construction-handoff!
-  "Invoke zero-arg `f` with one exact permission for `owner`'s reserved `id` to
-  enter the construction engine without self-colliding.
-
-  The permission is consumed at engine entry, before any adapter callback. A
-  nested public `make-frame` therefore sees no permission and loses normally.
-  This is the narrow preflight → core hand-off seam; it is
-  intentionally not blanket same-owner re-entrancy. INTERNAL."
-  [owner id f]
-  (when-not (owner-holds-frame-id? owner id)
-    (throw (ex-info "frame construction handoff owner does not hold id"
-                    {:frame id})))
-  (binding [*frame-construction-handoff*
-            {:owner owner :id id :available? (atom true)}]
-    (f)))
-
-(defn- consume-frame-construction-handoff! [id]
-  (let [{:keys [owner available?] handoff-id :id} *frame-construction-handoff*]
-    (when (and (= id handoff-id)
-               (owner-holds-frame-id? owner id)
-               (compare-and-set! available? true false))
-      owner)))
-
-(defn- unspent-frame-construction-handoff?
-  "True when THIS caller already stands inside an exact reservation for `id`
-  handed to it by an outer preflight, with the permission still UNSPENT.
-  Deliberately NON-consuming — `consume-frame-construction-handoff!` at engine
-  entry is the one place that spends it, and this predicate must not race that
-  one-shot."
-  [id]
-  (let [{:keys [owner available?] handoff-id :id} *frame-construction-handoff*]
-    (boolean (and (= id handoff-id)
-                  (some? available?)
-                  (true? @available?)
-                  (owner-holds-frame-id? owner id)))))
-
-(defn ^:no-doc call-with-frame-construction-claim!
-  "Invoke zero-arg `f` holding ONE exact per-id construction reservation for
-  `id`, with the engine hand-off armed so the `upsert-frame!` inside `f` enters
-  that SAME reservation instead of colliding with it.
-
-  This is how a caller puts work of its OWN inside the frame transaction rather
-  than beside it. `make-frame`'s generation-provenance publication and its
-  rollback are that work: they write a second process-global store
-  that a reprojection reads, so they have to be admitted, ordered and rolled
-  back under the same authority as the frame revision they describe.
-
-  Contention is the engine's own typed `:rf.error/frame-construction-in-progress`,
-  raised HERE — before `f` runs — so a LOSING attempt performs none of `f`'s
-  writes at all. That is the property the alternative shape cannot have: a
-  caller that writes first and enters the engine second has already mutated
-  process-global state by the time the engine rejects it.
-
-  An outer preflight that already reserved `id` and handed it off is ADOPTED
-  as-is: nothing is claimed and
-  nothing is released, so its window and its release point stay the outer
-  preflight's, and
-  `f`'s writes fall inside the reservation it is already holding. A hand-off
-  that has already been SPENT is not adoption — the nested public entry claims
-  and loses normally, exactly as when the engine claims for itself.
-  INTERNAL."
+(defn- call-with-frame-transaction!
+  "Invoke `(f owner)` holding a fresh exact reservation for `id`, bound as the
+  current transaction owner, and release it however `f` exits. The engine
+  claims for itself, so a same-id attempt from anywhere — a re-entrant one from
+  inside `f` included — is a second claim and loses promptly with
+  `:rf.error/frame-construction-in-progress`."
   [id kind f]
-  (if (unspent-frame-construction-handoff? id)
-    (f)
-    (let [owner (claim-frame-construction! id kind)]
+  (let [owner (claim-frame-construction! id kind)]
+    (binding [*frame-transaction-owner* owner]
       (try
-        (call-with-frame-construction-handoff! owner id f)
+        (f owner)
         (finally
           (release-frame-construction! owner))))))
-
-(defn- call-with-frame-transaction!
-  [id kind handoff? join-current-owner? f]
-  (if-let [owner (or (when handoff?
-                       (consume-frame-construction-handoff! id))
-                     (when (and join-current-owner?
-                                (owner-holds-frame-id?
-                                  *frame-transaction-owner* id))
-                       *frame-transaction-owner*))]
-    (binding [*frame-transaction-owner* owner]
-      (f owner))
-    (let [owner (claim-frame-construction! id kind)]
-      (binding [*frame-transaction-owner* owner]
-        (try
-          (f owner)
-          (finally
-            (release-frame-construction! owner)))))))
 
 ;; ---- frame address — the bare frame-id ------------------------------------
 ;;
@@ -1334,8 +1259,14 @@
   "True when raw registry record `f` is a live frame visible to this actor.
 
   Final records are process-visible. A FIRST construction's provisional record
-  is visible only when the current dynamic construction owner is the record's
-  exact owner AND that identity still holds `id` on this host thread. A
+  is visible only to the work its own construction runs synchronously — setup
+  steps, lifecycle trace, registration hooks, finalization and failure
+  teardown — so that work can use the ordinary frame machinery while no
+  unrelated caller observes a live-looking pre-setup row. That work is exactly
+  what runs while the current dynamic transaction owner is the record's owner,
+  because `upsert-frame!`'s own transaction is the one place that owner is
+  bound; requiring the owner to still hold `id` on THIS host thread excludes a
+  binding conveyed to another JVM thread or outliving the reservation. A
   re-registration's provisional record is process-visible: it
   stages a new config onto a LIVE frame whose runtime state, router and drain
   lock are the same objects, so it is not a half-construction, and hiding it
@@ -2369,6 +2300,15 @@
 
 ;; ---- registration ---------------------------------------------------------
 
+(def ^:private construction-input-keys
+  "The reserved keys `make-frame` threads through config into record slots
+  (`:rf.frame/initial-db` is threaded by nothing and stripped defensively).
+  They are stripped from the stored `:config` and the lifecycle traces, so no
+  `frame-meta` read or trace carries a one-shot construction input — the
+  descriptor pool in particular is transient and never serialised."
+  [:rf.frame/generation :rf.frame/live-store? :rf.frame/descriptor-pool
+   :rf.frame/initial-db])
+
 (defn- new-frame-record [id config]
   ;; ONE physical frame-state container holding both partitions (Spec 002
   ;; §One physical container, two projection reactions; EP-0001 decision #3).
@@ -2431,6 +2371,13 @@
     ;; in place via `set-generation!`, preserving every other (state-bearing)
     ;; slot by identity.
     :generation  (get config :rf.frame/generation)
+    ;; The descriptor pool that generation was resolved against: nil for the
+    ;; live source store, the caller's pool for `make-frame`'s 2-arity.
+    ;; Reprojection re-resolves against it, reading it from the same record
+    ;; snapshot as the generation, and a re-registration stages and restores
+    ;; the two together. Threaded in via the reserved
+    ;; `:rf.frame/descriptor-pool` config key, like `:generation`.
+    :descriptor-pool (get config :rf.frame/descriptor-pool)
     ;; True for a frame `make-frame` built WITHOUT `:images`: it carries no
     ;; generation and resolves the registration store live, raising
     ;; `:rf.error/ambiguous-registration` for an id more than one namespace
@@ -2478,18 +2425,15 @@
     :lifecycle  {:created-at (rf.interop/now-ms)
                  :destroyed? false
                  :listeners  []}
-    ;; The construction-only reserved `:rf.frame/generation` key is consumed
-    ;; above into the `:generation` slot; it is stripped from the stored
-    ;; `:config` so `frame-meta` / tooling never surface a one-shot construction
-    ;; input as durable frame config. (EP-0026: there is no
-    ;; `:rf.frame/capabilities` config slot.)
+    ;; The construction-only reserved keys are consumed above into their
+    ;; slots and stripped from the stored `:config` (`construction-input-keys`),
+    ;; so `frame-meta` / tooling never surface a one-shot construction input as
+    ;; durable frame config. (EP-0026: there is no `:rf.frame/capabilities`
+    ;; config slot.)
     ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
     ;; so a destroy + re-`make-frame` (a full "reset" composition)
-    ;; can re-dispatch the recorded setup. The reserved
-    ;; `:rf.frame/initial-db` key is dissoc'd defensively (nothing threads
-    ;; it).
-    :config     (dissoc config :rf.frame/generation :rf.frame/live-store?
-                        :rf.frame/initial-db)}))
+    ;; can re-dispatch the recorded setup.
+    :config     (apply dissoc config construction-input-keys)}))
 
 (declare destroy-frame!)
 
@@ -3161,14 +3105,17 @@
   "Roll back construction-owned fields while `id` still names this exact
   provisional revision.
 
-  Surgical re-registration stages `:config`, `:generation`, `:live-store?`,
-  `:trace-policy-token`, and `:construction`, but `:generation` also has a valid
-  generation-only writer (`set-generation!`) used by live-frame reprojection.
-  Preserve the current record and restore the failed constructor's config,
-  policy token, and construction metadata unconditionally. Restore its staged
-  generation only while that slot is still the exact value this revision
-  installed; an intervening reprojection wins and is retained. State-bearing
-  containers and every other current slot are therefore preserved by identity.
+  Surgical re-registration stages `:config`, `:generation`, `:descriptor-pool`,
+  `:live-store?`, `:trace-policy-token`, and `:construction`, but `:generation`
+  also has a valid generation-only writer (`set-generation!`) used by
+  live-frame reprojection. Preserve the current record and restore the failed
+  constructor's config, policy token, and construction metadata
+  unconditionally. Restore its staged generation, and with it the pool that
+  generation was resolved against, only while that slot is still the exact
+  value this revision installed; an intervening reprojection wins and is
+  retained together with the pool it re-resolved against, so the two never
+  part. State-bearing containers and every other current slot are therefore
+  preserved by identity.
 
   A stale failure can never restore across a successor because owner and
   revision remain identity-pinned."
@@ -3184,7 +3131,8 @@
                              :trace-policy-token (:trace-policy-token prior)
                              :construction (:construction prior))
                 (identical? (:generation f) (:generation staged))
-                (assoc :generation (:generation prior)))]
+                (assoc :generation (:generation prior)
+                       :descriptor-pool (:descriptor-pool prior)))]
           (if (compare-and-set! frames registry (assoc registry id restored))
             true
             (recur)))
@@ -3252,17 +3200,21 @@
     {:recovery :use-a-distinct-frame-id
      :extra    {:frame id}}))
 
-(defn- deliver-incarnation-token!
-  "Hand the EXACT installed incarnation token to an optional construction
-  `token-sink` (a `volatile!`) from INSIDE the construction transaction.
-  `make-frame` passes a sink so it can embed the token on the
-  returned frame VALUE without a post-return `frame-incarnation-token` re-sample
-  of the registry — a re-sample a concurrent `destroy-frame!` + same-id reseat
-  could race into handing back a successor's token. No-op when the caller passed
-  no sink (`make-anon-frame-record!`, the `:rf/default` fixture, and the engine
-  tests, which take the id return). Returns nil."
-  [token-sink token]
-  (when token-sink (vreset! token-sink token))
+(defn- deliver-construction-outcome!
+  "Hand a successful construction's outcome to an optional `outcome-sink` (a
+  `volatile!`) from INSIDE the construction transaction, as
+  `{:token <installed incarnation token> :displaced <record this call
+  replaced, nil on a first construction>}`. `make-frame` embeds the token on
+  the returned frame VALUE without a post-return `frame-incarnation-token`
+  re-sample — one a concurrent `destroy-frame!` + same-id reseat could race into
+  handing back a successor's token — and refreshes the frame's cached
+  subscriptions against the displaced record's generation, the exact value the
+  surgical swap replaced. No-op when the caller passed no sink
+  (`make-anon-frame-record!`, the `:rf/default` fixture, and the engine tests,
+  which take the id return). Returns nil."
+  [outcome-sink token displaced]
+  (when outcome-sink
+    (vreset! outcome-sink {:token token :displaced displaced}))
   nil)
 
 (defn ^:no-doc upsert-frame!
@@ -3278,8 +3230,9 @@
   - If the id is already SEATED, perform a SURGICAL UPDATE / IDEMPOTENT
     REPLACEMENT (EP-0024 §Duplicate id policy): existing runtime state
     (app-db, sub-cache, queue) is preserved; only the metadata/config is
-    replaced (+ the `:generation` slot, when the caller threads
-    `:rf.frame/generation`), and the recorded :initial-events is RE-RECORDED,
+    replaced (+ the `:generation` and `:descriptor-pool` slots, which the
+    caller threads as `:rf.frame/generation` / `:rf.frame/descriptor-pool`),
+    and the recorded :initial-events is RE-RECORDED,
     never REPLAYED. Hot-reload Just Works. This IS re-construction — the
     Clojure re-def model: re-declaring the same id refreshes config while
     durable state survives. `:initial-events` replay is ONLY the opt-in
@@ -3295,13 +3248,13 @@
 
   Returns the frame `id` on a successful create OR re-register (the documented
   keyword return every caller + engine test relies on). The optional
-  3-arity `token-sink` (a `volatile!`) is an OUT-channel: on success the exact
-  installed incarnation token (the record's `:drain-lock`) is delivered into it
-  from INSIDE the construction transaction, so `make-frame` can embed exact
-  authority on the returned frame VALUE with no post-return registry re-sample.
-  Passing no sink (the 2-arity) skips the delivery."
+  3-arity `outcome-sink` (a `volatile!`) is an OUT-channel: on success
+  `deliver-construction-outcome!` hands it the exact installed incarnation
+  token (the record's `:drain-lock`) and the record the call displaced, from
+  INSIDE the construction transaction, so `make-frame` reads neither back from
+  the registry afterwards. Passing no sink (the 2-arity) skips the delivery."
   ([id metadata] (upsert-frame! id metadata nil))
-  ([id metadata token-sink]
+  ([id metadata outcome-sink]
   (let [;; The registry is keyed by the bare frame-id.
         config       (expand-preset metadata)
         ;; INTERNAL create-exclusive mode: when the caller
@@ -3453,7 +3406,7 @@
     ;; been rolled back. Disjoint ids never share a monitor; same-id entry fails
     ;; promptly on both hosts.
     (call-with-frame-transaction!
-      id :construction true false
+      id :construction
       (fn [owner]
         ;; Destruction publishes its exact-incarnation marker and acquires this
         ;; same reservation under the drain gate. If construction acquired first,
@@ -3528,9 +3481,8 @@
                 ;; lost-create recur.
                 (run-setup-events! id setup-steps {} 'rf/make-frame installed-token)
                 (rf.trace/emit! :rf.frame :rf.frame/created
-                             {:frame id :config (dissoc config :rf.frame/generation
-                                                        :rf.frame/live-store?
-                                                        :rf.frame/initial-db)})
+                             {:frame id :config (apply dissoc config
+                                                       construction-input-keys)})
                 (fire-frame-registered-hook! id)
                 (if (finalize-frame-construction! id owner policy-token)
                   ;; Hand back this exact incarnation's token (the record's
@@ -3538,7 +3490,8 @@
                   ;; finalization preserved by identity) from inside the
                   ;; transaction so `make-frame` embeds exact authority with no
                   ;; post-return re-sample.
-                  (do (deliver-incarnation-token! token-sink installed-token) id)
+                  (do (deliver-construction-outcome! outcome-sink installed-token nil)
+                      id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
                 (catch #?(:clj Throwable :cljs :default) e
@@ -3583,10 +3536,7 @@
           ;; composition).
           :else
           (let [observed      existing
-                stored-config (dissoc config
-                                      :rf.frame/generation
-                                      :rf.frame/live-store?
-                                      :rf.frame/initial-db)
+                stored-config (apply dissoc config construction-input-keys)
                 [old new]
                 (swap-vals!
                   frames
@@ -3601,6 +3551,8 @@
                                       :config stored-config
                                       :generation
                                       (get config :rf.frame/generation)
+                                      :descriptor-pool
+                                      (get config :rf.frame/descriptor-pool)
                                       :live-store?
                                       (true? (get config :rf.frame/live-store?))
                                       :trace-policy-token policy-token
@@ -3626,11 +3578,13 @@
                 (if (finalize-frame-construction! id owner policy-token)
                   ;; Idempotent re-registration PRESERVES the incarnation's
                   ;; `:drain-lock` by identity (the surgical swap-vals only
-                  ;; replaces config/generation/trace-policy/construction), so the
-                  ;; staged record's token IS the still-live incarnation token —
-                  ;; hand it back so a re-`make-frame` value carries the SAME
-                  ;; authority as the original.
-                  (do (deliver-incarnation-token! token-sink (:drain-lock staged)) id)
+                  ;; replaces config/generation/pool/trace-policy/construction),
+                  ;; so the staged record's token IS the still-live incarnation
+                  ;; token — hand it back so a re-`make-frame` value carries the
+                  ;; SAME authority as the original, with `prior`, the exact
+                  ;; record the stage displaced.
+                  (do (deliver-construction-outcome! outcome-sink (:drain-lock staged) prior)
+                      id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
                 (catch #?(:clj Throwable :cljs :default) e
@@ -4455,13 +4409,6 @@
                                               dispatch closure), whose own
                                               eviction is lazy and so never
                                               fires for a per-request id.
-         :live-frame/on-frame-destroyed!    — drop the frame's generation-
-                                              provenance row (which descriptor
-                                              pool its generation was resolved
-                                              against). Written by every
-                                              successful `make-frame` and read
-                                              only while the frame is live, so
-                                              its lifetime is the frame's.
     7. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
     7a. snapshot-epoch-terminal-    — bind the terminal :halted-destroy
@@ -4729,35 +4676,13 @@
         ;; and does not depend on this. No-op when the day8/re-frame2-fresco
         ;; artefact is absent (the hook is unbound).
         (safe-call-hook! :fresco/on-frame-destroyed! id)
-        ;; Release the frame's generation-PROVENANCE row: the
-        ;; `re-frame.live-frame` side table naming which descriptor pool this
-        ;; frame's current generation was resolved against (nil = the live
-        ;; source store; a real descriptors value = `make-frame`'s 2-arity
-        ;; explicit pool). EVERY successful public `make-frame` writes one;
-        ;; without this release, destroying N never-reused ids would leave N
-        ;; permanent rows, and the 2-arity would additionally keep the caller's
-        ;; explicit descriptor pool reachable. Same shape as the Fresco row above,
-        ;; one layer down, and it bites for the same reason — the documented
-        ;; per-request SSR recipe mints a fresh id per request, so a long-lived
-        ;; server would accumulate one row per request served. Its only reader is
-        ;; `live-frame/reproject-live-frame!`, already a no-op for a frame
-        ;; carrying no generation, so the row is needed only while the frame is
-        ;; live. Keyed and unconditional, needing no incarnation token: this
-        ;; destroy holds the id's reservation until its teardown has finished,
-        ;; so the row standing here is this dying incarnation's. Reached by
-        ;; late-bind because
-        ;; `re-frame.live-frame` requires THIS ns (a back-require would invert
-        ;; the load order); published at `re-frame.live-frame`'s NS LOAD, which
-        ;; strictly precedes the first `make-frame`, so it is bound whenever a
-        ;; row can exist — and re-armed on every hot reload of that ns, which a
-        ;; `defonce`-guarded once-body could not do.
-        (safe-call-hook! :live-frame/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
-        ;; the forget. The frame's resolved generation rides the record's
-        ;; `:generation` slot, so dropping the record drops it too — no separate
-        ;; forget hook is needed.
+        ;; the forget. The frame's resolved generation and the descriptor pool
+        ;; it was resolved against ride the record's `:generation` and
+        ;; `:descriptor-pool` slots, so dropping the record drops both — no
+        ;; separate forget hook is needed.
         ;; Snapshot the terminal halted-destroy evidence while the id-keyed
         ;; epoch stores are intact — before dissoc-frame!. The bundle is bound
         ;; lexically to this destroy recipe and published by the step-10 epoch

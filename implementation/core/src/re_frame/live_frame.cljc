@@ -65,8 +65,8 @@
       affected live frame's generation WITHOUT a manual `make-frame` /
       `reproject-live-frames!` call. Each frame reprojects against the pool it
       was ORIGINALLY resolved against — the live store, or the SAME explicit
-      descriptor pool for a `make-frame` 2-arity frame (`frame-generation-pool`
-      §Generation PROVENANCE) — never against a store its
+      descriptor pool for a `make-frame` 2-arity frame (the record's
+      `:descriptor-pool` slot, §Generation PROVENANCE) — never against a store its
       composition was never selected from. The deferred (`next-tick`) flush
       runs a RESILIENT variant of the sweep: a per-frame assembly failure is
       diagnosed (trace DIAGNOSTIC channel) and does NOT abort the rest of the
@@ -734,222 +734,29 @@
 ;; against unrelated live registrations that merely happen to share the
 ;; selected namespace.
 ;;
-;; So this ns remembers, per frame id, WHICH pool its generation was last
-;; resolved against (nil = the live store; a real descriptors value = that
-;; explicit pool), and threads the SAME pool through reprojection.
-;; `make-frame` is the ONE place a frame's pool arity is chosen — both first
-;; construction and every hot-reload re-construction — so it is the ONE place
-;; that records it; a re-`make-frame` that changes arity (explicit pool ↔
-;; live store) simply overwrites the record, keeping it always current.
+;; So the pool travels WITH the generation. `make-frame` — the ONE place a
+;; frame's pool arity is chosen, on first construction and on every hot-reload
+;; re-construction — threads it to the engine under the reserved
+;; `:rf.frame/descriptor-pool` key beside `:rf.frame/generation`, and the
+;; engine seats it in the record's `:descriptor-pool` slot (nil = the live
+;; store). Being fields of one record, the two are admitted, staged and rolled
+;; back by the same per-id construction transaction: a same-id contender the
+;; engine rejects writes neither, a failed creation leaves neither, and a
+;; failed re-construction restores both — or, when a reprojection re-resolved
+;; the staged generation meanwhile, keeps both (`rf.frame/upsert-frame!`'s
+;; rollback).
 ;;
-;; This is process-local dev bookkeeping (a `defonce` atom, the same shape as
-;; `pending-reprojection?` further below) rather than a new key on the sealed
-;; generation itself — `image-assembly` (the generation-schema owner) stays
-;; untouched; the provenance lives beside the OTHER reload/reprojection
-;; bookkeeping in this ns. Being process-local does NOT make it process-lived:
-;; the row is FRAME-SCOPED transient state, so it is released at the single
-;; normative teardown boundary like every other frame-keyed side table
-;; (Spec 002 §Frame lifecycle §Destroy). `release-frame-generation-pool!`
-;; below is that release, published as `:live-frame/on-frame-destroyed!` and
-;; invoked from `rf.frame/destroy-frame!`'s step-6 auxiliary-cleanup pass.
+;; `reproject-live-frame!` reads token, generation and pool from ONE record
+;; snapshot, so the composition it re-resolves always meets the pool it was
+;; sealed against. That covers the `:initial-events` cascade `upsert-frame!`
+;; runs inside the construction: its dispatches flush any pending reprojection
+;; against a record that already carries the incoming pair, which re-resolves
+;; byte-for-byte and so swaps nothing. Reprojection writes the generation
+;; alone and leaves the pool as it found it.
 ;;
-;; The release is about RETENTION, not correctness. A stale row is never read
-;; incorrectly — `reproject-live-frame!` is a no-op for an unregistered id, and
-;; a REUSED id's row is overwritten BEFORE the next `make-frame`'s engine commit
-;; (see the WHEN section below). But the write is unconditional in the PUBLIC
-;; constructor, and the documented per-request SSR recipe mints a fresh id,
-;; constructs, renders and destroys in a `finally` — so without the release a
-;; long-lived server would retain one row per request served, plus (on the
-;; 2-arity) the caller's whole explicit descriptor pool. The Fresco frame-ops
-;; row one layer up is released the same way. The release needs no
-;; incarnation token: the destroy holds the id's reservation until step 10 has
-;; finished, so no same-id successor can be constructed before this hook runs
-;; and every row standing at hook time is the dying incarnation's.
-;;
-;; ---- WHEN the row is written, and under WHOSE authority -------------------
-;;
-;; The row is written BEFORE the `upsert-frame!` engine commit, rolled back
-;; EXACTLY on failure, and the whole pair runs INSIDE the engine's own exact
-;; per-id construction reservation (`rf.frame/call-with-frame-construction-claim!`).
-;; Order and admission are separate properties and the row needs both: the
-;; order decides what the CONSTRUCTING thread's own cascade reads, the
-;; reservation decides who is allowed to write the row at all.
-;;
-;; ORDER. Writing the row after the commit returns reads as the safer order —
-;; a failed construction cannot leave residue if it never writes — but it is
-;; not, because the record and the row are two stores and the frame is
-;; REPROJECTABLE the moment the first of them lands.
-;;
-;; `upsert-frame!` publishes the record carrying the new generation and then,
-;; still inside the call, runs the `:initial-events` setup steps (EP-0027).
-;; Those steps dispatch, so they pass through `call-with-frame-resolution`,
-;; whose read-time consult flushes any PENDING reprojection. With the row
-;; written after the commit, that flush would read a row belonging to some
-;; PREVIOUS incarnation of the id — or to no generation at all — re-resolve
-;; the frame's composition against that wrong pool, and `set-generation!` the
-;; result over the generation the constructor had just installed. The
-;; constructor would return having silently lost its own swap, with the row
-;; ending up correct and the GENERATION wrong. Not a race: one synchronous
-;; call, both hosts (`make-frame-generation-pool-window-jvm-test` pins it with
-;; no threads and no barrier).
-;;
-;; Writing FIRST makes the setup cascade's flush re-resolve the frame against
-;; the pool it was actually sealed from, which is a byte-for-byte identical
-;; generation and therefore no swap at all. The no-residue contract —
-;; a failed creation records nothing, a failed re-construction preserves the
-;; old row — is then held EXPLICITLY by `restore-frame-generation-pool!`
-;; rather than implicitly by ordering, which is the stronger statement: it says
-;; what it means at the site, instead of depending on nothing ever resolving
-;; between the two writes.
-;;
-;; ADMISSION. Order alone is a single-threaded property, and it leaves the row
-;; open to attempts the ENGINE REJECTS. `upsert-frame!` admits exactly ONE
-;; construction per id and fails every other promptly with
-;; `:rf.error/frame-construction-in-progress` — a loss that writes nothing,
-;; which is the whole point of failing at admission rather than inside an
-;; adapter or setup callback. A row written AHEAD of that admission would break
-;; the property: a same-id contender would publish its own pool into this
-;; shared table on its way to being rejected. While the WINNER sat inside its
-;; commit and its `:initial-events` cascade, a reprojection landing in the
-;; loser's interval would read the loser's pool, re-resolve the winner's frame
-;; against it and swap that on — the ORDER defect, reached by a second route.
-;; The rollback is no safer in the other direction: an undo computed from a
-;; row read outside any reservation can restore over a row a NEWER owner has
-;; since written.
-;;
-;; So the write, the commit and the rollback all happen inside ONE exact
-;; reservation for the id. A losing attempt throws at the claim, before the
-;; first `swap!`; a winning attempt cannot be interleaved with any other
-;; attempt on the same id, so the row it restores is still the row it
-;; displaced. `rf.frame/call-with-frame-construction-claim!` ADOPTS an outer
-;; preflight's existing reservation (a preflight that claimed the id and handed
-;; it off), so that path keeps one reservation for its whole run rather than
-;; nesting a second.
-;;
-;; What the reservation does NOT do is fence READERS: a reprojection takes no
-;; claim, and must not — it is a resolution, not a construction. So one
-;; interval survives, on a RE-construction only: the row names the incoming
-;; pool from the moment it is written until `upsert-frame!`'s surgical swap
-;; installs the incoming generation, and a JVM-concurrent flush landing in THAT
-;; interval re-resolves the OUTGOING composition against the INCOMING pool.
-;; Transient and self-correcting — the swap that follows overwrites it
-;; unconditionally, so no completed call can observe it, where a write after
-;; the commit would corrupt the value the constructor returns. The remaining
-;; exposure is at worst one spurious `:rf.error/reprojection-failed` record
-;; for a frame the swap then corrects.
-
-(defonce ^{:private true
-           :doc "frame id -> the descriptor pool its CURRENT generation was
-  resolved against: nil for the live source store, a real descriptors value
-  for an explicit pool (`make-frame`'s 2-arity). Written by `make-frame`
-  (creation + hot-reload re-construction) BEFORE the `upsert-frame!` engine
-  commit, so the row is already in step the moment the record can be
-  reprojected — in particular for the `:initial-events` cascade that runs
-  INSIDE that commit — and rolled back exactly on failure by
-  `restore-frame-generation-pool!`, which is how the no-residue contract (a
-  failed creation records nothing; a failed re-construction preserves the old
-  row) is kept. Both the write and its rollback run inside the engine's exact
-  per-id construction reservation, so the only attempt that ever touches an
-  id's row is the one the engine ADMITTED: a rejected same-id contender
-  publishes nothing, and a rollback cannot land on a successor's row.
-  RELEASED at destroy by `release-frame-generation-pool!`, so the
-  table holds rows for LIVE frames only and never outlives the frames it
-  describes.
-  Reprojection then re-resolves against the SAME provenance
-  instead of silently defaulting to the live store for a frame
-  that was never resolved against it. See the §Generation PROVENANCE section
-  above for the full rationale."}
-  frame-generation-pool
-  (atom {}))
-
-(defn- record-frame-generation-pool!
-  "Record that `runnable-id`'s generation is being resolved against
-  `descriptors` (nil for the live store) — see `frame-generation-pool`.
-  Returns the PRIOR row as `[had-row? prior-descriptors]`, the exact input
-  `restore-frame-generation-pool!` needs to undo this write."
-  [runnable-id descriptors]
-  (let [before (deref frame-generation-pool)]
-    (swap! frame-generation-pool assoc runnable-id descriptors)
-    [(contains? before runnable-id) (get before runnable-id)]))
-
-(defn- restore-frame-generation-pool!
-  "Undo one `record-frame-generation-pool!` write on `runnable-id`, restoring
-  the row to EXACTLY what it was: `prior` when the id had one, ABSENT when it
-  did not. The two cases are distinct and both matter — `nil` is a legitimate
-  recorded pool (it means \"the live source store\"), so an absent row cannot be
-  spelled by assoc'ing nil.
-
-  This is the no-residue contract, stated: a failed creation records nothing,
-  and a failed re-construction preserves the old row.
-
-  Callers MUST still hold the id's construction reservation here. The undo is
-  computed from a row read at `record-frame-generation-pool!` time, so it is
-  only exact while no other attempt can have written in between — which is
-  precisely what the reservation guarantees, and why `make-frame` performs both
-  halves inside `rf.frame/call-with-frame-construction-claim!`. Returns nil."
-  [runnable-id had-row? prior]
-  (if had-row?
-    (swap! frame-generation-pool assoc runnable-id prior)
-    (swap! frame-generation-pool dissoc runnable-id))
-  nil)
-
-(defn- release-frame-generation-pool!
-  "Drop `runnable-id`'s provenance row — the TEARDOWN counterpart of
-  `record-frame-generation-pool!`. Published as
-  `:live-frame/on-frame-destroyed!` and invoked from `rf.frame/destroy-frame!`'s
-  step-6 auxiliary-cleanup pass, so the row's lifetime is the frame's.
-
-  Keyed and UNCONDITIONAL, carrying no incarnation token — the same argument
-  the sibling `:fresco/on-frame-destroyed!` hook makes: destroy
-  still holds the id's exact construction/destruction reservation here and
-  releases it only once step 10 has finished, so no same-id successor can be
-  seated first and every row standing at hook time belongs to the incarnation
-  being torn down.
-  A stale exact-value destroy never reaches this pass at all — it fails its
-  claim before the cleanup walk begins.
-
-  Idempotent: `dissoc` on an absent key is a no-op, which is also the whole of
-  what a frame constructed before this hook was published (impossible in
-  practice — the publication below is a NS-LOAD effect, so the hook is bound
-  before this ns can be called at all) would need. Returns nil."
-  [runnable-id]
-  (swap! frame-generation-pool dissoc runnable-id)
-  nil)
-
-;; PUBLISHED AT NS LOAD, deliberately NOT from the `make-frame`-rooted
-;; reprojection once-body. `frame.cljc` is BELOW
-;; this ns (live-frame requires frame, not the other way round), so
-;; `destroy-frame!` reaches the release by late-bind keyword like every other
-;; feature's `<feature>/on-frame-destroyed!` callback — `fx.cljc` publishes
-;; `:fx/on-frame-destroyed!` from its own ns bottom for exactly this reason.
-;;
-;; WHY LOAD TIME RATHER THAN THE ONCE-BODY. `rf.late-bind/hooks` is "populated by
-;; the producing namespace at LOAD TIME", and `set-fn!`'s cache invalidation
-;; exists so "hot-reload of an artefact swaps the resolved fn on the very next
-;; dispatch". A publication sited inside `install-reprojection!` cannot honour
-;; that: `reprojection-installed?` is a `defonce`, so in a dev process that has
-;; already constructed one frame the once-body is skipped on every subsequent
-;; reload of this ns and the key is never re-published. That is invisible in a
-;; fresh process — where the first `make-frame` installs everything — and
-;; bites only on a process whose flag is already `true` with the key absent:
-;; reloading this ns would leave `destroy-frame!` with no release to call and
-;; the rows would leak until restart. Load time is also strictly EARLIER than
-;; the once-body: this ns must be loaded before `make-frame` can be called, so
-;; the hook is bound before any row can exist.
-;;
-;; THIS ROOTS NO REPROJECTION GRAPH. `release-frame-generation-pool!` is one
-;; `swap!` against the provenance atom and references nothing in the
-;; reprojection / `image-assembly` graph, so a bundle that never constructs a
-;; frame still folds `install-reprojection!`, `reproject-live-frame!` and
-;; `resolve-within-image` away (the Spec 009 elision probe's
-;; PROD_ABSENT_WHEN_UNUSED contract). What load time roots is the two-line
-;; release and its atom, and nothing else.
-;;
-;; The registrar registration hook stays in the once-body and MUST: unlike a
-;; keyed `set-fn!`, `add-registration-hook!` APPENDS, so re-running it on every
-;; reload would accumulate duplicate hooks. Only the idempotent keyed
-;; publication is safe to re-run, so only it is published at load.
-(rf.late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
+;; The pool is transient: the engine strips it from the stored `:config`, so no
+;; `frame-meta` read, lifecycle trace or tool carries it, and it leaves with the
+;; record when `destroy-frame!` dissocs it.
 
 ;; The generation-resolution seam itself, published for the ONE
 ;; consumer that must resolve a registration in a NAMED frame's universe from a
@@ -957,11 +764,21 @@
 ;; slot applies the dispatched handler's own registration classification. That
 ;; ns deliberately depends on nothing but `elision` / `error` / `late-bind`, so
 ;; the seam reaches it by key, exactly as `:live-frame/flush-projection!` does.
-;; Published at NS LOAD for the reason `:live-frame/on-frame-destroyed!` above
-;; is: a `defonce`-guarded once-body is skipped on every reload after the first
-;; frame is constructed, so a hot-reloaded process would silently lose the key.
-;; Idempotent (keyed `set-fn!`), and it roots no reprojection graph beyond what
+;;
+;; PUBLISHED AT NS LOAD, not from the `make-frame`-rooted reprojection
+;; once-body. `rf.late-bind/hooks` is "populated by the producing namespace at
+;; LOAD TIME", and `set-fn!`'s cache invalidation exists so "hot-reload of an
+;; artefact swaps the resolved fn on the very next dispatch". A publication
+;; sited inside `install-reprojection!` cannot honour that:
+;; `reprojection-installed?` is a `defonce`, so in a dev process that has
+;; already constructed one frame the once-body is skipped on every subsequent
+;; reload of this ns and the key is never re-published. Idempotent (keyed
+;; `set-fn!`), and it roots no reprojection graph beyond what
 ;; `call-with-frame-resolution` already is.
+;;
+;; The registrar registration hook stays in the once-body and MUST: unlike a
+;; keyed `set-fn!`, `add-registration-hook!` APPENDS, so re-running it on every
+;; reload would accumulate duplicate hooks.
 (rf.late-bind/set-fn! :live-frame/call-with-frame-resolution call-with-frame-resolution)
 
 ;; ===========================================================================
@@ -1144,7 +961,7 @@
          ;; EP-0024: the unified constructor honours these. EP-0027:
          ;; `:initial-events` is one of these record-config keys — it flows
          ;; verbatim to the engine, which PREFLIGHT-validates it and runs the
-         ;; setup steps synchronously at construction. We thread two reserved
+         ;; setup steps synchronously at construction. We thread these reserved
          ;; construction inputs through the config:
          ;;   :rf.frame/generation   — the resolved generation, nil for a frame
          ;;                            made without `:images`. The engine seats it
@@ -1159,14 +976,22 @@
          ;;                            (a setup cascade included), never the
          ;;                            latest-registration-wins projection the
          ;;                            test fixture's frame reads.
+         ;;   :rf.frame/descriptor-pool — `descriptors`, the pool the
+         ;;                            generation was resolved against (nil for
+         ;;                            the live store). Seated beside it in the
+         ;;                            `:descriptor-pool` slot and stripped from
+         ;;                            the stored config, so a reprojection
+         ;;                            re-resolves against the same pool
+         ;;                            (§Generation PROVENANCE).
          ;;   :rf.frame/adapter      — the active-substrate adapter binding, KEPT
          ;;                            in the stored config so tooling (Xray's
          ;;                            image/frame view) can read it by id.
          ;; (There is no `:rf.frame/capabilities` input: images declare no host
          ;; capabilities, EP-0026.)
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
-                         true            (assoc :rf.frame/generation generation
-                                                :rf.frame/live-store? live-store?)
+                         true            (assoc :rf.frame/generation      generation
+                                                :rf.frame/live-store?     live-store?
+                                                :rf.frame/descriptor-pool descriptors)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `upsert-frame!` is idempotent on an existing id (surgical update
@@ -1176,95 +1001,35 @@
      ;; (there is no public realm dimension), so the record is keyed by the
      ;; bare id.
      ;;
-     ;; Pass a `token-box` OUT-channel so the engine hands back the
-     ;; EXACT installed incarnation token (the record's `:drain-lock`) from
-     ;; INSIDE the construction transaction. Embedding it on the returned frame
-     ;; VALUE (below) is what gives an owner exact teardown authority — with NO
-     ;; post-return `frame-incarnation-token` re-sample that a concurrent
-     ;; destroy + same-id reseat could race into a successor's token.
-     (let [token-box (volatile! nil)]
-       ;; ONE per-id construction transaction covers BOTH stores this constructor
-       ;; writes — see §Generation PROVENANCE above.
-       ;;
-       ;; The provenance row records which pool this generation was resolved
-       ;; against: a later reprojection reads it back so it
-       ;; re-resolves against the SAME pool (explicit or live) rather than
-       ;; falling through to the live store. It is written on every call
-       ;; (creation + hot-reload re-construction), so a re-`make-frame` that
-       ;; changes arity keeps the row current.
-       ;;
-       ;; The row is written BEFORE the engine commit, and the whole
-       ;; pair is INSIDE the engine's own exact per-id reservation. Both halves
-       ;; are load-bearing and each guards what the other cannot:
-       ;;
-       ;;   ORDER. The record and the row are two stores, and the frame becomes
-       ;;   REPROJECTABLE the moment the FIRST of them lands: `upsert-frame!`
-       ;;   publishes the record carrying the new generation and then, still
-       ;;   inside the call, runs the `:initial-events` setup steps, whose
-       ;;   dispatches flush any pending reprojection through
-       ;;   `call-with-frame-resolution`. Recording afterwards would leave that
-       ;;   flush reading a PREVIOUS incarnation's row: it would re-resolve the
-       ;;   frame against the wrong pool and `set-generation!` the result over
-       ;;   what had just been installed, so the constructor would return having
-       ;;   silently lost its own swap. One synchronous call, both hosts, no race.
-       ;;
-       ;;   ADMISSION. Ordering alone would leave the row written by attempts
-       ;;   the ENGINE REJECTS. `rf.frame/upsert-frame!` admits exactly one
-       ;;   construction per id and fails every other promptly with
-       ;;   `:rf.error/frame-construction-in-progress` — a loss that writes
-       ;;   NOTHING. Writing the row ahead of that admission would break the
-       ;;   zero-write property: a same-id contender would publish its own pool
-       ;;   into the shared table on its way to being rejected, and a
-       ;;   reprojection landing in that interval — while the WINNER was inside
-       ;;   its commit / `:initial-events` cascade — would resolve the winner's
-       ;;   frame against the LOSER's pool and swap it on. Its rollback would be
-       ;;   no safer: an undo computed from a row read outside any reservation
-       ;;   can restore over a newer owner's row. Claiming FIRST makes both
-       ;;   impossible rather than unlikely — a loser throws before `f` runs,
-       ;;   and the winner's write, commit and rollback are all serialised
-       ;;   against every other attempt on the id.
-       ;;
-       ;; The no-residue contract holds by being STATED instead of implied: the
-       ;; prior row is captured here and restored exactly if the commit throws,
-       ;; so a FAILED creation records nothing and a FAILED re-construction
-       ;; preserves the OLD row — and because the restore runs while this
-       ;; attempt still OWNS the id, the row it restores is still the row it
-       ;; displaced.
-       ;; The record this call DISPLACES, read INSIDE the per-id construction
-       ;; claim so its resolution is exactly what `upsert-frame!` is about to
-       ;; replace: nil on a first creation (nothing cached yet), the previous
-       ;; record on the same-id re-construction path that IS image hot-reload.
-       ;; Reading it outside the claim would race the reprojection writer. The
-       ;; refresh itself fires AFTER the commit — a construction that throws
-       ;; rolls the record back, and evicting against a generation that was
-       ;; never installed would churn a cache for nothing.
-       (let [displaced-record (volatile! nil)]
-         (rf.frame/call-with-frame-construction-claim!
-           runnable-id :construction
-           (fn []
-             (let [[had-pool-row? prior-pool]
-                   (record-frame-generation-pool! runnable-id descriptors)]
-               (vreset! displaced-record (rf.frame/frame runnable-id))
-               (try
-                 (rf.frame/upsert-frame! runnable-id record-config token-box)
-                 (catch #?(:clj Throwable :cljs :default) e
-                   (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
-                   (throw e))))))
-         ;; Refresh the frame's cached subscriptions against what actually
-         ;; landed on the record (`frame-generation` re-read, not the local
-         ;; `generation` value) — the `:initial-events` cascade inside
-         ;; `upsert-frame!` can flush a pending reprojection that swaps a
-         ;; different generation on, and the diff must be against the one the
-         ;; next subscribe will resolve through.
-         ;; A displaced frame with no generation resolved live (or through the
-         ;; registrar), so its cached subs were built against neither image:
-         ;; compare from an empty generation, which condemns every sub the
-         ;; incoming generation resolves.
-         (invalidate-subs-for-generation-change!
-           runnable-id
-           (when-let [displaced @displaced-record]
-             (or (:generation displaced) {}))
-           (rf.frame/frame-generation runnable-id)))
+     ;; Pass an OUT-channel so the engine hands back, from INSIDE its
+     ;; construction transaction, the EXACT installed incarnation token (the
+     ;; record's `:drain-lock`) and the record this call DISPLACED. Embedding the
+     ;; token on the returned frame VALUE (below) is what gives an owner exact
+     ;; teardown authority — with NO post-return `frame-incarnation-token`
+     ;; re-sample that a concurrent destroy + same-id reseat could race into a
+     ;; successor's token. The displaced record is the exact value the engine's
+     ;; surgical swap replaced: nil on a first creation (nothing cached yet), the
+     ;; previous record on the same-id re-construction path that IS image
+     ;; hot-reload.
+     (let [outcome (volatile! nil)]
+       (rf.frame/upsert-frame! runnable-id record-config outcome)
+       ;; Refresh the frame's cached subscriptions against what actually
+       ;; landed on the record (`frame-generation` re-read, not the local
+       ;; `generation` value) — the `:initial-events` cascade inside
+       ;; `upsert-frame!` can flush a pending reprojection that swaps a
+       ;; different generation on, and the diff must be against the one the
+       ;; next subscribe will resolve through. It runs only after a commit: a
+       ;; construction that throws rolls the record back, and evicting against
+       ;; a generation that was never installed would churn a cache for nothing.
+       ;; A displaced frame with no generation resolved live (or through the
+       ;; registrar), so its cached subs were built against neither image:
+       ;; compare from an empty generation, which condemns every sub the
+       ;; incoming generation resolves.
+       (invalidate-subs-for-generation-change!
+         runnable-id
+         (when-let [displaced (:displaced @outcome)]
+           (or (:generation displaced) {}))
+         (rf.frame/frame-generation runnable-id))
        ;; THE CONSTRUCTION-WINDOW INVARIANT: a PARTIALLY-CONSTRUCTED frame is
        ;; never observable as live, so a registration that lands while a frame
        ;; is mid-construction is never lost.
@@ -1295,8 +1060,8 @@
        ;; sweep over every image-loaded frame on an ordinary `make-frame`. The
        ;; comparison is exact: any `reg-*` / `forget-*` / `clear-*` /
        ;; `register-standard!` bumps a leg of `registration-pool-mark`. The
-       ;; conditional stands on that cost argument: with the provenance row
-       ;; written before the engine commit (§Generation PROVENANCE above), an
+       ;; conditional stands on that cost argument: with the pool seated beside
+       ;; the generation on the record (§Generation PROVENANCE above), an
        ;; unconditional mark would also be correct, but this is the cheaper
        ;; shape, and `make-frame-generation-seal-race-jvm-test` §4 keeps it
        ;; pinned.
@@ -1314,11 +1079,12 @@
          (mark-dirty-and-schedule!))
        ;; Return the frame VALUE — the lifecycle token (generation not embedded;
        ;; read from the record by id). It carries the exact incarnation token
-       ;; (`@token-box`) so `destroy-frame!` of this value is incarnation-EXACT.
+       ;; (`:token` of the outcome) so `destroy-frame!` of this value is
+       ;; incarnation-EXACT.
        (rf.frame/make-frame-value {:id          id
                                 :runnable-id runnable-id
                                 :adapter     adapter
-                                :token       @token-box})))))
+                                :token       (:token @outcome)})))))
 
 ;; ===========================================================================
 ;; Image hot reload (EP-0023 §Hot Reload)
@@ -1517,7 +1283,7 @@
   image composition (`:rf.gen/images`) against the pool that generation was
   ORIGINALLY resolved against — the CURRENT live source store for an ordinary
   frame, or the SAME explicit descriptor pool for a frame `make-frame`'s
-  2-arity created (`frame-generation-pool`, §Generation PROVENANCE
+  2-arity created (the record's `:descriptor-pool`, §Generation PROVENANCE
   above) — and swap the freshly-assembled generation onto the frame when it
   CHANGED (EP-0023 §Default Image Semantics — a source-store change
   reprojects affected EXPLICIT-image frames, not only default-image frames).
@@ -1525,18 +1291,18 @@
   the frame moved, or nil when its composition re-resolved byte-for-byte (no
   swap — this is also the outcome for every explicit-pool frame, since a
   frozen pool value always re-resolves identically). A no-op for a frame-id
-  whose record carries no generation (not image-loaded). The incarnation is
-  captured before the read; if the frame was destroyed and re-made under the
-  same id before the publish, the new generation is dropped and this returns
-  nil."
+  whose record carries no generation (not image-loaded). The incarnation
+  token, the generation and its pool are read from ONE record snapshot, so the
+  composition always meets the pool it was sealed against; if the frame was
+  destroyed and re-made under the same id before the publish, the new
+  generation is dropped and this returns nil."
   [frame-id]
-  (let [token (rf.frame/frame-incarnation-token frame-id)]
-    (when-let [old-generation (when token (rf.frame/frame-generation frame-id))]
+  (let [record (rf.frame/frame frame-id)]
+    (when-let [old-generation (:generation record)]
       (let [images         (vec (:rf.gen/images old-generation))
-            pool           (get @frame-generation-pool frame-id)
-            new-generation (resolve-generation! images pool)]
+            new-generation (resolve-generation! images (:descriptor-pool record))]
         (when (and (not= old-generation new-generation)
-                   (swap-frame-generation! frame-id token new-generation))
+                   (swap-frame-generation! frame-id (:drain-lock record) new-generation))
           (generation-diff old-generation new-generation))))))
 
 (defn reproject-live-frames!
@@ -1944,8 +1710,8 @@
   `true` here is a PROMISE that the registrar hook and BOTH reprojection
   late-bind keys are already in place, and a partially-installed reprojection
   must never be observable as installed. It promises nothing about
-  `:live-frame/on-frame-destroyed!`, which is published at ns load and is
-  therefore already bound before this flag can even be read."}
+  `:live-frame/call-with-frame-resolution`, which is published at ns load and
+  is therefore already bound before this flag can even be read."}
   reprojection-installed?
   (atom false))
 
@@ -2001,14 +1767,6 @@
     ;; through `late-bind`, so the consult sites themselves root nothing —
     ;; only this publication does, and only `make-frame` reaches it.
     (rf.late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
-    ;; NOT the place for `:live-frame/on-frame-destroyed!`: a once-body
-    ;; guarded by a `defonce` flag is skipped on every
-    ;; hot reload after the first frame, so a publication sited here never
-    ;; re-arms. It is published at ns load instead — see the comment above
-    ;; `release-frame-generation-pool!`. Nothing is lost by its absence here:
-    ;; ns load strictly precedes the first `make-frame`, so the hook is bound
-    ;; before the first provenance row can exist either way.
-    ;;
     ;; …and ONLY NOW is the wiring observable as installed.
     (reset! reprojection-installed? true))
   nil)
@@ -2021,9 +1779,9 @@
   for the caller performing it, so it can never proceed on a half-installed
   one.
 
-  `:live-frame/on-frame-destroyed!` is NOT installed here — it is published at
-  ns load, because a `defonce`-guarded once-body cannot re-arm a
-  hook on hot reload. See the comment above `release-frame-generation-pool!`.
+  `:live-frame/call-with-frame-resolution` is NOT installed here — it is
+  published at ns load, because a `defonce`-guarded once-body cannot re-arm a
+  hook on hot reload. See the comment above that publication.
 
   A PARTIALLY-INSTALLED REPROJECTION IS NEVER OBSERVABLE AS INSTALLED. That is
   the invariant, and it is what makes the once-flag safe to read. A spelling
