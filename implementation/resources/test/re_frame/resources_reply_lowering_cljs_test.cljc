@@ -50,10 +50,10 @@
     (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/aborted :reason :actor-destroyed}
                                               resource-opts)]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= {:status :cancelled :rf.reply/work-status :cancelled :cancelled? true
+      (is (= {:status :cancelled :rf.reply/work-status :cancelled
               :rf.reply/cancel-reason :actor-destroyed :completed-at 1781078400456
               :error {:kind :rf.http/aborted :reason :actor-destroyed}}
-             (select-keys r [:status :rf.reply/work-status :cancelled? :rf.reply/cancel-reason
+             (select-keys r [:status :rf.reply/work-status :rf.reply/cancel-reason
                              :completed-at :error]))))))
 
 (deftest mutation-success-reply-is-canonical

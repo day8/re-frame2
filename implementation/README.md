@@ -223,8 +223,7 @@ implementation/
                              the reply-envelope families (HTTP, resources, mutations,
                              routing) plus the egress projection of reply
                              slots through `trace-summary`. Core owns the
-                             `project-egress` profiles, and core and its timer probe
-                             own the reply-target functor laws.
+                             `project-egress` profiles.
     test/re_frame/                 JVM + CLJS cross-family reply conformance suites.
 
   derivation-conformance/    Cross-family derivation/process-algebra conformance tier

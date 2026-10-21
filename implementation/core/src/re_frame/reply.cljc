@@ -10,10 +10,7 @@
   reference realisation of that contract's *pure* core:
 
     - target normalization (vector-prefix ↔ descriptor form),
-    - completion (append the reply map to the target per `:delivery`),
-    - reply-target mapping — the functor law (`map-completed-event`
-      changes ONLY the completed event, never issuance / `:rf.reply/work-id` /
-      status / cancellation / staleness / tracing),
+    - completion (append the reply map to the target's event),
     - reply-map schema validation (the closed `:status` taxonomy +
       value/error conventions + the data-only invariant),
     - data-only trace summaries (every wire-bearing slot routes through
@@ -58,8 +55,8 @@
   "The CLOSED reply `:status` vocabulary (Managed-Effects §Status taxonomy).
   Exactly one of these is the reply's status. `:ok`/`:partial` carry
   `:value`; `:error`/`:partial` carry `:error`; `:cancelled` carries
-  `:rf.reply/cancel-reason`; `:stale` carries `:stale? true` + `:rf.reply/stale-reason` and
-  MUST NOT mutate app state."
+  `:rf.reply/cancel-reason`; `:stale` carries `:rf.reply/stale-reason` and MUST
+  NOT mutate app state."
   #{:ok :partial :error :cancelled :stale})
 
 (def work-statuses
@@ -76,16 +73,7 @@
 ;;
 ;; A normalized target is a map:
 ;;   {:event     [:event-id arg ...]     ;; the prefix to complete
-;;    :delivery  :append                 ;; the only public delivery mode
-;;    :suppress  {...}                    ;; optional data-only gates
-;;    ::post     (fn [event] event)}      ;; the composed event-transform
-;;
-;; `::post` is the functor's accumulator: a pure event→event transform that
-;; `complete` applies AFTER appending the reply map. It is namespaced-private
-;; and is NEVER serialized into an effect map or a durable reply — it exists
-;; only on a normalized target while a family is assembling/relocating a
-;; continuation, exactly the role Elm's `Cmd.map` plays. Identity target
-;; carries no `::post` (treated as identity); composition composes them.
+;;    :suppress  {...}}                   ;; optional data-only gates
 ;;
 ;; STALE OUTCOMES NEVER APP-DELIVER. A superseded async
 ;; completion's app reply target is NEVER dispatched — `suppress` is
@@ -97,14 +85,9 @@
 ;; `(:reply outcome)` and dispatches it on its OWN authority, in its own code
 ;; (see `suppress`).
 ;;
-;; EPHEMERAL vs DURABLE. `::post` is the one ephemeral, host-bearing slot a
-;; normalized target may carry while in-flight, so a MAPPED target is
-;; ephemeral. A target that could become DURABLE (persisted to an attempt record,
-;; a stored continuation, a replay log) MUST be data-only: see
-;; `durable-target`, which refuses a mapped target and asserts data-only.
+;; A target that could become DURABLE (persisted to an attempt record, a
+;; stored continuation, a replay log) MUST be data-only: see `durable-target`.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private post-key ::post)
 
 (defn descriptor?
   "True when `target` is the descriptor (map) form rather than the
@@ -141,11 +124,11 @@
 
 (def ^:private reply-category->error-id
   "The CLOSED literal `:rf.reply/<category>` → `:rf.error/reply-<category>`
-  table — the four mintable reply error-ids, each spelled as a GREPPABLE
+  table — the three mintable reply error-ids, each spelled as a GREPPABLE
   literal adjacent to the construction site so `rg :rf.error/reply-` hits the
   SOURCE (not only the Spec 009 catalogue), and the member set is pinned
   CLOSED. Every reply throw's canonical `:rf.error/id` is a value here; the
-  four keys are exactly the four `:rf.error/reply-*` rows in
+  three keys are exactly the three `:rf.error/reply-*` rows in
   `spec/009-Instrumentation.md` §Error event catalogue — the Conventions
   co-edit invariant (a mintable id with no catalogue row, or a throw whose
   category is absent from this table, is a contract bug, not a deferred
@@ -161,11 +144,10 @@
 
   NOTE `:rf.reply/correlation-mismatch` is NOT a member — it is a
   `:rf.reply/stale-reason` VALUE on a (non-throwing) stale reply, never an
-  `:rf.error/id`; only the four throw categories are catalogued here."
-  {:rf.reply/invalid-target   :rf.error/reply-invalid-target
-   :rf.reply/non-data-target  :rf.error/reply-non-data-target
-   :rf.reply/non-map-reply    :rf.error/reply-non-map-reply
-   :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery})
+  `:rf.error/id`; only the three throw categories are catalogued here."
+  {:rf.reply/invalid-target  :rf.error/reply-invalid-target
+   :rf.reply/non-data-target :rf.error/reply-non-data-target
+   :rf.reply/non-map-reply   :rf.error/reply-non-map-reply})
 
 (defn- reply-error
   "Build the canonical reply thrown-error `ex-info`. `category`
@@ -196,12 +178,11 @@
 
   Accepts either:
     - the public short form: an event-vector prefix `[:event-id arg ...]`;
-    - the descriptor form: `{:event [...] :delivery :append :suppress {...}}`.
+    - the descriptor form: `{:event [...] :suppress {...}}`.
 
-  Returns `{:event <vector> :delivery <kw> ...}` with `:delivery` defaulted
-  to `:append`. Idempotent: normalizing an already-normalized target is the
-  identity (it preserves any accumulated `::post` transform and the gate
-  fields). A nil/blank target yields nil (no continuation).
+  Returns `{:event <vector> ...}`. Idempotent: normalizing an
+  already-normalized target is the identity. A nil/blank target yields nil
+  (no continuation).
 
   FAILS CLOSED on a malformed target (Managed-Effects §The reply target —
   `:event` is REQUIRED and is an event-vector prefix). A descriptor missing
@@ -210,31 +191,29 @@
   `:rf.reply/invalid-target` rather than letting a bogus `{}` / `{:event nil}` /
   `{:event :x}` travel on to `complete` (whose append would turn it into a
   garbage dispatch shape). Validating here means EVERY downstream consumer
-  (`complete`, `map-completed-event`, `durable-target`) inherits the
-  guarantee — the target is either nil or a well-formed descriptor."
+  (`complete`, `durable-target`) inherits the guarantee — the target is
+  either nil or a well-formed descriptor."
   [target]
   (cond
     (nil? target) nil
 
     (vector? target)
     (if (event-vector? target)
-      {:event target :delivery :append}
+      {:event target}
       (throw (reply-error
                :rf.reply/invalid-target
                "Invalid :rf/reply-to target — an event-vector prefix must be a non-empty vector whose head is a keyword event id."
                {:target target})))
 
     (descriptor? target)
-    (let [{:keys [event delivery]} target]
+    (let [{:keys [event]} target]
       (when-not (event-vector? event)
         (throw (reply-error
                  :rf.reply/invalid-target
                  "Invalid :rf/reply-to target — the descriptor's :event must be an event-vector prefix [:event-id arg ...] (a non-empty vector with a keyword head)."
                  {:target target
                   :event  event})))
-      (cond-> target
-        (nil? delivery) (assoc :delivery :append)
-        true            (assoc :event event)))
+      target)
 
     :else
     (throw (reply-error
@@ -243,94 +222,23 @@
              {:target target}))))
 
 ;; ---------------------------------------------------------------------------
-;; Completion — append the reply map to the target's event, then apply the
-;; composed event-transform (Managed-Effects §The reply target: "the reply
-;; map appended as the final argument").
+;; Completion — append the reply map to the target's event (Managed-Effects
+;; §The reply target: "the reply map appended as the final argument").
 ;; ---------------------------------------------------------------------------
 
 (defn complete
-  "Build the completed event for `target` carrying `reply`.
-
-  For `:delivery :append` (the only public mode) the reply map is appended
-  as the final argument of the target's event vector; then the target's
-  composed event-transform (`::post`, identity when absent) is applied. The
-  result is the event vector ready to dispatch. The append is to the target
-  vector as written (`normalize-target` guarantees `:event` is a vector), so
-  any metadata on it travels with the completed event, the same append
-  managed HTTP makes.
-
-  This is the pure core the functor law is stated over:
-
-      (complete (map-completed-event f target) reply) == (f (complete target reply))
+  "Build the completed event for `target` carrying `reply`: the reply map
+  appended as the final argument of the target's event vector, ready to
+  dispatch. The append is to the target vector as written
+  (`normalize-target` guarantees `:event` is a vector), so any metadata on it
+  travels with the completed event, the same append managed HTTP makes.
 
   `complete` does NOT dispatch, validate, or suppress — issuance, stale
-  checks, attempt-record writes, and tracing are the family/runtime's job and are
-  unaffected by `map-completed-event` (the functor law). A nil target yields
-  nil (no delivery)."
+  checks, attempt-record writes, and tracing are the family/runtime's job. A
+  nil target yields nil (no delivery)."
   [target reply]
-  (when-let [{:keys [event delivery] :as d} (normalize-target target)]
-    (let [base (case delivery
-                 :append (conj event reply)
-                 ;; A non-:append delivery is a compatibility-adapter mode
-                 ;; that lowers internally; an unknown one is a contract
-                 ;; error rather than a silent fall-through.
-                 (throw (reply-error
-                          :rf.reply/unknown-delivery
-                          (str "Unknown :rf/reply-to :delivery mode " (pr-str delivery)
-                               " — :delivery must be :append (the public reply mode) "
-                               "or an internal compatibility-adapter mode. Fix the "
-                               "descriptor's :delivery on the reply target.")
-                          {:delivery delivery
-                           :target   d})))
-          post (get d post-key)]
-      (if post (post base) base))))
-
-;; ---------------------------------------------------------------------------
-;; Reply-target mapping — the functor (Managed-Effects §Reply mapping and the
-;; functor law). `map-completed-event` rewrites ONLY the completed event; it
-;; never touches issuance, `:rf.reply/work-id`, status, cancellation, stale checks, or
-;; tracing — those are not stored on the target at all, so the law holds
-;; structurally.
-;; ---------------------------------------------------------------------------
-
-(defn map-completed-event
-  "Map the reply target through an event-transform `f` (an event→event pure
-  fn). Returns a normalized target whose completion equals `f` applied to
-  the original completion:
-
-      (complete (map-completed-event f target) reply) == (f (complete target reply))
-
-  `f` receives the fully-completed event (the target event with the reply
-  map already appended) and returns the relocated/rewrapped event. Mapping
-  composes by composing `::post` accumulators, so the functor laws hold:
-
-      (map-completed-event identity target)        == target          ;; identity
-      (map-completed-event f (map-completed-event g target)) == (map-completed-event (comp f g) target)
-
-  Mapping a target changes ONLY the completed event — never issuance, work
-  id, status classification, cancellation, stale checks, or tracing (none
-  of those live on the target). This is the role `Cmd.map` plays in Elm's
-  command algebra: relocating or wrapping a continuation is a pure data
-  transform.
-
-  A nil target stays nil (no continuation to relocate) — mapping the absence
-  of a continuation is still the absence of a continuation, NOT a bogus
-  descriptor carrying only the private `::post` accumulator and no `:event`.
-  This preserves the no-continuation semantics through a relocation: a family
-  that maps a missing target gets nil back, and `complete` on it yields nil
-  (no delivery).
-
-  Mapping with `identity` returns the normalized target itself, so the
-  identity law holds by value and an identity-mapped target stays durable.
-  Any other mapping makes the target EPHEMERAL: its `::post` is a fn, which
-  `durable-target` refuses rather than drops."
-  [f target]
-  (when-let [d (normalize-target target)]
-    (if (identical? f identity)
-      d
-      (let [existing (get d post-key)
-            composed (if existing (comp f existing) f)]
-        (assoc d post-key composed)))))
+  (when-let [{:keys [event]} (normalize-target target)]
+    (conj event reply)))
 
 ;; ---------------------------------------------------------------------------
 ;; The data-only invariant (Managed-Effects §The reply map / §The reply
@@ -425,13 +333,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —
-;; the reply-target-as-data contract — and §Reply mapping and the functor
-;; law). A normalized target may carry the ephemeral, non-data slot `::post`
-;; (a fn) WHILE IN-FLIGHT, but a target that can become DURABLE (a stored
-;; continuation, an attempt record, a replay log) MUST be data-only.
+;; the reply-target-as-data contract). A target that can become DURABLE (a
+;; stored continuation, an attempt record, a replay log) MUST be data-only.
 ;; `durable-target` makes that boundary explicit and fails LOUD rather than
-;; letting a function leak into durable reply data or a mapping silently fall
-;; off it.
+;; letting a function leak into durable reply data.
 ;; ---------------------------------------------------------------------------
 
 (defn durable-target
@@ -439,27 +344,15 @@
   target about to be persisted (a stored continuation, an attempt record, a replay
   log). A nil target yields nil (no continuation to persist).
 
-  Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) when:
-
-    - the target is MAPPED (`map-completed-event` with any fn but
-      `identity`). The mapping is a fn, which a stored target cannot carry,
-      and dropping it would make the stored target complete to a different
-      event than the live one. A continuation that must outlive its issuer
-      names its relay event in the target vector instead.
-    - a public field (`:event` / `:suppress`) holds anything but plain EDN
-      data (`non-data`) — a fn anywhere (inside a list, as a map key), an
-      atom, a Promise, a `Date`, any host object. That is an app/family bug.
+  Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) when a field
+  (`:event` / `:suppress`) holds anything but plain EDN data (`non-data`) — a
+  fn anywhere (inside a list, as a map key), an atom, a Promise, a `Date`,
+  any host object. That is an app/family bug.
 
   The ex-data names the offending slot by `:path` and its host type by
   `:bad-type`, never the value itself."
   [target]
   (when-let [d (normalize-target target)]
-    (when-let [post (get d post-key)]
-      (throw (reply-error
-               :rf.reply/non-data-target
-               "A mapped reply target cannot be made durable — its completion mapping (map-completed-event) is a fn, which a stored target cannot carry, and dropping it would complete a different event. Name the relay event in the target vector instead."
-               {:path     [post-key]
-                :bad-type (str (type post))})))
     (when-let [{:keys [path bad-type]} (non-data d)]
       (throw (reply-error
                :rf.reply/non-data-target
@@ -490,9 +383,8 @@
                        error MAP carrying a `:kind`;
         `:error`     — `:error` present as a family error MAP carrying a
                        `:kind`;
-        `:cancelled` — `:rf.reply/cancel-reason` present AND `:cancelled? true`
-                       (the intentional-cancellation marker);
-        `:stale`     — `:stale? true` AND `:rf.reply/stale-reason` present;
+        `:cancelled` — `:rf.reply/cancel-reason` present;
+        `:stale`     — `:rf.reply/stale-reason` present, `:value` absent;
     - `:rf.reply/work-status` (when present) in the `work-statuses` set;
     - the data-only invariant: nothing but plain EDN data anywhere in the
       map, keys included (`non-data`), reported as `:rf.reply/host-handle`
@@ -504,10 +396,7 @@
   `:error` (a bare keyword/string) is rejected — every family error rides a
   structured `{:kind … …}` map so downstream classification, tracing, and
   cross-family error handling have a uniform shape to dispatch on (a scalar
-  would force each consumer to special-case it). Likewise a `:cancelled`
-  reply MUST carry the `:cancelled? true` marker, not merely a
-  `:rf.reply/cancel-reason`, so cancellation is an explicit positive fact rather than
-  inferred from the presence of a reason.
+  would force each consumer to special-case it).
 
   Pure; throws only on a non-map argument."
   [reply]
@@ -560,17 +449,11 @@
              (and (= status :error) (some? error) (not (error-map-with-kind? error)))
              (conj (problem :rf.reply/error-not-family-map [:error] error))
 
-             ;; :cancelled — :rf.reply/cancel-reason present AND the :cancelled? true
-             ;; intentional-cancellation marker (cancellation is a positive
-             ;; fact, not inferred from a stray reason).
+             ;; :cancelled — :rf.reply/cancel-reason present.
              (and (= status :cancelled) (nil? (:rf.reply/cancel-reason reply)))
              (conj (problem :rf.reply/cancelled-missing-reason [:rf.reply/cancel-reason] nil))
-             (and (= status :cancelled) (not (true? (:cancelled? reply))))
-             (conj (problem :rf.reply/cancelled-missing-marker [:cancelled?] (:cancelled? reply)))
 
-             ;; :stale — :stale? true and :rf.reply/stale-reason present; MUST NOT carry :value.
-             (and (= status :stale) (not (true? (:stale? reply))))
-             (conj (problem :rf.reply/stale-missing-flag [:stale?] (:stale? reply)))
+             ;; :stale — :rf.reply/stale-reason present; MUST NOT carry :value.
              (and (= status :stale) (nil? (:rf.reply/stale-reason reply)))
              (conj (problem :rf.reply/stale-missing-reason [:rf.reply/stale-reason] nil))
              (and (= status :stale) (contains? reply :value))
@@ -718,11 +601,12 @@
 
   A STALE OUTCOME NEVER APP-DELIVERS. A superseded async
   result must not mutate app state for a newer navigation / request /
-  generation, so the app reply target is never dispatched — there is no
-  per-target \"stale delivery authority\" and no per-target opt-in flag. A
-  reply target is app/data that could carry a capability, so a stale outcome
-  can never carry delivery authority through one; the boundary is therefore
-  UNIVERSAL and structural, not a check a caller can pass.
+  generation, so the app reply target is never dispatched — `suppress` never
+  receives it, and there is no per-target \"stale delivery authority\" and no
+  per-target opt-in flag. A reply target is app/data that could carry a
+  capability, so a stale outcome can never carry delivery authority through
+  one; the boundary is therefore UNIVERSAL and structural, not a check a
+  caller can pass.
 
   Framework/tool OBSERVATION (the only legitimate stale-delivery use). A test
   or tool that WANTS to observe a stale reply reads `(:reply outcome)` and
@@ -734,17 +618,13 @@
   with nothing capability-bearing smuggled through the target.
 
   Arguments:
-    `target`  — the reply target. Accepted for call-site uniformity (every
-                managed-async family threads its target through this boundary),
-                but NOT consulted for a delivery decision: a stale outcome is
-                universally non-delivering.
     `carried` — the data-only correlation captured at issuance.
     `current` — the data-only correlation read from live frame-state now.
     `extra`   — optional reply fields to carry verbatim (`:rf.reply/work-id`,
                 `:rf.reply/work-kind`, `:rf.frame/id`, `:completed-at`, `:meta`, …);
                 `:rf.reply/stale-reason` defaults to `:rf.reply/correlation-mismatch`
                 when not supplied. The stale boundary is NON-NEGOTIABLE:
-                `extra` CANNOT override `:status :stale` / `:stale? true` /
+                `extra` CANNOT override `:status :stale` /
                 `:rf.reply/work-status :suppressed`, and a `:value` in `extra` is
                 STRIPPED (a stale reply MUST NOT carry `:value` — see
                 `validate-reply`). So threading a natural success/error reply
@@ -761,10 +641,8 @@
   bus (routing wire slots through `trace-summary` / `elide-wire-value`). The
   stale reply MUST NOT produce any user-visible app-db / runtime-db mutation
   beyond framework-owned attempt-record / trace bookkeeping."
-  ([target carried current] (suppress target carried current nil))
-  ([target carried current extra]
-   ;; `target` is accepted for call-site uniformity but not consulted — a stale
-   ;; outcome is universally non-delivering.
+  ([carried current] (suppress carried current nil))
+  ([carried current extra]
    (let [reason   (or (:rf.reply/stale-reason extra) :rf.reply/correlation-mismatch)
          ;; `suppress` is THE correctness boundary, so "stale
          ;; wins over the natural completion status" (Managed-Effects
@@ -780,10 +658,9 @@
          carry    (dissoc extra :rf.reply/stale-reason :value)
          ;; `carry` is merged FIRST so the stale-boundary map (the second
          ;; `merge` arg) wins every shared key — `extra` cannot override
-         ;; `:status` / `:stale?` / `:rf.reply/work-status`, and `:value` was already
+         ;; `:status` / `:rf.reply/work-status`, and `:value` was already
          ;; stripped above.
          reply    (merge carry {:status       :stale
-                                :stale?       true
                                 :rf.reply/stale-reason reason
                                 :rf.reply/work-status  :suppressed})]
      {:deliver?    false

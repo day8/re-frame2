@@ -168,15 +168,12 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   none). Absent ⇒ omitted
   (a route loader that did not source a completion time).
 
-  `:target` is the (optional) normalized
-  `:rf/reply-to` reply target. It is threaded into `rf.routing.reply/suppress` for
-  call-site uniformity, but a stale completion is UNIVERSALLY non-delivering at
-  the production routing surface: the app reply target MUST NOT run on a
-  superseded completion (it would mutate app state for a newer navigation), so
-  `:deliver?` is always false. Returns the full `re-frame.reply/suppress`
-  outcome (`{:deliver? :reply :rf.reply/work-status :trace}`); the caller emits
-  the suppression trace and dispatches nothing (the app target is never run)."
-  [{:keys [carried-token current-token event-id frame-id route-id loader-id completed-at target]}]
+  A stale completion is UNIVERSALLY non-delivering: the app reply target MUST
+  NOT run on a superseded completion (it would mutate app state for a newer
+  navigation), so `:deliver?` is always false. Returns the full
+  `re-frame.reply/suppress` outcome (`{:deliver? :reply :rf.reply/work-status
+  :trace}`); the caller emits the suppression trace and dispatches nothing."
+  [{:keys [carried-token current-token event-id frame-id route-id loader-id completed-at]}]
   (let [{:keys [reply trace] :as outcome}
         (rf.routing.reply/suppress
                           {;; `route-id` is the route id CAPTURED
@@ -201,11 +198,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                            ;; the reply when non-nil, so a route loader without
                            ;; a sourced completion time is unaffected.
                            :completed-at completed-at}
-                          current-token
-                          ;; The reply target,
-                          ;; threaded for call-site uniformity but not consulted
-                          ;; for delivery (a stale outcome never app-delivers).
-                          target)]
+                          current-token)]
     (rf.trace/emit-error! :rf.route.nav-token/stale-suppressed
                        (cond-> {:carried-token     carried-token
                                 :current-token     current-token
@@ -328,10 +321,9 @@ continuation surface."
    - on match the route loader's `:status :ok` reply map is built and APPENDED
      to the target via the shared `re-frame.reply/complete` (the production
      lowering: the route surface normalizes + completes a reply target through
-     the shared substrate, exercising the EP-0011 mapping/completion law at the
-     actual navigation wrapper), then dispatched.
+     the shared substrate at the actual navigation wrapper), then dispatched.
 
-   - on mismatch the target is threaded into `re-frame.reply/suppress`, which is
+   - on mismatch the completion goes to `re-frame.reply/suppress`, which is
      UNIVERSALLY non-delivering: the app reply target is NEVER
      dispatched on a stale completion (a superseded async result must not mutate
      app state for a newer navigation). The suppression trace is the only effect.
@@ -408,12 +400,10 @@ continuation surface."
       ;; completion is UNIVERSALLY non-delivering: the app reply target is NEVER
       ;; dispatched (a superseded async result must not mutate app state for a
       ;; newer navigation). The suppression trace `emit-stale-suppressed!` emits
-      ;; is the only effect; the reply target is threaded for call-site
-      ;; uniformity but nothing is dispatched.
+      ;; is the only effect.
       (emit-stale-suppressed!
         (assoc reply-ctx
                :carried-token nav-token
                :current-token current
                :event-id      loader-id
-               :frame-id      frame-id
-               :target        reply-target)))))
+               :frame-id      frame-id)))))

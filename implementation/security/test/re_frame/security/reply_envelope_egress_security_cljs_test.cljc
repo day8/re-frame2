@@ -101,10 +101,9 @@
                    :rf.reply/work-id [:rf.work/http :a 1]
                    :rf.reply/work-kind :http
                    :rf.frame/id :reply/stale :completed-at 1781078400456}
-          {:keys [deliver? reply] :as outcome} (rf.reply/suppress nil carried current natural)]
+          {:keys [deliver? reply] :as outcome} (rf.reply/suppress carried current natural)]
       (is (false? deliver?) "a superseded app reply is NOT delivered")
       (is (= :stale (:status reply)) "the forced status is :stale")
-      (is (true? (:stale? reply)) ":stale? marker forced on")
       (is (= :suppressed (:rf.reply/work-status reply)) ":rf.reply/work-status forced to :suppressed")
       (is (not (contains? reply :value)) ":value is STRIPPED — no app mutation can ride")
       (is (not (contains-sentinel? reply)) "the secret value never rides the stale reply")

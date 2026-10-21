@@ -70,7 +70,6 @@
 
 (deftest cancelled-reply-settles-idle-records-the-abort-and-never-re-issues
   (let [cancelled-reply {:status                 :cancelled
-                         :cancelled?             true
                          :rf.reply/cancel-reason :user
                          :error                  {:kind       :rf.http/aborted
                                                   :request-id :http-counter/+1

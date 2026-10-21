@@ -130,12 +130,10 @@
 ;; not a route-loader case; HTTP decode lands `:ok`/`:error` and the route
 ;; gate runs on top). The route wrapper lowers the live continuation onto the
 ;; uniform reply envelope: it builds the data-only reply map and `complete`s
-;; the `:rf/reply-to` target through the shared `re-frame.reply/complete` — the
-;; same pure functor the EP-0011 mapping law is stated over — so the reply map
-;; is appended as the final argument of the target event and the target's
-;; accumulated `::post` transform is applied. The route surface therefore
-;; exercises `re-frame.reply/complete` at the ACTUAL navigation wrapper, not
-;; only in a pure helper.
+;; the `:rf/reply-to` target through the shared `re-frame.reply/complete`, so
+;; the reply map is appended as the final argument of the target event. The
+;; route surface therefore exercises `re-frame.reply/complete` at the ACTUAL
+;; navigation wrapper, not only in a pure helper.
 ;; ---------------------------------------------------------------------------
 
 (defn live-reply
@@ -168,11 +166,9 @@
 (defn complete-live
   "Complete the `:rf/reply-to` `target` for a LIVE route-loader completion:
   build the `:status :ok` reply map (`live-reply`) and append it to the
-  target's event via the shared `re-frame.reply/complete` — the pure functor
-  the EP-0011 mapping law (`complete (map-completed-event f t) == f (complete t)`) is
-  stated over. Returns the dispatchable completed event vector (the target
-  event with the reply map appended, then the target's `::post` transform
-  applied), or nil when `target` is nil (no continuation).
+  target's event via the shared `re-frame.reply/complete`. Returns the
+  dispatchable completed event vector (the target event with the reply map
+  appended), or nil when `target` is nil (no continuation).
 
   This is the production lowering the route wrapper drives on the live branch.
   The route surface normalizes and completes a `:rf/reply-to`
@@ -197,9 +193,6 @@
                 stale reply verbatim.
     `current` — the LIVE nav-token read from
                 `[:rf.runtime/routing :current :nav-token]` at completion.
-    `target`  — the (optional) reply target, threaded to
-                `re-frame.reply/suppress` for call-site uniformity but not
-                consulted for delivery (a stale outcome never app-delivers).
 
   Returns the `re-frame.reply/suppress` shape:
     {:deliver?    <bool>          ;; false ⇒ DO NOT run the app reply target
@@ -212,15 +205,13 @@
   contract; the caller maps them onto the `:rf.route.nav-token/
   stale-suppressed` trace operation (carried-token / current-token /
   event-id ride alongside `:rf.reply/work-id`)."
-  ([ctx current] (suppress ctx current nil))
-  ([{:keys [nav-token frame completed-at] :as ctx} current target]
-   (let [wid (work-id ctx)]
-     (rf.reply/suppress target
-                     (gate nav-token)
-                     (current-gate current)
-                     (cond-> {:status       :stale
-                              :rf.reply/work-id      wid
-                              :rf.reply/work-kind    :route
-                              :rf.reply/stale-reason stale-reason}
-                       (some? frame)        (assoc :rf.frame/id frame)
-                       (some? completed-at) (assoc :completed-at completed-at))))))
+  [{:keys [nav-token frame completed-at] :as ctx} current]
+  (let [wid (work-id ctx)]
+    (rf.reply/suppress (gate nav-token)
+                       (current-gate current)
+                       (cond-> {:status       :stale
+                                :rf.reply/work-id      wid
+                                :rf.reply/work-kind    :route
+                                :rf.reply/stale-reason stale-reason}
+                         (some? frame)        (assoc :rf.frame/id frame)
+                         (some? completed-at) (assoc :completed-at completed-at)))))

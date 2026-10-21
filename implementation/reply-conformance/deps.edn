@@ -6,8 +6,7 @@
 ;; against the shared `:status`, `:rf.reply/work-status`,
 ;; `:rf.reply/work-id`, stale-suppression, and egress-projection contracts.
 ;; The tests depend on several implementation
-;; artefacts, so no single family's test tree can own them. Reply-target functor
-;; laws are owned by the core substrate and its independent timer consumer.
+;; artefacts, so no single family's test tree can own them.
 ;;
 ;; The `.cljc` suites run in the top-level CLJS `:node-test` build. This alias
 ;; supplies the JVM counterpart, including the JVM reader-conditional paths,

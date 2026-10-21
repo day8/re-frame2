@@ -116,7 +116,6 @@
     (assoc (base-reply vp opts)
            :status        :cancelled
            :rf.reply/work-status   :cancelled
-           :cancelled?    true
            :rf.reply/cancel-reason (:reason error)
            :error         error)
     (assoc (base-reply vp opts)
@@ -131,7 +130,7 @@
   maps; `extra` threads identity facts onto the stale reply.
   Managed-Effects §Stale suppression"
   [{:keys [carried current extra]}]
-  (rf.reply/suppress nil carried current extra))
+  (rf.reply/suppress carried current extra))
 
 ;; ---- trace summary --------------------------------------------------------
 
