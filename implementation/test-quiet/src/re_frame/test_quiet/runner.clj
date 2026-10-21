@@ -714,7 +714,7 @@
 ;; is spelled exactly like the legitimate fn form.  `use-fixtures` writes
 ;; the args it was handed into the namespace's metadata, so reading that
 ;; metadata back sees the VALUE either way.  The tree holds a static half —
-;; `tools/story/test/re_frame/story/meta_fixtures_test.cljc` — and it is
+;; `tools/story/test/re_frame/story/meta_fixtures_test.clj` — and it is
 ;; scoped to that one artefact's `test/` tree, so it cannot see any other
 ;; artefact's files.
 

@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.share-egress-cljs-test
   "CLJS tests for the human share / export / copy egress UI surface.
-  The PURE reproducibility classifier is covered JVM-side
+  The PURE reproducibility classifier is covered on both hosts
   in `re-frame.story.egress-test`; this file pins the UI glue that the
   classifier feeds: the reproducibility badge hiccup, the report + EDN-
   snippet builders over shell state, and the dialog open/close + render.

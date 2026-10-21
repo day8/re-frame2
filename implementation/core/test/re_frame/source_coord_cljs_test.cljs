@@ -3,7 +3,7 @@
   re-frame.core's self-`:require-macros`, not the value alias, which does not
   stamp. `rf/subscribe` is a plain fn on both hosts, so a call-position read
   stamps nothing. The macros expand on the JVM side for both targets, so
-  `source_coord_jvm_test.cljc` pins the stamp's shape and placement; this pins
+  `source_coord_jvm_test.clj` pins the stamp's shape and placement; this pins
   the CLJS wiring."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]

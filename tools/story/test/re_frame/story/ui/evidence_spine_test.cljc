@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.evidence-spine-test
-  "JVM coverage of the evidence-spine's pure projection (spec/020 §3 +
+  "Coverage of the evidence-spine's pure projection (spec/020 §3 +
   spec/021 §2): evidence strength, compact summaries, span kinds and labels,
   focus-command construction, the graceful no-coords path, the span+beat
   render model and the result-row → beat linkage. The React render, the

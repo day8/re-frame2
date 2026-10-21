@@ -1,6 +1,6 @@
 (ns re-frame.story.viewport-test
-  "The viewport switcher's pure state model. JVM only: no CLJS build
-  selects a `-test` namespace, so the localStorage round-trip lives in
+  "The viewport switcher's pure state model. The localStorage round-trip
+  needs a browser, so it lives in
   `re-frame.story.viewport-storage-dom-cljs-test`."
   (:require [clojure.test :refer [are deftest is]]
             [re-frame.story.viewport :as rf.story.viewport]))

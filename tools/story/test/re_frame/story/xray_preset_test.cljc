@@ -2,9 +2,8 @@
   "The pure `.cljc` surface of the per-story Xray preset: story/variant
   resolution, `lower-filters` and the closed preset map.
 
-  JVM only: this ns name does not match `:node-test`'s `cljs-test$`, so a
-  `#?(:cljs …)` test here would run on no host. CLJS behaviour lives in
-  `re-frame.story.xray-preset-cljs-test`."
+  It runs on both hosts. The cross-host bridges, asserted against Xray's
+  real slots, live in `re-frame.story.xray-preset-cljs-test`."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.xray-preset :as rf.story.xray-preset]))

@@ -18,7 +18,7 @@ Run these npm commands from `implementation/`, after the
 | Command | What it checks | Lives in |
 |---|---|---|
 | `npm run test:examples-compile` | Compiles every declared `:examples/*` shadow-cljs build and fails on any error **or warning**. The build list is derived from `shadow-cljs.edn`, so a newly declared example is swept automatically. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
-| `npm run test:cljs` | The shadow-cljs `:node-test` bundle, run on Node. `:ns-regexp` is `cljs-test$`, so it picks up every `*-cljs-test` wrapper — including the **example wrappers**, which require their example's `core` ns and drive its events, subs and fixtures headlessly (no DOM). This is where the example wrappers actually run. | [`implementation/package.json` `test:cljs`](../implementation/package.json) |
+| `npm run test:cljs` | The shadow-cljs `:node-test` bundle, run on Node. `:ns-regexp` selects every `-test` namespace bar the nightly and production-mode suffixes, so it picks up every `*-cljs-test` wrapper — including the **example wrappers**, which require their example's `core` ns and drive its events, subs and fixtures headlessly (no DOM). This is where the example wrappers actually run. | [`implementation/package.json` `test:cljs`](../implementation/package.json) |
 | `npm run test:browser` | The shadow-cljs `:browser-test` bundle in one Chromium page. `:ns-regexp` is narrowed to `-dom-cljs-test$`, so it runs **only** the DOM-dependent wrappers (those that mount real React via `react-dom/client`). The example wrappers do **not** mount the DOM, so they keep the plain `-cljs-test` suffix and run under `test:cljs`, not here. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs) |
 | `npm run test:scripts` | JS harness tests for staging, build discovery, ports, Story runner verdicts and shared assertion timeouts, plus a static scanner: `check-examples-assets.cjs` (shared assets + palette contrast / focus rings). | [`implementation/scripts/`](../implementation/scripts/) tests exercising [`examples/scripts/`](scripts/) |
 
@@ -54,7 +54,7 @@ app-startup shape, covered in
 only part that's *test-specific* is this one rule:
 
 > Example `core` namespaces are co-required by their `cljs-test` wrappers under
-> the **node-test** build (`ns-regexp "cljs-test$"`, no DOM), so they must not
+> the **node-test** build (no DOM), so they must not
 > mount at ns-load — an ns-load render crashes with no `js/document`.
 
 So the `render!` call lives **inside `mount!`** (behind a

@@ -2,12 +2,11 @@
 """Build-file <-> lane-selector bijection for every test lane in the repo.
 
 WHY THIS EXISTS.  The per-lane test-count floor makes a lane that ran ZERO
-tests go red.  It cannot see a lane that ran SOME of what it should: a `.cljc`
-suite on the `:node-test` build's classpath whose namespace ends `-test`
-instead of `-cljs-test` is skipped by the `cljs-test$` selector while the lane
-still reports thousands of passing tests and exits 0.  A floor cannot catch
-that, and neither can a calibrated per-lane number -- the collapse hides inside
-the headroom.
+tests go red.  It cannot see a lane that ran SOME of what it should: a test
+file on a lane's classpath whose namespace no selector matches (a suite named
+`-check`, say) is skipped while the lane still reports thousands of passing
+tests and exits 0.  A floor cannot catch that, and neither can a calibrated
+per-lane number -- the collapse hides inside the headroom.
 
 What CAN catch it is a bijection.  Every file that defines a test and sits on a
 lane's classpath should be reachable by some lane's selector, and every lane's
@@ -78,12 +77,9 @@ THE FIVE RULES
       a test root the CLJS build OWNS must be selected by a CLJS lane.  A
       `.cljc` file is cross-runtime by construction and the repo's convention
       is that its `.cljc` tests run in both runtimes; being JVM-discovered is
-      not evidence that the CLJS half runs.
-        A file that really is single-lane DECLARES it, in the one place the
-      declaration cannot drift from the thing it describes: its own namespace,
-      via the `-jvm-test` suffix.  The declaration has teeth both ways -- such
-      a namespace must be JVM-discovered (it claims a lane, so it must have
-      one) and must NOT be CLJS-selected (or the declaration is false).
+      not evidence that the CLJS half runs.  The file extension decides which
+      host runs a test, so a suite that is genuinely JVM-only is a `.clj`
+      file, which no CLJS lane can load and B2 never reads.
         "Owns" is read off the build config, not decided here: a
       `:source-paths` entry that stays inside the shadow-cljs project is a tree
       the CLJS build owns, while a `../`-escaping entry is a foreign tree
@@ -150,9 +146,6 @@ COGNITECT_DEFAULT_REGEX = r".*\-test$"
 #: shadow-cljs's default `:ns-regexp` for a `:node-test` / `:browser-test`
 #: build that does not declare one.
 SHADOW_DEFAULT_NS_REGEXP = r"-test$"
-
-#: A `.cljc` test namespace declaring that the JVM lane is its only lane.
-JVM_ONLY_SUFFIX = "-jvm-test"
 
 #: The token immediately after an opening delimiter -- a form's head.
 FORM_HEAD = re.compile(r"[^\s()\[\]{}\"';`~@,^]+")
@@ -760,27 +753,13 @@ def check(lanes, files, repo: Path):
             continue
         if test_file.ext != ".cljc" or not test_file.on_owned_cljs_root:
             continue
-        cljs_hits = [l for l in selected_by[id(test_file)] if l.runtime == "cljs"]
-        jvm_hits = [l for l in selected_by[id(test_file)] if l.runtime == "jvm"]
-        declared_jvm_only = test_file.ns.endswith(JVM_ONLY_SUFFIX)
-        if declared_jvm_only:
-            if cljs_hits:
-                failures.append(
-                    f"B2 false single-lane declaration: {rel(test_file.path)} names itself "
-                    f"`{JVM_ONLY_SUFFIX}` yet CLJS lane(s) {[l.name for l in cljs_hits]} select "
-                    f"`{test_file.ns}`. Drop the suffix or retighten the selector.")
-            if not jvm_hits:
-                failures.append(
-                    f"B2 unbacked single-lane declaration: {rel(test_file.path)} names itself "
-                    f"`{JVM_ONLY_SUFFIX}` but no JVM lane discovers `{test_file.ns}`, so the "
-                    f"lane it claims does not run it.")
-        elif not cljs_hits:
+        if not any(lane.runtime == "cljs" for lane in selected_by[id(test_file)]):
             failures.append(
                 f"B2 partially emptied CLJS lane: {rel(test_file.path)} is a `.cljc` test on a "
                 f"CLJS build source path, but no CLJS selector reaches `{test_file.ns}` -- its "
                 f"CLJS half never runs while the lane reports a green count. Rename the "
-                f"namespace to a selected suffix, or declare the JVM lane as its only lane "
-                f"with `{JVM_ONLY_SUFFIX}`.")
+                f"namespace to a selected suffix, or, if the suite is JVM-only, make it a "
+                f"`.clj` file.")
 
     # B4 -- a selector that reaches nothing (or a probe that reaches something).
     for lane in lanes:
@@ -808,12 +787,6 @@ SELF_TEST_SHADOW = """{:source-paths ["core/src" "core/test" "../borrowed/test"]
  :builds
  {:node-test {:target :node-test :ns-regexp "cljs-test$"}}}
 """
-
-#: A second CLJS build whose selector reaches into the `-jvm-test` space, i.e.
-#: a widened regex that contradicts a single-lane declaration.
-SELF_TEST_SHADOW_WIDENED = SELF_TEST_SHADOW.replace(
-    ':ns-regexp "cljs-test$"}}}',
-    ':ns-regexp "cljs-test$"}\n  :node-test-wide {:target :node-test :ns-regexp "jvm-test$"}}}')
 
 SELF_TEST_DEPS = """{:paths ["src"]
  :aliases {:test {:extra-paths ["test"]
@@ -850,8 +823,6 @@ def build_self_test_repo(root: Path, *, files, shadow=SELF_TEST_SHADOW, probe_fl
 GREEN_FILES = {
     # dual-runtime `.cljc`: JVM-discovered AND CLJS-selected
     "implementation/core/test/app/both_cljs_test.cljc": "(ns app.both-cljs-test)\n(deftest t (is true))\n",
-    # declared single-lane `.cljc`
-    "implementation/core/test/app/only_jvm_test.cljc": "(ns app.only-jvm-test)\n(deftest t (is true))\n",
     # a borrowed tree's JVM-only `.cljc` -- B1 holds, B2 does not apply
     "borrowed/test/app/borrowed_test.cljc": "(ns app.borrowed-test)\n(deftest t (is true))\n",
     # deftests the reader sees through to: one behind a reader conditional, one
@@ -895,15 +866,6 @@ def run_self_test() -> int:
                       shadow, probe_flag))
 
     case("A green tree reports no failure", expect=None)
-
-    case("B2 fires on a false `-jvm-test` declaration",
-         shadow=SELF_TEST_SHADOW_WIDENED, expect="B2 false single-lane")
-
-    files = dict(GREEN_FILES)
-    files["implementation/core/src/app/unbacked_jvm_test.cljc"] = (
-        "(ns app.unbacked-jvm-test)\n(deftest t (is true))\n")
-    case("B2 fires on a `-jvm-test` no JVM lane discovers",
-         expect="B2 unbacked single-lane", files=files)
 
     case("B3 fires on a lane root that does not exist",
          shadow=SELF_TEST_SHADOW.replace('"core/test"', '"core/renamed-away"'),

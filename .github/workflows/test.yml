@@ -2136,7 +2136,7 @@ jobs:
       # `core/init!` alone receives a dispatched event's assembled epoch.
       #
       # Its ASSERTIONS already ride the consolidated bundle above (the
-      # namespace ends `-cljs-test`, so `:node-test`'s `cljs-test$` selects
+      # namespace ends `-cljs-test`, so `:node-test`'s `-test$` selects
       # it). What runs ONLY here is the dependency-graph half: that bundle
       # also loads `day8.re-frame2-xray.preload`, which carries the identical
       # anchor, so the assertions pass whether or not `install.cljs` still
@@ -3423,20 +3423,19 @@ jobs:
       - name: Run CLJS tests (tools/mcp-base artefact)
         run: npm run test:cljs
 
-  # The CLJS half of the two suites the tools/machines-viz JVM leg exists
-  # for (its row in scripts/jvm-lanes.txt names them). Both are `.cljc`, so "JVM-only" describes the LANES,
-  # not the files: `engine_grammar_parity_test.cljc` carries `:cljs` reader
-  # arms and the grammar it mirrors is compiled for the browser. The
-  # consolidated `:node-test` bundle does not contain either namespace — its
-  # `cljs-test$` selector never reaches a name ending `-test` — so the always-on
-  # `cljs` job is not their lane however green it is.
+  # The tools/machines-viz suites on Node, compiled from the artefact's own
+  # classpath. They are `.cljc`, so they run on both hosts —
+  # `engine_grammar_parity_test.cljc` carries `:cljs` reader arms and the
+  # grammar it mirrors is compiled for the browser — and the consolidated
+  # `:node-test` bundle runs them too, on a classpath that spans every
+  # artefact. This job compiles them against `tools/machines-viz/deps.edn`
+  # alone.
   #
   # `tools/machines-viz/shadow-cljs.edn` declares the artefact's own
-  # `:machines-viz-node-test` build for them: its own bundle, its own classpath,
-  # its own exit code, so arming these suites cannot contaminate the shared
-  # ~11.5k-test run. Declaring the build inside
+  # `:machines-viz-node-test` build for them: its own bundle, its own
+  # classpath, its own exit code. Declaring the build inside
   # tools/machines-viz also puts it on the ownership line the test-lane
-  # bijection gate reads, so rule B2 holds this tree with no gate change.
+  # bijection gate reads, so rule B2 holds this tree.
   #
   # Its OWN output, like the two jobs either side of it and for the same reason:
   # no existing output gates a job that runs this build.

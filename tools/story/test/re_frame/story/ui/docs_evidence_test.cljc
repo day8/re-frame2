@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.docs-evidence-test
-  "JVM coverage of the docs-mode status / fidelity / view-arg schema /
+  "Coverage of the docs-mode status / fidelity / view-arg schema /
   evidence-excerpt pure projections (spec/022 §1 + §2). The React render and
   the live result-slot read are CLJS."
   (:require [clojure.test :refer [deftest is testing]]

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.explain-panel-test
-  "JVM coverage of the Explain panel's pure projection (spec/020 §4 /
+  "Coverage of the Explain panel's pure projection (spec/020 §4 /
   spec/017 §Explain API): the ordered section inventory and its
   present?/absent marking, `explain-for`'s error trapping and ambient arg
   layers, and the string shapers. The React render lives in

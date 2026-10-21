@@ -1,8 +1,7 @@
 (ns re-frame.story.author-expectations-test
   "Tests for the pure expectation-authoring substrate (spec/021 §S5,
   spec/019): the catalog, atom builders, cost projection and snippet the
-  dialog, assertion strip and palette entry depend on. JVM-only: no CLJS
-  build's ns-regexp selects a `-test` namespace."
+  dialog, assertion strip and palette entry depend on."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
