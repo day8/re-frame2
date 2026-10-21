@@ -2348,19 +2348,74 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
   //     five-second one-namespace lane. The `fresco JVM lane is
   //     UNCONDITIONAL` test below pins that.
   //   cljs_prod — no `-elision-prod-test$` namespace.
-  //   bundle_isolation — no example resolves the
-  //     artefact and it mounts no testbed those smokes drive.
   //
   // `cljs_browser` is NOT on this list: the package owns `-dom-cljs-test$`
   // namespaces the :browser-test build selects, and that arm is asserted
-  // positively by the DOM-suite block above.
+  // positively by the DOM-suite block above. Nor is `bundle_isolation`, which
+  // the row below pins per file.
   const result = classify('implementation/fresco/src/re_frame/fresco.cljc');
   for (const key of [
     'implementation_jvm',
     'cljs_prod',
-    'bundle_isolation',
   ]) {
     assert.equal(result[key], 'false', `fresco must not arm ${key}`);
+  }
+});
+
+// test:bundle-isolation releases :examples/login-fresco, a Fresco app, and
+// :examples/counter-with-stories, which reaches Fresco through Xray's views.
+// The armed side is the Fresco src those two releases' manifest.edn files
+// list; the optional modules in neither manifest, and everything outside src/,
+// stay unarmed.
+const FRESCO_BUNDLE_ISOLATION_ARMED = pinnedRoster('the Fresco bundle-isolation arm', [
+  'implementation/fresco/src/re_frame/fresco.cljc',
+  'implementation/fresco/src/re_frame/fresco/evidence.cljs',
+  'implementation/fresco/src/re_frame/fresco/substrate.cljs',
+  'implementation/fresco/src/re_frame/fresco/tool.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/boundary.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/collector.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/controlled.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/error.cljc',
+  'implementation/fresco/src/re_frame/fresco/impl/frame_boundary.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/frames.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/generation.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/intent.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/mount.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/portal.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/roots.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/route_link.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
+]);
+const FRESCO_BUNDLE_ISOLATION_UNARMED = pinnedRoster('the Fresco bundle-isolation arm, unarmed side', [
+  'implementation/fresco/src/re_frame/fresco/forms.cljs',
+  'implementation/fresco/src/re_frame/fresco/motion.cljs',
+  'implementation/fresco/src/re_frame/fresco/native.cljc',
+  'implementation/fresco/src/re_frame/fresco/overlay.cljs',
+  'implementation/fresco/src/re_frame/fresco/server.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/overlay.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/presence.cljs',
+  'implementation/fresco/src/re_frame/fresco/impl/presence_react.cljs',
+  'implementation/fresco/test/re_frame/fresco/expansion_probe.clj',
+  'implementation/fresco/spec/invariants.md',
+  'implementation/fresco/deps.edn',
+  'implementation/fresco/test_kit/src/re_frame/fresco/test.cljs',
+]);
+
+test('Fresco src a bundle-isolation release compiles arms bundle isolation; the rest of the artefact does not', () => {
+  for (const file of FRESCO_BUNDLE_ISOLATION_ARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'true',
+      `${file} is compiled into a test:bundle-isolation release and must run the bundle-isolation job`,
+    );
+  }
+  for (const file of FRESCO_BUNDLE_ISOLATION_UNARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'false',
+      `${file} is compiled into no test:bundle-isolation release and must not run the bundle-isolation job`,
+    );
   }
 });
 
