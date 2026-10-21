@@ -18,10 +18,10 @@
  * keeps the assertion vocabulary aligned with the spec docs.
  *
  * The framework's own `re-frame.core/trace-buffer` and
- * `re-frame.core/epoch-history` are also accessible on `window` under
+ * `re-frame.epoch/epoch-history` are also accessible on `window` under
  * their dotted-ns munge in `:browser :dev` builds; the Xray surface
  * is preferred for the trace bus because every testbed already routes
- * through it. For epoch history we use `re_frame.core.epoch_history`
+ * through it. For epoch history we use `re_frame.epoch.epoch_history`
  * directly — epoch records are not buffered by Xray's trace bus.
  */
 
@@ -84,18 +84,18 @@ async function clearTraceBus(page) {
 }
 
 /**
- * Read `rf/epoch-history` for the given frame keyword (default
+ * Read `rf.epoch/epoch-history` for the given frame keyword (default
  * `:rf/default`). Each record is rendered to a pr-str EDN string.
  * Returns `{ ok, records?, reason? }`.
  */
 async function readEpochHistoryAsEdn(page, frameKeyword = ':rf/default') {
   return page.evaluate((kwStr) => {
     const cljs = window.cljs && window.cljs.core;
-    const rf = window.re_frame && window.re_frame.core;
-    if (!cljs || !rf || typeof rf.epoch_history !== 'function') {
+    const epoch = window.re_frame && window.re_frame.epoch;
+    if (!cljs || !epoch || typeof epoch.epoch_history !== 'function') {
       return {
         ok: false,
-        reason: 'cljs.core / re_frame.core.epoch_history not on window',
+        reason: 'cljs.core / re_frame.epoch.epoch_history not on window',
       };
     }
     // `cljs.core.keyword` accepts a bare string OR a "ns/name" form
@@ -105,7 +105,7 @@ async function readEpochHistoryAsEdn(page, frameKeyword = ':rf/default') {
     const raw = kwStr.startsWith(':') ? kwStr.slice(1) : kwStr;
     const kw = cljs.keyword.call ? cljs.keyword.call(null, raw) : cljs.keyword(raw);
     const records = [];
-    let s = cljs.seq(rf.epoch_history(kw));
+    let s = cljs.seq(epoch.epoch_history(kw));
     while (s) {
       records.push(cljs.pr_str(cljs.first(s)));
       s = cljs.next(s);

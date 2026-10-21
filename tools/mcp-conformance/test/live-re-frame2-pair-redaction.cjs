@@ -221,7 +221,7 @@ const SEED_FORM = `
   (re-frame.router/dispatch-sync! [:rf-conformance/write-secret] {:frame fid})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
-   :epoch-count (count (re-frame.core/epoch-history fid))
+   :epoch-count (count (re-frame.epoch/epoch-history fid))
    :db-secret (get (re-frame2-pair.runtime/snapshot fid) ${SECRET_KEY})})`;
 
 // A defensive sanity form: confirm the live app-db genuinely carries the
@@ -340,8 +340,8 @@ const INNER_WRITE_FORM = `
    ;; The STAMPED rollup on the just-recorded (HEAD) epoch — MUST be
    ;; false/absent (no declaration existed when the assembler ran),
    ;; proving the OUTER whole-drop will not govern.
-   (:rf.epoch/sensitive? (last (re-frame.core/epoch-history fid)))
-   :epoch-count (count (re-frame.core/epoch-history fid))
+   (:rf.epoch/sensitive? (last (re-frame.epoch/epoch-history fid)))
+   :epoch-count (count (re-frame.epoch/epoch-history fid))
    :db-secret (get (re-frame2-pair.runtime/snapshot fid) ${INNER_SECRET_KEY})})`;
 
 // Step B: NOW classify the path sensitive — AFTER the epoch was recorded.
@@ -366,7 +366,7 @@ const INNER_DECLARE_FORM = `
    ;; is NOT recomputed on a later declaration. This pins the OUTER drop
    ;; will not fire (so the INNER layer is the sole protection).
    :rollup-after-declare
-   (:rf.epoch/sensitive? (last (re-frame.core/epoch-history fid)))})`;
+   (:rf.epoch/sensitive? (last (re-frame.epoch/epoch-history fid)))})`;
 
 // ---- helpers ---------------------------------------------------------------
 

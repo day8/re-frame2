@@ -1283,12 +1283,9 @@
   ;; re-frame.trace.projection section below.
   ;; Epoch history (canonical home: re-frame.epoch, rowed there) — §Tool-Pair.
   ;; The epoch surface is inspection, history and tooling, so under the facade
-  ;; rule by role (spec/API.md §Conventions) `restore-epoch!`,
-  ;; `replay-epoch!` and `replace-frame-state!` have no facade door. The one
-  ;; epoch read left here is `epoch-history`, a re-export of the home var.
-  ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Re-export of re-frame.epoch/epoch-history, which new code calls (API.md Conventions, the facade rule by role). It stays on the facade because the conformance runner, mcp-conformance and the testbed spec-helpers call it. The surface is dev-tier: a build with interop/debug-enabled? false records no epochs, so it reads an empty history, and Closure DCE elides it under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision)."}
+  ;; rule by role (spec/API.md §Conventions) `epoch-history`,
+  ;; `restore-epoch!`, `replay-epoch!` and `replace-frame-state!` have no
+  ;; facade door.
   ;; There is no façade `register-epoch-listener!` / `unregister-epoch-listener!`
   ;; pair: the epoch stream is
   ;; registered through the single stream-parameterized verb,
@@ -1600,9 +1597,7 @@
   ;;
   ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
   ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
-  ;;       carries the SAME classification. Precedent: `epoch-history` is
-  ;;       `:tooling` on BOTH `re-frame.core` and `re-frame.epoch`. One
-  ;;       capability, one tier — the
+  ;;       carries the SAME classification. One capability, one tier — the
   ;;       manifest must not classify the same var `:advanced` through the
   ;;       facade door and something else through its home door. Every one
   ;;       is `:advanced :owner "016" :status "post-v1 lib (optional capability)"` on
@@ -1808,8 +1803,7 @@
   ;;
   ;;   * FIVE public tooling vars — epoch-history, current-epoch-id,
   ;;     restore-epoch!, replay-epoch!, replace-frame-state! — are called
-  ;;     here, tiered :tooling. Only `epoch-history` also has a facade re-export
-  ;;     (`re-frame.core` row above, the same tier).
+  ;;     here, tiered :tooling. None has a facade re-export.
   ;;   * FIVE implementation seams — the verbs the facade's
   ;;     `register-listener!` / `unregister-listener!` / `configure!` and
   ;;     epoch's own lifecycle `:test-reset` call directly — keep a row, tiered

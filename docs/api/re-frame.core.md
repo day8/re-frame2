@@ -1675,16 +1675,7 @@ See [Observability](../core/observability.md).
   (rf/unregister-observability-sink! :my-app.sinks/datadog)
   ```
 
-### `epoch-history`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (epoch-history frame-target) → vector of epoch records
-  ```
-- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds, and `[]` in a production build. It is the same function as [`re-frame.epoch/epoch-history`](re-frame.epoch.md#epoch-history), which new code calls.
-
-Rewinding a frame, replaying an epoch and writing frame state outside the event pipeline are tools, so they are called in `re-frame.epoch` rather than through `rf/`: [`restore-epoch!`](re-frame.epoch.md#restore-epoch), [`replay-epoch!`](re-frame.epoch.md#replay-epoch) and [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state).
+Reading the epoch ring, rewinding a frame, replaying an epoch and writing frame state outside the event pipeline are tools, so they are called in `re-frame.epoch` rather than through `rf/`: [`epoch-history`](re-frame.epoch.md#epoch-history), [`restore-epoch!`](re-frame.epoch.md#restore-epoch), [`replay-epoch!`](re-frame.epoch.md#replay-epoch) and [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state).
 
 ## Registrar queries
 

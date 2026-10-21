@@ -2472,15 +2472,7 @@
 ;; The epoch surface is inspection, history and tooling, so it lives at home
 ;; in `re-frame.epoch` (spec/API.md §Conventions, the role rule):
 ;; `epoch-history`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!`.
-;; `epoch-history` is also re-exported here, forwarding to the same function.
-
-(def ^{:doc "Return the vector of `:rf/epoch-record` values for the
-  frame, oldest-first: the same function as `re-frame.epoch/epoch-history`,
-  which new code calls. Empty when the frame has no recorded epochs, when
-  recording is disabled, or in a production build. Per Tool-Pair
-  §Time-travel."
-       :arglists '([frame-id])}
-  epoch-history      rf.epoch/epoch-history)
+;; None is re-exported here; a facade re-export would teach a second spelling.
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports.
@@ -2511,7 +2503,7 @@
 ;;
 ;; The whole ring is ordinary composition:
 ;;
-;;     (mapv #(rf/project-egress % opts) (epoch-history frame-id))
+;;     (mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;

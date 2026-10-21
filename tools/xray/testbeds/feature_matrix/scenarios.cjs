@@ -947,8 +947,8 @@ async function readMultiFrameHostState(page) {
 async function readFrameEpochSummary(page) {
   return page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
-    const rf = window.re_frame && window.re_frame.core;
-    if (!cljs || !rf || typeof rf.epoch_history !== 'function') {
+    const epoch = window.re_frame && window.re_frame.epoch;
+    if (!cljs || !epoch || typeof epoch.epoch_history !== 'function') {
       return { ok: false, reason: 'epoch_history unavailable', frames: {} };
     }
     function keyword(s) {
@@ -965,7 +965,7 @@ async function readFrameEpochSummary(page) {
     }
     function history(frame) {
       const records = [];
-      let s = cljs.seq(rf.epoch_history(keyword(frame)));
+      let s = cljs.seq(epoch.epoch_history(keyword(frame)));
       while (s) {
         records.push(cljs.pr_str(cljs.first(s)));
         s = cljs.next(s);
@@ -1239,7 +1239,7 @@ async function pushSyntheticTraceEvents(page, count) {
 async function readLaunchModeProjection(page) {
   return page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
-    const rf = window.re_frame && window.re_frame.core;
+    const epoch = window.re_frame && window.re_frame.epoch;
     const bus = window.day8 &&
       window.day8.re_frame2_xray &&
       window.day8.re_frame2_xray.trace_collector;
@@ -1263,10 +1263,10 @@ async function readLaunchModeProjection(page) {
       return { ok: true, events };
     }
     function epochCount() {
-      if (!cljs || !rf || typeof rf.epoch_history !== 'function') return null;
+      if (!cljs || !epoch || typeof epoch.epoch_history !== 'function') return null;
       const kw = cljs.keyword.call ? cljs.keyword.call(null, 'rf/default') : cljs.keyword('rf/default');
       let n = 0;
-      let s = cljs.seq(rf.epoch_history(kw));
+      let s = cljs.seq(epoch.epoch_history(kw));
       while (s) {
         n += 1;
         s = cljs.next(s);

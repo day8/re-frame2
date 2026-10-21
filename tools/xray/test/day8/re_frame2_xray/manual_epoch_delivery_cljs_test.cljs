@@ -11,6 +11,7 @@
   `tools/xray/spec/011-Launch-Modes.md` states the contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.core :as xray]))
@@ -53,5 +54,5 @@
                    (filterv #(= :rf/default (:frame %)) @seen)))
           "one fan-out on the host frame, carrying an ASSEMBLED record (its
            post-settle :db-after), not a bare notification")
-      (is (= [::bump] (mapv :event-id (rf/epoch-history :rf/default)))
+      (is (= [::bump] (mapv :event-id (rf.epoch/epoch-history :rf/default)))
           "the same epoch is retained in the ring Xray's Time-Travel panel re-reads"))))

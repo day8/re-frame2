@@ -148,7 +148,7 @@
             ;; an implicit one: `(epochs-since id)` and
             ;; `(epoch-history)` each default to `(current-frame)`,
             ;; which is nil under two-plus app frames with no pin, and
-            ;; `rf/epoch-history` answers `[]` for an unknown frame
+            ;; `rf.epoch/epoch-history` answers `[]` for an unknown frame
             ;; without erroring. `epochs-since` then cannot find the
             ;; caller's id in that empty history and reports
             ;; `:id-aged-out? true` — so the ambiguity would arrive as a

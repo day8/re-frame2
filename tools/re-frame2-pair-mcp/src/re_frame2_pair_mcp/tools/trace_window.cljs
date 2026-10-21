@@ -112,7 +112,7 @@
             ;; Against the RESOLVED frame id, never an implicit read:
             ;; `(epoch-history)` defaults to `(current-frame)`, which is
             ;; nil under two-plus app frames with no pin, and
-            ;; `rf/epoch-history` answers `[]` for an unknown frame
+            ;; `rf.epoch/epoch-history` answers `[]` for an unknown frame
             ;; without erroring — an ambiguity delivered as an empty
             ;; ring. `with-resolved-frame` below refuses
             ;; before this call is ever reached.

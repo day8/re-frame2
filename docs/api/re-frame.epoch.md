@@ -4,7 +4,7 @@ In development builds, re-frame records an epoch for every event a frame handles
 
 Most of the time you use epochs through a tool: Xray's time-travel view, re-frame2-pair and Story read the history and call these functions for you. At a REPL the usual loop is the one below: find the event that went wrong, rewind to just before it, fix and reload its handler, and replay it.
 
-Epoch history ships in core: `re-frame.core` loads `re-frame.epoch`, so every development build records epochs. Call the functions on this page there, as `rf.epoch/…`; `rf/epoch-history` is the same read re-exported on the facade.
+Epoch history ships in core: `re-frame.core` loads `re-frame.epoch`, so every development build records epochs. Call the functions on this page there, as `rf.epoch/…`.
 
 ```clojure
 (:require [re-frame.core  :as rf]
