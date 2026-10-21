@@ -21,22 +21,21 @@
  *
  * The delta (B - A) is the cost of "I enabled Story for this app in dev"
  * — i.e. the JS that would ship if a consumer were to deploy Story as
- * dev-bundle-equivalent. Production builds with the
- * `re-frame.story.config/*enabled?*` `goog-define` flipped to false elide
- * the entire Story surface to zero bytes (per Spec 005 §Production
- * elision under `:advanced`); that path is enforced by
- * `implementation/scripts/check-bundle-isolation.cjs` and isn't
- * remeasured here.
+ * dev-bundle-equivalent. None of the three builds sets
+ * `re-frame.story.config/enabled?` to false, so this script does not
+ * measure the production path Spec 005 §Production elision under
+ * `:advanced` specifies, and no gate checks it either:
+ * `implementation/scripts/check-bundle-isolation.cjs` reads only the plain
+ * counter's `manifest.edn`, which proves that an app importing no Story
+ * compiles no Story source.
  *
  * Why one-shot, not CI
  * --------------------
  *
- * The deliverable is informational, not a regression gate. The
- * production-elision contract already has a gate
- * (`check-bundle-isolation.cjs`); the Story dev bundle's absolute size
- * has no meaningful budget, and a hard cap would just bake
- * in the current implementation cost. Re-run this script when the
- * comparison number needs refreshing.
+ * The deliverable is informational, not a regression gate. The Story dev
+ * bundle's absolute size has no meaningful budget, and a hard cap would
+ * just bake in the current implementation cost. Re-run this script when
+ * the comparison number needs refreshing.
  *
  * Invocation
  * ----------
@@ -173,8 +172,8 @@ function main() {
   console.log(`  raw:  ${fmt(rawCost)} bytes (~${(rawCost / 1024).toFixed(0)} KiB)`);
   console.log(`  gz:   ${fmt(gzCost)} bytes (~${(gzCost / 1024).toFixed(0)} KiB)`);
   console.log('');
-  console.log('Reminder: under :advanced + re-frame.story.config/*enabled?*=false,');
-  console.log('this cost collapses to ZERO. The gate is implementation/scripts/check-bundle-isolation.cjs.');
+  console.log('None of these builds sets re-frame.story.config/enabled? to false, so this');
+  console.log('measures no production-elided Story build, and no gate checks one.');
   console.log('');
   console.log('See tools/story/spec/005-SOTA-Features.md §Bundle-size comparison for the Storybook 9 comparison.');
 

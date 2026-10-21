@@ -36,15 +36,15 @@
    It all works because `nine-states.core/root-view` is a
    substrate-agnostic `reg-view` — it renders identically either way.
 
-   ## Elision
+   ## Production
 
-   Compiled under `:advanced` with `:closure-defines
+   This page is a dev showcase. The production build is the plain
+   `:examples/nine-states`, whose entry never requires this namespace or
+   `nine-states.stories`. Under `:advanced` with `:closure-defines
    {re-frame.story.config/enabled? false}`, every `reg-*` in
-   `nine-states.stories` compiles down to nil and `mount-shell!`
-   short-circuits — not one byte of the Story body rides along into a
-   production bundle. The bundle-isolation gate keeps it honest by checking
-   that the Story / Xray sentinels never show up in the plain
-   `:examples/nine-states` build."
+   `nine-states.stories` compiles to nil and `mount-shell!` short-circuits,
+   but no gate builds this host that way, so nothing checks how much of
+   Story and Xray it would still carry."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
