@@ -1649,6 +1649,43 @@ test('a runtime-extension file outside src/ and testbeds/ arms neither browser t
   assert.equal(result.story_xray_browser, 'false');
 });
 
+// check-bundle-isolation.cjs's Story elision claim releases
+// :examples/counter-with-stories, which compiles Story, Xray, its own testbed
+// and re-frame.testbed.story-host. So the runtime-path predicate's trees and
+// testbed-support's src arm the bundle-isolation job on the PR that changes
+// them; spec prose, test trees and docs do not.
+const STORY_BUNDLE_ISOLATION_ARMED = pinnedRoster('the Story bundle-isolation arm', [
+  'tools/story/src/re_frame/story/ui/shell.cljs',
+  'tools/story/src/re_frame/story/macros.clj',
+  'tools/xray/src/day8/re_frame2_xray/core.cljs',
+  'tools/story/testbeds/counter_with_stories/core.cljs',
+  'tools/xray/testbeds/panel_gallery/core.cljs',
+  'tools/testbed-support/src/re_frame/testbed/story_host.cljs',
+]);
+const STORY_BUNDLE_ISOLATION_UNARMED = pinnedRoster('the Story bundle-isolation arm, unarmed side', [
+  'tools/story/spec/005-SOTA-Features.md',
+  'tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs',
+  'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
+  'docs/index.md',
+]);
+
+test('Story/Xray runtime source and testbed-support src arm bundle isolation; their prose and tests do not', () => {
+  for (const file of STORY_BUNDLE_ISOLATION_ARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'true',
+      `${file} is compiled into a test:bundle-isolation release and must run the bundle-isolation job`,
+    );
+  }
+  for (const file of STORY_BUNDLE_ISOLATION_UNARMED) {
+    assert.equal(
+      classify(file).bundle_isolation,
+      'false',
+      `${file} must not run the bundle-isolation job`,
+    );
+  }
+});
+
 test('PR story-xray-browser job opens for any of its three tiers (rf2-65ajl, rf2-9n2cv)', () => {
   // A full-gate-only or static-gate-only change leaves story_xray_browser
   // false, so a job condition that did not name every tier would skip the job.

@@ -2283,6 +2283,15 @@ else
           # browser job, passes its dev-compile smokes, and shows the static
           # step `skipped` — as would every PR that tried to fix it.
           story_static_gate=true
+          # And the bundle-isolation releases. `test:bundle-isolation` releases
+          # `:examples/counter-with-stories`, a Story testbed, with Story on
+          # and off for the Story elision claim (tools/story/spec/
+          # 005-SOTA-Features.md §Production elision), so a Story or Xray
+          # runtime change can break that claim. The predicate's whole tree
+          # rather than that one release's closure: the Xray testbeds
+          # over-fire, and a roster of the closure would be a second copy of
+          # the build graph, free to drift.
+          bundle_isolation=true
         fi
         # The consolidated :node-test build lists
         # tools/{story,xray}/{src,test} as :source-paths (shadow-cljs.edn),
@@ -2394,6 +2403,13 @@ else
         cljs_node_test=true
         cljs_browser=true
         tools_jvm_testbed_support=true
+        # `re-frame.testbed.story-host` is compiled into
+        # `:examples/counter-with-stories`, which `test:bundle-isolation`
+        # releases for the Story elision claim; see the Story/Xray arm above.
+        case "$file" in
+          tools/testbed-support/src/*)
+            bundle_isolation=true ;;
+        esac
         ;;
       tools/story-mcp/*)
         # MCP wrappers don't run in a browser; story-xray-browser
