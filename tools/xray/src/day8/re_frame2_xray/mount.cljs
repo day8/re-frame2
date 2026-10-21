@@ -560,7 +560,7 @@
   :exclude` globs on `xray-image` stop the `day8.re-frame2-xray.**` glob
   sweeping in Xray's own `*-cljs-test` namespaces (which would raise
   `:rf.error/image-duplicate-id`). And `:rf.xray/*` subs read the host
-  registry with the `{:source :store …}` query form (the SOURCE-STORE
+  registry with the store query, which carries no `:frame` (the SOURCE-STORE
   read, which never consults a bound image generation): a read without
   it would resolve through Xray's OWN image generation instead of the
   inspected host's process-global registrar, and the route table would
@@ -679,7 +679,7 @@
    ;; `re-frame.trace/set-frame-no-emit!` (the seam the frame engine uses for
    ;; the config flag), and is idempotent on re-seat (`xray-frame-seated?` skips the
    ;; duplicate-`:id` `make-frame`). Host-registry reads inside Xray's subs go
-   ;; with `{:source :store …}` (which never consults a bound image
+   ;; without `:frame` (which never consults a bound image
    ;; generation) so the inspector still sees the inspected app's registrar,
    ;; not its own image's — see spec/API.md §Public registrar query API.
    (image-reads/seat-xray-frame! frame-id)
@@ -1221,7 +1221,7 @@
   more than one namespace registers is still registered, so the probe asks both
   reads rather than the store read that throws for it."
   []
-  (let [query {:source :store :kind :event}
+  (let [query {:kind :event}
         id    :rf.xray/set-target-frame]
     (or (contains? (rf/registrations query) id)
         (contains? (rf/ambiguous-registrations query) id))))

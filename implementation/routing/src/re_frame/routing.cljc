@@ -88,8 +88,8 @@
 
 ;; No `route-ids` / `route-meta` re-exports here — static-registry
 ;; introspection is the generic registrar grammar,
-;; `(keys (rf/registrations {:source :store :kind :route}))` and
-;; `(rf/handler-meta {:source :store :kind :route :id id})`.
+;; `(keys (rf/registrations {:kind :route}))` and
+;; `(rf/handler-meta {:kind :route :id id})`.
 
 ;; EP-0037 R0 — the shared RouteAddress extraction law
 ;; (`re-frame.routing.address`) and the one resolved-target / route-plan seam

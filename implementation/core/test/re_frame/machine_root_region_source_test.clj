@@ -23,7 +23,7 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- machine-spec [machine-id]
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+  (:rf/machine (rf/handler-meta {:kind :event :id machine-id})))
 
 (defn- source-keys-anywhere
   "The `:source-code` / `:source-coords` keys found on any map at any depth of

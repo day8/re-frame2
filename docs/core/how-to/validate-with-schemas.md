@@ -344,7 +344,7 @@ Registered schemas can be queried, by you, by tools, and by AI agents: "what sha
 ;; => "sha256:abc1234567890def"                                       a hash of the whole set
 ```
 
-Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value) and answers with the schemas that frame resolves; a call without one raises `:rf.error/no-frame-context`. App-db schemas are registrations of the kind `:app-schema`, so `(rf/registrations {:frame :rf/default :kind :app-schema})` answers the same. Event, sub, and fx schemas ride on their handlers' registrations: `(rf/handler-meta {:source :store :kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
+Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value) and answers with the schemas that frame resolves; a call without one raises `:rf.error/no-frame-context`. App-db schemas are registrations of the kind `:app-schema`, so `(rf/registrations {:frame :rf/default :kind :app-schema})` answers the same. Event, sub, and fx schemas ride on their handlers' registrations: `(rf/handler-meta {:kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
 
 The digest is a deterministic hash of the whole schema set a frame resolves, identical on any runtime for the same schemas. When a server-rendered page [hydrates](../../ssr/glossary.md#hydration), the client compares the server's digest with its own and emits a `:rf.ssr/schema-digest-mismatch` warning if they differ, which means the server and client bundles are out of sync. Agents use the same readers to learn what shape to write before they dispatch, and Malli's `mg/generate` turns a schema into test data.
 

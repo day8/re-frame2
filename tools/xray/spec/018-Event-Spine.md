@@ -936,7 +936,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
    defaults posture. Each row: `<:cofx-id>  <inspected-value>`.
 4. **INTERCEPTORS** — non-standard chain only, **silent when zero**
    (the section is ABSENT entirely, NOT '(none)'). Reads
-   `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filters out anything
+   `(rf/handler-meta {:kind :event :id id}) :interceptors` and filters out anything
    carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
    auto-wrapper id (`:rf/event-handler` — EP-0018 unified the former
    per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids)
@@ -944,7 +944,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
 5. **HANDLER** — `reg-event · src/file.cljs:N [code]`. Per
    Q2: does NOT duplicate the event-id (the DISPATCH step already
    carries the dispatched event vector — see entry 2). Reads
-   `(rf/handler-meta {:source :store :kind :event :id id})`.
+   `(rf/handler-meta {:kind :event :id id})`.
 6. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
    peer section sitting RIGHT AFTER the handler, before the
    handler-driven effects). Flows fire automatically at the OUTERMOST

@@ -98,7 +98,7 @@
       (is (nil? (who-runs :probe/frame :x/gone)))
       (is (= [[:x/gone]] (mapv :event (errors-of seen :rf.error/no-such-handler)))
           "dispatching the deleted id reports no-such-handler")
-      (is (nil? (rf/handler-meta {:source :store :kind :event :id :x/gone}))
+      (is (nil? (rf/handler-meta {:kind :event :id :x/gone}))
           "the registrar's slot is gone too")
       (is (empty? (rf.source-store/descriptors-for :event :x/gone))))))
 

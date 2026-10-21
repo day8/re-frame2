@@ -375,10 +375,10 @@ frame id), `rf/frame-generation` throws `:rf.error/frame-no-generation` rather t
     (rf/handler-meta {:frame :rf/default :kind :sub :id :todo/todos})
     ```
 
-    A query map must name exactly one source: `{:frame f …}` for this frame's image,
-    or `{:source :store …}` for the process-global registrar. A map naming neither, or
-    both, throws `:rf.error/registrar-query-needs-source`, so you never read the global
-    registrar by accident. The metadata includes `:rf.provenance/ns`, so when two
+    A query map with `:frame f` reads this frame's image; one without `:frame` reads
+    the process-global registrar. Any other key throws
+    `:rf.error/registrar-query-invalid`, so a misspelled `:frame` never reads the
+    global registrar by accident. The metadata includes `:rf.provenance/ns`, so when two
     images both define `:todo/add` you can see which one won and where it was written.
     Every read accepts a frame id or a frame value, and throws
     `:rf.error/frame-no-generation` if the target isn't a live frame. When images form

@@ -27,7 +27,7 @@ The coeffects map has two layers. The **base framework coeffects are always stag
 
 Verified in `re-frame.cofx` (`reg-cofx`, `parse-requires`, `deliver-declared-cofx`). Metadata may carry:
 
-- `:doc` — one-sentence what-and-why; surfaces via `(rf/handler-meta {:source :store :kind :cofx :id id})`.
+- `:doc` — one-sentence what-and-why; surfaces via `(rf/handler-meta {:kind :cofx :id id})`.
 - `:recordable?` — the grade (see grades below). Default `true` (**recordable**); `false` is **ambient**.
 - `:provided?` — (recordable only) the fact has **no generator** (see grades below).
 - `:schema` — Malli schema validating supplied / replayed values. A generated value is validated against `:schema` at processing-start (a production hard error on mismatch) before it is written into the recorded token.

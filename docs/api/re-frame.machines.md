@@ -173,7 +173,7 @@ Development-only registration warnings do not prevent registration:
   (defmachine name docstring machine-spec)
   ```
 - **Description**: Defines `name` as a machine-spec value and captures its per-element source, so a later `reg-machine` of that value keeps it. Use it in place of `def` for a named spec. Called as `rf/defmachine`.
-    - It walks the literal spec the same way `reg-machine` does and stores the source on the value. `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` and Xray's machine source view then work for the registered value as they do for an inline spec.
+    - It walks the literal spec the same way `reg-machine` does and stores the source on the value. `(rf/handler-meta {:kind :machine-guard :id [machine-id guard-id]})` and Xray's machine source view then work for the registered value as they do for an inline spec.
     - With `(def m {…})` and `(reg-machine :id m)`, `reg-machine` sees only the symbol and captures nothing, so Xray click-to-source is unavailable for that machine.
     - Production builds remove the development-only `:source-*` slots.
 - **Example**:
@@ -457,16 +457,16 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
 - To list every registered machine id, filter the `:event` registrations on `:rf/machine?`:
   ```clojure
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-              (rf/registrations {:source :store :kind :event})))
+              (rf/registrations {:kind :event})))
   ;; → (:session :auth.login/flow …)
   ```
   This lists registered machines. A spawned actor has no registration of its own, so read live actors from the snapshots map at `[:rf.runtime/machines :snapshots]` in the frame's `runtime-db`.
 - To read one machine's spec, take the `:rf/machine` key of its registration. It holds the transition table, `:doc`, `:schemas` and per-element source coordinates, and is `nil` unless the `:event` registration is a machine:
   ```clojure
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :session}))
+  (:rf/machine (rf/handler-meta {:kind :event :id :session}))
 
   ;; Just the declared :data schema:
-  (get-in (rf/handler-meta {:source :store :kind :event :id :session})
+  (get-in (rf/handler-meta {:kind :event :id :session})
           [:rf/machine :schemas :data])
   ```
 

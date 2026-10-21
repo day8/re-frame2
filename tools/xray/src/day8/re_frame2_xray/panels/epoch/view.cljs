@@ -2163,7 +2163,7 @@
     ;; carrying `:rf/machine? true` + the stamped spec (with co-located
     ;; state-node `:source-coords`) under `:rf/machine` (`machine-block`
     ;; and `handler-source-block` read `:event` too).
-    (let [machine-meta (try (rf/handler-meta {:source :store :kind :event :id machine-id})
+    (let [machine-meta (try (rf/handler-meta {:kind :event :id machine-id})
                             (catch :default _ nil))
           ;; Resolve the machine spec: the stamped spec lives under
           ;; `:rf/machine`, with legacy-shape fallbacks (mirrors the cascade
@@ -2464,7 +2464,7 @@
   ([step] (render-coeffect-step step nil))
   ([{:keys [id value input no-value? step-number violations errors]} instance]
   (let [cofx-meta  (when (keyword? id)
-                     (try (rf/handler-meta {:source :store :kind :cofx :id id})
+                     (try (rf/handler-meta {:kind :cofx :id id})
                           (catch :default _ nil)))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})
@@ -3934,7 +3934,7 @@
   ;; node). Reading under `:event` surfaces the spec so
   ;; the interleaved source code + click-to-source coords resolve.
   (let [machine-meta (when (some? event-id)
-                       (try (rf/handler-meta {:source :store :kind :event :id event-id})
+                       (try (rf/handler-meta {:kind :event :id event-id})
                             (catch :default _ nil)))
         cascade      (or cascade [])]
     [:div {:data-testid "rf-xray-epoch-handler-machine"}
@@ -4024,7 +4024,7 @@
                    ;; `:event` kind (the machine is an `:event` handler with
                    ;; `:rf/machine? true`); the call-site coord rides the
                    ;; top-level `:file` / `:line` for both.
-                   (try (rf/handler-meta {:source :store :kind :event :id event-id})
+                   (try (rf/handler-meta {:kind :event :id event-id})
                         (catch :default _ nil)))
         coord    (coord-from-handler-meta meta)
         label    (fmt/handler-flavour-label flavour)]
@@ -4060,7 +4060,7 @@
   [flavour event-id]
   (when-not (= :reg-machine flavour)
     (let [meta (when (some? event-id)
-                 (try (rf/handler-meta {:source :store :kind :event :id event-id})
+                 (try (rf/handler-meta {:kind :event :id event-id})
                       (catch :default _ nil)))
           src  (handler-source-string meta)]
       [:div {:data-testid "rf-xray-epoch-handler-source"
@@ -4464,7 +4464,7 @@
 
 (defn- fx-coord
   "Pull the registered fx-handler's source coord off
-  `(rf/handler-meta {:source :store :kind :fx :id fx-id})`. Returns nil when no meta is captured.
+  `(rf/handler-meta {:kind :fx :id fx-id})`. Returns nil when no meta is captured.
   Mirrors the sibling `sub-coord` shape, giving the SIDE EFFECTS
   step's :fx rows the click-to-source affordance on parity with the
   HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS rows.
@@ -4478,7 +4478,7 @@
   where `reg-view` skips the absolutisation."
   [fx-id]
   (when (some? fx-id)
-    (let [m (try (rf/handler-meta {:source :store :kind :fx :id fx-id}) (catch :default _ nil))]
+    (let [m (try (rf/handler-meta {:kind :fx :id fx-id}) (catch :default _ nil))]
       (when (and m (string? (:file m)) (seq (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
@@ -4526,7 +4526,7 @@
   Each fx-id carries the shared `coord-chip` open-in-
   editor affordance (exact parity with the SUBSCRIPTIONS / VIEWS rows
   + the HANDLER verb), sourcing the fx registration coord off
-  `(rf/handler-meta {:source :store :kind :fx :id fx-id})` via `fx-coord`. The chip drops out
+  `(rf/handler-meta {:kind :fx :id fx-id})` via `fx-coord`. The chip drops out
   cleanly when no coord was captured (framework-shipped fx with no
   user source, production builds without coords; the synthesised `:db`
   row has no reg-site)."
@@ -4833,20 +4833,20 @@
 
 (defn- sub-coord
   "Pull the registered sub's source coord off
-  `(rf/handler-meta {:source :store :kind :sub :id sub-id})`. Returns nil when no meta is
+  `(rf/handler-meta {:kind :sub :id sub-id})`. Returns nil when no meta is
   captured. Matches the sibling `view-coord` shape, giving disposed-sub
   rows the click-to-source affordance on parity with the
   unmounted-views rows."
   [sub-id]
   (when (some? sub-id)
-    (let [m (try (rf/handler-meta {:source :store :kind :sub :id sub-id}) (catch :default _ nil))]
+    (let [m (try (rf/handler-meta {:kind :sub :id sub-id}) (catch :default _ nil))]
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
 (defn- sub-input-signals
   "The sub's STATIC input topology — the sub-ids of its registered
   `:input-signals`, resolved by the SUB-ID (first element of the
-  query-v) off `(rf/handler-meta {:source :store :kind :sub :id sub-id})`.
+  query-v) off `(rf/handler-meta {:kind :sub :id sub-id})`.
 
   `:input-signals` is registered on the SUB-ID, not the full instance
   query-v: the `:inputs` a `reg-sub` declares are the same for every
@@ -4879,7 +4879,7 @@
   the `caused by <event-id>` chrome."
   [sub-id]
   (when (some? sub-id)
-    (let [m (try (rf/handler-meta {:source :store :kind :sub :id sub-id}) (catch :default _ nil))
+    (let [m (try (rf/handler-meta {:kind :sub :id sub-id}) (catch :default _ nil))
           signals (:input-signals m)]
       ;; Parametric subs carry empty `:input-signals` (their realized
       ;; edges are runtime cache state) — nil here defers to the row's
@@ -5085,7 +5085,7 @@
                               "<anonymous sub>"])
            ;; Click-to-source affordance for the reg-sub,
            ;; parity with the sibling unmounted-views row. Resolves
-           ;; `(rf/handler-meta {:source :store :kind :sub :id sub-id})` → coord; chip drops out
+           ;; `(rf/handler-meta {:kind :sub :id sub-id})` → coord; chip drops out
            ;; cleanly when meta is absent (anonymous sub / production
            ;; build without coords).
            (coord-chip/coord-chip (sub-coord sub-id)
@@ -5186,11 +5186,11 @@
 
 (defn- view-coord
   "Pull the registered view's source coord off
-  `(rf/handler-meta {:source :store :kind :view :id view-id})`. Returns nil when no meta is
+  `(rf/handler-meta {:kind :view :id view-id})`. Returns nil when no meta is
   captured. Matches the reactive panel's resolver shape."
   [view-id]
   (when (some? view-id)
-    (let [m (try (rf/handler-meta {:source :store :kind :view :id view-id}) (catch :default _ nil))]
+    (let [m (try (rf/handler-meta {:kind :view :id view-id}) (catch :default _ nil))]
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
@@ -5479,11 +5479,11 @@
       {:file (:file m) :line (:line m)})))
 
 (defn- violation-kind-coord
-  "Resolve a `(rf/handler-meta {:source :store :kind <kind> :id <id>})` coord, returning
+  "Resolve a `(rf/handler-meta {:kind <kind> :id <id>})` coord, returning
   `{:file :line}` or nil."
   [kind id]
   (when (keyword? id)
-    (meta-coord #(rf/handler-meta {:source :store :kind kind :id id}))))
+    (meta-coord #(rf/handler-meta {:kind kind :id id}))))
 
 (def ^:private violation-registration-kind
   "The registrar KIND of the registration whose `:schema` failed,

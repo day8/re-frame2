@@ -94,7 +94,7 @@
     (is (= {:rf.error/id :rf.error/invalid-flow-metadata :value :rf/default}
            (select-keys data [:rf.error/id :value])))
     (is (re-find #":flows" (str (:reason data))) "the message names the frame's :flows config")
-    (is (= {} (rf/registrations {:source :store :kind :flow})) "nothing registered")))
+    (is (= {} (rf/registrations {:kind :flow})) "nothing registered")))
 
 (deftest reg-flow-rejects-a-schema-key
   ;; A flow's output shape is declared once, with `reg-app-schema` at its
@@ -107,7 +107,7 @@
              (select-keys data [:rf.error/id :value])))
       (is (re-find #"reg-app-schema" (str (:reason data))) "the message names reg-app-schema")
       (is (re-find #"\[:out\]" (str (:reason data))) "the message names the output path")
-      (is (= {} (rf/registrations {:source :store :kind :flow})) "nothing registered"))))
+      (is (= {} (rf/registrations {:kind :flow})) "nothing registered"))))
 
 (deftest reg-flow-rejects-malformed-inputs
   (are [inputs bad-entries]
@@ -165,7 +165,7 @@
 
 (deftest reg-flow-bad-marks-installs-no-registration-and-no-elision-declaration
   ;; One well-formed and one malformed mark: the rejection installs neither.
-  (let [state  #(vector (rf/registrations {:source :store :kind :flow})
+  (let [state  #(vector (rf/registrations {:kind :flow})
                         (rf.elision/sensitive-declarations :rf/default)
                         (rf.elision/declarations :rf/default))
         before (state)

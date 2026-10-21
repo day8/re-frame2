@@ -23,7 +23,7 @@
   (rf/reg-event :reg-event-test/with-icpt
     {:doc "doc" :interceptors [:reg-event-test/noop]}
     (fn [{:keys [db]} _] {:db db}))
-  (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/with-icpt})]
+  (let [meta (rf/handler-meta {:kind :event :id :reg-event-test/with-icpt})]
     (when rf.interop/debug-enabled?
       (is (= "doc" (:doc meta))))
     ;; the authored ref stays a keyword; the framework wrapper is a map

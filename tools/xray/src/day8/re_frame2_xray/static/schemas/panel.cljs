@@ -30,9 +30,9 @@
       `:doc`, `:file`/`:line`/`:ns` source
       coords). This yields the `{frame-id {path schema-meta}}` shape
       the per-frame projection consumes.
-    - `(rf/registrations {:source :store :kind :event})` — events whose metadata carries a
+    - `(rf/registrations {:kind :event})` — events whose metadata carries a
       `:schema` slot.
-    - `(rf/registrations {:source :store :kind :sub})` — subs whose metadata carries a `:schema`
+    - `(rf/registrations {:kind :sub})` — subs whose metadata carries a `:schema`
       slot.
 
   ONE key, no fallback. `:schema` is the canonical registration-metadata
@@ -520,7 +520,7 @@
   schemas via the `re-frame.schemas` façade, event / sub `:schema` metadata
   via the HOST app's `:event` / `:sub` registrar.
 
-  The event / sub reads go through `rf/registrations` with `{:source :store …}`
+  The event / sub reads go through `rf/registrations` without `:frame`
   (the SOURCE-STORE read, which never consults a bound image generation),
   NOT `{:frame …}`: this runs inside the `:rf.xray.static.schemas/registry` sub
   COMPUTATION, and Xray seats in its OWN image-loaded `:rf/xray` frame, so the
@@ -534,10 +534,10 @@
    (try (read-app-schemas-by-frame)
         (catch :default _ {}))
    :events
-   (try (rf/registrations {:source :store :kind :event})
+   (try (rf/registrations {:kind :event})
         (catch :default _ {}))
    :subs
-   (try (rf/registrations {:source :store :kind :sub})
+   (try (rf/registrations {:kind :sub})
         (catch :default _ {}))})
 
 ;; ---- registrations -------------------------------------------------------
@@ -584,7 +584,7 @@
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
   ;; (`rf/frame-ids` + one `rf.schemas/app-schemas {:frame f}` read per
   ;; frame) and event / sub `:schema` metadata via
-  ;; `(rf/registrations {:source :store :kind <kind>})`.
+  ;; `(rf/registrations {:kind <kind>})`.
   ;; Declares the trace buffer in its `:inputs` so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode
   ;; subs ride.

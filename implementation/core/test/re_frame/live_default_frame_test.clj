@@ -180,13 +180,13 @@
 (deftest an-application-registration-of-a-framework-standard-is-refused
   (with-recorded-errors
     (fn [_seen]
-      (let [standard (rf/handler-meta {:source :store :kind :interceptor :id :rf.interceptor/path})
+      (let [standard (rf/handler-meta {:kind :interceptor :id :rf.interceptor/path})
             data     (thrown-data
                        #(eval-in-ns 'probe.a '(rf/reg-interceptor :rf.interceptor/path
                                                 {:before (fn [ctx] ctx)})))]
         (is (= :rf.error/image-standard-replacement-forbidden (:rf.error/id data)))
         (is (= [:interceptor :rf.interceptor/path] [(:kind data) (:id data)]))
-        (is (= standard (rf/handler-meta {:source :store :kind :interceptor :id :rf.interceptor/path}))
+        (is (= standard (rf/handler-meta {:kind :interceptor :id :rf.interceptor/path}))
             "the refused registration wrote nothing")))))
 
 (deftest handler-meta-for-a-live-frame-reports-what-it-runs
@@ -195,7 +195,7 @@
       (register-a!)
       (rf/make-frame {:id :probe/frame})
       (move-to-b!)
-      (is (identical? (:handler-fn (rf/handler-meta {:source :store :kind :event :id :probe/other}))
+      (is (identical? (:handler-fn (rf/handler-meta {:kind :event :id :probe/other}))
                       (:handler-fn (rf/handler-meta {:frame :probe/frame :kind :event :id :probe/other})))
           "an id with one owner reports the registration the frame runs")
       (is (= :rf.error/ambiguous-registration

@@ -1409,7 +1409,7 @@
     ;; Malli schema across app-db slots + events + subs. Reads the
     ;; public `re-frame.schemas` façade (`rf/frame-ids` + one
     ;; `app-schemas {:frame f}` read per frame) + the
-    ;; `(rf/registrations {:source :store :kind :event})` / `:sub` `:spec`
+    ;; `(rf/registrations {:kind :event})` / `:sub` `:spec`
     ;; slots. Source-coord
     ;; chip dispatches `:rf.xray/open-in-editor` (open-in-editor
     ;; installed above).

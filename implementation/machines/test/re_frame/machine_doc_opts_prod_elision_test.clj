@@ -22,7 +22,7 @@
       {:initial :idle
        :states  {:idle {}}})
     (is (= {:schema [:tuple :keyword]}
-           (select-keys (rf/handler-meta {:source :store :kind :event :id :prod/machine})
+           (select-keys (rf/handler-meta {:kind :event :id :prod/machine})
                         [:doc :schema])))))
 
 (deftest reg-machine-opts-doc-retained-under-enabled-debug-gate
@@ -31,4 +31,4 @@
     {:initial :idle
      :states  {:idle {}}})
   (is (= "machine opts doc kept in dev"
-         (:doc (rf/handler-meta {:source :store :kind :event :id :dev/machine})))))
+         (:doc (rf/handler-meta {:kind :event :id :dev/machine})))))

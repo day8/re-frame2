@@ -74,7 +74,7 @@ React Router's `loader` is a function, so you find out what a route fetches by r
 or running it. In re-frame2 both are data: a route's [loader](glossary.md#loader) is
 `:resources`, a list of declarations, and its
 [activation work](glossary.md#activation-work) is `:on-match`, a vector of event
-vectors. Either can be read without running anything: `(rf/handler-meta {:source :store :kind :route :id :app/article})`
+vectors. Either can be read without running anything: `(rf/handler-meta {:kind :route :id :app/article})`
 returns the route's metadata.
 
 `:resources` also handles the click-away race. Each resource loaded on entry belongs

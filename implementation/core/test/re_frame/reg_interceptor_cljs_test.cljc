@@ -179,7 +179,7 @@
     @traces))
 
 (defn- registered-coord [id]
-  (select-keys (rf/handler-meta {:source :store :kind :interceptor :id id}) [:ns :file :line :column]))
+  (select-keys (rf/handler-meta {:kind :interceptor :id id}) [:ns :file :line :column]))
 
 (deftest descriptor-authored-coord-rides-the-exception-trace
   (rf/reg-interceptor :tq26u/boom

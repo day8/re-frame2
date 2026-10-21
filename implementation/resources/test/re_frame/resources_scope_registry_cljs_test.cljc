@@ -26,7 +26,7 @@
         (rf.registrar/clear-kind! :resource-scope)))))
 
 (defn- scope-meta [id]
-  (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id})))
+  (:rf/resource-scope (rf/handler-meta {:kind :resource-scope :id id})))
 
 (def ^:private session-meta
   "The canonical declared-inputs metadata: the 3-slot MIDDLE slot."
@@ -51,7 +51,7 @@
   ;; at all pins the kind's membership
   (is (= [:realworld/session [:realworld/session]]
          [(rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
-          (keys (rf/registrations {:source :store :kind :resource-scope}))]))
+          (keys (rf/registrations {:kind :resource-scope}))]))
   (rf/clear :resource-scope :realworld/session)
   (is (= [nil false]
          [(scope-meta :realworld/session) (contains? (rf.registrar/registrations :resource-scope) :realworld/session)])

@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.host-registrar-ambiguity-cljs-test
   "An id two namespaces register is an ambiguous registration: the store read
-  `(rf/handler-meta {:source :store …})` throws for it. Every Xray panel that
+  `(rf/handler-meta {:kind k :id id})` throws for it. Every Xray panel that
   reads the host registrar through the source store renders such an id as it
   renders an unregistered one, instead of throwing while it renders."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -29,7 +29,7 @@
   (rf.registrar/register! kind id (assoc descriptor :rf.provenance/ns "host.a")))
 
 (defn- store-read-error [kind id]
-  (try (rf/handler-meta {:source :store :kind kind :id id})
+  (try (rf/handler-meta {:kind kind :id id})
        nil
        (catch :default e (:rf.error/id (ex-data e)))))
 

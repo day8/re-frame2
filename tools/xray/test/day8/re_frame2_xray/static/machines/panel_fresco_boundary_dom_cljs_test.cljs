@@ -400,7 +400,7 @@
               probe? (fn [] (some? (row-node container "late-machine")))]
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
           ;; `:rf.xray/registered-machines` computes from the PROCESS-GLOBAL
-          ;; registrar (`rf/registrations {:source :store :kind :event}`), not
+          ;; registrar (`rf/registrations {:kind :event}`), not
           ;; from Xray's app-db. Registering a real machine therefore changes
           ;; what the read WOULD compute while invalidating nothing it
           ;; watches — the honest "the world moved" pulse.

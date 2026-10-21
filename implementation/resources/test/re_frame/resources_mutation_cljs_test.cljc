@@ -162,9 +162,9 @@
 
 (deftest reg-mutation-registers-and-introspects
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (is (fn? (:request (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
+  (is (fn? (:request (:rf/mutation (rf/handler-meta {:kind :mutation :id :m/save})))))
   (rf/clear :mutation :m/save)
-  (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
+  (is (nil? (:rf/mutation (rf/handler-meta {:kind :mutation :id :m/save})))))
 
 (deftest reg-mutation-fail-closed
   (testing "a :request inside the metadata map is a mislocated key"
@@ -199,7 +199,7 @@
               :mutation-id :m/nonfn-request :value bad}
              (select-keys (ex-data ex) [:rf.error/id :recovery :mutation-id :value]))
           (pr-str bad))
-      (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request}))))))
+      (is (nil? (:rf/mutation (rf/handler-meta {:kind :mutation :id :m/nonfn-request}))))))
   ;; A Var is IFn but not Fn on the JVM, so a bare `fn?` gate would reject it.
   (doseq [[label good] [["inline fn" (fn [_p _c] {:request {:url "/i"}})]
                         ["Var of a defn" #'defn-write]]]
@@ -674,7 +674,7 @@
   (is (thrown-with-msg?
         #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
         (rf.resources.mutation-registry/validate+canonicalize-params
-          :m/save (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))
+          :m/save (:rf/mutation (rf/handler-meta {:kind :mutation :id :m/save}))
           {:slug "w" :cb (fn [])} 'test))))
 
 ;; Validation throws are asserted at the fn boundary: the event loop catches a

@@ -24,7 +24,7 @@
   (rf/reg-machine :rf2-lf84g/tl
     {:initial :red
      :states  {:red {:on {:tick :green}} :green {}}})
-  (let [coord (select-keys (rf/handler-meta {:source :store :kind :event :id :rf2-lf84g/tl})
+  (let [coord (select-keys (rf/handler-meta {:kind :event :id :rf2-lf84g/tl})
                            [:ns :file :line :column])
         [tr]  (rf.machines.test-support/with-trace-capture seen
                 (rf/dispatch-sync [:rf2-lf84g/tl [:tick]] {:frame :rf2-lf84g/frame-A})

@@ -71,7 +71,7 @@
   [ids]
   (into {}
         (keep (fn [id]
-                (let [m (rf/handler-meta {:source :store :kind :event :id id})]
+                (let [m (rf/handler-meta {:kind :event :id id})]
                   (when (:rf/machine? m) [id (:rf/machine m)]))))
         ids))
 

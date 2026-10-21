@@ -90,7 +90,7 @@ rg -n '\[\s*(re-frame\.[A-Za-z0-9_.-]+)' . --only-matching --multiline --replace
                                  (rf/dispatch-sync [::reset-app-db v])
 (subs/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
-(reg/get-handler kind id) → (rf/handler-meta {:source :store :kind kind :id id}) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
+(reg/get-handler kind id) → (rf/handler-meta {:kind kind :id id}) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
 (re-frame.utils/map-vals f m) → (into {} (map (fn [[k v]] [k (f v)])) m) ; v1's own body, so behaviour is unchanged; update-vals only per the note below
 ```
 
@@ -423,7 +423,7 @@ rg -U -n 'reg-fx\s+\S+\s+(\(fn\s+(\S+\s+)?\[[^]\s_]|#\()' .
 rg -U -n 'reg-fx\s+\S+\s+[a-zA-Z][^\s()]*\s*\)' .
 ```
 
-Then cross-check the hit count against `(rf/registrations {:source :store :kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a handler built by a macro or a higher-order fn, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`), and a `#(…)` that reads `%2`; skip those.
+Then cross-check the hit count against `(rf/registrations {:kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a handler built by a macro or a higher-order fn, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`), and a `#(…)` that reads `%2`; skip those.
 
 **Before each rewrite, check two things the blanket `_`-prepend gets wrong:**
 

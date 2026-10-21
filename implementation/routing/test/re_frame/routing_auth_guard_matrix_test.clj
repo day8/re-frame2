@@ -101,7 +101,7 @@
   (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                     (rf/compute-sub [:rf/route]
                                                     (get-in ctx [:coeffects :rf.db/runtime])))]
-    (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
+    (let [route-meta  (rf/handler-meta {:kind :route :id id})
           needs-auth? (contains? (:tags route-meta) :requires-auth)
           signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]
       (if (and needs-auth? (not signed-in?))
@@ -278,6 +278,6 @@
       ;; `:tab` commits the way the URL spells it — a string key.
       (is (= "x" (get-in cur [:query "tab"]))
           "and applies only the query change")
-      (is (contains? (:tags (rf/handler-meta {:source :store :kind :route :id (:route-id cur)})) :requires-auth)
+      (is (contains? (:tags (rf/handler-meta {:kind :route :id (:route-id cur)})) :requires-auth)
           "resolving the in-place request to the current route-id surfaces the
            :requires-auth tag the guard reads to fail closed"))))

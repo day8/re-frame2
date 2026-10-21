@@ -459,7 +459,7 @@
   ;; check survives the production build.
   (doseq [id [:ws/handle-message :ws.app/request-reply]]
     (is (= [true true] ((juxt (comp some? :schema) :boundary?)
-                        (rf/handler-meta {:source :store :kind :event :id id})))
+                        (rf/handler-meta {:kind :event :id id})))
         (str id))))
 
 (deftest websocket-inbound-boundary-rejection

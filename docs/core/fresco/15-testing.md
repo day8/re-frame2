@@ -87,7 +87,7 @@ and assert on the returned effects:
 
 (deftest toggle-flips-done
   (let [handler (:handler-fn
-                 (rf/handler-meta {:source :store :kind :event :id :todo/toggle}))
+                 (rf/handler-meta {:kind :event :id :todo/toggle}))
         result  (handler
                  {:db {:todos
                        {7 {:id 7

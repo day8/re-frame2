@@ -51,7 +51,7 @@
 ;; There are no `clear-*`, `*-meta` or `*-ids` re-exports: the inverse is the
 ;; kind-keyed `(rf/clear <kind> id)` and introspection is the generic
 ;; registrar read, e.g.
-;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;;   (:rf/resource (rf/handler-meta {:kind :resource :id id}))
 ;; The algebra views live only in the bundle-isolated `tooling` sibling.
 ;; Derivations §Resources expose process nodes.
 

@@ -411,7 +411,7 @@
 
   Registration goes via the registrar directly (the routing artefact's
   `reg-route` macro is not on the xray test classpath); the graph reads the
-  registry map decoupled via `(rf/registrations {:source :store :kind :route})`."
+  registry map decoupled via `(rf/registrations {:kind :route})`."
   []
   (rf.registrar/register! :route :route/article
                        {:path "/articles/:slug"

@@ -776,8 +776,8 @@
      reference-site `:source-coords` onto each `:states`-tree map node
      (state-node / transition map) of the def'd
      value. When that value is later passed to `reg-machine`, the source is
-     already present on the stamped spec, so `(rf/handler-meta {:source :store
-     :kind :machine-guard :id [machine-id guard-id]})` (and the Epoch
+     already present on the stamped spec, so `(rf/handler-meta {:kind
+     :machine-guard :id [machine-id guard-id]})` (and the Epoch
      machine-cascade source rendering)
      light up for value-registered machines exactly as for inline ones
      — the source is derived from the `:event` registration spec,
@@ -1599,8 +1599,8 @@
 ;;
 ;; A resource's / mutation's registered spec has no per-kind accessor: it is
 ;; the generic registrar read plus the documented inner-key projection —
-;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
-;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
+;;   (:rf/resource (rf/handler-meta {:kind :resource :id id}))
+;;   (:rf/mutation (rf/handler-meta {:kind :mutation :id id}))
 
 (def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
   the supplied `db` value, returning a canonical concrete scope or nil — a
@@ -1652,28 +1652,27 @@
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
-;; The registrar query workhorses. Each of `registrations` / `handler-meta` takes
-;; exactly ONE argument: a QUERY MAP naming its source explicitly.
+;; The registrar query workhorses. Each of `registrations` / `handler-meta` /
+;; `ambiguous-registrations` takes exactly ONE argument, a QUERY MAP:
 ;;
-;;   (registrations {:source :store :kind :event})     ; the process source store
-;;   (registrations {:frame f      :kind :event})      ; frame f's own view
-;;   (handler-meta  {:source :store :kind :event :id i})
-;;   (handler-meta  {:frame f      :kind :event :id i})
+;;   (registrations {:kind :event})                ; the registration store
+;;   (registrations {:kind :event :frame f})       ; frame f's resolved program
+;;   (handler-meta  {:kind :event :id i})
+;;   (handler-meta  {:kind :event :id i :frame f})
 ;;
-;; `:source` and `:frame` are the two SOURCE SELECTORS and they are exclusive:
-;; a query carrying BOTH, or NEITHER, or a non-map argument, is an error
-;; (`:rf.error/registrar-query-needs-source`, `assert-registrar-query-source!`).
-;; `:source` admits only `:store`; the key exists so another source can
-;; be added without another arity.
+;; Its keys are `:kind`, the optional `:frame` and, for `handler-meta`, `:id`.
+;; Any other key, and a non-map argument, throw
+;; `:rf.error/registrar-query-invalid` (`assert-registrar-query!`): a
+;; misspelled `:frame` would otherwise read the store without a word.
 ;;
-;; WHY THE SOURCE IS EXPLICIT. `rf.registrar/registrations` / `lookup`
-;; consult the frame's own view FIRST — `rf.registrar/*generation*` for a frame
-;; made with `:images`, `rf.registrar/*live-view*` for one made without — and
-;; `re-frame.live-frame/call-with-frame-resolution` binds it around every
-;; subscribe build, dispatch, fx and view resolution against a frame, so an
-;; implicit "default store" read issued from inside a sub computation or an
-;; event handler would silently read THAT FRAME'S view instead. `{:source
-;; :store}` reads the registration table through a fresh
+;; THE STORE READ CONSULTS NO BOUND FRAME VIEW. `rf.registrar/registrations` /
+;; `lookup` consult the frame's own view FIRST — `rf.registrar/*generation*` for
+;; a frame made with `:images`, `rf.registrar/*live-view*` for one made without
+;; — and `re-frame.live-frame/call-with-frame-resolution` binds it around every
+;; subscribe build, dispatch, fx and view resolution against a frame, so a
+;; store read routed through them from inside a sub computation or an event
+;; handler would silently read THAT FRAME'S view instead. A query without
+;; `:frame` reads the registration table through a fresh
 ;; `re-frame.live-frame/live-view` and consults no binding, so the answer does
 ;; not depend on the caller's context — the public door for a tool that needs
 ;; the host process's registrations. It answers exactly as a frame made without
@@ -1709,9 +1708,8 @@
 ;; `re-frame.live-frame/call-with-frame-resolution`, which binds
 ;; `rf.registrar/*generation*` or `rf.registrar/*live-view*` so the registrar's
 ;; own `lookup` / `registrations` / `ids` do the resolution — byte-identical
-;; descriptor shape, no resolver-walk duplicated here. The source-store path
-;; stays byte-identical: only a caller that passes `{:frame …}` reaches a
-;; frame's view.
+;; descriptor shape, no resolver-walk duplicated here. The store read stays
+;; byte-identical: only a query carrying `:frame` reaches a frame's view.
 ;;
 ;; FAIL-LOUD (EP-0023 §Id Spaces): a `:frame` that names neither a frame made
 ;; without `:images` nor a live frame carrying a generation throws
@@ -1794,40 +1792,42 @@
     frame-target
     (resolve-live-frame-object frame-target where-sym true)))
 
-(defn- assert-registrar-query-source!
-  "Fail loud (`:rf.error/registrar-query-needs-source`) when a registrar query
-  (`rf/registrations` / `rf/handler-meta`) does not name EXACTLY ONE source.
+(defn- assert-registrar-query!
+  "Fail loud (`:rf.error/registrar-query-invalid`) unless `arg` is a map whose
+  keys all sit in `allowed`: `:not-a-map` for any other value (a leftover
+  positional keyword, most often), `:unknown-key` naming the keys outside
+  `allowed`. A misspelled `:frame` is the case this exists for, since it would
+  otherwise read the store. Returns `arg`."
+  [arg allowed where-sym]
+  (let [allowed-keys (vec (sort allowed))
+        grammar      (str where-sym ": a registrar query is a map of "
+                          (pr-str allowed-keys) " — {:kind k …} reads the "
+                          "registration store, {:kind k :frame f …} reads "
+                          "live frame f's resolved program. ")
+        unknown      (when (map? arg)
+                       (vec (sort-by pr-str (remove allowed (keys arg)))))]
+    (cond
+      (not (map? arg))
+      (rf.error/throw-error!
+        :rf.error/registrar-query-invalid
+        where-sym
+        (str grammar "Received " (pr-str arg) ", which is not a map; there "
+             "is no positional arity.")
+        {:recovery :pass-a-query-map
+         :extra    {:reason   :not-a-map
+                    :received arg}})
 
-  Fires when `arg` is not a map at all (e.g. a bare positional keyword),
-  when the map carries BOTH `:source` and `:frame`,
-  when it carries NEITHER, or when `:source` carries a value other than
-  `:store`. `arg` may be ANY value here, so `:received-keys` is computed
-  defensively — `(keys arg)` on a non-map throws — rather than assumed
-  map-shaped. Never returns normally."
-  [arg where-sym reason]
-  (rf.error/throw-error!
-    :rf.error/registrar-query-needs-source
-    where-sym
-    (str where-sym ": a registrar query is a MAP naming EXACTLY ONE source — "
-         "{:source :store …} for the process source store, or {:frame f …} for "
-         "a read resolved through live frame f's own view (its sealed image "
-         "generation, or the live store for a frame made without :images). "
-         (case reason
-           :not-a-map    (str "Received " (pr-str arg) ", which is not a map. "
-                              "The positional arity ((" where-sym " :event) and "
-                              "friends) has been retired — pass a query map.")
-           :both         (str "Received BOTH :source and :frame; they are "
-                              "exclusive — a read has one source, not two.")
-           :neither      (str "Received NEITHER :source nor :frame; a bare "
-                              "{:kind …} map is not a default read, because "
-                              "\"the default\" is exactly the ambiguity this "
-                              "grammar exists to remove.")
-           :bad-source   (str "Received :source " (pr-str (:source arg))
-                              "; the only source value is :store."))
-         " There is no realm coordinate in the public read grammar.")
-    {:recovery :name-exactly-one-of-source-store-or-frame
-     :extra    {:received-keys (if (map? arg) (vec (keys arg)) arg)
-                :reason        reason}}))
+      (seq unknown)
+      (rf.error/throw-error!
+        :rf.error/registrar-query-invalid
+        where-sym
+        (str grammar "Received the unknown key(s) " (pr-str unknown) ".")
+        {:recovery :pass-a-query-map
+         :extra    {:reason       :unknown-key
+                    :unknown-keys unknown
+                    :allowed-keys allowed-keys}})
+
+      :else arg)))
 
 ;; The kinds a public registrar query may address. The registrar's own closed
 ;; kind set, MINUS the reserved-but-empty `:frame` slot (see
@@ -1879,25 +1879,18 @@
 
     :else kind))
 
-(defn- registrar-query-source
+(defn- resolve-registrar-query
   "Resolve a registrar query map to `[:store nil]` or `[:frame frame-object]`,
-  validating the one-source rule and the `:kind` on the way. Every public
-  registrar query enters through here, so the grammar is stated once."
-  [arg where-sym]
-  (when-not (map? arg)
-    (assert-registrar-query-source! arg where-sym :not-a-map))
-  (let [has-source? (contains? arg :source)
-        has-frame?  (contains? arg :frame)]
-    (cond
-      (and has-source? has-frame?) (assert-registrar-query-source! arg where-sym :both)
-      (not (or has-source? has-frame?)) (assert-registrar-query-source! arg where-sym :neither)
-      (and has-source? (not= :store (:source arg)))
-      (assert-registrar-query-source! arg where-sym :bad-source)
-      :else
-      (do (assert-queryable-kind! (:kind arg) where-sym)
-          (if has-source?
-            [:store nil]
-            [:frame (resolve-frame-query-target (:frame arg) where-sym)])))))
+  validating its keys against `allowed` and its `:kind` on the way. Every
+  public registrar query enters through here, so the grammar is stated once.
+  The presence of `:frame` decides, so `{:frame nil …}` fails loud rather than
+  reading the store."
+  [arg allowed where-sym]
+  (assert-registrar-query! arg allowed where-sym)
+  (assert-queryable-kind! (:kind arg) where-sym)
+  (if (contains? arg :frame)
+    [:frame (resolve-frame-query-target (:frame arg) where-sym)]
+    [:store nil]))
 
 (defn frame-generation
   "Return the SEALED, resolved image GENERATION a live frame made with `:images`
@@ -1981,9 +1974,9 @@
   introspection workhorse used by tools, agents, and storybook resolution.
   Per Spec 002 §The public registrar query API.
 
-  ONE argument: a query map naming EXACTLY ONE source.
+  ONE argument: a query map of `:kind` and, optionally, `:frame`.
 
-    `(registrations {:source :store :kind k})` — the `{id metadata}` for `k` in
+    `(registrations {:kind k})` — the `{id metadata}` for `k` in
         the process registration table, resolved as a frame made without
         `:images` resolves it, `{}` if none. An id more than one namespace
         registers is not in it ([[ambiguous-registrations]] lists those). This
@@ -1992,7 +1985,7 @@
         it does from the REPL. It is the read a tool wants when it is asking
         what the HOST PROCESS registered.
 
-    `(registrations {:frame f :kind k})` — FRAME-TARGETED (EP-0023):
+    `(registrations {:kind k :frame f})` — FRAME-TARGETED (EP-0023):
         the `{id metadata}` for `k` resolved through live frame `f`'s OWN sealed
         image generation — only the ids that frame's image carries, with the
         `:rf.provenance/ns` + inline/image + replacement/standard facts the
@@ -2007,15 +2000,15 @@
   predicate arity:
 
     (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-              (registrations {:source :store :kind :event}))
+              (registrations {:kind :event}))
 
-  Errors: both source selectors, neither, a non-map argument, or a `:source`
-  other than `:store` → `:rf.error/registrar-query-needs-source`. `:kind
-  :frame` (a reserved-but-empty slot) →
+  Errors: a non-map argument, or a key other than `:kind` and `:frame` →
+  `:rf.error/registrar-query-invalid`. `:kind :frame` (a reserved-but-empty
+  slot) →
   `:rf.error/registrar-kind-not-queryable`, naming the real door. Any other
   non-registry kind → `:rf.error/unknown-registry-kind`."
   [arg]
-  (let [[source frame] (registrar-query-source arg 'rf/registrations)
+  (let [[source frame] (resolve-registrar-query arg #{:kind :frame} 'rf/registrations)
         kind           (:kind arg)]
     (if (= :frame source)
       (rf.live-frame/call-with-frame-resolution
@@ -2029,9 +2022,9 @@
   source-jump) read to find a (kind, id)'s definition. Per Spec 002 §The
   public registrar query API.
 
-  ONE argument: a query map naming EXACTLY ONE source.
+  ONE argument: a query map of `:kind`, `:id` and, optionally, `:frame`.
 
-    `(handler-meta {:source :store :kind k :id id})` — the metadata for
+    `(handler-meta {:kind k :id id})` — the metadata for
       `[k id]` in the process registration table, or nil, resolved as a frame
       made without `:images` resolves it: an id more than one namespace
       registers throws `:rf.error/ambiguous-registration`, naming the
@@ -2041,7 +2034,7 @@
       carries the registered `:rf/interceptor-descriptor` plus source coords +
       `:doc` (EP-0022).
 
-    `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023):
+    `(handler-meta {:kind k :id id :frame f})` — FRAME-TARGETED (EP-0023):
       the metadata for `[k id]` resolved through live frame `f`'s
       OWN sealed image generation (surfacing `:rf.provenance/ns` + inline/image +
       replacement/standard facts the resolved descriptor carries), or `nil` when
@@ -2059,22 +2052,22 @@
   fn-source meta (`:rf.handler/source` + coords) is DERIVED on demand from
   the machine's `:event` registration spec's co-located `:guards` /
   `:actions` entries (see `re-frame.core-machines/machine-handler-meta`).
-  They are read through `{:source :store …}`:
+  They are read without `:frame`:
 
-    (handler-meta {:source :store :kind :machine-guard :id [:auth/login :form-valid?]})
+    (handler-meta {:kind :machine-guard :id [:auth/login :form-valid?]})
 
   Production-elided per Spec 009 (the derivation returns nil when the
-  `:source-*` slots are absent). A machine kind through the `{:frame f …}` form
-  is `nil` — machine kinds are not in the generation resolver.
+  `:source-*` slots are absent). A machine kind read with `:frame` is `nil` —
+  machine kinds are not in the generation resolver.
 
-  Errors: both source selectors, neither, a non-map argument (including a bare
-  positional keyword, as in `(handler-meta :event id)`), or a
-  `:source` other than `:store` → `:rf.error/registrar-query-needs-source`.
+  Errors: a non-map argument (including a bare positional keyword, as in
+  `(handler-meta :event id)`), or a key other than `:kind`, `:id` and
+  `:frame` → `:rf.error/registrar-query-invalid`.
   `:kind :frame` → `:rf.error/registrar-kind-not-queryable`,
   naming the real door. Any other non-registry kind →
   `:rf.error/unknown-registry-kind`."
   [arg]
-  (let [[source frame] (registrar-query-source arg 'rf/handler-meta)
+  (let [[source frame] (resolve-registrar-query arg #{:kind :id :frame} 'rf/handler-meta)
         {:keys [kind id]} arg]
     (if (= :frame source)
       (rf.live-frame/call-with-frame-resolution
@@ -2091,13 +2084,12 @@
   and [[handler-meta]] throws `:rf.error/ambiguous-registration` for. Per Spec
   002 §The public registrar query API.
 
-  ONE argument: a query map naming EXACTLY ONE source, the grammar
-  [[registrations]] takes.
+  ONE argument: the query map [[registrations]] takes.
 
-    `(ambiguous-registrations {:source :store :kind k})` — the ambiguous ids of
+    `(ambiguous-registrations {:kind k})` — the ambiguous ids of
         `k` in the process registration table.
 
-    `(ambiguous-registrations {:frame f :kind k})` — the ambiguous ids of `k`
+    `(ambiguous-registrations {:kind k :frame f})` — the ambiguous ids of `k`
         that live frame `f` refuses: those of the registration table for a
         frame made without `:images`, `{}` for a frame running a sealed image
         generation (assembly already refused a duplicate there). FAILS LOUD
@@ -2105,7 +2097,7 @@
 
   `{}` when there are none. Errors as [[registrations]]."
   [arg]
-  (let [[source frame] (registrar-query-source arg 'rf/ambiguous-registrations)
+  (let [[source frame] (resolve-registrar-query arg #{:kind :frame} 'rf/ambiguous-registrations)
         kind           (:kind arg)]
     (if (= :frame source)
       (rf.live-frame/call-with-frame-resolution

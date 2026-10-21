@@ -63,7 +63,7 @@
             off the standard `:file` / `:line` coords"
     (setup-xray-frame!)
     (rf/reg-route ::chapter {} "/simulate-nav-test/books/:book/chapters/:chapter")
-    (let [routes (select-keys (rf/registrations {:source :store :kind :route})
+    (let [routes (select-keys (rf/registrations {:kind :route})
                               [::chapter])
           row    (first (h/project-routes routes))]
       (rf/with-frame :rf/xray

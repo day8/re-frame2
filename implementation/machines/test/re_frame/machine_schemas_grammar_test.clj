@@ -37,7 +37,7 @@
                    :meta   [:map [:rf/snapshot-version :int]]}]
       (rf/reg-machine :rf.machine-schemas/full
         {:initial :idle :schemas schemas :states {:idle {}}})
-      (is (= schemas (get-in (rf/handler-meta {:source :store :kind :event :id :rf.machine-schemas/full})
+      (is (= schemas (get-in (rf/handler-meta {:kind :event :id :rf.machine-schemas/full})
                              [:rf/machine :schemas]))))))
 
 ;; ---- (2) unknown sub-key fails loud ---------------------------------------

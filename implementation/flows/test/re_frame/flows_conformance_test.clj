@@ -216,7 +216,7 @@
   "`{flow-id flow}` for the flows `frame-id`'s config names."
   [frame-id]
   (into {} (for [id (:flows (rf/frame-meta frame-id))]
-             [id (rf/handler-meta {:source :store :kind :flow :id id})])))
+             [id (rf/handler-meta {:kind :flow :id id})])))
 
 (defn- flow-graph-deps
   "`{flow-id #{dep-id ...}}` over the flows `:rf/default` runs, by the

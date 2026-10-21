@@ -18,6 +18,6 @@
 (deftest story-cofx-suppliers-return-their-values
   (doseq [[cofx-id shape?] [[:story/active-modes vector?]
                             [:story/active-args  map?]]]
-    (let [supplier (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id cofx-id}))]
+    (let [supplier (:handler-fn (rf/handler-meta {:kind :cofx :id cofx-id}))]
       (is (shape? (supplier))
           (str cofx-id " — the nullary supplier returns its value directly")))))

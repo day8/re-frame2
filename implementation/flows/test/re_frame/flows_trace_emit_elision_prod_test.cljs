@@ -40,7 +40,7 @@
   ;; Registration, a recompute, a value-equal skip, a clear and a `:derive`
   ;; throw each still happen; `seen` records that they did.
   (let [seen   (atom [])
-        area   #(get (rf/registrations {:source :store :kind :flow}) :prod-elision/area)
+        area   #(get (rf/registrations {:kind :flow}) :prod-elision/area)
         traces (capture-traces
                  (fn []
                    (rf/reg-event :prod-elision/set-w

@@ -62,10 +62,10 @@
       (is (= [:cart] returned))
       (is (vector? returned))
       (is (= [:map [:items [:vector :any]]]
-             (:schema (rf/handler-meta {:source :store :kind :app-schema :id [:cart]}))))
+             (:schema (rf/handler-meta {:kind :app-schema :id [:cart]}))))
       (is (= #{[:cart]}
-             (set (keys (rf/registrations {:source :store :kind :app-schema})))))
-      (is (every? vector? (keys (rf/registrations {:source :store :kind :app-schema})))))))
+             (set (keys (rf/registrations {:kind :app-schema})))))
+      (is (every? vector? (keys (rf/registrations {:kind :app-schema})))))))
 
 ;; ---- AC2: every frame that resolves the schema validates against it -------
 
@@ -172,7 +172,7 @@
           (is (= [:rf.error/app-schema-frame-target received]
                  [(:rf.error/id data) (:received data)]))
           (is (str/includes? message "image") "the message names the image route")))))
-  (is (= {} (rf/registrations {:source :store :kind :app-schema}))
+  (is (= {} (rf/registrations {:kind :app-schema}))
       "nothing registers"))
 
 ;; ---- AC7: clear and the hot-reload sweep -------------------------------------

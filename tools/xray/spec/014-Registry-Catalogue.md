@@ -547,7 +547,7 @@ Routes, not this event-coupled lens.
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-routes` | `(rf/registrations {:source :store :kind :route})`. Test override via `:registered-routes-override`. |
+| `:rf.xray/registered-routes` | `(rf/registrations {:kind :route})`. Test override via `:registered-routes-override`. |
 | `:rf.xray/registered-routes-override` | Test override slot. |
 | `:rf.xray/current-route-slice` | The current route from the target frame's routing runtime-db. |
 | `:rf.xray/current-route-slice-override` | Test override slot. |
@@ -578,7 +578,7 @@ artifact (see 024's dependency boundary).
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-resources` | `(rf/registrations {:source :store :kind :resource})` — the static registry. Test override via `:registered-resources-override`. |
+| `:rf.xray/registered-resources` | `(rf/registrations {:kind :resource})` — the static registry. Test override via `:registered-resources-override`. |
 | `:rf.xray/registered-scope-resolvers` | Registered resource scope resolvers used by the scope audit. |
 | `:rf.xray/registered-resources-override` | Test override slot. |
 | `:rf.xray/registered-scope-resolvers-override` | Test override slot. |
@@ -633,7 +633,7 @@ which is why several ids below are named "for-focused-event" /
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-machines` | Vector of machine-ids — `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?`. Wrapped in `try` so future API changes collapse to `[]` rather than throwing. |
+| `:rf.xray/registered-machines` | Vector of machine-ids — `(rf/registrations {:kind :event})` filtered on `:rf/machine?`. Wrapped in `try` so future API changes collapse to `[]` rather than throwing. |
 | `:rf.xray/machine-definitions` | `{machine-id meta}` — each registered machine's definition. Input: `:rf.xray/registered-machines`. |
 | `:rf.xray/machine-snapshots` | `{machine-id <snapshot>}`, read from the target frame's **runtime-db at `[:rf.runtime/machines :snapshots]`** (EP-0001 runtime-db partition) — **not** from a `:rf/machines` app-db slot. Inputs: `:rf.xray/target-frame`, `:rf.xray/target-frame-runtime-db`. **EGRESS-REDACTED (rf2-kq8nac / EP-0005)**: the runtime-db value is live frame state, not a trace, so it has not passed the trace-path redactor. Each snapshot is therefore routed through the same `project-trace-event` chokepoint as a synthetic `:rf.machine/snapshot-updated` event stamped with the target frame — a frame-declared sensitive `:data` path lands as `:rf/redacted`, a large one as the size marker, plain siblings ride verbatim (EP-0025, rf2-398kql — `:data` classification is frame-owned). A frame declaring no matching path leaves the snapshot reference-identical. |
 | `:rf.xray/selected-machine-id` | The picker slot, or `nil`. Kept post-collapse as the focus the Static Machines surfaces and `:rf.xray/cancellation-cascade-for-focused-machine` read; the Dynamic panel itself binds to the focused epoch, not to this slot. |
@@ -718,7 +718,7 @@ different slot under a different key.
 
 **Process-registrar browse.** The static browse panels read their
 registrations off the process-global registrar via
-`(rf/registrations {:source :store :kind k})` — the SOURCE-STORE read, which
+`(rf/registrations {:kind k})` — the SOURCE-STORE read, which
 never consults a bound image generation (see
 [`026`](./026-Module-View-Panel.md) §8.4 and [`007-UX-IA.md`](./007-UX-IA.md)
 §Runtime-structure awareness). There is no realm dimension to qualify by: a
@@ -831,7 +831,7 @@ process-global.
 
 | Id | Kind | Behaviour |
 |---|---|---|
-| `:rf.xray.static.schemas/registry` | sub | App-db schemas via the `re-frame.schemas` façade, plus event and sub `:schema` metadata read from the host registrar with `{:source :store}` — the source-store read, which never consults Xray's own bound image generation. |
+| `:rf.xray.static.schemas/registry` | sub | App-db schemas via the `re-frame.schemas` façade, plus event and sub `:schema` metadata read from the host registrar without `:frame` — the source-store read, which never consults Xray's own bound image generation. |
 | `:rf.xray.static.schemas/query` | sub | Search text, or `nil`. |
 | `:rf.xray.static.schemas/tab-data` | sub | Composite over `registry` + `:rf.xray/observed-frame` + `query`. |
 | `:rf.xray.static.schemas/set-query` | event | `[_ q]` — `nil` or `""` clears. |
@@ -839,7 +839,7 @@ process-global.
 | `:rf.xray.static.flows/query` | sub | Search text, or `nil`. |
 | `:rf.xray.static.flows/tab-data` | sub | Composite over `registered-flows` + `:rf.xray/observed-frame` + `query`. |
 | `:rf.xray.static.flows/set-query` | event | `[_ q]` — `nil` or `""` clears. |
-| `:rf.xray.static.interceptors/registry` | sub | The host `:event` registrar's entries with their interceptor chains, read with `{:source :store}`. |
+| `:rf.xray.static.interceptors/registry` | sub | The host `:event` registrar's entries with their interceptor chains, read without `:frame`. |
 | `:rf.xray.static.interceptors/query` | sub | Search text, or `nil`. |
 | `:rf.xray.static.interceptors/tab-data` | sub | Composite over `registry` + `query`. |
 | `:rf.xray.static.interceptors/set-query` | event | `[_ q]` — `nil` or `""` clears. |

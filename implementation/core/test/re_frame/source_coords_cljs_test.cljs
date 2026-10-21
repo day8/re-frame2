@@ -5,7 +5,7 @@
   on CLJS `*file*` sits at the JVM compiler's default `\"NO_SOURCE_PATH\"`
   sentinel. A macro reading `*file*` would bake that sentinel into every
   registration's source-coord `:file` slot — defeating jump-to-source and
-  tooling that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
+  tooling that reads `(rf/handler-meta {:kind kind :id id})`.
 
   The macros prefer `(:file (meta &form))` over `*file*`. tools.reader's
   indexing-push-back-reader stamps `:file` on every collection-form's
@@ -53,7 +53,7 @@
   NO_SOURCE_PATH — through the coord-capture path every reg-* macro shares"
     (rf/reg-event :rf2-mdjp/reg-event-sample
                   (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-sample})
+    (let [m (rf/handler-meta {:kind :event :id :rf2-mdjp/reg-event-sample})
           f (:file m)]
       (is (some? m))
       (when (some? f)

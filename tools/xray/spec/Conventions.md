@@ -170,7 +170,7 @@ element so pair tools can map a clicked DOM node back to the declaration
 site. A non-DOM root is a documented exemption
 ([Spec 006 §Documented exemption: non-DOM roots](../../../spec/006-ReactiveSubstrate.md#documented-exemption-non-dom-roots)):
 the annotation is skipped and pair tools fall back to
-`(rf/handler-meta {:source :store :kind :view :id id})`.
+`(rf/handler-meta {:kind :view :id id})`.
 
 What changed is the MECHANISM, settled by
 [Spec 006 §Cross-host](../../../spec/006-ReactiveSubstrate.md#cross-host)

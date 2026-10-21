@@ -701,7 +701,7 @@
   dependency rule."
   []
   (let [registry (into {} (for [id (flow-ids :rf/default)]
-                            [id (rf/handler-meta {:source :store :kind :flow :id id})]))]
+                            [id (rf/handler-meta {:kind :flow :id id})]))]
     (into {} (for [[id flow] registry]
                [id (into #{} (for [[other-id other] registry
                                    :when (and (not= id other-id)

@@ -112,7 +112,7 @@
 
       (rf/reg-state :todo.ui/expanded? {:default false})
 
-      @(rf/subscribe [:todo.ui/expanded? id])           ;; read
+      (deref (rf/subscribe [:todo.ui/expanded? id]))    ;; read
       (rf/dispatch [:todo.ui/expanded? id true])        ;; write
       (rf/dispatch [:rf.state/clear :todo.ui/expanded? id]) ;; back to the default
 

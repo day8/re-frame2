@@ -1061,7 +1061,7 @@
           by-where (reduce (fn [acc r]
                              (if (contains? acc (:where r)) acc (assoc acc (:where r) r)))
                            {} (remove nested? rows))
-          store    (fn [kind id] (rf/handler-meta {:source :store :kind kind :id id}))
+          store    (fn [kind id] (rf/handler-meta {:kind kind :id id}))
           expected {:event          (store :event :rf2-1t8fn/typed-event)
                     :fx-args        (store :fx :rf2-1t8fn/typed-fx)
                     :sub-return     (store :sub :rf2-1t8fn/typed-sub)
@@ -1169,7 +1169,7 @@
             affordance for the `reg-fx` registration (parity with the
             SUBSCRIPTIONS / VIEWS rows + the HANDLER verb).
 
-            The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :fx :id fx-id})` resolves a `:file` coord. CLJS macro-form `reg-fx`
+            The chip's <button> mounts when `(rf/handler-meta {:kind :fx :id fx-id})` resolves a `:file` coord. CLJS macro-form `reg-fx`
             captures `:file`/`:line` at the test call-site (the same
             `defreg-macro` → `coords-form` absolutisation path
             `reg-sub` uses) so the integration round-trip is testable
@@ -1178,7 +1178,7 @@
     (rf/with-frame :rf/xray
       (rf/reg-fx :rf.g1mfc-fixture/ping
         (fn [_ctx _args] nil))
-      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:source :store :kind :fx :id :rf.g1mfc-fixture/ping})
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:kind :fx :id :rf.g1mfc-fixture/ping})
                                             :file string?))
             step (side-effects-step
                    [{:fx-id :rf.g1mfc-fixture/ping :status :ok}])
@@ -1892,7 +1892,7 @@
     (rf/with-frame :rf/xray
       (rf/reg-sub :rf.aesni-fixture/items
         (fn [db _] (get db :items [])))
-      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:source :store :kind :sub :id :rf.aesni-fixture/items})
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:kind :sub :id :rf.aesni-fixture/items})
                                             :file string?))
             step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :rf.aesni-fixture/items
@@ -1962,7 +1962,7 @@
     (rf/with-frame :rf/xray
       ;; UNREGISTERED sub-id → `sub-input-signals` resolves nil → the cell
       ;; reads the row's realized `:inputs` slot (the cause-sub path).
-      (is (nil? (rf/handler-meta {:source :store :kind :sub :id :article/headline}))
+      (is (nil? (rf/handler-meta {:kind :sub :id :article/headline}))
           "precondition: the sub is NOT registered, so the inputs cell
            cannot resolve a static `:input-signals` topology and must
            fall through to the row's realized `:inputs` slot")

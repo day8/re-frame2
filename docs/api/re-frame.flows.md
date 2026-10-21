@@ -159,8 +159,8 @@ Development builds trace each flow's lifecycle. Evaluation events carry `:flow-i
 A flow definition is an ordinary registration, so the registrar queries in [re-frame.core](re-frame.core.md#registrar-queries) read it; `re-frame.flows` has no read API of its own.
 
 ```clojure
-(rf/registrations {:source :store :kind :flow})                 ;; every definition
-(rf/handler-meta {:source :store :kind :flow :id :cart/subtotal}) ;; one, from the store
+(rf/registrations {:kind :flow})                 ;; every definition
+(rf/handler-meta {:kind :flow :id :cart/subtotal}) ;; one, from the store
 (rf/handler-meta {:frame :rf/default :kind :flow :id :cart/subtotal}) ;; as that frame resolves it
 (:flows (rf/frame-meta :rf/default))                            ;; the ids a frame runs
 ```

@@ -15,7 +15,7 @@ Every event handler takes two arguments: the [**world**](../glossary.md#world) m
     {:db (update-in db [:todos id :done?] not)}))
 ```
 
-`rf/handler-meta` reads a registration back. Given `{:source :store :kind :event :id <id>}` it returns the registration's metadata, whose `:handler-fn` is your function as you wrote it:
+`rf/handler-meta` reads a registration back. Given `{:kind :event :id <id>}` it returns the registration's metadata, whose `:handler-fn` is your function as you wrote it:
 
 ```clojure
 (ns my-app.todos-test
@@ -28,7 +28,7 @@ Every event handler takes two arguments: the [**world**](../glossary.md#world) m
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest toggle-flips-done
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :todo/toggle}))
+  (let [handler (:handler-fn (rf/handler-meta {:kind :event :id :todo/toggle}))
         db      {:todos {1 {:id 1 :title "Buy milk" :done? false}}}]
     (is (true? (get-in (handler {:db db} [:todo/toggle 1])
                        [:db :todos 1 :done?])))))
@@ -65,7 +65,7 @@ This `:todo/add` stamps the creation time and asks for the list to be saved:
 `:rf.cofx/requires` lists the coeffects the handler reads, here only the clock. Each arrives flat in the world map beside `:db`. The list is also the test's fixture checklist, and you can read it off the registrar:
 
 ```clojure
-(:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :todo/add}))
+(:rf.cofx/requires (rf/handler-meta {:kind :event :id :todo/add}))
 ;; => [:rf/time-ms]
 ```
 
@@ -73,7 +73,7 @@ The test supplies exactly those facts:
 
 ```clojure
 (deftest add-stamps-and-saves
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :todo/add}))
+  (let [handler (:handler-fn (rf/handler-meta {:kind :event :id :todo/add}))
         result  (handler {:db {:todos {}} :rf/time-ms 1781078400123}
                          [:todo/add "Buy milk"])
         todo    {:id 1 :title "Buy milk" :done? false :created-at 1781078400123}]

@@ -235,7 +235,7 @@
             `:rf.route/navigate` writes at [:rf.runtime/routing :current]"
     (let [slice (navigated-slice)
           slot  (:slot-shape (h/simulate-navigation-preview
-                               (rf/registrations {:source :store :kind :route})
+                               (rf/registrations {:kind :route})
                                nav-route-id "/articles/welcome"))]
       (is (= nav-route-id (:route-id slice))
           "PRECONDITION: the real navigation landed — otherwise the key set below is not the router's")
@@ -418,7 +418,7 @@
     (rf/reg-route open-route-id {} "/refused-test/open")
     (rf/reg-route members-route-id {:can-enter ::enter-ok?} "/refused-test/members")
     (rf/dispatch-sync [:rf.route/navigate {:to guarded-route-id}])
-    (let [routes  (rf/registrations {:source :store :kind :route})
+    (let [routes  (rf/registrations {:kind :route})
           current #(get-in (rf.frame/frame-runtime-db-value :rf/default)
                            [:rf.runtime/routing :current])
           marker  (fn [data id]

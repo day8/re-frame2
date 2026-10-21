@@ -31,7 +31,7 @@
 
   ## Data source
 
-  Walks `(rf/registrations {:source :store :kind :event})` and harvests the
+  Walks `(rf/registrations {:kind :event})` and harvests the
   `:interceptors` chain from each entry — after dropping Xray's own
   `:rf.xray*` events, which share the process source store with the
   host's — and collapses by `:id` so an
@@ -40,7 +40,7 @@
   id (a `[id arg]` ref contributes the head keyword); an inline value
   with no `:id` (rare — `reg-interceptor` requires one) falls under
   `::unnamed`. Reference rows are enriched by resolving the authored ref
-  through `(rf/handler-meta {:source :store :kind :interceptor :id id})` — the `:interceptor`
+  through `(rf/handler-meta {:kind :interceptor :id id})` — the `:interceptor`
   registrar kind reg-interceptor populates (EP-0022) — so the catalogue
   shows the ref AND its resolved before/after hooks + doc.
 
@@ -219,7 +219,7 @@
   (into {} (remove (comp self-noise/xray-internal-event-id? key)) registrations-map))
 
 (defn project-data
-  "Project the interceptor rows for the browse from the `(rf/registrations {:source :store :kind :event})` map — drops Xray's own events, collapses each remaining event's `:interceptors` chain into a flat,
+  "Project the interceptor rows for the browse from the `(rf/registrations {:kind :event})` map — drops Xray's own events, collapses each remaining event's `:interceptors` chain into a flat,
   per-id catalogue and filters by `query`."
   [registrations-map query]
   (let [rows     (collect-interceptors (host-registrations registrations-map))
@@ -480,7 +480,7 @@
   "The event-chain registry off the HOST app's `:event` registrar — each entry
   carries its interceptor chain. The test seam overrides this map directly.
 
-  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  Read via `rf/registrations` without `:frame` (the SOURCE-STORE read, which never
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray.static.interceptors/registry` sub COMPUTATION, and Xray seats in its
   OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
@@ -488,7 +488,7 @@
   and the interceptor browse would lose the host app's event chains. See
   spec/API.md §Public registrar query API."
   []
-  (try (rf/registrations {:source :store :kind :event})
+  (try (rf/registrations {:kind :event})
        (catch :default _ {})))
 
 ;; ---- registrations -------------------------------------------------------

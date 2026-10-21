@@ -674,7 +674,7 @@
   "The flat `{<route-id> <meta>}` map sourced from the HOST app's
   default-realm `:route` registrar.
 
-  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  Read via `rf/registrations` without `:frame` (the SOURCE-STORE read, which never
   consults a bound image generation), NOT `{:frame …}`: this fn runs inside
   the `:rf.xray/registered-routes` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
@@ -684,7 +684,7 @@
   default-realm registrar; `rf/registrations` reads it directly. See
   spec/API.md §Public registrar query API."
   []
-  (rf/registrations {:source :store :kind :route}))
+  (rf/registrations {:kind :route}))
 
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
@@ -749,7 +749,7 @@
   registrations. Registers:
 
     - `:rf.xray/registered-routes` — flat `{<route-id> <meta>}` map
-      sourced from `(rf/registrations {:source :store :kind :route})`. The Static Routes
+      sourced from `(rf/registrations {:kind :route})`. The Static Routes
       panel also reads this sub — process-global, frame-agnostic.
     - `:rf.xray/current-route-slice` — composite over the spine's
       target-frame RUNTIME-DB reading the routing slice at

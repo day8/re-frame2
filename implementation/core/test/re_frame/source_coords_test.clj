@@ -76,7 +76,7 @@
                      [:flow            :rf2-k84s/reg-flow-sample]]]
     (assert-coords (rf.source-coords/registration-coords (rf.registrar/lookup kind id)) kind id)
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta {:source :store :kind kind :id id}) kind id)))
+      (assert-coords (rf/handler-meta {:kind kind :id id}) kind id)))
   (when rf.interop/debug-enabled?
     (assert-coords (rf.schemas/app-schema-meta {:frame :rf/default
                                                 :path  [:rf2-k84s/reg-app-schema-sample]})
@@ -89,7 +89,7 @@
                 {:ns 'my.ns :line 42 :file "elsewhere.cljc"}
                 (fn [{:keys [db]} _] {:db db}))
   (is (= {:ns 'my.ns :line 42 :file "elsewhere.cljc"}
-         (select-keys (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/explicit-coords})
+         (select-keys (rf/handler-meta {:kind :event :id :rf2-k84s/explicit-coords})
                       [:ns :line :file]))))
 
 ;; ---- :file is absolutised via classpath resolution ------------------------
@@ -135,7 +135,7 @@
         (do
           (is (rf.source-coords.editor-uri/absolute-path? f) (str kind " :file is absolute"))
           (is (.endsWith ^String f "re_frame/source_coords_test.clj"))
-          (is (= f (:file (rf/handler-meta {:source :store :kind kind :id id})))
+          (is (= f (:file (rf/handler-meta {:kind kind :id id})))
               (str kind " public meta carries the same absolutised :file")))
         (is (= "re_frame/source_coords_test.clj" f)
             (str kind " :file is classpath-relative"))))))

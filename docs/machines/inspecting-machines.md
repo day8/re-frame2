@@ -259,9 +259,9 @@ machine to `:locked-out`.
 Machine guards and actions are addressable through handler metadata.
 
 ```clojure
-(rf/handler-meta {:source :store :kind :machine-guard :id [:auth.login/flow :under-retry-limit]})
+(rf/handler-meta {:kind :machine-guard :id [:auth.login/flow :under-retry-limit]})
 
-(rf/handler-meta {:source :store :kind :machine-action :id [:auth.login/flow :issue-request]})
+(rf/handler-meta {:kind :machine-action :id [:auth.login/flow :issue-request]})
 ```
 
 In development this can include captured source, file, line, and handler function metadata. Production builds elide development-only source details.
@@ -272,7 +272,7 @@ If a machine is already registered and you want its registered definition, read 
 
 ```clojure
 (rf.machines/machine-transition
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))
+  (:rf/machine (rf/handler-meta {:kind :event :id :auth.login/flow}))
   snapshot
   trigger)
 ```

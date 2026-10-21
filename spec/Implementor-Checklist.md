@@ -437,7 +437,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Sch3. Introspection API
 
-- **Why it matters.** `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`, plus per-registration `(handler-meta {:source :store :kind kind :id id})` returning `:schema`.
+- **Why it matters.** `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`, plus per-registration `(handler-meta {:kind kind :id id})` returning `:schema`.
 - **Options by host.** Falls out of **F1** + **Sch1**.
 - **Reference-impl picks.** CLJS exposes the schema-introspection accessors on the owning `re-frame.schemas` namespace, not the `re-frame.core` façade — only the `reg-app-schema` / `reg-app-schemas` registration macros are on the façade (per [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface)). `handler-meta` is a `re-frame.core` registrar-query surface.
 - **Trade-offs.** Tooling and AI agents read this — make sure the schema is data, not opaque host objects.
@@ -481,7 +481,7 @@ For each capability included in Part 1, the implementor makes the per-capability
     - **Trace listener** — `(rf/register-listener! key callback)` for live events.
     - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
     - **Epoch history** — `(re-frame.epoch/epoch-history frame-id)`, `(re-frame.epoch/restore-epoch! frame-id epoch-id)`, `(rf/configure! {:epoch-history {:depth N}})`.
-    - **Registrar query** — `(rf/registrations {:source :store :kind kind})`, `(rf/handler-meta {:source :store :kind kind :id id})`, the `:rf/machine?` filter over the `:event` registrations, the per-id `:rf/machine` projection off `handler-meta`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
+    - **Registrar query** — `(rf/registrations {:kind kind})`, `(rf/handler-meta {:kind kind :id id})`, the `:rf/machine?` filter over the `:event` registrations, the per-id `:rf/machine` projection off `handler-meta`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
     - **App-db query** — `(rf/app-db-value frame-id)`, `(get-in (rf/app-db-value frame-id) path)`.
     - **Sub-cache (CLJS-only)** — `(re-frame.subs.tooling/sub-cache-snapshot frame-id)`.
     - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.

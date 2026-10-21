@@ -47,7 +47,7 @@
       (rf/reg-view ^{:rf/id :rf2-npm2p/coord-view} coord-view []
         [:p "p"])
       ((rf/view :rf2-npm2p/coord-view))
-      (let [reg-meta (rf/handler-meta {:source :store :kind :view :id :rf2-npm2p/coord-view})
+      (let [reg-meta (rf/handler-meta {:kind :view :id :rf2-npm2p/coord-view})
             ev       (first @traces)]
         (is (= [true (coord reg-meta)]
                [(some? ev) (coord (-> ev :rf.trace/trigger-handler :source-coord))]))))))

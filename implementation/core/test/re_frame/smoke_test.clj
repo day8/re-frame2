@@ -137,7 +137,7 @@
 ;; The registered machine's SPEC map, read through the generic registrar query
 ;; plus the `:rf/machine` inner-key projection (Spec 005 §Querying machines).
 (defn- machine-spec [machine-id]
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+  (:rf/machine (rf/handler-meta {:kind :event :id machine-id})))
 
 (deftest machines-introspection
   (let [tiny-spec  {:initial :idle
@@ -152,7 +152,7 @@
     (is (= #{:test/tiny :test/other}
            (set/intersection #{:test/tiny :test/other :test/regular}
                              (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-                                              (rf/registrations {:source :store :kind :event}))))))
+                                              (rf/registrations {:kind :event}))))))
         "the :rf/machine? filter lists reg-machine ids and excludes plain events")
     (is (= [tiny-spec other-spec nil nil]
            (map machine-spec [:test/tiny :test/other :test/regular :test/never-registered])))))
@@ -173,7 +173,7 @@
   (rf/reg-http-interceptor :o1bp/interceptor1 {:before identity})
   (rf/reg-error-projector :o1bp/err1 (fn [_ _] {}))
   (rf/reg-app-schema [:o1bp/path] :any)
-  (let [ids-of (fn [kind] (set (keys (rf/registrations {:source :store :kind kind}))))]
+  (let [ids-of (fn [kind] (set (keys (rf/registrations {:kind kind}))))]
     (testing "the id set per kind"
       (doseq [[kind id] [[:event :o1bp/evt1] [:event :o1bp/evt2] [:event :o1bp/mach1]
                          [:sub :o1bp/sub1] [:fx :o1bp/fx1] [:cofx :o1bp/cofx1]
@@ -185,13 +185,13 @@
       ;; authoritative-looking {} over a store that lives elsewhere
       (is (thrown? clojure.lang.ExceptionInfo (ids-of :frame))))
     (testing "handler-meta per id"
-      (let [evt (rf/handler-meta {:source :store :kind :event :id :o1bp/evt1})]
+      (let [evt (rf/handler-meta {:kind :event :id :o1bp/evt1})]
         (is (= [true false] [(fn? (:handler-fn evt)) (contains? evt :event/kind)])
             "carries the handler fn and no :event/kind sub-tag (EP-0018)"))
       (is (= [true true] ((juxt (comp true? :rf/machine?) (comp map? :rf/machine))
-                          (rf/handler-meta {:source :store :kind :event :id :o1bp/mach1}))))
-      (is (= "/o1bp/landing" (:path (rf/handler-meta {:source :store :kind :route :id :o1bp/route1}))))
+                          (rf/handler-meta {:kind :event :id :o1bp/mach1}))))
+      (is (= "/o1bp/landing" (:path (rf/handler-meta {:kind :route :id :o1bp/route1}))))
       (is (= {:output-path [:o1bp/flow-output] :inputs []}
-             (select-keys (rf/handler-meta {:source :store :kind :flow :id :o1bp/flow1})
+             (select-keys (rf/handler-meta {:kind :flow :id :o1bp/flow1})
                           [:output-path :inputs])))
-      (is (nil? (rf/handler-meta {:source :store :kind :event :id :no-such-event}))))))
+      (is (nil? (rf/handler-meta {:kind :event :id :no-such-event}))))))

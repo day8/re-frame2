@@ -94,7 +94,7 @@
              [#(rf/reg-app-schemas {[:user] [:map]} "tenant-c")
               :rf.error/app-schemas-bad-arg "tenant-c"]]]
       (is (= [id received] ((juxt :rf.error/id :received) (thrown-data f)))))
-    (is (= {} (rf/registrations {:source :store :kind :app-schema})))))
+    (is (= {} (rf/registrations {:kind :app-schema})))))
 
 (deftest reg-app-schema-rejects-runtime-path-with-distinct-error
   (testing "a path whose head reaches runtime-db — any :rf.runtime/* key or
@@ -124,7 +124,7 @@
            (:rf.error/id (thrown-data #(rf/reg-app-schemas {[:good]          :int
                                                             [:also :good]    :string
                                                             [:bad [:nested]] :int})))))
-    (is (= {} (rf/registrations {:source :store :kind :app-schema})))))
+    (is (= {} (rf/registrations {:kind :app-schema})))))
 
 (deftest reg-app-schemas-accepts-all-valid-paths
   (testing "the root [] and non-keyword concrete segments register"

@@ -22,6 +22,6 @@
 (deftest registry-meta-strips-coord-keys-under-disabled-debug-gate
   (with-redefs [rf.interop/debug-enabled? false]
     (rf/reg-event :rf2-3un2g/prod-elide-event (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-elide-event})]
+    (let [meta (rf/handler-meta {:kind :event :id :rf2-3un2g/prod-elide-event})]
       (is (some? meta))
       (is (= {} (select-keys meta [:ns :file :line :column]))))))

@@ -16,7 +16,7 @@
   machine spec's `:guards` / `:actions` maps are the single source of
   truth — the runtime resolves them through the machine spec, never the
   registrar.
-  Their dev-only fn-source handler-meta surface (`(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`, consumed by Xray's
+  Their dev-only fn-source handler-meta surface (`(rf/handler-meta {:kind :machine-guard :id [machine-id guard-id]})`, consumed by Xray's
   focused-transition lens + re-frame-pair source-jump) is DERIVED on
   demand from the machine's existing `:event` registration spec (the
   co-located `:guards` / `:actions` entries each carry `:source-code` /
@@ -71,7 +71,7 @@
   through, so the strip lives here: under `:advanced` + `goog.DEBUG=false`
   (`rf.interop/debug-enabled?` constant-folds to `false`) `strip-pure-
   documentation` drops the pure-documentation keys from the metadata
-  before it is stored, so `(rf/handler-meta {:source :store :kind kind :id id})` carries no `:doc`
+  before it is stored, so `(rf/handler-meta {:kind kind :id id})` carries no `:doc`
   in production — consistent with the source-coords already being absent
   there (Spec 001 §Production elision contract, Policy A). The outermost
   `rf.interop/debug-enabled?` gate lets Closure constant-fold the strip away
@@ -705,7 +705,7 @@
   (refuse-standard-replacement! kind id metadata)
   ;; Pure-documentation metadata elision. Under `:advanced` +
   ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
-  ;; metadata is stored, so `(rf/handler-meta {:source :store :kind kind :id id})` carries no `:doc` in
+  ;; metadata is stored, so `(rf/handler-meta {:kind kind :id id})` carries no `:doc` in
   ;; production — consistent with source-coords already being absent there
   ;; (Spec 001 §Production elision contract). The `rf.interop/debug-enabled?`
   ;; gate inside `strip-pure-documentation` is the OUTERMOST form, so Closure
@@ -1050,8 +1050,8 @@
   "The ids of `kind` that `view` cannot run because more than one namespace
   registers them, as `{id {provenance-ns descriptor}}` — the slots the
   registration table holds for each. `view` is a live view
-  (`re-frame.live-frame/live-view`): the `{:source :store}` read passes a fresh
-  one, and the one-arity form uses the bound [[*live-view*]].
+  (`re-frame.live-frame/live-view`): a registrar query without `:frame` passes
+  a fresh one, and the one-arity form uses the bound [[*live-view*]].
 
   The one-arity form answers `{}` under a sealed generation and with no frame
   resolution bound, where each id resolves to one registration. A consumer that

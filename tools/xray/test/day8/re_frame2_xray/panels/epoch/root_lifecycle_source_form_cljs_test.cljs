@@ -47,7 +47,7 @@
      :exit    (fn [_] {:data {:at :root-out}})
      :states  {:a    {:on {:fin :done}}
                :done {:final? true}}})
-  (let [machine-meta (rf/handler-meta {:source :store :kind :event :id :rlsf/flat})
+  (let [machine-meta (rf/handler-meta {:kind :event :id :rlsf/flat})
         spec         (:rf/machine machine-meta)
         placed       (assoc-in machine-meta [:rf/machine :source-coords]
                                {:file "placed/root.cljs" :line 7 :column 3})

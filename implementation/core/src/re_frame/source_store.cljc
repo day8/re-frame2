@@ -26,8 +26,8 @@
   each project it:
 
     * a frame made without `:images` resolves it live, refusing an id more
-      than one namespace registers (`re-frame.live-frame/live-view`) — and the
-      `{:source :store}` registrar queries answer the same way;
+      than one namespace registers (`re-frame.live-frame/live-view`) — and a
+      registrar query without `:frame` answers the same way;
     * image assembly selects sealed generations from it
       (`re-frame.image-assembly`);
     * a lookup with no frame resolution bound — the test fixture's ambient

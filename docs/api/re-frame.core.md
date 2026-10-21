@@ -1715,26 +1715,26 @@ Rewinding a frame, replaying an epoch and writing frame state outside the event 
 
 The registrar holds every registration (events, subs, fx, cofx, interceptors, machines, views, routes, resources) as queryable data, which is what the framework's tools are built on. These are the reads; the writes are the `reg-*` forms and [`clear`](#clear). All of them run on the JVM.
 
-`registrations` and `handler-meta` take a map naming their source: `{:source :store …}` asks what the process has registered, and `{:frame f …}` asks what one frame runs. The two answer differently only when a frame is built from images that select part of the registrar.
+`registrations` and `handler-meta` take a query map: `{:kind k …}` asks what the process has registered, and `{:kind k :frame f …}` asks what one frame runs. The two answer differently only when a frame is built from images that select part of the registrar.
 
 ### `registrations`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (registrations {:source :store :kind k}) → {id metadata-map}
-  (registrations {:frame f      :kind k}) → {id metadata-map}
+  (registrations {:kind k}) → {id metadata-map}
+  (registrations {:kind k :frame f}) → {id metadata-map}
   ```
-- **Description**: Returns every registration of one kind, with the full metadata map per id: source coordinates, `:sensitive`, `:rf/machine?`, `:platforms`, the doc string. The argument is always a map, and it names exactly one source.
-    - `{:source :store …}` reads the process-wide registrar and never consults a frame's image, so it answers the same inside any frame; this is what a tool inspecting a host application wants. `:store` is the only `:source` value.
-    - `{:frame f …}` returns only the ids that frame runs: those its generation carries (see [`frame-generation`](#frame-generation)), or, for a frame made without `:images`, every registered id except one that two namespaces register. `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame raises `:rf.error/frame-no-generation`.
-    - Naming both `:source` and `:frame`, naming neither, a `:source` other than `:store`, or a non-map argument (usually a leftover positional call) raises `:rf.error/registrar-query-needs-source`. There is no default source.
+- **Description**: Returns every registration of one kind, with the full metadata map per id: source coordinates, `:sensitive`, `:rf/machine?`, `:platforms`, the doc string. The argument is always a map of `:kind` and, optionally, `:frame`.
+    - Without `:frame` it reads the process-wide registrar and never consults a frame's image, so it answers the same inside any frame; this is what a tool inspecting a host application wants.
+    - With `:frame f` it returns only the ids that frame runs: those its generation carries (see [`frame-generation`](#frame-generation)), or, for a frame made without `:images`, every registered id except one that two namespaces register. `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame raises `:rf.error/frame-no-generation`.
+    - Any other key, or a non-map argument (usually a leftover positional call), raises `:rf.error/registrar-query-invalid`, whose ex-data names the offending keys. A misspelled `:frame` is refused rather than read as the store.
     - `:kind :frame` raises `:rf.error/registrar-kind-not-queryable`, naming the functions to use instead (`frame-ids`, `frame-meta`), rather than returning a misleading `{}`.
     - Any other `:kind` outside the registrar kinds raises `:rf.error/unknown-registry-kind`, naming the queryable set.
     - To filter, use `filter` on the result; there is no predicate arity.
 - **Example**:
   ```clojure
-  (rf/registrations {:source :store :kind :event})
+  (rf/registrations {:kind :event})
   ;; => {:counter/inc {:ns my-app.events :line 12 :file "my_app/events.cljs"} ...}
   (rf/registrations {:frame :tenants/acme :kind :sub})
   ```
@@ -1744,17 +1744,17 @@ The registrar holds every registration (events, subs, fx, cofx, interceptors, ma
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (handler-meta {:source :store :kind k :id id}) → registration-metadata map (or nil)
-  (handler-meta {:frame f      :kind k :id id}) → metadata resolved through frame f's image (or nil)
+  (handler-meta {:kind k :id id}) → registration-metadata map (or nil)
+  (handler-meta {:kind k :id id :frame f}) → metadata resolved through frame f's image (or nil)
   ```
 - **Description**: Returns the metadata a `reg-*` form recorded for one id, or `nil`. View registrations include source coordinates (`:ns`, `:line`, `:column`, `:file`); Pair tools resolve `data-rf2-source-coord` DOM annotations to a `:file` through this lookup.
     - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope`. `:frame` raises, as for `registrations`.
-    - The two machine kinds `:machine-guard` and `:machine-action` take a 2-vector id: `(handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration and exist only in development builds; they are not frame-targetable, so `:frame` returns `nil` for them.
-    - The source grammar and the errors are those of `registrations` (`:rf.error/registrar-query-needs-source`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`, `:rf.error/unknown-registry-kind`).
+    - The two machine kinds `:machine-guard` and `:machine-action` take a 2-vector id: `(handler-meta {:kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration and exist only in development builds; they are not frame-targetable, so `:frame` returns `nil` for them.
+    - The grammar adds `:id`, and the errors are those of `registrations` (`:rf.error/registrar-query-invalid`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`, `:rf.error/unknown-registry-kind`).
     - App-db schemas are the kind `:app-schema`, keyed by path; `(app-schema-meta {:frame f :path p})` in [re-frame.schemas](re-frame.schemas.md) reads the same registration a frame resolves.
 - **Example**:
   ```clojure
-  (rf/handler-meta {:source :store :kind :sub :id :counter/value})
+  (rf/handler-meta {:kind :sub :id :counter/value})
   ;; => {:ns my-app.subs :line 8 :column 1 :file "my_app/subs.cljs"}
   ```
 

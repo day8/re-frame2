@@ -955,7 +955,7 @@
   registration whose metadata carries `:rf/machine? true`, the derivation
   Spec 005 §Querying machines documents).
 
-  Derived from `(rf/registrations {:source :store :kind :event})` — the
+  Derived from `(rf/registrations {:kind :event})` — the
   SOURCE-STORE read, which never consults a bound image generation — NOT from
   the generation-scoped `registrar/registrations :event`. This fn
   runs inside the `:rf.xray/registered-machines` sub COMPUTATION, and Xray seats
@@ -965,7 +965,7 @@
   machine list. See spec/API.md §Public registrar query API."
   []
   (try
-    (->> (rf/registrations {:source :store :kind :event})
+    (->> (rf/registrations {:kind :event})
          (keep (fn [[id m]] (when (:rf/machine? m) id)))
          vec)
     (catch :default _ [])))
@@ -992,8 +992,8 @@
 
   Resolved via `host-registrar/store-meta` — the SOURCE-STORE read, which
   never consults a bound image generation, and which reads an id more than one
-  namespace registers as having no definition. The
-  `{:source :store}` selector is load-bearing here: `registrar/lookup :event id`
+  namespace registers as having no definition. Reading
+  without `:frame` is load-bearing here: `registrar/lookup :event id`
   (what the artefact's own `resolver/spec-from-registry` uses) is
   generation-scoped.
   This fn runs inside the `:rf.xray/machine-definitions` sub COMPUTATION under
