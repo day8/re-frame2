@@ -859,15 +859,19 @@ separate `re-frame.story.config/static-mode?` define.
 ### Residue
 
 Closure drops a body only when nothing reaches it, and a namespace's
-top-level forms run at load, so they reach their bodies in every build
-whose graph holds the namespace. The define cannot change that graph.
-Story requires Xray statically (`re-frame.story.ui.shell`,
-`re-frame.story.ui.xray-embed`, `re-frame.story.ui.evidence-spine` and
-`re-frame.story.xray-preset`), and Xray's views are Fresco `defview`s,
-each a top-level mint call, beside load-time hook registrations. Story
-also requires `re-frame.machines`, malli and `cljs.test`. So an
-`enabled?` false build that imports Story drops the shell and Story's
-own runtime, and still carries all of Xray and those libraries.
+top-level forms run at load, so a load-time form with an effect reaches
+its body in every build whose graph holds the namespace. The define
+cannot change that graph. Story requires Xray statically
+(`re-frame.story.ui.shell`, `re-frame.story.ui.xray-embed`,
+`re-frame.story.ui.evidence-spine` and `re-frame.story.xray-preset`).
+Xray's views are Fresco `defview`s, which drop when nothing references
+them, but Xray has load-time forms that reach them: its `h/as-component`
+bridges, first-mount hook registrations, keybinding and settings
+installers, multimethod and protocol extensions. Story's embed descriptor
+also feeds a panel catalogue derived at load. Story requires
+`re-frame.machines`, malli and `cljs.test` too. So an `enabled?` false
+build that imports Story drops the shell and Story's own runtime, and
+still carries all of Xray and those libraries.
 
 Measured on `:examples/counter-with-stories` (`shadow-cljs release`,
 `goog.DEBUG` false; `main.js` bytes, gzip at level 9):
@@ -875,15 +879,18 @@ Measured on `:examples/counter-with-stories` (`shadow-cljs release`,
 | Release | Raw | Gzipped |
 |---|---:|---:|
 | `:examples/counter`, which imports no Story | 672,793 | 198,195 |
-| counter-with-stories, `enabled?` false | 5,298,014 | 1,478,596 |
+| counter-with-stories, `enabled?` false | 5,293,828 | 1,476,689 |
+| the same, with those load-time forms compiled out (a diagnostic build) | 4,009,055 | 1,121,947 |
 | the same, built with Story's four Xray requires removed | 1,406,588 | 393,909 |
 | counter-with-stories, `enabled?` true | 5,915,591 | 1,655,260 |
 
-Xray is 3,891,426 bytes raw (1,084,687 gzipped) of the `enabled?` false
+Xray is about 3.89 MB raw (1.08 MB gzipped) of the `enabled?` false
 release. The other 733,795 raw (195,714 gzipped) over the plain counter
-is the testbed's own app and the libraries above. The define cannot
-remove Xray: that takes Xray's top-level forms becoming droppable, or
-Story reaching Xray without a static require.
+is the testbed's own app and the libraries above. Compiling the load-time
+forms out drops every Xray view and still leaves about 728 KB gzipped,
+because the libraries Xray requires keep load-time forms of their own.
+The define cannot remove Xray: that takes Story reaching Xray without a
+static require.
 
 ### Cross-library `:extends` under elision
 

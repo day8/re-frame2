@@ -110,19 +110,17 @@
  * and that is the source-side gate's kind of question, not a bundle's.
  * It is reported rather than quietly re-scoped.
  *
- * ## The forms module's two sentinels, and why they are NOT two shapes
+ * ## The forms module's two sentinels, one per reachability shape
  *
  * `re-frame.fresco.forms` is the optional module whose `buffered-field`
  * the guide's chapter 5 documents, and it is measured
- * here beside the other modules. The rows are two, and NOT because the
- * module has two reachability shapes: it has ONE. It registers its
- * events at namespace load, so nothing about it is conditionally
- * reachable — require it and both strings are present, do not and
- * neither is.
+ * here beside the other modules. It has two reachability shapes. It
+ * registers its events at namespace load, so requiring it is enough to
+ * put the concern's keyword in a bundle; its view, like every `defview`,
+ * ships only where something references it.
  *
- * What the second row buys is therefore not coverage of a second path.
- * It is that a hit NAMES WHICH HALF leaked, and that the two halves can
- * be moved independently. The module is a view over a protocol, and the
+ * So a hit NAMES WHICH HALF leaked, and the two halves can be moved
+ * independently. The module is a view over a protocol, and the
  * live way for it to leak is for the protocol to be pulled down into
  * `impl.*` to be shared with something — at which point the concern's
  * keyword reaches a bundle the view's name does not. One row would
@@ -133,9 +131,9 @@
  *
  *   - `re-frame.fresco.forms/buffered-field` (absent) against
  *     `re-frame.fresco.consumer-app/app` (present) — two `h/defview`
- *     view names, both stamped by `mint-view!` unconditionally, one in a
- *     namespace the release entry requires and one in a namespace
- *     nothing does;
+ *     view names, both stamped by `mint-view!` unconditionally, one a
+ *     view the release entry renders and one in a namespace nothing
+ *     requires;
  *   - `re-frame.fresco.forms/drafts` (absent) against
  *     `rf.error/fresco-empty-vector` (present) — two namespaced keyword
  *     literals whose fully-qualified names survive `:advanced` because a
@@ -318,7 +316,8 @@ const SENTINELS = [
       'The view NAME `h/defview` computes and `mint-view!` stamps as the ' +
       'boundary\'s `displayName`, unconditionally — the same idiom the ' +
       'release entry\'s own control is read through. It is in this bundle ' +
-      'if and only if the module is reachable from the entry.',
+      'if and only if the view is reachable from the entry: a `defview` ' +
+      'nothing references is dropped whole.',
     remedy:
       'Find the `:require` of `re-frame.fresco.forms` that made the module ' +
       'reachable. Nothing under implementation/fresco/src/ may name it and ' +
