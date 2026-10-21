@@ -3,10 +3,14 @@
   the `:schemas/check!` seam (Spec 010 §The validation seam): the navigate
   door's trace carries `:failing-id`, `:frame` and, in development,
   `:explain-humanized`, `route-url`'s thrown ex-data is redacted against the
-  schema, and a validator that throws reports `:rf.error/malformed-schema`."
+  schema, and a validator that throws reports `:rf.error/malformed-schema`.
+  The traces are development-only, so under the production-gate lane
+  (`-Dre-frame.debug=false`) the trace assertions read none, while the
+  thrown ex-data holds in both postures."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as rf.interop]
             [re-frame.privacy :as rf.privacy]
             [re-frame.routing :as rf.routing]
             [re-frame.routing-test-support :as rf.routing-test-support]
@@ -28,10 +32,12 @@
   (rf/reg-route :seam/article {:params [:map [:id :int]]} "/articles/:id")
   (let [[ev :as evs] (navigate-traces :rf.error/schema-validation-failure
                                       {:to :seam/article :params {:id "x"}})]
-    (is (= 1 (count evs)))
-    (is (= {:where :event :route-id :seam/article :failing-id :seam/article :frame :rf/default}
-           (select-keys (:tags ev) seam-slots)))
-    (is (= {:id ["should be an integer"]} (get-in ev [:tags :explain-humanized])))))
+    (if rf.interop/debug-enabled?
+      (do (is (= 1 (count evs)))
+          (is (= {:where :event :route-id :seam/article :failing-id :seam/article :frame :rf/default}
+                 (select-keys (:tags ev) seam-slots)))
+          (is (= {:id ["should be an integer"]} (get-in ev [:tags :explain-humanized]))))
+      (is (empty? evs) "a production build emits no trace"))))
 
 (deftest route-url-redacts-a-sensitive-param-in-its-thrown-error
   (rf/reg-route :seam/doc {:params [:map [:id {:sensitive? true} :int]]} "/docs/:id")
@@ -52,7 +58,9 @@
                            nil
                            (catch clojure.lang.ExceptionInfo e (ex-data e)))]
                      (finally (rf.schemas/set-schema-fns! installed)))]
-    (is (= [{:where :event :route-id :seam/article :failing-id :seam/article :frame :rf/default}]
+    (is (= (if rf.interop/debug-enabled?
+             [{:where :event :route-id :seam/article :failing-id :seam/article :frame :rf/default}]
+             [])
            (mapv #(select-keys (:tags %) seam-slots) evs)))
     (is (= [:rf.error/route-url-validation :malformed-schema rf.privacy/redacted-sentinel true]
            ((juxt :rf.error/id :reason :value :sensitive?) data))
