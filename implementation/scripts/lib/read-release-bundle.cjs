@@ -57,9 +57,25 @@
 //                              literal carries match state across calls).
 //   countSubstring(blob, s)  → number of occurrences of a literal
 //                              substring (escapeRe + global count).
+//
+// And the build's own record of what it compiled. shadow-cljs writes a
+// `manifest.edn` into every `:target :browser` output dir: a vector with one
+// map per module, whose `:sources` lists the classpath-relative path of every
+// source compiled into that module. It answers "does this build load
+// namespace X" exactly, where the emitted bytes answer it only for literals
+// that survive `:advanced`:
+//   readBuildManifest(dir) → { status, file, sources, reason }
+//     status: 'missing'    — no manifest.edn in `dir` (sources=null)
+//             'unreadable' — present, but not a vector of module maps each
+//                            carrying a `:sources` vector of strings, or no
+//                            module lists a source (sources=null; `reason`
+//                            says which)
+//             'ok'         — `sources` is every module's `:sources`, in order
+//   A status other than 'ok' MUST fail the gate.
 
 const fs   = require('fs');
 const path = require('path');
+const { readEdn, isMap, mapGetKeyword } = require('./edn.cjs');
 
 function listReleaseJsFiles(dir) {
   if (!fs.existsSync(dir)) {
@@ -107,6 +123,36 @@ function classifyReleaseBundle(dir) {
   return { status: 'ok', files, blob };
 }
 
+function readBuildManifest(dir) {
+  const file = path.join(dir, 'manifest.edn');
+  const unreadable = (reason) => ({ status: 'unreadable', file, sources: null, reason });
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return e.code === 'ENOENT' ? { status: 'missing', file, sources: null } : unreadable(e.message);
+  }
+  let form;
+  try {
+    form = readEdn(text);
+  } catch (e) {
+    return unreadable(`not EDN: ${e.message}`);
+  }
+  if (!form || form.edn !== 'vector') return unreadable('the top-level form is not a vector of modules');
+  const sources = [];
+  for (const mod of form.items) {
+    if (!isMap(mod)) return unreadable('a module entry is not a map');
+    const moduleSources = mapGetKeyword(mod, 'sources');
+    if (!moduleSources || moduleSources.edn !== 'vector') return unreadable('a module has no :sources vector');
+    for (const source of moduleSources.items) {
+      if (!source || source.edn !== 'string') return unreadable('a :sources entry is not a string');
+      sources.push(source.value);
+    }
+  }
+  if (sources.length === 0) return unreadable('no module lists a source');
+  return { status: 'ok', file, sources };
+}
+
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -130,6 +176,7 @@ module.exports = {
   readReleaseBlob,
   listReleaseJsFiles,
   classifyReleaseBundle,
+  readBuildManifest,
   escapeRe,
   countMatches,
   countSubstring,

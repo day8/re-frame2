@@ -127,7 +127,7 @@ class Service {
     } finally {
       // Whichever way the render went: a dead isolate is replaced by the
       // pool, a live one is offered to the next caller.
-      this.pool.release(isolate);
+      this.pool.release(isolate, validatedRequest.requestId);
     }
 
     return completeFrame({

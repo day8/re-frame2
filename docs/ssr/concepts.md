@@ -936,7 +936,9 @@ The launcher writes exactly one line to stdout once the socket is listening:
 Look for the line whose `"rf.ssr-node"` key is `"ready"` rather than assuming
 it is the first: an application bundle that logs at boot writes to the same
 stream. A supervisor that passed `--port 0` reads the real port here.
-Everything diagnostic goes to stderr. Run it under a supervisor that restarts
+Everything diagnostic goes to stderr, and a render failure's line there names
+the request frame's id, so it can be matched to the JVM's error record for the
+same request. Run it under a supervisor that restarts
 it on exit and stops it with `SIGTERM`; the service keeps no state between
 requests, so a restart loses nothing but warm isolates.
 

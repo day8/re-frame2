@@ -1,22 +1,18 @@
 (ns re-frame.ssr-reserved-fx-guards-test
   "The reserved `:rf.server/*` fx guard their own args in EVERY build, so a
   malformed framework effect never reaches the response accumulator that
-  `ssr/get-response` publishes. The dev step-5 schema gate
-  (`validate-fx!`) is compiled out under `-Dre-frame.debug=false`, so the
-  always-on guards in `re-frame.ssr.response` are what hold the shape in a
-  release build. Every test here is posture-independent and runs on the
-  production gate too; `m/validate` is called directly so the schema half
-  adjudicates there as well."
+  `ssr/get-response` publishes. They register no `:schema`, so the guards in
+  `re-frame.ssr.response` are the one acceptance check in dev and release
+  alike. Every test here is posture-independent and runs on the production
+  gate too."
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.response :as rf.ssr.response]
-            [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
@@ -58,98 +54,97 @@
       (finally
         (rf.error-emit/unregister-error-listener! id)))))
 
-;; Each row: [label fx-id schema args accept?] — ONE literal driven through the
-;; registered Malli schema and through the live fx, so a widening on one side
-;; cannot land alone. An optional key present with nil is absent on both sides;
-;; a required key with nil is the violation it looks like.
+;; Each row: [label fx-id args accept?], driven through the live fx. An
+;; optional key present with nil is absent; a required key with nil is the
+;; violation it looks like.
 (def ^:private acceptance-corpus
   [["set-status 100 (bottom)"  :rf.server/set-status
-    rf.ssr.server-fx-schemas/set-status-args 100                                  true]
+    100          true]
    ["set-status 599 (top)"     :rf.server/set-status
-    rf.ssr.server-fx-schemas/set-status-args 599                                  true]
+    599          true]
    ["set-status string"        :rf.server/set-status
-    rf.ssr.server-fx-schemas/set-status-args "not-an-int"                         false]
+    "not-an-int" false]
    ["set-status below range"   :rf.server/set-status
-    rf.ssr.server-fx-schemas/set-status-args 99                                   false]
+    99           false]
    ["set-status above range"   :rf.server/set-status
-    rf.ssr.server-fx-schemas/set-status-args 600                                  false]
+    600          false]
 
    ["set-header well-formed"   :rf.server/set-header
-    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo" :value "bar"}          true]
+    {:name "X-Foo" :value "bar"}          true]
    ["set-header no :value"     :rf.server/set-header
-    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo"}                       false]
+    {:name "X-Foo"}                       false]
    ["set-header nil :value (required)" :rf.server/set-header
-    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo" :value nil}            false]
+    {:name "X-Foo" :value nil}            false]
    ;; A symbol passes the token grammar once `str`-ed; only the string gate sees it.
    ["set-header symbol :name"  :rf.server/set-header
-    rf.ssr.server-fx-schemas/set-header-args {:name 'x-foo :value "bar"}           false]
+    {:name 'x-foo :value "bar"}           false]
 
    ["append-header well-formed" :rf.server/append-header
-    rf.ssr.server-fx-schemas/append-header-args {:name "Vary" :value "Accept"}     true]
+    {:name "Vary" :value "Accept"}     true]
    ["append-header int :value"  :rf.server/append-header
-    rf.ssr.server-fx-schemas/append-header-args {:name "Vary" :value 42}           false]
+    {:name "Vary" :value 42}           false]
 
    ["set-cookie canonical"     :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value "abc"
-                                              :max-age 3600 :same-site :lax
-                                              :secure true :http-only true
-                                              :path "/" :domain "example.com"}     true]
+    {:name "session" :value "abc"
+     :max-age 3600 :same-site :lax
+     :secure true :http-only true
+     :path "/" :domain "example.com"}     true]
    ["set-cookie string attrs (documented ingress tolerance)" :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value "abc"
-                                              :max-age "3600" :expires "1700000000000"
-                                              :same-site "Strict"}                 true]
+    {:name "session" :value "abc"
+     :max-age "3600" :expires "1700000000000"
+     :same-site "Strict"}                 true]
    ["set-cookie every optional nil" :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v"
-                                              :path nil :domain nil :max-age nil
-                                              :expires nil :same-site nil
-                                              :secure nil :http-only nil}          true]
+    {:name "s" :value "v"
+     :path nil :domain nil :max-age nil
+     :expires nil :same-site nil
+     :secure nil :http-only nil}          true]
    ["set-cookie no :value"     :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "session"}                     false]
+    {:name "session"}                     false]
    ["set-cookie nil :value (required)" :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value nil}                false]
+    {:name "s" :value nil}                false]
    ["set-cookie nil :name (required)"  :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name nil :value "v"}                false]
+    {:name nil :value "v"}                false]
    ["set-cookie keyword :name"  :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name :csrf :value "v"}              false]
+    {:name :csrf :value "v"}              false]
    ["set-cookie bogus :same-site keyword" :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :same-site :bogus} false]
+    {:name "s" :value "v" :same-site :bogus} false]
    ["set-cookie non-boolean :secure" :rf.server/set-cookie
-    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :secure "yes"}  false]
+    {:name "s" :value "v" :secure "yes"}  false]
 
    ["delete-cookie well-formed" :rf.server/delete-cookie
-    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path "/"}          true]
+    {:name "stale" :path "/"}          true]
    ["delete-cookie every optional nil" :rf.server/delete-cookie
-    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path nil :domain nil} true]
+    {:name "stale" :path nil :domain nil} true]
    ["delete-cookie no :name"    :rf.server/delete-cookie
-    rf.ssr.server-fx-schemas/delete-cookie-args {:path "/"}                        false]
+    {:path "/"}                        false]
    ["delete-cookie int :path"   :rf.server/delete-cookie
-    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path 42}           false]
+    {:name "stale" :path 42}           false]
    ["delete-cookie keyword :name" :rf.server/delete-cookie
-    rf.ssr.server-fx-schemas/delete-cookie-args {:name :stale :path "/"}           false]
+    {:name :stale :path "/"}           false]
 
    ["redirect well-formed"     :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard" :status 302}    true]
+    {:location "/dashboard" :status 302}    true]
    ;; The documented no-target graceful path, not a structural error.
    ["redirect no target"       :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:status 302}                           true]
+    {:status 302}                           true]
    ["redirect every optional nil" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location nil :status nil :allow nil}  true]
+    {:location nil :status nil :allow nil}  true]
    ["redirect non-int :status" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/x" :status "oops"}         false]
+    {:location "/x" :status "oops"}         false]
    ["redirect keyword :location" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location :dashboard}                  false]
+    {:location :dashboard}                  false]
    ["redirect host :allow"     :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard"
-                                            :allow ["app.example.com"]}            true]
+    {:location "/dashboard"
+     :allow ["app.example.com"]}            true]
    ["redirect :allow :any"     :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard" :allow :any}    true]
+    {:location "/dashboard" :allow :any}    true]
    ["redirect scalar :allow"   :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/ok"
-                                            :allow "app.example.com"}              false]
+    {:location "/ok"
+     :allow "app.example.com"}              false]
    ["redirect keyword :allow other than :any" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/ok" :allow :all}           false]
+    {:location "/ok" :allow :all}           false]
    ["redirect :relative-only?" :rf.server/redirect
-    rf.ssr.server-fx-schemas/redirect-args {:location "/ok" :relative-only? true}  false]])
+    {:location "/ok" :relative-only? true}  false]])
 
 (deftest a-non-string-location-is-a-code-bug-not-a-security-signal
   (testing "a non-string `:location` is refused by the shape guard, so it never
@@ -180,13 +175,10 @@
     :rf.server/redirect
     (some? (:redirect raw))))
 
-(deftest schema-and-guard-agree-on-every-canonical-case
-  (testing "the registered Malli schema and the always-on guard give one
-            verdict per row: a refused row leaves the accumulator untouched
-            and skips only that fx; an accepted row lands"
-    (doseq [[label fx-id schema args accept?] acceptance-corpus]
-      (is (= accept? (m/validate schema args))
-          (str label " — the schema must " (if accept? "ACCEPT" "REJECT") " " (pr-str args)))
+(deftest guard-accepts-and-refuses-every-canonical-case
+  (testing "a refused row leaves the accumulator untouched and skips only
+            that fx; an accepted row lands"
+    (doseq [[label fx-id args accept?] acceptance-corpus]
       (let [{:keys [raw] :as driven} (drive! [fx-id args])]
         (is (= [accept? true] [(landed? fx-id args driven) (sibling-ran? raw)])
             (str label " — [landed? sibling-ran?] for " (pr-str args)))))))
@@ -218,7 +210,7 @@
 
 ;; A rejection routes the offending value through `diag-value-summary` into the
 ;; message and the ex-data, because a cookie `:value` is a session token. The
-;; handlers are called directly so the dev schema gate cannot intercept.
+;; handlers are called directly so the thrown `ex-info` itself can be read.
 
 (def ^:private sentinel
   "24 characters, so a 24-character head would reproduce it whole."

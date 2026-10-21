@@ -1271,6 +1271,11 @@
                                          (if (some? grid-width) (long grid-width) per-root)))
              :mount          (fn [arm k opts] (mount! arm k opts))
              :release        (fn [] (release!*) true)
+             ;; A promise that settles once the Fresco runtime's reapers are
+             ;; idle. The driver awaits it after every release, so a released
+             ;; arm's cells — still queued for the reaper — are never counted
+             ;; by its own post read or by the next arm's baseline.
+             :quiesce        (fn [] (rf.fresco.test.runtime/quiesced!))
              :control        (fn [n] (control! n))
              :controlRelease (fn [] (control-release!))
              :perfMem        (fn []
