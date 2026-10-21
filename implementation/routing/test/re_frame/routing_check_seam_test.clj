@@ -45,9 +45,15 @@
 (deftest a-validator-throw-is-a-malformed-schema
   (rf/reg-route :seam/article {:params [:map [:id :int]]} "/articles/:id")
   (let [installed (rf.schemas/schema-fns)
-        evs       (try
-                    (rf.schemas/set-schema-fns! {:validate (fn [_ _] (throw (ex-info "boom" {})))})
-                    (navigate-traces :rf.error/malformed-schema {:to :seam/article :params {:id 1}})
-                    (finally (rf.schemas/set-schema-fns! installed)))]
+        [evs data] (try
+                     (rf.schemas/set-schema-fns! {:validate (fn [_ _] (throw (ex-info "boom" {})))})
+                     [(navigate-traces :rf.error/malformed-schema {:to :seam/article :params {:id 1}})
+                      (try (rf.routing/route-url {:to :seam/article :params {:id 1}})
+                           nil
+                           (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                     (finally (rf.schemas/set-schema-fns! installed)))]
     (is (= [{:where :event :route-id :seam/article :failing-id :seam/article :frame :rf/default}]
-           (mapv #(select-keys (:tags %) seam-slots) evs)))))
+           (mapv #(select-keys (:tags %) seam-slots) evs)))
+    (is (= [:rf.error/route-url-validation :malformed-schema rf.privacy/redacted-sentinel true]
+           ((juxt :rf.error/id :reason :value :sensitive?) data))
+        "the throw withholds a value the validator decided nothing about")))

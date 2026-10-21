@@ -22,6 +22,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.match :as rf.routing.match]
@@ -1268,15 +1269,22 @@
   "The `ex-data` extras a `:rf.error/route-url-validation` throw carries for
   `failure`, a `validate-route-shape` result on `slot`: the seam's redacted
   `:value` and explanation (as `:error`), `:explain-humanized` in
-  development, `:sensitive?` / `:large?` when the schema says so, and
-  `:reason :malformed-schema` when the route's schema is itself malformed."
+  development, and `:sensitive?` / `:large?` when the schema says so. A
+  route schema that is itself malformed decided nothing about the value, so
+  the value is withheld as `:rf/redacted`, flagged `:sensitive? true`, under
+  `:reason :malformed-schema`."
   [route-id slot {:keys [category tags]}]
-  (cond-> (merge {:route-id route-id
-                  :slot     slot
-                  :value    (:value tags)
-                  :error    (:explain tags)}
-                 (select-keys tags [:explain-humanized :sensitive? :large?]))
-    (= :rf.error/malformed-schema category) (assoc :reason :malformed-schema)))
+  (if (= :rf.error/malformed-schema category)
+    {:route-id   route-id
+     :slot       slot
+     :value      rf.privacy/redacted-sentinel
+     :sensitive? true
+     :reason     :malformed-schema}
+    (merge {:route-id route-id
+            :slot     slot
+            :value    (:value tags)
+            :error    (:explain tags)}
+           (select-keys tags [:explain-humanized :sensitive? :large?]))))
 
 (defn- normalize-match-path
   "Spec 012 trailing-slash normalisation for incoming URLs. `/cart` and
