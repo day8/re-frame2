@@ -902,8 +902,8 @@
 ;; replay): hydration reconciles the SERVER PROJECTION via the
 ;; `:resources/hydrate-runtime-db` hook; restore reconciles the UNPROJECTED
 ;; captured snapshot via the `:resources/reconcile-on-restore` hook (which
-;; ALSO settles mid-flight entries to last-stable + marks restored non-terminal
-;; work-ledger rows dangling — the two settles the wire projection had already
+;; ALSO settles mid-flight entries to last-stable + marks every restored live
+;; attempt dangling — the two settles the wire projection had already
 ;; done but the unprojected snapshot still carries).
 ;;
 ;; Late-bound so epoch never statically depends on the optional Resources
@@ -938,7 +938,7 @@
   (`now-ms`). A durable frame-state field MUST come from a causal input, never
   an ambient world read at install (EP-0010 §Restore/Replay).
 
-  The reconcile's non-deferred host-table clear (stale/GC timer + work-ledger
+  The reconcile's non-deferred host-table clear (stale/GC timer + attempt
   host handles) addresses the frame by BARE id before the atomic write. It runs
   inside `perform-restore!`'s serialized section straight after the liveness
   gate, with no callback in between, so it clears the incarnation the gate

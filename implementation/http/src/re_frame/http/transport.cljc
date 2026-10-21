@@ -542,7 +542,7 @@
   `:rf.reply/work-status :suppressed` reply-envelope trace for a SUPERSEDED HTTP
   attempt, WITHOUT dispatching any app target (Managed-Effects §Stale
   suppression — clauses 2/3/4: the superseded attempt's reply outcome becomes
-  `:stale`, its ledger row reaches `:suppressed`, and the trace stream records
+  `:stale`, its attempt record reaches `:suppressed`, and the trace stream records
   the carried + current correlation).
 
   Called from `managed-handler` when a fresh request supersedes a prior
@@ -636,7 +636,7 @@
   whose reply target is OBSOLETE (it addressed the destroyed actor itself),
   WITHOUT dispatching the app target (Managed-Effects §Cancellation /
   §Stale suppression — clauses 1/2/3/4: the obsolete actor-bound target's
-  reply outcome becomes `:stale`, its ledger row reaches `:suppressed`, and
+  reply outcome becomes `:stale`, its attempt record reaches `:suppressed`, and
   the trace stream records the carried correlation).
 
   Mirrors `emit-superseded-stale-trace!` but for the actor-teardown

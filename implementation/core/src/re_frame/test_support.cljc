@@ -375,7 +375,7 @@
                                        registrar kinds, the generation
                                        high-water cache
                                        (re-frame.resources.state/generation-cache),
-                                       and the host work-ledger / timer /
+                                       and the host attempt / timer /
                                        revalidation-listener handles.
                                        Like the routing nav-counters, the
                                        generation cache is host-side transient

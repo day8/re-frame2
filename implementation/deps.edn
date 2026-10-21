@@ -39,7 +39,7 @@
          day8/re-frame2-epoch    {:local/root "epoch"}
          ;; The optional Resources artefact (Spec 016, EP-0003).
          ;; Managed resource queries: reg-resource, the :rf.resource/*
-         ;; events + passive subs, work ledger, invalidation/GC, and
+         ;; events + passive subs, in-flight attempts, invalidation/GC, and
          ;; hydration.
          day8/re-frame2-resources {:local/root "resources"}
          ;; Fresco, re-frame2's own native view substrate. It is a

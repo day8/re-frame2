@@ -116,7 +116,7 @@
   with route query-params + prior-art names). Reserved whether or not the
   Resources artefact ships.
 
-  `:mutation` (Spec 016 §Deferred slices / EP-0003 §Mutations,
+  `:mutation` (Spec 016 §Mutations / EP-0003 §Mutations,
   the first public-beta gate) is the resources artefact's mutation
   registrar kind — `reg-mutation` registers a mutation spec under it (the
   causal-write counterpart of `:resource`). Reserved whether or not the

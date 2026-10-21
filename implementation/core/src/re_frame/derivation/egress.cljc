@@ -57,9 +57,9 @@
       borrowing an ambient dynamically-bound frame and shipping raw;
     - **identity-embedded scoped keys** — the positions the value-path walk
       is structurally blind to (node KEY, `:id`, `:output`, realized
-      `:inputs`, the `:work-ledger` record's `:resource/key`, and every edge
+      `:inputs`, the `:work` record's `:resource/key`, and every edge
       endpoint) projected into STABLE OPAQUE HANDLES. A resource work-id
-      (`:work-ledger :work/id`, the `:host-transient` in-flight address)
+      (`:work :work/id`, the `:host-transient` in-flight address)
       names its attempt by resource id and generation, so it carries no
       scope or params and rides as-is; and
     - **STRUCTURE PRESERVED** — a redacted value / param is still an edge;
@@ -103,7 +103,7 @@
 ;; reach: the concrete SCOPED KEY `[cache-scope resource-id canonical-params]`
 ;; is the node's IDENTITY — it is the node KEY (`[:resource <scoped-key>]`),
 ;; the node's `:id`, it is embedded in the `:output` runtime path, in the
-;; `:work-ledger :record :resource/key`, and a route-owned activation surfaces
+;; `:work :record :resource/key`, and a route-owned activation surfaces
 ;; it as the `:to` end of a `:param` edge. These are STRUCTURE positions, not
 ;; value-bearing leaves — and the param/scope they carry are exactly the
 ;; "sensitive params/scopes" [spec/Derivations.md] §Redaction metadata names
@@ -293,8 +293,8 @@
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
   path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads, and
-  `:work-ledger :record :resource/key` (the scoped key on the work-ledger
-  summary). The work-ledger `:work/id` and the `:host-transient` in-flight
+  `:work :record :resource/key` (the scoped key on the attempt
+  summary). The attempt's `:work/id` and the `:host-transient` in-flight
   address `[[:rf.http/in-flight <work-id>]]` name the attempt by resource id
   and generation (`[:rf.work/resource <resource-id> <generation>]`), so they
   carry no scope or params and ride as-is. Structure / classification fields
@@ -310,8 +310,8 @@
     (contains? node :inputs)
     (update :inputs project-resource-inputs)
 
-    (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+    (scoped-resource-key? (get-in node [:work :record :resource/key]))
+    (update-in [:work :record :resource/key] project-scoped-key)))
 
 (defn- resource-node-key?
   "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
@@ -403,8 +403,8 @@
   `[cache-scope resource-id canonical-params]` that is the node KEY
   (`[:resource <scoped-key>]`), the node's `:id`, and is embedded in the
   `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`
-  edges, and `:work-ledger :record :resource/key`. (The resource work-id
-  under `:work-ledger` and in the `:host-transient` in-flight address names
+  edges, and `:work :record :resource/key`. (The resource work-id
+  under `:work` and in the `:host-transient` in-flight address names
   its attempt by resource id and generation, so it carries neither scope nor
   params.) The `elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
