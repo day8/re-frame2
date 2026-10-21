@@ -42,9 +42,6 @@
   :ordered-subset
   "The expected value is a vector, and the observation a sequence in emission order. Each expected element must match an observed element by the key's :element-law, in declaration order: matching for the next expected element resumes after the previous match. Observed elements between or after matches are tolerated; an expected element left unmatched fails."
 
-  :positional
-  "The n-th expected element is compared, by the key's :element-law, with the n-th observed element; a missing n-th observed element fails. Observed elements past the last expected one are not compared."
-
   :none-match
   "No observed element may match any expected element by :submap. An expected element is a shape that must never have been observed."
 
@@ -56,12 +53,6 @@
 
   :substring
   "Each expected string must occur as a substring of the observed string."
-
-  :member
-  "Each expected element must be a member of the observed collection."
-
-  :non-member
-  "No expected element may be a member of the observed collection."
 
   :holds
   "The observation is the claim its :observe states; the expectation passes when that claim holds. It carries no expected value."}
@@ -104,9 +95,8 @@
   :conformance/capability
   [:enum
    :actor/declarative-spawn :actor/spawn-and-join :actor/spawn-destroy
-   :core/error :core/event-handler :core/frame :core/fx :core/image :core/sub :core/trace
+   :core/error :core/event-handler :core/frame :core/fx :core/sub :core/trace
    :data-classification/classification-effects
-   :derivation/algebra-graph :derivation/algebra-graph-subs-machines
    :flow/basic :flow/dirty-check :flow/frame-scoped :flow/hot-reload :flow/toggle :flow/topo :flow/trace
    :fsm/choice :fsm/delayed-after :fsm/eventless-always :fsm/final-states :fsm/flat :fsm/hierarchical
    :fsm/history :fsm/internal-events :fsm/parallel-regions :fsm/registration-validation :fsm/tags
@@ -270,18 +260,6 @@
      :law         :ordered-subset
      :element-law :equal}
     [:vector :conformance/routed-effect]]
-   [:error-emit-records
-    {:optional true
-     :observe     "the always-on error-emit records the run fanned out, in firing order"
-     :law         :ordered-subset
-     :element-law :submap}
-    [:vector :map]]
-   [:epoch-records
-    {:optional true
-     :observe     "per frame (an entry's :frame, default :rf/default), that frame's epoch history oldest-first; the frame's n-th entry here is compared, by its :record, with the n-th history record"
-     :law         :positional
-     :element-law :submap}
-    [:vector [:map {:closed true} [:frame {:optional true} :keyword] [:record :map]]]]
    [:on-destroy-emissions
     {:optional true
      :observe     "the trace events emitted while the runner destroys the fixture's frame, which it does after every other expectation has been graded"
@@ -399,50 +377,6 @@
        :observe  "the error make-frame throws for :config under :frame-id"
        :law      :thrown-error-id}
       :keyword]]]
-
-   [:assemble-image
-    [:map {:closed true}
-     [:call [:= :assemble-image]]
-     [:pool {:optional true} [:vector :map]]
-     [:standards {:optional true} [:vector [:tuple :keyword :keyword]]]
-     [:images {:optional true} [:vector :map]]
-     [:images-literal {:optional true} :any]
-     [:default? {:optional true} :boolean]
-     [:expect-error
-      {:optional true
-       :observe  "the error image construction or assembly throws; with :images-literal, the error make-frame throws for those :images"
-       :law      :thrown-error-id}
-      :keyword]
-     [:expect-resolves
-      {:optional true
-       :observe  "for each entry, the descriptor coordinate of the descriptor the sealed resolver resolves [:kind :id] to; an entry whose [kind id] does not resolve fails"
-       :law      :equal}
-      [:vector [:map {:closed true} [:kind :keyword] [:id :keyword] [:coordinate :map]]]]
-     [:expect-present
-      {:optional true
-       :observe  "the sealed generation's resolver keys"
-       :law      :member}
-      [:vector [:tuple :keyword :keyword]]]
-     [:expect-absent
-      {:optional true
-       :observe  "the sealed generation's resolver keys"
-       :law      :non-member}
-      [:vector [:tuple :keyword :keyword]]]
-     [:expect-kinds
-      {:optional true
-       :observe  "the sealed generation's :rf.gen/kinds"
-       :law      :equal}
-      [:set :keyword]]
-     [:expect-gen-absent
-      {:optional true
-       :observe  "the sealed generation's top-level keys"
-       :law      :non-member}
-      [:vector :keyword]]
-     [:expect-shadows
-      {:optional true
-       :observe  "the sealed generation's :rf.gen/shadows report"
-       :law      :equal}
-      [:vector :map]]]]
 
    [:match-url
     [:map {:closed true}
@@ -702,31 +636,7 @@
       {:optional true
        :observe  "the error apply-policy throws for :opts"
        :law      :thrown-error-id}
-      :keyword]]]
-
-   [:derivation-graph
-    [:map {:closed true}
-     [:call [:= :derivation-graph]]
-     [:mode {:optional true} [:enum :static :live]]
-     [:expect-graph
-      {:optional true
-       :observe  "the derivation/process graph composed in :mode (default :static)"
-       :law      :submap}
-      :map]
-     [:expect-nodes
-      {:observe "for each entry, the composed graph's node at the entry's :id; the :id itself is not compared"
-       :law     :submap}
-      [:vector [:map [:id :any]]]]
-     [:expect-edges
-      {:optional true
-       :observe  "the composed graph's edge set"
-       :law      :member}
-      [:vector :map]]
-     [:expect-absent-edges
-      {:optional true
-       :observe  "the composed graph's edge set"
-       :law      :non-member}
-      [:vector :map]]]]]
+      :keyword]]]]
 
   ;; ---------------------------------------------------------------------------
   ;; The handler-body DSL. A body is a vector of steps run in order; each kind

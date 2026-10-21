@@ -68,12 +68,4 @@
                 :action-id         :boom
                 :exception-message "kaboom"
                 :reason            "Machine action threw."}
-    :recovery  :no-recovery}]
-
-  ;; The machine action threw, the machine handler caught
-  ;; the throw and halted the cascade at the machine layer — `:db` was
-  ;; suppressed. But the DRAIN itself continued to empty queue (no
-  ;; downstream events), so the epoch record's :outcome is :ok.
-  ;; Machine-action exceptions are per-handler recovery, not a drain-halt.
-  :epoch-records
-  [{:frame :rf/default :record {:outcome :ok :event-id :test/m}}]}}
+    :recovery  :no-recovery}]}}

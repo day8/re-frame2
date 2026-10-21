@@ -249,7 +249,7 @@ doesn't change where that copy is kept. So this resource's `:storage` is
     it is classed `:host-transient`: kept outside durable frame state and torn down at
     the end of its lifecycle. It is never the only copy of a fact; replay and restore
     use the durable `:runtime-db` entry. In a live resource view it appears as
-    `:host-transient [[:rf.http/in-flight <request-id>]]` plus a `:work-ledger`
+    `:host-transient [[:rf.http/in-flight <request-id>]]` plus a `:work`
     summary (the in-flight attempt's identity, owners, causes and transport), present
     only while a fetch is in flight.
 

@@ -3,12 +3,11 @@
 ;; commits one record carrying :event-id, :trigger-event, :db-before /
 ;; :db-after, and :outcome :ok.
 ;;
-;; A second-host implementation that wires events / subs / fx correctly
-;; can still fail this fixture if its epoch-history ring isn't recording
-;; settled drains (or is recording the wrong db-snapshot pair). Per
-;; Spec 009 §Epoch history: the record is the load-bearing
-;; observable for Tool-Pair time-travel and the conformance corpus
-;; pinning is the contract a port must satisfy.
+;; An implementation that wires events / subs / fx correctly can still
+;; fail this fixture if its epoch-history ring isn't recording settled
+;; drains (or is recording the wrong db-snapshot pair). Per Spec 009
+;; §Epoch history: the record is the load-bearing observable for Tool-Pair
+;; time-travel.
 
 {:fixture/id           :epoch/record-shape
  :fixture/spec-version "1.0"

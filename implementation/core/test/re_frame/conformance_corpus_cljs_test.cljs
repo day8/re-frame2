@@ -5,7 +5,8 @@
   this leaf owns only the CLJS seams handed to it as a host map: fixtures
   inlined at compile time, the inter-fixture reset (registrar snapshot and
   restore, since CLJS has no `(require … :reload)`), and trace-listener
-  access through `re-frame.trace.tooling`."
+  access through `re-frame.trace.tooling`. It runs the portable corpus, and
+  the reference-only corpus under the runner's `reference` grading."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -32,7 +33,8 @@
             [re-frame.ssr.response :as rf.ssr.response]
             [re-frame.conformance-runner :as rf.conformance-runner])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj).
-  (:require-macros [re-frame.conformance-fixtures :refer [all-fixtures]]))
+  (:require-macros [re-frame.conformance-fixtures
+                    :refer [all-fixtures reference-fixtures reference-overlays]]))
 
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 
@@ -119,6 +121,18 @@
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
     (rf.conformance-runner/run-corpus fixtures host "CLJS")
+    (finally
+      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
+      (rf.image-assembly/clear-generation-cache!))))
+
+;; The floor is the reference corpus's whole size: 15 fixtures and 7
+;; overlaid portable ones.
+(deftest run-reference-conformance-corpus-cljs
+  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
+  (try
+    (rf.conformance-runner/run-corpus
+      (rf.conformance-runner/reference-corpus (reference-fixtures) (reference-overlays) fixtures)
+      host "CLJS reference" 22 rf.conformance-runner/reference)
     (finally
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))

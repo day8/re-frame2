@@ -1,0 +1,148 @@
+;; The reference-only extension of the conformance fixture grammar.
+;;
+;; The portable grammar, `spec/conformance/fixture-file.edn`, grades only the
+;; public contract and the normative trace shapes, so a port runs every fixture
+;; under it from the spec alone. The ops, expectations and capability tags
+;; below bind shapes internal to this implementation, so an internal refactor
+;; here is not a port obligation:
+;;
+;; - `:assemble-image` drives the explicit-pool image assembler
+;;   (`re-frame.image-assembly`) over descriptors keyed by `:rf.provenance/ns`
+;;   strings, and reads who won from each descriptor's coordinate.
+;; - `:derivation-graph` reads the composed derivation/process graph, which no
+;;   public accessor returns (spec/Derivations.md §Graph inspection — internal
+;;   but structured).
+;; - `:epoch-records` reads the dev-tier `:rf/epoch-record` ring, and
+;;   `:error-emit-records` the always-on error-emit records, whose registry
+;;   serves framework-internal consumers.
+;;
+;; They grade the fixtures in `fixtures/` beside this file, and the
+;; expectations `overlays.edn` layers onto portable fixtures. The core corpus
+;; runner grades both with its `reference` grading, on the JVM and in
+;; ClojureScript (`re-frame.conformance-runner`).
+;;
+;; Reading this file. `:laws` defines the laws only these entries name, and
+;; `:append` names a registry entry of the portable grammar and the children
+;; appended to it: tags to the `:conformance/capability` enum, keys to the
+;; `:conformance/expect` map and records to the `:conformance/call` multi. The
+;; result reads exactly as the portable grammar does
+;; (`re-frame.conformance-grammar`).
+{:laws
+ {:positional
+  "The n-th expected element is compared, by the key's :element-law, with the n-th observed element; a missing n-th observed element fails. Observed elements past the last expected one are not compared."
+
+  :member
+  "Each expected element must be a member of the observed collection."
+
+  :non-member
+  "No expected element may be a member of the observed collection."}
+
+ :append
+ {:conformance/capability
+  [;; The image API — `:select-ns` selection, image-order layering, the shadow
+   ;; report, the fail-loud collision / retired-key / inline-grammar taxonomy
+   ;; and the default-image projection — as `:assemble-image` drives it.
+   :core/image
+   ;; The derivation/process graph, split so a graph host spanning only
+   ;; subscriptions and machines claims the narrow tag without overclaiming:
+   ;; `derivation-graph-algebra-full.edn` carries the broad one and
+   ;; `derivation-graph-algebra.edn` the narrow one.
+   :derivation/algebra-graph
+   :derivation/algebra-graph-subs-machines]
+
+  :conformance/expect
+  [[:error-emit-records
+    {:optional true
+     :observe     "the always-on error-emit records the run fanned out, in firing order"
+     :law         :ordered-subset
+     :element-law :submap}
+    [:vector :map]]
+   [:epoch-records
+    {:optional true
+     :observe     "per frame (an entry's :frame, default :rf/default), that frame's epoch history oldest-first; the frame's n-th entry here is compared, by its :record, with the n-th history record"
+     :law         :positional
+     :element-law :submap}
+    [:vector [:map {:closed true} [:frame {:optional true} :keyword] [:record :map]]]]]
+
+  :conformance/call
+  [;; A pure call over a fixture-supplied descriptor pool and image specs. Each
+   ;; `:pool` descriptor carries `:rf.provenance/ns` (selection reads this
+   ;; source namespace, never the id's namespace), `:kind`, `:id` and a
+   ;; `:handler-fn` sentinel. `:standards` are `[kind id]` framework standards
+   ;; registered around the call, and cleared after it with the generation
+   ;; cache. Omitting `:images`, or `:default? true`, assembles the default
+   ;; image over the whole pool; `:images-literal` hands its value to
+   ;; `make-frame` instead, whose `:images` validation runs before any frame
+   ;; exists. Inline `:registrations` bodies are realised to a fresh no-op
+   ;; each, so two inline entries for one `[kind id]` stay distinct. A
+   ;; coordinate is `{:ns "…"}` for a selected descriptor, `{:image <id>
+   ;; :inline [section id]}` for an inline one and `{:standard true}` for a
+   ;; framework standard.
+   [:assemble-image
+    [:map {:closed true}
+     [:call [:= :assemble-image]]
+     [:pool {:optional true} [:vector :map]]
+     [:standards {:optional true} [:vector [:tuple :keyword :keyword]]]
+     [:images {:optional true} [:vector :map]]
+     [:images-literal {:optional true} :any]
+     [:default? {:optional true} :boolean]
+     [:expect-error
+      {:optional true
+       :observe  "the error image construction or assembly throws; with :images-literal, the error make-frame throws for those :images"
+       :law      :thrown-error-id}
+      :keyword]
+     [:expect-resolves
+      {:optional true
+       :observe  "for each entry, the descriptor coordinate of the descriptor the sealed resolver resolves [:kind :id] to; an entry whose [kind id] does not resolve fails"
+       :law      :equal}
+      [:vector [:map {:closed true} [:kind :keyword] [:id :keyword] [:coordinate :map]]]]
+     [:expect-present
+      {:optional true
+       :observe  "the sealed generation's resolver keys"
+       :law      :member}
+      [:vector [:tuple :keyword :keyword]]]
+     [:expect-absent
+      {:optional true
+       :observe  "the sealed generation's resolver keys"
+       :law      :non-member}
+      [:vector [:tuple :keyword :keyword]]]
+     [:expect-kinds
+      {:optional true
+       :observe  "the sealed generation's :rf.gen/kinds"
+       :law      :equal}
+      [:set :keyword]]
+     [:expect-gen-absent
+      {:optional true
+       :observe  "the sealed generation's top-level keys"
+       :law      :non-member}
+      [:vector :keyword]]
+     [:expect-shadows
+      {:optional true
+       :observe  "the sealed generation's :rf.gen/shadows report"
+       :law      :equal}
+      [:vector :map]]]]
+
+   ;; The cross-family graph composed over every family's contributor.
+   [:derivation-graph
+    [:map {:closed true}
+     [:call [:= :derivation-graph]]
+     [:mode {:optional true} [:enum :static :live]]
+     [:expect-graph
+      {:optional true
+       :observe  "the derivation/process graph composed in :mode (default :static)"
+       :law      :submap}
+      :map]
+     [:expect-nodes
+      {:observe "for each entry, the composed graph's node at the entry's :id; the :id itself is not compared"
+       :law     :submap}
+      [:vector [:map [:id :any]]]]
+     [:expect-edges
+      {:optional true
+       :observe  "the composed graph's edge set"
+       :law      :member}
+      [:vector :map]]
+     [:expect-absent-edges
+      {:optional true
+       :observe  "the composed graph's edge set"
+       :law      :non-member}
+      [:vector :map]]]]]}}

@@ -1,0 +1,95 @@
+;; Reference-only expectations layered onto portable fixtures.
+;;
+;; Each entry names a fixture in `spec/conformance/fixtures/` and the
+;; expectations the reference grading adds to its `:fixture/expect`. The
+;; portable fixture keeps its public-contract expectations; these read shapes
+;; internal to this implementation (`grammar.edn` says which), so they are
+;; graded here, against the very same scenario, by the core corpus runner on
+;; both hosts. An overlay carries only expectation keys the reference grammar
+;; adds, and never one its fixture already has.
+{"cross-spec-machine-action-throws.edn"
+ ;; The machine action threw, the machine handler caught the throw and halted
+ ;; the cascade at the machine layer — `:db` was suppressed. But the DRAIN
+ ;; itself continued to empty queue (no downstream events), so the epoch
+ ;; record's :outcome is :ok. Machine-action exceptions are per-handler
+ ;; recovery, not a drain-halt.
+ {:epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :test/m}}]}
+
+ "drain-depth-limit.edn"
+ ;; Per Spec 002 §Drain versus event: five durable :ok epochs (one per
+ ;; dequeued :recursive event, db chaining {:depth 1}…{:depth 5}) followed by
+ ;; the trailing :halted-depth marker the runtime commits for the halting
+ ;; event (Spec-Schemas §:rf/epoch-record §Outcomes). The marker's :db-before /
+ ;; :db-after both equal the durable last-settled db ({:depth 5}); the halting
+ ;; event never ran.
+ {:epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :recursive
+                                :db-before {} :db-after {:depth 1}}}
+   {:frame :rf/default :record {:outcome :ok :event-id :recursive
+                                :db-before {:depth 1} :db-after {:depth 2}}}
+   {:frame :rf/default :record {:outcome :ok :event-id :recursive
+                                :db-before {:depth 2} :db-after {:depth 3}}}
+   {:frame :rf/default :record {:outcome :ok :event-id :recursive
+                                :db-before {:depth 3} :db-after {:depth 4}}}
+   {:frame :rf/default :record {:outcome :ok :event-id :recursive
+                                :db-before {:depth 4} :db-after {:depth 5}}}
+   {:frame :rf/default
+    :record {:outcome   :halted-depth
+             :event-id  :recursive
+             :db-before {:depth 5}
+             :db-after  {:depth 5}
+             ;; Ids only — the last-settled event is named, never carried
+             ;; (its args live on its own :ok record). The dev trace keeps the
+             ;; vector for the local debugger.
+             :halt-reason
+             {:operation     :rf.error/drain-depth-exceeded
+              :depth         5
+              :queue-size    1
+              :last-event-id :recursive}}}]}
+
+ "effect-map-shape-bad-fx-value.edn"
+ ;; The always-on axis, which survives a production build.
+ {:error-emit-records
+  [{:rf.error/id   :rf.error/effect-map-shape
+    :event-id      :shape/bad-fx-value
+    :offending-key :fx}]}
+
+ "effect-map-shape-bad-top-level-key.edn"
+ ;; The always-on axis — the one that survives a production build, where the
+ ;; dev trace is dead-code-eliminated. It carries the offending KEY as its lone
+ ;; discriminator; the rejected value stays on the dev trace.
+ {:error-emit-records
+  [{:rf.error/id   :rf.error/effect-map-shape
+    :event-id      :shape/bad-key
+    :offending-key :http}]}
+
+ "error-handler-exception.edn"
+ ;; Each dispatch is its own drain (dispatch-sync runs to settle), and all
+ ;; three settle cleanly with :outcome :ok: :initial-events [[:counter/initialise]]
+ ;; fires a synchronous drain at make-frame time (position 0), then the two
+ ;; dispatches (:will-throw, :should-not-fire) run as separate drains
+ ;; (positions 1 and 2). The :will-throw drain surfaces in epoch-history, but
+ ;; it did NOT halt — a handler exception is per-event recovery, not a
+ ;; drain-halt, so no :halted-* record is committed.
+ {:epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :counter/initialise}}
+   {:frame :rf/default :record {:outcome :ok :event-id :will-throw}}
+   {:frame :rf/default :record {:outcome :ok :event-id :should-not-fire}}]}
+
+ "flow-eval-exception.edn"
+ ;; The cascade-level :rf.error/flow-eval-exception rides the always-on
+ ;; error-emit substrate as well as the dev trace (Spec 013 §Resolved
+ ;; decisions); the record carries the event and frame, and :where
+ ;; :flow-eval rides on this record only.
+ {:error-emit-records
+  [{:rf.error/id :rf.error/flow-eval-exception
+    :event-id    :flow/bad-input
+    :frame       :rf/default}]}
+
+ "machine-internal-event-boundary.edn"
+ ;; The refusal is a per-handler no-op (the committed snapshot is untouched),
+ ;; not a drain-halt — the drain emptied its queue, so the epoch outcome is
+ ;; :ok (symmetric with cross-spec-machine-action-throws).
+ {:epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :test/m}}]}}

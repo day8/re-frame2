@@ -8,8 +8,10 @@
   `:final-app-db` and the per-frame `:final-app-dbs` (submap), `:sub-values`,
   `:expect-trace-stream` (`:flow` op-type only) and `:trace-emissions`
   (order-preserving subset), `:trace-absent`, `:flow-recompute-counts`,
-  `:flow-graph-topology`, `:flow-registry-after`, `:flow-last-inputs-after`,
-  `:registrar-flow-slots-after` and `:error-emit-records`.
+  `:flow-graph-topology`, `:flow-registry-after`, `:flow-last-inputs-after`
+  and `:registrar-flow-slots-after`. Its `:error-emit-records` channel, the
+  always-on error-emit records, grades a reference-only expectation that no
+  portable fixture carries: `flow-eval-exception-error-emit-record` below.
 
   Every fixture this runner sees is a flow fixture it is the reference gate
   for, so an unclaimed capability or spec version FAILS rather than skips: a
@@ -321,3 +323,28 @@
                         [fname (dissoc (run-claimed fixture) :exception)]))]
     (is (<= 7 (count results)) (str "flow fixtures executed: " (count results)))
     (is (= {} (into (sorted-map) (remove (comp #{{:mismatches {}}} val) results))))))
+
+;; ---- the reference-only error-emit record ---------------------------------
+;;
+;; The always-on error-emit record is internal to this implementation, so
+;; `flow-eval-exception.edn` does not assert it; this runner grades it against
+;; that same scenario, as core's reference corpus does
+;; (implementation/core/test/conformance-reference/overlays.edn). `channels`
+;; skips a key it has no channel for, so a wrong record must fail as well:
+;; without that, a dropped channel would pass here.
+
+(def ^:private flow-eval-exception-record
+  [{:rf.error/id :rf.error/flow-eval-exception
+    :event-id    :flow/bad-input
+    :frame       :rf/default}])
+
+(deftest flow-eval-exception-error-emit-record
+  (let [[[_ fixture]] (filter (comp #{"flow-eval-exception.edn"} first) (all-flow-fixtures))
+        with-record   #(assoc-in fixture [:fixture/expect :error-emit-records] %)]
+    (is (some? fixture) "flow-eval-exception.edn is in the corpus")
+    (is (= {:mismatches {}}
+           (dissoc (run-claimed (with-record flow-eval-exception-record)) :exception)))
+    (is (contains? (:mismatches (run-claimed (with-record (assoc-in flow-eval-exception-record
+                                                                     [0 :event-id] :rf.test/wrong))))
+                   :error-emit-records)
+        "a wrong record fails the channel")))

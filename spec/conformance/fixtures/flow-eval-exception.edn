@@ -28,7 +28,7 @@
 {:fixture/id           :flow/eval-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace :flow/basic :flow/trace}
- :fixture/doc          "A flow's :derive throws. Per the atomicity contract (Spec 013 §Failure semantics) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
+ :fixture/doc          "A flow's :derive throws. Per the atomicity contract (Spec 013 §Failure semantics) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace, then the cascade-level :rf.error/flow-eval-exception trace. The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
 
  :fixture/registry
  {:event {:flow/init       {:doc "Seed :token to a non-string vector — first drain computes :tries without throwing."}
@@ -83,7 +83,7 @@
   ;; attribution), then the cascade-level :rf.error/flow-eval-exception.
   ;; The router emits the cascade-level trace with :frame / :event /
   ;; :exception in tags (per router.cljc); :where :flow-eval rides on the
-  ;; always-on substrate record only (asserted via :error-emit-records).
+  ;; always-on substrate record only.
   :trace-emissions
   [{:op-type   :flow
     :operation :rf.flow/failed
@@ -100,14 +100,4 @@
   ;; so it cannot false-match the earlier successful install.)
   :trace-absent
   [{:operation :rf.event/db-changed
-    :tags      {:rf.trace/event-id :flow/bad-input}}]
-
-  ;; Production-survivable always-on substrate (Spec 013 §Resolved
-  ;; decisions §`:rf.error/flow-eval-exception` rides the always-on
-  ;; error substrate). The runner registers a
-  ;; corpus-wide error-emit listener at fixture-start; this matcher
-  ;; asserts the listener captured the cascade-level record.
-  :error-emit-records
-  [{:rf.error/id :rf.error/flow-eval-exception
-    :event-id :flow/bad-input
-    :frame    :rf/default}]}}
+    :tags      {:rf.trace/event-id :flow/bad-input}}]}}

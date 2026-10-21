@@ -58,7 +58,21 @@
 
   A `:fixture/expect` key with no matcher fails the fixture naming it, on
   both hosts. An unknown top-level key is caught by the JVM grammar
-  validation over the same corpus (`re-frame.conformance-grammar-test`)."
+  validation over the same corpus (`re-frame.conformance-grammar-test`).
+
+  ## Two gradings
+
+  `portable` grades `spec/conformance/fixtures/`, the corpus any port runs,
+  against the portable grammar. `reference` grades the reference-only
+  corpus under this test root, `conformance-reference/`, against that
+  grammar's extension: every portable matcher, plus the matchers marked
+  `:reference?` and the capabilities only those fixtures carry. Those read
+  shapes internal to this implementation — the image assembler's descriptor
+  pool, the derivation graph, the epoch-record ring and the error-emit
+  records — so an internal refactor moves the reference corpus and never the
+  portable one. Its corpus is its own fixtures plus the portable fixtures
+  `overlays.edn` names, each carrying the reference-only expectations it
+  adds (`reference-corpus`)."
   (:require
     #?(:clj  [clojure.test :refer [is]]
        :cljs [cljs.test :refer-macros [is]])
@@ -115,11 +129,11 @@
 ;; ---- claimed capability set -----------------------------------------------
 
 (def claimed-capabilities
-  "What this reference implementation claims to support. Fixtures requiring
-  capabilities outside this set are classified per `classify-capabilities`.
-  The corpus is graded against claimed capabilities, not host — both the
-  JVM and CLJS leaves claim EXACTLY this surface (that is the point of a
-  single shared runner)."
+  "What this reference implementation claims of the portable corpus.
+  Fixtures requiring capabilities outside this set are classified per
+  `classify-capabilities`. The corpus is graded against claimed
+  capabilities, not host — both the JVM and CLJS leaves claim EXACTLY this
+  surface (that is the point of a single shared runner)."
   #{:core/event-handler
     :core/sub
     :core/fx
@@ -128,11 +142,6 @@
     ;; the README's §Capability tagging list and worked-example table.
     :core/trace
     :core/frame
-    ;; EP-0026 — the image-API surface: `:select-ns` selection,
-    ;; image-order layering, the shadow report, the fail-loud collision /
-    ;; retired-key / inline-grammar taxonomy, and the omit-`:images` default
-    ;; path. Exercised by the `image-*.edn` fixtures via `:assemble-image`.
-    :core/image
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical
@@ -184,10 +193,6 @@
     :rf.http/managed
     ;; Spec 015 §Data classification.
     :data-classification/classification-effects
-    ;; EP-0014 — the BROAD cross-family derivation graph.
-    :derivation/algebra-graph
-    ;; The NARROW subs+machines subset claim.
-    :derivation/algebra-graph-subs-machines
     ;; Spec 016 §Resources.
     :resources/ensure
     :resources/dedupe
@@ -195,6 +200,15 @@
     :resources/scope-fail-closed
     :resources/owner-gc
     :resources/keep-previous})
+
+(def reference-capabilities
+  "The capabilities only the reference-only corpus carries, which the
+  `reference` grading claims beside `claimed-capabilities`: the image API as
+  `:assemble-image` drives it, and the derivation graph, split into the broad
+  claim and the narrow subs+machines one (`conformance-reference/grammar.edn`)."
+  #{:core/image
+    :derivation/algebra-graph
+    :derivation/algebra-graph-subs-machines})
 
 (def claimed-spec-versions
   "Fixture spec versions this implementation claims to conform against.
@@ -220,21 +234,23 @@
 ;; ---- fixture classification -----------------------------------------------
 
 (defn classify-capabilities
-  "Partition a fixture's `:fixture/capabilities` into
+  "Partition a fixture's `:fixture/capabilities` against `claimed` (a
+  grading's `:capabilities`, `claimed-capabilities` by default) into
   `{:claimed … :allowed … :unknown …}`. RUNNABLE iff `:unknown` and
   `:allowed` are both empty; SKIPPED (out-of-claim) iff `:unknown` empty and
   `:allowed` non-empty; FAILURE iff `:unknown` non-empty."
-  [fixture]
-  (let [caps (or (:fixture/capabilities fixture) #{})]
-    {:claimed (into #{} (filter claimed-capabilities) caps)
-     :allowed (into #{} (filter (fn [c]
-                                  (and (contains? known-skipped-capabilities c)
-                                       (not (contains? claimed-capabilities c))))
-                                caps))
-     :unknown (into #{} (remove (fn [c]
-                                  (or (contains? claimed-capabilities c)
-                                      (contains? known-skipped-capabilities c)))
-                                caps))}))
+  ([fixture] (classify-capabilities claimed-capabilities fixture))
+  ([claimed fixture]
+   (let [caps (or (:fixture/capabilities fixture) #{})]
+     {:claimed (into #{} (filter claimed) caps)
+      :allowed (into #{} (filter (fn [c]
+                                   (and (contains? known-skipped-capabilities c)
+                                        (not (contains? claimed c))))
+                                 caps))
+      :unknown (into #{} (remove (fn [c]
+                                   (or (contains? claimed c)
+                                       (contains? known-skipped-capabilities c)))
+                                 caps))})))
 
 (defn spec-version-claimed?
   "True if the fixture targets a spec version this build claims. A fixture
@@ -740,7 +756,8 @@
 
   `:dev-only?` marks a matcher reading a surface only the debug build emits:
   the trace bus, the effects and public error read off it, and the
-  trace-fed epoch ring."
+  trace-fed epoch ring. `:reference?` marks one only the `reference`
+  grading carries, because what it reads is internal to this implementation."
   [[:final-app-db
     {:match (fn [_ want] (submap-failures "app-db" want (rf/app-db-value :rf/default)))}]
    [:final-app-dbs
@@ -826,13 +843,15 @@
     {:dev-only? true
      :match     (fn [{:keys [traces]} want] (routed-failures (effects-routed-from-traces @traces) want))}]
    [:error-emit-records
-    {:match (fn [{:keys [err-records]} want]
-              (when-let [failures (seq (check-error-emit-records @err-records want))]
-                (conj (vec failures) (str "records: " (pr-str @err-records)))))}]
+    {:reference? true
+     :match      (fn [{:keys [err-records]} want]
+                   (when-let [failures (seq (check-error-emit-records @err-records want))]
+                     (conj (vec failures) (str "records: " (pr-str @err-records)))))}]
    ;; Both hosts read the recorded `:rf/epoch-record` ring.
    [:epoch-records
-    {:dev-only? true
-     :match     (fn [_ want] (check-epoch-records want))}]
+    {:dev-only?  true
+     :reference? true
+     :match      (fn [_ want] (check-epoch-records want))}]
    ;; Spec 011: the run's last error, projected by the active error projector.
    [:ssr/public-error
     {:dev-only? true
@@ -849,20 +868,20 @@
      :match     (fn [{:keys [destroy-traces]} want]
                   (routed-failures (effects-routed-from-traces @destroy-traces) want))}]])
 
-(def ^:private expect-matcher-index (into {} expect-matchers))
-
 (defn- grade-expect
-  "Grade a fixture's `:fixture/expect` block against the finished `run`:
-  `{key failures}` for each key that failed. A key with no matcher fails
-  naming itself, so an expectation this runner cannot read is never a pass."
-  [run expect]
-  (into (into {} (for [k (keys expect) :when (not (contains? expect-matcher-index k))]
-                   [k ["no matcher grades this key"]]))
-        (keep (fn [[k {:keys [match]}]]
-                (when (contains? expect k)
-                  (when-let [failures (seq (match run (get expect k)))]
-                    [k (vec failures)]))))
-        expect-matchers))
+  "Grade a fixture's `:fixture/expect` block against the finished `run` with
+  `matchers`, a grading's `:expect-matchers`: `{key failures}` for each key
+  that failed. A key with no matcher fails naming itself, so an expectation
+  this grading cannot read is never a pass."
+  [matchers run expect]
+  (let [index (into {} matchers)]
+    (into (into {} (for [k (keys expect) :when (not (contains? index k))]
+                     [k ["no matcher grades this key"]]))
+          (keep (fn [[k {:keys [match]}]]
+                  (when (contains? expect k)
+                    (when-let [failures (seq (match run (get expect k)))]
+                      [k (vec failures)]))))
+          matchers)))
 
 ;; ---- production-posture subset --------------------------------------------
 
@@ -1053,7 +1072,8 @@
   `:matchers` maps each expectation key the grammar declares on the op's
   record to `(f outcome expected call)`, a seq of failure strings. `:holds`
   grades a record whose whole claim is its observation (the grammar's
-  `:holds` law), as `(f value call)`."
+  `:holds` law), as `(f value call)`. `:reference?` marks an op only the
+  `reference` grading runs."
   {:match-url
    ;; The result's `:validation-error` is an implementation-specific
    ;; explanation; the `:validation-failed?` flag is the normative bit
@@ -1265,7 +1285,8 @@
    ;; frame record exists. Standards and the generation cache are reset
    ;; around each call so nothing leaks into the next.
    :assemble-image
-   {:observe
+   {:reference? true
+    :observe
     (fn [call _]
       (if (contains? call :images-literal)
         (rf/make-frame {:images (:images-literal call)})
@@ -1313,7 +1334,8 @@
    ;; or misreports its graph-level `{:mode :live :frame …}` fails even when
    ;; its nodes and edges are right.
    :derivation-graph
-   {:observe
+   {:reference? true
+    :observe
     (fn [call _]
       (if (= :live (:mode call))
         (rf.derivation.graph/live-derivation-graph :rf/default (derivation-contributors))
@@ -1341,6 +1363,26 @@
   op."
   {})
 
+;; ---- the two gradings -----------------------------------------------------
+
+(def portable
+  "The portable corpus's grading: the capabilities this implementation claims
+  of `spec/conformance/fixture-file.edn`, and one matcher for each
+  expectation that grammar declares."
+  {:capabilities    claimed-capabilities
+   :expect-matchers (into [] (remove (comp :reference? second)) expect-matchers)
+   :call-matchers   (into {} (remove (comp :reference? val)) call-matchers)})
+
+(def reference
+  "The reference-only corpus's grading: `portable` plus the capabilities,
+  expectations and call ops that bind this implementation's internal shapes,
+  which `conformance-reference/grammar.edn` adds to the grammar. The
+  reference-only matchers keep their place in `expect-matchers`, so grading
+  order is the same in both."
+  {:capabilities    (into claimed-capabilities reference-capabilities)
+   :expect-matchers expect-matchers
+   :call-matchers   call-matchers})
+
 (defn- describe-call
   "The record's inputs — everything but `:call` and its expectation keys —
   cut short for a failure line."
@@ -1349,18 +1391,19 @@
     (if (< 160 (count s)) (str (subs s 0 160) "…") s)))
 
 (defn run-call
-  "Run one `:fixture/calls` record and grade it through `call-matchers`.
-  Returns `{:passed? bool :detail …}`. `fixture-machines` is the fixture's
-  realised `{:actions … :guards …}` map, built once by `run-fixture`.
+  "Run one `:fixture/calls` record and grade it through `grading`'s call
+  matchers (`portable` by default). Returns `{:passed? bool :detail …}`.
+  `fixture-machines` is the fixture's realised `{:actions … :guards …}` map,
+  built once by `run-fixture`.
 
   The operation runs once, and each expectation key the record carries is
   graded by its op's matcher. A throw fails the record unless the record
   carries `:expect-error`, which is the `:thrown-error-id` law's other half:
   a record that omits `:expect-error` asserts the operation does not throw.
-  An op with no entry FAILS."
-  [call & [fixture-machines]]
+  An op the grading has no entry for FAILS."
+  [call & [fixture-machines grading]]
   (let [op (:call call)]
-    (if-let [{:keys [observe holds matchers]} (get call-matchers op)]
+    (if-let [{:keys [observe holds matchers]} (get (:call-matchers (or grading portable)) op)]
       (let [outcome  (try {:value (observe call fixture-machines)}
                           (catch #?(:clj Throwable :cljs :default) e {:thrown e}))
             failures (concat
@@ -1596,15 +1639,17 @@
     (rf/dispatch-sync ev)))
 
 (defn run-fixture
-  "Realise, dispatch, and grade one fixture against `:fixture/expect`. `host`
-  supplies the genuinely host-specific seams (`:reset-runtime!`,
-  `:register-trace-listener!`, `:unregister-trace-listener!`). Returns a
-  result map with `:passed?`, the `:expect-failures` `grade-expect` reports,
-  and the `:dispatch-error-failures` and `:compute-sub-failures`."
-  [fixture host]
+  "Realise, dispatch, and grade one fixture against `:fixture/expect` with
+  `grading` (`portable` by default). `host` supplies the genuinely
+  host-specific seams (`:reset-runtime!`, `:register-trace-listener!`,
+  `:unregister-trace-listener!`). Returns a result map with `:passed?`, the
+  `:expect-failures` `grade-expect` reports, and the
+  `:dispatch-error-failures` and `:compute-sub-failures`."
+  [fixture host & [grading]]
   (try
     ((:reset-runtime! host))
-    (let [fid          (:fixture/id fixture)
+    (let [grading      (or grading portable)
+          fid          (:fixture/id fixture)
           ;; Register the trace listener FIRST so registration-time warnings
           ;; (e.g. route-shadowed-by-equal-score) are captured.
           traces       (collect-traces host fid)
@@ -1675,7 +1720,7 @@
       ;; :fixture/calls — pure-function assertions, run AFTER dispatches.
       (let [machines      (realise-machine-handlers fixture)
             calls         (or (:fixture/calls fixture) [])
-            call-results  (mapv #(run-call % machines) calls)
+            call-results  (mapv #(run-call % machines grading) calls)
             call-failures (filter (complement :passed?) call-results)]
         (when (seq call-failures)
           (throw (ex-info (str "calls failed: "
@@ -1705,7 +1750,8 @@
                  :destroy-traces (delay (let [before (count @traces)]
                                           (rf/destroy-frame! scope-frame)
                                           (subvec @traces before)))}
-            expect-failures (grade-expect run (or (:fixture/expect fixture) {}))]
+            expect-failures (grade-expect (:expect-matchers grading) run
+                                          (or (:fixture/expect fixture) {}))]
         ;; Drop just this fixture's trace listener (host-specific registry).
         ((:unregister-trace-listener! host) fid)
         ;; Drop just this fixture's error-emit recorder.
@@ -1756,10 +1802,10 @@
       (println (str "    " k ": " failure)))))
 
 (defn run-corpus-fixture
-  "The corpus verdict for one `[fname fixture]` entry: a skip for an
-  unclaimed spec version or an allowlisted capability; a failure
-  for an unknown capability; otherwise `run-fixture`'s result."
-  [fname fixture host]
+  "The corpus verdict for one `[fname fixture]` entry under `grading`: a skip
+  for an unclaimed spec version or an allowlisted capability; a failure for
+  an unknown capability; otherwise `run-fixture`'s result."
+  [fname fixture host grading]
   (cond
     (not (spec-version-claimed? fixture))
     {:fixture-id   (:fixture/id fixture)
@@ -1768,7 +1814,7 @@
      :spec-version (:fixture/spec-version fixture)}
 
     :else
-    (let [{:keys [allowed unknown]} (classify-capabilities fixture)]
+    (let [{:keys [allowed unknown]} (classify-capabilities (:capabilities grading) fixture)]
       (cond
         (seq unknown)
         {:fixture-id   (:fixture/id fixture)
@@ -1789,20 +1835,23 @@
          :allowed      allowed}
 
         :else
-        (assoc (run-fixture fixture host) :fname fname)))))
+        (assoc (run-fixture fixture host grading) :fname fname)))))
 
 (defn run-corpus
-  "Run the whole conformance corpus. `fixtures` is a seq of `[filename
+  "Run a whole conformance corpus. `fixtures` is a seq of `[filename
   fixture-map]` pairs (loaded host-specifically); `host` supplies the reset /
   trace-listener seams; `label` names the host in diagnostics (\"JVM\" /
   \"CLJS\"); `floor` is the fewest fixtures that must execute, 150 for the
-  whole corpus. Grades each fixture through `run-corpus-fixture`, then emits
+  whole portable corpus; `grading` is `portable` (the default) or
+  `reference`. Grades each fixture through `run-corpus-fixture`, then emits
   the pass / floor / count `is` assertions. Silent on green: the failure
   report only prints when there are failures."
   ([fixtures host label]
    (run-corpus fixtures host label 150))
   ([fixtures host label floor]
-   (let [all     (mapv (fn [[fname fixture]] (run-corpus-fixture fname fixture host))
+   (run-corpus fixtures host label floor portable))
+  ([fixtures host label floor grading]
+   (let [all     (mapv (fn [[fname fixture]] (run-corpus-fixture fname fixture host grading))
                        fixtures)
          run     (filter (complement :skipped?) all)
          passed  (filter :passed? run)
@@ -1824,3 +1873,33 @@
      (is (zero? (count failed))
          (str "All claimed-applicable " label " conformance fixtures must pass; "
               (count failed) " failed.")))))
+
+;; ---- the reference-only corpus --------------------------------------------
+
+(defn overlay-fixtures
+  "The portable fixtures `overlays` names, each with that overlay's
+  reference-only expectations merged into its `:fixture/expect`, as
+  `[fname fixture]` pairs in name order. `overlays` maps a portable
+  fixture's filename to those expectations (`conformance-reference/
+  overlays.edn`). An overlay naming no portable fixture, or an expectation
+  its fixture already carries, throws: the first would leave its claim
+  silently ungraded, and the second would silently replace a portable one."
+  [portable-fixtures overlays]
+  (let [by-name (into {} portable-fixtures)]
+    (mapv (fn [[fname expectations]]
+            (let [fixture (get by-name fname)]
+              (when-not fixture
+                (throw (ex-info (str "overlay names no portable fixture: " fname)
+                                {:overlay fname})))
+              (when-let [shared (seq (filter (set (keys (:fixture/expect fixture)))
+                                             (keys expectations)))]
+                (throw (ex-info (str "overlay " fname " repeats an expectation its fixture carries")
+                                {:overlay fname :keys (vec shared)})))
+              [fname (update fixture :fixture/expect merge expectations)]))
+          (sort-by key overlays))))
+
+(defn reference-corpus
+  "The `reference` grading's corpus: the reference-only fixtures, then the
+  portable fixtures `overlays` extends (`overlay-fixtures`)."
+  [reference-fixtures overlays portable-fixtures]
+  (into (vec reference-fixtures) (overlay-fixtures portable-fixtures overlays)))

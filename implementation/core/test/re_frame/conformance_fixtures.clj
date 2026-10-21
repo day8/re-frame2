@@ -49,6 +49,11 @@
   invalidates when a recorded resource no longer resolves at all. Those
   two are the overwhelming majority of how this corpus moves.
 
+  The reference-only corpus is read the same way, from
+  `conformance-reference/` under the `core/test` `:source-path` root: its
+  fixtures by [[reference-fixtures]] and its overlays file by
+  [[reference-overlays]].
+
   The JVM-side conformance runner (re-frame.conformance-test) reads
   fixtures the conventional way (`slurp` + `clojure.edn/read-string`)
   and needs no such edge: `clojure -M:test` keeps no analyzer cache, so
@@ -66,6 +71,11 @@
   (`../spec` from `implementation/`, `../../spec` from an artefact dir)
   left to keep in step with it."
   "conformance/fixtures")
+
+(def ^:private reference-resource-dir
+  "The reference-only corpus as a classpath resource name, relative to the
+  `core/test` `:source-path` root."
+  "conformance-reference")
 
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. See
@@ -97,8 +107,8 @@
     form))
 
 (defn- fixture-file-names
-  "Sorted names of every `.edn` file in the corpus, enumerated off the
-  classpath. Sorting keeps the CLJS suite's reporting order
+  "Sorted names of every `.edn` file in the resource directory `dir`,
+  enumerated off the classpath. Sorting keeps the CLJS suite's reporting order
   deterministic and matches a fixture-file `ls -1` traversal — same
   pattern other long-running CLJS test suites use.
 
@@ -106,15 +116,15 @@
   whole of it and the returned names double as the leaf of each
   resource name. This listing is not a recorded read; the namespace
   docstring says what that does and does not cost."
-  []
-  (let [url (io/resource fixtures-resource-dir)]
+  [dir]
+  (let [url (io/resource dir)]
     (when-not url
       (throw (ex-info (str "conformance fixtures not found on the classpath as \""
-                           fixtures-resource-dir "\" — the `spec` :source-path root "
-                           "in implementation/shadow-cljs.edn is what makes it "
+                           dir "\" — the `spec` and `core/test` :source-path roots "
+                           "in implementation/shadow-cljs.edn are what make it "
                            "resolvable, and this macro is a ClojureScript-lane "
                            "macro only")
-                      {:resource fixtures-resource-dir})))
+                      {:resource dir})))
     (->> (.listFiles (io/file (.toURI url)))
          (filter (fn [^java.io.File f] (.isFile f)))
          (map (fn [^java.io.File f] (.getName f)))
@@ -122,25 +132,22 @@
          sort
          vec)))
 
-(defn- load-fixture
-  "Read the plain-EDN fixture named `file-name` in the ClojureScript
+(defn- load-resource
+  "Read the plain-EDN file at resource path `path` in the ClojureScript
   macro-expansion environment `env`, exactly as the JVM runner reads it.
 
   The read goes through the recording reader, so this file becomes a
   build dependency of the namespace being compiled."
-  [env file-name]
-  (read-one-form (rf.build.spec-resource/slurp-resource
-                   env
-                   (str fixtures-resource-dir "/" file-name))
-                 file-name))
+  [env path]
+  (read-one-form (rf.build.spec-resource/slurp-resource env path) path))
 
 (defn- load-all-fixtures
   "Return a sorted-by-filename vector of `[filename fixture-data]`
-  pairs for every `.edn` file in the corpus, each read through the
-  recording reader in the macro-expansion environment `env`."
-  [env]
-  (mapv (fn [file-name] [file-name (load-fixture env file-name)])
-        (fixture-file-names)))
+  pairs for every `.edn` file in the resource directory `dir`, each read
+  through the recording reader in the macro-expansion environment `env`."
+  [env dir]
+  (mapv (fn [file-name] [file-name (load-resource env (str dir "/" file-name))])
+        (fixture-file-names dir)))
 
 (defmacro all-fixtures
   "Inline the corpus at compile time. Returns a vector of
@@ -153,5 +160,19 @@
   incremental compile re-expands this macro — see the namespace
   docstring for the one case that still needs a cold rebuild."
   []
-  (let [pairs (load-all-fixtures &env)]
+  (let [pairs (load-all-fixtures &env fixtures-resource-dir)]
     `(quote ~pairs)))
+
+(defmacro reference-fixtures
+  "Inline the reference-only corpus's fixtures at compile time, as
+  [[all-fixtures]] inlines the portable corpus."
+  []
+  (let [pairs (load-all-fixtures &env (str reference-resource-dir "/fixtures"))]
+    `(quote ~pairs)))
+
+(defmacro reference-overlays
+  "Inline the reference-only corpus's overlays file at compile time: a map
+  from a portable fixture's filename to the reference-only expectations it
+  adds (`re-frame.conformance-runner/overlay-fixtures`)."
+  []
+  `(quote ~(load-resource &env (str reference-resource-dir "/overlays.edn"))))

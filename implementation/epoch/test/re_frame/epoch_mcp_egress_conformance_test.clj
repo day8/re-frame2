@@ -524,7 +524,7 @@
         (is (= :rf.scope/global (invalidated-scope proj-rows global-cause)))
         (is (= [] (mapcat carrier-scopes carrier-hist))
             "a read's transport payload names its attempt by work id; the
-             handler resolves the scoped key from the ledger row"))
+             handler resolves the scoped key from the attempt's entry"))
 
       (is (= proj-hist (mapv rf/project-egress proj-hist))
           "re-projection is a fixed point — tokens are not re-hashed"))))

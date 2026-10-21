@@ -1437,7 +1437,6 @@ async function main() {
   const driver = startDriver({ armed: args.mode === 'inject' });
   const cleanup = createHarnessCleanup();
   cleanup.installSignalHandlers();
-  let tearingDown = false;
   try {
     const boot = await driver.ready;
     console.log(`> ime driver ready: ${JSON.stringify(boot)}`);
@@ -1462,7 +1461,6 @@ async function main() {
       port,
       cwd: IMPL_ROOT,
       readyTimeoutMs: READY_TIMEOUT_MS,
-      suppressExitDiagnostic: () => tearingDown,
     });
     if (!server.ready) {
       console.error('the testbed server did not prove owned readiness');
@@ -1513,7 +1511,6 @@ async function main() {
     console.log('\nWITNESS COMPLETE.');
     return 0;
   } finally {
-    tearingDown = true;
     await driver.quit();
     await cleanup.cleanup();
   }

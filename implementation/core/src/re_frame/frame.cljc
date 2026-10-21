@@ -4453,7 +4453,7 @@
                                               pending-nav counters stay.
          :resources/on-frame-destroyed!     — release the frame's
                                               host-side transient resource
-                                              caches — work-ledger host
+                                              caches — in-flight attempt host
                                               handles, timers and
                                               revalidation listeners; the
                                               process-wide generation
@@ -4691,7 +4691,7 @@
         ;; when re-frame.routing is absent (the artefact is optional).
         (safe-call-hook! :routing/on-frame-destroyed! id)
         ;; Release the destroyed frame's host-side transient
-        ;; RESOURCE caches — the work-ledger host handles
+        ;; RESOURCE caches — the in-flight attempts' host handles
         ;; (re-frame.resources.work-ledger/handle-table, the AbortControllers
         ;; / timer handles keyed by [frame-id work-id]), the stale/GC timers
         ;; and the revalidation listeners. None is runtime-db state — each
@@ -4712,7 +4712,7 @@
         ;; :frame-destroyed` (no delivery into the now-destroyed frame), its
         ;; external `:abort-signal` listener detaches, and both registry indexes
         ;; clear. Ordered AFTER machines/resources so their more specific
-        ;; `:actor-destroyed` / ledger teardown wins first and this generic sweep
+        ;; `:actor-destroyed` / attempt teardown wins first and this generic sweep
         ;; no-ops on already-cleared handles. No-op when re-frame.http.managed
         ;; is absent.
         (safe-call-hook! :http/on-frame-destroyed! id)

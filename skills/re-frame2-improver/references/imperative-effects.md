@@ -27,7 +27,7 @@ Greppable signals inside `reg-event` handler bodies, **grouped by direction**:
 - Environment / storage **reads** — `(.getItem js/localStorage …)`, `js/navigator.language`, `js/location.href`, `js/navigator.onLine`.
 - A **reactive** subscription opened inside a handler — `(rf/subscribe …)` / `@(rf/subscribe …)` — takes a counted share of the frame's sub-cache entry that nothing ever returns, so the reaction stays live, watching `app-db` and recomputing, until the frame is destroyed. That is the leak. **`rf/subscribe-once` is NOT in this bucket** — see [`subscribe-once`](#subscribe-once-in-a-handler-is-not-an-anti-pattern) below.
 
-**Structural signal (durable read):** the fetched value is `assoc`'d into the returned `:db` (or runtime-db / a resource / a snapshot / a ledger row) — e.g. `:created-at (js/Date.now)`, `:id (random-uuid)`. Replaying the same event then produces a *different* result, so an ambient cofx is not enough — it must be a recorded fact.
+**Structural signal (durable read):** the fetched value is `assoc`'d into the returned `:db` (or runtime-db / a resource / a snapshot / an attempt record) — e.g. `:created-at (js/Date.now)`, `:id (random-uuid)`. Replaying the same event then produces a *different* result, so an ambient cofx is not enough — it must be a recorded fact.
 
 ## Why it's an anti-pattern
 
@@ -49,12 +49,12 @@ Route by direction:
 
 **Durable state folds facts, never reads.** A read inside a handler routes by **where its value lands**, not merely by being impure:
 
-1. **Durable read → declared recordable coeffect / event payload.** The value is written into app-db, runtime-db, a resource, a machine snapshot, a ledger row, or a hydration/epoch payload (a `:created-at` timestamp, a generated id, a `:loaded-at`). It must fold a **recorded fact**, not an ambient host read at the write site.
+1. **Durable read → declared recordable coeffect / event payload.** The value is written into app-db, runtime-db, a resource, a machine snapshot, an attempt record, or a hydration/epoch payload (a `:created-at` timestamp, a generated id, a `:loaded-at`). It must fold a **recorded fact**, not an ambient host read at the write site.
    - **Durable wall-clock time** is the headline case: declare `:rf.cofx/requires [:rf/time-ms]` and read `time-ms` flat — *not* a `:now` cofx that re-reads `js/Date`. A hand-rolled durable `:now` cofx is itself the milder anti-pattern (it re-reads the host on replay). Mechanics in [`cofx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/cofx.md).
    - **Generated ids / random choices / durable host facts** ride the **event payload** (the caller pins the value — preferred) or a **recordable** `reg-cofx` (a stable id, EDN-serializable value, re-presented from the record on replay). A plain ambient cofx here replays to a different value — the defect.
 2. **Diagnostic / host-transient read → ambient `reg-cofx` is fine.** The value powers only a dev log, a perf span, error metadata, or a host-transient side-table (a timer handle, an AbortController, a cache key) and decides no durable write. Demanding a recordable coeffect here is over-engineering.
 
-**How to grade a read finding.** Trace where the value lands: a returned `:db` / runtime-db / resource / snapshot / ledger write → durable → recorded fact; only a log / span / side-table → diagnostic → ambient cofx. The rule is *"no hidden host facts in durable writes,"* not "no host reads ever."
+**How to grade a read finding.** Trace where the value lands: a returned `:db` / runtime-db / resource / snapshot / attempt-record write → durable → recorded fact; only a log / span / side-table → diagnostic → ambient cofx. The rule is *"no hidden host facts in durable writes,"* not "no host reads ever."
 
 ### `subscribe-once` in a handler is NOT an anti-pattern
 

@@ -202,7 +202,7 @@ Load-bearing rules:
 ## Pointers
 
 - Read side: [`resources.md`](resources.md) (the cache these writes keep coherent — `reg-resource`, scope resolution, `ensure` / owners / causes, `:rf.resource/invalidate-tags`).
-- Spec: `SKILL-REDIRECT.md` → *EP — Resources (016)* (the `:rf.mutation/*` surface, the work ledger, race/in-flight semantics, optimistic settle).
+- Spec: `SKILL-REDIRECT.md` → *EP — Resources (016)* (the `:rf.mutation/*` surface, in-flight attempts, race/in-flight semantics, optimistic settle).
 - Workflow after a write: [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md) (why `:reply-to` beats the watcher-reaction idiom).
 
 ---

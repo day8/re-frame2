@@ -146,7 +146,7 @@
    :lifecycle   {:kind :scoped-resource-key
                  :owners #{[:route :route/article live-composition-nav-token]}}
    :status      :loading
-   :work-ledger {:work/id live-composition-work-id
+   :work        {:work/id live-composition-work-id
                  :record  {:work/id live-composition-work-id :status :running
                            :resource/key live-composition-scoped-key}}})
 
@@ -392,7 +392,7 @@
                     :lifecycle   {:kind   :scoped-resource-key
                                   :owners #{[:route :route/article egress-nav-token]}}
                     :status      :loading
-                    :work-ledger    {:work/id egress-work-id
+                    :work           {:work/id egress-work-id
                                      :record  {:work/id      egress-work-id
                                                :status       :pending
                                                :resource/key egress-scoped-key}}
@@ -431,20 +431,20 @@
         redacted           (rf.derivation.egress/project-graph raw egress-frame)
         [node-key node]    (resource-entry redacted)
         projected          (second node-key)
-        wid                (get-in node [:work-ledger :work/id])]
+        wid                (get-in node [:work :work/id])]
     (is (contains-secret? raw))
     (is (not (contains-secret? redacted)))
     (is (= [3 :article/by-slug] [(count projected) (nth projected 1)]))
     (is (= [projected projected projected node-key]
            [(:id node)
             (last (second (:output node)))
-            (get-in node [:work-ledger :record :resource/key])
+            (get-in node [:work :record :resource/key])
             (:to (first (filter #(= :param (:role %)) (:edges redacted))))]))
     (is (= [:process :resource-process [:scope :param] :runtime [:rf.runtime/resources :entries] :pending]
            [(:kind node) (:refinement node) (mapv first (:inputs node)) (first (:output node))
-            (vec (take 2 (second (:output node)))) (get-in node [:work-ledger :record :status])]))
+            (vec (take 2 (second (:output node)))) (get-in node [:work :record :status])]))
     (is (= [egress-work-id wid wid]
-           [wid (get-in node [:work-ledger :record :work/id]) (second (first (:host-transient node)))])
+           [wid (get-in node [:work :record :work/id]) (second (first (:host-transient node)))])
         "a work id names its attempt by resource id and generation, so it carries nothing to project")
 
     (is (= redacted (rf.derivation.egress/project-graph redacted egress-frame)))))
@@ -674,5 +674,5 @@
            [(nth (:id res-node) 1)
             (:to (first (filter #(= :param (:role %)) (:edges g))))
             (:status res-node)
-            (some? (get-in res-node [:work-ledger :work/id]))
+            (some? (get-in res-node [:work :work/id]))
             (some? (:host-transient res-node))]))))
