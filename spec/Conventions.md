@@ -257,10 +257,12 @@ left as accident.** Spelled out:
    spelling for the same fact inside one layer is a defect, not a convenience.
 2. **No stable accepted synonyms.** A stable API accepts exactly **one**
    spelling. A retired or alternative spelling is a **hard error naming the
-   canonical key**, never a silently-normalised alias — e.g. the redirect
-   surface rejects `:url` / `:to` with
-   [`:rf.error/redirect-retired-target-key`](011-SSR.md) rather than coercing
-   them to `:location`. Temporary **migration aliases** are allowed only when an
+   canonical key**, never a silently-normalised alias — e.g. `reg-event-db`
+   throws [`:rf.error/reg-event-db-removed`](001-Registration.md#the-retired-event-registration-names)
+   naming `reg-event` rather than registering through an alias. A spelling that
+   never shipped rides its surface's generic unknown-key path instead, per
+   [§The tombstone rule](#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names).
+   Temporary **migration aliases** are allowed only when an
    explicit bead/EP ruling names the alias, the canonical spelling, the
    diagnostic, and the sunset trigger; they are migration mechanics, never part
    of the stable contract. (This is the naming-axis counterpart of the v1

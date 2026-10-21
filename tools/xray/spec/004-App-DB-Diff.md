@@ -687,7 +687,7 @@ the picker / focus selects). The contract — the shared seam
 `day8.re-frame2-xray.panels.local-render/local-render-value`:
 
 - **Suppress sensitive display by default.** A slot the observed frame
-  declared `:sensitive` (`re-frame.frame-classification`) is replaced by
+  declared `:sensitive` (Spec 015's commit-plane effects) is replaced by
   the `:rf/redacted` sentinel — which the edn-inspector already renders as
   a first-class muted chip (the R8 redaction type). A shoulder-surfer,
   screen-share, or recorded debugging session never sees the secret.

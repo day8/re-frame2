@@ -92,10 +92,9 @@ per-descriptor fact carried on the resolved image generation (a source namespace
 or inline coordinate), surfaced per descriptor in the FRAMES section (§8), not
 projected off a module-owned `:registrations` table.
 
-**EP-0015 classification is frame-owned, not module-owned.** Durable data
-classification is declared on the `make-frame` config and installed by
-`re-frame.frame-classification` (Spec 015 §Frame-owned durable classification) —
-it was never a module fact. The classification dimension lives on the frame
+**EP-0015 classification is not module-owned.** Durable data classification
+is declared by the commit-plane effects an event handler returns (Spec 015
+§Durable app-db) and recorded per frame — it was never a module fact. The classification dimension lives on the frame
 side; this tab shows the image (the instruction set), and frame state /
 classification lives on the App-db tab.
 
