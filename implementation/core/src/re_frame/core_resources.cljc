@@ -51,17 +51,20 @@
 ;; ---- Mutations (EP-0003 §Mutations) ---------------------------------------
 
 (defwrapper reg-mutation
-  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Register a mutation
+  "Per Spec 016 §Mutations (first public-beta gate). Register a mutation
   — a named, causal WRITE to remote state that, on success, invalidates /
   patches / populates cached resource reads. The canonical
   3-slot grammar is `(reg-mutation mutation-id metadata request-fn)`: the
   `:request` write fn (a Spec 014 managed-HTTP args map) is the third VALUE
   slot, and `metadata` carries the REQUIRED `:params-schema`, plus optional
   `:invalidates` (`(fn [params result] -> #{tag …})`), `:patches` /
-  `:populates` (controlled resource-entry transforms / seeds applied on
-  success), `:scope`, `:invalidate-timing` (`:after-success` (default) |
-  `:before-request` | `:after-failure` | `:after-settle`), `:retry` (write
-  retries are OPT-IN), and `:doc`. Run it with
+  `:populates` / `:removes` (controlled resource-entry transforms, seeds and
+  removals applied on success), `:scope`, `:invalidate-timing`
+  (`:after-success` (default) | `:before-request` | `:after-failure` |
+  `:after-settle`), `:optimistic` / `:optimistic-tags` / `:on-conflict`,
+  `:sensitive` / `:large`, and `:doc`. Write retries are opt-in and are not a
+  metadata key: the request fn returns `:retry` in its managed-HTTP args.
+  Run it with
   `[:rf.mutation/execute {:mutation … :params … :instance …}]`; observe it
   through the passive `[:rf.mutation/*]` subs keyed by `:instance` id.
   Late-bound via `:resources/reg-mutation`."
