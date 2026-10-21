@@ -110,19 +110,18 @@
                                 :rf/runtime {:spawned {[:busy] address}}}))
           fired?   (atom false)
           b-seeded (atom nil)
-          orig     (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
+          orig     (rf.late-bind/get-fn :schemas/check!)]
       (rf/make-frame {:id frame-a})
       (rf.frame/swap-runtime-db! frame-a seed)
       (try
-        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-          (fn [_schema _data]
-            (if (compare-and-set! fired? false true)
-              (do (rf.frame/destroy-frame! frame-a)
-                  (rf/make-frame {:id frame-a})
-                  (rf.frame/swap-runtime-db! frame-a seed)
-                  (reset! b-seeded (rf.machines.test-support/runtime-db frame-a))
-                  false)
-              true)))
+        (rf.late-bind/set-fn! :schemas/check!
+          (fn [_request]
+            (when (compare-and-set! fired? false true)
+              (rf.frame/destroy-frame! frame-a)
+              (rf/make-frame {:id frame-a})
+              (rf.frame/swap-runtime-db! frame-a seed)
+              (reset! b-seeded (rf.machines.test-support/runtime-db frame-a))
+              {:category :rf.error/schema-validation-failure :tags {}})))
         ;; Driven directly under A's event-owner token: B is published on the
         ;; validator's own stack, which a live `dispatch-sync` drain forbids.
         (rf.frame/call-with-event-owner-token frame-a
@@ -138,5 +137,5 @@
         (is (= @b-seeded (rf.machines.test-support/runtime-db frame-a))
             "B's runtime-db, mirror entry included, is untouched")
         (finally
-          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)
+          (rf.late-bind/set-fn! :schemas/check! orig)
           (rf.frame/destroy-frame! frame-a))))))

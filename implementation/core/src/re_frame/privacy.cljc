@@ -14,8 +14,10 @@
 
   EP-0015 §8: schemas describe shape, not durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` slot prop is not a route into the
-  registry. (Schema `:sensitive?` drives schema-validation-failure-trace
-  redaction in `re-frame.schemas`, a separate egress product.)")
+  registry. An app-db path's schema-validation-failure trace is redacted by
+  the same classification, so the path is declared once; schema
+  `:sensitive?` props redact the validation failures of the transient
+  values and machine `:data` their schemas check (Spec 010 §`:sensitive?`).")
 
 #?(:clj (set! *warn-on-reflection* true))
 

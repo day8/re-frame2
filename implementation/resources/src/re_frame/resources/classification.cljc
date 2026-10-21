@@ -223,8 +223,8 @@
 ;; An invalid-params error carries the failing params and the explainer output
 ;; on public error data, so a sensitive sibling would leak when a different
 ;; field failed. Schema props govern this validation-failure record (not
-;; durable state). With the schemas artefact absent the `:error` seam falls
-;; through verbatim. Spec 015 §Failure posture.
+;; durable state): the `:schemas/check!` seam redacts the explanation, and the
+;; params are redacted here, slot by slot. Spec 015 §Failure posture.
 
 (defn- validation-failure-params-marks
   "The `:sensitive?` / `:large?` marks `schema` declares, as
@@ -247,33 +247,23 @@
     (not (opaque-child? schema))
     false))
 
-(defn redact-invalid-params-error
-  "`{:params <projected> :error <projected-or-nil>}` for an invalid-params
-  failure, against `spec`'s `:params-schema` props. `:params` redacts per slot
-  (index-free), keeping a non-sensitive failing field diagnostic, and redacts
-  whole when the walker cannot see every mark. `:error` goes through the
-  shared `:schemas/redact-validation-tags` seam, which scrubs it whole when
-  the schema declares any `:sensitive?` slot. Spec 015 §Failure posture."
-  [params error spec]
-  (let [schema     (:params-schema spec)
-        redact-fn  (rf.late-bind/get-fn :schemas/redact-validation-tags)
-        {:keys [sensitive large]} (validation-failure-params-marks schema)
-        params'    (cond
-                     (and (some? schema) (not (walker-sees-every-mark? schema)))
-                     rf.privacy/redacted-sentinel
+(defn redact-invalid-params
+  "`params` projected for an invalid-params failure, against `spec`'s
+  `:params-schema` props: redacted per slot (index-free), keeping a
+  non-sensitive failing field diagnostic, and redacted whole when the walker
+  cannot see every mark. Spec 015 §Failure posture."
+  [params spec]
+  (let [schema (:params-schema spec)
+        {:keys [sensitive large]} (validation-failure-params-marks schema)]
+    (cond
+      (and (some? schema) (not (walker-sees-every-mark? schema)))
+      rf.privacy/redacted-sentinel
 
-                     (or (seq sensitive) (seq large))
-                     (rf.classification/redact-with-paths params (keys sensitive) (keys large)
-                                                          {:index-free? true})
+      (or (seq sensitive) (seq large))
+      (rf.classification/redact-with-paths params (keys sensitive) (keys large)
+                                           {:index-free? true})
 
-                     :else params)
-        ;; The explainer output carries the failing params verbatim, so it is
-        ;; scrubbed as the seam's whole-payload `:explain` slot.
-        redacted-e (if (and redact-fn (some? schema) (some? error))
-                     (:explain (redact-fn schema {:explain error}))
-                     error)]
-    {:params params'
-     :error  redacted-e}))
+      :else params)))
 
 ;; ---- per-instance lowering into the elision registry ----------------------
 ;; Pure runtime-db transforms, so the handler that writes or evicts an entry

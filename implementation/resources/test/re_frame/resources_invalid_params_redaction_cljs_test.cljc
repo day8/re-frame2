@@ -3,7 +3,8 @@
   or ride a `:large?` slot raw. Both the raw `:params` and the explainer's
   `:error` can carry conforming sensitive siblings of the field that failed, so
   the shared validation leaf redacts `:params` per slot from the schema props
-  and routes the explainer output through `:schemas/redact-validation-tags`.
+  and takes the explainer output from the `:schemas/check!` seam, which
+  redacts it against the schema.
   The threat is the AI boundary and logs (the thrown ex-data and the trace
   egress); the success path still carries the canonical params."
   (:require

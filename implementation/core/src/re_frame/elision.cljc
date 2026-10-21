@@ -577,12 +577,14 @@
 ;; egress registry. Durable app-db classification rides the EP-0025
 ;; commit-plane classification effects — a `reg-event` returns `:sensitive` /
 ;; `:large` alongside `:db`, written `:source :effect` at the commit point.
-;; Schemas describe shape, not durable app-db egress policy. Schema
-;; `:sensitive?` drives schema-validation-failure-trace redaction
-;; (`re-frame.schemas`) — that consumer reads the schema directly, not this
-;; registry. A machine `[:schemas :data]` schema is no exception: it VALIDATES
-;; `:data` and its per-slot props redact only that validator's own failure
-;; trace. Durable machine `:data` DOES ride this registry — via top-level
+;; Schemas describe shape, not durable app-db egress policy. The registry
+;; reads the other way instead: an app-db schema's validation-failure trace
+;; (`re-frame.schemas.validate/validate-app-schema!`) is redacted by the
+;; classification of the failing path in this registry, as the candidate
+;; transition would install it, so an app-db path is declared once (Spec 010
+;; §`:sensitive?`). A transient value's schema (event, coeffect, fx, sub) and
+;; a machine `[:schemas :data]` schema redact their own validation failures
+;; from their per-slot props. Durable machine `:data` DOES ride this registry — via top-level
 ;; `:sensitive` / `:large` on the `reg-machine` spec, lowered per actor
 ;; instance under `:source :machine` (Spec 015 §State machines).
 

@@ -4,15 +4,20 @@
   frame's registered app-db schema fails the run with a structured
   `:rf.error/story-db-seed-invalid` before the script runs.
 
-  The schemas artefact is not on Story's classpath, so these tests publish
-  its late-bind hooks directly (backed by Malli), which also shows the
-  runtime reaches validation only through that seam."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [malli.core         :as m]
+  The tests publish only the two late-bind hooks the runtime reads: the
+  schemas artefact's real `:schemas/check!` seam, and a per-frame stub of
+  `:schemas/frame-schema-entries`. The artefact's facade is never loaded, so
+  no other hook is published, which also shows the runtime reaches
+  validation only through those seams."
+  (:require [clojure.string     :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
             [re-frame.frame     :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy   :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas.validate  :as rf.schemas.validate]
+            [re-frame.schemas.validator :as rf.schemas.validator]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story     :as rf.story]))
 
@@ -26,16 +31,12 @@
 (defn- install-schema-seam! []
   (rf.late-bind/set-fn! :schemas/frame-schema-entries
                      (fn [frame-id] (get @frame-schemas frame-id {})))
-  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-                     (fn [schema value] (m/validate schema value)))
-  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
-                     (fn [schema value] (m/explain schema value))))
+  (rf.late-bind/set-fn! :schemas/check! rf.schemas.validate/check!))
 
 (defn- uninstall-schema-seam! []
   (swap! rf.late-bind/hooks dissoc
          :schemas/frame-schema-entries
-         :schemas/validate-with-registered-fn
-         :schemas/explain-with-registered-fn))
+         :schemas/check!))
 
 (defn- reset-rf! [test-fn]
   (rf.story/clear-all!)
@@ -95,6 +96,8 @@
       (is (= {:path [:cart] :value {:items [{:sku "A" :qty "two"}]}}
              (select-keys viol [:path :value])))
       (is (some? (:explain viol)))
+      (is (= {:items [{:qty ["should be an integer"]}]} (:explain-humanized viol))
+          "the seam humanizes the explanation in development")
       (is (zero? @script-ran) "the script never ran"))
     (testing "control: the same script behind a seed the schema accepts runs"
       (is (= :pass (:status (run-target :story.cart/go))))
@@ -124,11 +127,32 @@
   ;; A schema token is opaque, so a registered `nil` is a declaration the
   ;; validator interprets, as at commit. This validator refuses every value
   ;; under a `nil` token.
-  (rf.late-bind/set-fn! :schemas/frame-schema-entries
-                        (fn [frame-id] (get @frame-schemas frame-id {})))
-  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-                        (fn [schema value] (and (some? schema) (m/validate schema value))))
-  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn (constantly nil))
-  (seeded-variant! :story.cart/nil-token [:cart] nil {:cart {:items []}})
-  (is (= [[:cart]]
-         (mapv :path (:violations (seed-error-record (run-target :story.cart/nil-token)))))))
+  (install-schema-seam!)
+  (let [installed (rf.schemas.validator/schema-fns)]
+    (try
+      (rf.schemas.validator/set-schema-fns! {:validate (fn [schema _value] (some? schema))
+                                             :explain  nil})
+      (seeded-variant! :story.cart/nil-token [:cart] nil {:cart {:items []}})
+      (is (= [[:cart]]
+             (mapv :path (:violations (seed-error-record (run-target :story.cart/nil-token))))))
+      (finally (rf.schemas.validator/set-schema-fns! installed)))))
+
+(deftest db-seed-violation-redacts-a-sensitive-slot
+  ;; A seeded violation rides the run result and the thrown ex-data, so a
+  ;; `:sensitive?` slot in the schema redacts it, as every validation failure
+  ;; redacts (spec/010 §`:sensitive?`).
+  (install-schema-seam!)
+  (seeded-variant! :story.auth/bad-seed [:auth]
+                   [:map [:token {:sensitive? true} :string] [:age :int]]
+                   {:auth {:token "SEEDED-SECRET-42" :age "not-an-int"}})
+  (let [viol (first (:violations (seed-error-record (run-target :story.auth/bad-seed))))]
+    (is (= [[:auth] rf.privacy/redacted-sentinel rf.privacy/redacted-sentinel true]
+           [(:path viol) (:value viol) (:explain viol) (:sensitive? viol)]))
+    (is (not (str/includes? (pr-str viol) "SEEDED-SECRET-42")))))
+
+(deftest db-seed-malformed-schema-is-a-violation-without-the-value
+  (install-schema-seam!)
+  (seeded-variant! :story.cart/malformed [:cart] [:vector] {:cart {:items ["SEEDED-VALUE"]}})
+  (let [viol (first (:violations (seed-error-record (run-target :story.cart/malformed))))]
+    (is (= [[:cart] :rf.error/malformed-schema false]
+           [(:path viol) (:category viol) (contains? viol :value)]))))

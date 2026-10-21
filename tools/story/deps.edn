@@ -124,6 +124,14 @@
                        ;; (both sources read the late-bound facade), mirroring how
                        ;; implementation/core/deps.edn pulls epoch on :test only.
                        day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
+                       ;; The db-seed tests publish the schemas artefact's real
+                       ;; `:schemas/check!` seam (its `re-frame.schemas.validate`
+                       ;; namespace, never the facade, so no other hook is
+                       ;; published), so a seeded violation is redacted exactly
+                       ;; as the runtime redacts it. Test-only: the published
+                       ;; Story jar reaches validation through the late-bound
+                       ;; seam alone.
+                       day8/re-frame2-schemas    {:local/root "../../implementation/schemas"}
                        ;; test.check is present on the :test alias only. It
                        ;; exercises the optional
                        ;; `re-frame.story.generate.test-check` adapter, which

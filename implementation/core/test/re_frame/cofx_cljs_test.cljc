@@ -314,20 +314,20 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-schema-validator
-  "Install `validate-fn` (and a trivial explainer) through the schemas
-  late-bind seam for the duration of `body-fn`, then restore the prior hooks.
-  Exercises the real cofx `:schema` branch without the schemas artefact."
+  "Install a `:schemas/check!` seam deciding by `validate-fn` for the duration
+  of `body-fn`, then restore the prior hook. Exercises the real cofx `:schema`
+  branch without the schemas artefact."
   [validate-fn body-fn]
-  (let [prior-v (re-frame.late-bind/get-fn :schemas/validate-with-registered-fn)
-        prior-e (re-frame.late-bind/get-fn :schemas/explain-with-registered-fn)]
-    (re-frame.late-bind/set-fn! :schemas/validate-with-registered-fn validate-fn)
-    (re-frame.late-bind/set-fn! :schemas/explain-with-registered-fn
-                                (fn [schema value] {:schema schema :value value :failed true}))
+  (let [prior (re-frame.late-bind/get-fn :schemas/check!)]
+    (re-frame.late-bind/set-fn! :schemas/check!
+                                (fn [{:keys [schema value]}]
+                                  (when-not (validate-fn schema value)
+                                    {:category :rf.error/schema-validation-failure
+                                     :tags     {:value value :explain {:schema schema :failed true}}})))
     (try
       (body-fn)
       (finally
-        (re-frame.late-bind/set-fn! :schemas/validate-with-registered-fn prior-v)
-        (re-frame.late-bind/set-fn! :schemas/explain-with-registered-fn prior-e)))))
+        (re-frame.late-bind/set-fn! :schemas/check! prior)))))
 
 (deftest generator-runs-at-processing-start-fills-and-records
   (testing "under the :live default a declared-absent generator-backed fact is

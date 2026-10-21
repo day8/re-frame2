@@ -147,48 +147,55 @@
 ;; ---- stage 2 — resolve the target, forked on source kind ---------------------
 
 (defn- route-schema-sensitive?
-  "True iff the route's `:params` OR `:query` Malli schema declares ANY
-  `:sensitive?` slot. Decided by the SAME shared schema-aware seam every
-  off-schemas validation-failure emit site routes through
-  (`:schemas/redact-validation-tags`): routing the route's schema and an
-  empty tag map through it stamps `:sensitive? true` exactly when the schema
-  is sensitive. With the schemas artefact absent the hook is unbound and this
-  returns false — no schema to walk, nothing to redact."
+  "True iff the route's `:params` OR `:query` schema declares ANY
+  `:sensitive?` slot, or holds a part the schemas walker cannot see into
+  (where a `:sensitive?` slot could hide). Read through the walker's
+  published extractors; with the schemas artefact absent they are unbound
+  and this returns false — no schema to walk, nothing to redact."
   [route-meta]
-  (boolean
-    (when-let [redact (rf.late-bind/get-fn :schemas/redact-validation-tags)]
-      (some (fn [slot]
-              (when-let [schema (get route-meta slot)]
-                (true? (:sensitive? (redact schema {})))))
-            [:params :query]))))
+  (let [extract (rf.late-bind/get-fn :schemas/extract-sensitive-paths-from-schema)
+        opaque? (rf.late-bind/get-fn :schemas/schema-has-opaque-child?)]
+    (boolean
+      (when (and extract opaque?)
+        (some (fn [slot]
+                (when-let [schema (get route-meta slot)]
+                  (or (opaque? schema) (seq (extract schema [])))))
+              [:params :query])))))
 
-(defn- redact-route-error-tags
-  "Elide the `:error` slot of a named address's
-  `:rf.error/schema-validation-failure` trace when the route's `:params` /
-  `:query` schema declares any `:sensitive?` slot (AI/MCP egress + logs
-  threat model).
+(defn- route-error-tags
+  "The `:where :event` failure-trace tags for a named address whose
+  `route-url` threw, built from the throw's `ex-data`.
 
-  `:error` carries the `ex-data` of the `route-url` throw — the raw params the
-  caller supplied and the Malli explainer reproducing them — and route params
-  can be document ids or tokens. The throw is STRUCTURAL (from `route-url`,
-  not a per-slot Malli walk at this emit point), so the shared
-  `redact-validation-tags` seam cannot path-target it: the WHOLE slot elides
-  to `:rf/redacted` and `:sensitive? true` is stamped. `:where` / `:route-id`
-  / `:recovery` carry no user value and stay; the SSR error projector keys
-  only off the category and never echoes `:error`. A route with no
-  `:sensitive?` slot rides `:error` verbatim."
-  [tags route-meta]
-  (if (and (contains? tags :error)
-           (route-schema-sensitive? route-meta))
-    (assoc tags :error rf.privacy/redacted-sentinel :sensitive? true)
-    tags))
+  A schema failure's ex-data already carries the `:schemas/check!` seam's
+  redacted `:value` and explanation (Spec 010 §The validation seam), and its
+  `:explain-humanized` and `:sensitive?` ride the trace beside `:error` as
+  every validating surface's do. Every other `route-url` throw (an uncaptured
+  or prefix-chained param, a missing one) is structural and can still carry
+  the params the caller supplied, so on a route whose `:params` / `:query`
+  schema declares a `:sensitive?` slot the WHOLE `:error` slot elides to
+  `:rf/redacted` and `:sensitive? true` is stamped (AI/MCP egress + logs
+  threat model). `:where` / `:route-id` / `:failing-id` / `:recovery` carry
+  no user value; the SSR error projector keys only off the category and
+  never echoes `:error`."
+  [route-id route-meta frame data]
+  (let [tags (cond-> (merge {:where      :event
+                             :route-id   route-id
+                             :failing-id route-id
+                             :error      data
+                             :recovery   :no-recovery}
+                            (select-keys data [:explain-humanized :sensitive?]))
+               frame (assoc :frame frame))]
+    (if (route-schema-sensitive? route-meta)
+      (assoc tags :error rf.privacy/redacted-sentinel :sensitive? true)
+      tags)))
 
 (defn- resolve-address
   "Stage 2 for a NAMED ADDRESS (`:to`) or an IN-PLACE EDIT (neither `:to` nor
   `:url`). Both are caller-authored, so a schema failure is the caller's bug:
   `route-url` validates the resolved facts, and its throw emits
   `:rf.error/schema-validation-failure` (`:where :event`) and rejects —
-  `{:effects {}}`, slice unchanged, nothing pushed.
+  `{:effects {}}`, slice unchanged, nothing pushed. A route schema that is
+  itself malformed reports `:rf.error/malformed-schema` instead.
 
   A destination is taken LITERALLY (EP-0037 R5): omitted `:params` /
   `:query` / `:fragment` are empty and no ambient current-route query folds
@@ -238,14 +245,11 @@
                                      :query    (:query target)
                                      :fragment fragment}))}
       (catch #?(:clj Throwable :cljs :default) ex
-        (rf.trace/emit-error! :rf.error/schema-validation-failure
-                              (-> (cond-> {:where    :event
-                                           :route-id route-id
-                                           :error    (or (ex-data ex)
-                                                         {:message (ex-message ex)})
-                                           :recovery :no-recovery}
-                                    frame (assoc :frame frame))
-                                  (redact-route-error-tags route-meta)))
+        (let [data (or (ex-data ex) {:message (ex-message ex)})
+              tags (route-error-tags route-id route-meta frame data)]
+          (if (= :malformed-schema (:reason data))
+            (rf.trace/emit-error! :rf.error/malformed-schema tags)
+            (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))
         {:effects {}}))))
 
 (defn- with-fragment

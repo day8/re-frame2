@@ -36,6 +36,7 @@
             [re-frame.cofx.value-check :as rf.cofx.value-check]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
@@ -595,12 +596,12 @@
 ;; before it reaches the fold. Failure is `:rf.error/cofx-value-invalid`, a
 ;; HARD ERROR in dev AND production (the `:dispatched-at` precedent — folding
 ;; an out-of-contract value into the durable ledger is corrupt state). The
-;; check routes through the SAME registered validator the dev-time hot path
-;; uses (the `set-schema-fns!` seam, reached via the late-bind
-;; `:schemas/validate-with-registered-fn` hook) so a substituted (non-Malli)
-;; validator covers this surface too. A validator set to nil passes every
-;; value (Spec 010 §Locked rules). With the schemas artefact absent the hook
-;; is unbound and the declared check cannot run, so it throws
+;; check routes through the one validation seam, the late-bind
+;; `:schemas/check!` hook (Spec 010 §The validation seam), so a substituted
+;; (non-Malli) validator covers this surface too and the failure carries the
+;; same redacted tags every validating surface reports. A validator set to
+;; nil passes every value (Spec 010 §Locked rules). With the schemas artefact
+;; absent the hook is unbound and the declared check cannot run, so it throws
 ;; `:rf.error/schemas-artefact-missing` rather than fold an unchecked value.
 
 (defn- emit-cofx-value-invalid!
@@ -613,35 +614,16 @@
   Per EP-0015 / EP-0017, a recordable value validated against a
   `:schema` that marks any slot `{:sensitive? true}` MUST NOT surface the raw
   secret off-box. Both the emitted trace tags AND the thrown `ex-info`'s
-  `ex-data` carry the value-bearing slots (`:value` / `:explain`), and BOTH
-  egress (the trace to every listener → MCP / log / story; the throw's ex-data
-  is public error data). Route them through THE shared schema-aware redaction
-  seam (`:schemas/redact-validation-tags`, the same one the boundary
-  interceptor / machine-`:data` / sub-override emit sites use):
-  when the `schema` declares any `:sensitive?` slot the value-bearing slots
-  scrub to `:rf/redacted` and `:sensitive? true` is stamped; otherwise the
-  slots ride verbatim. FAILS CLOSED — a recordable-value failure with a
-  sensitive schema redacts on every off-box surface. The hook is nil only
-  when the schemas artefact is absent — but this fn is reached only AFTER the
-  schemas-owned validator ran (a `:schema` was declared + a validator was
-  registered), so the hook is bound whenever a sensitive failure can fire; the
-  `(when redact-fn …)` guard is belt-and-braces (no schemas artefact ⇒ no
-  schema to redact against)."
-  [cofx-id value explanation schema failing-id frame-id]
-  (let [redact-fn (rf.late-bind/get-fn :schemas/redact-validation-tags)
-        ;; The off-box slots shared by the trace and the throw's ex-data.
-        ;; Redaction scrubs `:value` / `:explain` and stamps `:sensitive?`
-        ;; when `schema` declares any `:sensitive?` slot.
-        leak-slots (cond-> {:value value}
-                     (some? explanation) (assoc :explain explanation))
-        ;; The schema declaration's PRESENCE was established by the caller
-        ;; (`validate-recordable-value!` delegates only a present key), so
-        ;; do NOT suppress redaction again with a truthiness / some? test
-        ;; on the opaque schema value: a present nil schema is
-        ;; opaque to the walker, which classes it fail-closed sensitive.
-        redacted   (if redact-fn
-                     (redact-fn schema leak-slots)
-                     leak-slots)
+  `ex-data` carry the value-bearing slots (`:value` / `:explain`, and
+  `:explain-humanized` in development), and BOTH egress (the trace to every
+  listener → MCP / log / story; the throw's ex-data is public error data).
+  They are taken from `tags`, the failure tags the `:schemas/check!` seam
+  built and already redacted: when the schema declares any `:sensitive?`
+  slot, or cannot be walked, the value-bearing slots are `:rf/redacted` and
+  `:sensitive? true` is stamped. FAILS CLOSED — a recordable-value failure
+  with a sensitive schema redacts on every off-box surface."
+  [cofx-id tags failing-id frame-id]
+  (let [redacted   (select-keys tags [:value :explain :explain-humanized :sensitive? :large?])
         reason     (str "Recordable coeffect `" cofx-id "` (supplied, replayed, or "
                         "generated) failed its `reg-cofx` `:schema`. An "
                         "out-of-contract recordable value is corrupt durable state "
@@ -651,21 +633,20 @@
                         "See `:explain` for the validation detail.")]
     (when-let [emit-error-both! (rf.late-bind/get-fn :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (rf.interop/now-ms)
-                        (cond-> {:rf.cofx/id        cofx-id
-                                 :failing-id        failing-id
-                                 :rf.trace/event-id failing-id
-                                 :value             (:value redacted)
-                                 :reason            reason
-                                 :recovery          :no-recovery}
-                          (contains? redacted :explain) (assoc :explain (:explain redacted))
-                          (:sensitive? redacted)        (assoc :sensitive? true)
-                          frame-id                      (assoc :frame frame-id))))
+                        (cond-> (merge {:rf.cofx/id        cofx-id
+                                        :failing-id        failing-id
+                                        :rf.trace/event-id failing-id
+                                        :reason            reason
+                                        :recovery          :no-recovery}
+                                       redacted)
+                          frame-id (assoc :frame frame-id))))
     (rf.error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
-                           {:extra (cond-> {:rf.cofx/id cofx-id
-                                            :failing-id failing-id
-                                            :value      (:value redacted)
-                                            :explain    (:explain redacted)}
-                                     (:sensitive? redacted) (assoc :sensitive? true))})))
+                           {:extra (merge {:rf.cofx/id cofx-id
+                                           :failing-id failing-id}
+                                          redacted)})))
+
+(def ^:private withheld-value-tags
+  {:value rf.privacy/redacted-sentinel :sensitive? true})
 
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
@@ -681,13 +662,16 @@
   cannot run, and passing would fold an unchecked value into the durable
   record. The injection fails and the handler does not run.
 
-  Routes through the shared `:schemas/validate-with-registered-fn` /
-  `:schemas/explain-with-registered-fn` late-bind seam (the same one
-  `re-frame.spec/validate-at-boundary!` uses). FAILS CLOSED on a
-  validator that throws (a malformed schema, or a non-schemas validator that
-  escapes its isolation) — coercing the throw to a PASS would fold an
+  Routes through the `:schemas/check!` seam (the same one
+  `re-frame.spec/validate-at-boundary!` uses), asking for the failure tags
+  rather than a trace: this surface reports its own always-on category.
+  FAILS CLOSED on a validator that throws (a malformed schema, or a throw
+  escaping the seam itself) — coercing the throw to a PASS would fold an
   unvalidated value into the durable ledger, the exact fail-OPEN class this
-  check exists to close. Returns `value` on success."
+  check exists to close. The throw decided nothing about the value, so the
+  error withholds it (`:value :rf/redacted`, `:sensitive? true`), and a
+  malformed schema also reports the development `:rf.error/malformed-schema`
+  trace every validating surface emits for one. Returns `value` on success."
   [cofx-id value meta failing-id frame-id]
   ;; KEY-presence, not value truthiness: a present nil /
   ;; false `:schema` is a declaration whose exact token goes to the
@@ -695,9 +679,8 @@
   ;; → the catch below fails CLOSED). Only an ABSENT key skips.
   (if-not (contains? meta :schema)
     value
-    (let [schema      (:schema meta)
-          validate-fn (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-      (if (nil? validate-fn)
+    (let [check! (rf.late-bind/get-fn :schemas/check!)]
+      (if (nil? check!)
         ;; No schemas artefact. A loaded artefact always publishes the seam
         ;; (a nil `:validate` passes THROUGH it), so this is never the
         ;; deliberate opt-out.
@@ -711,17 +694,32 @@
           {:extra (cond-> {:rf.cofx/id cofx-id
                            :failing-id failing-id}
                     frame-id (assoc :frame frame-id))})
-        (if (try (validate-fn schema value)
-                 (catch #?(:clj Throwable :cljs :default) _ false))
-          value
-          (let [explain-fn  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
-                explanation (when explain-fn
-                              (try (explain-fn schema value)
-                                   (catch #?(:clj Throwable :cljs :default) _ nil)))]
-            ;; Pass `schema` so the emit redacts the value-bearing slots
-            ;; (trace tags AND thrown ex-data) when the schema marks any
-            ;; slot `:sensitive?` — fail-closed off-box.
-            (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id)))))))
+        ;; The schema declaration's PRESENCE was established above, so the
+        ;; token goes to the validator verbatim: a present nil schema is
+        ;; opaque to the walker, which redacts it fail-closed.
+        (let [failure (try (check! {:where      :cofx
+                                    :id         failing-id
+                                    :schema     (:schema meta)
+                                    :value      value
+                                    :frame      frame-id
+                                    :tags-only? true
+                                    :extra-tags {:rf.cofx/id cofx-id}})
+                           (catch #?(:clj Throwable :cljs :default) _
+                             {:category ::seam-threw}))]
+          (if (nil? failure)
+            value
+            (do
+              (when (= :rf.error/malformed-schema (:category failure))
+                (rf.trace/emit-error! :rf.error/malformed-schema (:tags failure)))
+              (emit-cofx-value-invalid! cofx-id
+                                        (if (= :rf.error/schema-validation-failure (:category failure))
+                                          (:tags failure)
+                                          ;; A throw decided nothing about the
+                                          ;; value, so nothing proved it
+                                          ;; non-sensitive: it is withheld, and
+                                          ;; the error says so.
+                                          withheld-value-tags)
+                                        failing-id frame-id))))))))
 
 ;; ---- structural-EDN check of GENERATED recordable values ------------------
 ;;

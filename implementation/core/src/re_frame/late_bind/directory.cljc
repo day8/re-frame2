@@ -299,15 +299,9 @@
    {:key         :schemas/app-schemas-digest
     :producer-ns 're-frame.schemas
     :description "Cheap digest of the registered-schema set (cache-key surface)."}
-   {:key         :schemas/validate-with-registered-fn
+   {:key         :schemas/check!
     :producer-ns 're-frame.schemas
-    :description "Boundary seam: validate using the registered validator fn."}
-   {:key         :schemas/explain-with-registered-fn
-    :producer-ns 're-frame.schemas
-    :description "Boundary seam: explain using the registered explainer fn."}
-   {:key         :schemas/redact-validation-tags
-    :producer-ns 're-frame.schemas
-    :description "THE shared schema-aware redaction seam for every validation-failure trace emitted outside the schemas artefact (production boundary interceptor, machine :data validation, the :sub-override path): scrubs the value-bearing slots (:value/:received/:explain/:explain-humanized/:rf.fx/args/:rf.sub/query-v) and stamps :sensitive? true when the schema declares any :sensitive? slot — the same redaction the dev-time validate-*! hot path applies. Falls through verbatim when the schemas artefact is absent (no schema to redact against)."}
+    :description "`(fn [{:keys [where id schema value frame recovery extra-tags reason tags-only?]}])` — THE validation seam every validating surface outside the schemas artefact calls (the :boundary? true check, recordable coeffect values, :sub-override, machine :data and :output, route and resource params, epoch restore, Story), and the one validate-event! / validate-fx! / validate-sub! use. Validates with the installed validator; returns nil on conform (or with no validator installed), else {:category :tags}. :category is :rf.error/schema-validation-failure, or :rf.error/malformed-schema when the validator threw. :tags carry :where, :failing-id, :frame, the redacted / size-elided value-bearing slots, in development :explain-humanized and :reason, and the caller's :extra-tags. Emits the trace under :category unless :tags-only?; the caller applies its own recovery. With debug-enabled? false an emitting call builds no tags. Spec 010 §The validation seam. An unbound hook means the schemas artefact is absent."}
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
     :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}

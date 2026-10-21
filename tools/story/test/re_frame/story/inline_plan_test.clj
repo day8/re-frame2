@@ -281,16 +281,16 @@
   [schema-for-any-frame]
   (rf.late-bind/set-fn! :schemas/frame-schema-entries
                      (fn [_frame-id] schema-for-any-frame))
-  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-                     (fn [schema value] (m/validate schema value)))
-  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
-                     (fn [schema value] (m/explain schema value))))
+  (rf.late-bind/set-fn! :schemas/check!
+                     (fn [{:keys [schema value]}]
+                       (when-not (m/validate schema value)
+                         {:category :rf.error/schema-validation-failure
+                          :tags     {:value value :explain (m/explain schema value)}}))))
 
 (defn- uninstall-schema-seam! []
   (swap! rf.late-bind/hooks dissoc
          :schemas/frame-schema-entries
-         :schemas/validate-with-registered-fn
-         :schemas/explain-with-registered-fn))
+         :schemas/check!))
 
 (deftest inline-plan-failure-runs-decorator-and-loader-teardown
   (testing "an inline plan that FAILS mid-run (a :db-seed schema violation,

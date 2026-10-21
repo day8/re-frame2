@@ -22,6 +22,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.match :as rf.routing.match]
@@ -1245,30 +1246,45 @@
         [(subs url 0 hash-idx) (or decoded ::malformed-fragment)]))))
 
 (defn validate-route-shape
-  "Run the registered schema validator against `value` for the route's
-  `:params` or `:query` schema (`slot` ∈ #{:params :query}). Returns
-  `[validation-failed? validation-error]`:
-    - `[false nil]` when no schema is declared, no validator is
-      registered, or the value conforms;
-    - `[true explain-data]` when validation fails.
+  "Check `value` against `route-id`'s `:params` or `:query` schema (`slot` ∈
+  #{:params :query}) through the `:schemas/check!` seam, asking for the
+  failure tags rather than a trace. Returns nil when no schema is declared,
+  the schemas artefact is absent, or the value conforms; otherwise the seam's
+  `{:category :tags}`, whose `:value` / `:explain` are already redacted
+  against the schema, so a `:sensitive?` param never rides a thrown error or
+  a not-found result raw.
 
-  Per Spec 010 the validator is pluggable via
-  `:schemas/validate-with-registered-fn` and
-  `:schemas/explain-with-registered-fn`; the routing artefact never
-  requires re-frame.schemas statically — late-bind keeps
-  the apps that opt out of schemas/Malli runnable."
-  [route-meta slot value]
-  (let [schema (get route-meta slot)]
-    (if-not schema
-      [false nil]
-      (let [validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-        (if-not validate
-          [false nil]
-          (if (validate schema value)
-            [false nil]
-            (let [explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)
-                  details  (when explain (explain schema value))]
-              [true details])))))))
+  The routing artefact never requires re-frame.schemas statically —
+  late-bind keeps the apps that opt out of schemas/Malli runnable.
+  Spec 010 §The validation seam."
+  [route-id route-meta slot value]
+  (when-let [schema (get route-meta slot)]
+    (when-let [check! (rf.late-bind/get-fn :schemas/check!)]
+      (check! {:id         route-id
+               :schema     schema
+               :value      value
+               :tags-only? true}))))
+
+(defn route-validation-error-data
+  "The `ex-data` extras a `:rf.error/route-url-validation` throw carries for
+  `failure`, a `validate-route-shape` result on `slot`: the seam's redacted
+  `:value` and explanation (as `:error`), `:explain-humanized` in
+  development, and `:sensitive?` / `:large?` when the schema says so. A
+  route schema that is itself malformed decided nothing about the value, so
+  the value is withheld as `:rf/redacted`, flagged `:sensitive? true`, under
+  `:reason :malformed-schema`."
+  [route-id slot {:keys [category tags]}]
+  (if (= :rf.error/malformed-schema category)
+    {:route-id   route-id
+     :slot       slot
+     :value      rf.privacy/redacted-sentinel
+     :sensitive? true
+     :reason     :malformed-schema}
+    (merge {:route-id route-id
+            :slot     slot
+            :value    (:value tags)
+            :error    (:explain tags)}
+           (select-keys tags [:explain-humanized :sensitive? :large?]))))
 
 (defn- normalize-match-path
   "Spec 012 trailing-slash normalisation for incoming URLs. `/cart` and
@@ -1435,14 +1451,16 @@
                           ;; flag; the explanation surfaces under :validation-error
                           ;; so callers ((`:rf.route/handle-url-change`)) can route
                           ;; to `:rf.route/not-found` with `:reason :validation`.
-                          [params-failed? params-error] (validate-route-shape route-meta :params params)
-                          [query-failed?  query-error]  (validate-route-shape route-meta :query  with-defaults)
-                          validation-failed? (or params-failed? query-failed?)
+                          params-failure (validate-route-shape id route-meta :params params)
+                          query-failure  (validate-route-shape id route-meta :query with-defaults)
+                          params-error   (:explain (:tags params-failure))
+                          query-error    (:explain (:tags query-failure))
+                          validation-failed? (boolean (or params-failure query-failure))
                           validation-error   (cond
-                                               (and params-failed? query-failed?)
+                                               (and params-failure query-failure)
                                                {:params params-error :query query-error}
-                                               params-failed? params-error
-                                               query-failed?  query-error
+                                               params-failure params-error
+                                               query-failure  query-error
                                                :else          nil)
                           result        (cond-> {:route-id           id
                                                  :params             params
@@ -2149,7 +2167,7 @@
      ;; useful diagnostic when both are wrong. Reports STRUCTURE only — the
      ;; offending keys and the slot, never a value — so an uncaptured
      ;; `{:token "…"}` cannot ride an error surface (the navigate door's
-     ;; `redact-route-error-tags` scrubs `:value`-bearing ex-data only on a
+     ;; `route-error-tags` scrubs `:value`-bearing ex-data only on a
      ;; `:sensitive?` route; this shape has nothing to scrub on any route).
      (when-let [uncaptured (uncaptured-param-keys route-id route-meta pattern path-params)]
        (throw (route-error
@@ -2172,31 +2190,23 @@
      ;; the structured id so callers (`:rf.route/navigate`) and tests
      ;; can react. When no schema is declared OR no validator is
      ;; registered, this is a no-op.
-     (let [[p-failed? p-error] (validate-route-shape route-meta :params path-params)]
-       (when p-failed?
-         (throw (route-error
-                  :rf.error/route-url-validation
-                  'rf.routing/route-url
-                  (str "the supplied :params did not validate against route " route-id "'s :params schema")
-                  {:route-id route-id
-                   :slot     :params
-                   :value    path-params
-                   :error    p-error}))))
+     (when-let [failure (validate-route-shape route-id route-meta :params path-params)]
+       (throw (route-error
+                :rf.error/route-url-validation
+                'rf.routing/route-url
+                (str "the supplied :params did not validate against route " route-id "'s :params schema")
+                (route-validation-error-data route-id :params failure))))
      ;; Validate the nil-elided, default-filled query map (`emitted-query`),
      ;; not the raw `query-params` — a nil-valued optional key is omitted per
      ;; Spec 012 and must not be presented to the schema (where it would
      ;; fail an optional non-nil branch). `:value` reports the map actually
-     ;; validated.
-     (let [[q-failed? q-error] (validate-route-shape route-meta :query emitted-query)]
-       (when q-failed?
-         (throw (route-error
-                  :rf.error/route-url-validation
-                  'rf.routing/route-url
-                  (str "the supplied :query did not validate against route " route-id "'s :query schema")
-                  {:route-id route-id
-                   :slot     :query
-                   :value    emitted-query
-                   :error    q-error}))))
+     ;; validated, redacted against the schema.
+     (when-let [failure (validate-route-shape route-id route-meta :query emitted-query)]
+       (throw (route-error
+                :rf.error/route-url-validation
+                'rf.routing/route-url
+                (str "the supplied :query did not validate against route " route-id "'s :query schema")
+                (route-validation-error-data route-id :query failure))))
      (let [n      (count pattern)
            ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
            ;; are emitted only when every inner param is supplied. The

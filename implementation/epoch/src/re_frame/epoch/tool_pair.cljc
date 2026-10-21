@@ -60,19 +60,6 @@
 
 ;; ---- restore failure-mode predicates --------------------------------------
 
-(defn- registered-validate-fn
-  "Return the registered-validator seam, or nil when the schemas artefact is
-  not loaded.
-
-  Looks up the late-bind hook `:schemas/validate-with-registered-fn` — the
-  seam every Spec 010 validation site routes through, so restore obeys
-  `set-schema-fns!` exactly as the hot path does. It answers
-  true under a `nil` validator (validation disabled), the substituted
-  validator's verdict otherwise, and false when the validator throws (a
-  malformed schema fails CLOSED)."
-  []
-  (rf.late-bind/get-fn :schemas/validate-with-registered-fn))
-
 (defn- registered-app-schemas
   "Return the {path → schema-meta} map the named frame resolves, or {}.
   Per Spec 010 §Schemas resolve through the frame's images each frame
@@ -88,11 +75,14 @@
   "Return a vector of failing schema-paths for `db` against `frame-id`'s
   registered app-schemas. Empty vector means valid.
 
-  The registered validator decides (`registered-validate-fn`): a `nil`
-  validator passes every path, a substituted validator's verdict stands —
-  its acceptances and its rejections — and a validator that throws refuses
-  the path. No schemas registered, or the schemas artefact not loaded,
-  is a soft pass: there is nothing to validate against.
+  The `:schemas/check!` seam decides, the one every Spec 010 validation site
+  routes through (Spec 010 §The validation seam), so restore obeys
+  `set-schema-fns!` exactly as the hot path does: a `nil` validator passes
+  every path, a substituted validator's verdict stands — its acceptances and
+  its rejections — and a validator that throws refuses the path. The check
+  asks only for the verdict, so nothing is traced. No schemas registered, or
+  the schemas artefact not loaded, is a soft pass: there is nothing to
+  validate against.
 
   A path absent from `db` is not checked, as at commit (Spec 010 §When
   schemas are checked): a path schema constrains a value only where its
@@ -102,15 +92,17 @@
   `(empty? (failing-schema-paths frame-id db))`, so callers get both the
   yes/no answer and the failing paths from one traversal."
   [frame-id db]
-  (let [app-schemas     (registered-app-schemas frame-id)
-        validate-schema (registered-validate-fn)]
-    (if (or (empty? app-schemas) (nil? validate-schema))
+  (let [app-schemas (registered-app-schemas frame-id)
+        check!      (rf.late-bind/get-fn :schemas/check!)]
+    (if (or (empty? app-schemas) (nil? check!))
       []
       (vec
         (keep (fn [[path schema-entry]]
                 (let [value (get-in db path ::absent)]
-                  (when-not (or (= ::absent value)
-                                (validate-schema (:schema schema-entry) value))
+                  (when (and (not= ::absent value)
+                             (check! {:schema     (:schema schema-entry)
+                                      :value      value
+                                      :tags-only? true}))
                     path)))
               app-schemas)))))
 

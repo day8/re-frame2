@@ -81,9 +81,9 @@
 
   The verdict is projected to STRUCTURE ONLY. `route-url`'s ex-data for
   `:rf.error/route-url-validation` embeds `:value` (the caller's raw params /
-  query) and `:error` (a Malli explainer that reproduces the failing value
-  verbatim) — the URL-carrier class the navigate door has to redact at its own
-  emit site (`navigate/redact-route-error-tags`). A trace tag is an
+  query) and `:error` (a Malli explainer that reproduces the failing value) —
+  the URL-carrier class the navigate door redacts at its own emit site
+  (`url-change/route-error-tags`). A trace tag is an
   egress surface the route's `:sensitive` classification cannot reach, so this
   carries the offending KEY and the route id and never a value."
   [address]

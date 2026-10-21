@@ -210,7 +210,7 @@
         ;; VALUES (keeping the structured path) BEFORE the warning crosses
         ;; the trace bus / Xray / MCP / log / SSR-projection egress boundary.
         ;; Default-on scrub (no schema to target) — the no-schema analogue of
-        ;; `navigate/redact-route-error-tags`.
+        ;; `url-change/route-error-tags`.
         tag (fn [base] (-> base
                            (cond-> frame (assoc :frame frame))
                            (rf.privacy.url/redact-url-tag :url)))]

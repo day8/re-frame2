@@ -340,7 +340,7 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
    [:file       {:optional true} :string]
    [:tags       {:optional true} [:set :keyword]]                          ;; user-defined tags
    [:platforms  {:optional true} [:set [:enum :server :client]]]           ;; for reg-fx / reg-cofx; per [011](011-SSR.md)
-   ;; NOTE: there is no `:sensitive?` registration-metadata key. Sensitivity is a property of the data value at a path, not of the handler that touched it — declared per-slot on the app-schema (`{:sensitive? true}` Malli props, §Per-slot metadata vocabulary below) and enforced by the per-path elision wire-walker; see [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key).
+   ;; NOTE: there is no `:sensitive?` registration-metadata key. Sensitivity is a property of the data value at a path, not of the handler that touched it — an `app-db` path is declared sensitive by classification (per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#frame-owned-durable-classification)), a transient value's slot by its schema (`{:sensitive? true}` Malli props, §Per-slot metadata vocabulary below), and both are enforced by the per-path elision wire-walker; see [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key).
    ])
 ```
 
@@ -551,13 +551,13 @@ A registration is frame-agnostic, so the shape carries no `:frame`: every frame 
 
 Inside the Malli schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps (the `{:optional ... :hint ...}` shape Malli accepts on a property slot). The framework's reserved per-slot keys are catalogued below; user-defined keys live alongside them under the open-map invariant.
 
-> **Schemas describe shape, not durable app-db / runtime-db egress policy.** A `reg-app-schema` slot's `:sensitive?` / `:large?` props are **not** a route into the app-db egress registry (`[:rf.runtime/elision …]`). Durable app-db classification is **handler-owned** — declared from the handler that owns the moment a path's meaning is fixed, by returning a commit-plane classification effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, each a vector of `:rf/path` vectors) alongside `:db` (per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#frame-owned-durable-classification), EP-0025); subsystem durable state (machine `:data` snapshots, resource / mutation projections) is classified by its owning registration's projection-relative declarations (per [015 §Subsystem projection-relative classification](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge)). So the framework does not teach two equivalent ways to classify the same durable path. The per-slot keys below are reserved framework vocabulary because they are the **one** classification route for owners whose natural declaration surface *is* a schema for a **transient** product — resource `:data-schema` / `:params-schema` and HTTP-body `:decode` (the schema mechanism) — and, for `:sensitive?` on a `reg-app-schema` or machine `[:schemas :data]` slot, the schema's own **validation-failure-trace** redaction (the schema produces that record, so it owns its egress shape).
+> **Schemas describe shape, not durable app-db / runtime-db egress policy.** A `reg-app-schema` slot's `:sensitive?` / `:large?` props are **not** a route into the app-db egress registry (`[:rf.runtime/elision …]`). Durable app-db classification is **handler-owned** — declared from the handler that owns the moment a path's meaning is fixed, by returning a commit-plane classification effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, each a vector of `:rf/path` vectors) alongside `:db` (per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#frame-owned-durable-classification), EP-0025); subsystem durable state (machine `:data` snapshots, resource / mutation projections) is classified by its owning registration's projection-relative declarations (per [015 §Subsystem projection-relative classification](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge)). So the framework does not teach two equivalent ways to classify the same durable path. The per-slot keys below are reserved framework vocabulary because they are the **one** classification route for owners whose natural declaration surface *is* a schema for a **transient** product — resource `:data-schema` / `:params-schema` and HTTP-body `:decode` (the schema mechanism) — and, for `:sensitive?` on an event, coeffect, fx or sub schema or a machine `[:schemas :data]` / `[:schemas :output]` slot, the schema's own **validation-failure-trace** redaction (the schema produces that record, so it owns its egress shape). An `app-db` path's validation-failure traces follow its classification instead, so the path is declared once (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
 
 | Per-slot key | Type | Used for | Spec |
 |---|---|---|---|
 | `:large?` | boolean | **Owner-local size-elision nomination** for a schema-owned data shape (machine `[:schemas :data]`, resource `:data-schema` / `:params-schema`) — the slot's data elides to the `:rf.size/large-elided` marker at the owner's trace / projection egress (per [015 §Subsystem projection-relative classification](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge)). On a `reg-app-schema` slot it has **no** egress effect (EP-0025 — durable app-db size policy is the commit-plane `:large` classification effect a handler returns alongside `:db`, not a schema prop). | 015 |
 | `:hint` | string | A free-form short description of the slot. When `:large? true` rides alongside on an owner-local schema, the value is copied verbatim into the `:rf.size/large-elided` marker's `:hint` slot. | 009 |
-| `:sensitive?` | boolean | **Owner-local path-level privacy declaration** for a schema-owned data shape (machine / resource), the EP-0005 mechanism. On a `reg-app-schema` slot its **only** effect is **validation-failure-trace redaction**: when the slot fails validation, the emit-site redacts the failing `:value` / `:explain` / `:fx-args` slots with the framework-reserved sentinel `:rf/redacted` (path-targeted, most-specific-wins). It does **not** feed the app-db egress registry (EP-0025 — durable app-db sensitivity is handler-owned, declared by the commit-plane `:sensitive` classification effect a handler returns alongside `:db`, per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#frame-owned-durable-classification)); there is no handler-meta `:sensitive?` annotation (see [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md). | 010 |
+| `:sensitive?` | boolean | **Owner-local path-level privacy declaration** for a schema-owned data shape (machine / resource), the EP-0005 mechanism. On an event, coeffect, fx or sub schema it is the **transient value's** declaration: when the value fails validation, the validation seam redacts the failure's value-bearing slots (`:value` / `:received` / `:explain` / `:explain-humanized` / `:rf.fx/args` / `:rf.sub/query-v`) to the framework-reserved sentinel `:rf/redacted` and stamps `:sensitive? true`. On a `reg-app-schema` slot it is legal and still redacts that schema's failures, but it is **not** how an `app-db` path is declared sensitive: the path's classification is, and it governs the path's validation-failure traces as well as its egress. The prop does **not** feed the app-db egress registry (EP-0025 — durable app-db sensitivity is handler-owned, declared by the commit-plane `:sensitive` classification effect a handler returns alongside `:db`, per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#frame-owned-durable-classification)); there is no handler-meta `:sensitive?` annotation (see [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md). | 010 |
 
 The reserved set is **fixed-and-additive**: new per-slot keys ship by spec change. Per-slot metadata not in the reserved set is tolerated under the open-shape invariant; the framework ignores it.
 
@@ -1089,9 +1089,14 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
    [:where           [:enum :event :sub-return :app-db :fx-args :machine-data :machine-output :sub-override]] ;; :machine-data is the `reg-machine` [:schemas :data] boundary; :machine-output is the [:schemas :output] completion-payload boundary (EP-0029 A8 — Spec 005 §Completion-output validation); both per Spec 010 §Per-step recovery row 7; :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides). :cofx is NOT a :where of this category — a bad recordable coeffect is the separate hard error :rf.error/cofx-value-invalid (EP-0017; Spec 010 §Per-step recovery row 2)
+   [:frame           {:optional true} :keyword]        ;; the frame the failure belongs to — every arm stamps it when the failure has one (Spec 010 §The validation seam)
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
+   [:explain-humanized {:optional true} :any]          ;; development builds only — the operator-readable explanation, built before redaction (Spec 010 §Humanize-hook)
+   [:sensitive?      {:optional true} :boolean]        ;; true when the schema (or, on :where :app-db, the frame's classification) redacted the value-bearing slots to :rf/redacted
+   [:large?          {:optional true} :boolean]        ;; true when the value-bearing slots were replaced by the :rf.size/large-elided marker
+   [:source          {:optional true} [:enum :boundary]] ;; (:where :event only) the `:boundary? true` check, whose structural record survives production
    [:rf.sub/query-v  {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
    [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data / :machine-output) true = the event's candidate frame transition was REJECTED before install (the stable public transaction-rejected vocabulary; app-db keeps its pre-handler value because the candidate was NEVER written, not because a write-pair restored it); false for :where :machine-data :phase :spawn (a local skipped install, nothing committed) and ALWAYS false for :where :machine-output :phase :completion (the machine already finished)
    [:registered-path {:optional true} [:vector :any]]  ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
@@ -1101,10 +1106,15 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:schema          {:optional true} :any]])          ;; (:where :machine-data / :machine-output only) the registered schema verbatim, so consumers can render it inline next to the failing :data / output payload.
 
 (def MalformedSchemaTags
-  ;; Per Spec 010 §App-db schemas — a REGISTERED schema is
-  ;; structurally malformed (a childless `[:vector]`, an unknown op, …) so
-  ;; the registered validator THROWS at validate-time rather than returning
-  ;; true/false. `validate-app-schema!` isolates the throw per-entry, emits
+  ;; A schema a validating surface checks against is structurally malformed
+  ;; (a childless `[:vector]`, an unknown op, …) so the registered validator
+  ;; THROWS at validate-time rather than returning true/false. Every surface
+  ;; reports the throw as this category at its own `:where` and applies its
+  ;; own recovery; the validation seam isolates it for every surface but
+  ;; `:app-db` (Spec 010 §The validation seam), and its tags name the
+  ;; `:failing-id`, `:frame` and the surface's structural tags, never the
+  ;; value. On the `:app-db` arm (Spec 010 §App-db schemas)
+  ;; `validate-app-schema!` isolates the throw per-entry, emits
   ;; this DISTINCT category (so it can never masquerade as a clean
   ;; validate), fails CLOSED (`:rollback? true` → the candidate frame
   ;; transition is REJECTED before install), and keeps
@@ -1120,14 +1130,14 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; developer must fix.
   ;;
   ;; The `:machine-output` boundary (EP-0029 A8 — Spec 005 §Completion-output
-  ;; validation) catches the same malformed-schema throw at finalize time: a
-  ;; bad `[:schemas :output]` form makes the validator throw, but the finalize
-  ;; cascade has no router-level defensive catch, so the completion-output
-  ;; validator catches it directly, emits this category with `:rollback?
-  ;; false` (the machine already finished), and PROCEEDS — a schema typo
-  ;; surfaces loudly yet never deadlocks a finishing machine.
+  ;; validation) meets the same malformed-schema throw at finalize time: the
+  ;; seam reports it with `:rollback? false` (the machine already finished),
+  ;; and the completion PROCEEDS — a schema typo surfaces loudly yet never
+  ;; deadlocks a finishing machine. A recordable coeffect's `:where :cofx`
+  ;; arm reports it ahead of the always-on `:rf.error/cofx-value-invalid`
+  ;; hard error the same check throws.
   [:map
-   [:where           [:enum :app-db :machine-data :machine-output]]
+   [:where           [:enum :app-db :event :fx-args :sub-return :sub-override :machine-data :machine-output :cofx]]
    [:reason          :string]
    [:failing-id      {:optional true} :keyword]
    [:frame           {:optional true} :keyword]

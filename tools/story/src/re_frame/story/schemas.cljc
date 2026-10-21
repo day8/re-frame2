@@ -706,9 +706,8 @@
   app-db schemas before the script runs — so the plan compiler lowers
   `:db-seed` to `[:world :db-seed]` and the runtime validates the seeded
   app-db against the frame's REGISTERED app-db schemas
-  (`:schemas/frame-schema-entries` + `:schemas/validate-with-registered-fn`,
-  the SAME late-bind seam `:sub-return` + the `:sub-override` fold-in
-  reuse). A seed that violates a registered schema FAILS the run with
+  (`:schemas/frame-schema-entries` + `:schemas/check!`, the one validation
+  seam `:sub-return` and the `:sub-override` fold-in reach too). A seed that violates a registered schema FAILS the run with
   `:rf.error/story-db-seed-invalid`.
 
   The seed VALUE is left loose (`:any`) at this layer — the precise
