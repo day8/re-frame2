@@ -350,9 +350,10 @@
     (is (rf.elision/marker? marker))
     (is (= [:a :big] (get-in marker [:rf.size/large-elided :path])))))
 
-;; The walk rebuilds each map, and `(empty v)` throws on the JVM for a record,
-;; so a record is rebuilt as a plain map; otherwise egress of any value holding
-;; one would throw, the event pipeline's own db projection included.
+;; The walk rebuilds each map it descends — every map under a declared prefix —
+;; and `(empty v)` throws on the JVM for a record, so a record there is rebuilt
+;; as a plain map; otherwise egress of any value holding one would throw, the
+;; event pipeline's own db projection included.
 
 (defrecord Money [amount currency])
 
@@ -360,3 +361,28 @@
   (install-class! [[:price :amount]] [])
   (is (= {:price {:amount :rf/redacted :currency "AUD"}}
          (rf.elision/elide-wire-value {:price (->Money 10 "AUD")}))))
+
+;; Below every declared prefix no declaration can match, so the walk returns the
+;; subtree as it found it — no rebuild, so a `:db`-bearing trace on a classified
+;; frame allocates nothing there — while the dev size probe still reports a
+;; large string inside it.
+
+(deftest walk-returns-a-subtree-no-declared-path-reaches-unchanged
+  (install-class! [[:auth :token]] [])
+  (let [big      (apply str (repeat 3000 "ABCDEFGH"))
+        articles {:list   (mapv (fn [i] {:id i :body (str "body " i)}) (range 200))
+                  :price  (->Money 10 "AUD")
+                  :recent (list 3 2 1)
+                  :draft  big}
+        traces   (collect-traces! :elision-test/unreachable)
+        out      (rf.elision/elide-wire-value {:auth     {:token "TOP-SECRET" :user "ada"}
+                                               :articles articles})]
+    (is (identical? articles (:articles out))
+        "the undeclared sibling is the input itself — record and list intact")
+    (is (= {:token :rf/redacted :user "ada"} (:auth out))
+        "the declared path still redacts")
+    (when rf.interop/debug-enabled?
+      (is (= [{:path [:articles :draft] :bytes 24002}]
+             (mapv #(select-keys (:tags %) [:path :bytes]) (unschema'd-warnings traces)))
+          "the advisory still reaches a large string the walk returned unchanged"))
+    (rf/unregister-listener! :trace :elision-test/unreachable)))

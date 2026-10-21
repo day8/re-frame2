@@ -724,6 +724,69 @@
                       :hint     "Classify this path large by returning `:large [[...]]` from the event that writes it (EP-0025 commit-plane classification effect, alongside `:db`)."
                       :recovery :no-recovery})))))
 
+(defn- may-print-over?
+  "Whether string `s` can print to more than `threshold` UTF-8 bytes. Each
+  UTF-16 unit prints to at most 3 bytes — an escape is 2 ASCII bytes, a BMP
+  character at most 3, a surrogate pair 4 for its 2 units — plus 2 quotes, so
+  a string under that bound is settled without printing it. `^long` keeps the
+  JVM comparison primitive: this runs once per string the walk visits."
+  [s ^long threshold]
+  (> (+ 2 (* 3 (count s))) threshold))
+
+(defn- check-large-unschema'd!
+  "The `:rf.warning/large-value-unschema'd` advisory for one undeclared string
+  `s` at `path`: measure it only when it can exceed `threshold` and has not
+  already warned at this `(frame, path)`, and warn when it does exceed it.
+  Dev-only, and a threshold of 0 disables it — no `pr-str-bytes`, no warning
+  (API.md §Configure keys, `:elision`)."
+  [frame-id path s threshold]
+  (when (and rf.interop/debug-enabled?
+             (pos? threshold)
+             (may-print-over? s threshold)
+             (not (contains? @warned-unschema'd [frame-id path])))
+    (let [bytes (pr-str-bytes s)]
+      (when (> bytes threshold)
+        (warn-large-unschema'd! frame-id path bytes)))))
+
+(defn- oversized-strings
+  "`[relative-path string]` for every string under `v` that `may-print-over?`
+  `threshold`, or nil. Visits what the wire walk visits — map values by key,
+  vector and seq elements by index, set elements at the set's own path — but
+  rebuilds nothing, and builds a relative path only for a hit."
+  [v threshold]
+  (cond
+    (string? v)
+    (when (may-print-over? v threshold) (list [() v]))
+
+    (or (map? v) (vector? v))
+    (reduce-kv (fn [acc k vv]
+                 (if-some [hits (oversized-strings vv threshold)]
+                   (into acc (map (fn [[rel s]] [(cons k rel) s])) hits)
+                   acc))
+               nil v)
+
+    (seq? v)
+    (loop [i 0 xs (seq v) acc nil]
+      (if xs
+        (recur (inc i) (next xs)
+               (if-some [hits (oversized-strings (first xs) threshold)]
+                 (into acc (map (fn [[rel s]] [(cons i rel) s])) hits)
+                 acc))
+        acc))
+
+    (set? v)
+    (reduce (fn [acc vv] (into acc (oversized-strings vv threshold))) nil v)))
+
+(defn- probe-large-unschema'd!
+  "The advisory over a subtree the wire walk returns unchanged: each string the
+  walk would have visited there gets `check-large-unschema'd!` at its own
+  path, so returning the subtree whole narrows nothing the advisory sees
+  (Spec 009 §Size elision in traces)."
+  [frame-id threshold path v]
+  (when (and rf.interop/debug-enabled? (pos? threshold))
+    (doseq [[rel s] (oversized-strings v threshold)]
+      (check-large-unschema'd! frame-id (into path rel) s threshold))))
+
 ;; ---- collection-coordinate declaration matching --------------------------
 ;;
 ;; Schema-derived declarations are INDEX-FREE: the schema walker descends
@@ -1008,10 +1071,11 @@
 
 (defn- walk-decider
   "Build the `walk-tree` decider for the schema-first wire walk against `ctx`.
-  The per-node decision (sensitive → sentinel, declared-large → idempotent
-  marker, else descend), the map-key / index state forks, and the scalar leaf
-  (the runtime-size-threshold warning side-effect) — the elision-specific arms
-  the shared skeleton parameterises over.
+  The per-node decision (no declared path reachable → the node itself,
+  unchanged; sensitive → sentinel; declared-large → idempotent marker; else
+  descend), the map-key / index state forks, and the scalar leaf (the
+  runtime-size-threshold warning side-effect) — the elision-specific arms the
+  shared skeleton parameterises over.
 
   Also carries `:collision-owners`, which `walk-tree` ignores: given a candidate
   set, the large owners of a COLLISION node (a large node holding a sensitive
@@ -1039,6 +1103,14 @@
        (let [large-owners (decl-match decl-paths large-tbl)
              sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
          (cond
+           ;; No declared path can match at or below this node — neither fork
+           ;; revives an empty candidate set — so the subtree ships as it
+           ;; stands, reference and type intact, rather than being rebuilt.
+           ;; Only the dev size probe visits it.
+           (empty? decl-paths)
+           (do (probe-large-unschema'd! frame-id threshold path v)
+               v)
+
            (and sensitive? (not include-s?))
            rf.privacy/redacted-sentinel
 
@@ -1088,18 +1160,10 @@
 
      :leaf
      (fn [[path decl-paths] v]
-       (let [large-owners (decl-match decl-paths large-tbl)
-             sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
-         (when (and (string? v)
-                    (not large-owners)
-                    (not sensitive?))
-           ;; A threshold of 0 disables runtime auto-detect entirely —
-           ;; no `pr-str-bytes` walk, no warning. Per API.md §Configure
-           ;; keys (`:elision` — "0 disables runtime auto-detect").
-           (when (pos? threshold)
-             (let [bytes (pr-str-bytes v)]
-               (when (> bytes threshold)
-                 (warn-large-unschema'd! frame-id path bytes))))))
+       (when (and (string? v)
+                  (not (decl-match decl-paths large-tbl))
+                  (not (decl-sensitive? decl-paths sensitive-tbl)))
+         (check-large-unschema'd! frame-id path v threshold))
        v)}))
 
 (defn- walk
@@ -1128,8 +1192,9 @@
                    :large-shadows-s    (large-keys-shadowing-sensitive large sensitive)
                    ;; Prefix set of every declared path — bounds the forked
                    ;; candidate decl-path set as the walker descends maps.
-                   ;; Empty when nothing is declared ⇒ the fork
-                   ;; prunes to {} immediately and the walker is identity.
+                   ;; Empty when nothing is declared ⇒ every candidate set
+                   ;; below the root is empty, and the walker returns each
+                   ;; top-level value unchanged.
                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
                    ;; One vocabulary all the way down: the walk
                    ;; context carries the SAME `:rf.egress/*` spelling the opts
