@@ -11,10 +11,19 @@
   tier or kind that disagrees with the manifest — fails the check (red in CI).
 
   KIND MARKERS. The `M/Fn` cell's leading marker states the kind: `Fn` is
-  `:fn`, `M` is `:macro`, `Var` is `:var` (`kind-markers`). A cell such as
-  `M/Fn (CLJS)` is graded by its leading `M`, because the manifest is derived
-  on the JVM where the name is a macro. A component is a `Fn` row whose
-  parenthetical names it as one (`Fn (UIx component)`).
+  `:fn`, `M` is `:macro`, `Var` is `:var` (`kind-markers`). A name that is a
+  macro on the JVM and also a fn value on CLJS is an `M` row whose
+  parenthetical says so (`M (also Fn on CLJS)`), because the manifest is
+  derived on the JVM. A component is a `Fn` row whose parenthetical names it
+  as one (`Fn (UIx component)`).
+
+  GENERATED TABLES. A table under an `api-manifest:generated` marker has its
+  M/Fn marker, Tier, Status and Spec cells written from the manifest
+  (`re-frame.api-manifest.api-md-cells`), so this check's tier and kind
+  grades are redundant there. It grades those tables anyway: they hold most
+  of API.md's var rows, so skipping them would leave the vacuity floor below
+  guarding almost nothing, and two independent readers of one table catch a
+  parser drift either would miss alone.
 
   WHAT COUNTS AS A VAR-ROW. API.md mixes var-rows (one public fn / macro /
   Var) with keyword-addressed-registration rows (events / subs / fx /
@@ -52,7 +61,8 @@
       moment ANY manifest row with bare name `adapter` carried the stated
       tier — a false-green drift gate. The qualifier is first resolved to
       an EXACT manifest namespace: a documented adapter `:as` alias via
-      `adapter-aliases`, otherwise the qualifier verbatim (the
+      `api-md-cells/adapter-aliases` (shared with the generator, so both
+      resolve a qualifier alike), otherwise the qualifier verbatim (the
       full-namespace rows `re-frame.interop/...` and
       `re-frame.performance/...` ARE literal manifest namespaces). A
       qualifier that resolves to neither a known alias nor a manifest
@@ -70,6 +80,7 @@
   `frnt-porch`) is unclassifiable."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [re-frame.api-manifest.api-md-cells :as rf.api-manifest.api-md-cells]
             [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
@@ -130,25 +141,6 @@
   "The `M/Fn` cell's leading marker -> the manifest `:kind` it states,
    one entry per marker `var-kind-token` recognises."
   {"Fn" :fn "M" :macro "Var" :var})
-
-(def adapter-aliases
-  "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
-   to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter
-   prose). A qualified API.md row written with one of these
-   aliases resolves to the EXACT manifest namespace named here — never by
-   bare var name (the `adapter` / `client-root` / … vars are carried for
-   every adapter namespace, so a bare match would not distinguish
-   them). spec/API.md teaches the Conventions require-alias dialect —
-   `rf.adapter.<x>` for `re-frame.adapter.<x>`, per spec/Conventions.md
-   §Require-alias dialect; the table is spelled out so the contract is
-   explicit and a new adapter alias is an intentional one-line addition."
-  {"rf.adapter.reagent" "re-frame.adapter.reagent"
-   "rf.adapter.uix"     "re-frame.adapter.uix"
-   ;; The non-dialect spellings. spec/ does not teach them (a row using one
-   ;; is a defect, not an exemption), but they stay resolvable so a row
-   ;; carrying one is graded rather than silently unresolved.
-   "reagent-adapter"    "re-frame.adapter.reagent"
-   "uix-adapter"        "re-frame.adapter.uix"})
 
 (defn- parse-first-cell-ident
   "Split an API.md first-cell identifier into `[qualifier bare-var]`. For a
@@ -310,7 +302,7 @@
                           unmanifested (the `:api-md-known-unmanifested`
                           allowlist; bare rows only).
    `aliases`            — `{alias -> namespace}` for documented adapter
-                          `:as` aliases (`adapter-aliases`).
+                          `:as` aliases (`api-md-cells/adapter-aliases`).
 
    QUALIFIED rows resolve STRICTLY against the `[namespace var] -> #{tiers}`
    index after mapping the qualifier through `aliases` (else verbatim) — a
@@ -395,7 +387,7 @@
                            (reconcile {:rows               rows
                                        :api-rows           api-rows
                                        :known-unmanifested known-unmanifested
-                                       :aliases            adapter-aliases}))
+                                       :aliases            rf.api-manifest.api-md-cells/adapter-aliases}))
         api-md-lines (read-api-md-lines)
         ;; Var-row reconciliation cannot see retired keyword vocabulary in
         ;; API.md prose, so the `:rf.world/inputs`, reply-envelope

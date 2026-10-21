@@ -1188,18 +1188,24 @@
 
 (defn- api-md-rewrite
   "spec/API.md's contents and `api-md-cells/rewrite` of them from
-   `manifest`'s rows: the generated tables' cells as this build states them."
-  [manifest]
+   `manifest`'s rows and the sidecar's API.md allowlists: the generated
+   tables' cells as this build states them."
+  [manifest sidecar]
   (let [text (slurp @api-md-file)]
-    (assoc (rf.api-manifest.api-md-cells/rewrite text (:vars manifest)) :committed text)))
+    (assoc (rf.api-manifest.api-md-cells/rewrite
+             text (:vars manifest)
+             {:known-unmanifested (set (:api-md-known-unmanifested sidecar))
+              :authored-spec      (set (:api-md-authored-spec sidecar))})
+           :committed text)))
 
 (defn generate!
   "Regenerate spec/api-manifest.edn from live vars + the curated sidecar,
    and rewrite spec/API.md's generated cells from it. Returns the manifest
    map."
   []
-  (let [manifest (build-manifest (read-sidecar))
-        {:keys [text committed changes tables]} (api-md-rewrite manifest)]
+  (let [sidecar  (read-sidecar)
+        manifest (build-manifest sidecar)
+        {:keys [text committed changes tables]} (api-md-rewrite manifest sidecar)]
     (spit @manifest-file (render-edn manifest))
     (println (format "Wrote %s (%d public vars)."
                      (.getPath ^java.io.File @manifest-file)
@@ -1216,8 +1222,8 @@
 (defn- api-md-cells-in-sync?
   "True when spec/API.md's generated cells already say what `generated`
    says; false, naming each differing cell, otherwise."
-  [generated]
-  (let [{:keys [text committed changes tables]} (api-md-rewrite generated)]
+  [generated sidecar]
+  (let [{:keys [text committed changes tables]} (api-md-rewrite generated sidecar)]
     (if (= text committed)
       (do (println (format "OK: spec/API.md generated cells in sync (%d table(s), %d row(s))."
                            (count tables) (reduce + (map :rows tables))))
@@ -1275,9 +1281,10 @@
    spec/API.md's generated cells. Returns true when both are in sync, false
    (with a printed diff summary) when either has drifted."
   []
-  (let [generated (build-manifest (read-sidecar))]
+  (let [sidecar   (read-sidecar)
+        generated (build-manifest sidecar)]
     ;; Both comparisons run, so one run reports every drift.
-    (every? true? [(manifest-in-sync? generated) (api-md-cells-in-sync? generated)])))
+    (every? true? [(manifest-in-sync? generated) (api-md-cells-in-sync? generated sidecar)])))
 
 (defn -main [& args]
   (try
