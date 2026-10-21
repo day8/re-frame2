@@ -10,8 +10,9 @@
  * bare `npx` / `npx.cmd` executable is allowed. The hardened forms spawn a tool's
  * resolved JS entry point under process.execPath, or (test-mcp-conformance.cjs
  * alone) resolve the name through resolveTrustedExe and spawn it with cross-spawn.
- * Launchers that serve http also bind loopback and prove they own the server they
- * probe. Discovered by `npm run test:scripts`.
+ * The listed http-serving launchers start their server through the shared
+ * startLocalHttpServer, which binds loopback and proves it owns the server it
+ * probes. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
@@ -19,7 +20,6 @@ const fs = require('fs');
 const path = require('path');
 const {
   stripComments,
-  loopbackBindRe,
   createPolicyTestSuite,
 } = require('./_policy-test-util.cjs');
 
@@ -81,36 +81,16 @@ for (const file of gateScriptFiles()) {
   });
 }
 
-// These launchers compose the http-server argv inline and serve loopback consumers
-// only, so each must pass `-a 127.0.0.1`: http-server's default 0.0.0.0 would expose
-// the bundle and the per-run token endpoint. startLocalHttpServer callers get the
-// bind from the shared owner (next block).
-const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
-const IMPL_LOOPBACK_LAUNCHERS = [
-  ['check-story-static.cjs', SCRIPTS_DIR],
-];
-for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
-  test(`${base}: http-server is bound to 127.0.0.1 explicitly (rf2-utvst)`, () => {
-    const src = fs.readFileSync(path.join(dir, base), 'utf8');
-    assert.match(
-      src,
-      LOOPBACK_BIND_RE,
-      `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
-        `http-server's default is 0.0.0.0, and this launcher only ever serves ` +
-        `127.0.0.1 (readiness probe + headless browser). The canonical loopback ` +
-        `bind lives in startLocalHttpServer (local-browser-harness.cjs).`,
-    );
-  });
-}
-
 // These launchers start http-server through the shared owner, whose loopback
-// bind is covered functionally in _local-browser-harness.test.cjs.
+// bind, ownership token and owned readiness are covered functionally in
+// _local-browser-harness.test.cjs.
 const START_LOCAL_HTTP_SERVER_CALLERS = [
   ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
   ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
   ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
   ['serve-and-run-tenant-switcher-testbed.cjs', SCRIPTS_DIR],
   ['serve-and-run-xray-feature-gate.cjs', SCRIPTS_DIR],
+  ['check-story-static.cjs', SCRIPTS_DIR],
 ];
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
@@ -121,16 +101,6 @@ for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
       START_LOCAL_HTTP_SERVER_RE,
       `${base} must start its http-server via the shared startLocalHttpServer(...) owner`,
     );
-  });
-}
-
-// These probe readiness themselves, so they must check the server answering is
-// their own run's (a stale server from another worktree can hold the port).
-const WAIT_OWNED_RE = /\bwaitForOwnedHttpReady\b/;
-for (const base of ['check-story-static.cjs']) {
-  test(`${base}: waits for owned readiness via the shared waitForOwnedHttpReady`, () => {
-    const code = stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'));
-    assert.match(code, WAIT_OWNED_RE, `${base} must wait for owned readiness via waitForOwnedHttpReady`);
   });
 }
 

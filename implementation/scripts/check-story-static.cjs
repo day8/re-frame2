@@ -4,19 +4,13 @@
  *
  * 1. Runs `story-build.cjs` to produce the static export at
  *    `implementation/out/story-static/counter-with-stories/`.
- * 2. Selects a free local port and serves the output directory via
- *    http-server. Treating any responder on a hardcoded port as "ready"
- *    would leave a TOCTOU window for a port-squatter to serve foreign
- *    content to the headless browser, so this script mirrors the
- *    hardened ownership-token model from
- *    `serve-and-run-browser-tests.cjs`:
- *
- *      - Free-port selection (OS-chosen if PORT env var is busy).
- *      - Per-run ownership token published as `/.rf-harness-token`.
- *      - Child-exit detection during readiness.
- *      - Token-fetch verification before Playwright starts driving the
- *        browser — refuses to proceed if the server reachable on
- *        the chosen port is not the one we spawned.
+ * 2. Selects a free local port and serves the output directory through
+ *    startLocalHttpServer (lib/local-browser-harness.cjs). Treating any
+ *    responder on a hardcoded port as "ready" would leave a TOCTOU window
+ *    for a port-squatter to serve foreign content to the headless browser,
+ *    so the port falls back to an OS-chosen free one when the default is
+ *    busy, and the owner proves the responder serves this run's ownership
+ *    token before Playwright starts driving the browser.
  *
  * 3. Drives a headless Chromium against the resolved base URL and
  *    verifies the Story shell mounted (the empty-state canvas
@@ -47,12 +41,9 @@ const {
   isVerboseTests,
 } = require('./lib/browser-test-report.cjs');
 const {
-  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
-  publishOwnershipToken,
   resolveServePort,
-  spawnHarnessProcess,
-  waitForOwnedHttpReady,
+  startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
@@ -84,7 +75,6 @@ const READY_TIMEOUT_MS = 30000;
 // bundle download-and-boot wait onto that 15s locator budget and make this
 // lane FLAKIER, not tighter.
 const NAV_TIMEOUT_MS = 30000;
-const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 const diagnostics = createDiagnosticBuffer();
 const cleanup = createHarnessCleanup({
@@ -94,13 +84,6 @@ cleanup.addCleanup(() => {
   diagnostics.add('Tearing down story-static http-server.');
 });
 cleanup.installSignalHandlers();
-
-// Ownership-token sentinel, same shape as
-// serve-and-run-browser-tests.cjs. The whole token lifecycle (nonce +
-// write + concurrency-safe idempotent cleanup) and the probe/token-fetch/
-// owned-readiness mechanics come from the shared local-browser-harness.cjs
-// (publishOwnershipToken + waitForOwnedHttpReady); this script only owns the
-// per-run launcher diagnostics.
 
 function addChunk(diagnostics, prefix, chunk, stream = 'stdout') {
   const normalized = String(chunk || '').replace(/\r\n/g, '\n');
@@ -304,86 +287,28 @@ async function smokeTest(baseUrl, diagnostics) {
     }
   }
 
-  // 3. Publish the ownership token BEFORE spawning http-server. The
-  //    returned `remove` (idempotent, only unlinks our own token) is
-  //    registered for teardown now that the token exists.
-  const published = publishOwnershipToken(OUT_DIR);
-  if (!published) {
-    console.error(`Asset root missing: ${OUT_DIR}`);
-    flushDiagnostics(diagnostics);
-    process.exit(1);
-  }
-  const { token, remove } = published;
-  cleanup.addCleanup(remove);
-
-  // 4. Pick a port and serve.
+  // 3. Pick a port and serve. The server's output and the owner's
+  //    diagnostics go to the quiet diagnostics buffer; a false `ready` has
+  //    already recorded its reason and the server's output tail there.
   const port = await resolvePort(diagnostics);
   diagnostics.add(`Serving ${OUT_DIR} on http://127.0.0.1:${port}`);
-
-  // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
-  // probe and the headless browser only ever hit loopback, so the
-  // listener must not be exposed on non-loopback interfaces during a
-  // test run (matches serve-and-run-adapter-smokes.cjs).
-  const serverArgs = [HTTP_SERVER_BIN, OUT_DIR, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
-  const server = cleanup.trackProcess(spawnHarnessProcess(
-    process.execPath,
-    serverArgs,
-    { cwd: IMPL_ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
-  ));
-  diagnostics.add(
-    `Process: ${process.execPath} ${serverArgs.join(' ')}`,
-  );
-  server.stdout.on('data', (d) => addChunk(diagnostics, '[http-server:stdout] ', d));
-  server.stderr.on('data', (d) => addChunk(diagnostics, '[http-server:stderr] ', d, 'stderr'));
-
-  // Track server lifecycle for fail-fast on early exit.
-  const state = { exited: false, exitCode: null, exitSignal: null };
-  server.on('exit', (code, signal) => {
-    state.exited = true;
-    state.exitCode = code;
-    state.exitSignal = signal;
-    if (code !== 0 && code !== null) {
-      diagnostics.add(`http-server exited unexpectedly (code=${code}, signal=${signal}).`, 'stderr');
-    } else {
-      diagnostics.add(`http-server exited (code=${code}, signal=${signal}).`);
-    }
+  const { ready, output } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: HTTP_SERVER_BIN,
+    root: OUT_DIR,
+    port,
+    cwd: IMPL_ROOT,
+    readyTimeoutMs: READY_TIMEOUT_MS,
+    captureOutput: true,
+    log: (msg) => diagnostics.add(msg, 'stderr'),
   });
-
-  // 5. Wait for ready WITH ownership-token verification via the shared
-  //    harness primitive.
-  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
-    pollMs: POLL_MS,
-    isAborted: () => state.exited,
-  });
-  if (!ready.ok) {
-    if (ready.reason === 'child-exited' || state.exited) {
-      console.error(
-        `http-server exited before becoming reachable on :${port} ` +
-          `(code=${state.exitCode}, signal=${state.exitSignal}).`,
-      );
-    } else if (ready.reason === 'token-mismatch') {
-      console.error(
-        `A server is reachable on :${port}, but its /${TOKEN_FILE_BASENAME} ` +
-          `does not match this run's ownership token. Refusing to drive the ` +
-          `browser against a server this harness did not launch. ` +
-          `(got "${ready.got}", expected "${token}").`,
-      );
-    } else if (ready.reason === 'token-never-served') {
-      console.error(
-        `http-server on :${port} became reachable but never served ` +
-          `/${TOKEN_FILE_BASENAME} within ${READY_TIMEOUT_MS}ms.`,
-      );
-    } else {
-      console.error(
-        `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`,
-      );
-    }
+  if (!ready) {
     await cleanup.cleanup();
     flushDiagnostics(diagnostics);
     process.exit(1);
   }
 
-  // 6. Smoke.
+  // 4. Smoke.
   let smokeError = null;
   try {
     await smokeTest(`http://127.0.0.1:${port}/`, diagnostics);
@@ -393,8 +318,9 @@ async function smokeTest(baseUrl, diagnostics) {
     if (err && err.stack) diagnostics.add(err.stack, 'stderr');
   }
 
-  // 7. Tear down.
+  // 5. Tear down.
   await cleanup.cleanup();
+  for (const line of output) diagnostics.add(line);
   if (!smokeError) {
     if (VERBOSE_TESTS) flushDiagnostics(diagnostics);
     console.log('Story static smoke passed.');
