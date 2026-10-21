@@ -1988,8 +1988,9 @@ definition→graph PARSER, not a positioner).
 `elkjs` is a direct `:require` in `chart.cljs`
 (`["elkjs/lib/elk.bundled.js" :as elkjs]`) — a `devDependency` of
 `implementation/package.json`, bundle-isolated from production (the
-chart is dev-only: Xray preload + the static viewer page; the
-`check-bundle-isolation.cjs` sentinel pins this). There is no lazy
+chart is dev-only: Xray preload + the static viewer page;
+`check-bundle-isolation.cjs` forbids elkjs in the counter build's
+`manifest.edn`). There is no lazy
 `js/import` loader-atom; the import resolves at module load.
 
 The pass is async + cached:

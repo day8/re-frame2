@@ -489,6 +489,7 @@
 
 ;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; `implementation/scripts/check-bundle-isolation.cjs`'s `subs-tooling`
-;; entry greps the emitted module for `subscription-cache-entry`, the live
-;; node-kind value `node-base` above emits.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s
+;; `subs-tooling` entry forbids this file in the counter build's
+;; `manifest.edn`. The gate also fails when that path stops resolving,
+;; so a move or rename takes the entry with it.

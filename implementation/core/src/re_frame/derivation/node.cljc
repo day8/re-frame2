@@ -38,7 +38,7 @@
   BUNDLE ISOLATION — this is pure data construction (no `ex-info`, no trace
   string, no side effect) reached ONLY by the dev-only tooling siblings,
   which are themselves DCE'd from production builds. It therefore needs no
-  bundle-isolation sentinel of its own: with no production-reachable caller,
+  bundle-isolation entry of its own: with no production-reachable caller,
   `:advanced` + `goog.DEBUG=false` drop these bodies wholesale.
 
   Per [spec/Derivations.md] §The node shape + §Errors and diagnostics and

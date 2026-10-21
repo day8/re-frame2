@@ -520,7 +520,8 @@ re-litigate them — these were knowingly traded, not overlooked):
 - **Bundle cost.** xyflow ≈ 60 KB gzipped; elkjs ≈ 250 KB
   gzipped. Both `devDependency`-gated; production bundles MUST
   NOT pull them. The bundle-isolation script
-  (`check-bundle-isolation.cjs`) pins sentinels for both.
+  (`check-bundle-isolation.cjs`) forbids both in the counter
+  build's `manifest.edn`.
 
 **Previous (2026-05-19) rationale for hand-rolled SVG**
 (retained here for the record; the 2026-05-21 override
