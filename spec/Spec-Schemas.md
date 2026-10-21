@@ -1740,7 +1740,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:error       {:optional true} :any]   ;; the resource's first-load failure envelope
    [:reason      :string]])
 
-;; --- runtime: mutation errors (per [016 §Deferred slices] / [EP-0003 §Mutations]) ---
+;; --- runtime: mutation errors (per [016 §Mutations] / [EP-0003 §Mutations]) ---
 ;; The fail-closed mutation authoring + use vocabulary.
 ;; A mutation is a causal write keyed by
 ;; mutation INSTANCE id; :request + :params-schema are REQUIRED at
@@ -3002,7 +3002,7 @@ The Resources artefact owns two runtime-db children — `:rf.runtime/resources` 
 (def MutationsRuntime
   ;; The mutation-instance runtime-db child — instances keyed by instance id.
   ;; Allocated lazily by the optional Resources artefact; absent in an app
-  ;; that registers no mutations. Per [016 §Deferred slices] / [EP-0003 §Mutations].
+  ;; that registers no mutations. Per [016 §Mutations] / [EP-0003 §Mutations].
   [:map-of :any MutationInstance])
 ```
 
