@@ -355,45 +355,10 @@ The runtime calls these four functions for you: `validate-event!` before an even
 
 ### Boundary validation and redaction
 
-Every check outside the four entry points above — the [`{:boundary? true}`](#validation-in-production) event check, a `:sub-override` pin, machine `:data` and `:output`, a recordable coeffect's `:schema`, route `:params` / `:query` and a resource's `:params-schema` — runs through one seam, the `:schemas/check!` late-bind hook, which the entry points use too. It returns the verdict and the failure's tags in one shape, redacted against the schema, and emits the standard trace unless the check reports the failure under its own recovery. The seam is built from these three functions, which run in every build; the framework's own checks call the seam rather than these.
+Every check outside the four entry points above — the [`{:boundary? true}`](#validation-in-production) event check, a `:sub-override` pin, machine `:data` and `:output`, a recordable coeffect's `:schema`, route `:params` / `:query` and a resource's `:params-schema` — runs through one seam, the `:schemas/check!` late-bind hook, which the entry points use too. It runs in every build, returns the verdict and the failure's tags in one shape, and emits the standard trace unless the check reports the failure under its own recovery. The seam is a hook, not a var on this namespace.
 
-#### `validate-with-registered-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-with-registered-fn schema value) → boolean
-  ```
-- **Description**: Validates `value` against `schema` with the installed validator, in production builds as well as development ones.
-    - Returns `true` when the value conforms.
-    - Returns `false` when it does not, including when a malformed schema makes the validator throw (fail closed).
-    - Returns `true` when no validator is installed: no validator means no validation, as on the development-build path.
-    - Emits no trace.
-
-#### `explain-with-registered-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (explain-with-registered-fn schema value) → explanation | nil
-  ```
-- **Description**: Explains why `value` fails `schema`, using the installed explainer.
-    - Returns the explanation when the value fails.
-    - Returns `nil` when the value conforms, when no explainer is installed, or when the explainer throws. A throwing explainer degrades to `nil` because a diagnostic must never change the verdict.
-
-#### `redact-validation-tags`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (redact-validation-tags schema tags) → tags
-  ```
-- **Description**: Redacts a validation-failure trace's `tags` map according to the `schema` the failing value was checked against.
-    - The validation seam applies it to every failure's tags, so every check outside `app-db` redacts the same way.
-    - For a `:sensitive?` schema, the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are replaced with `:rf/redacted`, and `:sensitive? true` is added. An opaque compiled schema that the walker cannot inspect is treated as sensitive.
-    - For a `:large?` schema that is not sensitive, the same slots except `:rf.sub/query-v` are replaced with the `:rf.size/large-elided` marker, and `:large? true` is added.
-    - Otherwise the tags are returned unchanged.
-    - Idempotent.
+- A validator that throws on a malformed schema answers `:rf.error/malformed-schema`, never a pass.
+- The tags are redacted against the whole schema. A `:sensitive?` schema, or one the walker cannot fully inspect, replaces the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) with `:rf/redacted` and adds `:sensitive? true`. A `:large?` schema that is not sensitive replaces the same slots except `:rf.sub/query-v` with the `:rf.size/large-elided` marker and adds `:large? true`.
 
 ### Schema classification walkers
 
@@ -482,7 +447,7 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
   ```
 - **Description**: The recursive form of `schema-opaque?`. Returns `true` when the root is opaque, or when a vector-form schema contains, at any depth, an opaque value in a child-schema position, a local `:registry` or an explicit `[:ref …]` (the walker resolves neither), or an operator the walker does not classify.
     - Literal operands (`[:= 42]`, `[:enum 1 2]`, `:re` patterns, comparator bounds) are data rather than children, so they never count.
-    - `redact-validation-tags` and the `:rf.warning/schema-walker-opaque` registration warning use it, so a compiled child cannot hide inside a walkable root.
+    - The validation seam's redaction and the `:rf.warning/schema-walker-opaque` registration warning use it, so a compiled child cannot hide inside a walkable root.
 - **Example**:
   ```clojure
   (schemas/schema-has-opaque-child? [:map [:id :int]])     ; => false

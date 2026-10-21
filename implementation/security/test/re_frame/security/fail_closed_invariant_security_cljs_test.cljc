@@ -10,6 +10,7 @@
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and a malformed schema
             ;; never throws (so there is nothing to fail-closed against).
@@ -38,7 +39,9 @@
   ;; A childless op registers but makes Malli throw when first validated. A
   ;; pass would run a handler on, or commit, an unvalidated value.
   (let [schema [:vector]]
-    (is (false? (rf.schemas/validate-with-registered-fn schema [:anything]))
+    (is (= :rf.error/malformed-schema
+           (:category ((rf.late-bind/get-fn :schemas/check!)
+                       {:where :event :schema schema :value [:anything]})))
         "boundary seam: the validator throw becomes a reject, never a pass")
     (is (= [false true]
            (verdict-and-malformed-emit

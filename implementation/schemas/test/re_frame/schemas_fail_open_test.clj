@@ -9,6 +9,7 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.validate :as rf.schemas.validate]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
@@ -77,9 +78,9 @@
 
 (deftest boundary-seam-malformed-schema-returns-false
   (is (= [false true false]
-         [(rf.schemas/validate-with-registered-fn [:vector] [:anything])
-          (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1])
-          (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"])])))
+         [(rf.schemas.validate/validate-with-registered-fn [:vector] [:anything])
+          (rf.schemas.validate/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1])
+          (rf.schemas.validate/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"])])))
 
 (def ^:private throwing-explainer
   (fn [_schema _value] (throw (ex-info "explainer boom" {}))))
@@ -102,4 +103,4 @@
 
 (deftest boundary-explain-seam-isolates-explainer-throw
   (rf.schemas/set-schema-fns! {:explain throwing-explainer})
-  (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))))
+  (is (nil? (rf.schemas.validate/explain-with-registered-fn [:int] "bad"))))

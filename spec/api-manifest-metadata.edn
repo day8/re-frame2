@@ -1425,11 +1425,8 @@
   ;; Vars on the facade, so they carry NO manifest row.
   ["re-frame.schemas" "validate-app-schema!"]      {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-event!"]           {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "redact-validation-tags"]    {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-fx!"]              {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-sub!"]             {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-with-registered-fn"] {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-has-large?"]                  {:tier :implementation :owner "015" :status "v1"}
