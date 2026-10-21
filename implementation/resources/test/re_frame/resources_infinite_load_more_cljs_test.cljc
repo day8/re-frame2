@@ -86,14 +86,10 @@
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
 
-(def ^:private prev-cursor
-  (fn [first-page _all-pages] (get-in first-page [:page-info :prev-cursor])))
-
 (defn- page
   "An enveloped page: items + a page-info cursor envelope."
-  ([items next-c] (page items next-c nil))
-  ([items next-c prev-c]
-   {:items items :page-info {:next-cursor next-c :prev-cursor prev-c}}))
+  [items next-c]
+  {:items items :page-info {:next-cursor next-c}})
 
 (defn- feed-spec
   ([] (feed-spec {}))
@@ -102,7 +98,6 @@
            :infinite         true
            :params-schema    [:map [:filter :keyword]]
            :next-page-param  next-cursor
-           :prev-page-param  prev-cursor
            :page->items      :items
            :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
           overrides)))

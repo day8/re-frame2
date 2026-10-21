@@ -33,7 +33,6 @@
    :scope              :rf.scope/global
    :params-schema      [:map [:slug :string]]
    :data-schema        [:map]
-   :transport          :rf.http/managed
    :tags               (fn [_params _data] #{})
    :stale-after-ms     60000
    :gc-after-ms        300000
@@ -45,7 +44,6 @@
    :large?             false
    :infinite           true
    :next-page-param    (fn [_last-page _pages] nil)
-   :prev-page-param    (fn [_first-page _pages] nil)
    :initial-page-param 0
    :page->items        :items
    :refetch            {:refetch-all-pages? false :refetch-window 2}})
@@ -55,7 +53,6 @@
   {:doc               "every documented key"
    :params-schema     [:map [:slug :string]]
    :scope             :rf.scope/global
-   :transport         :rf.http/managed
    :invalidates       (fn [_params _result] #{})
    :patches           (fn [_params _result] {})
    :populates         (fn [_params _result] {})
@@ -108,6 +105,24 @@
       (is (= [[:resource :test/typo-resource [:stale-after]]
               [:mutation :test/typo-mutation [:invalidate]]]
              warns)))))
+
+(deftest transport-and-prev-page-param-warn-and-still-register
+  ;; There is one transport and no prepend event, so neither is a
+  ;; registration key.
+  (let [warns (unknown-key-warnings
+                #(do (reg-resource! :test/transport-resource
+                                    (assoc minimal-resource
+                                           :transport :rf.http/managed
+                                           :prev-page-param (fn [_first-page _pages] nil)))
+                     (reg-mutation! :test/transport-mutation
+                                    (assoc minimal-mutation :transport :rf.http/managed))))]
+    (is (= [true true]
+           [(some? (rf.resources.registry/resource-meta :test/transport-resource))
+            (some? (rf.resources.mutation-registry/mutation-meta :test/transport-mutation))]))
+    (when rf.interop/debug-enabled?
+      (is (= [[:resource :test/transport-resource #{:transport :prev-page-param}]
+              [:mutation :test/transport-mutation #{:transport}]]
+             (mapv (fn [[kind id ks]] [kind id (set ks)]) warns))))))
 
 (deftest every-documented-key-registers-silently
   (let [warns (unknown-key-warnings

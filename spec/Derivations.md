@@ -169,7 +169,7 @@ A node whose source of truth lives **outside the frame** declares an `:authority
 
 - `:storage` always answers "where does the local representation live?" — for resources, `:runtime-db` (the cache entry) plus `:host-transient` (in-flight handles).
 - `:authority` answers "whose fact is this, really?" — `{:kind :remote …}` says the authority is external.
-- `:transport` inside `:authority` is a **projection of the [Spec 016](016-Resources.md) registration fact, never a second authoritative home** — it mirrors the registered transport so a graph reader can see it without re-resolving the registry. A mirror is a recomputable projection of its source (the [Runtime-Subsystems derived rule 2](Runtime-Subsystems.md) one-authoritative-home discipline applied to graph metadata), not a co-equal home that can drift.
+- `:transport` inside `:authority` names the transport the remote is reached through — `:rf.http/managed`, the one transport [Spec 016](016-Resources.md#transport) ships. It is a constant of the artefact rather than a per-resource registration fact, so it is never a second authoritative home.
 
 `:authority :remote` is **not a license to hide state**. The local cache entry, in-flight row, owner index, and selectors still declare their local storage and lifecycle. Resources are the proof case: `:authority {:kind :remote …}` + `:storage :runtime-db` describes a shipped resource exactly.
 
@@ -744,16 +744,15 @@ A resource's superkind is always **`:process`**; its informative refinement is *
 | `:kind` | `:process` | a derivation with state, lifecycle, and commands over time ([§Process](#process)); refinement `:resource-process` under `:refinement` |
 | `:refinement` | `:resource-process` | the informative refinement of `:process` ([§The node shape](#the-node-shape)) — never a third superkind in `:kind` |
 | `:storage` | `:runtime-db` | the **local** cache entry lives in the framework-owned runtime-db partition ([016 §Cache home](016-Resources.md)) — storage always names the local home |
-| `:authority` | `{:kind :remote :system :server :transport <id>}` | the source of truth is **external** ([§Authority](#authority--the-remote-axis)); `:transport` mirrors the registered transport (a recomputable projection, never a second home) |
+| `:authority` | `{:kind :remote :system :server :transport <id>}` | the source of truth is **external** ([§Authority](#authority--the-remote-axis)); `:transport` names the one transport, `:rf.http/managed` |
 | `:evaluation` | `#{:on-route :on-reply :scheduled :manual}` | a multi-trigger process — route activation, async reply, scheduled stale/GC timers, and manual refresh/ensure ([§Evaluation policy](#evaluation-policy)) |
 | `:lifecycle` | `:scoped-resource-key` | a scoped resource key owns the cache entry; owners, freshness policy, and GC release it ([§Lifecycle and owner](#lifecycle-and-owner)) |
 | `:materialized?` | `true` | the cache entry has a durable runtime-db address |
 
-The axes that **vary** per resource are the declared **inputs**, the `:authority` transport, and (for a named-resolver scope) the `:scope-resolver` enrichment:
+The axes that **vary** per resource are the declared **inputs** and (for a named-resolver scope) the `:scope-resolver` enrichment:
 
 - **`:output`** is `[:runtime [:rf.runtime/resources :entries]]` — the resource materializes its cache entries into the runtime-db partition (the concrete per-key entry address `[:runtime [:rf.runtime/resources :entries <scoped-key>]]` is a live-graph fact).
 - **`:inputs`** lower from the resource identity `[cache-scope resource-id canonical-params]` ([§Declared input](#declared-input)): `[:param :rf.params]` (the params, validated by the `:params-schema`) and `[:scope <policy>]` naming the registered scope policy. A resource's `:scope` policy is EXACTLY `:rf.scope/global` or `{:from-db <id>}`, and **both are reported verbatim**. The `{:from-db <id>}` reference is a genuinely *static* fact — it is never resolved, and the resolver id plus its declared `[:db <rf-path>]` inputs surface under `:scope-resolver` (the [named-resolver enrichment](#named-resolver-enrichment-ep-0014-issue-3-disposition)), which is the don't-execute rule honoured rather than worked around.
-- **`:authority`** carries the `:transport` (defaulting to `:rf.http/managed`, the only built-in transport — [016](016-Resources.md)).
 
 The node additionally carries the `:selectors` read-fact ids, the `:commands` transport descriptors and their framework-internal reply targets (`:rf.resource.internal/succeeded` / `…/failed` — commands are **not** facts, [§Process](#process)), the opaque `:derive` `:request` body token (never serialized), the `:source-form` `{:kind :reg-resource :id <id>}`, and the `:source` coordinates / `:schema` (the `:data-schema`) / doc when the registration carried them.
 

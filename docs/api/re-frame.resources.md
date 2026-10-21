@@ -85,7 +85,6 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
      :data-schema   :app/article                ;; shape declaration for tooling; runtime validation is :decode
 
      :scope          :rf.scope/global            ;; required: an explicit, auditable claim
-     :transport      :rf.http/managed            ;; the only transport
      :stale-after-ms 60000
      :gc-after-ms    300000
      :poll-interval-ms 5000                      ;; optional: refetch every 5s while owned and visible
@@ -105,20 +104,19 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 | Key | Notes |
 |---|---|
 | `:scope` | The scope policy: `:rf.scope/global` or `{:from-db <resource-scope-id>}` (see [Scope policy](#scope-policy)). Any other value, or none, raises `:rf.error/resource-missing-scope-policy`. |
-| request fn (third argument) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It must be a fn (or a Var), or registration raises `:rf.error/resource-bad-spec`. It must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`: the runtime supplies the first three from the scoped key and generation, a continuation goes in the call-site `:reply-to` instead, and supplying any of the four raises `:rf.error/resource-reserved-request-key`. |
+| request fn (third argument) | Returns a [managed-HTTP args map](re-frame.http.md). It must be a fn (or a Var), or registration raises `:rf.error/resource-bad-spec`. It must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`: the runtime supplies the first three from the scoped key and generation, a continuation goes in the call-site `:reply-to` instead, and supplying any of the four raises `:rf.error/resource-reserved-request-key`. |
 
 **Optional keys**:
 
 - `:doc`
 - `:params-schema` — validates params on every event and subscription. Validation runs when `re-frame.schemas` is loaded; without it, params are canonicalized but not checked. Without a `:params-schema`, params are taken as given and still canonicalized. Either way the canonical params identify the cache entry, an omitted `:params` is `{}`, and params must be portable EDN, so a fractional number fails: send `9.99` as `999` (cents) or `"9.99"`. Instants are accepted. An explicit `nil` is validated as `nil`.
 - `:data-schema` — a static declaration of the decoded data's shape, shown to tooling (the resource's `:schema` fact) and in the `:rf/resource` registration read. It is not checked at runtime; validate a response with the request's `:decode`.
-- `:transport` — `:rf.http/managed`, the only transport and the default. Any other value registers, then raises `:rf.error/resource-unknown-transport` at the first load.
 - `:stale-after-ms` — how long a loaded entry stays fresh, in milliseconds. Absent means it never goes stale by time alone; invalidation can still mark it stale. `0` means it is stale as soon as it loads. Any value other than a non-negative number, `nil` included, raises `:rf.error/resource-bad-spec` at registration.
 - `:gc-after-ms` — how long an entry with no owner and no load in flight stays cached. The GC check's timer is armed when a load settles and armed again, for the full interval, when the last owner is released; when it fires on an entry that is still loading, it re-arms for another interval, and on an entry that is still owned it arms nothing, because the release arms it. So an idle entry is removed this long after its last owner is released, or after its load settles if nothing ever owned it, and a re-attach inside that window reuses it. Absent defaults to `300000` (5 minutes); `:never` keeps it. Otherwise it must be a positive number of milliseconds; `nil`, `0` or any other value raises `:rf.error/resource-bad-spec`.
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling). A value that is neither a number nor `nil` raises `:rf.error/resource-bad-spec`.
 - `:timeout-ms` — stamps each fetch's work-ledger record with `:deadline-at`, its `:started-at` plus this many milliseconds, which Xray's Resources panel shows. It is recorded, not enforced: nothing cancels a fetch at its deadline. Bound the request itself with the `:timeout-ms` of the managed-HTTP args your request fn returns.
 - `:tags` — `(fn [params data] → #{tag …})`, the tags that [`invalidate-tags`](#rfresourceinvalidate-tags-) and mutations match.
-- `:infinite`, plus the infinite-only keys `:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param` and `:refetch`. See [Infinite resources](#infinite-resources). `:infinite` takes only the literal `true`; any other value raises `:rf.error/resource-bad-spec`. There is no `:page-data-schema`; supplying one raises the same error.
+- `:infinite`, plus the infinite-only keys `:next-page-param`, `:page->items`, `:initial-page-param` and `:refetch`. See [Infinite resources](#infinite-resources). `:infinite` takes only the literal `true`; any other value raises `:rf.error/resource-bad-spec`. There is no `:page-data-schema`; supplying one raises the same error.
 - `:sensitive?` / `:large?` — classify the whole entry. The SSR hydration payload withholds such an entry entirely, so neither its data nor its scope and params ride, and the client loads it again if its route still needs it. Off-box trace and epoch exports replace its params with opaque tokens, as they replace every resource's non-global scope. The same properties on a schema affect only how validation failures are redacted.
 - `:sensitive` / `:large` — per-path classification of the data: a vector of paths rooted at `:data` (a bare path means `:data`), e.g. `{:sensitive [[:data :ssn]]}`. A malformed declaration raises `:rf.error/resource-bad-spec`, and so does a path rooted at `:params` or `:scope`: a resource's params and scope are its identity. Off-box exports always replace a non-global scope with an opaque token; keep params to identifiers, or claim the whole entry with `:sensitive?`.
 
@@ -204,7 +202,7 @@ A *target* names one cache entry as `{:resource <id> :params <params> :scope <sc
 - `:removes` — `(fn [params result] → [target …])`, entries to remove on success. A removed entry's in-flight request is aborted where possible.
 - `:scope` — the default cache scope for the arms above (see **Scope** below).
 - `:invalidate-timing` — when `:invalidates` runs: `:after-success` (default), `:before-request` (before the request is sent), `:after-failure` (only when the write fails) or `:after-settle` (either way). An absent or `nil` value uses `:after-success`; any other value raises `:rf.error/mutation-bad-spec`.
-- `:transport` (`:rf.http/managed`, the only transport; any other value raises `:rf.error/resource-unknown-transport` when the write runs), `:doc`.
+- `:doc`.
 - `:sensitive` / `:large` — per-path classification of the instance row: `[:params …]` and `[:scope …]` paths classify the instance's params and scope, and `[:data …]` or bare paths classify its `:result` (e.g. `{:sensitive [[:params :token]]}`). A malformed declaration raises `:rf.error/mutation-bad-spec`.
 
 The success arms run in a fixed order: `:patches`, `:populates`, `:removes`, then `:invalidates`. When one key is both patched and populated, the populate wins, and a key this mutation populated is not refetched by its own invalidation; a patched key can be.
@@ -317,7 +315,7 @@ Resource events take a single map payload. The events that name a `:resource` va
 - Params that fail `:params-schema` raise `:rf.error/resource-invalid-params`.
 - Scope resolution fails closed: a `{:from-db …}` reference that resolves to `nil` raises `:rf.error/resource-scope-unresolved-reference`, and one naming no registered resolver raises `:rf.error/resource-scope-not-registered` (see [Scope policy](#scope-policy)).
 - Params and scope must be portable EDN: a fractional number, ratio, NaN, fn or other host object raises `:rf.error/resource-non-edn-params`. A misspelt `:rf.scope/*` keyword, the wrapped `[:rf.scope/global]` (write `:rf.scope/global`), or a `{:from-db …}` map where a concrete scope is required raises `:rf.error/resource-invalid-scope`.
-- When the request is built, a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to` raises `:rf.error/resource-reserved-request-key`, and a `:transport` other than `:rf.http/managed` raises `:rf.error/resource-unknown-transport`. Nothing is written to the cache.
+- When the request is built, a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to` raises `:rf.error/resource-reserved-request-key`. Nothing is written to the cache.
 
 ### `[:rf.resource/ensure {…}]`
 
@@ -608,7 +606,7 @@ The cell below prints the whole view-model for two keys, before and after an `en
     - On success the runtime patches, populates and removes resource entries, then invalidates tags, at the time `:invalidate-timing` sets.
     - `:reply-to` is an optional data-only event vector. When the write settles, the reply is appended to it and dispatched once, after the cache changes and the instance row have been written. It is the managed-HTTP [reply map](re-frame.http.md#reply-shape) (`:status` `:ok`, `:error` or `:cancelled`) plus `:mutation`, `:params`, `:instance`, `:scope`, `:affected-keys` and `:cause` (`[:mutation <mutation-id> <instance>]`, not the payload's `:cause`).
     - `:optimistic? false` runs a registered optimistic plan pessimistically for this call.
-    - Before anything is written or sent: an unregistered `:mutation` raises `:rf.error/mutation-not-registered`. Params that fail `:params-schema` raise `:rf.error/mutation-invalid-params`, and params that are not portable EDN (a fractional number, a fn) raise `:rf.error/resource-non-edn-params`. An `:instance` that is not portable EDN raises `:rf.error/mutation-non-serializable-instance-id`. A misspelt `:rf.scope/*` scope raises `:rf.error/resource-invalid-scope`, and a `{:from-db …}` naming no registered resolver raises `:rf.error/resource-scope-not-registered`. A malformed `:reply-to` raises `:rf.error/reply-invalid-target` or `:rf.error/reply-non-data-target`. Building the request raises `:rf.error/resource-reserved-request-key` or `:rf.error/resource-unknown-transport`, as for a resource load.
+    - Before anything is written or sent: an unregistered `:mutation` raises `:rf.error/mutation-not-registered`. Params that fail `:params-schema` raise `:rf.error/mutation-invalid-params`, and params that are not portable EDN (a fractional number, a fn) raise `:rf.error/resource-non-edn-params`. An `:instance` that is not portable EDN raises `:rf.error/mutation-non-serializable-instance-id`. A misspelt `:rf.scope/*` scope raises `:rf.error/resource-invalid-scope`, and a `{:from-db …}` naming no registered resolver raises `:rf.error/resource-scope-not-registered`. A malformed `:reply-to` raises `:rf.error/reply-invalid-target` or `:rf.error/reply-non-data-target`. Building the request raises `:rf.error/resource-reserved-request-key`, as for a resource load.
     - A superseded reply (after a re-execute under the same instance, or an `:rf.mutation/clear`) never overwrites the newer state; work id and generation suppress it.
     - See [Fire the write, watch the instance](../resources/how-to/invalidate-after-a-mutation.md#3-fire-the-write-watch-the-instance).
 - **Example**:
@@ -727,11 +725,10 @@ An infinite resource is a load-more feed: the user sees page 1, then pages 1 and
 - A feed is one scoped entry. Its pages accumulate as an ordered vector inside that one `:rf.runtime/resources` entry, not as one entry per page and not in `app-db`, so the feed has one owner set, one freshness clock, one GC clock, one SSR-restore unit and one Xray row. The page param is internal sequencing state and not part of the cache key; changing the identity params gives a different feed.
 - Validate pages with the request's `:decode`: a Malli schema there validates one page at a time, on page 0, each load-more and every refetch leg. Classify per-page fields with `:sensitive` / `:large`: a path `[:data :field]` matches `[:data <page-index> :field]` on every page, so the field is redacted on all of them. `:data-schema` does not apply to the accumulated vector.
 - Other infinite-only keys:
-    - `:prev-page-param` — `(fn [first-page all-pages] → param-or-nil)`, the mirror of `:next-page-param`, which feeds `:rf.resource/has-prev-page?`. There is no load-previous event; pages are only appended.
     - `:initial-page-param` — the first page's param. Default `nil`.
     - `:page->items` — a keyword or `(fn [page] → items)` that extracts a page's items; a vector page is its own items. A non-vector page with no `:page->items` makes `:rf.resource/items`, `:rf.resource/infinite-state` and an `ensure`'s `:reply-to` raise `:rf.error/infinite-missing-page-accessor`.
     - `:refetch` — which pages a refetch refreshes. By default only page 0 is refetched and replaced in place; the other loaded pages stay as they are. `{:refetch-all-pages? true}` refreshes every loaded page in order, and `{:refetch-window n}` refreshes the first `n`, clamped to at least one and at most the loaded page count. If both keys are present, `:refetch-all-pages? true` wins. Each page uses its saved page param; pages are replaced in place and the feed never shrinks.
-    - A `:prev-page-param` that is not a fn, a `:page->items` that is neither a keyword nor a fn, or a `:refetch` that is not a map, has a non-boolean `:refetch-all-pages?` or a non-integer `:refetch-window` raises `:rf.error/resource-bad-spec`.
+    - A `:page->items` that is neither a keyword nor a fn, or a `:refetch` that is not a map, has a non-boolean `:refetch-all-pages?` or a non-integer `:refetch-window` raises `:rf.error/resource-bad-spec`.
 
 A view reads the merged list and dispatches [`[:rf.resource/load-more {…}]`](#rfresourceload-more-) for the next page:
 
@@ -739,7 +736,6 @@ A view reads the merged list and dispatches [`[:rf.resource/load-more {…}]`](#
 [:rf.resource/items          {:resource :feed/timeline :scope … :params …}]   ;; merged flat list, the main read
 [:rf.resource/pages          {…}]   ;; raw page boundaries
 [:rf.resource/has-next-page? {…}]   [:rf.resource/fetching-next? {…}]
-[:rf.resource/has-prev-page? {…}]   ;; mirror of has-next-page? (there is no prepend event)
 [:rf.resource/page-count     {…}]   [:rf.resource/page-error     {…}]
 [:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf/resource)
 ```
@@ -753,7 +749,6 @@ A view reads the merged list and dispatches [`[:rf.resource/load-more {…}]`](#
  :pages          <page-vector>          ;; the raw pages, for page boundaries
  :page-count     <int>                  ;; the number of pages loaded
  :has-next-page? <bool>                 ;; :next-page-param returned non-nil for the last page
- :has-prev-page? <bool>                 ;; :prev-page-param returned non-nil for the first page
  :fetching-next? <bool>                 ;; a load-more in flight
  :fetching?      <bool>                 ;; a whole-feed refresh in flight; false during a load-more
  :has-data?      <bool>                 ;; at least one page loaded
@@ -811,7 +806,6 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/reply-invalid-target` — a `:reply-to` that is not a non-empty vector with a keyword head.
     - `:rf.error/reply-non-data-target` — a `:reply-to` carrying a fn or other host object.
     - `:rf.error/resource-reserved-request-key` — a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to`.
-    - `:rf.error/resource-unknown-transport` — a `:transport` other than `:rf.http/managed`.
     - `:rf.error/infinite-missing-page-accessor` — a feed whose pages are not vectors and that has no `:page->items`, when `:rf.resource/items`, `:rf.resource/infinite-state` or an `ensure`'s `:reply-to` needs its items.
     - `:rf.error/resource-route-plan` — a route's resource plan failed, for example on a scope it cannot resolve; read on `:rf.route/error`.
     - `:rf.error/resource-route-blocking` — a blocking route resource's first load failed; read on `:rf.route/error`.

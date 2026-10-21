@@ -255,12 +255,6 @@
   (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
     (and (some? e) (not (rf.resources.state/terminal? (:next-page-param e))))))
 
-(defn has-prev-page?-sub-fn
-  "`:rf.resource/has-prev-page?`: true iff `:prev-page-param` is not terminal."
-  [frame-state [_id payload]]
-  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
-    (and (some? e) (not (rf.resources.state/terminal? (:prev-page-param e))))))
-
 (defn page-error-sub-fn
   "`:rf.resource/page-error`: the last load-more failure, or nil."
   [frame-state [_id payload]]
@@ -297,7 +291,7 @@
         [k e] (feed-key+entry rt (app-of frame-state) payload)]
     (if (nil? e)
       {:status (if k :idle :unresolved) :items [] :pages [] :page-count 0
-       :has-next-page? false :has-prev-page? false
+       :has-next-page? false
        :loading? false :fetching? false :fetching-next? false
        :stale? false :has-data? false
        :error nil :refresh-error nil :page-error nil}
@@ -307,7 +301,6 @@
          :pages          (vec (:data e))
          :page-count     (rf.resources.state/page-count e)
          :has-next-page? (not (rf.resources.state/terminal? (:next-page-param e)))
-         :has-prev-page? (not (rf.resources.state/terminal? (:prev-page-param e)))
          :loading?       (= :loading (:status e))
          :fetching?      (and (= :fetching (:status e)) (not next?))
          :fetching-next? next?
@@ -343,9 +336,6 @@
   (rf.subs/reg-frame-state-sub :rf.resource/has-next-page?
     {:doc "Passive read: true iff an infinite feed has a next page ((some? :next-page-param) — nil is the single terminal). false for a non-feed / terminal feed. Per Spec 016 §Subscription contract."}
     has-next-page?-sub-fn)
-  (rf.subs/reg-frame-state-sub :rf.resource/has-prev-page?
-    {:doc "Passive read: true iff an infinite feed has a prev page ((some? :prev-page-param) — the bidirectional mirror; the prepend event is deferred, R7). false for a non-feed. Per Spec 016 §Subscription contract."}
-    has-prev-page?-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/fetching-next?
     {:doc "Passive read: true iff a LOAD-MORE is in flight on an infinite feed (R2) — distinct from :fetching? (a whole-feed refresh). Derived from the in-flight work record's page index (a load-more appends at a positive index). Per Spec 016 §Subscription contract / §Causal event — load-more."}
     fetching-next?-sub-fn)
@@ -353,6 +343,6 @@
     {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
     page-error-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/infinite-state
-    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry, with :status :unresolved when its {:from-db} scope resolved nil. Per Spec 016 §Subscription contract (R3)."}
+    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry, with :status :unresolved when its {:from-db} scope resolved nil. Per Spec 016 §Subscription contract (R3)."}
     infinite-state-sub-fn)
   nil)

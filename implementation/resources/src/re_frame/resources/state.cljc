@@ -596,9 +596,9 @@
 ;; ---- infinite-feed entry refinement and transitions ----------------------------
 ;;
 ;; An infinite feed is the same entry with `:infinite? true`, `:data` as the
-;; ordered page vector, and `:page-params`, `:next-page-param`,
-;; `:prev-page-param` and `:page-error` beside it. There is no sixth status: a
-;; load-more reuses `:fetching`. Everything else is derived in subs.
+;; ordered page vector, and `:page-params`, `:next-page-param` and
+;; `:page-error` beside it. There is no sixth status: a load-more reuses
+;; `:fetching`. Everything else is derived in subs.
 ;; Spec 016 §Durable cache shape (R1).
 
 (defn infinite-entry?
@@ -627,7 +627,6 @@
           :data            []
           :page-params     []
           :next-page-param nil
-          :prev-page-param nil
           :page-error      nil)))
 
 (defn next-param-for
@@ -636,14 +635,6 @@
   [next-page-param-fn pages]
   (when (and next-page-param-fn (seq pages))
     (next-page-param-fn (peek pages) pages)))
-
-(defn prev-param-for
-  "The prev page param from `(prev-page-param-fn first-page pages)`, or nil.
-  Observable as `:has-prev-page?` though no prepend event exists.
-  Spec 016 §Registration — `:infinite`"
-  [prev-page-param-fn pages]
-  (when (and prev-page-param-fn (seq pages))
-    (prev-page-param-fn (first pages) pages)))
 
 (defn terminal?
   "True iff `next-param` is the terminal nil. Spec 016 §Registration — `:infinite`"
@@ -681,11 +672,11 @@
         (cond-> carry? (assoc :sweep-covers-invalidation? true)))))
 
 (defn entry-append-page
-  "Appends `:page` and `:page-param`, recomputes both cursors, clears
+  "Appends `:page` and `:page-param`, recomputes the next cursor, clears
   `:page-error`, re-stamps freshness, returns to `:loaded` and bumps
   `:revision`. Prior pages stay identical. Nil stays nil.
   Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
-  [entry {:keys [page next-page-param-fn prev-page-param-fn page-param loaded-at stale-at]}]
+  [entry {:keys [page next-page-param-fn page-param loaded-at stale-at]}]
   (if entry
     (let [pages' (conj (or (:data entry) []) page)]
       (-> entry
@@ -693,7 +684,6 @@
                  :data            pages'
                  :page-params     (conj (or (:page-params entry) []) page-param)
                  :next-page-param (next-param-for next-page-param-fn pages')
-                 :prev-page-param (prev-param-for prev-page-param-fn pages')
                  :page-error      nil
                  :refresh-error   nil
                  :loaded-at       loaded-at
@@ -722,7 +712,7 @@
   window-preserving refetch), otherwise settling like `entry-append-page`.
   An index at or past the tail delegates to `entry-append-page`. Nil stays
   nil. Spec 016 §Refetch and invalidation of an infinite feed."
-  [entry {:keys [page next-page-param-fn prev-page-param-fn page-param page-index
+  [entry {:keys [page next-page-param-fn page-param page-index
                  loaded-at stale-at] :as opts}]
   (if entry
     (let [pages (or (:data entry) [])]
@@ -737,7 +727,6 @@
                      :data            pages'
                      :page-params     params'
                      :next-page-param (next-param-for next-page-param-fn pages')
-                     :prev-page-param (prev-param-for prev-page-param-fn pages')
                      :page-error      nil
                      :refresh-error   nil
                      :loaded-at       loaded-at

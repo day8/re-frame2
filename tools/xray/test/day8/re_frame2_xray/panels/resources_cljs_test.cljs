@@ -93,7 +93,6 @@
                   :params-schema [:map [:slug :string]]
                   :data-schema :app/article
                   :scope :rf.scope/global
-                  :transport :rf.http/managed
                   :stale-after-ms 60000 :gc-after-ms 300000
                   :tags (fn [_ _] #{}) :request (fn [_ _] {})}}})
 

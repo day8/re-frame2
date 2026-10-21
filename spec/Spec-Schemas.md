@@ -1620,13 +1620,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:resource-id :keyword]
    [:reason      :string]])
 
-(def ResourceUnknownTransportTags
-  ;; a resource declared a :transport other than the only initial-scope
-  ;; built-in (:rf.http/managed).
-  [:map
-   [:transport :any]
-   [:reason    :string]])
-
 (def ResourceReservedRequestKeyTags
   ;; a resource's :request (the Spec 014 managed-HTTP args map) supplied one
   ;; of the runtime-owned reply-addressing keys (:request-id / :on-success /
@@ -3131,7 +3124,6 @@ The **additive `:infinite`-only slice** of the `reg-resource` registration args-
   [:map
    [:infinite          [:= true]]                ;; the flag that selects this kind
    [:next-page-param   fn?]                       ;; REQUIRED — (fn [last-page all-pages] → next-param | nil); nil = the SINGLE terminal
-   [:prev-page-param   {:optional true} fn?]      ;; the R7 bidirectional MIRROR (defined; the :rf.resource/load-prev prepend event is DEFERRED)
    [:initial-page-param {:optional true} :any]    ;; page-0 param; framework default nil (TanStack initialPageParam analogue)
    [:page->items       {:optional true}           ;; REQUIRED for a non-vector / enveloped page (R3) — loud over guessing :items/:data
                        [:or :keyword fn?]]         ;;   a key (e.g. :items) or (fn [page] → seq-of-items); a vector page flattens by identity
@@ -3227,13 +3219,13 @@ The normalized **algebra view** every declared fact / process lowers to — the 
 
 (def Authority
   ;; The remote axis — present ONLY when the fact's source of truth is
-  ;; external (EP-0014 issue-2 split). :transport is a PROJECTION of the
-  ;; Spec 016 registration fact (a recomputable mirror), never a second
-  ;; authoritative home.
+  ;; external (EP-0014 issue-2 split). :transport names the transport the
+  ;; remote is reached through — for a resource, :rf.http/managed, the one
+  ;; transport Spec 016 ships.
   [:map
    [:kind      [:= :remote]]
    [:system    {:optional true} :any]     ;; e.g. :server
-   [:transport {:optional true} :keyword]]) ;; e.g. :rf.http/managed — mirror of the registered transport
+   [:transport {:optional true} :keyword]]) ;; e.g. :rf.http/managed
 
 (def DerivationNode
   ;; The normalized algebra view of one declared fact / process. Open map:

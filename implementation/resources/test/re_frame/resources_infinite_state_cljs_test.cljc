@@ -12,9 +12,6 @@
   "A :next-page-param fn: the last page's next cursor; nil is terminal."
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
 
-(def ^:private prev-cursor
-  (fn [first-page _all-pages] (get-in first-page [:page-info :prev-cursor])))
-
 (defn- page [items next-c]
   {:items items :page-info {:next-cursor next-c}})
 
@@ -36,13 +33,6 @@
       (append (page [:a] "c1") nil 1000)
       (append (page [:b] "c2") "c1" 1100)
       (append (page [:c] "c3") "c2" 1200)))
-
-(deftest prev-param-derivation-mirror
-  (let [pages [{:items [:a] :page-info {:prev-cursor "p0"}}
-               {:items [:b] :page-info {:prev-cursor "p1"}}]]
-    (is (= ["p0" nil] [(rf.resources.state/prev-param-for prev-cursor pages)
-                       (rf.resources.state/prev-param-for nil pages)])
-        "derived from the first page; nil when no :prev-page-param is declared")))
 
 (deftest append-first-page
   (let [e0 (rf.resources.state/empty-infinite-entry :feed/timeline)

@@ -47,8 +47,6 @@
   (doseq [[label id override]
           [[":infinite false: only the literal true selects the slice"
             :feed/false-flag {:infinite false}]
-           ["a non-fn :prev-page-param"
-            :feed/bad-prev {:prev-page-param :not-a-fn}]
            ["a :page->items that is neither keyword nor fn"
             :feed/bad-acc {:page->items 99}]
            ["a non-map :refetch"

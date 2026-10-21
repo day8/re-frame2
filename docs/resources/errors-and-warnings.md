@@ -31,7 +31,6 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-invalid-params` | Params don't conform to the resource's `:params-schema` — checked once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded, and only for a resource that declares one | Fix the params; the error redacts classified values |
 | `:rf.error/resource-non-edn-params` | A resource's or mutation's params carry a float, a ratio, a function or another host value, none of which can be part of a cache key | Pass it as a string or an integer, or leave it out |
 | `:rf.error/resource-reserved-request-key` | The request fn returned `:request-id`, `:on-success`, `:on-failure` or `:reply-to` | Drop them; the runtime routes the reply, and a continuation goes in the call-site `:reply-to` |
-| `:rf.error/resource-unknown-transport` | A `:transport` other than `:rf.http/managed`. The spec registers; the first load or write raises | Omit `:transport`, or use `:rf.http/managed` |
 | `:rf.error/reply-invalid-target` | An ensure's or execute's `:reply-to` is not a non-empty vector with a keyword head | Pass an event vector, such as `[:todo/loaded]` |
 | `:rf.error/reply-non-data-target` | A `:reply-to` carries a fn or another host object | Pass data only; the reply is appended to the vector |
 | `:rf.error/resource-scope-unresolved-reference` | An ensure's, execute's or `invalidate-tags`' `{:from-db …}` scope resolved to `nil` | Dispatch it once the resolver's inputs are in app-db |

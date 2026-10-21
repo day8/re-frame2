@@ -31,10 +31,10 @@
   registration-metadata keys always pass. `:request` is absent because it is
   the third slot, and inside the map it is a loud `:rf.error/resource-bad-spec`.
   Spec 016 §Resource registration spec."
-  #{:doc :scope :params-schema :data-schema :transport :tags
+  #{:doc :scope :params-schema :data-schema :tags
     :stale-after-ms :gc-after-ms :poll-interval-ms :timeout-ms
     :sensitive :large :sensitive? :large?
-    :infinite :next-page-param :prev-page-param :initial-page-param
+    :infinite :next-page-param :initial-page-param
     :page->items :refetch})
 
 ;; ---- scope-policy validation (fail-closed) -------------------------------
@@ -81,8 +81,8 @@
   "Throws on a malformed `:infinite` slice: `:infinite` present but not
   `true`, a missing or non-fn `:next-page-param`
   (`:rf.error/infinite-missing-next-page-param`), or a mistyped
-  `:prev-page-param`, `:page->items` or `:refetch`. No-op for an ordinary
-  resource. Spec 016 §Registration — `:infinite`."
+  `:page->items` or `:refetch`. No-op for an ordinary resource.
+  Spec 016 §Registration — `:infinite`."
   [resource-id spec]
   (when (contains? spec :infinite)
     (when-not (true? (:infinite spec))
@@ -106,18 +106,6 @@
                       "nil (nil = the single terminal, no more pages). Per Spec "
                       "016 §Registration — :infinite (R8).")
                  {:resource-id resource-id :next-page-param (:next-page-param spec)})))
-      (when (and (contains? spec :prev-page-param)
-                 (not (fn? (:prev-page-param spec))))
-        (throw (registration-error
-                 :rf.error/resource-bad-spec
-                 'rf/reg-resource
-                 (str "infinite resource " resource-id " declares a "
-                      ":prev-page-param that is not a fn (got "
-                      (pr-str (:prev-page-param spec)) "). :prev-page-param is "
-                      "the optional R7 bidirectional mirror — a pure fn "
-                      "(first-page all-pages) → prev-param | nil. Per Spec 016 "
-                      "§Causal event — load-more (R7).")
-                 {:resource-id resource-id :prev-page-param (:prev-page-param spec)})))
       (when (and (contains? spec :page->items)
                  (not (or (keyword? (:page->items spec))
                           (fn? (:page->items spec)))))
@@ -218,10 +206,9 @@
     (throw (registration-error
              :rf.error/resource-bad-spec
              'rf/reg-resource
-             (str "resource " resource-id " declares no :request. For "
-                  ":transport :rf.http/managed (the only built-in "
-                  "transport) :request returns a Spec 014 managed-HTTP args "
-                  "map. Per Spec 016 §Resource registration spec.")
+             (str "resource " resource-id " declares no :request. "
+                  ":request returns a Spec 014 managed-HTTP args map. Per "
+                  "Spec 016 §Resource registration spec.")
              {:resource-id resource-id})))
   ;; Presence is not enough: a non-callable `:request` would fail at the first
   ;; read as a raw host cast error, or (a keyword or map is `ifn?`) silently
@@ -391,7 +378,6 @@
       (rf.trace/emit! :rf.event :rf.resource/registered
                    {:resource-id      resource-id
                     :scope-policy     (:scope resource-spec)
-                    :transport        (:transport resource-spec)
                     :stale-after-ms   (:stale-after-ms resource-spec)
                     :gc-after-ms      (:gc-after-ms resource-spec)
                     :poll-interval-ms (:poll-interval-ms resource-spec)})))
