@@ -1152,11 +1152,14 @@
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules          {:probe {:init-fn re-frame.schemas-bundle-probe/boot}}}
 
-  ;; Non-vacuous positive half of the bundle-isolation gate. `release` gives
-  ;; this build the same :advanced Closure mode as :examples/counter, and both
-  ;; builds pin goog.DEBUG=false explicitly. One module per owner is
-  ;; load-bearing: the checker inspects the exact module file, so a matching
-  ;; literal emitted by a sibling cannot satisfy the wrong artefact.
+  ;; The positive half of the bundle-isolation gate's ELISION claims: the
+  ;; ones only emitted bytes can answer, because the namespace is in the
+  ;; counter build's graph and Closure must drop its bodies
+  ;; (scripts/check-bundle-isolation.cjs). `release` gives this build the
+  ;; same :advanced Closure mode as :examples/counter, and both builds pin
+  ;; goog.DEBUG=false explicitly. One module per claim is load-bearing: the
+  ;; checker inspects the exact module file, so a matching literal emitted
+  ;; by a sibling cannot satisfy the wrong claim.
   :bundle-isolation-positive-control
   {:target           :browser
    :output-dir       "out/bundle-isolation-positive-control"
