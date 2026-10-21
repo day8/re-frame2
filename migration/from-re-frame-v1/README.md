@@ -1651,9 +1651,9 @@ The [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshot
 - A direct `(:require [re-frame.epoch])` clause.
 - Any reference to `:rf.epoch/*` trace ops in custom listeners.
 
-**What to do.** Nothing for the dependency: the core coordinate chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) carries the surface. A namespace that calls a `re-frame.epoch` function requires `re-frame.epoch`, as for any namespace whose vars it names. A namespace that reaches the surface only through `re-frame.core` — the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!`, `rf/epoch-history`, or `(rf/configure! {:epoch-history ...})` — needs no require of its own.
+**What to do.** Nothing for the dependency: the core coordinate chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) carries the surface. A namespace that calls a `re-frame.epoch` function requires `re-frame.epoch`, as for any namespace whose vars it names. A namespace that reaches the surface only through `re-frame.core` — the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!`, or `(rf/configure! {:epoch-history ...})` — needs no require of its own.
 
-**Public API.** The time-travel functions live in `re-frame.epoch` — `(epoch/epoch-history ...)`, `(epoch/restore-epoch! ...)`, `(epoch/replay-epoch! ...)`, `(epoch/replace-frame-state! ...)`. `re-frame.core` carries the `:epoch` stream of `(rf/register-listener! ...)` / `(rf/unregister-listener! ...)`, `rf/epoch-history` and `(rf/configure! {:epoch-history ...})`, which call it directly.
+**Public API.** The time-travel functions live in `re-frame.epoch` — `(epoch/epoch-history ...)`, `(epoch/restore-epoch! ...)`, `(epoch/replay-epoch! ...)`, `(epoch/replace-frame-state! ...)`. `re-frame.core` carries the `:epoch` stream of `(rf/register-listener! ...)` / `(rf/unregister-listener! ...)` and `(rf/configure! {:epoch-history ...})`, which call it directly.
 
 **Why:** the surface is dev-only, so `interop/debug-enabled?` keeps it out of production bundles and a separate artefact would buy a dev build nothing a developer would notice (see [Conventions §Packaging conventions](../../spec/Conventions.md#packaging-conventions)).
 

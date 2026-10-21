@@ -995,7 +995,7 @@ vocabulary in dispatch responses. The projection is intentionally
 LOSSY (counts instead of full vectors, depth-1 path summary instead of
 the raw `:db-before`/`:db-after` pair) so the cascade-summary rides
 under the 5K-token wire-cap without further elision. Operators who
-want the full epoch read `(rf/epoch-history)` or run `trace-window` /
+want the full epoch read `(rf.epoch/epoch-history frame-id)` or run `trace-window` /
 `watch-epochs` for the same id.
 
 ### Slot inventory

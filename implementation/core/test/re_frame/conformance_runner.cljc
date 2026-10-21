@@ -79,6 +79,7 @@
     [clojure.string :as str]
     [re-frame.core :as rf]
     [re-frame.elision :as rf.elision]
+    [re-frame.epoch :as rf.epoch]
     [re-frame.error-emit :as rf.error-emit]
     [re-frame.events :as rf.events]
     [re-frame.fx :as rf.fx]
@@ -656,7 +657,7 @@
     (vec
       (mapcat
         (fn [[frame-id entries]]
-          (let [actual-history (try (rf/epoch-history frame-id)
+          (let [actual-history (try (rf.epoch/epoch-history frame-id)
                                     (catch #?(:clj Throwable :cljs :default) _ []))]
             (keep-indexed
               (fn [i {:keys [record]}]

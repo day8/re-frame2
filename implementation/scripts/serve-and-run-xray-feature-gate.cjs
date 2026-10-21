@@ -278,11 +278,11 @@ async function readXrayState(page) {
     }
     function epochCount() {
       const cljs = window.cljs && window.cljs.core;
-      const rf = window.re_frame && window.re_frame.core;
-      if (!cljs || !rf || typeof rf.epoch_history !== 'function') return null;
+      const epoch = window.re_frame && window.re_frame.epoch;
+      if (!cljs || !epoch || typeof epoch.epoch_history !== 'function') return null;
       const kw = cljs.keyword.call ? cljs.keyword.call(null, 'rf/default') : cljs.keyword('rf/default');
       let n = 0;
-      let s = cljs.seq(rf.epoch_history(kw));
+      let s = cljs.seq(epoch.epoch_history(kw));
       while (s) {
         n += 1;
         s = cljs.next(s);
