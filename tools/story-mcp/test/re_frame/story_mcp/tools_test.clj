@@ -92,11 +92,7 @@
     ::reapply-frame-class
     (fn [{:keys [db]} [_ _frame-id classification-config]]
       (merge {:db db} classification-config)))
-  (try
-    (t)
-    (finally
-      ;; A test that turns the epoch ring off hands back the default.
-      (rf/configure! {:epoch-history {:depth 50}}))))
+  (t))
 
 (use-fixtures :each reset-story-and-config)
 
@@ -920,6 +916,52 @@
                  {:structuredContent {:assertions [] :narrative [] :app-db {:rows (vec (range 500))}}}))))
 
 ;; ---------------------------------------------------------------------------
+;; The `:narrative` is epoch data, so each beat crosses the off-box epoch
+;; projector the pair MCP uses: a declared-sensitive app-db slot redacts in a
+;; beat's db snapshots and in its opt-in trace events alike.
+;; ---------------------------------------------------------------------------
+
+(def ^:private narrative-secret "NARRATIVE-SECRET-SENTINEL")
+
+(defn- reg-narrative-secret-variant!
+  "A variant whose `:setup` dispatches a token as an event arg, and seeds it
+  at a path it declares sensitive in the same transition. The trace bus
+  already redacts a trace event's db snapshot by that classification, so the
+  copy left for the epoch projector in the trace events is the event arg."
+  []
+  (rf/reg-event ::seed-secret
+    (fn [{:keys [db]} [_ token]]
+      {:db        (assoc-in db [:auth :token] token)
+       :sensitive [[:auth :token]]}))
+  (rf.story/reg-variant :story.button/narrative-secret
+    {:doc   "Seeds a declared-sensitive token."
+     :setup [[::seed-secret narrative-secret]]}))
+
+(defn- narrative-db-afters [payload]
+  (keep :db-after (narrative-beats payload)))
+
+(deftest run-variant-narrative-redacts-a-declared-sensitive-slot
+  (reg-narrative-secret-variant!)
+  (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/narrative-secret"}))]
+    (is (some #(= :rf/redacted (get-in % [:auth :token])) (narrative-db-afters s))
+        "the seeded slot reaches a beat's :db-after, redacted")
+    (is (not (str/includes? (pr-str (:narrative s)) narrative-secret))))
+  (testing "the trusted-local opt-in lifts the slot, still through the projector"
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (let [s (:structuredContent (invoke "run-variant" {:variant-id        "story.button/narrative-secret"
+                                                       :include-sensitive true}))]
+      (is (some #(= narrative-secret (get-in % [:auth :token])) (narrative-db-afters s))))))
+
+(deftest run-variant-include-trace-events-crosses-the-projector
+  (reg-narrative-secret-variant!)
+  (let [s      (:structuredContent (invoke "run-variant" {:variant-id           "story.button/narrative-secret"
+                                                          :include-trace-events true
+                                                          :max-tokens           0}))
+        events (mapcat :trace-events (narrative-beats s))]
+    (is (seq events) "control: the beats carry their trace events")
+    (is (not (str/includes? (pr-str events) narrative-secret)))))
+
+;; ---------------------------------------------------------------------------
 ;; Wire-egress privacy posture (spec/Tool-Pair.md §Direct-read privacy
 ;; posture). A slot classified on the variant's frame surfaces as
 ;; `:rf/redacted` unless the operator gate is open AND the caller sends
@@ -1024,9 +1066,10 @@
 
 (deftest derived-slots-at-a-classified-path-honour-the-include-sensitive-opt-in
   ;; Each slot carries the secret AT a classified path — `[:token]` in the map
-  ;; slots, `[0 :token]` in the vector evidence slots — so it redacts unless
-  ;; the opt-in reaches that slot's own projection. The stub carries only
-  ;; slots a real `rf.story/run-variant` can produce.
+  ;; slots and in a narrative beat's app-db snapshot, `[0 :token]` in the
+  ;; other vector evidence slots — so it redacts unless the opt-in reaches
+  ;; that slot's own projection. The stub carries only slots a real
+  ;; `rf.story/run-variant` can produce, in the shapes it produces them.
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (with-clean-frame [vid :story.button/primary]
     (declare-sensitive! vid [:token])
@@ -1037,10 +1080,15 @@
                       (merge {:status :pass :frame vid :lifecycle :ready :elapsed-ms 1
                               :app-db {} :assertions [] :checks []
                               :effective-args {:token "TOPSECRET"} :snapshot {:token "TOPSECRET"}}
-                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}])))))]
+                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}]))
+                             {:narrative [{:step nil :epochs [{:epoch-id 1 :db-after {:token "TOPSECRET"}}]}]})))]
       (doseq [[tool slots] [["run-variant"     (conj evidence-slots :snapshot)]
                             ["preview-variant" [:snapshot :effective-args]]]]
-        (let [paths (map #(if (#{:snapshot :effective-args} %) [% :token] [% 0 :token]) slots)
+        (let [paths (map #(case %
+                            (:snapshot :effective-args) [% :token]
+                            :narrative                  [% 0 :epochs 0 :db-after :token]
+                            [% 0 :token])
+                         slots)
               read  (fn [args]
                       (let [s (:structuredContent (invoke tool (merge {:variant-id "story.button/primary"} args)))]
                         (zipmap slots (map #(get-in s %) paths))))]
@@ -1496,11 +1544,6 @@
                 "\n"))))
 
 (deftest named-check-assertion-copies-honour-the-sensitive-filter
-  ;; Epochs off: a `:narrative` beat's `:db-after` is a re-keyed copy of
-  ;; app-db, which ships raw under EP-0025 fail-open, so with epochs on the
-  ;; seeded record would cross the wire whatever the `:checks` filter does.
-  ;; This test is about the `:checks` copies.
-  (rf/configure! {:epoch-history {:depth 0}})
   (reg-check-private-fixture!)
   (doseq [tool ["run-variant" "preview-variant"] dedup [true false]]
     (let [frame (call-checked-private tool {:dedup dedup :include-sensitive true})]

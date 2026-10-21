@@ -86,11 +86,12 @@
                         projection); ALL value-bearing — each is
                         PATH-projected at egress (EP-0025 fail-open: a value
                         AT a classified path redacts; a value re-keyed into
-                        :narrative beats / :warnings / :sub-runs at a
-                        non-app-db position ships RAW — classify the app-db
-                        PATH to redact it at the source). Each :narrative
-                        beat carries a :trace-event-count in place of its
-                        raw :trace-events unless :include-trace-events
+                        :warnings / :sub-runs at a non-app-db position ships
+                        RAW — classify the app-db PATH to redact it at the
+                        source). Each :narrative beat is epoch data and
+                        crosses the off-box epoch projector, and carries a
+                        :trace-event-count in place of its raw :trace-events
+                        unless :include-trace-events
     :app-db             post-run app-db, elided at egress
     :snapshot           the PATH-projected derived tree (EP-0025 fail-open:
                         value at a classified path -> :rf/redacted /
@@ -168,16 +169,16 @@
                                   ;; projection). Every value-bearing slot is
                                   ;; PATH-projected against the frame's
                                   ;; classification, same as :snapshot.
-                                  ;; EP-0025 FAIL-OPEN: :narrative beats carry
-                                  ;; :db-before/:db-after FULL app-db snapshots,
-                                  ;; :warnings are trace-event records, :sub-runs
-                                  ;; carry subscription :value — a secret re-keyed
-                                  ;; into any of these non-app-db positions ships
-                                  ;; RAW (there is no value-match; classify the
-                                  ;; app-db PATH to redact at the source).
-                                  ;; scrub-rendered recurses the nested trees and
-                                  ;; the gate stays symmetric (incl? true forwards
-                                  ;; raw).
+                                  ;; EP-0025 FAIL-OPEN: :warnings are trace-event
+                                  ;; records and :sub-runs carry subscription
+                                  ;; :value — a secret re-keyed into either
+                                  ;; non-app-db position ships RAW (there is no
+                                  ;; value-match; classify the app-db PATH to
+                                  ;; redact at the source). scrub-rendered
+                                  ;; recurses the nested trees and the gate stays
+                                  ;; symmetric (incl? true forwards raw).
+                                  ;; :narrative is epoch data, so its beats cross
+                                  ;; the epoch projector instead (`project-narrative`).
                                   ;; Every slot is `(vec ...)`-wrapped BEFORE the
                                   ;; projection — `scrub-rendered` returns nil for
                                   ;; a nil tree, so a bare absent-key nil would
@@ -193,11 +194,11 @@
                                   :effects            (rf.story-mcp.tools.egress/scrub-rendered (vec (:effects outcome)) raw-db vk incl?)
                                   :sub-runs           (rf.story-mcp.tools.egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
                                   :renders            (rf.story-mcp.tools.egress/scrub-rendered (vec (:renders outcome)) raw-db vk incl?)
-                                  :narrative          (rf.story-mcp.tools.egress/scrub-rendered
+                                  :narrative          (rf.story-mcp.tools.egress/project-narrative
                                                         (cond-> (vec (:narrative outcome))
                                                           (not (rf.story-mcp.tools.args/include-trace-events? arguments))
                                                           count-trace-events)
-                                                        raw-db vk incl?)
+                                                        vk incl?)
                                   ;; Derived tree: PATH-projected. A value AT a
                                   ;; classified path redacts; a re-keyed copy ships
                                   ;; raw (EP-0025 fail-open). `run-variant` produces
@@ -380,7 +381,7 @@
 (def descriptors
   "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would settle an ordinary `:status :pass` over a DIFFERENT scenario than the one requested. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, `:elapsed-ms`, and the snapshot-identity strings `:plan-hash` (the plan that ran) and `:run-hash` (its behavioural evidence) — equal across reruns of a deterministic scenario, so compare them to tell a changed plan from changed behaviour. Each `:narrative` beat carries its epoch's `:epoch-id`, `:trigger-event`, `:db-before` / `:db-after`, `:effects`, `:sub-runs` and `:renders`, plus a `:trace-event-count` in place of the raw `:trace-events`; pass `:include-trace-events true` for the events themselves (they are most of a run's bytes, so expect to raise `max-tokens`). Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would settle an ordinary `:status :pass` over a DIFFERENT scenario than the one requested. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, `:elapsed-ms`, and the snapshot-identity strings `:plan-hash` (the plan that ran) and `:run-hash` (its behavioural evidence) — equal across reruns of a deterministic scenario, so compare them to tell a changed plan from changed behaviour. Each `:narrative` beat carries its epoch's `:epoch-id`, `:trigger-event`, `:db-before` / `:db-after`, `:effects`, `:sub-runs` and `:renders`, plus a `:trace-event-count` in place of the raw `:trace-events`; pass `:include-trace-events true` for the events themselves (they are most of a run's bytes, so expect to raise `max-tokens`). Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and the evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders`) are PATH-projected on BOTH egress axes against the same frame classification. Each `:narrative` beat is epoch data and crosses the off-box epoch projector the pair MCP uses: its `:db-before` / `:db-after` redact by app-db path, and its event and effect args redact. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:sub-runs` `:value`) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
