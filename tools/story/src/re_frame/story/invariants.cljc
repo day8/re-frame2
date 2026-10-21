@@ -199,7 +199,7 @@
                  (catch #?(:clj Throwable :cljs :default) e
                    {:ok?   false
                     :error #?(:clj  (.getMessage ^Throwable e)
-                              :cljs (str e))}))
+                              :cljs (or (ex-message e) (str e)))}))
         ;; A bare-fn check returns a boolean; the `[:db …]` shorthand and
         ;; the catch arm return a `{:ok? …}` map with extra diagnostics.
         {:keys [ok?] :as detail} (if (map? result) result {:ok? (boolean result)})]
