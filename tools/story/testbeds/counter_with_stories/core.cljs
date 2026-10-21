@@ -10,9 +10,7 @@
   `:advanced` with `:closure-defines {re-frame.story.config/enabled?
   false}`, every `reg-*` form in `counter-with-stories.stories`
   elides to `nil`, `mount-shell!` short-circuits, and the bundle
-  carries no Story body code. The bundle-isolation grep at
-  `implementation/scripts/check-bundle-isolation.cjs` verifies the
-  Story-sentinel set is absent under that build."
+  carries no Story body code."
   (:require [re-frame.core      :as rf]
             [re-frame.story     :as rf.story]
             [re-frame.story.play.ci-runner :as rf.story.play.ci-runner]

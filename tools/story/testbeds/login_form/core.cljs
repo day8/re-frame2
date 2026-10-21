@@ -10,9 +10,7 @@
   Per `001-Authoring.md` §Registration macros, when compiled under `:advanced` with
   `:closure-defines {re-frame.story.config/enabled? false}`, every
   reg-* form in `login-form.stories` elides to nil; `mount-shell!`
-  short-circuits; the bundle carries no Story body code. The
-  bundle-isolation grep at `implementation/scripts/check-bundle-
-  isolation.cjs` covers the Story-sentinel absence."
+  short-circuits; the bundle carries no Story body code."
   (:require [re-frame.core      :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.http.stub-transport :as rf.http.stub-transport]

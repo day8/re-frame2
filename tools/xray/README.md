@@ -369,7 +369,7 @@ build placement rather than construction:
   calls in a namespace only your dev entry point loads.
 - **No CI gate proves Xray's absence from a release bundle.**
   `npm run test:elision` roots `re-frame.*` sentinels only, and
-  `check-bundle-isolation.cjs` greps a no-feature bundle that never
+  `check-bundle-isolation.cjs` reads a no-feature build that never
   installed Xray. Grepping your own release output for `rf-xray-root`
   or `rf.xray` is a leak detector, not proof of zero retained bytes.
 
