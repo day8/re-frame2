@@ -1,10 +1,10 @@
-(ns re-frame.frame-classification-cljs-test
-  "What `re-frame.frame-classification` owns at `make-frame`: the retired
-  `:sensitive` / `:large` frame keys fail loud with
-  `:rf.error/bad-frame-classification` (durable app-db classification rides the
-  commit-plane effects, HTTP carriers the `:rf.http/managed` registration), and
-  the `:observability` sink policy validates shape-only, failing loud before any
-  state mutates, and otherwise rides the frame's config verbatim."
+(ns re-frame.frame-config-validation-cljs-test
+  "What `make-frame`'s config validation refuses before any frame state exists:
+  a `:sensitive` / `:large` frame key, and an `:observability` sink policy
+  outside its closed grammar, each with `:rf.error/bad-frame-classification`
+  (durable app-db classification rides the commit-plane effects, HTTP carriers
+  the `:rf.http/managed` registration). A well-formed policy rides the frame's
+  config verbatim."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]

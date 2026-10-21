@@ -203,6 +203,11 @@
             :where    're-frame.fresco.impl.mount/hydrate-root!
             :recovery :warned-and-replaced}}
 
+    ;; the epoch trailer shows its consumer-facing summary, not the cause
+    ":blocked"
+    {:op-type :rf.epoch :operation :rf.epoch/snapshotted
+     :tags {:outcome :halted-depth :summary :blocked}}
+
     ;; no recognised subject → nil (the view renders an em-dash)
     nil
     {:op-type :rf.event :operation :rf.event/run-end :tags {}}))
@@ -278,8 +283,8 @@
     (ev {:id 6 :op-type :rf.sub :operation :rf.sub/run
          :time 111 :tags {:rf.sub/id :app/derived}})
     (ev {:id 7 :op-type :rf.view :operation :rf.view/render :time 120})
-    (ev {:id 8 :op-type :rf.epoch :operation :rf.epoch/outcome
-         :time 121 :tags {:rf.epoch/outcome :ok}})]})
+    (ev {:id 8 :op-type :rf.epoch :operation :rf.epoch/snapshotted
+         :time 121 :tags {:outcome :ok :summary :ok}})]})
 
 (deftest project-feed-from-epoch-folds-the-complete-domino-trail
   (testing "the focused epoch's WHOLE trail, oldest-first — the async

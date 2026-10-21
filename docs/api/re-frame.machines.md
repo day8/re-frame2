@@ -146,7 +146,6 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 | `:rf.error/machine-spawn-all-bad-shape` | A `:spawn-all` block has an unknown key, a `:join` other than `:all` or `:any`, no `:on-all-complete` for `:all` or `:on-some-complete` for `:any`, or `:children` that is not a vector of specs. |
 | `:rf.error/machine-spawn-all-duplicate-id` | Two `:spawn-all` children share an `:id`. |
 | `:rf.error/machine-spawn-all-with-spawn` | One state declares both `:spawn` and `:spawn-all`. |
-| `:rf.error/spawn-timeout-ms-removed` | A `:spawn` or `:spawn-all` carries `:timeout-ms`. |
 | `:rf.error/machine-bad-tags` | `:tags` is not a set of keywords, or a tag is in the reserved `:rf/*` or `:rf.*/*` namespaces. |
 | `:rf.error/machine-bad-schemas` | `:schemas` is not a map. |
 | `:rf.error/machine-bad-schemas-key` | `:schemas` carries a key other than `:data`, `:output`, `:events`, `:tags` and `:meta`, `:input` included. |

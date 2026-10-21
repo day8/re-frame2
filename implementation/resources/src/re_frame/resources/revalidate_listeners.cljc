@@ -20,13 +20,13 @@
 (def window-focused-event
   "The event a window-focus (tab-return) signal dispatches; its handler
   refetches the frame's active stale entries with cause `:focus`. Dispatched
-  by the host listener, never by user code. Spec 016 §Deferred slices."
+  by the host listener, never by user code. Spec 016 §Stale and GC scheduling."
   :rf.resource/window-focused)
 
 (def network-reconnected-event
   "The event a network-reconnect signal dispatches; its handler refetches the
   frame's active stale entries with cause `:reconnect`. Dispatched by the
-  host listener, never by user code. Spec 016 §Deferred slices."
+  host listener, never by user code. Spec 016 §Stale and GC scheduling."
   :rf.resource/network-reconnected)
 
 ;; ---- host-side listener side table ----------------------------------------

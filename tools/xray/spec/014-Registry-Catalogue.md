@@ -565,7 +565,7 @@ Routes, not this event-coupled lens.
 Spec: [`024-Resources-Panel.md`](./024-Resources-Panel.md) (Xray-side
 lens) + [`spec/016-Resources.md`](../../../spec/016-Resources.md)
 (framework substrate). Declarative-server-state lens: the static resource
-registry, the live per-frame instance + work-ledger tables, the
+registry, the live per-frame instance and attempt (Work ledger) tables, the
 route/resource graph, the lifecycle timeline, the invalidation graph, the
 cache-growth view, and the scope audit. Read-only — the panel
 registers NO `:rf.resource/*` event (observing pins no resource, Spec 016

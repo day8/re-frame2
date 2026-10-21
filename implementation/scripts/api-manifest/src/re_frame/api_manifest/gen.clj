@@ -486,9 +486,9 @@
      ;; are `*-sub-fn` bodies and their registration entry points.
      re-frame.resources.mutation-subs
      re-frame.resources.subs
-     ;; Async lowering and the frame work ledger: the uniform reply envelope,
-     ;; the shared stale-suppression substrate above it, the ledger records and
-     ;; host-side handles, and the transport seam. The artefact ships ONE
+     ;; Async lowering and attempt records: the uniform reply envelope, the
+     ;; shared stale-suppression substrate above it, the attempt records and
+     ;; their host-side handles, and the transport seam. The artefact ships ONE
      ;; built-in transport (`:rf.http/managed`); transport-neutrality is a
      ;; design property of the core, not a published extension API — no doc,
      ;; spec, skill or example names `managed-http-transport`.

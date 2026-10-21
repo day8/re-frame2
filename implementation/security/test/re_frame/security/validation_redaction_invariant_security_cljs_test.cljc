@@ -67,7 +67,7 @@
     (is (= [true false :rf/redacted :rf/redacted :rf/redacted]
            (redaction trace :received :value :explain)))))
 
-(deftest app-db-validation-redacts-conforming-sensitive-sibling-whole-explain
+(deftest app-db-validation-redacts-conforming-sensitive-sibling
   ;; A live frame: the trace is also projected through its elision registry,
   ;; and a frame the walker cannot resolve redacts the whole value.
   (rf/init! rf.substrate.plain-atom/adapter)
@@ -76,7 +76,7 @@
   (let [trace (capture-failure
                 #(rf.schemas/validate-app-schema!
                    {:root failing-sibling-value} :root/bad))]
-    (is (= [true false "not-an-int" :rf/redacted]
+    (is (= [true false :rf/redacted :rf/redacted]
            (redaction trace :value :explain)))))
 
 (deftest machine-data-validation-redacts-conforming-sensitive-sibling

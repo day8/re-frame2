@@ -178,7 +178,7 @@ effects throw rather than strip the characters:
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Remove them before `:set-header` / `:append-header` |
 | Header name rejected | `:rf.error/header-invalid-name` | Use a plain token name such as `"X-Request-Id"`: no spaces, colons or keywords |
 | CR/LF/NUL in a redirect location | `:rf.error/redirect-invalid-location` | Strip CR, LF and NUL from the location; no `:allow` waives the check |
-| Redirect written with `:url` or `:to` | `:rf.error/redirect-retired-target-key` | The target key is `:location` |
+| Redirect written with `:url` or `:to` | A target-less redirect: the adapter warns `:rf.ssr/ssr-redirect-no-target` and answers a 3xx with no `Location` | The target key is `:location` |
 | Cookie name rejected | `:rf.error/cookie-invalid-name` | A string token name, such as `"session"` |
 | CR/LF/NUL in a cookie attribute | `:rf.error/cookie-invalid-attribute` (`:attribute` names the field) | Don't pass raw input into `:path` / `:domain` |
 | String or date `:expires` | `:rf.error/cookie-invalid-expires` when the Ring adapter writes the header | Epoch milliseconds as a long, or use `:max-age` |

@@ -19,7 +19,7 @@
   record-level boundary primitive — the required step before any off-box
   sink. It knows which record slots are app-db-shaped / event-shaped /
   exception-shaped / HTTP-shaped / public-summary-only, applies the merged
-  frame-owned classification (`re-frame.frame-classification`), and
+  per-frame classification (the elision registry, `re-frame.elision`), and
   DELEGATES to `elide-wire-value` for every tree-shaped slot where frame
   policy applies. The per-record-kind projectors are PRIVATE (EP-0015
   issue 2: `project-egress` names the BOUNDARY, not a record kind). There

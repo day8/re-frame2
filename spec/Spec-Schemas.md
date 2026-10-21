@@ -842,7 +842,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :actor-id <live-instance-id> :last-state <state> :reason :parent-frame-destroyed}`. `:reason` is always `:parent-frame-destroyed` — the frame-exit cascade is this channel's sole trigger, one emit per active machine snapshot; every non-frame-exit teardown signals on the fx-substrate `:rf.machine/destroyed` row above instead (per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). `:actor-id` is the reaped actor's live INSTANCE address (`:machine-id` is reserved for the registered TYPE, carried by the `created` half above) | 005 / 009 |
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
 | `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
-| `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/outcome` (consumer-facing `{:ok :blocked :error}` summary paired with `-snapshotted`'s detailed cause), `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>? :outcome <enum>?}` | Tool-Pair |
+| `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted` (one per committed epoch, carrying the detailed `:outcome` cause and its consumer-facing `{:ok :blocked :error}` `:summary`), `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>? :outcome <enum>? :summary <enum>?}` | Tool-Pair |
 | `:rf.epoch.cb` | Epoch-callback family — `:rf.epoch.cb/listener-exception`, the diagnostic emitted when an `:epoch`-stream listener callback throws (under `:op-type :error`; per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The failing callback is isolated and sibling listeners keep receiving the record. | 009 |
 | `:ssr` | Generic SSR-context family — server-render boundary traces (per [011](011-SSR.md)). Distinct from `:rf.ssr/*` operations under `:op-type :warning` (`:rf.ssr/hydration-mismatch` etc.) which ride the severity channel | 011 |
 
@@ -1740,7 +1740,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:error       {:optional true} :any]   ;; the resource's first-load failure envelope
    [:reason      :string]])
 
-;; --- runtime: mutation errors (per [016 §Deferred slices] / [EP-0003 §Mutations]) ---
+;; --- runtime: mutation errors (per [016 §Mutations] / [EP-0003 §Mutations]) ---
 ;; The fail-closed mutation authoring + use vocabulary.
 ;; A mutation is a causal write keyed by
 ;; mutation INSTANCE id; :request + :params-schema are REQUIRED at
@@ -2337,9 +2337,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-timeout {:optional true} [:or Transition [:vector Transition]]]])    ;; EP-0029 A4 — the parent transition taken when the spawn-level `:timeout` deadline elapses; same `:on`-shaped grammar as `:on-error`. REQUIRES a sibling `:timeout`. Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 ;; The spawn-level `:timeout` / `:on-timeout` (above, EP-0029 A4)
 ;; lowers onto the spawn-bearing state's `:after`, anchored to entry so it bounds
-;; the child's whole lifetime. `:timeout-ms` is not a spawn key —
-;; registration rejects a `:timeout-ms` key on
-;; `:spawn` / `:spawn-all` with `:rf.error/spawn-timeout-ms-removed`. General
+;; the child's whole lifetime. `:timeout-ms` is not a spawn key — registration
+;; refuses it as an unknown key (`:rf.error/machine-unknown-spawn-key`). General
 ;; (non-deadline) delayed transitions use the parent state's `:after`. See
 ;; [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
@@ -2384,9 +2383,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; `:spawn-all` carries NO spawn-level `:timeout` of its own (unlike single
 ;; `:spawn`, EP-0029 A4). A wall-clock deadline bounding a `:spawn-all`-bearing
 ;; state uses the STATE-level `:timeout` / `:on-timeout` (above) or a general
-;; parent-state `:after`. `:timeout-ms` is not a spawn key —
-;; registration rejects a `:timeout-ms` key on `:spawn-all` with
-;; `:rf.error/spawn-timeout-ms-removed`. See
+;; parent-state `:after`. `:timeout-ms` is not a `:spawn-all` key —
+;; registration refuses it as an unknown block key
+;; (`:rf.error/machine-spawn-all-bad-shape`). See
 ;; [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
 ;; The snapshot's location in app-db is the reserved path [:rf.runtime/machines :snapshots <id>]
@@ -2457,7 +2456,7 @@ The recursive `::state-node` ref carries the spec id `:rf/state-node` so individ
 
 **Root parallel `:on` — the ancestor fallback.** The parallel root's OWN `:on` IS consulted — it is the ANCESTOR FALLBACK for its regions (deepest-wins with parent fallthrough, the parallel analog of the flat / compound machine-root `:on` fallback). It is selected ONLY when NO region-local transition was selected for the event; a region match suppresses the root transition ENTIRELY (atomic). A root `:on` transition's `:target` MUST be **region-qualified** — either a single `[<region> & <in-region-path>]` (a vector whose head is a declared region) or multiple `[[<region> …] [<region> …]]` (a vector of vectors); a targetless / action-only transition is permitted. A bare keyword target, or a target whose head is not a declared region, is rejected at registration with `:rf.error/machine-parallel-root-on-bad-target` (a root-only parallel machine has no flat sibling state to land a non-region-qualified target on). The root `:on` GUARD is selected against the frozen pre-event snapshot (per the parallel two-phase frozen-selection model). A `:type :parallel` root MAY also declare its OWN `:after` — a **root-owned** delayed transition (the timer-driven analog of the root `:on` ancestor fallback), scheduled at machine birth and stale-gated by the root's own per-path epoch at the flat `[:rf/runtime :after-epoch []]` slot. A root `:after` `:target` reuses the EXACT region-qualified target grammar above, so a non-region-qualified root `:after` target is rejected with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword. Per [005 §Transition broadcast §Root parallel `:on`](005-StateMachines.md#transition-broadcast) and [§Root parallel `:after`](005-StateMachines.md#root-parallel-on--the-ancestor-fallback).
 
-**`:timeout` / `:on-timeout` (EP-0029 A4).** A state node — or a `:spawn` spec — MAY declare a `:timeout` duration plus an `:on-timeout` transition (the named-intent wall-clock-deadline grammar). `:timeout` REQUIRES `:on-timeout` and vice-versa; the duration is a POSITIVE INTEGER (literal ms) or an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, …) — the XState `"5s"` / `"10ms"` readable shorthand is REJECTED (a deliberate divergence from XState). `:timeout` / `:on-timeout` desugars at registration onto the existing `:after` timer mechanism (distinct authoring intent, ONE mechanism — `:timeout` and `:after` coexist); a spawn `:timeout` lowers onto the spawn-bearing state's `:after`, anchored to that state's entry so it bounds the child's whole lifetime. Registration rejects malformed timeouts with `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, or `:rf.error/machine-timeout-after-collision`. `:timeout-ms` is not a spawn key — registration rejects a `:timeout-ms` key on `:spawn` / `:spawn-all` with `:rf.error/spawn-timeout-ms-removed`. See [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
+**`:timeout` / `:on-timeout` (EP-0029 A4).** A state node — or a `:spawn` spec — MAY declare a `:timeout` duration plus an `:on-timeout` transition (the named-intent wall-clock-deadline grammar). `:timeout` REQUIRES `:on-timeout` and vice-versa; the duration is a POSITIVE INTEGER (literal ms) or an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, …) — the XState `"5s"` / `"10ms"` readable shorthand is REJECTED (a deliberate divergence from XState). `:timeout` / `:on-timeout` desugars at registration onto the existing `:after` timer mechanism (distinct authoring intent, ONE mechanism — `:timeout` and `:after` coexist); a spawn `:timeout` lowers onto the spawn-bearing state's `:after`, anchored to that state's entry so it bounds the child's whole lifetime. Registration rejects malformed timeouts with `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, or `:rf.error/machine-timeout-after-collision`. `:timeout-ms` is not a spawn key — registration refuses it as an unknown key (`:rf.error/machine-unknown-spawn-key` on a `:spawn`, `:rf.error/machine-spawn-all-bad-shape` on a `:spawn-all` block). See [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 
 **`:type :choice` / `:choice` (EP-0029 A5).** A state node MAY be a TRANSIENT / CHOICE state by declaring `:type :choice` plus a `:choice` candidate vector — a routing node that resolves IMMEDIATELY on entry to the first guard-passing candidate (no event needed). `:type :choice` REQUIRES `:choice` and vice-versa; the `:choice` value MUST be a declarative, NON-EMPTY vector of guarded-candidate maps (`[{:guard … :target …} … {:target <default>}]`) — a function-valued `:choice` is REJECTED (the A2 / C1 divergence from XState: re-frame2's `:choice` is a declarative candidate ARRAY, never XState's `choice`-function — the edge topology stays data). A choice state ONLY routes: it MUST NOT declare `:entry` / `:exit` / `:on` / `:always` / `:after` / `:timeout` / `:on-timeout` / `:spawn` / `:spawn-all` / `:initial` / `:states` / `:final?` / `:output-key`. The candidate vector MUST include an unguarded DEFAULT / else branch so the choice state always resolves (the static "no matching candidate + no default" rejection). `:type :choice` / `:choice` desugars at registration onto the existing `:always` eventless-transition mechanism (distinct authoring intent, ONE mechanism); a transient INITIAL choice leaf resolves on birth. Registration rejects malformed choice states with `:rf.error/machine-choice-missing-choice`, `:rf.error/machine-choice-without-type`, `:rf.error/machine-bad-choice`, `:rf.error/machine-choice-extra-keys`, `:rf.error/machine-choice-no-default`, or `:rf.error/machine-choice-self-loop`. See [005 §`:type :choice`](005-StateMachines.md#type-choice-transient--choice-states).
 
@@ -3002,7 +3001,7 @@ The Resources artefact owns two runtime-db children — `:rf.runtime/resources` 
 (def MutationsRuntime
   ;; The mutation-instance runtime-db child — instances keyed by instance id.
   ;; Allocated lazily by the optional Resources artefact; absent in an app
-  ;; that registers no mutations. Per [016 §Deferred slices] / [EP-0003 §Mutations].
+  ;; that registers no mutations. Per [016 §Mutations] / [EP-0003 §Mutations].
   [:map-of :any MutationInstance])
 ```
 
@@ -4026,8 +4025,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; EP-0007 one-name-per-fact: this fx writes an HTTP `Location` response header,
 ;; so it uses header vocabulary (routing/navigation surfaces may use :url / :to). Documented
 ;; in [011 §Standard fx](011-SSR.md#standard-fx) and read by re-frame.ssr.response/redirect-fx.
-;; :url / :to are NOT accepted: redirect-fx throws
-;; :rf.error/redirect-retired-target-key naming :location (no alias).
+;; There is no alias: a map spelling the target :url / :to carries no :location,
+;; so it is the target-less redirect below.
 ;; :location is OPTIONAL and a redirect with NO :location is NOT a structural error: it is
 ;; the established graceful-degradation path (the fx accepts it — :location is
 ;; optional — and the host adapter emits a warning trace plus a 3xx with no
@@ -4123,8 +4122,8 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     ;; the HTTP carrier block lives on the `:rf.http/managed` `reg-fx`
     ;; registration (`:carriers`). A frame config
     ;; carrying either is REJECTED fail-loud (`:rf.error/bad-frame-classification`)
-    ;; through the frame `validate!` seam. `:observability` is the sole
-    ;; frame-owned classification key.
+    ;; by the frame's config preflight. `:observability` is the sole
+    ;; frame-owned classification key; its grammar is `re-frame.observability`'s.
     [:observability {:optional true} FrameObservability]
     ]])
 
@@ -4366,7 +4365,7 @@ The runtime commits one epoch record per dequeued event (per [002 §Drain versus
 
 `:halt-reason` is a small structured map describing the halt — the error `:operation` beside a few of its tags, flat (`{:operation :rf.error/drain-depth-exceeded :depth <n> :queue-size <n> :last-event-id <id of the last settled event>}` on a `:halted-depth` record) — sufficient for devtools to render a one-line summary without correlating against the raw trace stream. It carries ids, counts and keywords only, never an event vector or event arguments, because `rf/project-egress` preserves it byte-for-byte as a bookkeeping slot rather than projecting it. The slot is absent on `:ok` records. On a `:halted-destroy` record it names the lifecycle trace that reported the drop — `{:operation :rf.frame/drain-interrupted :dropped-count <n> :last-event-id <id of the destroying event, the last settled one>}` — because a destroy is a deliberate lifecycle event, not an error.
 
-**Consumer-facing outcome tier.** The four-value `:outcome` enum above is the **detailed cause**. The runtime additionally emits a paired trace op `:rf.epoch/outcome` at the same run-trailer point as `:rf.epoch/snapshotted`, carrying the coarse **consumer-facing summary** `{:ok :blocked :error}` derived from the cause via `re-frame.epoch.assembly/outcome->consumer-facing`. Tools that want the cause read `:rf.epoch/snapshotted`'s `:outcome` (or this record's `:outcome` slot); tools that want the summary (Xray's Trace-panel close-row per [tools/xray/spec/023-Trace-Panel.md §13](../tools/xray/spec/023-Trace-Panel.md), Story outcome chips, MCP wire consumers) read `:rf.epoch/outcome`'s `:outcome` tag. The mapping table lives in [Spec 009 §`:rf.epoch/*`](009-Instrumentation.md#op-type-vocabulary).
+**Consumer-facing outcome tier.** The four-value `:outcome` enum above is the **detailed cause**. The runtime's one `:rf.epoch/snapshotted` trace per committed epoch carries it as `:outcome` and, beside it, the coarse **consumer-facing summary** `{:ok :blocked :error}` as `:summary`, derived from the cause via `re-frame.epoch.assembly/outcome->consumer-facing`. Tools that want the cause read `:outcome` (or this record's `:outcome` slot); tools that want the summary (Xray's Trace-panel epoch row per [tools/xray/spec/023-Trace-Panel.md §13](../tools/xray/spec/023-Trace-Panel.md)) read `:summary`. The mapping table lives in [Spec 009 §`:rf.epoch/*`](009-Instrumentation.md#op-type-vocabulary).
 
 **Restore semantics.** `restore-epoch!` refuses non-`:ok` records, emitting `:rf.epoch/restore-non-ok-record` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)). The "time-travel never lands you in a misleading state" invariant is preserved — halted records exist for devtools introspection, not as restore targets. Listeners (`register-epoch-listener!`) receive every record regardless of `:outcome`.
 

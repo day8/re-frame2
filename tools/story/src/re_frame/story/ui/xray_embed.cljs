@@ -176,8 +176,8 @@
 ;; so every lookup would return nil and the panel-host would never paint.
 ;; Xray is on the same shadow-cljs source-path as Story
 ;; (see implementation/shadow-cljs.edn :source-paths); bundle-isolation
-;; holds because the gate only forbids `implementation/` → `tools/`
-;; requires, not `tools/story` → `tools/xray`.
+;; holds because its contract (tools/README.md) only forbids
+;; `implementation/` → `tools/` requires, not `tools/story` → `tools/xray`.
 
 (def ^:private mount-fns
   "Map of panel-id → Xray `mount-<panel>!` fn, DERIVED from

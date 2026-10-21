@@ -217,26 +217,26 @@ The validator runs against the raw `:definition` — `:reg-machine` does NOT rea
 
 #### The `:make-frame` op — construction-error taxonomy
 
-The `:make-frame` op is the construction analogue of `:reg-machine`: it pins the frame construction-error taxonomy (the same [009 §thrown-error shape](../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) `:rf.error/id` ex-data contract) at the conformance layer. The construction keys `:on-create` and `:initial-db` are retired: a conformant `make-frame` must reject either with a stable `:rf.error/id` discriminator (`:rf.error/on-create-retired` / `:rf.error/initial-db-retired`) rather than silently ignoring them, so a port can't quietly accept the retired config.
+The `:make-frame` op is the construction analogue of `:reg-machine`: it pins the frame construction-error taxonomy (the same [009 §thrown-error shape](../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) `:rf.error/id` ex-data contract) at the conformance layer: a conformant `make-frame` must refuse a malformed `:initial-events` with a stable `:rf.error/id` discriminator before any frame is registered, so a port can't quietly accept a broken setup script.
 
 A `:make-frame` call carries the candidate frame `:config` (and an optional `:frame-id`) and either an `:expect-error` (the `:rf.error/<category>` keyword the construction must throw) or no `:expect-error` (a well-formed `:initial-events` config that must register silently):
 
 ```clojure
-;; Excerpt — full file at fixtures/construction-retired-keys-fail-loud.edn
-{:fixture/id           :construction/retired-keys-fail-loud
+;; Excerpt — full file at fixtures/construction-shape-validation.edn
+{:fixture/id           :construction/shape-validation
  :fixture/capabilities #{:core/event-handler :core/frame}
  :fixture/calls
- [;; The retired :on-create key fails loud with a stable discriminator.
+ [;; A BARE top-level event vector, not a vector of steps.
   {:call         :make-frame
-   :frame-id     :ctor/oc
-   :config       {:on-create [:ctor/seed {:n 0}]}
-   :expect-error :rf.error/on-create-retired}
+   :frame-id     :ctor/bare
+   :config       {:initial-events [:ctor/seed {:n 0}]}
+   :expect-error :rf.error/initial-events-bare-event}
 
-  ;; The retired :initial-db key fails loud with its own discriminator.
+  ;; A step that is neither an event vector nor a step-map.
   {:call         :make-frame
-   :frame-id     :ctor/idb
-   :config       {:initial-db {:n 0}}
-   :expect-error :rf.error/initial-db-retired}
+   :frame-id     :ctor/bad-step
+   :config       {:initial-events [42]}
+   :expect-error :rf.error/initial-events-bad-step}
 
   ;; Control: a well-formed :initial-events config must register silently.
   {:call       :make-frame

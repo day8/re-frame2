@@ -214,7 +214,7 @@
 (deftest ^:requires-debug run-conformance-corpus
   (rf.conformance-runner/run-corpus (all-fixtures) host "JVM"))
 
-;; The production-posture subset, in both lanes. Its floor sits four fixtures
+;; The production-posture subset, in both lanes. Its floor sits three fixtures
 ;; under the subset's size, so a fixture leaving the subset — by gaining a
 ;; dev-only expectation — goes unnoticed only until a handful have.
 (deftest run-conformance-corpus-prod-posture

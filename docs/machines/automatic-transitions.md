@@ -126,7 +126,7 @@ the exact forms.
 | A retry limit trips one failure early after the count moved into a choice | The entering action already incremented the count the choice's guard reads | Compare against the post-action number |
 | Timer fired but the snapshot did not move | Guard was false at expiry, or the state had already been left | Expected. A late timer is stale; a false guard discards that firing |
 | Registration throws `:rf.error/machine-bad-timeout-duration` | `"5s"` shorthand, or a non-positive / malformed duration | Integer milliseconds or ISO-8601 (`"PT5S"`) |
-| Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on a `:spawn` or `:spawn-all` | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |
+| Registration throws `:rf.error/machine-unknown-spawn-key` or `:rf.error/machine-spawn-all-bad-shape` naming `:timeout-ms` | `:timeout-ms` on a `:spawn` or `:spawn-all` | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |
 
 An `:always` loop that never settles fails with
 `:rf.error/machine-always-depth-exceeded`; see

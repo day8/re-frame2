@@ -135,7 +135,7 @@ Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>`
 
 ### The tombstone rule — dedicated retired-name error ids only for shipped names
 
-A **dedicated retired-name error id** (a bespoke `:rf.error/<x>-retired` / `:rf.error/<x>-renamed` / `:rf.error/<x>-removed` category whose sole job is to fire when a caller supplies a specific retired name) MAY exist **only for a name that shipped in a released artefact.** A name that only ever lived in the spec's own **drafts** — never released to consumers — earns **no** dedicated error id; it rides the generic closed-key surface for its shape (`:rf.warning/unknown-dispatch-opt` for a dispatch opt, `:rf.error/*-invalid-key` / the generic closed-map rejection for a registration key, EP-0026's generic retired-image-key rejection for an image key), with a **did-you-mean** appended to name the canonical replacement.
+A **dedicated retired-name error id** (a bespoke `:rf.error/<x>-retired` / `:rf.error/<x>-renamed` / `:rf.error/<x>-removed` category whose sole job is to fire when a caller supplies a specific retired name) MAY exist **only for a name that shipped in a released artefact.** A name that only ever lived in the spec's own **drafts** — never released to consumers — earns **no** dedicated error id; it gets whatever its surface does with a key it does not read — `:rf.warning/unknown-dispatch-opt` for a dispatch opt, `:rf.warning/unknown-frame-config-key` (once per `make-frame`, in dev) for a frame-config key, the generic closed-map rejection for a registration key (e.g. `:rf.error/machine-unknown-spawn-key`), EP-0026's generic `:rf.error/invalid-image` for an image key — each naming the offending key, and on an open map nothing at all, because the key is never read (a redirect spelling its target `:url` is a target-less redirect). A **did-you-mean** naming the replacement is optional, not owed: the dispatch-opt warning and the image-key rejection carry one for their draft renames, and the frame-config, machine-spawn and redirect paths do not.
 
 **Why the line is drawn at *shipped*.** A dedicated retirement error earns its always-on production detection path — a keyword check every conforming port must implement forever — because a name with **wide training-data exposure** (a real, shipped v1 API a stale generator may still emit) needs a fail-loud, named-replacement error to steer the author. A draft-only name has no such exposure: no consumer ever typed it, no generator was trained on it, so a bespoke always-on guard is a detection path for keywords its users cannot possibly produce. Accepting the stale-generator argument for *every* renamed draft name makes tombstone accumulation unbounded — each spec revision would leave a permanent catalogue row and a mandatory port detection path. Bounding dedicated tombstones to the **shipped** surface keeps the retirement-error vocabulary finite.
 
@@ -257,10 +257,12 @@ left as accident.** Spelled out:
    spelling for the same fact inside one layer is a defect, not a convenience.
 2. **No stable accepted synonyms.** A stable API accepts exactly **one**
    spelling. A retired or alternative spelling is a **hard error naming the
-   canonical key**, never a silently-normalised alias — e.g. the redirect
-   surface rejects `:url` / `:to` with
-   [`:rf.error/redirect-retired-target-key`](011-SSR.md) rather than coercing
-   them to `:location`. Temporary **migration aliases** are allowed only when an
+   canonical key**, never a silently-normalised alias — e.g. `reg-event-db`
+   throws [`:rf.error/reg-event-db-removed`](001-Registration.md#the-retired-event-registration-names)
+   naming `reg-event` rather than registering through an alias. A spelling that
+   never shipped rides its surface's generic unknown-key path instead, per
+   [§The tombstone rule](#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names).
+   Temporary **migration aliases** are allowed only when an
    explicit bead/EP ruling names the alias, the canonical spelling, the
    diagnostic, and the sunset trigger; they are migration mechanics, never part
    of the stable contract. (This is the naming-axis counterpart of the v1

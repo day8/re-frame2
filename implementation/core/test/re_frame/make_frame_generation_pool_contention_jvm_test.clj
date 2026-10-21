@@ -150,11 +150,11 @@
         log (atom [])]
     (rf.live-frame/make-frame {:id id :images [img]} pool-v1)
     (watch-row! id log nil)
-    ;; the retired :on-create fails inside the engine, after the early write
-    (is (= [:rf.error/on-create-retired
+    ;; a malformed :initial-events fails inside the engine, after the early write
+    (is (= [:rf.error/initial-events-bad-step
             [{:from pool-v1 :to pool-v2 :reserved? true}
              {:from pool-v2 :to pool-v1 :reserved? true}]]
-           [(err-id #(rf.live-frame/make-frame {:id id :images [img] :on-create [:boom]}
+           [(err-id #(rf.live-frame/make-frame {:id id :images [img] :initial-events [42]}
                                                pool-v2))
             @log])
         "the publication and its rollback both ran under the reservation")))
@@ -166,10 +166,10 @@
         log (atom [])]
     (rf.live-frame/make-frame {:id id})
     (watch-row! id log nil)
-    (is (= [:rf.error/on-create-retired
+    (is (= [:rf.error/initial-events-bad-step
             [{:from nil :to pool-v1 :reserved? true}
              {:from pool-v1 :to nil  :reserved? true}]]
-           [(err-id #(rf.live-frame/make-frame {:id id :on-create [:boom]} pool-v1))
+           [(err-id #(rf.live-frame/make-frame {:id id :initial-events [42]} pool-v1))
             @log]))))
 
 (deftest a-handed-off-reservation-is-adopted-and-a-spent-one-is-not

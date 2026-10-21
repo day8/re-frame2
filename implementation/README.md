@@ -143,9 +143,9 @@ implementation/
     deps.edn                 :local/root dep on ../core.
     src/re_frame/resources.cljc    reg-resource / clear-resource / resource-meta /
                                    resource-state / resources, :rf.resource/* events
-                                   + passive subs, :resource registrar kind, work-ledger.
+                                   + passive subs, :resource registrar kind, in-flight attempts.
     test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
-                                   (ensure/refetch, work ledger, invalidation/GC, hydration).
+                                   (ensure/refetch, in-flight attempts, invalidation/GC, hydration).
 
   fresco/                   day8/re-frame2-fresco — the Fresco view substrate: a
                              boundary is a real React function component minted by
@@ -332,9 +332,11 @@ clojure -M:test
 ```
 
 The core run executes the full JVM suite — smoke, conformance, drain,
-SSR end-to-end and so on — loading every `.edn` in
-`../../spec/conformance/fixtures/` and running the runnable subset
-against this implementation.
+SSR end-to-end and so on. Conformance grades two corpora, each by its
+runnable subset: the portable one, every `.edn` in
+`../../spec/conformance/fixtures/`, and the reference-only one in
+`test/conformance-reference/`, which grades shapes internal to this
+implementation.
 
 CLJS (one-time `npm install` at the implementation/ root, then iterate):
 

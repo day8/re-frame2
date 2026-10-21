@@ -130,7 +130,7 @@ const ISOLATION_NAMESPACES = [
   're-frame.conformance-corpus-cljs-test',
   're-frame.ep0023-conformance-cljs-test',
   're-frame.example-frame-scoping-cljs-test',
-  're-frame.frame-classification-cljs-test',
+  're-frame.frame-config-validation-cljs-test',
   're-frame.frame-resolution-cljs-test',
   're-frame.frame-root-lifecycle-cljs-test',
   're-frame.frame-teardown-report-cljs-test',

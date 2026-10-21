@@ -11,8 +11,8 @@
   scaffolding — because a banded hierarchy (EPOCH OPEN / DISPATCH /
   EVENT HANDLING / EFFECTS-FX / REACTIVE RENDERING) is hard to scan.
   The epoch-lifecycle ops (`:rf.epoch/*`) render as ORDINARY rows in the
-  flat list; `:rf.epoch/outcome` carries the consumer-facing `:ok` /
-  `:blocked` / `:error` summary.
+  flat list; `:rf.epoch/snapshotted` carries the consumer-facing `:ok` /
+  `:blocked` / `:error` summary under `:summary`.
 
   Each op renders as a row of SIX columns (spec/023 §3):
 
@@ -349,7 +349,6 @@
    :rf.event/db-changed   "changed"
    :rf.event/db-noop      "unchanged"
    :rf.epoch/snapshotted  "snapshotted"
-   :rf.epoch/outcome      "outcome"
    :rf.cofx/run           "run"
    :rf.flow/computed      "computed"
    ;; SUB lifecycle (spec/023 §5). The bare terminal segments under-read
@@ -442,7 +441,8 @@
     :resource → resource-id (the `[scope resource-id params]` scoped key's
                 middle segment, falling back to the bare `:resource-id`
                 tag), optionally with the `gen N` generation
-    :epoch    → epoch id · event · frame / outcome
+    :epoch    → the `:summary` tier, else the `:outcome` cause, else the
+                epoch id
 
   Falls back to nil for an op with no recognised subject so the view
   renders an em-dash. Pure data → string-or-nil; JVM-testable."
@@ -544,7 +544,7 @@
           (str rid (when gen (str "  gen " gen)))))
 
       :epoch
-      (or (some-> (or (:rf.epoch/outcome tags) (:outcome tags)) str)
+      (or (some-> (or (:summary tags) (:outcome tags)) str)
           (when-let [eid (:epoch-id tags)] (str "#" eid)))
 
       (:error :warning)

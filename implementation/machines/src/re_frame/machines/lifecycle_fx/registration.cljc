@@ -8,7 +8,7 @@
   the late-bind table and by REPL workflows. Registration validates the
   definition as written (`validate-machine!` — every registration-time
   check, in `re-frame.machines.lifecycle-fx.validation`: parallel shape,
-  `:spawn-all` shape, dropped `:timeout-ms` slots, guard/action ref
+  `:spawn-all` shape, spawn-spec keys, guard/action ref
   resolution, final-state shape), then normalises it once
   (`rf.machines.parallel/normalise-definition`). The factory decomposes
   into:
