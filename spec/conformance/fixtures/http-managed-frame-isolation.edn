@@ -8,7 +8,7 @@
 ;; partitioned.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs. Each
+;; `:http.canned-success`, so no managed-HTTP code runs. Each
 ;; frame carries its own `:fx-overrides`, and the canned-success body's
 ;; `:dispatch` inherits the originating frame (Spec 002 §Routing), so what
 ;; it grades is per-frame override redirection and the frame inheritance of
@@ -24,8 +24,8 @@
  :fixture/registry
  {:event {:article/load   {:doc "Issue the GET (originator)."}
           :article/loaded {:doc "Receive the success payload, frame-scoped."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-success {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -40,8 +40,8 @@
    [[:set [:article] [:event-arg 1]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-success
+  {:rf.http/managed     [[:noop]]
+   :http.canned-success
    ;; The DSL's :dispatch inherits the originating frame, so each canned
    ;; reply lands on the same frame the originating request was issued
    ;; from. The :value carries a frame-distinguishable token so the
@@ -55,10 +55,10 @@
  :fixture/frames
  [{:id :tab.left
    :doc "Left tab — issues its own managed request."
-   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+   :fx-overrides {:rf.http/managed :http.canned-success}}
   {:id :tab.right
    :doc "Right tab — issues its own managed request."
-   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}]
+   :fx-overrides {:rf.http/managed :http.canned-success}}]
 
  :fixture/dispatches
  [{:event [:article/load] :frame :tab.left}
@@ -80,10 +80,10 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load   :frame :tab.left}}
    {:operation :rf.fx/override-applied
     :tags {:rf.fx/from :rf.http/managed
-           :rf.fx/to   :rf.http/managed-canned-success}}
+           :rf.fx/to   :http.canned-success}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/loaded :frame :tab.left}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load   :frame :tab.right}}
    {:operation :rf.fx/override-applied
     :tags {:rf.fx/from :rf.http/managed
-           :rf.fx/to   :rf.http/managed-canned-success}}
+           :rf.fx/to   :http.canned-success}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/loaded :frame :tab.right}}]}}

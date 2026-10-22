@@ -10,7 +10,7 @@
 ;; `:rf.error/http-no-reply-target`.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: the
+;; `:http.canned-success`, so no managed-HTTP code runs: the
 ;; canned-success body names the target and writes the reply itself, so no
 ;; reply target is selected. What it grades is the redirection of
 ;; `:rf.http/managed` to that body, the args the body receives
@@ -28,10 +28,10 @@
  {:event {:article/load          {:doc "Initial-dispatch path — issues the managed request."}
           :article/load-reply    {:doc "The :on-success target — receives the canonical reply envelope as its last argument and stores it under [:article]."}}
   :sub   {:article {:doc "The currently-loaded article."}}
-  :fx    {:rf.http/managed                {:doc "Spec 014 — managed HTTP request."
-                                           :platforms #{:client :server}}
-          :rf.http/managed-canned-success {:doc "Spec 014 — synthesised success reply (test stub)."
-                                           :platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:doc "Spec 014 — managed HTTP request."
+                                :platforms #{:client :server}}
+          :http.canned-success {:doc "Spec 014 — synthesised success reply (test stub)."
+                                :platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -60,14 +60,14 @@
   :fx
   {;; The fixture's body for :rf.http/managed — never invoked under the
    ;; override below.
-   :rf.http/managed                [[:noop]]
+   :rf.http/managed     [[:noop]]
    ;; The fixture's canned-success body — dispatches the reply it writes.
-   :rf.http/managed-canned-success
+   :http.canned-success
    [[:dispatch [:article/load-reply {:status :ok :value {:stubbed true}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+  :fx-overrides {:rf.http/managed :http.canned-success}}
 
  :fixture/dispatches
  [[:article/load {:slug "hello"}]]
@@ -82,14 +82,14 @@
   :trace-emissions
   [;; Initial dispatch.
    {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
-   ;; The override redirected :rf.http/managed → :rf.http/managed-canned-success.
+   ;; The override redirected :rf.http/managed → :http.canned-success.
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-success}}
+                                              :rf.fx/to   :http.canned-success}}
    ;; The stub re-dispatched to :article/load-reply with the success payload.
    {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load-reply}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-success
+  [{:fx-id :http.canned-success
     :args  {:request    {:method :get :url "/articles/hello"}
             :decode     :json
             :on-success [:article/load-reply]}}]}}

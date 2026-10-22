@@ -7,7 +7,7 @@
 ;; failure envelope.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-failure`, so no managed-HTTP code runs: nothing
+;; `:http.canned-failure`, so no managed-HTTP code runs: nothing
 ;; is decoded or classified — the failure envelope is written out in the
 ;; canned-failure body. What it grades is the redirection of
 ;; `:rf.http/managed` to that body, the args the body receives
@@ -24,8 +24,8 @@
  :fixture/registry
  {:event {:articles/list       {:doc "Issue the GET."}
           :articles/list-error {:doc "Receive the failure payload."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-failure {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -39,8 +39,8 @@
    [[:set [:articles :error] [:event-arg 1]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-failure
+  {:rf.http/managed     [[:noop]]
+   :http.canned-failure
    [[:dispatch [:articles/list-error
                 {:status :error
                  :error  {:kind         :rf.http/decode-failure
@@ -50,7 +50,7 @@
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+  :fx-overrides {:rf.http/managed :http.canned-failure}}
 
  :fixture/dispatches
  [[:articles/list]]
@@ -66,11 +66,11 @@
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :articles/list}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-failure}}
+                                              :rf.fx/to   :http.canned-failure}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :articles/list-error}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-failure
+  [{:fx-id :http.canned-failure
     :args  {:request    {:method :get :url "/articles"}
             :decode     :json
             :on-failure [:articles/list-error]}}]}}

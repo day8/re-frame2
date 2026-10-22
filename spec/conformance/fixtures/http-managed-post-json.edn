@@ -6,7 +6,7 @@
 ;; `:on-success` target.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: the body
+;; `:http.canned-success`, so no managed-HTTP code runs: the body
 ;; is never serialised and no header is set. What it grades is the
 ;; redirection of `:rf.http/managed` to the canned-success body, the args
 ;; that body receives (`:effects-routed`, the request map verbatim) and the
@@ -22,8 +22,8 @@
  :fixture/registry
  {:event {:auth/login         {:doc "Issue the POST."}
           :auth/login-success {:doc "Receive the success payload."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-success {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -40,14 +40,14 @@
    [[:set [:auth] [:event-arg 1]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-success
+  {:rf.http/managed     [[:noop]]
+   :http.canned-success
    [[:dispatch [:auth/login-success {:status :ok
                                      :value  {:token "tok-1" :user-id "u-1"}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+  :fx-overrides {:rf.http/managed :http.canned-success}}
 
  :fixture/dispatches
  [[:auth/login]]
@@ -60,11 +60,11 @@
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/login}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-success}}
+                                              :rf.fx/to   :http.canned-success}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/login-success}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-success
+  [{:fx-id :http.canned-success
     :args  {:request    {:method :post
                          :url    "/auth/login"
                          :body   {:user "alice" :password "wonderland"}

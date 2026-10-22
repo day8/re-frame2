@@ -10,7 +10,7 @@
 ;; locks the order.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-failure`, so no managed-HTTP code runs: no
+;; `:http.canned-failure`, so no managed-HTTP code runs: no
 ;; status is checked and nothing is decoded — the `:rf.http/http-4xx`
 ;; envelope is written out in the canned-failure body. What it grades is the
 ;; redirection of `:rf.http/managed` to that body, the args the body
@@ -27,8 +27,8 @@
  :fixture/registry
  {:event {:page/load        {:doc "Issue the GET that 404s with HTML."}
           :page/load-error  {:doc "Receive the failure payload."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-failure {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -45,8 +45,8 @@
    [[:set [:page :error] [:event-arg 1]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-failure
+  {:rf.http/managed     [[:noop]]
+   :http.canned-failure
    [[:dispatch [:page/load-error
                 {:status :error
                  :error  {:kind        :rf.http/http-4xx
@@ -57,7 +57,7 @@
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+  :fx-overrides {:rf.http/managed :http.canned-failure}}
 
  :fixture/dispatches
  [[:page/load]]
@@ -74,11 +74,11 @@
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :page/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-failure}}
+                                              :rf.fx/to   :http.canned-failure}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :page/load-error}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-failure
+  [{:fx-id :http.canned-failure
     :args  {:request    {:method :get :url "/articles/missing"}
             :decode     :json
             :on-failure [:page/load-error]}}]}}
