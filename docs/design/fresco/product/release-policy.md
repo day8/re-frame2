@@ -190,7 +190,7 @@ compares the two. Whoever re-measures §3 and §4 re-reads that section in the s
 
 | Combination | Pinned where | Backed by | Status |
 |---|---|---|---|
-| React 19.2.0 and react-dom 19.2.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-fresco-controlled`; `cljs-fresco-hmr` | **TESTED** — every Fresco claim in this repository is a claim about this pair |
+| React 19.3.0 and react-dom 19.3.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-fresco-controlled`; `cljs-fresco-hmr` | **TESTED** — every Fresco claim in this repository is a claim about this pair |
 | Any other React 19.x | — | nothing | **UNTESTED-BUT-EXPECTED** for the boundary shell and the two-hook contract, which write no version-conditional code. Not expected below 19.2 for the `Activity` lifecycle rows, whose subject shipped in 19.2 |
 | React 18 or earlier | — | nothing | **NOT SUPPORTED** |
 | Chromium 147.0.7727.15, on Playwright 1.59.1 | `implementation/package.json` | `cljs-browser`, which runs Fresco's `*_dom_cljs_test` suites headless | **TESTED** — the broadest browser coverage Fresco has, and it is one engine |
