@@ -6,7 +6,7 @@
 ;; envelope.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: nothing
+;; `:http.canned-success`, so no managed-HTTP code runs: nothing
 ;; is decoded and no envelope is synthesised. What it grades is the
 ;; redirection of `:rf.http/managed` to the canned-success body, the args
 ;; that body receives (`:effects-routed`) and the dispatch of the reply the
@@ -23,8 +23,8 @@
  {:event {:article/load   {:doc "Issue the GET."}
           :article/loaded {:doc "Receive the payload."}}
   :sub   {:article {:doc "The article slice."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-success {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -41,14 +41,14 @@
   {:article [[:get [:article]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-success
+  {:rf.http/managed     [[:noop]]
+   :http.canned-success
    [[:dispatch [:article/loaded {:status :ok
                                  :value  {:title "hello" :id 42}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+  :fx-overrides {:rf.http/managed :http.canned-success}}
 
  :fixture/dispatches
  [[:article/load]]
@@ -65,11 +65,11 @@
   :trace-emissions
   [{:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-success}}
+                                              :rf.fx/to   :http.canned-success}}
    {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/loaded}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-success
+  [{:fx-id :http.canned-success
     :args  {:request    {:method :get :url "/articles/hello"}
             :decode     :json
             :on-success [:article/loaded]}}]}}

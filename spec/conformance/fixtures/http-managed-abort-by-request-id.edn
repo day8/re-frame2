@@ -7,7 +7,7 @@
 ;; :error {:kind :rf.http/aborted :reason :user :request-id <id>}}` reply.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed`,
-;; `:rf.http/managed-abort` and `:rf.http/managed-canned-failure`, so no
+;; `:rf.http/managed-abort` and `:http.canned-failure`, so no
 ;; managed-HTTP code runs and nothing is cancelled: it is an override
 ;; example, not a cancellation test. `:rf.http/managed` runs the fixture's
 ;; no-op body under its own id; only `:rf.http/managed-abort` is redirected,
@@ -27,9 +27,9 @@
  {:event {:slow/load        {:doc "Issue a GET with a stable :request-id."}
           :slow/abort       {:doc "Abort the in-flight request by id."}
           :slow/load-error  {:doc "Receive the :rf.http/aborted failure."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-abort          {:platforms #{:client :server}}
-          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed       {:platforms #{:client :server}}
+          :rf.http/managed-abort {:platforms #{:client :server}}
+          :http.canned-failure   {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -56,9 +56,9 @@
    ;; dispatches nothing. The canned-failure body, reached only through the
    ;; abort's override, dispatches the aborted-shape reply to
    ;; :slow/load-error.
-   :rf.http/managed                [[:noop]]
-   :rf.http/managed-abort          [[:noop]]
-   :rf.http/managed-canned-failure
+   :rf.http/managed       [[:noop]]
+   :rf.http/managed-abort [[:noop]]
+   :http.canned-failure
    [[:dispatch [:slow/load-error
                 {:status :cancelled
                  :error  {:kind       :rf.http/aborted
@@ -70,7 +70,7 @@
   ;; Only :rf.http/managed-abort is redirected, to the canned-failure
   ;; body. :rf.http/managed stays on its own no-op body, so the cancelled
   ;; reply can only follow the abort.
-  :fx-overrides {:rf.http/managed-abort :rf.http/managed-canned-failure}}
+  :fx-overrides {:rf.http/managed-abort :http.canned-failure}}
 
  :fixture/dispatches
  [[:slow/load]
@@ -87,7 +87,7 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/abort}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed-abort
-                                              :rf.fx/to   :rf.http/managed-canned-failure}}
+                                              :rf.fx/to   :http.canned-failure}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load-error}}]
 
   ;; Both matchers are order-preserving SUBSET matchers, so the trace above
@@ -100,5 +100,5 @@
             :request-id :slow/load
             :decode     :json
             :on-failure [:slow/load-error]}}
-   {:fx-id :rf.http/managed-canned-failure
+   {:fx-id :http.canned-failure
     :args  :slow/load}]}}

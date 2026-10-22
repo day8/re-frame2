@@ -6,7 +6,7 @@
 ;; recovered payload) at `:on-success`.
 ;;
 ;; The fixture supplies its own bodies for `:rf.http/managed` and
-;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: no
+;; `:http.canned-success`, so no managed-HTTP code runs: no
 ;; attempt is made and nothing retries — the canned-success body dispatches
 ;; one reply it writes itself (`retry-exhaustion.edn` is the failure-side
 ;; twin). What it grades is the redirection of `:rf.http/managed` to that
@@ -24,8 +24,8 @@
  :fixture/registry
  {:event {:flaky/load         {:doc "Issue the GET with retry policy."}
           :flaky/load-success {:doc "Receive the recovered payload."}}
-  :fx    {:rf.http/managed                {:platforms #{:client :server}}
-          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+  :fx    {:rf.http/managed     {:platforms #{:client :server}}
+          :http.canned-success {:platforms #{:client :server}}}}
 
  :fixture/handlers
  {:event
@@ -42,8 +42,8 @@
    [[:set [:flaky :data] [:event-arg 1]]]}
 
   :fx
-  {:rf.http/managed                [[:noop]]
-   :rf.http/managed-canned-success
+  {:rf.http/managed     [[:noop]]
+   :http.canned-success
    ;; Recovered-on-retry shape per Spec 014 §Reply payload shape.
    [[:dispatch [:flaky/load-success
                 {:status :ok
@@ -51,7 +51,7 @@
 
  :fixture/frame-config
  {:initial-events []
-  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+  :fx-overrides {:rf.http/managed :http.canned-success}}
 
  :fixture/dispatches
  [[:flaky/load]]
@@ -64,13 +64,13 @@
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-success}}
+                                              :rf.fx/to   :http.canned-success}}
    ;; The canned-success body dispatches one reply; :rf.http/retry-attempt
    ;; traces come only from the live fx, which does not run here.
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load-success}}]
 
   :effects-routed
-  [{:fx-id :rf.http/managed-canned-success
+  [{:fx-id :http.canned-success
     :args  {:request    {:method :get :url "/flaky"}
             :decode     :json
             :retry      {:on           #{:rf.http/http-5xx}
