@@ -4,7 +4,8 @@
   `on*` handlers, fn values, prototype-pollution keys, JSX source-coord props,
   React's structural slots (`:key` / `:ref`) and content channels
   (`:children` / `:dangerouslySetInnerHTML`), ahead of the attribute-name
-  grammar gate."
+  grammar gate. An `on`-led name outside that grammar is a breakout payload
+  and reaches the gate."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
@@ -24,16 +25,28 @@
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {k "steal()" :id "x"}))
           (str (name k) " must not survive to wire output"))))
 
-  (testing "Keys that merely begin with `on` round-trip"
-    (is (= " data-on=\"ok\" one=\"1\" once=\"2\" online=\"3\" only=\"4\" on=\"5\""
+  (testing "Event names on no list strip too — SVG animation events, vendor
+            prefixes, non-standard events"
+    (doseq [k [:onbegin "onwebkitanimationend" :onsearch :onrepeat]]
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {k "alert(1)" :id "x"}))
+          (str (name k) " must not survive to wire output")))
+    (is (= "<animate attributeName=\"x\" dur=\"1s\"></animate>"
+           (rf.ssr.emit/render-to-string
+             [:animate {:onbegin "alert(1)" :attribute-name "x" :dur "1s"}] {}))))
+
+  (testing "react-dom's rule decides which `on`-led keys paint: `on` and
+            `data-on` do, every longer `on…` name does not"
+    (is (= " data-on=\"ok\" on=\"5\""
            (rf.ssr.html-helpers/attr-string {:data-on "ok" :one "1" :once "2"
                                              :online "3" :only "4" :on "5"}))))
 
-  (testing "A stripped prop is filtered before the grammar gate, so a key that
-            would otherwise throw is silently dropped"
-    (is (= " id=\"x\""
-           (rf.ssr.html-helpers/attr-string {(keyword "onClick=alert(1) data-x") "v"
-                                             :id "x"})))))
+  (testing "An `on`-led key outside the attribute grammar is a breakout
+            payload, refused by the grammar gate rather than dropped"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-invalid-attribute-name"
+          (rf.ssr.html-helpers/attr-string {(keyword "onClick=alert(1) data-x") "v"
+                                            :id "x"})))))
 
 (deftest attr-string-drops-jsx-source-coord-props
   (testing "The filter sits upstream of the grammar gate, which a leading

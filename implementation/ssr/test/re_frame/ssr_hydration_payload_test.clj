@@ -71,8 +71,13 @@
           (thrown-id #(rf.ssr/hydration-payload sframe {:payload :rf.ssr.payload/whole-db}))
           (thrown-id #(rf.ssr/hydration-payload sframe {:payload ["articles"]}))])))
 
-(deftest a-frame-that-is-not-live-ships-nothing-readable
-  ;; sframe is never made.
-  (is (= {:rf/version rf.ssr.payload-policy/pattern-protocol-version
-          :rf/app-db  redacted}
-         (rf.ssr/hydration-payload sframe {:payload [:articles]}))))
+(deftest a-frame-that-is-not-live-is-refused
+  (testing "never made"
+    (is (= :rf.error/frame-destroyed
+           (thrown-id #(rf.ssr/hydration-payload sframe {:payload [:articles]})))))
+  (testing "destroyed before the payload was built — by value, as a host
+            holding make-frame's return passes it"
+    (let [f (make-server-frame!)]
+      (rf/destroy-frame! sframe)
+      (is (= :rf.error/frame-destroyed
+             (thrown-id #(rf.ssr/hydration-payload f {:payload [:articles]})))))))

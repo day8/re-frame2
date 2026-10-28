@@ -33,45 +33,69 @@
 ;; concept — the directive is JVM-only.
 #?(:clj (set! *warn-on-reflection* true))
 
+#?(:clj
+   (defn- js-decimal-string
+     "JavaScript's `Number::toString` spelling of the non-zero decimal `bd`
+     (ECMA-262 §Number::toString): plain digits while the decimal exponent
+     sits in [-7, 21), `de+n` / `d.ddde-n` outside it."
+     [^java.math.BigDecimal bd]
+     (let [bd (.stripTrailingZeros bd)
+           s  (.toString (.abs (.unscaledValue bd)))
+           k  (count s)                 ; significant digits
+           n  (- k (.scale bd))         ; value = 0.s × 10^n
+           zs (fn [m] (apply str (repeat m \0)))
+           js (cond
+                (<= k n 21) (str s (zs (- n k)))
+                (< 0 n 22)  (str (subs s 0 n) "." (subs s n))
+                (< -6 n 1)  (str "0." (zs (- n)) s)
+                :else       (let [e (dec n)]
+                              (str (subs s 0 1)
+                                   (when (> k 1) (str "." (subs s 1)))
+                                   "e" (if (neg? e) "-" "+") (Math/abs (long e)))))]
+       (if (neg? (.signum bd)) (str "-" js) js))))
+
 (defn canonical-number
   "Cross-runtime-stable print form of a number — shared by the data digest
   (`canonical-data-edn`'s numeric leaf) and the HTML emitter
   (`re-frame.ssr.emit`'s number branch).
 
-  ClojureScript has only IEEE doubles: it unifies a whole-valued double to
-  an integer (`1.0` IS the JS number 1, printing `\"1\"`) and has no ratio
-  type. The JVM prints `\"1.0\"` for that same `Double` and `\"1/2\"` for a
-  `Ratio`, so a server render carrying either would paint different text
-  from the client's render of the same view — a text divergence React
-  hydration recovers from by re-rendering. Canonicalise to the CLJS form:
+  ClojureScript has only IEEE doubles and prints one the way JavaScript's
+  `String(n)` does: `1.0` IS the JS number 1 and prints `\"1\"`, `0.0005`
+  prints `\"0.0005\"` and `1e21` prints `\"1e+21\"`. The JVM prints the same
+  values `\"1.0\"`, `\"5.0E-4\"` and `\"1.0E21\"`, and a `Ratio` as `\"1/2\"`,
+  so a server render carrying any of them would paint different text from
+  the client's render of the same view — a text divergence React hydration
+  recovers from by re-rendering, and an attribute divergence it never
+  reports. Canonicalise to the CLJS form (004B §Numeric text: JS `ToString`):
 
-    - a whole-valued double/float within IEEE exact-integer range prints as
-      its integer form (no trailing `.0`), matching CLJS;
-    - a `Ratio` prints as its IEEE-double form (mirroring a CLJS view that computed the same value
-      by division);
-    - every other number keeps its default `pr-str` form — integers and
-      common decimals already agree across runtimes, and `pr-str`/`str`
-      coincide for numbers (no quoting), so the emitter reuses this for HTML.
+    - a finite double or float prints as JavaScript would spell its
+      shortest round-trip digits — on JDK 19 and later `Double/toString`
+      yields exactly the digits JavaScript picks, so only the spelling is
+      converted. `-0.0` prints `\"0\"`, as `String(-0)` does;
+    - a `Ratio` prints as its IEEE-double form (mirroring a CLJS view that
+      computed the same value by division);
+    - every other number keeps its default `pr-str` form — integers already
+      agree across runtimes, NaN and the infinities print `##NaN` / `##Inf`
+      on both hosts, and `pr-str`/`str` coincide for numbers (no quoting),
+      so the emitter reuses this for HTML.
 
-  Residual: a whole-valued double of magnitude ≥ 2^53 (the IEEE exact-
-  integer limit) or one that prints in scientific notation keeps the JVM
-  default — the JVM/JS shortest-round-trip float algorithms diverge there
-  and no cheap normalisation closes it. Such values are vanishingly rare in
-  SSR view output; the common price/progress `9.0`/`0.0` case is fully
-  canonical."
+  Residual: a subnormal double (magnitude below about 2.2e-308) can differ in
+  its last digit, where the JDK picks the closer of two short candidates and
+  JavaScript the shorter."
   [number]
   #?(:clj
      (cond
        (ratio? number)
        (canonical-number (double number))
 
-       (and (or (instance? Double number) (instance? Float number))
-            (let [d (double number)]
-              (and (not (Double/isNaN d))
-                   (not (Double/isInfinite d))
-                   (== d (Math/rint d))                       ;; whole-valued
-                   (<= -9.007199254740992E15 d 9.007199254740992E15))))
-       (str (long number))
+       (or (instance? Double number) (instance? Float number))
+       (let [d (double number)]
+         (cond
+           (or (Double/isNaN d) (Double/isInfinite d)) (pr-str number)
+           (zero? d)                                   "0"
+           ;; `str` is `Float/toString` for a float, so a float keeps the
+           ;; short digits it prints with rather than its widened double's.
+           :else (js-decimal-string (java.math.BigDecimal. (str number)))))
 
        :else (pr-str number))
      :cljs

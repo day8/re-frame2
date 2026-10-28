@@ -56,3 +56,23 @@
   (testing "a non-whole double is unchanged and a ratio prints as its double"
     (is (= "<span>3.14</span>" (rf.ssr.emit/render-to-string [:span 3.14] {})))
     (is (= "0.5" (rf.ssr.hash/canonical-number 1/2)))))
+
+(deftest doubles-spell-as-javascript-prints-them
+  (testing "every finite double takes JavaScript's `String(n)` spelling, the
+            JVM's scientific notation included (expected values from node)"
+    (doseq [[d expected] [[0.0005 "0.0005"]
+                          [-1.0E-6 "-0.000001"]
+                          [1.0E-7 "1e-7"]
+                          [1.2345E-10 "1.2345e-10"]
+                          [12345678.5 "12345678.5"]
+                          [1.730000000123E9 "1730000000.123"]
+                          [1.0E20 "100000000000000000000"]
+                          [(Math/pow 2 60) "1152921504606847000"]
+                          [1.0E21 "1e+21"]
+                          [1.5E300 "1.5e+300"]
+                          [(+ 0.1 0.2) "0.30000000000000004"]
+                          [-0.0 "0"]]]
+      (is (= expected (rf.ssr.hash/canonical-number d)) (pr-str d))))
+  (testing "in text and in a style value alike"
+    (is (= "<div style=\"width:12500000.5px\">0.0005</div>"
+           (rf.ssr.emit/render-to-string [:div {:style {:width 12500000.5}} 0.0005] {})))))

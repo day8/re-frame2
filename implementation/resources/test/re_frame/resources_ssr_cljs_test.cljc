@@ -125,7 +125,7 @@
                         :params {:slug "x"} :owner [:ssr "req-3" "nav-3"]}]
                       {:frame fid})
     (let [rdb  (rf.frame/frame-runtime-db-value fid)
-          proj (rf.ssr.payload-policy/project-runtime-db rdb)
+          proj (rf.ssr.payload-policy/project-runtime-db rdb fid)
           k-id (rf.resources.state/key-id gkey)]
       (is (and (some? (get-in rdb [rf.resources.state/resources-key :entries k-id :work]))
                (seq (get-in rdb [rf.resources.state/resources-key :owner-index])))
