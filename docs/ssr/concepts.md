@@ -835,23 +835,30 @@ Add one option; nothing else about the handler changes:
             ;; The same policy the render module reads.
             [my-app.policy :as policy]))
 
-(def handler
+(defn make-handler [renderer]
   (ssr-ring/ssr-handler
     {;; The frame config the render module hands `:frame-opts` in step 2.
      :frame          policy/frame-config
      ;; What the BROWSER may see — an `ssr-handler` opt.
      :payload        [:todos]
      ;; No :root-view — only the default JVM-local renderer reads one.
-     :renderer       (node/renderer
-                       {:endpoint     "http://127.0.0.1:8148"
-                        :entry        policy/root-entry
-                        ;; Must equal the server bundle's `build-id` — the
-                        ;; development default here, a stamped id in a release.
-                        :build-id     "my-app-dev"
-                        ;; What the RENDER may see — a RENDERER opt, because
-                        ;; the renderer is what projects.
-                        :render-state policy/render-state-policy
-                        :timeout-ms   1000})}))
+     :renderer       renderer}))
+
+;; At boot. This launches the Node sidecar on the server bundle from step 1
+;; and waits for it to say it is ready (step 5).
+(def renderer
+  (node/renderer
+    {:module       "out/my-app-server/server.js"
+     :entry        policy/root-entry
+     ;; Must equal the server bundle's `build-id` — the development default
+     ;; here, a stamped id in a release.
+     :build-id     "my-app-dev"
+     ;; What the RENDER may see — a RENDERER opt, because the renderer is
+     ;; what projects.
+     :render-state policy/render-state-policy
+     :timeout-ms   1000}))
+
+(def handler (make-handler renderer))
 ```
 
 **`:render-state` goes on the renderer, not on `ssr-handler`.** A copy written
@@ -862,9 +869,10 @@ this step's `:entry` read one shared Var rather than two literals that happen
 to agree today, and so do step 2's `:frame-opts` and this step's
 `:frame`.
 
-`:renderer` is validated at construction, so a misconfigured deployment fails
-at boot rather than at the first request. Omitting it keeps the JVM-local
-render, unchanged to the byte.
+`node/renderer` is validated at construction, and with `:module` it also
+starts the sidecar there, so a misconfigured deployment fails at boot rather
+than at the first request. Omitting `:renderer` keeps the JVM-local render,
+unchanged to the byte.
 
 #### 4. Two policies, and why they differ
 
@@ -901,14 +909,54 @@ and the frame's classification: the framework still checks the envelope and
 the wire domain, but which keys cross and whether a `:sensitive` value is
 redacted are then yours to decide.
 
-#### 5. Start the sidecar, and mind the skew
+#### 5. Run the sidecar, and mind the skew
 
-**Where the sidecar comes from.** It is not published: it is not on npm and
-has no Clojars coordinate, because this repository publishes JVM artefacts only
-and its package manifest is marked private. You take it from a checkout of the
-repository, which is the supported route: the package is
-`implementation/ssr-node`, self-contained CommonJS with no dependencies of any
-kind. Install it into the host from that directory —
+**The JVM runs it.** The sidecar ships inside `day8/re-frame2-ssr-ring`, whose
+jar carries the Node service as classpath resources, so there is nothing to
+install. Given `:module`, the renderer copies the service to a temp directory
+and starts `node` on your server bundle, on a loopback port the operating
+system picks. It waits for the ready line, the one JSON line the service writes
+to stdout once it is listening, and checks it before the renderer is returned:
+
+```json
+{"rf.ssr-node":"ready","url":"http://127.0.0.1:53817","host":"127.0.0.1","port":53817,"buildId":"my-app-dev","protocol":1}
+```
+
+A bundle built as another id fails construction with
+`:rf.error/ssr-node-build-skew`, and a bundle that will not load or a `node`
+that is not there fails it with `:rf.error/ssr-node-unreachable`, quoting the
+sidecar's last lines of stderr. A deployment that boots is serving the bundle
+it was configured for.
+
+From then on the renderer supervises the process. If it exits, it is relaunched
+after 100 ms, and the wait doubles to a cap of 10 s while relaunches keep
+failing. A request that arrives while it is down fails as
+`:rf.error/ssr-node-unreachable` — a projected 5xx, like every other failure.
+The service keeps no state between requests, so a relaunch loses nothing but
+warm isolates. The sidecar's stderr, and anything on its stdout besides the
+ready line, is copied to the JVM's own; a render failure's line there names the
+request frame's id, so it can be matched to the JVM's error record for the same
+request.
+
+The renderer is also a `java.io.Closeable`. `(.close renderer)` stops the
+sidecar — call it from your system's stop step, or open the renderer in
+`with-open` in a test — and a JVM shutdown hook stops one that nobody closed.
+
+The JVM hands the sidecar its own `:timeout-ms`, as both the default deadline
+and its ceiling, and its `:admission-ms`, so the two halves cannot disagree
+about either. Two more options shape the process:
+
+- `:isolates <n>` — worker threads, each rendering one request at a time
+  (default 2).
+- `:node "<path>"` — the Node executable, when the `node` on the JVM's `PATH`
+  is not Node 24 or later.
+
+**Or run it yourself.** Give the renderer `:endpoint` instead of `:module` —
+naming both is refused — and it dials a sidecar you run and supervise, on
+another host for instance. The package is `implementation/ssr-node` in a
+checkout of the repository: self-contained CommonJS with no dependencies of any
+kind, marked private and on no registry. Install it into the host from that
+directory —
 
 ```bash
 npm install /path/to/re-frame2/implementation/ssr-node
@@ -917,39 +965,26 @@ npm install /path/to/re-frame2/implementation/ssr-node
 — or add a `file:` entry to the host's `package.json`; either puts the
 `re-frame2-ssr-node` command in the host's `node_modules/.bin`. Or copy the
 directory onto the deployment host and run `node bin/serve.cjs` with the flags
-below, which is the same program. Because the manifest resolves nothing,
-copying the tree is the install: there is no download step to fail on a
-locked-down network, and the version you run is the checkout you copied. Pin
-that checkout the way you pin the JVM artefacts; the sidecar and the server
-bundle must move together.
+below, which is the same program. Pin that checkout the way you pin the JVM
+artefacts; the sidecar and the server bundle must move together.
 
 ```bash
 re-frame2-ssr-node --module /srv/my-app/out/my-app-server/server.js
 ```
 
-The launcher writes exactly one line to stdout once the socket is listening:
-
-```json
-{"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"my-app-dev","protocol":1}
-```
-
-Look for the line whose `"rf.ssr-node"` key is `"ready"` rather than assuming
-it is the first: an application bundle that logs at boot writes to the same
-stream. A supervisor that passed `--port 0` reads the real port here.
-Everything diagnostic goes to stderr, and a render failure's line there names
-the request frame's id, so it can be matched to the JVM's error record for the
-same request. Run it under a supervisor that restarts
-it on exit and stops it with `SIGTERM`; the service keeps no state between
-requests, so a restart loses nothing but warm isolates.
-
-The flags you are most likely to set:
+It writes the same ready line. Look for the line whose `"rf.ssr-node"` key is
+`"ready"` rather than assuming it is the first: an application bundle that
+logs at boot writes to the same stream. Run it under a supervisor that
+restarts it on exit and stops it with `SIGTERM`. The flags you are most likely
+to set:
 
 - `--isolates <n>` — worker threads, each rendering one request at a time (default 2).
 - `--admission-ms <n>` — how long a request waits for a free isolate before a `503`
-  (default 250).
+  (default 250); give the renderer the same `:admission-ms`.
 - `--timeout-ms <n>` / `--max-timeout-ms <n>` — the render deadline when a request
   names none (default 1000), and the ceiling on the one it may ask for (default 5000).
-- `--port <n>` / `--host <name>` — the bind (default `127.0.0.1:8148`).
+- `--port <n>` / `--host <name>` — the bind (default `127.0.0.1:8148`, the
+  renderer's default `:endpoint`).
 
 `GET /health` answers with the loaded `buildId`, the published entries and isolate
 counts; a rising `replacements` count means the service is killing renders. The full
@@ -960,17 +995,19 @@ before the caller gives up. The adapter already derives its HTTP timeout as
 `:timeout-ms` plus `:admission-ms` plus a margin, which applies that rule for
 you.
 
-**Build skew is checked in both directions.** The sidecar refuses a request
-whose `buildId` is not its own, and the adapter refuses an answer whose
-`x-rf-ssr-build` is not the `:build-id` it was configured with
-(`:rf.error/ssr-node-build-skew`). Two artefacts from different builds cannot
+**Build skew is checked at launch, and in both directions after it.** A
+renderer that runs its sidecar refuses to start one whose bundle names another
+build. On every request the sidecar refuses a `buildId` that is not its own,
+and the adapter refuses an answer whose `x-rf-ssr-build` is not the
+`:build-id` it was configured with. The renderer's two refusals are both
+`:rf.error/ssr-node-build-skew`. Two artefacts from different builds cannot
 serve one page between them.
 
 That check is why **the two literals above are one value written twice** — the
 bundle's `goog-define` and the adapter's `:build-id` — and why the steps above
 leave both at `"my-app-dev"`. Paste the recipe as written and it renders;
-change one without the other and every request is refused, which is the check
-working.
+change one without the other and the renderer refuses to start — or, dialling a
+sidecar you run, every request is refused — which is the check working.
 
 **Stamp a deployment id into both.** `"my-app-dev"` is a development default and
 must not reach production, because it says nothing about *which* build answered.
@@ -993,7 +1030,7 @@ npx shadow-cljs release :my-app/server \
 
 Deploy with `MY_APP_BUILD_ID` set to that same `$BUILD_ID`. Throw on an unset
 variable rather than defaulting: a host that falls back to `"my-app-dev"`
-against a stamped bundle has every request refused, and the refusal names the
+against a stamped bundle is refused for the skew, and the refusal names the
 skew rather than the missing variable.
 
 #### 6. Hydrate
@@ -1006,11 +1043,12 @@ root is given must be the same string.** React includes the prefix in every
 
 #### Deployment posture
 
-The default endpoint is `http://127.0.0.1:8148`, the launcher's default bind,
-and the defaults assume loopback. **The adapter accepts any absolute
-`http(s)` URL and does not refuse a non-loopback one.** Render state may carry
-server-only values by design, so securing the network and transport to a remote
-sidecar is the operator's job.
+A sidecar the renderer runs binds loopback. One you run yourself defaults to
+`http://127.0.0.1:8148`, the launcher's default bind, and the defaults assume
+loopback. **The adapter accepts any absolute `http(s)` URL as `:endpoint` and
+does not refuse a non-loopback one.** Render state may carry server-only values
+by design, so securing the network and transport to a remote sidecar is the
+operator's job.
 
 The sidecar is a second production runtime, and that has a cost: size the
 isolate pool to the concurrency you need (one isolate renders one request at a
@@ -1026,7 +1064,9 @@ partial page. Four ids tell them apart in the trace stream:
 `:rf.error/ssr-node-unreachable` (no HTTP answer at all),
 `:rf.error/ssr-node-deadline` (the deadline passed),
 `:rf.error/ssr-node-refused` (any other non-200, carrying the sidecar's own
-refusal code) and `:rf.error/ssr-node-build-skew`.
+refusal code) and `:rf.error/ssr-node-build-skew`. A renderer that runs its
+sidecar can also fail before any request, at construction, with
+`:rf.error/ssr-node-unreachable` or `:rf.error/ssr-node-build-skew` (step 5).
 
 The sidecar's own guarantees, protocol and refusal codes:
 [`implementation/ssr-node/README.md`](../../implementation/ssr-node/README.md).

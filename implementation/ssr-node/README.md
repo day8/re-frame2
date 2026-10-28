@@ -11,8 +11,10 @@ step, and no entry in any shadow-cljs build or `deps.edn`. Its whole
 dependency list is `node:worker_threads`, `node:http` and `node:crypto`
 ([checked](#a-client-that-never-starts-it-is-unaffected)). The JVM half is
 `ssr-ring`'s: `ssr-handler`'s `:renderer` opt takes
-`re-frame.ssr.ring.node/renderer`, which dials this service for the body
-markup.
+`re-frame.ssr.ring.node/renderer`, which asks this service for the body
+markup — launching and supervising it itself, from a copy of this package
+that `day8/re-frame2-ssr-ring`'s jar carries, or dialling one an operator
+runs.
 
 ## The five guarantees
 
@@ -241,8 +243,21 @@ per-request frame made with no initial events, seeded by
 
 ## Running it
 
-The package is `@day8/re-frame2-ssr-node`, private and published nowhere.
-Install it from a checkout's directory (`npm install
+**A JVM host does not run it by hand.** `day8/re-frame2-ssr-ring` carries
+this package's runtime — `bin/serve.cjs` and `src/` — as classpath resources
+under `re_frame/ssr_node/`, and `re-frame.ssr.ring.node/renderer` given
+`:module <server bundle>` copies them to a temp directory, runs the serve
+command on a port the OS picks, checks the ready line, relaunches the
+command if it exits, and stops it when the renderer is closed or the JVM
+exits. It passes `--timeout-ms`, `--max-timeout-ms` and `--admission-ms`
+from its own opts, so the two halves cannot disagree. Nothing is installed,
+and the sidecar is always the one built with the JVM artefact. The copy is
+pinned to this directory byte for byte by this package's own suite.
+
+To run it yourself instead — under your own supervisor, or on another host —
+point the renderer's `:endpoint` at it. The package is
+`@day8/re-frame2-ssr-node`, private and on no registry, so take it from a
+checkout: install it from the directory (`npm install
 <checkout>/implementation/ssr-node`, or a `file:` entry), or copy the tree to
 the host — it resolves nothing, so the tree is the whole install. Its public
 surface is the serve command and the `./service` and `./http` entry points of
@@ -290,16 +305,20 @@ not start, or could not replace an isolate — and `2` for a wrong command line.
 - Build the server bundle with the application's own shadow-cljs build
   (`:node-script` or `:node-library`), and ship it in the same release as the
   JVM host: the bundle holds the application's compiled views.
-- Run the serve command under a supervisor that restarts it on exit and stops
-  it with SIGTERM. The service is stateless between requests.
+- With `:module`, the JVM host is the supervisor: it relaunches the service
+  when it exits, with a backoff that doubles while relaunches fail, and stops
+  it with SIGTERM. Run it yourself and that job is yours. Either way the
+  service is stateless between requests.
 - The pool size is the concurrency, and each isolate holds its own V8 heap
-  and copy of the bundle, so memory scales with it.
+  and copy of the bundle, so memory scales with it (`:isolates` on the
+  renderer, `--isolates` on the command line).
 - Set the deadline below the JVM caller's read timeout. The JVM adapter takes
-  the `:endpoint`, `:entry`, `:build-id` and `:render-state` policy, validates
-  them at construction, and derives its HTTP timeout from `:timeout-ms` +
-  `:admission-ms` + a margin, so this service refuses before the JVM stops
-  waiting.
-- Node 24 or later, as the manifest's `engines` says.
+  the `:module` or `:endpoint`, `:entry`, `:build-id` and `:render-state`
+  policy, validates them at construction, and derives its HTTP timeout from
+  `:timeout-ms` + `:admission-ms` + a margin, so this service refuses before
+  the JVM stops waiting.
+- Node 24 or later on the host, as the manifest's `engines` says; the
+  renderer runs `node` from the JVM's `PATH` unless `:node` names another.
 
 ### Health
 
@@ -354,7 +373,10 @@ control row that plants its fault and requires the scan to find it:
   at no loader position outside the package — a `require`/`import`
   specifier, an `ns` `:require`, an EDN classpath or coordinate key, a
   manifest's linking field — and the `:rf.ssr-node/` namespace appears
-  nowhere outside it.
+  nowhere outside it. The copy `ssr-ring` ships under
+  `resources/re_frame/ssr_node/` counts as the package, because a further
+  row requires it to match `bin/` and `src/` byte for byte; it is a JVM
+  host's resource, which no client build reads.
 - **No build's source path holds it.** `implementation/shadow-cljs.edn` and
   `implementation/deps.edn` name it at none of their loader keys, and the
   package holds no `.clj`/`.cljs`/`.cljc` file.

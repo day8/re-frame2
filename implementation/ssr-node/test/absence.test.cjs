@@ -24,6 +24,17 @@ const { execFileSync } = require('node:child_process');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(PACKAGE_DIR, '../..');
 
+/**
+ * Where `day8/re-frame2-ssr-ring` carries this package's runtime as classpath
+ * resources, so its renderer's `:module` mode can launch the sidecar from the
+ * jar. It is this package, byte for byte — the last row of this file holds
+ * that — so the scans below skip it as they skip the package itself.
+ */
+const JVM_COPY = 'implementation/ssr-ring/resources/re_frame/ssr_node/';
+
+/** The trees that ARE this package, which the reference scans skip. */
+const OWN_TREES = ['implementation/ssr-node/', JVM_COPY];
+
 /** The trees that build or configure a client artefact; docs and the tracker are out. */
 const SCANNED = ['implementation', 'examples', 'tools', 'scripts', '.github'];
 
@@ -243,12 +254,13 @@ function readTracked(cwd, rel) {
 
 /**
  * Files under `files` whose LOADER POSITIONS mention any of `needles`,
- * excluding anything inside `excludePrefix`. Returns `[{file, needle, line}]`.
+ * excluding anything inside one of `excludePrefixes`. Returns
+ * `[{file, needle, line}]`.
  */
-function scanLoaderPositions(cwd, files, needles, excludePrefix) {
+function scanLoaderPositions(cwd, files, needles, excludePrefixes) {
   const hits = [];
   for (const rel of files) {
-    if (excludePrefix && rel.startsWith(excludePrefix)) continue;
+    if ((excludePrefixes ?? []).some((prefix) => rel.startsWith(prefix))) continue;
     const ext = path.extname(rel).toLowerCase();
     if (SKIP_EXT.has(ext) || DOC_EXT.has(ext)) continue;
     const text = readTracked(cwd, rel);
@@ -272,10 +284,10 @@ function scanLoaderPositions(cwd, files, needles, excludePrefix) {
  * Files under `files` mentioning any of `needles` ANYWHERE in their raw
  * text — the broader shape, used for `CODE_NAMESPACE`.
  */
-function scanForReferences(cwd, files, needles, excludePrefix) {
+function scanForReferences(cwd, files, needles, excludePrefixes) {
   const hits = [];
   for (const rel of files) {
-    if (excludePrefix && rel.startsWith(excludePrefix)) continue;
+    if ((excludePrefixes ?? []).some((prefix) => rel.startsWith(prefix))) continue;
     const ext = path.extname(rel).toLowerCase();
     if (SKIP_EXT.has(ext) || DOC_EXT.has(ext)) continue;
     const text = readTracked(cwd, rel);
@@ -349,7 +361,7 @@ function scratch(files) {
 test('no loader in a client-building tree can reach this package', () => {
   const files = trackedFiles(REPO_ROOT, SCANNED);
   assert.ok(files.length > 500, `only ${files.length} tracked files scanned — the scope looks wrong`);
-  const hits = scanLoaderPositions(REPO_ROOT, files, REFERENCES, 'implementation/ssr-node/');
+  const hits = scanLoaderPositions(REPO_ROOT, files, REFERENCES, OWN_TREES);
   assert.deepStrictEqual(
     hits,
     [],
@@ -362,7 +374,7 @@ test('no loader in a client-building tree can reach this package', () => {
 test('the refusal-code namespace appears nowhere outside the package', () => {
   // The absolute zero, over raw text.
   const files = trackedFiles(REPO_ROOT, SCANNED);
-  const hits = scanForReferences(REPO_ROOT, files, [CODE_NAMESPACE], 'implementation/ssr-node/');
+  const hits = scanForReferences(REPO_ROOT, files, [CODE_NAMESPACE], OWN_TREES);
   assert.deepStrictEqual(
     hits,
     [],
@@ -641,5 +653,42 @@ test('CONTROL — a manifest that grows a dependency, or links past its own tree
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4. The copy the JVM host ships is this package
+// ---------------------------------------------------------------------------
+
+/** Every file under `dir`, as `/`-separated paths relative to `root`. */
+function filesUnder(root, dir = root) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const abs = path.join(dir, entry.name);
+    return entry.isDirectory() ? filesUnder(root, abs) : [path.relative(root, abs).split(path.sep).join('/')];
+  });
+}
+
+/** The package's runtime: what `bin/serve.cjs` loads, and nothing else. */
+const runtimeFiles = () =>
+  ['bin', 'src'].flatMap((dir) => filesUnder(PACKAGE_DIR, path.join(PACKAGE_DIR, dir))).sort();
+
+/** File text with line endings normalised, which a checkout may translate per file. */
+const textOf = (abs) => fs.readFileSync(abs, 'utf8').replace(/\r\n/g, '\n');
+
+test('the JVM host ships this package\'s runtime, byte for byte', () => {
+  // The reference scans above skip `JVM_COPY` because it is this package;
+  // this row is what makes that true, so a copy that drifts goes red here.
+  const copyRoot = path.join(REPO_ROOT, JVM_COPY);
+  const ours = runtimeFiles();
+  assert.ok(ours.includes('bin/serve.cjs') && ours.length >= 7, `only ${ours.join(', ')} found — the scan looks wrong`);
+  const refresh =
+    'refresh it: copy implementation/ssr-node/bin/ and src/ over ' +
+    `${JVM_COPY}, and delete what the package no longer has`;
+  assert.deepStrictEqual(filesUnder(copyRoot).sort(), ours, `the JVM copy holds a different file set — ${refresh}`);
+  for (const rel of ours) {
+    assert.ok(
+      textOf(path.join(PACKAGE_DIR, rel)) === textOf(path.join(copyRoot, rel)),
+      `${JVM_COPY}${rel} differs from the package's ${rel} — ${refresh}`,
+    );
   }
 });

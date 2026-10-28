@@ -3,9 +3,10 @@
 // witness (`re-frame.ssr.ring.login-host-crossing-test`) spawns the sidecar
 // on.
 //
-// It carries NO identity of its own. The entry id and the build id arrive in
-// the environment, and the test sets them from the application — the entry
-// id is `fresco.login.policy/root-entry`, the same Var `examples/substrates/
+// It carries NO identity of its own: it exports a FACTORY, and the test binds
+// it to the application's entry id and build id in a one-line module it
+// writes and hands the renderer as `:module` — the entry id is
+// `fresco.login.policy/root-entry`, the same Var `examples/substrates/
 // fresco/login/server.cljs` publishes as the real bundle's entry table.
 // Which keys reach it is the JVM host's `:render-state` policy alone.
 //
@@ -28,12 +29,10 @@ const escapeHtmlText = (value) =>
   String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 
-const entry = process.env.RF2_LOGIN_ENTRY || 'fresco.login/root';
-
-module.exports = {
+module.exports = ({ entry: publishedEntry, buildId }) => ({
   protocol: 1,
-  buildId: process.env.RF2_LOGIN_BUILD_ID || 'login-fresco-dev',
-  entries: [entry],
+  buildId,
+  entries: [publishedEntry],
 
   async render({ entry, state, runtime }) {
     const sortedKeyList = (partition) => Object.keys(partition ?? {}).sort().join(' ');
@@ -47,4 +46,4 @@ module.exports = {
         `</main>`
     );
   },
-};
+});

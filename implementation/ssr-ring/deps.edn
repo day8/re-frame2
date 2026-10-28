@@ -15,11 +15,20 @@
 ;; Per Spec 006 §Adapter shipping convention, this optional artefact depends
 ;; on core and SSR; neither depends on it.
 ;;
-;; `resources/` carries `re_frame/ssr_host.edn`, the marker that makes a JVM
-;; with this artefact on its classpath an SSR host, so the debug gate
-;; defaults OFF there (Spec 011 §The debug gate on an SSR JVM). It is on
-;; `:paths` for a `:local/root` consumer and on `:src-dirs` for the jar. The two test
-;; aliases below opt back in with `-Dre-frame.debug=true`.
+;; `resources/` is on `:paths` for a `:local/root` consumer and on `:src-dirs`
+;; for the jar, and carries two things:
+;;
+;;   - `re_frame/ssr_host.edn`, the marker that makes a JVM with this artefact
+;;     on its classpath an SSR host, so the debug gate defaults OFF there
+;;     (Spec 011 §The debug gate on an SSR JVM). The two test aliases below
+;;     opt back in with `-Dre-frame.debug=true`.
+;;   - `re_frame/ssr_node/`, the Node render sidecar's runtime, which
+;;     `re-frame.ssr.ring.node/renderer` launches under `:module`. It is a
+;;     copy of implementation/ssr-node's `bin/` and `src/`, pinned byte for
+;;     byte by that package's own suite (`test/absence.test.cjs`): a copy
+;;     inside this directory is the one arrangement both of the routes above
+;;     carry unchanged, since clein copies each `:src-dirs` entry to the jar
+;;     root and a `:paths` entry outside the project is deprecated.
 {:paths ["src" "resources"]
  :deps  {day8/re-frame2     {:local/root "../core"}
          day8/re-frame2-ssr {:local/root "../ssr"}
@@ -72,9 +81,9 @@
                        "-e" ":crossing"]}
 
   ;; The JVM->Node->JVM crossing witness: only the tests
-  ;; tagged `:crossing`. Each spawns implementation/ssr-node's serve launcher
-  ;; on a plain fixture render module (test/fixtures/node/) via
-  ;; ProcessBuilder, so Node 24 must be on PATH. CI runs it as its own job
+  ;; tagged `:crossing`. Each has a renderer launch the sidecar this
+  ;; artefact carries on a plain fixture render module (test/fixtures/node/),
+  ;; so Node 24 must be on PATH. CI runs it as its own job
   ;; (`jvm-node-crossing` in .github/workflows/test.yml); the default `:test`
   ;; alias never touches Node.
   :crossing-test
