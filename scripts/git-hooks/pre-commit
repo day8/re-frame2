@@ -19,7 +19,8 @@
 # tracker does flow, it arrives whole.
 #
 # Refuses commits in the MAYOR checkout that touch worker-tracked surfaces.
-# Mayor commits are allowed only for `.beads/issues.jsonl` and
+# Mayor commits are allowed only for the tracker export (`.beads/tracker/**`,
+# and `.beads/issues.jsonl`, its single-file form in older commits) and
 # the optional root `MEMORY.md`; any source/spec/test/doc/script change
 # must originate from a worker worktree under the worktree parent
 # directory (a sibling of the mayor checkout, e.g. `../re-frame2-worktrees/`).

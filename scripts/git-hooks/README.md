@@ -15,7 +15,7 @@ disturbing beads-managed segments (`bd hooks install`).
 | `post-rewrite` | Advisory: the same warning after a REBASING pull (`git pull --rebase` with a local commit), which never reaches `post-merge`. **rf2-zt65l.** |
 | `pre-commit` | Refuse commits in the MAYOR checkout that touch worker-tracked surfaces. **rf2-ydl2p.** |
 | `pre-commit` | Refuse commits in a WORKER worktree that touch the beads DATABASE. **rf2-ia8o7.** |
-| `pre-commit` | Refuse a commit from ANY worktree that would empty `.beads/issues.jsonl` or lose more than a tenth of it. **rf2-or8te.** |
+| `pre-commit` | Refuse a commit from ANY worktree that would empty the tracker export or lose more than a tenth of its rows, summed across its parts. **rf2-or8te.** |
 | `commit-msg` | Refuse a commit MESSAGE carrying AI attribution, or a commit whose AUTHOR or COMMITTER is the assistant's no-reply address. **rf2-2e8f.** |
 | `lib/check-stale-mcp-binary.sh` | POSIX-sh library used by `post-merge`. |
 | `lib/check-hook-install-staleness.sh` | POSIX-sh library used by `post-merge` **and** `post-rewrite` (rf2-zt65l) — one advisory, one home. |
@@ -120,8 +120,8 @@ asks a different question of the same file:
 | Block | Fires in | Refuses |
 |-------|----------|---------|
 | rf2-ydl2p | the **mayor** checkout | worker-tracked surfaces (source, spec, docs, scripts) |
-| rf2-ia8o7 | every **worker** worktree | the beads **database** (`.beads/issues.jsonl` and friends) |
-| rf2-or8te | **every** worktree, mayor included | a staged tracker that has lost more than a tenth of HEAD's rows |
+| rf2-ia8o7 | every **worker** worktree | the beads **database** (`.beads/tracker/**`, `.beads/issues.jsonl` and friends) |
+| rf2-or8te | **every** worktree, mayor included | a staged tracker that has lost more than a tenth of HEAD's rows, summed across its parts |
 
 The first two say: source flows mayor → worker, tracker state flows
 worker → mayor, and neither crosses back. The third says: and when the tracker
@@ -166,7 +166,8 @@ Permitted in mayor commits:
 
 | Path | Reason |
 |------|--------|
-| `.beads/issues.jsonl` | bd closure / state edits |
+| `.beads/tracker/**` | the tracker export's parts, as the checkpoint writes them |
+| `.beads/issues.jsonl` | its single-file form in older commits, whose removal the cut-over commits |
 | `MEMORY.md` | optional operator-memory file at repo root (if present) |
 
 Refused in mayor commits (anything else, including):
@@ -205,8 +206,9 @@ For a single commit, `git commit --no-verify` also bypasses the hook
 
 ## The worker beads boundary (rf2-ia8o7)
 
-`.beads/issues.jsonl` is a full-database export, and `bd` rewrites it in
-every checkout. A worker worktree therefore carries a snapshot of the
+The tracker export — its parts under `.beads/tracker/`, or the single
+`.beads/issues.jsonl` older commits carry — is a full-database export,
+and only the checkpoint rewrites it. A worker worktree therefore carries a snapshot of the
 tracker as it stood when that worktree was created; committing it
 time-travels the tracker, reopening beads closed since and deleting
 beads filed since. PR #6677 landed exactly that — 135 insertions / 136
@@ -245,7 +247,8 @@ every worker worktree, reddening the CI arm on every PR that touches it.
 The widening is exact, and layer 3 pins that: `.beads/PRIME.md.bak`,
 `.beads/PRIME.jsonl` and `.beads/prime/export.jsonl` all stay refused.
 
-Refused outside the mayor checkout: `.beads/issues.jsonl`,
+Refused outside the mayor checkout: the tracker export in either layout
+(`.beads/tracker/**`, `.beads/issues.jsonl`),
 `.beads/metadata.json`, and anything else under `.beads/` — including
 artefacts that do not exist yet (`.beads/events.jsonl` when events-export
 is enabled, `.beads/dolt/**`, `.beads/*.db`). That is the point of an
@@ -276,7 +279,7 @@ the change and needs no reinstall.
 ### Why not `git update-index --skip-worktree`?
 
 The bead originally proposed setting `--skip-worktree` on
-`.beads/issues.jsonl` in every new worker checkout. Measured, that is
+the tracker export in every new worker checkout. Measured, that is
 strictly worse than refusing the commit: it hides the local edit from
 `git status` (clean tree) while `git pull --rebase` still refuses to
 advance over it —
@@ -316,6 +319,21 @@ refuses an empty export outright, and refuses anything below 90% of HEAD. That
 guard is sound and unchanged. Neither commit went through it. So the same
 floor, with the same thresholds, now also lives in the hook — the one place no
 committer can route around.
+
+### A floor on the sum of the parts
+
+The tracker is committed as parts under `.beads/tracker/` — sixteen issue
+parts split by bead-id hash, plus `memories.jsonl` — and older commits carry
+it as the single file `.beads/issues.jsonl`. A tree holding any part carries
+the parts and nothing else; a tree holding none carries the single file. The
+hook and `scripts/beads-checkpoint.sh` apply that one rule, so both count the
+same rows, and `sh scripts/beads-checkpoint.sh --cat <rev>` prints the export
+at any commit in either layout.
+
+The floor compares the TOTAL across the parts, never a part. Rows move
+between parts, and the cut-over commit stages the single file's deletion
+beside parts holding every one of its rows; a per-part floor would refuse
+both as losses.
 
 ### An empty export is a regeneration event
 
@@ -369,7 +387,7 @@ Pass the base branch, not a precomputed branch point. The script diffs
 from `git merge-base BASE HEAD` to `HEAD` — the changes your branch
 introduced (rf2-5z20y). A two-endpoint `git diff BASE HEAD` would report
 every path where the two trees differ, including paths only `main` moved,
-and since the mayor checkpoints `.beads/issues.jsonl` on essentially every
+and since the mayor checkpoints the tracker export on essentially every
 loop tick, every branch older than the last checkpoint would be blamed for
 contamination it never committed. An unresolvable merge base — usually a
 shallow clone that lacks the branch point — fails closed too.
@@ -618,14 +636,16 @@ scenario from both beads.
 
 From rf2-ydl2p:
 
-1. Mayor commit with only `.beads/issues.jsonl` staged → passes
+1. Mayor commit with only the tracker export staged → passes
 2. Mayor commit with `tools/xray/foo.cljs` staged → refused
 3. Worker worktree commit with source staged → passes (hook no-op)
 4. Mayor commit with mixed staged paths → refused (any-refused triggers)
 
 From rf2-ia8o7:
 
-5. Worker commit staging `.beads/issues.jsonl` → refused, message names the file
+5. Worker commit staging `.beads/issues.jsonl`, or a part under
+   `.beads/tracker/` → refused, message names the file; the CI arm refuses a
+   branch carrying a part the same way
 6. Worker commit touching nothing under `.beads/` → passes
 7. Worker commit staging `.beads/config.yaml` → passes (allow-listed)
 8. Mayor commit staging `.beads/issues.jsonl` → passes (guard no-ops in primary)
@@ -671,6 +691,14 @@ From rf2-51uz1, on the other side of the same boundary — the checkpoint helper
     the mayor's to commit — while `--pre-pull`, the read-only question, still
     answers there
 
+The parts layout, on the same stub: the first checkpoint over a single-file
+HEAD is the cut-over (seventeen parts in, the single file out of index and
+tree, `--cat` still reading the seed commit's single file); `--cat` answers
+from a worker worktree while `--split` is refused there; the route is pinned
+id by id against the same table the `.ps1`'s `-SelfTest` pins, so the two
+scripts cannot drift apart unseen; and `--cat` refuses a commit carrying no
+tracker rather than printing an empty success.
+
 From rf2-or8te, driving the floor from the sandbox's primary worktree —
 the checkout both incidents came from, and the one every layer above no-ops in:
 
@@ -684,6 +712,12 @@ the checkout both incidents came from, and the one every layer above no-ops in:
     and is not re-tested here.)
 28. A tracker over a 0-row HEAD, and a commit that stages no tracker path at
     all, are both untouched
+
+And on parts, from the same primary worktree: a cut-over whose parts hold
+fewer rows than the single file is refused; the full cut-over passes both the
+mayor boundary and the floor; rows moving between parts pass, because the
+floor grades the total; and a part emptied below the summed floor is refused,
+with the totals.
 
 From rf2-2e8f, the first block here to grade the MESSAGE rather than the staged
 paths — every case paired in both directions, because a detector that matches

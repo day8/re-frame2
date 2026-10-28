@@ -10,10 +10,20 @@
 # PINNED (rf2-cchlf). Every bead id in this repo is `rf2-*` — in the tracker,
 # in commit messages, in PR titles and in spec cross-references. The live value
 # has until now existed ONLY in the Dolt database, so a rebuild from the
-# git-tracked .beads/issues.jsonl (the documented bd bootstrap fallback and our
-# accepted recovery floor, rf2-4l67v) would auto-detect the prefix from the
-# DIRECTORY name and come up "re-frame2". Pinning it here makes the recovery
-# path reproduce the ids we already have. Do not change this value.
+# git-tracked export (the documented bd bootstrap fallback and our accepted
+# recovery floor, rf2-4l67v) would auto-detect the prefix from the DIRECTORY
+# name and come up "re-frame2". Pinning it here makes the recovery path
+# reproduce the ids we already have. Do not change this value.
+#
+# THE BOOTSTRAP FALLBACK READS ONE FILE, .beads/issues.jsonl, and the tracker
+# is committed as parts under .beads/tracker/ (scripts/beads-checkpoint.sh).
+# Reassemble the single file first, then bootstrap:
+#   sh scripts/beads-checkpoint.sh --cat HEAD > .beads/issues.jsonl
+#   bd bootstrap --yes
+# The reassembled copy is ignored (.beads/.gitignore), and the next checkpoint
+# deletes it. Bootstrap clones sync.remote whenever one is configured and
+# takes this fallback only when none is; there, without the reassembled file,
+# it finds nothing to import and creates a fresh, EMPTY database.
 issue-prefix: "rf2"
 sync:
     remote: "https://github.com/day8/re-frame2-beads.git"
@@ -22,7 +32,7 @@ sync:
 #
 # Exactly like issue-prefix above, status.custom lives ONLY in the Dolt database
 # and never in this file. So a fresh clone bootstrapping from the tracked
-# .beads/issues.jsonl has no custom statuses, and `bd bootstrap --yes` REJECTS
+# export has no custom statuses, and `bd bootstrap --yes` REJECTS
 # any exported row that carries one:
 #   Bootstrap failed: import from JSONL: validation failed for <id>: invalid status: in_review
 # That broke the recovery floor (rf2-4l67v) once already, via `in_review`: a
@@ -42,6 +52,8 @@ sync:
 
 # Use no-db mode: JSONL-only, no Dolt database
 # When true, bd will use .beads/issues.jsonl as the source of truth
+# Leave it off here: the tracked export is the parts under .beads/tracker/,
+# which bd does not read, so no-db mode would start from an empty file.
 # no-db: false
 
 # Enable JSON output by default

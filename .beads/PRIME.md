@@ -32,8 +32,10 @@ Never `git stash` — stashes are repo-global and contaminate every worktree in 
 - **`bd update --notes` REPLACES the field; `--append-notes` adds to it.** The loss is silent
   and has cost tens of thousands of characters here. `CLAUDE.md` § Beads durability has the
   recovery and the backtick trap in the same act.
-- Worker branches carry code, spec, docs and tests — never `.beads/issues.jsonl` or
-  `.beads/metadata.json`. A pre-commit hook and a CI job both enforce it.
+- Worker branches carry code, spec, docs and tests — never the tracker export
+  (`.beads/tracker/**`, `.beads/issues.jsonl`) or `.beads/metadata.json`. A pre-commit hook
+  and a CI job both enforce it. Read the export at any commit with
+  `sh scripts/beads-checkpoint.sh --cat <rev>`.
 - `bd edit` opens `$EDITOR` and blocks an agent. Never use it.
 
 ## Finding work — and finding what we already know
