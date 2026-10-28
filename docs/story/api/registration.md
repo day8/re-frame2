@@ -442,7 +442,7 @@ A variant declares its sensitive / large app-db paths via the `:sensitive` / `:l
    :large     {:app-db [[:docs :csv-upload]]}})
 ```
 
-Right after it creates the variant's frame, and before any lifecycle or setup event runs, Story records these paths in the frame's classification registry, the same registry a `reg-event` handler writes when it returns `:sensitive` or `:large`. So a classified path is already redacted in any trace the variant's setup emits, and every Story surface that redacts (assertion records, the trace buffer, the recorder, DOM capture) sees it. A malformed declaration throws a classification-effect shape error.
+Right after it creates the variant's frame, and before any lifecycle or setup event runs, Story registers these paths as a [`reg-classification`](../../api/re-frame.core.md#reg-classification) the frame owns, and clears it when the frame is destroyed. So a classified path is already redacted in any trace the variant's setup emits, and every Story surface that redacts (assertion records, the trace buffer, the recorder, DOM capture) sees it. A malformed declaration throws `:rf.error/bad-classification`. A variant whose frame composes `:images` cannot see a registration made this way, so declaring `:sensitive` / `:large` on such a variant throws the same error; put a `reg-classification` in one of its images' namespaces instead.
 
 The slots take only `:app-db` paths, and only on the variant body: a frame config carrying `:sensitive {:app-db …}` throws. Story has no function for marking paths after the frame exists. Transient values are classified where they are registered: event arguments and effect or coeffect values through `:sensitive` / `:large` metadata on `reg-event`, `reg-fx` or `reg-cofx`, and HTTP carriers on the `:rf.http/managed` effect's `:carriers` block.
 
@@ -454,4 +454,4 @@ The slots take only `:app-db` paths, and only on the variant body: a frame confi
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
 - [Workspaces](../07-workspaces.md), [Modes, viewports and backgrounds](../07-modes-and-viewports.md), [Decorators](../07-decorators.md) and [Composition](../07-composition.md) — the tutorial pages for those registrations.
-- [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.
+- [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — the framework's `:sensitive` / `:large` classification model.

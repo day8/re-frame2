@@ -271,11 +271,12 @@ The rules:
 
 1. **Every value-bearing slot passes through
    `re-frame.core/project-egress` before landing in `:assertions`.**
-   Durable app-db classification is carried by the **commit-plane effects** per
-   [spec/015 §Durable app-db — the four commit-plane effects](../../../spec/015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects):
-   a variant declares its sensitive / large paths from a handler body, as the
-   `:sensitive` / `:large` commit-plane effects returned alongside the `:db`
-   write (not on the variant's `make-frame` config — that route was retired). A
+   Durable app-db classification is a `reg-classification` per
+   [spec/015 §Static app-db classification](../../../spec/015-Data-Classification.md#static-app-db-classification):
+   a variant declares its sensitive / large paths on its body
+   (`:sensitive {:app-db [[:auth :token]]}`), which Story registers as a
+   `reg-classification` the variant frame owns, or the app's own
+   `reg-classification` beside the feature classifies them. A
    `:rf.assert/path-equals [:auth :token] ...` lookup against a slot classified
    sensitive records `:actual :rf/redacted`, NOT the raw value. The
    `evaluate-path-equals` / `evaluate-sub-equals` evaluators project

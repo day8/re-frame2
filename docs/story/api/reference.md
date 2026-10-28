@@ -186,14 +186,14 @@ The canonical facade. Every user-callable surface lives here.
 
 ### Privacy — variant-body classification
 
-Durable app-db classification is declared on the variant body and lowered into the frame's elision registry as commit-plane classification effects, not via a post-creation mutation surface. A variant declares its sensitive / large paths on its body:
+Durable app-db classification is declared on the variant body, and Story registers it as a [`reg-classification`](../../api/re-frame.core.md#reg-classification) the variant frame owns, not via a post-creation mutation surface. A variant declares its sensitive / large paths on its body:
 
 | Variant slot | Shape | Intuition |
 | --- | --- | --- |
-| `:sensitive` | `{:app-db [[path...] ...]}` | Sensitive app-db paths — lowered as commit-plane `:sensitive` effects right after frame creation; redact to `:rf/redacted` at every Story observation surface. |
-| `:large` | `{:app-db [[path...] ...]}` | Large app-db paths — lowered as commit-plane `:large` effects; elide to `:rf/large {…}`. |
+| `:sensitive` | `{:app-db [[path...] ...]}` | Sensitive app-db paths — registered for the variant frame right after frame creation; redact to `:rf/redacted` at every Story observation surface. |
+| `:large` | `{:app-db [[path...] ...]}` | Large app-db paths — registered the same way; elide to `:rf/large {…}`. |
 
-> Story does **not** publish `add-marks` / `set-marks` — classification is declared on the variant body and lowered through commit-plane effects.
+> Story does **not** publish `add-marks` / `set-marks` — classification is declared on the variant body and registered with the frame.
 
 ### Substrate registration
 

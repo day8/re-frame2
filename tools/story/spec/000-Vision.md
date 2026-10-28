@@ -187,11 +187,10 @@ The posture is normative across Story's surfaces:
    A variant declares its sensitive / large app-db paths via the
    `:sensitive` / `:large` slots on its body
    (`:sensitive {:app-db [[:auth :token]]}`, per
-   [spec/015 §Data classification](../../../spec/015-Data-Classification.md)).
-   EP-0025: the runtime lowers these into the variant frame's elision registry
-   as commit-plane classification effects (`apply-variant-classification!`,
-   `:source :effect`) right after frame creation, before its lifecycle / init
-   events — there is **no durable frame annotation** (removed) and **no public
+   [spec/015 §Static app-db classification](../../../spec/015-Data-Classification.md#static-app-db-classification)).
+   The runtime registers these as a `reg-classification` the variant frame
+   owns (`apply-variant-classification!`) right after frame creation, before
+   its lifecycle / init events, and clears it on frame destroy — there is **no durable frame annotation** (removed) and **no public
    post-creation `add-marks` / `set-marks` mutation surface** (the underlying
    fns are framework-internal / test helpers only). The `:loaders` / `:setup` /
    `:script` registrations on a variant continue to accept
@@ -268,7 +267,7 @@ The posture is normative across Story's surfaces:
    *before* any sentinel substitution. Two reasons: (a) the
    visual-regression services keying on the hash need stability under
    real values — a sentinel-substituted hash would change every time
-   the elision registry's path set changed; (b) the snapshot is
+   the frame's classified path set changed; (b) the snapshot is
    computed in-process where the consumer (Story's identity helper)
    already operates on real values. The hash itself never leaves the
    process unredacted; if a downstream tool emits the hash plus the
