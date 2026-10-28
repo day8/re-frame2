@@ -1,8 +1,8 @@
 (ns re-frame.router.diagnostics
   "Router diagnostics on cold or dev-gated paths: the no-handler and
   ambiguous-handler errors, the cross-frame dispatch-sync warning, the
-  dispatch-opts and payload checks, and the always-on `:rf.cofx` boundary
-  validation. Kept apart from `re-frame.router`, which reaches in only on
+  dispatch-opts and payload checks, and the always-on event-vector and
+  `:rf.cofx` boundary validations. Kept apart from `re-frame.router`, which reaches in only on
   these rare paths."
   (:require [clojure.string :as str]
             [re-frame.cofx.value-check :as rf.cofx.value-check]
@@ -120,6 +120,28 @@
         nil)
       nil
       supplied)))
+
+(defn validate-event-vector!
+  "Throw `:rf.error/invalid-event` unless `event` is an event vector: a vector
+  headed by its event-id keyword (Spec-Schemas §`:rf/event`). Always-on, and
+  run before anything reads the event, because `(dispatch :foo)` and the
+  forgotten inner vector of `{:fx [[:dispatch :foo]]}` are the commonest
+  slips, and unchecked they fail later as a host exception that names no
+  event, or run as a nonsense id (Spec 002 §Routing: the dispatch envelope).
+  A keyword is named in the message, since it is almost certainly the event
+  id; any other value is described by its `rf.error/diag-value-summary`, and
+  the ex-data carries it raw."
+  [event]
+  (when-not (and (vector? event) (keyword? (nth event 0 nil)))
+    (rf.error/throw-error!
+      :rf.error/invalid-event 're-frame.router
+      (str "An event must be a vector headed by its event id, e.g. `[:foo]` or "
+           "`[:foo {:k v}]`; got "
+           (if (keyword? event)
+             (str "the bare keyword `" event "`. Wrap it as `[" event "]`.")
+             (str (pr-str (rf.error/diag-value-summary event)) "."))
+           " Nothing was dispatched.")
+      {:extra {:event event}})))
 
 (defn validate-cofx!
   "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is not nil

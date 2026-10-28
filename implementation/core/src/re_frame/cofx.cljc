@@ -44,8 +44,9 @@
 
 ;; ---- the platform predicate -----------------------------------------------
 ;;
-;; Per Spec 011 §634-642 the `:platforms` metadata applies to BOTH
-;; `reg-fx` AND `reg-cofx`; a cofx tagged `:platforms #{:client}` must
+;; Per Spec 011 §`:platforms` metadata on `reg-fx`, the `:platforms`
+;; metadata applies to BOTH `reg-fx` AND `reg-cofx`; a cofx tagged
+;; `:platforms #{:client}` must
 ;; no-op when its supplier would run on a server-side frame (the SSR
 ;; contract — request-cofx like browser locale, localStorage,
 ;; navigator-info etc. would otherwise blow up under JVM render or produce
@@ -235,7 +236,7 @@
                     `#{:client :server}`. The supplier is skipped on
                     platforms not in the set (`:rf.cofx/skipped-on-platform`
                     warning trace, mirroring `reg-fx`'s contract per Spec
-                    011 §634-642).
+                    011 §`:platforms` metadata on `reg-fx`).
 
   Registration-time errors:
 

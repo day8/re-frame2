@@ -923,6 +923,13 @@
   the same arm: they too reach the process default."
   [record route-frame?]
   (let [claimed? (fan-out! record)
+        ;; The frame-owned `:observability :errors` sink route, the normal
+        ;; production error-observation surface (Spec 015 §Frame-owned
+        ;; observability sink policy): a record carrying a resolvable `:frame`
+        ;; also reaches that frame's declared sinks, projected under its
+        ;; classification and the sink's egress profile. Late-bound, because a
+        ;; static require of `re-frame.observability` would re-enter this ns's
+        ;; own require graph; nil (no route) until that namespace loads.
         routed   (if-some [route-error-record! (rf.late-bind/get-fn
                                                  :observability/route-error-record)]
                    (route-error-record! record route-frame?)
@@ -964,23 +971,7 @@
   ;; all — because a capture window wants the raw shape; the record is NOT
   ;; privacy-gated like the dev trace, so the caller is contracted to keep
   ;; identifiers tight and carry no raw app-db slice.
-  (dispatch-error-record* record true)
-  ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy:
-  ;; the frame-owned `:observability :errors` sink route — the
-  ;; NORMAL production error-observation surface. Parallel to the corpus-wide
-  ;; fan-out above, exactly as the event-centric `dispatch-on-error!` routes to
-  ;; `route-error!`: a NON-EVENT union record carrying a resolvable `:frame`
-  ;; ALSO routes to that frame's declared error sinks, PROJECTED under the
-  ;; frame's classification + the sink's egress profile (the flat category
-  ;; slots ride `:tags` → redacted; `:exception` drops under
-  ;; `:rf.egress/public-error`). Late-bound (the static
-  ;; `error-emit` → `observability` → `projection` → `elision` require would
-  ;; re-enter this ns's own require graph); the hook is nil (no-op) until
-  ;; `re-frame.observability` loads. Fail-closed + sibling-isolated inside
-  ;; `route-error-record!` (a frameless `:frame nil` record has no
-  ;; frame-owned policy, so only the process default can receive it).
-  ;; Always-on.
-  nil)
+  (dispatch-error-record* record true))
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
 ;;
