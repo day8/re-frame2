@@ -332,11 +332,11 @@
 ;; ---- a URL string, projected by its route's declaration --------------------
 ;;
 ;; A route declares its sensitive params and query keys projection-relative
-;; (`{:sensitive [[:params :secret] [:query :token]]}`), and activation lowers
-;; that declaration against the route slice in runtime-db. A URL string carries
+;; (`{:sensitive [[:params :secret] [:query :token]]}`), and egress applies
+;; that declaration to the route slice in runtime-db. A URL string carries
 ;; the same values as text, so no slice path reaches it. `redact-declared-url`
 ;; matches the URL the way `match-url` does, reads the matched route's
-;; declaration exactly as activation does
+;; declaration exactly as the routing hook's collect does
 ;; (`re-frame.routing.classification/validate+extract`), and replaces what it
 ;; names with the `rf/redacted` sentinel string:
 ;;

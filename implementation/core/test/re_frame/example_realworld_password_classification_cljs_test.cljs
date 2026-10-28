@@ -204,7 +204,7 @@
             every trace: its reg-machine OPTS `:sensitive` redacts the routed
             sub-event echoed into the machine traces' `:event` /
             `[:input :event]` slots, and its spec's `:data` `:sensitive` is
-            lowered to the absolute snapshot paths at spawn"
+            claimed at the absolute snapshot paths while the actor exists"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
       (let [traces (record-traces! ::settings-edit)]
@@ -220,10 +220,10 @@
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
       (is (contains? (rf.elision/sensitive-declarations f)
                      [:rf.runtime/machines :snapshots :settings/form :data :draft :password])
-          "the machine :data draft-password path lowered to the snapshot path at spawn")
+          "the machine :data draft-password path is claimed at the snapshot path")
       (is (contains? (rf.elision/sensitive-declarations f)
                      [:rf.runtime/machines :snapshots :settings/form :data :submitted :password])
-          "the machine :data submitted-password path lowered too")
+          "the machine :data submitted-password path is claimed too")
       (is (= sentinel (get-in (rf/frame-state-value f)
                               [:rf.db/runtime :rf.runtime/machines :snapshots
                                :settings/form :data :draft :password]))

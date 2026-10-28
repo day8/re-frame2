@@ -201,7 +201,7 @@
     (let [mid       :rf.machine-redaction/declared-singleton
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
           abs-blob  [:rf.runtime/machines :snapshots mid :data :blob]
-          lowered   #(let [reg (snapshot-elision-reg)]
+          claimed   #(let [reg (snapshot-elision-reg)]
                        [(set (map :source (get-in reg [:sensitive-declarations abs-token])))
                         (contains? (:declarations reg) abs-blob)])]
       (rf/reg-machine mid
@@ -211,7 +211,7 @@
          :data      {:token nil :blob nil :retries 0}
          :states    {:anon {:on {:login :authed}} :authed {}}})
       (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (is (= [#{:machine} true] (lowered))
+      (is (= [#{:machine} true] (claimed))
           "claimed at the ABSOLUTE snapshot paths after boot, under :source :machine")
       (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             data (get-in out [:tags :after :data])]
@@ -221,7 +221,7 @@
       (rf/reg-event :rf.machine-redaction/destroy-singleton
         (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
       (rf/dispatch-sync [:rf.machine-redaction/destroy-singleton])
-      (is (= [#{} false] (lowered)) "both claims go with the snapshot at destroy"))))
+      (is (= [#{} false] (claimed)) "both claims go with the snapshot at destroy"))))
 
 (defn- live-instance-ids
   "The live spawned-actor instance ids under `:rf/default`'s machines
@@ -279,18 +279,18 @@
              :states    {:idle {}}}))
         "a non-vector :sensitive axis is rejected at registration")))
 
-;; ---- (5) SOURCE-SCOPED teardown -------------------------------------------
-;; The machine destroy drop must be source-scoped, like the effect clear
-;; (`re-frame.elision/apply-classification-effects`) and the route lowering
-;; (`re-frame.routing.classification/without-route-sourced`). Spec 015 L149
-;; permits an app to ADDITIONALLY classify a subsystem absolute snapshot path
-;; from a handler effect (`:source :effect`). If a machine teardown blanket-
-;; dissoc'd the path it would un-redact the app's still-standing classification
-;; — a privacy fail-open. The drop must remove only the machine's OWN
-;; `:source :machine` contribution.
+;; ---- (5) INDEPENDENT owners ----------------------------------------------
+;; Spec 015 §Subsystem projection-relative classification permits an app to
+;; ADDITIONALLY classify a subsystem's absolute snapshot path from a handler
+;; effect (`:source :effect`). The two claims are independent: the effect
+;; clear (`re-frame.elision/apply-classification-effects`) removes only the
+;; effect's owner, and the actor's destroy removes only the machine's claim,
+;; which is derived from the snapshot while it is present. Removing the path
+;; with the actor would un-redact the app's still-standing classification — a
+;; privacy fail-open.
 
 (deftest machine-and-effect-claims-union-and-remove-independently
-  (testing "a machine's lowered :data claim and an app effect claim
+  (testing "a machine's :data claim and an app effect claim
             on the SAME absolute snapshot path UNION (both owners retained), and
             each removes INDEPENDENTLY: the effect clear leaves the machine claim
             standing; the actor destroy leaves the effect claim standing."
@@ -318,15 +318,15 @@
       (rf/dispatch-sync [:rf.machine-redaction/union-destroy])
       (is (= #{:effect} (sources)) "the effect claim SURVIVES the actor destroy — no fail-open"))))
 
-;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
-;; The boot commit must not rebuild runtime-db from a coeffect that already
-;; carries the effect's elision sub-tree: that would install the effect owner
-;; alone and drop the machine claim the live lowering had just unioned in.
+;; ---- (6) EFFECT-FIRST boot: the machine's own claim still holds ----------
+;; An effect that classifies the snapshot path before the machine boots owns a
+;; registry entry, while the machine's claim is derived from the snapshot once
+;; it exists, so neither displaces the other.
 
 (deftest machine-boot-claim-survives-when-effect-pre-classified
   (testing "an effect that PRE-classifies a machine's absolute
             snapshot path does NOT prevent the machine's own :source :machine
-            claim from landing durably at first-boot; both owners union, and
+            claim once it boots; both owners union, and
             the machine claim keeps the path redacted after the effect clears"
     (let [mid       :rf.machine-redaction/effect-first-single
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
