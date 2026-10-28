@@ -19,30 +19,34 @@ The `:preloads` half is always a `shadow-cljs.edn` line, whatever the app looks 
 
 | Top-level key in `shadow-cljs.edn` | Classpath owner | Add the preload directory to |
 |---|---|---|
-| `:deps true` or `:deps {:aliases [...]}` | `deps.edn` | an activated alias's `:extra-paths` (or top-level `:paths`) |
+| `:deps true` or `:deps {:aliases [...]}` | `deps.edn` | an activated alias's `:extra-deps`, as a `:local/root` on the skill directory |
 | `:lein true` or `:lein {...}` | `project.clj` | lein's `:source-paths` (a dev profile if you keep one) |
 | neither | `shadow-cljs.edn` | `:source-paths` |
 
-**A `:deps` app** — the re-frame2 template is one (`{:deps {:aliases [:shadow :dev]}}`), so `:dev` is the alias to extend:
+**A `:deps` app** — the re-frame2 template is one (`{:deps {:aliases [:shadow :dev]}}`), so `:dev` is the alias to extend. The skill directory ships a `deps.edn` that declares `preload/` as its path, so it joins as a `:local/root` dependency:
 
 ```clojure
 ;; deps.edn — the classpath half
 {:aliases
- {:dev {:extra-paths ["<abs>/skills/re-frame2-pair/preload"]}}}  ;; add this
+ {:dev {:extra-deps {day8/re-frame2-pair {:local/root "<path-to-re-frame2>/skills/re-frame2-pair"}}}}}  ;; add this
 ```
+
+Not `:extra-paths ["…/preload"]`: tools.deps prints `WARNING: Use of :paths external to the project has been deprecated` for every `:paths` or `:extra-paths` entry outside the project, relative and absolute alike, while a `:local/root` dependency's own `:paths` draw no warning.
 
 **A standalone shadow app** (no `:deps` / `:lein` key) — here `:source-paths` is the right home, and the whole change is two lines in the one file:
 
 ```clojure
 {:source-paths ["src"
-                "<abs>/skills/re-frame2-pair/preload"]  ;; add this (the linked skill's preload/)
+                "<path-to-re-frame2>/skills/re-frame2-pair/preload"]  ;; add this (the linked skill's preload/)
  :builds
  {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}  ;; …and this
 ```
 
 Either way the preload stays **dev-only**, and it is the `:preloads` entry that makes it so rather than where the path sits: shadow injects `:devtools :preloads` only in `:dev` mode, so a `release` build carries none of it even when the alias still puts the directory on the classpath.
 
-The MCP server (`@day8/re-frame2-pair-mcp`) does NOT ship `preload/`, so wiring only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. (Once the `@day8/re-frame2-pair` package is published to npm, `npm install -D @day8/re-frame2-pair` and point the classpath entry at `node_modules/@day8/re-frame2-pair/preload` instead — same branch, same files.)
+**`<path-to-re-frame2>` is the re-frame2 clone the skill is linked from; in config you commit, write it relative to the file that holds it.** `deps.edn`, `project.clj` and `shadow-cljs.edn` each resolve a relative path against their own project directory, so a sibling checkout at the same relative location resolves unchanged on every machine and CI runner, while an absolute path names one machine's disk and fails on every other checkout. An absolute path suits only a local setup nobody else checks out. A v1→v2 migration's committed config must also pass re-frame-migration's [consumability done-gate](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/setup.md#the-consumability-done-gate).
+
+The MCP server (`@day8/re-frame2-pair-mcp`) does NOT ship `preload/`, so wiring only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. (Once the `@day8/re-frame2-pair` package is published to npm, `npm install -D @day8/re-frame2-pair` and point the same entry at the installed package instead — the `:local/root` at `node_modules/@day8/re-frame2-pair`, a source path at its `preload/` — same branch, same files.)
 
 ## What the preload and epochs need
 

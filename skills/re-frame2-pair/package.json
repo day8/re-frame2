@@ -34,6 +34,7 @@
     "LICENSE",
     "agents/",
     "preload/",
+    "deps.edn",
     ".claude-plugin/",
     "references/",
     "docs/"
