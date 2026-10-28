@@ -56,6 +56,8 @@ rg -n -t clojure 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' .
 
 For each hit: if the value flows into a durable write → it migrates (below). If it's diagnostic or host-transient → leave it, and note in the report *why* it's allowed to stay ambient.
 
+**A hit inside a recordable supplier is the fix, not a site.** The generator this reference recommends, `(rf/reg-cofx :todo/id {:recordable? true} (fn [] (random-uuid)))`, still matches the randomness search, in live code. It is the durable bucket with its route already taken: the framework calls the supplier at processing-start and records its value in the token's `:rf.cofx`, and replay re-presents that value without calling it. So count each hit inside a value-returning `reg-cofx` supplier that is not registered `{:recordable? false}` as a **recorded generator**, apart from the sites, and a finished census reads zero sites beside its recorded generators. Two supplier hits are still sites: a hit in a v1 ctx→ctx supplier (`(fn [ctx] (assoc-in ctx …))`), which the M-72 reshape has not reached yet, and a hit in a `{:recordable? false}` supplier, which hands its consumers an ambient value — classify that one by what each consumer declaring the id does with it.
+
 **Then walk the callees — a zero-hit census does not finish the audit.** The patterns match direct calls only. A handler that calls a helper over a host-owned atom reads the host just as ambiently, and nothing above matches it:
 
 ```clojure
