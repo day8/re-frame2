@@ -155,7 +155,7 @@ There is no frame-config `:sensitive` / `:large {:app-db …}` annotation and no
 The frame carries observability sink policy (there is no `:sensitive` key — durable app-db classification is `reg-classification` and HTTP carriers ride `:rf.http/managed`; a frame config `:sensitive` is rejected fail-loud):
 
 - `(rf/make-frame {:id :app :observability {:handled-events […] :errors […]}})` — production sink policy ([§Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy))
-- The SSR hydration allowlist is NOT frame config: it is the SSR host adapter's `:payload` opt (top-level app-db keys), beside the optional `:payload-include-sensitive` permit naming classified paths the user's own browser may receive raw — the allowlist-first SSR/hydration boundary, per [011 §`:rf/app-db` projection](011-SSR.md#rfapp-db-projection--explicit-fail-closed-policy)
+- The SSR hydration allowlist is NOT frame config: it is the SSR host adapter's `:payload` opt (top-level app-db keys and paths, a path naming a classified leaf being the permit for the user's own browser to receive it raw) — the allowlist-first SSR/hydration boundary, per [011 §`:rf/app-db` projection](011-SSR.md#rfapp-db-projection--explicit-fail-closed-policy)
 
 Frame config installs atomically at frame creation (before the `:initial-events` setup runs); re-registering replaces it wholesale. HTTP carrier names are not frame config — they ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (see the next section); there is no frame `:sensitive {:http …}` block and no process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutator (see [§Removed surfaces](#removed-surfaces)).
 
