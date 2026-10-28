@@ -128,8 +128,9 @@
 
 (defn- server-frame!
   "A settled JVM request frame: `:platform :server`, the app's own
-  `frame-config` (so `:auth.login/initialise-form` drains and installs the
-  draft-password `:sensitive` classification), then `events` in order, then
+  `frame-config` (so `:auth.login/initialise-form` drains and seeds the slice
+  whose draft password `login.model`'s `reg-classification` declares
+  `:sensitive`), then `events` in order, then
   whatever `extra-db` the host resolved for this request.
 
   Returns the frame id. The caller destroys it."

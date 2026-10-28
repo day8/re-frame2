@@ -367,4 +367,10 @@
        ;; the slot's absence, matching `:event-id` / `:trigger-event` /
        ;; `:rf.cofx` above.
        fx-overrides (assoc :fx-overrides fx-overrides)
-       interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)))))
+       interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)
+       ;; The static classification policy current as the record is assembled,
+       ;; kept by reference in metadata: the record's app-db slots egress
+       ;; under the classification they were recorded with after a
+       ;; `reg-classification` is replaced (Spec 015 §Retained values keep
+       ;; their recorded classification).
+       :always (rf.elision/record-policy (rf.elision/frame-policy frame-id))))))

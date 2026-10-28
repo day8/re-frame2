@@ -79,7 +79,9 @@
             ;; events / fx / cofx / subs call
             ;; `re-frame.classification/validate-classification!` by DIRECT
             ;; REQUIRE (always-on, same-artefact, cycle-free, already bundled).
-            [re-frame.classification]
+            ;; It also owns `reg-classification*`, the fn behind the
+            ;; `reg-classification` registration below.
+            [re-frame.classification :as rf.classification]
             ;; EP-0015 §9: frame-owned observability sink
             ;; routing. Required
             ;; for BOTH its public façade exports (`register-observability-sink!`
@@ -169,7 +171,7 @@
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
                                     reg-error-projector reg-head
-                                    reg-http-interceptor reg-state
+                                    reg-http-interceptor reg-classification reg-state
                                     reg-view reg-machine defmachine
                                     image
                                     dispatch dispatch-sync
@@ -303,6 +305,14 @@
   `re-frame.interceptor-registry/reg-interceptor*` and spec/API.md
   §Registration."}
        reg-interceptor  rf.interceptor-registry/reg-interceptor*)
+     (def ^{:doc "Fn-alias of the `reg-classification` macro for HoF /
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — reached only by a frame made without `:images`).
+  Register a feature's static app-db classification under `id`:
+  `(reg-classification id {:sensitive [paths] :large [paths] :doc \"…\"})`.
+  See `re-frame.classification/reg-classification*` and Spec 015 §Static
+  app-db classification."}
+       reg-classification rf.classification/reg-classification*)
      (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
   registration (no source-coord capture, so no `:rf.provenance/ns` either —
   stamp `:ns` in the metadata to keep the definition inside an explicit
@@ -703,7 +713,18 @@
        by naming `id` in its `:http-interceptors` config vector, which
        also fixes its position in the chain. A `:frame` in the map is
        `:rf.error/http-bad-interceptor`."
-       {:arglists '([id interceptor-map])})))
+       {:arglists '([id interceptor-map])})
+
+     (rf.core-reg-macros/defreg-macro reg-classification rf.classification/reg-classification*
+       "Register a feature's static app-db classification under `id`, the
+       registrar kind `:classification`. Captures source-coords (Spec 001) at
+       this call site. `decl` is a closed map: `:sensitive` and `:large`, each
+       a vector of app-db-absolute paths, plus an optional `:doc`. Every frame
+       unions the registrations its own view resolves, so a declared path is
+       redacted from its first egress. A malformed declaration raises
+       `:rf.error/bad-classification`. Per Spec 015 §Static app-db
+       classification."
+       {:arglists '([id decl])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
 
@@ -1129,7 +1150,8 @@
   `:http-interceptor` emits `:rf.http.interceptor/cleared`, `:route` emits
   `:rf.route/cleared`, and the resources trio disposes per-frame resource
   runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
-  `:interceptor` `:view` `:head` `:error-projector` `:app-schema` — have no owning
+  `:interceptor` `:view` `:head` `:error-projector` `:app-schema`
+  `:classification` — have no owning
   lifecycle fn, so `unregister!` (which forgets provenance, marks the
   live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
   the owner.
@@ -1158,7 +1180,8 @@
      :resource         (rf.core-resources/clear-resource id)
      :mutation         (rf.core-resources/clear-mutation id)
      :resource-scope   (rf.core-resources/clear-resource-scope id)
-     (:event :sub :fx :cofx :interceptor :view :head :error-projector :app-schema)
+     (:event :sub :fx :cofx :interceptor :view :head :error-projector :app-schema
+      :classification)
      (rf.registrar/unregister! kind id)
      (clear-bad-request!
        kind :unknown-kind

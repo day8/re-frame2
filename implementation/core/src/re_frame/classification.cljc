@@ -43,7 +43,8 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
-            [re-frame.registrar :as rf.registrar]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -202,6 +203,46 @@
       (if (rf.registrar/ambiguous-registration? e)
         {:sensitive [[]]}
         (throw e)))))
+
+;; ---- static app-db classification: reg-classification ---------------------
+
+(def ^:private classification-decl-keys
+  "The closed key set of a `reg-classification` declaration."
+  #{:sensitive :large :doc})
+
+(defn reg-classification*
+  "Programmatic form of `reg-classification` (no macro source-coordinate
+  capture). Registers `decl` under the registrar kind `:classification`, keyed
+  by the keyword `id`: a closed map of `:sensitive` and `:large`, each a vector
+  of app-db-ABSOLUTE paths (`[]` classifies the whole of app-db), plus an
+  optional `:doc`. The paths take the same vocabulary and collection matcher as
+  a registration's transient declarations. Each frame's egress classification
+  unions the registrations its own view resolves, so a declared path is
+  redacted from its first egress (`re-frame.elision/frame-policy`). A malformed
+  declaration raises `:rf.error/bad-classification`. Returns `id`.
+
+  Spec 015 §Static app-db classification."
+  [id decl]
+  (when-not (keyword? id)
+    (throw (classification-error :id "reg-classification's id must be a keyword"
+                                 {:bad-value id})))
+  (when-not (map? decl)
+    (throw (classification-error :decl
+                                 (str "reg-classification's declaration must be a map of "
+                                      ":sensitive / :large path vectors, plus an optional :doc")
+                                 {:bad-value decl})))
+  (when-let [unknown (seq (remove classification-decl-keys (keys decl)))]
+    (throw (classification-error (first unknown)
+                                 (str "a reg-classification declaration is a closed map of "
+                                      ":sensitive, :large and :doc")
+                                 {:bad-entries (vec unknown)})))
+  (let [sensitive (coerce-paths (:sensitive decl) :sensitive)
+        large     (coerce-paths (:large decl) :large)]
+    (rf.registrar/register! :classification id
+                            (rf.source-coords/merge-coords
+                              (cond-> {:sensitive sensitive :large large}
+                                (contains? decl :doc) (assoc :doc (:doc decl)))))
+    id))
 
 ;; ---- emit-time projection ------------------------------------------------
 

@@ -120,7 +120,7 @@
 ;; (docs/core/how-to/keep-secrets-out-of-traces.md):
 ;;
 ;;   1. It lives in the app-db draft while you type — redacted at egress by the
-;;      `:sensitive` classification `:auth.login/initialise-form` installs.
+;;      `:auth.login` classification registered beside the form events below.
 ;;   2. It rides the `:auth.login/edit-password` event in a map payload whose
 ;;      registration declares `:sensitive [[:value]]`, so the edit trace redacts it.
 ;;   3. It reaches the wire only through the managed-HTTP request body, scrubbed
@@ -449,32 +449,30 @@
 ;; write-only state that could only drift out of step with the machine.
 ;; Dispatched once at boot (from each substrate mount's `:initial-events`) so the
 ;; very first render reads a real draft.
-;;
-;; This is also OWNER 1 of the password's four egress boundaries (see the
-;; `Credentials` note above). Alongside the `:db` write we return a `:sensitive`
-;; classification effect that marks the draft-password app-db path — installed
-;; here, in the *first* durable write that creates the slice, so no keystroke can
-;; ever race the classification. Classification is value-independent and
-;; egress-only: whatever value later comes to rest at
-;; `[:auth :login-form :draft :password]` reads `:rf/redacted` in every app-db
-;; snapshot, epoch, and off-box record, while handlers still see the real value
-;; (docs/core/how-to/keep-secrets-out-of-traces.md, "Classify a durable secret
-;; in app-db"). The SSR hydration payload is one of those records, so a
-;; hydrated client re-seeds its draft password right after hydrating
-;; (`:auth.login/reseed-draft-password`, below).
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] for this machine-driven
          variant (empty draft + validation bookkeeping; the machine owns the
-         submit/auth lifecycle, so the slice carries no :status mirror), and
-         classify the draft-password path :sensitive so it is redacted at every
-         egress."}
+         submit/auth lifecycle, so the slice carries no :status mirror)."}
   (fn handler-login-form-initialise [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
                    {:draft             login-form-defaults
                     :submit-attempted? false
                     :errors            {}
-                    :touched           #{}})
-     :sensitive [[:auth :login-form :draft :password]]}))
+                    :touched           #{}})}))
+
+;; OWNER 1 of the password's four egress boundaries (see the `Credentials` note
+;; above): the draft in app-db. One static declaration, registered beside the
+;; feature's events, classifies the draft-password path `:sensitive`. It holds
+;; before any event runs, so the very write that creates the slice — and every
+;; keystroke after it — reads `:rf/redacted` in every app-db snapshot, epoch,
+;; and off-box record, while handlers still see the real value. Classification
+;; is value-independent and egress-only (Spec 015 §Static app-db
+;; classification). The SSR hydration payload is one of those records, so a
+;; hydrated client re-seeds its draft password right after hydrating
+;; (`:auth.login/reseed-draft-password`, below).
+(rf/reg-classification :auth.login
+  {:doc       "The login draft's password: redacted at every egress."
+   :sensitive [[:auth :login-form :draft :password]]})
 
 ;; A keystroke landed on a NON-SECRET field (the email). Write the new value into
 ;; `:draft` and remember the user has now touched this field (that `:touched` set
