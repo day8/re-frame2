@@ -3983,6 +3983,9 @@ jobs:
       - name: Run stdin-EOF shutdown regression (tools/re-frame2-pair-mcp artefact)
         run: npm run test:stdin-eof-shutdown
 
+      - name: Run one-shot CLI test (tools/re-frame2-pair-mcp artefact)
+        run: npm run test:call-cli
+
   node-test-tools-story-mcp:
     name: Node tools/story-mcp (stdio roundtrip, rf2-h8z5l)
     needs: detect_changed_surfaces
