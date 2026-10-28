@@ -55,10 +55,10 @@
   `preview-variant` / `run-variant` (which return the variant frame's
   `:app-db` slice) and `read-failures` (which returns the variant
   frame's `:rf.story/assertions` accumulator). The walker reads the
-  per-frame `[:rf.runtime/elision]` registries (EP-0025 — durable
-  classification declared via the commit-plane `:sensitive` / `:large`
-  effects a `reg-event` returns, `:source :effect`) from the named frame's
-  runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
+  named frame's classification policy (`re-frame.elision/frame-policy`:
+  the `reg-classification` declarations the frame's view resolves, the
+  outputs of the flows it runs, and the subsystem declarations applied to
+  its runtime-db); the `:frame variant-id` opts slot is load-bearing.
 
   ## Non-live runtime and captured values
 
@@ -121,9 +121,8 @@
   naming the off-box `:rf.egress/profile` rather than a hand-resolved
   `:rf.egress/*` floor. `project-egress` resolves the profile to the egress
   floor and PATH-walks the tree against the SAME per-frame classification
-  registry the `:app-db` path walker reads (frame- /
-  EP-0025-commit-plane-effect- / flow-sourced declarations, unioned at
-  lookup). The scrubbers below are ORCHESTRATION only — build the
+  policy the `:app-db` path walker reads (`reg-classification`-, flow- and
+  subsystem-sourced declarations, unioned in the policy). The scrubbers below are ORCHESTRATION only — build the
   derived-tree record (its `:source-db`), name the profile, apply the
   `:include-sensitive` opt-out. This leaves no second place for EP-0015
   egress semantics to drift."
@@ -172,14 +171,14 @@
   table (no pure-data mirror resolving the profile to its `:rf.egress/*`
   floor). This is the same call shape the derived-tree path below uses.
 
-  The egress walk reads `variant-id`'s per-frame elision registry
-  (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
-  written by the EP-0025 commit-plane `:sensitive` / `:large` classification
-  effects (`:source :effect`, a `reg-event` returns them alongside `:db`). No
-  per-read refresh is needed — the declarations are durable frame state, live
-  from classification onward. There is no schema→registry population hook
-  (`:elision/populate-from-schemas!`): schemas describe shape only
-  (EP-0015 §8).
+  The egress walk reads `variant-id`'s classification policy
+  (`re-frame.elision/frame-policy`): the `reg-classification` declarations
+  the frame's view resolves — a variant's own `:sensitive` / `:large` slots
+  among them — the outputs of the flows it runs, and the subsystem
+  declarations applied to its runtime-db. No per-read refresh is needed — a
+  declaration exists before any event runs, so it redacts from the frame's
+  first egress. Schemas do not classify (no `:elision/populate-from-schemas!`
+  hook): they describe shape only (EP-0015 §8).
 
   The walk runs under the `:rf.egress/off-box-tool` profile floor (named
   here, resolved by `project-egress`): sensitive redacts to
@@ -300,7 +299,7 @@
 
   EP-0025 FAIL-OPEN: there is no value-match (taint-by-equality) engine. The
   projection walks `tree` through `project-egress` against `variant-id`'s
-  classification registry (frame- / commit-plane-effect- / flow-sourced
+  classification policy (`reg-classification`-, flow- and subsystem-sourced
   declarations, unioned) on BOTH the `:sensitive` and `:large` axes. A value
   that occupies a CLASSIFIED app-db path WITHIN `tree` (a derived slot whose
   shape mirrors the app-db — e.g. an `:effective-args {:token …}` slice with
@@ -355,7 +354,7 @@
     ;; a `:rf.observe/derived-tree` record naming the
     ;; off-box-tool egress PROFILE — `project-egress` resolves the profile to
     ;; the `:rf.egress/off-box-tool` floor and PATH-walks the tree against
-    ;; `variant-id`'s classification registry (sensitive first — it wins — then
+    ;; `variant-id`'s classification policy (sensitive first — it wins — then
     ;; large over survivors). A value AT a classified path redacts; a re-keyed
     ;; copy ships raw (EP-0025 fail-open). Naming the PROFILE (not the
     ;; `:rf.egress/*` floor) keeps the egress vocabulary in the framework
