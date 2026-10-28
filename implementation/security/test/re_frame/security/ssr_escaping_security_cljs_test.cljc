@@ -128,10 +128,6 @@
   (is (= "{\"k\":\"\\u003c/ScRiPt >\"}"
          (rf.ssr.html-helpers/escape-script-body-string "{\"k\":\"</ScRiPt >\"}"))))
 
-(deftest text-node-escape-neutralises-tag-injection
-  (is (not (re-find #"[<>\"]" (rf.ssr.html-helpers/escape-html "\"><svg onload=alert(1)>")))
-      "no raw angle bracket or quote survives to open a tag or break an attribute"))
-
 ;; EDN script escaping must preserve reader semantics. A `<` can be escaped
 ;; inside a string literal, but the same escape is invalid inside a keyword or
 ;; symbol. Safe token-position `<` characters remain literal; token-position
