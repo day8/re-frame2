@@ -475,8 +475,14 @@ delete), verify, remove, re-check, and **fail loudly if the manifest differs**.
   acknowledged-husk path touches it.
 - **A husk no longer appears in the listing, pruning has nothing to clear, and a status check inside it
   fails and prints nothing** — which is why a clean/dirty test reads it as clean. **Do not reach for a
-  raw recursive delete**: a husk still holds every file the worktree had, links among them. **A partial
-  removal kills a running gate exactly as a complete one does.**
+  raw recursive delete**: a husk still holds every file the removal did not reach, links among them. **A
+  partial removal kills a running gate exactly as a complete one does.**
+- **On Windows a common trigger is a path over 260 characters.** When a worktree's deepest file — in
+  a dependency tree, a build cache, generated output — runs past that limit, the tree delete fails with
+  "Filename too long", yet the removal carries on and deletes the worktree's administrative record, so
+  the tree becomes a husk in one step. **Read the removal's own exit code, never its output**: the exit
+  is non-zero, and every check after it — the listing, a prune, a status read inside the tree — has
+  nothing left to report. Git for Windows' `core.longpaths` setting lifts the limit.
 - **A husk is identified, never inferred.** "Not listed, no metadata" is equally true of an ordinary
   directory, a mistyped argument and an unrelated project — one tool handed a temp directory created
   seconds earlier unlinked the dependencies inside it and called it a destroyed tree. Require the
