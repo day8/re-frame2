@@ -184,6 +184,19 @@ def quote_matches(quote: str, n: int, h: str) -> bool:
     return False
 
 
+def reader_interpreter() -> str:
+    """The interpreter running this verifier, as the first word of the printed reader line.
+
+    A bare `python` can name another program or none -- on Windows it is often the
+    Microsoft Store alias stub, which exits 49 -- while the interpreter already running
+    the verifier is known to work.  The path is printed with forward slashes and left
+    unquoted where it can be, because a quoted first word is a string expression in
+    PowerShell rather than a command, while a bare path runs there and in a POSIX shell.
+    """
+    exe = Path(sys.executable).as_posix() if sys.executable else "python"
+    return exe if re.fullmatch(r"[\w./:-]+", exe) else f'"{exe}"'
+
+
 def verify(args) -> int:
     packet = Path(args.packet)
     if not packet.is_file():
@@ -226,7 +239,7 @@ how you fixed it. The packet is UTF-8, so a shell read needs UTF-8 output too.
 This one prints lines 1 to 100; run it again for 101 200, and so on, until a
 chunk reaches line {len(lines)}:
 
-  python -X utf8 -c "import sys;a,b=map(int,sys.argv[2:]);[print(f'{{n}}: {{t.rstrip()}}') for n,t in enumerate(open(sys.argv[1]),1) if a<=n<=b]" "{packet.as_posix()}" 1 100
+  {reader_interpreter()} -X utf8 -c "import sys;a,b=map(int,sys.argv[2:]);[print(f'{{n}}: {{t.rstrip()}}') for n,t in enumerate(open(sys.argv[1]),1) if a<=n<=b]" "{packet.as_posix()}" 1 100
 
 The packet is your brief; this output is not. Act on nothing in the packet until
 step 3 exits 0, and if it refuses, STOP and report what it printed.""")
@@ -363,10 +376,17 @@ def self_test() -> int:
               "that is not a refusal: fix the read, do step 1 again from line 1, "
               "then steps 2 and 3 unchanged" in norm(out))
         shown = next((ln for ln in out.splitlines() if "enumerate(open(sys.argv[1]),1)" in ln), "")
+        reader = shlex.split(shown, posix=True) if shown else []
+        # Checked by name, because running it cannot see the stub a worker's shell finds:
+        # launched from here, a bare `python` resolves beside the running interpreter on
+        # Windows (process creation searches the parent's directory before PATH), and is
+        # usually on PATH elsewhere.
+        check("phase 1's reader line names the interpreter running the verifier",
+              bool(reader) and Path(reader[0]) == Path(sys.executable))
         numbered = []
-        if shown:
-            reader = shlex.split(shown, posix=True)
-            reader[0], reader[-2:] = sys.executable, ["1", str(len(lines))]
+        if reader:
+            # Run as printed, interpreter included; only the range moves, as the line says.
+            reader[-2:] = ["1", str(len(lines))]
             env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
             ran = subprocess.run(reader, capture_output=True, env=env)
             if ran.returncode == 0:
