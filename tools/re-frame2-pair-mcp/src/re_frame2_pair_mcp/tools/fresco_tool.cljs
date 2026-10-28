@@ -132,9 +132,28 @@
   `re-frame.elision/elide-wire-value` on the producer side, including inside
   every exported boundary KEY. So this tool needs no elision walker of its own:
   the projection is done before the value reaches the wire, and adding a second
-  walk here would imply the first is not trusted."
+  walk here would imply the first is not trusted.
+
+  ## Tool-frame rows are left out
+
+  The door answers for every Fresco boundary in the process, and Xray — which
+  is usually what loaded the door — renders its own panels through Fresco under
+  its reserved `:rf/xray` frame. Forwarded whole, an open panel fills the roster
+  of an app that has no Fresco code at all, and on a real app that is enough to
+  overflow the default cap with no row the agent asked about. So each read drops
+  the rows whose frame is a reserved `:rf/*` tool frame — the same rule `orient`
+  and `snapshot` apply to frames, through the same predicate — and reports what
+  it dropped under `:excluded` (see [[exclude-tool-frame-rows]]). The door's own
+  `:complete?` and `:loss` are forwarded as stated: they describe the rows it
+  produced, and `:excluded` says which of those Pair withheld.
+
+  There is no argument to keep them. The only reader of tool-frame boundaries is
+  someone working on the tool's own panels, and the door itself is one
+  `eval-cljs` away, already projected producer-side, so the escape hatch loses
+  nothing a tool argument would add."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.tools.probe :as probe]))
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
 (def tier-ns
   "The fully-qualified reader door the eval forms call.
@@ -280,19 +299,55 @@
        " (cljs.core/assoc p :ok? true)))))"
        " (catch :default e {:ok? false, :reason :evidence-tier-error, :message (cljs.core/str e)}))"))
 
+(def ^:private row-slots
+  "Per read in [[tier-reads]]: the envelope slot holding its rows, and the key
+  on each row naming the frame the row reads."
+  {"read-mounted-boundaries" [:boundaries :frame]
+   "read-read-attribution"   [:edges :frame-id]
+   "explain-render"          [:explanations :frame]})
+
+(def ^:private excluded-hint
+  (str "Rows whose frame is a reserved :rf/* tool frame (Xray's own panels) are left out. "
+       "To read them, eval-cljs the door read itself, e.g. "
+       "(re-frame.fresco.tool/read-mounted-boundaries), and project the rows you need."))
+
+(defn exclude-tool-frame-rows
+  "Drop the rows of a `read-fn` envelope whose frame is a reserved `:rf/*` tool
+  frame, per `reserved-frame-guard/reserved-tool-frame?`, and state the drop as
+  `:excluded {:tool-frames [<frame-id> ...] :count N :hint ...}`. A boundary
+  reading across several frames carries `:frame :unknown` and is kept, since
+  some of what it reads is the app's.
+
+  Only a successful envelope whose row slot is a sequence is touched; every
+  other value, and an envelope with nothing to drop, passes through unchanged."
+  [read-fn v]
+  (let [[rows-k frame-k] (get row-slots read-fn)
+        rows             (when (and rows-k (map? v) (true? (:ok? v))) (get v rows-k))
+        tool-row?        #(guard/reserved-tool-frame? (get % frame-k))
+        dropped          (when (sequential? rows) (filterv tool-row? rows))]
+    (if (empty? dropped)
+      v
+      (assoc v
+             rows-k    (filterv (complement tool-row?) rows)
+             :excluded {:tool-frames (vec (distinct (map #(get % frame-k) dropped)))
+                        :count       (count dropped)
+                        :hint        excluded-hint}))))
+
 (defn- door-read-tool
   "The shared handler for the three nullary door reads."
   [conn raw-args read-fn fail-reason]
   (probe/eval-after-runtime!
     conn (wire/arg-build conn raw-args) (projection-form read-fn)
-    fail-reason versioned-envelope-result))
+    fail-reason #(versioned-envelope-result (exclude-tool-frame-rows read-fn %))))
 
 (defn read-mounted-boundaries-tool
   "MCP `read-mounted-boundaries` — every Fresco boundary MOUNTED RIGHT NOW: its
   key, the `:views` that rendered it, the number of `:instances` holding that
   key, the frame, and the read edges it holds (each with its `:sub-id`, its
   projected `:query` and the cell's `:epoch` — never the value the read
-  returned). No arg, deliberately: the question is *what is mounted*.
+  returned). No arg, deliberately: the question is *what is mounted*. Rows
+  under a reserved `:rf/*` tool frame are left out and counted under
+  `:excluded` (see the namespace docstring).
 
   A boundary's KEY is its read set, because that is the only identity the
   runtime retains — two boundaries reading the same set are indistinguishable to

@@ -2883,6 +2883,27 @@ inside every exported boundary key. So this family needs no elision
 walker of its own — the projection is done before the value reaches the
 wire, and a second walk here would imply the first is not trusted.
 
+### Tool-frame rows are left out
+
+The door answers for every Fresco boundary in the process, and Xray —
+usually what loaded it — renders its own panels through Fresco under its
+reserved `:rf/xray` frame. So each of the three reads drops the rows
+whose frame is a reserved `:rf/*` tool frame (`:frame` on a boundary or
+explanation, `:frame-id` on an attribution edge; the `:rf/default` app
+frame and a cross-frame `:frame :unknown` row are kept), by the same
+predicate `orient` and `snapshot` use for frames, and states the drop:
+
+```clojure
+:excluded {:tool-frames [:rf/xray] :count 37 :hint "…"}
+```
+
+`:excluded` is absent when nothing was dropped. The door's own
+`:complete?` and `:loss` are forwarded as stated — they describe the rows
+the door produced. No argument restores the dropped rows: their only
+reader is someone working on the tool's own panels, and the door is one
+`eval-cljs` away (`(re-frame.fresco.tool/read-mounted-boundaries)`),
+already projected producer-side.
+
 ### read-mounted-boundaries
 
 Every Fresco boundary **mounted right now**. No arg, deliberately: the
@@ -2891,7 +2912,7 @@ question is *what is mounted*.
 `:complete? true` is a claim about **under-reporting** and it is exact —
 a boundary whose body read nothing still claims an entry, so it is
 counted where the cell table cannot see it at all. An **empty** roster
-says exactly one thing: no boundary holds a live read edge right now. It
+says exactly one thing: no app boundary holds a live read edge right now. It
 does not say nothing is retained above (an Activity-hidden subtree that
 released its reads leaves the same empty census as an unmounted one),
 and a row is **not** proof the boundary is on screen (a
