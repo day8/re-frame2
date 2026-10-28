@@ -9,11 +9,17 @@
 ;; so "../../../../implementation/<artefact>" lands in the right place.
 ;;
 ;; The fixture needs core (which carries epoch history) + reagent (for the
-;; view substrate) + schemas + machines (the re-frame2-pair runtime
-;; preload `:require`s `re-frame.schemas` and `re-frame.machines` directly
-;; for its `get-path`/`orient`/list-machines surfaces — those vars live in
-;; their owning namespaces, not on the `re-frame.core` facade, so the
-;; owned-namespace artefacts must be on the classpath).
+;; view substrate) + schemas (the re-frame2-pair runtime preload
+;; `:require`s `re-frame.schemas` directly for its `schemas` read —
+;; app-schemas live in that owning namespace, not on the `re-frame.core`
+;; facade, and core does not bring the artefact).
+;;
+;; Nothing the fixture compiles requires `re-frame.machines`: the preload
+;; reads machines through the registrar and the counter app registers
+;; none, so `day8/re-frame2-machines` sits on this classpath unneeded by
+;; either build. A paired app needs schemas, not machines. The roster here
+;; is mirrored by `.github/scripts/report-changed-surfaces.sh` and the
+;; fixture jobs' cache keys, so a change to it moves those too.
 ;;
 ;; `thheller/shadow-cljs` is listed here because `shadow-cljs.edn` runs
 ;; with `:deps true` — shadow-cljs builds the classpath from this file
