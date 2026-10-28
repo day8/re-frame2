@@ -223,6 +223,19 @@ The rewrite — each chain moves into the registration metadata under `:intercep
    The search finds candidates, not the set: accept each hit as [M-8 step 1](auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code — then read its slots. Detect **by slot-shape, not by interceptor identity** — anchoring on `unwrap` misses a bare `mw/complete-progress`. An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.
 2. **Read each value's own `:id` where the value is defined**, or at the constructor call that builds it, not at the chain site — that read decides the corpus's case. A preserving value lifts in the Type A sweep.
 3. **A missing, mismatched or shared `:id` is held.** Write an explicit plan and get it approved before editing. The plan names each registration id and says how each value's own `:id` comes to match it, keeps each chain's order, each function's identity and behaviour, each interceptor's attachment scope (the same events, or the same frame chain) and the load order below, and follows the one-registration-per-id contract in [`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files).
+
+   **A constructor is one `:factory` registration, not one id per call.** A v1 `defn` that builds an interceptor from its arguments, such as `(defn with-timeout [ms] (->interceptor :id :with-timeout :before …))` called as `(with-timeout 500)` in one chain and `(with-timeout 30000)` in another, gives every call the same `:id`, so it is held here. One id per call site loses the shared definition, and one fixed descriptor loses the argument. Register it once with a `{:factory f}` descriptor, whose `f` takes the argument and returns the `{:before …}` / `{:after …}` descriptor, and make each call the `[id arg]` ref ([002 §Interceptor references](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#interceptor-references)):
+
+   ```clojure
+   (rf/reg-interceptor :app/with-timeout
+     {:factory (fn [ms]
+                 {:before (fn [ctx] …)})})   ;; the constructor's body, reading ms
+
+   ;; (rf/reg-event-fx :report/load [(with-timeout 30000)] handler) becomes:
+   (rf/reg-event :report/load {:interceptors [[:app/with-timeout 30000]]} handler)
+   ```
+
+   A factory takes exactly one argument, so a multi-argument constructor takes a map: `(with-retry 3 200)` becomes `[:app/with-retry {:times 3 :ms 200}]`. Keep that argument data. 002 requires it to be EDN wherever the ref is serialized, and overrides match refs by canonical form, so a fn or an interceptor does not belong there. That is why a v1 **combinator**, a fn that wraps another interceptor such as `(when-ix pred? inner)`, has no ref-to-ref translation: the factory receives its argument verbatim and resolves nothing in it. Give the wrapped interceptor its own `:factory` and pass the combinator's parameter in its argument map as data, as in `[:app/audit {:gate :only-when-dirty}]` with the factory interpreting `:gate`. Register one id per wrapped behaviour.
 4. **Keep each defining namespace loaded.** Where a chain's value disappears, the namespace that registers it can look dead; keep a side-effecting `:require` of it (`(:require [app.interceptors])`) in every namespace that references its ids, or load every interceptor-registering namespace early from a foundational namespace the whole app requires. Same for the M-17 fold — see [`guided-interceptors-subs.md` §M-17](guided-interceptors-subs.md#m-17--reg-global-interceptor-in-a-multi-frame-app).
 5. **Verify at boot.** A survivor throws at namespace load; the [boot smoke-test](runtime-smoke-test.md) surfaces it on the console.
 
