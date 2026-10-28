@@ -85,8 +85,9 @@ VERSION="${2:?usage: preflight-tool-package.sh GROUP/ARTIFACT VERSION [DIR]}"
 ARTEFACT_DIR="${3:-.}"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck disable=SC1091  # lib/python.sh is shellchecked on its own.
 . "$SCRIPT_DIR/lib/python.sh"
-resolve_python || exit 2
+python=$(resolve_python) || exit 2
 
 cd "$ARTEFACT_DIR"
 

@@ -71,8 +71,9 @@ VERSION="${2:?usage: rewrite-local-root-coord.sh LOCAL_ROOT VERSION [DEPS_EDN]}"
 DEPS_EDN="${3:-deps.edn}"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck disable=SC1091  # lib/python.sh is shellchecked on its own.
 . "$SCRIPT_DIR/lib/python.sh"
-resolve_python || exit 2
+python=$(resolve_python) || exit 2
 
 if [ ! -f "$DEPS_EDN" ]; then
   echo "::error::expected deps.edn at '$DEPS_EDN' — not found"

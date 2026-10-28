@@ -93,8 +93,9 @@ VERSION="${1:?usage: preflight-xray-package.sh VERSION [XRAY_DIR]}"
 XRAY_DIR="${2:-.}"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck disable=SC1091  # lib/python.sh is shellchecked on its own.
 . "$SCRIPT_DIR/lib/python.sh"
-resolve_python || exit 2
+python=$(resolve_python) || exit 2
 
 cd "$XRAY_DIR"
 
