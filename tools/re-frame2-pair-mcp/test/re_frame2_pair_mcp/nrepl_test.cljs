@@ -199,13 +199,23 @@
 (defn- roots-many [candidates]
   (fn [] (js/Promise.resolve {:status :many :candidates candidates})))
 
+(def ^:private accepts-all
+  "A port probe under which every port accepts a connect."
+  (fn [_port] (js/Promise.resolve true)))
+
+(defn- accepts-except
+  "A port probe under which every port accepts a connect except `refused`."
+  [& refused]
+  (let [refused (set refused)]
+    (fn [port] (js/Promise.resolve (not (contains? refused port))))))
+
 (deftest discover-port-explicit-port-file-short-circuits-shadow-probe
   (async done
     (let [probed?  (atom false)
           probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
           roots-fn (fn [] (reset! probed? true) (roots-unsupported))
           restore! (install-fs-stub! nil (read-returning "explicit/nrepl\\.port" "9001"))]
-      (-> (nrepl/discover-port* "explicit/nrepl.port" nil probe-fn roots-fn)
+      (-> (nrepl/discover-port* "explicit/nrepl.port" nil probe-fn roots-fn accepts-all)
           (.then (fn [r]
                    (is (= {:port 9001 :project-home "explicit" :port-file "explicit/nrepl.port"} r)
                        "the explicit file wins, and its exact path is surfaced for the server to cache")
@@ -217,7 +227,7 @@
     (let [probed?  (atom false)
           probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
           restore! (install-fs-stub! nil throwing-read)]
-      (-> (nrepl/discover-port* "stale/nrepl.port" nil probe-fn (roots-one "/abs/proj" 8765))
+      (-> (nrepl/discover-port* "stale/nrepl.port" nil probe-fn (roots-one "/abs/proj" 8765) accepts-all)
           (.then (fn [r]
                    (is (= {:port 8765 :project-home "/abs/proj"
                            :port-file "/abs/proj/.shadow-cljs/nrepl.port"}
@@ -232,7 +242,7 @@
           probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
           roots-fn (fn [] (reset! probed? true) (roots-unsupported))
           restore! (install-fs-stub! "7777" throwing-read)]
-      (-> (nrepl/discover-port* nil nil probe-fn roots-fn)
+      (-> (nrepl/discover-port* nil nil probe-fn roots-fn accepts-all)
           (.then (fn [r]
                    (is (= {:port 7777} r) "the env port wins, with no file identity invented for it")
                    (is (false? @probed?) "neither the roots nor the HTTP probe fires")))
@@ -243,7 +253,7 @@
     (let [cs       [{:project-home "/abs/projA" :port-file "..." :port 1111}
                     {:project-home "/abs/projB" :port-file "..." :port 2222}]
           restore! (install-fs-stub! nil throwing-read)]
-      (-> (nrepl/discover-port* nil nil shadow-fails (roots-many cs))
+      (-> (nrepl/discover-port* nil nil shadow-fails (roots-many cs) accepts-all)
           (.then (fn [r]
                    (is (= {:port nil :ambiguous cs} r)
                        "no port is chosen; the candidates go to the caller's elicitation")))
@@ -259,7 +269,7 @@
                                (re-find #"\.shadow-cljs[\\/]nrepl\.port" p)          "5551"
                                (re-find #"\.nrepl-port" p)                           "5552"
                                :else (throw (js/Error. "ENOENT"))))))]
-      (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
+      (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported accepts-all)
           (.then (fn [r]
                    (is (= {:port         5550
                            :project-home "/abs/proj/root"
@@ -276,7 +286,7 @@
                            (if (re-find #"\.nrepl-port" (str path))
                              "5599"
                              (throw (js/Error. "ENOENT")))))]
-      (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
+      (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported accepts-all)
           (.then (fn [r]
                    (is (= {:port 5599 :port-file (node-path/join (js/process.cwd) ".nrepl-port")} r)
                        "only the last candidate reads; its cwd-absolute path is surfaced, with no invented project-home")))
@@ -286,7 +296,7 @@
   (async done
     (let [restore! (install-fs-stub! nil throwing-read)]
       ;; A nil roots fn is the boot-time shape, before an MCP client exists.
-      (-> (nrepl/discover-port* nil nil shadow-fails nil)
+      (-> (nrepl/discover-port* nil nil shadow-fails nil accepts-all)
           (.then (fn [r]
                    (is (= {:port nil} r) "every step misses, so boot degrades")))
           (.finally (fn [] (restore!) (done)))))))
@@ -296,12 +306,83 @@
     (let [seen     (atom [])
           probe-fn (fn [_host port] (swap! seen conj port) (js/Promise.resolve nil))
           restore! (install-fs-stub! nil throwing-read)]
-      (-> (nrepl/discover-port* nil 7777 probe-fn roots-unsupported)
-          (.then (fn [_] (nrepl/discover-port* nil nil probe-fn roots-unsupported)))
+      (-> (nrepl/discover-port* nil 7777 probe-fn roots-unsupported accepts-all)
+          (.then (fn [_] (nrepl/discover-port* nil nil probe-fn roots-unsupported accepts-all)))
           (.then (fn [_]
                    (is (= [7777 shadow-discovery/default-http-port] @seen)
                        "--http-port reaches the probe; absent, the probe uses the default")))
           (.finally (fn [] (restore!) (done)))))))
+
+;; A port file outlives a shadow-cljs JVM that was force-killed, so every file
+;; a step reads counts only when its port accepts a connect.
+
+(deftest discover-port-refused-explicit-port-file-falls-through
+  ;; A readable --port-file naming a dead port is skipped like an unreadable
+  ;; one, and named.
+  (async done
+    (let [restore! (install-fs-stub! nil (read-returning "explicit/nrepl\\.port" "9001"))]
+      (-> (nrepl/discover-port* "explicit/nrepl.port" nil shadow-fails (roots-one "/abs/proj" 8765)
+                                (accepts-except 9001))
+          (.then (fn [r]
+                   (is (= {:port 8765 :project-home "/abs/proj"
+                           :port-file "/abs/proj/.shadow-cljs/nrepl.port"
+                           :stale-port-files ["explicit/nrepl.port"]}
+                          r))))
+          (.finally (fn [] (restore!) (done)))))))
+
+(deftest discover-port-refused-http-probe-candidate-falls-to-cwd
+  (async done
+    (let [home-pf  (node-path/join "/abs/proj/root" "target/shadow-cljs/nrepl.port")
+          cwd-pf   (node-path/join (js/process.cwd) ".nrepl-port")
+          restore! (install-fs-stub! nil (fn [^js path]
+                                           (condp = (str path)
+                                             home-pf "5550"
+                                             cwd-pf  "5599"
+                                             (throw (js/Error. "ENOENT")))))]
+      (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported
+                                (accepts-except 5550))
+          (.then (fn [r]
+                   (is (= {:port 5599 :port-file cwd-pf :stale-port-files [home-pf]} r)
+                       "step 4's file is refused, so step 5's live one wins")))
+          (.finally (fn [] (restore!) (done)))))))
+
+(deftest discover-port-every-file-refused-attaches-to-nothing
+  ;; The usual shape of a force-killed watch: the roots walk refused the
+  ;; project's file, and the cwd scan reads the same file again.
+  (async done
+    (let [cwd-pf   (node-path/join (js/process.cwd) ".shadow-cljs/nrepl.port")
+          roots-fn (fn [] (js/Promise.resolve
+                            {:status           :error
+                             :error            {:reason :no-running-shadow-in-workspace}
+                             :stale-port-files [cwd-pf]}))
+          restore! (install-fs-stub! nil (fn [^js path]
+                                           (if (= cwd-pf (str path))
+                                             "5601"
+                                             (throw (js/Error. "ENOENT")))))]
+      (-> (nrepl/discover-port* nil nil shadow-fails roots-fn (accepts-except 5601))
+          (.then (fn [r]
+                   (is (= {:port nil :stale-port-files [cwd-pf]} r)
+                       "no port is chosen, and the refused file is named once")))
+          (.finally (fn [] (restore!) (done)))))))
+
+(deftest port-accepts?-answers-for-a-live-a-released-and-an-impossible-port
+  (async done
+    (let [^js live (net/createServer (fn [^js sock] (.destroy sock)))
+          ^js dead (net/createServer)]
+      (.listen live 0 "127.0.0.1"
+        (fn []
+          (.listen dead 0 "127.0.0.1"
+            (fn []
+              (let [dead-port (.-port (.address dead))]
+                (.close dead
+                  (fn [_]
+                    (-> (js/Promise.all #js [(nrepl/port-accepts? (.-port (.address live)))
+                                             (nrepl/port-accepts? dead-port)
+                                             (nrepl/port-accepts? 70000)])
+                        (.then (fn [verdicts]
+                                 (is (= [true false false] (vec (array-seq verdicts)))
+                                     "listening → true; released → false; out of range → false, never a throw")))
+                        (.finally (fn [] (.close live (fn [_] (done))))))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `connect!` — single-flight, generation-owned sockets. `net.createConnection`

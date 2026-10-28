@@ -96,6 +96,58 @@
                 {:port port :port-file pf})))
           port-file-candidates)))
 
+(defn port-accepts?
+  "Resolve true when a TCP connect to `port` on the host `connect!` uses
+  succeeds within `shadow-discovery/probe-timeout-ms`; false on a refusal,
+  any socket error, an out-of-range port or the timeout. Never rejects.
+
+  Discovery asks this of every port file it reads, because a port file
+  outlives a shadow-cljs JVM that ends without running its shutdown hook —
+  a force kill or a crash — and a port that refuses the probe is one
+  `connect!` cannot reach either."
+  [port]
+  (js/Promise.
+    (fn [resolve _reject]
+      (if-let [^js sock (try (net/createConnection
+                               #js {:host shadow-discovery/default-host :port port})
+                             (catch :default _ nil))]
+        (let [settled? (atom false)
+              timer    (atom nil)
+              settle   (fn [live?]
+                         (when (compare-and-set! settled? false true)
+                           (js/clearTimeout @timer)
+                           (.destroy sock)
+                           (resolve live?)))]
+          (reset! timer (js/setTimeout #(settle false) shadow-discovery/probe-timeout-ms))
+          (j/call sock :once "connect" #(settle true))
+          ;; Stays attached after settling: a reset that follows the destroy
+          ;; must not surface as an unhandled socket error.
+          (j/call sock :on "error" (fn [_] (settle false))))
+        (resolve false)))))
+
+(defn- first-live
+  "Probe `candidates` (`{:port :port-file ...}` maps; nils are skipped) in
+  order with `probe-fn`. Resolves `{:candidate <the first whose port
+  accepts, or nil> :stale [<the :port-file of each refused one>]}`."
+  [probe-fn candidates]
+  (letfn [(step [[c & more] stale]
+            (if (nil? c)
+              (js/Promise.resolve {:candidate nil :stale stale})
+              (-> (probe-fn (:port c))
+                  (.then (fn [live?]
+                           (if live?
+                             {:candidate c :stale stale}
+                             (step more (conj stale (:port-file c)))))))))]
+    (step (remove nil? candidates) [])))
+
+(defn- with-stale
+  "Attach the port files discovery skipped as `:stale-port-files`, when it
+  skipped any."
+  [result stale]
+  (if-let [s (seq (distinct stale))]
+    (assoc result :stale-port-files (vec s))
+    result))
+
 (defn discover-port*
   "Full nREPL port-discovery cascade with every async step injected so
   tests can drive each branch without sockets or network. Production
@@ -103,24 +155,26 @@
   thread the real probes in.
 
   Returns a Promise resolving to a map
-  `{:port <int|nil> :project-home <abs|nil> :ambiguous <vec-of-candidates|nil>
-    :workspace-roots <vec> :checked-edns <vec>}`. The orchestrator
-  (`server.cljs`) consumes the richer shape to drive the elicitation
-  branch on ambiguity.
+  `{:port <int|nil> :project-home <abs|nil> :port-file <abs|nil>
+    :ambiguous <vec-of-candidates|nil> :stale-port-files <vec|absent>}`.
+  The orchestrator (`server.cljs`) consumes the richer shape to drive the
+  elicitation branch on ambiguity and to name the skipped files.
 
   ## Precedence (highest first)
 
     1. `--port-file <path>`   explicit, cwd-independent override.
-                              Wins outright WHEN READABLE;
+                              Wins outright when it reads a port that
+                              accepts a connect;
                               `:project-home` is the dirname of the port
                               file and `:port-file` is the EXACT path the
                               caller named — so the server caches it
                               verbatim rather than deriving a
                               `.shadow-cljs/nrepl.port` that may not exist.
-                              An explicit-but-unreadable / non-numeric file
-                              falls through to steps 2-5, so a stale
-                              port file can't strand a live port reachable
-                              via env / roots / HTTP / cwd.
+                              An explicit file that is unreadable,
+                              non-numeric or names a refused port falls
+                              through to steps 2-5, so a stale port file
+                              can't strand a live port reachable via
+                              env / roots / HTTP / cwd.
     2. `$SHADOW_CLJS_NREPL_PORT` env var. `:project-home` left nil
                               (env-overridden discovery doesn't surface a
                               root); the per-tool-call port-file re-read
@@ -163,12 +217,23 @@
   IS the root. Sharing the candidate list keeps the contract symmetric
   across the three steps.
 
+  ## Why every port file is probed
+
+  shadow-cljs deletes its port files from a JVM shutdown hook, so a JVM
+  that is force-killed or crashes leaves them naming a port nothing
+  listens on. Every port file a step reads (1, 3, 4, 5) therefore counts
+  only when `port-probe-fn` reports its port accepting a connect; a
+  refused one is skipped, the cascade moves on, and the result names it
+  in `:stale-port-files`. The env var (step 2) names no file and is taken
+  as given.
+
   ## Why the probes are bounded
 
-  See `shadow-discovery/probe-timeout-ms`. Each probe never blocks for
-  more than half a second — if any source is unreachable the cascade
-  moves on. The `--port-file` and env-var escape hatches (steps 1 and 2)
-  remain the deterministic overrides for exotic setups.
+  See `shadow-discovery/probe-timeout-ms`. Each probe — the shadow HTTP
+  probe and each port-file connect — never blocks for more than half a
+  second; if any source is unreachable the cascade moves on. The
+  `--port-file` and env-var escape hatches (steps 1 and 2) remain the
+  deterministic overrides for exotic setups.
 
   ## Why injection rather than direct call
 
@@ -177,73 +242,84 @@
   the emitted JS for a direct multi-arity call dispatches through
   fn-object arity slots, not through the var. Injecting each probe makes
   the seams explicit and gives tests clean stub-points."
-  [explicit-port-file http-port shadow-probe-fn roots-discovery-fn]
-  (cond
-    ;; Step 1 — explicit --port-file flag. Wins ONLY when it actually
-    ;; reads a port. An explicit-but-unreadable / non-numeric port file
-    ;; (a stale leftover, a typo'd path) MUST fall through to env →
-    ;; roots → HTTP → cwd. A stale
-    ;; `--port-file` must NOT short-circuit the whole cascade when the env
-    ;; var / configured roots / shadow HTTP endpoint / cwd scan could
-    ;; find a live port.
-    (and explicit-port-file (seq explicit-port-file)
-         (some? (read-port-file explicit-port-file)))
-    ;; Return the EXACT explicit port-file path the caller named, so the
-    ;; server caches it verbatim. Omitting `:port-file` would force
-    ;; server.cljs to DERIVE `<project-home>/.shadow-cljs/nrepl.port`
-    ;; (= dirname-of-explicit-file + .shadow-cljs/nrepl.port), which for an
-    ;; explicit `target/shadow-cljs/nrepl.port` resolves to a non-existent
-    ;; `target/shadow-cljs/.shadow-cljs/nrepl.port`; the next
-    ;; ensure-connection! would read that derived path as missing and force
-    ;; a needless reconnect + per-connection cache reset.
-    (js/Promise.resolve {:port         (read-port-file explicit-port-file)
-                         :project-home (node-path/dirname explicit-port-file)
-                         :port-file    explicit-port-file})
-
-    ;; Step 2 — $SHADOW_CLJS_NREPL_PORT.
-    (some? (read-env-port))
-    (js/Promise.resolve {:port (read-env-port)})
-
-    :else
-    ;; Steps 3 → 4 → 5 — chained async cascade.
-    (-> (if roots-discovery-fn
-          (roots-discovery-fn)
-          (js/Promise.resolve {:status :error
-                               :error  {:reason :workspace-discovery-unsupported}}))
+  [explicit-port-file http-port shadow-probe-fn roots-discovery-fn port-probe-fn]
+  (let [;; Step 1 — explicit --port-file flag. It wins ONLY when it reads a
+        ;; port that accepts a connect. An unreadable / non-numeric file (a
+        ;; typo'd path) or one naming a refused port (left by a JVM that was
+        ;; killed) falls through to env → roots → HTTP → cwd, so a stale
+        ;; `--port-file` can't short-circuit a cascade that could find a
+        ;; live port.
+        ;;
+        ;; The candidate carries the EXACT explicit path the caller named, so
+        ;; the server caches it verbatim. Omitting `:port-file` would force
+        ;; server.cljs to DERIVE `<project-home>/.shadow-cljs/nrepl.port`,
+        ;; which for an explicit `target/shadow-cljs/nrepl.port` resolves to
+        ;; a non-existent `target/shadow-cljs/.shadow-cljs/nrepl.port`; the
+        ;; next ensure-connection! would read that derived path as missing
+        ;; and force a needless reconnect + per-connection cache reset.
+        explicit (when (seq explicit-port-file)
+                   (when-let [port (read-port-file explicit-port-file)]
+                     {:port         port
+                      :project-home (node-path/dirname explicit-port-file)
+                      :port-file    explicit-port-file}))]
+    (-> (first-live port-probe-fn [explicit])
         (.then
-          (fn [r]
-            (case (:status r)
-              ;; The roots candidate carries whichever standard port file
-              ;; resolved under the discovered project. Thread that exact
-              ;; path through instead of deriving another candidate.
-              :one  (let [c (:candidate r)]
-                      {:port (:port c) :project-home (:project-home c)
-                       :port-file (:port-file c)})
-              :many {:port nil :ambiguous (:candidates r)}
-              :error
-              ;; Roots unavailable or no shadow in roots — try step 4 (HTTP probe).
-              (-> (shadow-probe-fn
-                    shadow-discovery/default-host
-                    (or http-port shadow-discovery/default-http-port))
-                  (.then (fn [project-home]
-                           (if-let [{:keys [port port-file]} (read-port-at-base project-home)]
-                             ;; Thread the WINNING candidate file through so
-                             ;; the server caches the exact path that hit
-                             ;; (target/shadow-cljs/nrepl.port vs
-                             ;; .shadow-cljs/nrepl.port vs .nrepl-port), not
-                             ;; a derived one.
-                             {:port port :project-home project-home :port-file port-file}
-                             ;; Step 5 — cwd-relative scan, last resort.
-                             ;; Node's process CWD is an absolute base, so the
-                             ;; winning candidate resolves to a stable absolute
-                             ;; :port-file exactly like steps 1/3/4 — the server
-                             ;; caches it and the per-tool-call re-read observes
-                             ;; an ephemeral-port restart (or a shutdown) through
-                             ;; the same replacement/rediscovery branches. No
-                             ;; :project-home is surfaced (none is known, and
-                             ;; none is needed for restart recovery).
-                             (or (read-port-at-base (js/process.cwd))
-                                 {:port nil})))))))))))
+          (fn [{:keys [candidate stale]}]
+            (cond
+              (some? candidate)
+              candidate
+
+              ;; Step 2 — $SHADOW_CLJS_NREPL_PORT.
+              (some? (read-env-port))
+              (with-stale {:port (read-env-port)} stale)
+
+              :else
+              ;; Steps 3 → 4 → 5 — chained async cascade.
+              (-> (if roots-discovery-fn
+                    (roots-discovery-fn)
+                    (js/Promise.resolve {:status :error
+                                         :error  {:reason :workspace-discovery-unsupported}}))
+                  (.then
+                    (fn [r]
+                      (let [stale (into stale (:stale-port-files r))]
+                        (case (:status r)
+                          ;; The roots candidate carries whichever standard
+                          ;; port file resolved under the discovered project.
+                          ;; Thread that exact path through instead of
+                          ;; deriving another candidate.
+                          :one  (let [c (:candidate r)]
+                                  (with-stale {:port (:port c) :project-home (:project-home c)
+                                               :port-file (:port-file c)}
+                                              stale))
+                          :many (with-stale {:port nil :ambiguous (:candidates r)} stale)
+                          :error
+                          ;; Roots unavailable, or no live shadow in roots —
+                          ;; try step 4 (HTTP probe), then step 5 (cwd scan).
+                          (-> (shadow-probe-fn
+                                shadow-discovery/default-host
+                                (or http-port shadow-discovery/default-http-port))
+                              (.then
+                                (fn [project-home]
+                                  (first-live
+                                    port-probe-fn
+                                    ;; Each candidate is the WINNING file under
+                                    ;; its base (target/shadow-cljs/nrepl.port vs
+                                    ;; .shadow-cljs/nrepl.port vs .nrepl-port), so
+                                    ;; the server caches the exact path that hit.
+                                    ;; Step 5's base is Node's process CWD, an
+                                    ;; absolute base, so its :port-file is a
+                                    ;; stable absolute path like steps 1/3/4 and
+                                    ;; the per-tool-call re-read observes a
+                                    ;; restart on this branch too; it surfaces no
+                                    ;; :project-home (none is known, and none is
+                                    ;; needed for restart recovery).
+                                    [(some-> (read-port-at-base project-home)
+                                             (assoc :project-home project-home))
+                                     (read-port-at-base (js/process.cwd))])))
+                              (.then
+                                (fn [found]
+                                  (with-stale (or (:candidate found) {:port nil})
+                                              (into stale (:stale found)))))))))))))))))
 
 (defn discover-port
   "Production entry-point for the port-discovery cascade — see
@@ -262,7 +338,8 @@
   ([explicit-port-file http-port roots-discovery-fn]
    (discover-port* explicit-port-file http-port
                    shadow-discovery/discover-project-home
-                   roots-discovery-fn)))
+                   roots-discovery-fn
+                   port-accepts?)))
 
 ;; ---------------------------------------------------------------------------
 ;; bencode framing — handle concatenated frames in one TCP packet.

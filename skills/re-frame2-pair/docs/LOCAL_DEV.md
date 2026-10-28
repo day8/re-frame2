@@ -148,7 +148,9 @@ npx shadow-cljs watch <build-id>
 
 ...and make sure nREPL is enabled for the build.
 
-If a build *is* running but discovery picks the wrong port (`connection refused`, or it attaches to a stale build), set the override explicitly — pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT=<live-port>`, which bypasses file discovery entirely and is independent of the working directory.
+Discovery skips a port file whose port refuses a connect — the file a shadow-cljs JVM leaves behind when it is force-killed or crashes — and a failed discovery names it under `:stale-port-files`. Starting the watch in that project replaces the file, and deleting it drops it from discovery. Stop a watch cleanly so its shutdown hook removes its port files: Ctrl-C in its terminal, or `npx shadow-cljs stop` in its project, which ends that project's shadow-cljs process.
+
+If a build *is* running but discovery attaches to the wrong one (another project's build), set the override explicitly — pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT=<live-port>`, which bypasses file discovery entirely and is independent of the working directory.
 
 ### `:debug-disabled`
 

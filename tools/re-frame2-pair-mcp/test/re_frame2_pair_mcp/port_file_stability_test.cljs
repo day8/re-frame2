@@ -6,11 +6,18 @@
   port replaces it, a vanished file forces rediscovery. A derived
   `<project-home>/.shadow-cljs/nrepl.port` would point an explicit
   `target/shadow-cljs/nrepl.port` at a file that does not exist, and every
-  call would then reconnect and reset the per-connection build caches."
+  call would then reconnect and reset the per-connection build caches.
+
+  A port file whose port refuses a connect is skipped, and a discovery that
+  then resolves nothing names it in the tool-call error envelope."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.server :as server]
+            [re-frame2-pair-mcp.test-utils :as tu]
             ["fs" :as fs]
+            ["net" :as net]
+            ["os" :as os]
             ["path" :as node-path]))
 
 (use-fixtures :each
@@ -66,3 +73,32 @@
                     (is false (str "rediscovery should succeed here: " (.-message e)))
                     nil))
           (.then (fn [_] (restore!) (done)))))))
+
+(deftest failed-discovery-names-a-port-file-whose-port-refuses
+  ;; An explicit --port-file naming a port that was bound and then released,
+  ;; and the shadow HTTP probe aimed at that same dead port, so no step
+  ;; resolves and the envelope is the degraded one.
+  (async done
+    (let [dir      (fs/mkdtempSync (node-path/join (os/tmpdir) "pair-stale-port-"))
+          pf       (node-path/join dir "nrepl.port")
+          ^js srv  (net/createServer)
+          finish!  (fn []
+                     (fs/rmSync dir #js {:recursive true :force true})
+                     (done))]
+      (.listen srv 0 "127.0.0.1"
+        (fn []
+          (let [dead (.-port (.address srv))]
+            (.close srv
+              (fn [_]
+                (fs/writeFileSync pf (str dead))
+                (-> (server/handle-call-for-tests {:port-file pf :http-port dead} "snapshot" #js {} nil)
+                    (.then (fn [result]
+                             (let [m (tu/extract-edn result)]
+                               (is (tu/error? result))
+                               (is (= :rf.error/pair-mcp-nrepl-port-not-found (:reason m)))
+                               (is (some #{pf} (:stale-port-files m))
+                                   "the envelope names the skipped file")
+                               (is (str/includes? (:hint m) pf)
+                                   "and its hint names it too"))))
+                    (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+                    (.then (fn [_] (finish!))))))))))))

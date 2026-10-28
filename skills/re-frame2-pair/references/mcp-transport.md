@@ -64,9 +64,11 @@ via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transp
 
 1. `--port-file <abs>` launch flag — explicit, cwd-independent override.
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. **MCP `roots/list` walk** (the zero-config primary path) — ask the agent host for its open workspace roots, walk each (bounded, skipping `node_modules` / `.git` / `target`) for `shadow-cljs.edn` paired with the adjacent `.shadow-cljs/nrepl.port`. One match → silent attach; multiple → an `elicitation/create` prompt so the user picks the project; zero → step 4.
+3. **MCP `roots/list` walk** (the zero-config primary path) — ask the agent host for its open workspace roots, walk each (bounded, skipping `node_modules` / `.git` / `target`) for `shadow-cljs.edn` paired with the adjacent `.shadow-cljs/nrepl.port`. One live match → silent attach; multiple → an `elicitation/create` prompt so the user picks the project; zero → step 4.
 4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info` returns the consumer build's `:project-home`, against which the server reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` (in that order). HTTP port overridable via `--http-port <n>` (default 9630). Fallback for hosts that don't expose `roots`.
 5. CWD-relative scan of the same three port-file candidates — fallback for environments without shadow's web server.
+
+A port file counts only when its port accepts a TCP connect within half a second, at every step that reads one (1, 3, 4, 5). shadow-cljs deletes its port files from a JVM shutdown hook, so a JVM that was force-killed or crashed leaves a file naming a port nothing listens on. Discovery skips that file and moves to the next step: it never attaches to it or offers it in the elicitation, and a discovery that then fails names it ([§When the MCP server is degraded](#when-the-mcp-server-is-degraded)).
 
 The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached port file — the exact path discovery won on, kept verbatim rather than re-derived — and reconnects if the port changed.
 
@@ -215,3 +217,5 @@ If shadow-cljs isn't running when the first tool call runs, the server still ans
 ```
 
 Start shadow-cljs and retry — the server picks up the port on the next call.
+
+When discovery skipped a port file whose port refused a connect, the envelope also carries `:stale-port-files`, the absolute path of each. Such a file was left by a shadow-cljs JVM that was force-killed or crashed, so its project's watch is gone; name the file to the user. Starting the watch in that project replaces it, and deleting it drops it from discovery. A watch stopped cleanly — Ctrl-C in its terminal, or `npx shadow-cljs stop` run in its project — removes its own port files; a force kill leaves them.

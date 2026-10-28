@@ -4,7 +4,7 @@ Every MCP tool returns structured edn (`{:ok? false :reason ...}`) rather than r
 
 ## Common cases
 
-- `:rf.error/pair-mcp-nrepl-port-not-found` (bare `:nrepl-port-not-found` when the connect step fails without an id) → no shadow-cljs nREPL is reachable at all — this is the **pre-connection degraded-mode** envelope every tool short-circuits to before any runtime check. Tell the user to start their dev build with `shadow-cljs watch <build>`.
+- `:rf.error/pair-mcp-nrepl-port-not-found` (bare `:nrepl-port-not-found` when the connect step fails without an id) → no shadow-cljs nREPL is reachable at all — this is the **pre-connection degraded-mode** envelope every tool short-circuits to before any runtime check. Tell the user to start their dev build with `shadow-cljs watch <build>`. A `:stale-port-files` slot names port files discovery skipped because their port refused a connect — left by a shadow-cljs JVM that was force-killed or crashed. Name each to the user; [mcp-transport.md §When the MCP server is degraded](mcp-transport.md#when-the-mcp-server-is-degraded) has the recovery.
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
 - `:no-frames-registered` → no frame is up yet. `init!` only installs the adapter — it creates no frame under EP-0002, so calling it won't help; tell the user to establish the app's frame at the root (e.g. a root `frame-root {:id ...}`, or `make-frame`), or wait for app boot.
 
@@ -28,7 +28,7 @@ A connected `discover-app` can still report `:freshness {:liveness :unknown ...}
 - `:no-build-worker` → the shadow-cljs process behind the nREPL port runs no worker for this build. Check the build id, and that its `shadow-cljs watch` runs in that process.
 - `:heartbeat-unavailable` → runtimes are connected and the build state was read, but none has a usable heartbeat. Re-run `discover-app` once; if it persists, report it as a Pair compatibility gap.
 
-Never stop, kill or restart shadow-cljs processes on an `:unknown`: nothing in it identifies another process, and `npx shadow-cljs stop` stops every watch on the machine, other projects' included. The token's full shape is in the server's [tool catalogue](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md#discover-app).
+Never stop, kill or restart shadow-cljs processes on an `:unknown`: nothing in it identifies another process, and `npx shadow-cljs stop` ends the whole shadow-cljs process of the project it runs in — every build that process watches, not one. The token's full shape is in the server's [tool catalogue](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md#discover-app).
 
 ## `eval-cljs` failures
 
