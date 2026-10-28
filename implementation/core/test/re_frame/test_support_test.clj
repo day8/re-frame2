@@ -125,6 +125,21 @@
         "a schema in the fixture's baseline is cleared for the body and back
          afterwards, so a test checks only the schemas it registers")))
 
+(deftest make-reset-runtime-fixture-baseline-is-the-table-when-it-is-built
+  ;; Spec 008 §Fixture-granularity ladder: a suite registers its top-level
+  ;; state above its `use-fixtures` form, because that is when the fixture
+  ;; is built and its baseline taken.
+  (rf/reg-event :test-support/above-the-fixture (fn [_ _] {}))
+  (let [built    (fixture)
+        present? #(some? (rf/handler-meta {:kind :event :id %}))
+        in-body  (atom :unset)]
+    (rf/reg-event :test-support/below-the-fixture (fn [_ _] {}))
+    (built (fn [] (reset! in-body (mapv present? [:test-support/above-the-fixture
+                                                  :test-support/below-the-fixture]))))
+    (is (= [true false] @in-body)
+        "a registration made after the fixture was built is outside its baseline,
+         so the reset before the test removes it")))
+
 (deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
   ;; the pre-dispose flows reset runs before the post-dispose contributed
   ;; resets; the finally-block flows reset is third

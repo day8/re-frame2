@@ -80,12 +80,12 @@ A mock registered in the test body reaches the reset fixture's ambient frame, wh
 - **Keep the double out of the product image.** A namespace-authored double selected into the same image as the product registration fails frame creation with `:rf.error/image-duplicate-id`.
 - **Cleanup has two halves.** The reset fixture, or a `snapshot-registrar` / `restore-registrar!` bracket, rolls back `reg-*` writes and leaves live frames alone — restoring the registrar after a re-image leaves the frame mocked. `make-reset-runtime-fixture` also clears every frame after each test (an `:async? true` suite does it in `:after`, once `done` has run); a test outside that fixture destroys its frame with `rf/destroy-frame!`.
 
-**A recorder under explicit images** has to be selected too, or `make-frame` fails with `:rf.error/unregistered-interceptor`. It cannot go in a mock image's inline `:registrations`: those sections accept only `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`, and an inline `:reg-interceptor` section fails `rf/image` with `:rf.error/invalid-image`. Keep the `reg-interceptor` at the top level of the test namespace instead, and select that namespace in a final image:
+**A recorder under explicit images** has to be selected too, or `make-frame` fails with `:rf.error/unregistered-interceptor`. It cannot go in a mock image's inline `:registrations`: those sections accept only `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`, and an inline `:reg-interceptor` section fails `rf/image` with `:rf.error/invalid-image`. Keep the `reg-interceptor` at the top level of the test namespace instead, above its `use-fixtures` form (the reset fixture's baseline is the table when that form is evaluated, so a registration below it is gone before the first test runs), and select that namespace in a final image:
 
 ```clojure
 (def seen (atom []))
 
-(rf/reg-interceptor :test/recorder          ; top level of the test namespace, here shop.cart-test
+(rf/reg-interceptor :test/recorder          ; top level of shop.cart-test, above its use-fixtures
   {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
 
 (def recorder-image (rf/image {:id :test/recorder :select-ns {:include ["shop.cart-test"]}}))
