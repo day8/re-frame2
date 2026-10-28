@@ -511,11 +511,41 @@
       (when (> bytes threshold)
         (warn-large-unschema'd! frame-id path bytes)))))
 
+;; ---- a seq the app has not forced ------------------------------------------
+;;
+;; Projecting a value must not change it, and realising a lazy seq is a
+;; change: it runs the app's code, and an endless one never returns. So no
+;; walk here realises a seq (Spec 015 §`elide-wire-value`).
+
+(defn- uncomputed-cell?
+  "True when seq cell `s` holds no element yet: a lazy cell whose body has not
+  run, or a range or repeat, which compute each element as it is read."
+  [s]
+  #?(:clj  (or (and (instance? clojure.lang.IPending s) (not (realized? s)))
+               (instance? clojure.lang.Range s)
+               (instance? clojure.lang.LongRange s)
+               (instance? clojure.lang.Repeat s))
+     :cljs (or (and (satisfies? IPending s) (not (realized? s)))
+               (instance? Range s)
+               (instance? IntegerRange s))))
+
+(defn- unforced-seq?
+  "True when walking seq `s` would compute an element the app has not. Each
+  cell is reached by `rest`, which on a computed cell hands back the next cell
+  without running it, so the check itself forces nothing."
+  [s]
+  (loop [s s]
+    (cond
+      (uncomputed-cell? s) true
+      (nil? (seq s))       false
+      :else                (recur (rest s)))))
+
 (defn- oversized-strings
   "`[relative-path string]` for every string under `v` that `may-print-over?`
   `threshold`, or nil. Visits what the wire walk visits — map values by key,
   vector and seq elements by index, set elements at the set's own path — but
-  rebuilds nothing, and builds a relative path only for a hit."
+  rebuilds nothing, builds a relative path only for a hit, and skips a seq the
+  app has not forced."
   [v threshold]
   (cond
     (string? v)
@@ -528,7 +558,7 @@
                    acc))
                nil v)
 
-    (seq? v)
+    (and (seq? v) (not (unforced-seq? v)))
     (loop [i 0 xs (seq v) acc nil]
       (if xs
         (recur (inc i) (next xs)
@@ -633,12 +663,16 @@
 ;;   :leaf    (state v)  -> the `:else` (scalar) result. The wire walker runs
 ;;            its runtime-size-threshold warning side-effect here and returns
 ;;            `v`; classification returns `v` verbatim.
+;; and one optional function:
+;;   :unforced (state s) -> what a seq the app has not forced projects as, in
+;;            place of the walk that would realise it. Absent, `s` is returned
+;;            as found.
 ;; Set elements carry `state` UNCHANGED in BOTH walkers (a set element is a
 ;; nameless collection coordinate — neither the path nor the decl-paths
 ;; advance), so that arm is fixed in the skeleton, not parameterized.
 ;;
-;; Seq is normalised to a persistent vector (via the transient accumulator)
-;; for both walkers.
+;; A forced seq is normalised to a persistent vector (via the transient
+;; accumulator) for both walkers.
 
 (def ^:no-doc walk-recur
   "Distinguished `walk-tree` `:decide` sentinel meaning 'descend structurally'
@@ -651,10 +685,10 @@
 (defn ^:no-doc walk-tree
   "The shared map/vec/set/seq path-walk skeleton (see the section comment).
   `state` is the per-walker traversal state; `decider` is the
-  `{:decide :map-key :index :leaf}` map. `^:no-doc` public so the sibling
-  `re-frame.classification` walker shares this one skeleton rather than
-  re-inlining it."
-  [v state {:keys [decide map-key index leaf] :as decider}]
+  `{:decide :map-key :index :leaf}` map, plus an optional `:unforced`.
+  `^:no-doc` public so the sibling `re-frame.classification` walker shares
+  this one skeleton rather than re-inlining it."
+  [v state {:keys [decide map-key index leaf unforced] :as decider}]
   (let [r (decide state v)]
     (if-not (identical? r walk-recur)
       r
@@ -668,6 +702,9 @@
         (reduce-kv (fn [acc k vv]
                      (assoc acc k (walk-tree vv (map-key state k) decider)))
                    (if (record? v) {} (empty v)) v)
+
+        (and (seq? v) (unforced-seq? v))
+        (if unforced (unforced state v) v)
 
         (or (vector? v) (seq? v))
         (let [idx (volatile! -1)]
@@ -836,7 +873,8 @@
   "Build the `walk-tree` decider for the schema-first wire walk against `ctx`.
   The per-node decision (no declared path reachable → the node itself,
   unchanged; sensitive → sentinel; declared-large → idempotent marker; else
-  descend), the map-key / index state forks, and the scalar leaf (the
+  descend), the map-key / index state forks, what an unforced seq a
+  declaration can reach projects as (`:rf/redacted`), and the scalar leaf (the
   runtime-size-threshold warning side-effect) — the elision-specific arms the
   shared skeleton parameterises over.
 
@@ -860,6 +898,9 @@
                         (and (not include-s?)
                              (seq shadow-set)
                              (some #(contains? shadow-set %) decl-paths)))
+        ;; Whether this boundary substitutes anything at all.
+        substitutes?  (boolean (or (and (not include-s?) (seq sensitive-tbl))
+                                   (and (not include-lg?) (seq large-tbl))))
         measure       (delay (walk-decider (collision-measure-ctx ctx)))]
     {:decide
      (fn [[path decl-paths :as state] v]
@@ -920,6 +961,13 @@
      :index
      (fn [[path decl-paths] i]
        [(conj path i) (fork-index-paths decl-paths i decl-prefixes)])
+
+     ;; Reached only past `:decide`, so a declared path can reach inside the
+     ;; seq, and nothing inside can be inspected without realising it: fail
+     ;; closed, unless this boundary substitutes nothing anyway.
+     :unforced
+     (fn [_state s]
+       (if substitutes? rf.privacy/redacted-sentinel s))
 
      :leaf
      (fn [[path decl-paths] v]
