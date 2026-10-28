@@ -121,7 +121,7 @@
 
     (scan-string s {:keys [file]})  -> [finding ...]
     (scan-file   path)              -> [finding ...]
-    (scan-paths  paths)             -> [finding ...]    ;; files + dirs (recursive)
+    (scan-paths  paths)             -> [finding ...]    ;; .clj/.cljc/.cljs files + dirs (recursive)
     (rewrite-string s)              -> {:source out :findings [...]}
     (rewrite-file!  path opts)      -> {:path .. :changed? .. :findings [...]}
     (rewrite-paths! paths opts)     -> [{...} ...]
@@ -1605,11 +1605,24 @@
 ;; Public API
 ;; ---------------------------------------------------------------------------
 
+(defn- parse-source
+  "The position-tracking zipper over source `s`. A source the reader rejects
+  throws an ex-info whose message starts with `file`, so a run over many files
+  says which one it could not read."
+  [s file]
+  (try
+    (z/of-string s {:track-position? true})
+    (catch Exception e
+      (throw (ex-info (str (or file "<source>") ": not readable as Clojure source: "
+                           (ex-message e))
+                      {::unreadable file}
+                      e)))))
+
 (defn scan-string
   "Scan a source string; return a vector of findings (no rewrite)."
   ([s] (scan-string s {}))
   ([s opts]
-   (let [zroot (z/of-string s {:track-position? true})]
+   (let [zroot (parse-source s (:file opts))]
      (:findings (walk zroot (assoc opts
                                    :rewrite? false
                                    :path-ctx (path-head-context zroot)
@@ -1623,7 +1636,7 @@
   referred."
   ([s] (rewrite-string s {}))
   ([s opts]
-   (let [zroot  (z/of-string s {:track-position? true})
+   (let [zroot  (parse-source s (:file opts))
          {:keys [zip findings append-refer]}
          (walk zroot (assoc opts
                             :rewrite? true
@@ -1648,20 +1661,34 @@
              (str/ends-with? n ".cljs")))))
 
 (defn- expand-paths
-  "Expand a seq of paths (files or dirs) into a seq of source files."
+  "The Clojure sources a seq of paths names: a directory is walked recursively
+  for .clj/.cljc/.cljs files, and a file is read only when it is one, so a
+  file list (a unit's changed files, say) needs no filtering first.
+  `unread-paths` names what this drops."
   [paths]
   (->> paths
        (mapcat (fn [p]
                  (let [f (io/file p)]
                    (cond
-                     (.isDirectory f) (filter clj-source-file? (file-seq f))
-                     (.isFile f)      [f]
-                     :else            []))))
+                     (.isDirectory f)     (filter clj-source-file? (file-seq f))
+                     (clj-source-file? f) [f]
+                     :else                []))))
        distinct))
 
+(defn- unread-paths
+  "`[path reason]` for each named path `expand-paths` reads nothing from."
+  [paths]
+  (keep (fn [p]
+          (let [f (io/file p)]
+            (cond
+              (or (.isDirectory f) (clj-source-file? f)) nil
+              (.isFile f) [p "not a .clj/.cljc/.cljs source"]
+              :else       [p "no such file or directory"])))
+        paths))
+
 (defn scan-paths
-  "Scan a seq of file/dir paths (dirs walked recursively for .clj/.cljc/.cljs);
-  return all findings."
+  "Scan a seq of file/dir paths (only .clj/.cljc/.cljs sources are read; dirs
+  are walked recursively); return all findings."
   [paths]
   (vec (mapcat (fn [f] (scan-string (slurp f) {:file (str f)}))
                (expand-paths paths))))
@@ -1728,6 +1755,55 @@
      :rename  (count (:rename by))
      :flag    (count (:flag by))}))
 
+(defn- err-println [& xs]
+  (binding [*out* *err*] (apply println xs)))
+
+(defn- run-each
+  "`{:results [(f file) ...] :unreadable n}` over the sources `paths` names. A
+  file the reader rejects is named on stderr and passed over, so it costs the
+  run its own findings and nobody else's."
+  [f paths]
+  (reduce (fn [acc file]
+            (try
+              (update acc :results conj (f file))
+              (catch clojure.lang.ExceptionInfo e
+                (if (contains? (ex-data e) ::unreadable)
+                  (do (err-println (ex-message e))
+                      (update acc :unreadable inc))
+                  (throw e)))))
+          {:results [] :unreadable 0}
+          (expand-paths paths)))
+
+(defn- cli
+  "The CLI's work (see `-main`); returns the exit status: 2 for no PATH, 1 when
+  a named source could not be read, else 0. A named path the run reads nothing
+  from (a non-Clojure file, a missing path) is named on stderr."
+  [args]
+  (let [rewrite?       (some #{"--rewrite"} args)
+        write?         (some #{"--write"} args)
+        force-db-wrap? (some #{"--force-db-wrap"} args)
+        paths          (remove #{"--rewrite" "--write" "--force-db-wrap"} args)]
+    (if (empty? paths)
+      (do (println "usage: clojure -M:run [--rewrite] [--write] [--force-db-wrap] PATH ...")
+          2)
+      (do
+        (doseq [[p why] (unread-paths paths)]
+          (err-println (str "skipped " p ": " why)))
+        (let [{:keys [results unreadable]}
+              (if rewrite?
+                (run-each #(rewrite-file! % {:write? write? :force-db-wrap? force-db-wrap?}) paths)
+                (run-each scan-file paths))
+              findings (if rewrite? (mapcat :findings results) (apply concat results))]
+          (print-findings findings)
+          (println)
+          (println (if rewrite?
+                     (format "%d file(s) %s; summary: %s"
+                             (count (filter :changed? results))
+                             (if write? "rewritten" "would change (dry run)")
+                             (summary findings))
+                     (format "summary: %s" (summary findings))))
+          (if (pos? unreadable) 1 0))))))
+
 (defn -main
   "CLI: scan (default) or --rewrite a file set.
 
@@ -1735,24 +1811,6 @@
     clojure -M:run --rewrite PATH ...     ;; dry-run rewrite + print findings
     clojure -M:run --rewrite --write PATH ;; rewrite IN PLACE"
   [& args]
-  (let [rewrite?       (some #{"--rewrite"} args)
-        write?         (some #{"--write"} args)
-        force-db-wrap? (some #{"--force-db-wrap"} args)
-        paths          (remove #{"--rewrite" "--write" "--force-db-wrap"} args)]
-    (when (empty? paths)
-      (println "usage: clojure -M:run [--rewrite] [--write] [--force-db-wrap] PATH ...")
-      (System/exit 2))
-    (if rewrite?
-      (let [results (rewrite-paths! paths {:write? write? :force-db-wrap? force-db-wrap?})
-            findings (mapcat :findings results)
-            changed (filter :changed? results)]
-        (print-findings findings)
-        (println)
-        (println (format "%d file(s) %s; summary: %s"
-                         (count changed)
-                         (if write? "rewritten" "would change (dry run)")
-                         (summary findings))))
-      (let [findings (scan-paths paths)]
-        (print-findings findings)
-        (println)
-        (println (format "summary: %s" (summary findings)))))))
+  (let [status (cli args)]
+    (when-not (zero? status)
+      (System/exit status))))
