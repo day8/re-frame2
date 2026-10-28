@@ -85,11 +85,11 @@ Xray also depends (transitively, via `day8/re-frame2-machines-viz`) on **two npm
 
 ```bash
 # In the target project's npm root (where package.json lives).
-# Pin in lockstep with re-frame2's implementation/package.json.
-npm install --save-dev @xyflow/react@12.4.2 elkjs@^0.11.1
+# The versions re-frame2's implementation/package-lock.json resolves.
+npm install --save-dev @xyflow/react@12.4.2 elkjs@0.11.1
 ```
 
-Keep the versions **in lockstep** with the re-frame2 checkout's `implementation/package.json` (`<path-to-re-frame2>/implementation/package.json`) — read the current `@xyflow/react` / `elkjs` versions there rather than trusting the literals above, which track a point-in-time pin (at this writing `@xyflow/react 12.4.2`, `elkjs ^0.11.1`). They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
+Take the versions from the re-frame2 checkout, because Xray ships no npm manifest of its own: the two packages are machines-viz's, and neither tool declares them (no `package.json`, no `deps.cljs` `:npm-deps`), so shadow-cljs will not install them for you. The checkout's `implementation/package.json` lists both, but some entries there are ranges (`elkjs` is `^0.11.1`), so for an exact or save-exact pin use the version **`<path-to-re-frame2>/implementation/package-lock.json` resolves** — its `node_modules/@xyflow/react` and `node_modules/elkjs` entries, the versions re-frame2 builds and tests against. Read them there rather than trusting the literals above (at this writing `@xyflow/react 12.4.2`, `elkjs 0.11.1`). They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
 
 ### 3. Wire the preload
 
@@ -236,6 +236,6 @@ Full panel inventory: [`skills/re-frame2-xray/references/panels.md`](https://git
 
 Report the swap as completed work in the report's **Verification** section (no `M-N` id, so not the M-rule list). Example line:
 
-> *"Devtools (Xray replaces 10x — standard for a 10x app): dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry at M-0; post-M-40 added `day8/re-frame2-xray {:local/root "..."}` + its preload + a `[data-rf-xray-host]` host in `resources/public/index.html` + the npm peer-deps `@xyflow/react@12.4.2` and `elkjs@^0.11.1` (compile-time deps of the Machine-inspector chart). `Ctrl+Shift+C` toggles the panel — app is on Xray."*
+> *"Devtools (Xray replaces 10x — standard for a 10x app): dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry at M-0; post-M-40 added `day8/re-frame2-xray {:local/root "..."}` + its preload + a `[data-rf-xray-host]` host in `resources/public/index.html` + the npm peer-deps `@xyflow/react@12.4.2` and `elkjs@0.11.1` (compile-time deps of the Machine-inspector chart). `Ctrl+Shift+C` toggles the panel — app is on Xray."*
 
 (No re-frame-10x in the project ⇒ nothing to report; don't add devtools the app never had.)

@@ -40,9 +40,12 @@ install JavaScript packages, so add both to your app's npm project beside
 npm install --save-dev @xyflow/react@<version> elkjs@<version>
 ```
 
-Both versions are pinned in
-[`implementation/package.json`](../../implementation/package.json); take them
-from the re-frame2 checkout your `:local/root` points at, and keep an existing
+Xray ships no npm manifest of its own, so take the versions from the
+re-frame2 checkout your `:local/root` points at. Its
+[`implementation/package.json`](../../implementation/package.json) lists
+both, but `elkjs` there is a range; for an exact pin, use the version
+[`implementation/package-lock.json`](../../implementation/package-lock.json)
+resolves, which is the one re-frame2 tests against. Keep an existing
 compatible pin.
 
 ## Reserve the host
