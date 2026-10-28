@@ -228,11 +228,13 @@ Two structurally different guards ride the same gate:
     binds v2's context map to its only parameter and drops the real args with no
     error, and the leaf's `rg -U` sweep is its only detector. A
     pattern requiring a newline between `reg-fx` and `fn` AND a bare-symbol
-    parameter sees one of four common unary shapes — a same-line handler
-    and the destructured `(fn [{:keys [...]}] ...)` http-fx v1 shape are
-    invisible to it. This guard extracts the leaf's own sweep pattern and runs it over
-    four unary shapes, which it must all match, and a binary control, which it
-    must not. See `m51_sweep_problems()`.
+    parameter sees one of five common unary shapes — a same-line handler, the
+    destructured `(fn [{:keys [...]}] ...)` http-fx v1 shape and a handler
+    behind a `;` comment line are invisible to it. This guard extracts the
+    leaf's own sweep pattern and runs it over five unary shapes, which it must
+    all match, and two already-binary controls, which it must not — one of
+    them destructures its second parameter, `(fn [_ [ws url]] ...)`. See
+    `m51_sweep_problems()`.
 
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
@@ -1448,9 +1450,12 @@ _M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
 # M-51 sweep. M-51 is SILENT-fail — a unary fx handler compiles, binds
 # v2's context map to its only param and drops the real args — and the leaf's
 # `rg -U` sweep is its only detector, so the sweep must see every common unary
-# shape. Four unary shapes a v1 codebase carries (next-line and same-line,
-# bare-symbol and destructured; `{:keys [...]}` is the http-fx v1 shape) plus the
-# rewritten binary form as a control the sweep must NOT match.
+# shape. Five unary shapes a v1 codebase carries: next-line and same-line,
+# bare-symbol and destructured (`{:keys [...]}` is the http-fx v1 shape), and
+# one with a `;` comment line between the id and the `(fn`, which a gap of bare
+# `\s+` cannot step over. The controls are rewritten binary forms the sweep must
+# NOT match; `(fn [_ [ws url]]` is the one an optional fn-name group that may
+# start at `[` admits, by reading `[_ ` as a name.
 M51_UNARY_SHAPES = (
     ("next-line bare-symbol",
      "(rf/reg-fx :toast/show\n  (fn [message] (show-toast! message)))"),
@@ -1460,8 +1465,15 @@ M51_UNARY_SHAPES = (
      "(rf/reg-fx :http-xhrio\n  (fn [{:keys [uri on-success]}] (send-xhr! uri on-success)))"),
     ("same-line map-destructured",
      "(rf/reg-fx :analytics/track (fn [{:keys [event props]}] (track! event props)))"),
+    ("comment-line bare-symbol",
+     "(rf/reg-fx\n  :commented\n  ;; a comment line\n  (fn [x] (handle! x)))"),
 )
-M51_BINARY_CONTROL = "(rf/reg-fx :http-xhrio\n  (fn [_ request] (send-xhr! request)))"
+M51_BINARY_CONTROLS = (
+    ("`(fn [_ request] ...)`",
+     "(rf/reg-fx :http-xhrio\n  (fn [_ request] (send-xhr! request)))"),
+    ("`(fn [_ [ws url]] ...)`",
+     "(rf/reg-fx :converted (fn [_ [ws url]] (open! ws url)))"),
+)
 _M51_SWEEP_RE = re.compile(r"rg -U(?: -\w+)* '([^']*reg-fx[^']*)'")
 
 
@@ -1472,13 +1484,16 @@ def _m51_sweep_misses(pattern: re.Pattern) -> list[str]:
         for label, shape in M51_UNARY_SHAPES
         if not pattern.search(shape)
     ]
-    if pattern.search(M51_BINARY_CONTROL):
-        misses.append("matches the binary `(fn [_ request] ...)` control")
+    misses.extend(
+        f"matches the binary {label} control"
+        for label, shape in M51_BINARY_CONTROLS
+        if pattern.search(shape)
+    )
     return misses
 
 
 def m51_sweep_problems() -> list[str]:
-    """Run the leaf's own M-51 sweep pattern over the five-shape fixture."""
+    """Run the leaf's own M-51 sweep pattern over the M-51 fixture."""
     if not AUTO_CALL_SITE_MD.is_file():
         return [f"SETUP: M-51 leaf missing: {AUTO_CALL_SITE_MD.relative_to(REPO_ROOT)}"]
     m = _M51_SWEEP_RE.search(_slurp(AUTO_CALL_SITE_MD))
@@ -2940,15 +2955,31 @@ def _self_test() -> int:
 
     # --- M-51 sweep fixtures ---------------------------------------------------
     # A narrow sweep (newline required, bare-symbol param only) sees one of the
-    # four unary shapes and skips the binary control. Pinning its misses
+    # five unary shapes and skips both controls. Pinning its misses
     # exactly fails both a sweep check that reports too many misses and one
     # that reports too few.
     bad_m51 = re.compile(r"reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]")
     bad_misses = _m51_sweep_misses(bad_m51)
-    if len(bad_misses) != 3 or any("control" in m for m in bad_misses):
+    if len(bad_misses) != 4 or any("control" in m for m in bad_misses):
         print(
             "SELF-TEST FAIL (M51-regression-detected): the narrow sweep must miss "
-            f"exactly 3 of the 4 unary shapes and skip the control, got {bad_misses!r}"
+            f"exactly 4 of the 5 unary shapes and skip the controls, got {bad_misses!r}"
+        )
+        failures += 1
+
+    # A sweep with bare `\s+` gaps and a fn-name group that may start at `[`
+    # sees every comment-free unary shape, so only the comment-line shape and
+    # the destructured-second-parameter control can catch it.
+    gap_m51 = re.compile(r"reg-fx\s+\S+\s+(\(fn\s+(\S+\s+)?\[[^]\s_]|#\()")
+    gap_misses = sorted(_m51_sweep_misses(gap_m51))
+    gap_expected = [
+        "matches the binary `(fn [_ [ws url]] ...)` control",
+        "misses the unary comment-line bare-symbol shape",
+    ]
+    if gap_misses != gap_expected:
+        print(
+            "SELF-TEST FAIL (M51-gap-regression-detected): the whitespace-gap sweep "
+            f"must fail on exactly {gap_expected!r}, got {gap_misses!r}"
         )
         failures += 1
 
