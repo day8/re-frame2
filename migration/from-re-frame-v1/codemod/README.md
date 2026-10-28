@@ -146,8 +146,12 @@ clojure -M:run --rewrite PATH ...
 clojure -M:run --rewrite --write PATH ...
 ```
 
-`PATH` may be a file or a directory; directories are walked recursively for
-`.clj` / `.cljc` / `.cljs` sources.
+`PATH` may be a file or a directory, and only `.clj` / `.cljc` / `.cljs`
+sources are read: directories are walked recursively for them, and a named
+file of any other kind (a `package.json` in a unit's changed-file list, say) is
+skipped with a `skipped PATH: …` line on stderr, as is a path that does not
+exist. A source the reader rejects is named on stderr and passed over, the
+other files keep their findings, and the run exits 1.
 
 ## Programmatic API
 
@@ -157,7 +161,7 @@ The atomic-flip slice calls the codemod corpus-wide via these fns in
 ```clojure
 (scan-string s opts)   ;; -> [finding ...]
 (scan-file   path)     ;; -> [finding ...]
-(scan-paths  paths)    ;; -> [finding ...]   (files + dirs, recursive)
+(scan-paths  paths)    ;; -> [finding ...]   (.clj/.cljc/.cljs files + dirs, recursive)
 (rewrite-string s)     ;; -> {:source out :findings [...]}
 (rewrite-file!  path {:write? bool})  ;; -> {:path .. :changed? .. :findings [...] :source ..}
 (rewrite-paths! paths {:write? bool}) ;; -> [{...} ...]

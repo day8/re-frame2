@@ -423,3 +423,45 @@
     (fn [dir]
       (is (= [:reg-event-db :reg-event-fx]
              (sort (map :form (rf.migration.reg-event-codemod/scan-paths [(.getPath dir)]))))))))
+
+(deftest named-files-are-read-only-when-clojure-sources
+  (with-source-dir {"a.cljs"       "(rf/reg-event-fx :a (fn [c e] {}))\n"
+                    "package.json" "{\n  \"name\": \"app\",\n  \"version\": \"1.0.0\"\n}\n"}
+    (fn [dir]
+      (let [[a pkg gone :as paths] (mapv #(.getPath (io/file dir %)) ["a.cljs" "package.json" "gone.cljs"])
+            err    (java.io.StringWriter.)
+            status (atom nil)
+            out    (binding [*err* err]
+                     (with-out-str (reset! status (#'rf.migration.reg-event-codemod/cli paths))))]
+        (is (= 0 @status))
+        (is (= [a] (mapv :file (rf.migration.reg-event-codemod/scan-paths paths))))
+        (is (= [a] (mapv :path (rf.migration.reg-event-codemod/rewrite-paths! paths {:write? false}))))
+        (is (str/includes? out "summary: {:total 1, :rewrite 0, :rename 1, :flag 0}"))
+        (is (str/includes? (str err) (str "skipped " pkg ": not a .clj/.cljc/.cljs source")))
+        (is (str/includes? (str err) (str "skipped " gone ": no such file or directory")))))))
+
+(deftest an-unreadable-source-is-named
+  (with-source-dir {"bad.cljs" "(rf/reg-event-fx :b (fn [c e] {:k :}))\n"}
+    (fn [dir]
+      (let [bad (.getPath (io/file dir "bad.cljs"))]
+        (doseq [[label run] [["scan-file" #(rf.migration.reg-event-codemod/scan-file bad)]
+                             ["rewrite-file!" #(rf.migration.reg-event-codemod/rewrite-file! bad)]]]
+          (is (str/starts-with? (try (run) "no error" (catch clojure.lang.ExceptionInfo e (ex-message e)))
+                                (str bad ": "))
+              label))))))
+
+(deftest the-cli-reads-past-an-unreadable-source
+  (with-source-dir {"a.cljs"   "(rf/reg-event-fx :a (fn [c e] {}))\n"
+                    "bad.cljs" "(rf/reg-event-fx :b (fn [c e] {:k :}))\n"}
+    (fn [dir]
+      (doseq [args [[(.getPath dir)] ["--rewrite" (.getPath dir)]]]
+        (let [err    (java.io.StringWriter.)
+              status (atom nil)
+              out    (binding [*err* err]
+                       (with-out-str (reset! status (#'rf.migration.reg-event-codemod/cli args))))]
+          (is (= [1 true true]
+                 [@status
+                  (str/includes? out ":total 1, :rewrite 0, :rename 1, :flag 0}")
+                  (str/includes? (str err) (str (.getPath (io/file dir "bad.cljs"))
+                                                ": not readable as Clojure source"))])
+              (str/join " " args)))))))
