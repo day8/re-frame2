@@ -90,12 +90,13 @@
       respects inner shadowing, so an inner `let`/`fn` that rebinds the name does
       NOT count as a reference.
 
-      D7 NIL-FLAG: a reg-event-db handler whose BODY can evaluate to `nil` is
-      NOT silently rewritten. Under the new model a bare `nil` return is a
-      no-op and `{:db nil}` coerces to `{:db {}}` (rf2-ekq28v), so the author
-      may now prefer the no-op reading. The codemod FLAGS these (`:flag/nil`)
-      for the author to choose the intended reading; it leaves the source
-      unchanged.
+      D7 NIL-FLAG: a reg-event-db handler whose BODY the codemod cannot prove
+      non-nil is NOT silently rewritten. Under the new model a bare `nil`
+      return is a no-op and `{:db nil}` coerces to `{:db {}}` (rf2-ekq28v), so
+      the author may now prefer the no-op reading. The codemod FLAGS these
+      (`:flag :nil-capable`) and leaves the source unchanged; the note names
+      the deciding sub-form and whether it can be nil or is only unproven
+      (decision rules at `nil-reason`).
 
   * reg-event-db  -> FLAGGED for manual review (not rewritten) when the form is
       COMPLEX: a handler that is not a literal `(fn ...)` (a var, a
@@ -186,11 +187,16 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Conservative: we ask "can this BODY (the final form of the handler) evaluate
-;; to nil under SOME input?". We answer YES (=> flag) for the shapes a v1
-;; reg-event-db body commonly takes that can yield nil, and NO only when the
-;; body is provably non-nil (a literal map/vector/etc, or a thread/assoc/update
-;; whose head is a guaranteed-non-nil db-builder). When unsure, we say YES
-;; (flag) — the safe direction for D7.
+;; to nil under SOME input?", and answer NO (=> rewrite) only when a local
+;; syntactic reading proves it non-nil: a literal collection, the handler's own
+;; db param, a builder headed by a guaranteed-non-nil db-builder (or a `->`
+;; thread ending in one), a branching form whose every branch is proven
+;; non-nil, or a `cond->` over a non-nil init whose every stage is a builder.
+;; Anything else flags — the safe direction for D7 — and the reason names the
+;; DECIDING sub-form and says which of two things the codemod knows: that it
+;; CAN evaluate to nil (a `when`, an `if` with no else, a `get`, a literal
+;; nil), or only that it is NOT PROVEN non-nil (a helper call or a local, whose
+;; value the codemod cannot see).
 
 (defn- sig-children
   "The child nodes of a node the reader keeps: no whitespace, no comments, no
@@ -208,10 +214,10 @@
     "with-meta" "assoc!" "update-keys" "update-vals"})
 
 (def ^:private nil-capable-heads
-  "Head symbols that branch and may yield a falsey/absent value: the classic
-  nil-capable reg-event-db shapes."
-  #{"if" "if-let" "if-some" "if-not" "when" "when-let" "when-some" "when-not"
-    "when-first" "cond" "condp" "case" "and" "or"
+  "Head symbols whose call can yield a falsey/absent value however non-nil its
+  args. The branching heads (`if`, `when`, `cond`, `case`, ...) are decided by
+  their shape in `list-nil-reason` instead."
+  #{"condp" "and" "or"
     "get" "get-in" "find" "some" "seek" "first" "peek" "next"
     "filter" "remove" "keep"})
 
@@ -224,80 +230,151 @@
     (contains? nil-capable-heads head-name)  :nil-capable
     :else                                    :unknown))
 
-(declare node-nil-capable?)
+(defn- can-be-nil [node why] {:node node :why why})
 
-(defn- list-nil-capable?
-  "nil-capability of a list/seq node — its head symbol decides."
+(defn- unproven [node why] {:node node :why why :unproven? true})
+
+(defn- head-nil-reason
+  "The nil reason for `node`, a call or thread stage headed by the simple name
+  `head-name`, per `classify-head`."
+  [node head-name]
+  (case (classify-head head-name)
+    :safe        nil
+    :nil-capable (can-be-nil node (str "`" head-name "` can return nil"))
+    :unknown     (unproven node (str "`" head-name "` is not a form the codemod"
+                                     " can prove non-nil, so check what it returns"))))
+
+(def ^:private if-heads
+  "Branching heads shaped `(head test-or-bindings then else?)`."
+  #{"if" "if-not" "if-let" "if-some"})
+
+(def ^:private rebinding-heads
+  "Heads the analysis descends through that can rebind the db param's name."
+  #{"let" "letfn" "binding" "if-let" "if-some"})
+
+(declare nil-reason form-binds?)
+
+(defn- stage-nil-reason
+  "The nil reason of a thread stage: a call is decided by its head, a bare
+  symbol by its name."
+  [stage db-sym]
+  (let [v (when (= :token (n/tag stage)) (try (n/sexpr stage) (catch Exception _ nil)))]
+    (cond
+      (= :list (n/tag stage)) (nil-reason stage db-sym)
+      (symbol? v)             (head-nil-reason stage (name v))
+      :else                   (unproven stage "a thread stage the codemod cannot read"))))
+
+(defn- truthy-literal?
+  "Is `node` a test that always passes: a keyword (`:else`) or `true`?"
   [node]
-  (let [kids (sig-children node)
-        hd   (first kids)]
-    (if (and hd (= :token (n/tag hd)))
-      (let [hv (try (n/sexpr hd) (catch Exception _ nil))]
-        (if (symbol? hv)
-          (let [head-name (name hv)]
-            (cond
-              ;; some-> / some->> short-circuit to nil by construction.
-              (#{"some->" "some->>"} head-name) true
+  (let [v (try (n/sexpr node) (catch Exception _ nil))]
+    (or (keyword? v) (true? v))))
 
-              ;; -> / ->> thread: the value flows to the LAST stage's head.
-              (#{"->" "->>"} head-name)
-              (let [last-stage (last (rest kids))]
-                (cond
-                  (nil? last-stage) true
-                  ;; (-> db (assoc ...)) — last stage is a list; its head decides
-                  (= :list (n/tag last-stage))
-                  (list-nil-capable? last-stage)
-                  ;; (-> db some-fn) — bare-symbol stage; classify by its name
-                  (= :token (n/tag last-stage))
-                  (let [v (try (n/sexpr last-stage) (catch Exception _ nil))]
-                    (if (symbol? v)
-                      (not= :safe (classify-head (name v)))
-                      true))
-                  :else true))
+(defn- list-nil-reason
+  "The nil reason of a list/seq node — its head decides (see `nil-reason`)."
+  [node db-sym]
+  (let [[hd & args] (sig-children node)
+        hv          (when (and hd (= :token (n/tag hd)))
+                      (try (n/sexpr hd) (catch Exception _ nil)))]
+    (cond
+      (keyword? hv) (can-be-nil node "a keyword lookup can return nil")
+      (not (symbol? hv)) (unproven node "a call the codemod cannot see into")
+      :else
+      (let [head-name (name hv)
+            ;; inside a form that rebinds the db param's name, the name no
+            ;; longer denotes the db
+            db*       (when-not (and db-sym (rebinding-heads head-name) (form-binds? db-sym node))
+                        db-sym)
+            branches  #(some (fn [b] (nil-reason b db*)) %)]
+        (cond
+          (#{"some->" "some->>"} head-name)
+          (can-be-nil node (str "a `" head-name "` thread short-circuits to nil"))
 
-              ;; when-family: a falsey test makes the form evaluate to nil.
-              (#{"when" "when-let" "when-some" "when-not" "when-first"} head-name)
-              true
+          ;; -> / ->> thread: the value flows to the LAST stage.
+          (#{"->" "->>"} head-name)
+          (if-let [stage (last (rest args))]
+            (stage-nil-reason stage db*)
+            (nil-reason (first args) db*))
 
-              ;; do / let / letfn / binding: the value is the LAST body form.
-              (#{"do" "let" "letfn" "binding"} head-name)
-              (let [forms (rest kids)
-                    tail  (if (#{"let" "letfn" "binding"} head-name)
-                            (rest forms)  ;; skip the binding vector
-                            forms)]
-                (boolean (node-nil-capable? (last tail))))
+          (#{"when" "when-let" "when-some" "when-not" "when-first"} head-name)
+          (can-be-nil node (str "a `" head-name "` is nil when its test fails"))
 
-              :else
-              (case (classify-head head-name)
-                :safe        false
-                :nil-capable true
-                :unknown     true)))
-          true))
-      true)))
+          (if-heads head-name)
+          (case (count args)
+            2 (can-be-nil node (str "an `" head-name "` with no else branch is nil"
+                                    " when its test fails"))
+            3 (branches (rest args))
+            (unproven node (str "an `" head-name "` the codemod cannot read")))
 
-(defn- node-nil-capable?
-  "Conservative nil-capability of a single value node (the handler BODY).
-  Returns true if the node can evaluate to nil under some input. When unsure we
-  answer YES (flag) — the safe direction for D7."
-  [node]
+          (= "cond" head-name)
+          (if (and (seq args) (even? (count args)) (truthy-literal? (last (butlast args))))
+            (branches (take-nth 2 (rest args)))
+            (can-be-nil node "a `cond` with no `:else` clause is nil when no test passes"))
+
+          ;; no matching clause and no default throws, so only the branches decide
+          (= "case" head-name)
+          (let [clauses (rest args)]
+            (branches (concat (take-nth 2 (rest clauses))
+                              (when (odd? (count clauses)) [(last clauses)]))))
+
+          ;; the init when no test passes, else the last stage that ran
+          (#{"cond->" "cond->>"} head-name)
+          (let [[init & clauses] args]
+            (if (and init (even? (count clauses)))
+              (or (nil-reason init db*)
+                  (some #(stage-nil-reason % db*) (take-nth 2 (rest clauses))))
+              (unproven node (str "a `" head-name "` the codemod cannot read"))))
+
+          ;; do / let / letfn / binding: the value is the LAST body form.
+          (#{"do" "let" "letfn" "binding"} head-name)
+          (if-let [tail (last (if (= "do" head-name) args (rest args)))]
+            (nil-reason tail db*)
+            (can-be-nil node (str "an empty `" head-name "` is nil")))
+
+          :else (head-nil-reason node head-name))))))
+
+(defn- nil-reason
+  "Why the handler BODY `node` may evaluate to nil, or nil when it is proven
+  non-nil: `{:node <the deciding sub-form> :why \"...\"}`, plus
+  `:unproven? true` when the codemod only cannot see the value. `db-sym` is
+  the handler's db param, non-nil by the reg-event-db contract (nil where a
+  scope has rebound the name)."
+  [node db-sym]
   (cond
-    (nil? node) false
-    (n/whitespace-or-comment? node) false
+    (nil? node) nil
+    (n/whitespace-or-comment? node) nil
     :else
     (case (n/tag node)
       ;; Literal collections are never nil.
-      (:map :vector :set) false
+      (:map :vector :set) nil
       :token (let [v (try (n/sexpr node) (catch Exception _ ::err))]
                (cond
-                 (= v ::err) true        ;; unreadable -> be safe, flag
-                 (nil? v)    true         ;; literal nil
-                 (symbol? v) true         ;; a bare local/var — unknown value, flag
-                 :else       false))      ;; literal number/string/kw/bool/char — non-nil
-      :list  (list-nil-capable? node)
-      ;; Anything else (reader macros, quotes, syntax-quote, ...) -> be safe.
-      true)))
+                 (= v ::err)               (unproven node "a token the codemod cannot read")
+                 (nil? v)                  (can-be-nil node "a literal nil")
+                 (and db-sym (= db-sym v)) nil
+                 (symbol? v)               (unproven node "a local or var whose value the codemod cannot see")
+                 :else                     nil))  ;; literal number/string/kw/bool/char
+      :list  (list-nil-reason node db-sym)
+      (unproven node "a reader form the codemod does not analyse"))))
 
-(defn- body-nil-capable? [node] (node-nil-capable? node))
+(defn- form-snippet
+  "`node`'s source on one line, cut short past 60 characters."
+  [node]
+  (let [s (str/replace (str/trim (n/string node)) #"\s+" " ")]
+    (if (> (count s) 60) (str (subs s 0 57) "...") s)))
+
+(defn- nil-capable-note
+  "The `:nil-capable` finding's note for nil reason `r`: the deciding form,
+  why it decides, and the D7 choice."
+  [{:keys [node why unproven?]}]
+  (str "reg-event-db body " (if unproven? "is not proven non-nil" "can evaluate to nil")
+       ": `" (form-snippet node) "` — " why ". "
+       (if unproven?
+         "If it is never nil, wrap the body {:db BODY} by hand; under v2"
+         "Under v2")
+       " a bare nil is a no-op and {:db nil} coerces to {:db {}}"
+       (when-not unproven? ", so choose the intended reading by hand")
+       " (D7)"))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-db form shape analysis
@@ -1351,6 +1428,9 @@
            :kind :flag}
           (let [handler-node (last kids)
                 simple-fn    (simple-handler-fn? handler-node)
+                db-param     (some-> simple-fn :params params-simple?)
+                nil-why      (when (and db-param (not force-db-wrap?))
+                               (nil-reason (last (:body simple-fn)) (node-value db-param)))
                 mid*         (when (= :convert (:kind mid)) mid)]
             (cond
               (nil? simple-fn)
@@ -1359,19 +1439,19 @@
                :kind :flag}
 
               ;; first param not a plain symbol => unsafe to rebind to {:keys [db]}
-              (nil? (params-simple? (:params simple-fn)))
+              (nil? db-param)
               {:finding (finding base {:action :flag :flag :complex :target nil
                                        :note "reg-event-db handler's first param is destructured (or absent) — db-rebinding is unsafe; review by hand"})
                :kind :flag}
 
-              ;; D7: body can evaluate to nil => flag, do not rewrite — UNLESS the
+              ;; D7: a body not proven non-nil => flag, do not rewrite — UNLESS the
               ;; caller opts into `:force-db-wrap?` (the EP-0018 Slice-Z framework
               ;; corpus sweep; `{:db BODY}` is the faithful reading for our own test
               ;; handlers — the D7 author-choice gate is a v1-MIGRATION default, not
               ;; relevant to in-repo test code we control).
-              (and (not force-db-wrap?) (body-nil-capable? (last (:body simple-fn))))
+              nil-why
               {:finding (finding base {:action :flag :flag :nil-capable :target :reg-event
-                                       :note "reg-event-db body can evaluate to nil; under v2 a bare nil is a no-op and {:db nil} coerces to {:db {}} -- choose the intended reading by hand (D7)"})
+                                       :note (nil-capable-note nil-why)})
                :kind :flag}
 
               :else

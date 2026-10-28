@@ -294,6 +294,52 @@
                                       (str "(rf/reg-event-db :id (fn [db _] " body "))"))))
         body)))
 
+(deftest not-nil-capable-when-every-branch-is-non-nil
+  (doseq [src (concat
+                (for [body ["(if ok? (assoc db :ok true) db)"
+                            "(if-not ok? db (dissoc db :x))"
+                            "(if-let [v (:v db)] (assoc db :w v) (dissoc db :w))"
+                            "(if-some [v (:v db)] (assoc db :w v) db)"
+                            "(cond-> db ok? (assoc :ok true) (:n db) (update :n inc))"
+                            "(cond->> db ok? (merge {:x 1}))"
+                            "(cond (= ok? 1) (assoc db :a 1) :else db)"
+                            "(case ok? :a (assoc db :a 1) db)"
+                            "(case ok? :a (assoc db :a 1))"
+                            "(let [n (:n db)] (if n (assoc db :n (inc n)) db))"
+                            "db"]]
+                  (str "(rf/reg-event-db :id (fn [db [_ ok?]] " body "))"))
+                ["(rf/reg-event-db :id (fn [state _] (if (:a state) (assoc state :b 1) state)))"])]
+    (is (= [:rewrite] (mapv :action (rf.migration.reg-event-codemod/scan-string src)))
+        src)))
+
+(deftest nil-capable-notes-name-the-deciding-form
+  (doseq [[label src form reading]
+          [["a when tail can be nil"
+            "(rf/reg-event-db :maybe/set\n  (fn [db [_ v]] (when v (assoc db :v v))))"
+            "`(when v (assoc db :v v))`" "can evaluate to nil"]
+           ["an else branch that can be nil decides an if"
+            "(rf/reg-event-db :x (fn [db [_ ok?]] (if ok? (assoc db :ok true) (get db :fallback))))"
+            "`(get db :fallback)`" "can evaluate to nil"]
+           ["a case branch that can be nil"
+            "(rf/reg-event-db :x (fn [db [_ k]] (case k :a (assoc db :a 1) nil)))"
+            "`nil`" "can evaluate to nil"]
+           ["a helper-call tail is unproven, not nil"
+            "(rf/reg-event-db :x (fn [db [_ v]] (my-helper db v)))"
+            "`(my-helper db v)`" "is not proven non-nil"]
+           ["a cond-> stage the codemod cannot see"
+            "(rf/reg-event-db :x (fn [db [_ v]] (cond-> db v (my-helper v))))"
+            "`(my-helper v)`" "is not proven non-nil"]
+           ["a cond-> whose init can be nil"
+            "(rf/reg-event-db :x (fn [db _] (cond-> (:sub db) true (assoc :k 1))))"
+            "`(:sub db)`" "can evaluate to nil"]
+           ["a db param an inner let rebinds is not the db"
+            "(rf/reg-event-db :x (fn [db _] (let [db (:sub db)] (if (:a db) (assoc db :b 1) db))))"
+            "`db`" "is not proven non-nil"]]]
+    (let [[{:keys [flag note]} :as findings] (rf.migration.reg-event-codemod/scan-string src)]
+      (is (= [1 :nil-capable true true]
+             [(count findings) flag (str/includes? (str note) form) (str/includes? (str note) reading)])
+          label))))
+
 (deftest complex-handlers-flagged
   (doseq [[label src]
           [["a var handler"           "(rf/reg-event-db :x/y my-handler-fn)"]
