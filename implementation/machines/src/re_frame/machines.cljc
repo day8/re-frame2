@@ -41,6 +41,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.hydrate :as rf.machines.hydrate]
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
@@ -490,14 +491,18 @@
 (rf.late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
 ;; The SSR hydration projector for durable machine snapshots.
 ;; `re-frame.ssr.payload-policy/project-runtime-db` consults this hook to project
-;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
-;; elided per the per-frame elision registry's classified `:sensitive` /
-;; `:large` paths under `:rf.egress/ssr-hydration` BEFORE it rides the wire —
-;; keeping classified machine data out of the hydration payload. Machine
-;; declarations are lowered per actor under `:source :machine`.
-;; Late-bound so SSR never statically requires the machines artefact.
+;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted per
+;; the frame's classified `:sensitive` paths under `:rf.egress/ssr-hydration`
+;; BEFORE it rides the wire — keeping classified machine data out of the
+;; hydration payload. Late-bound so SSR never statically requires the machines
+;; artefact.
 (rf.late-bind/set-fn! :machines/project-ssr-runtime-db
                    rf.machines.ssr/project-ssr-runtime-db)
+;; The `:rf.runtime/machines` root's classification hook: core's egress applies
+;; each machine's `:sensitive` / `:large` declaration to the actor snapshots
+;; present (Spec 015 §Subsystem projection-relative classification).
+(rf.late-bind/set-fn! :machines/runtime-classification
+                   rf.machines.classification/runtime-classification)
 ;; Spawned-actor ownership resolver. The http artefact consults this to
 ;; classify whether a managed request's originating event-id belongs to a
 ;; spawned actor (so an actor-destroy cascade can abort it). Machines OWNS

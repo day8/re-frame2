@@ -31,10 +31,12 @@
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations` in the
   frame's runtime-db partition — EP-0001), populated by the EP-0025
   commit-plane classification effects (`re-frame.elision`, `:source :effect` —
-  a `reg-event` returns `:sensitive` / `:large` alongside `:db`), by `reg-flow`
-  output declarations (`re-frame.flows.registry`, `:source :flow`), and by
-  subsystem projection-relative declarations (resources / routing). The sources
-  union at lookup time. There is no durable `:sensitive` / `:large {:app-db …}`
+  a `reg-event` returns `:sensitive` / `:large` alongside `:db`) and by
+  `reg-flow` output declarations (`re-frame.flows.registry`, `:source :flow`),
+  and unioned at lookup time with the frame's static policy: its
+  `reg-classification` declarations, and the subsystem claims it makes on the
+  instances the frame's runtime-db holds (`re-frame.elision/frame-policy`).
+  There is no durable `:sensitive` / `:large {:app-db …}`
   *frame annotation* (a frame is not app-db's definition site), and
   classification does NOT propagate — you redact exactly the paths you classify;
   nothing is inherited (no derived-output sensitivity, no value-match)."
@@ -750,17 +752,18 @@
   elision registry is reachable (the projector inherits `elide-wire-value`'s
   fail-closed posture on a nil / unresolvable frame).
 
-  The four-argument arity projects a PRIOR value, handing the projector the
-  inputs it was computed from (`prior-inputs`), because a navigation replaces
-  the registry's route claims and the prior value is classified by the route it
-  was computed under."
+  The five-argument arity projects a PRIOR value, handing the projector the
+  inputs it was computed from (`prior-inputs`) and the classification policy
+  it was computed under (`prior-policy`), because a navigation replaces the
+  current route and the prior value is classified by the route it was computed
+  under."
   ([v sub-id frame-id]
    (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
      (project sub-id v {:frame frame-id})
      v))
-  ([v sub-id frame-id prior-inputs]
+  ([v sub-id frame-id prior-inputs prior-policy]
    (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
-     (project sub-id v {:frame frame-id} prior-inputs)
+     (project sub-id v {:frame frame-id} prior-inputs prior-policy)
      v)))
 
 (defn- project-resource-sub-slot
@@ -773,20 +776,21 @@
   is unbound (resources artefact absent) or `query-v` names no resource or
   mutation read sub.
 
-  The four-argument arity projects a PRIOR value, handing the projector the
-  inputs it was computed from (`prior-inputs`), because a mutation read sub
-  names its instance rather than its mutation, and a cleared instance survives
-  only in those inputs."
+  The five-argument arity projects a PRIOR value, handing the projector the
+  inputs it was computed from (`prior-inputs`) and the classification policy
+  it was computed under (`prior-policy`), because a mutation read sub names its
+  instance rather than its mutation, and a cleared instance survives only in
+  those inputs."
   ([v query-v frame-id]
    (if-let [project (rf.late-bind/get-fn :resources/project-resource-sub-egress)]
      (project query-v v {:frame frame-id})
      v))
-  ([v query-v frame-id prior-inputs]
+  ([v query-v frame-id prior-inputs prior-policy]
    (if-let [project (rf.late-bind/get-fn :resources/project-resource-sub-egress)]
-     (project query-v v {:frame frame-id} prior-inputs)
+     (project query-v v {:frame frame-id} prior-inputs prior-policy)
      v)))
 
-(declare machine-classification snapshot-classification-in)
+(declare machine-classification snapshot-value-classification)
 
 (defn- machine-sub-classification
   "The machine classification a `[:rf/machine <id>]` sub's value carries, or nil
@@ -795,25 +799,7 @@
   (`machine-classification`), keyed by the id in the carried query vector."
   [tags frame-id]
   (when (= :rf/machine (:rf.sub/id tags))
-    (machine-classification frame-id (second (:rf.sub/query-v tags)))))
-
-(defn- prior-machine-sub-classification
-  "The classification the runtime-db a `[:rf/machine <id>]` sub computed its
-  PRIOR value from declared for actor `<id>`'s snapshot, or nil — for any other
-  sub, or when the trace carries no prior input.
-
-  Destroying an actor, explicitly or by reaching a `:final?` state, drops its
-  lowered claims from the registry, and a held sub then recomputes to nil with
-  the live snapshot as `:rf.sub/prev-value`. The claims that classified that
-  snapshot are still in the runtime-db the reaction last read, which the memo
-  wrapper carries as `::prev-inputs`, so the prior value keeps its
-  classification without the registry retaining a dead actor's entries."
-  [tags]
-  (when (= :rf/machine (:rf.sub/id tags))
-    (let [registry (:rf.runtime/elision (first (::prev-inputs tags)))]
-      (snapshot-classification-in (:sensitive-declarations registry)
-                                  (:declarations registry)
-                                  (second (:rf.sub/query-v tags))))))
+    (machine-classification frame-id (second (:rf.sub/query-v tags)) (:rf.sub/value tags))))
 
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:rf.sub/id` carries the sub query keyword and
@@ -836,8 +822,9 @@
   its value/prev-value are walked by the SAME snapshot-rooted classification the
   machine's own traces use (`machine-sub-classification`), unioned with the
   registration's paths into one walk. Its prev-value additionally takes the
-  classification the prior runtime-db carried (`prior-machine-sub-classification`),
-  because the snapshot outlives its actor's claims once the actor is destroyed.
+  classification the machine hook gives that snapshot itself under the policy
+  it was computed with (`snapshot-value-classification`), because the snapshot
+  outlives its actor once the actor is destroyed.
 
   The ROUTE READ SUBS (`:rf/route` / `:rf.route/query` / `:rf.route/params`)
   project the route-owned durable fact, so their value/prev-value are
@@ -849,17 +836,17 @@
   projection composes ON TOP of any registration classification (the route subs
   declare none, so in practice the registration step is a no-op for them). Their
   prev-value is projected with the `::prev-inputs` it was computed from, because
-  a navigation replaces the registry's route claims: the projector classifies
-  the leaving route's slice by that route's own declaration.
+  a navigation replaces the current route: the projector classifies the
+  leaving route's slice by that route's own declaration.
 
   The RESOURCE and MUTATION READ SUBS (`:rf/resource` / `:rf.resource/*` and
   `:rf/mutation` / `:rf.mutation/*`) project the owner's durable entry or
   instance, so their value/prev-value are ALSO run through the resources-owned
   egress projector (late-bound, decoupled), which redacts the slots the
   `reg-resource` / `reg-mutation` declaration names, re-rooted onto the sub's
-  value. The declaration is read from the owner spec rather than the registry,
-  so a prior value keeps its classification after an evict or a clear drops
-  the instance's lowered claims.
+  value. The declaration is read from the owner spec rather than the live
+  instances, so a prior value keeps its classification after an evict or a
+  clear removes the instance.
 
   EP-0002 — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
@@ -875,18 +862,24 @@
   same-id global registration. Presence (even an empty captured declaration) wins
   over any global; the carrier is stripped here so it never egresses. Absence (a
   trace not stamped by the memo path) falls back to the registrar resolution.
-  The memo path's `::prev-inputs` carrier (the inputs the prior value was
-  computed from) is read and stripped here too."
+  The memo path's `::prev-inputs` and `::prev-policy` carriers (the inputs the
+  prior value was computed from, and the classification policy it was computed
+  under — Spec 015 §Retained values keep their recorded classification) are
+  read and stripped here too."
   [tags frame-id]
   (let [sub-id      (:rf.sub/id tags)
         captured?   (contains? tags :rf.sub/classification)
         class       (if captured?
                       (normalise-classification (:rf.sub/classification tags))
                       (classification-when :sub sub-id))
-        prior       (prior-machine-sub-classification tags)
         prev-inputs (::prev-inputs tags)
-        tags        (dissoc tags :rf.sub/classification ::prev-inputs)
-        has-prev?   (contains? tags :rf.sub/prev-value)]
+        prev-policy (::prev-policy tags)
+        tags        (dissoc tags :rf.sub/classification ::prev-inputs ::prev-policy)
+        has-prev?   (contains? tags :rf.sub/prev-value)
+        prior       (when (and has-prev? (= :rf/machine sub-id) (some? frame-id))
+                      (snapshot-value-classification
+                        (second (:rf.sub/query-v tags)) (:rf.sub/prev-value tags)
+                        [prev-policy (rf.elision/frame-policy frame-id)]))]
     (cond
       (nil? frame-id)
       (cond-> (assoc tags :rf.sub/value rf.privacy/redacted-sentinel :sensitive? true)
@@ -918,8 +911,8 @@
                                    (project-route-sub-slot
                                      (redact-with-paths (:rf.sub/prev-value tags)
                                                         (into sens p-sens) (into large p-large))
-                                     sub-id frame-id prev-inputs)
-                                   query-v frame-id prev-inputs))
+                                     sub-id frame-id prev-inputs prev-policy)
+                                   query-v frame-id prev-inputs prev-policy))
           (:large? class) (assoc :large? true))))))
 
 (defn project-sub-value
@@ -1174,12 +1167,12 @@
     (assoc-in [:input :event]
               (summarize-spawn-error-event (get-in tags [:input :event])))))
 
-;; A frame classifies a durable machine `:data` slot by declaring the ABSOLUTE
-;; runtime-db path (EP-0025) in its elision registry, under
-;; `rf.elision/machine-snapshot-prefix` (`[:rf.runtime/machines :snapshots
-;; <actor-id>]`). The machine trace slots carry the SNAPSHOT value, so the
-;; frame's absolute declaration is re-rooted SNAPSHOT-relative by stripping that
-;; prefix.
+;; A frame classifies a durable machine `:data` slot at its ABSOLUTE runtime-db
+;; path, under `rf.elision/machine-snapshot-prefix` (`[:rf.runtime/machines
+;; :snapshots <actor-id>]`): the machine's own declaration, applied at egress to
+;; the snapshot by the machines hook, unioned with any effect claim on the path.
+;; The machine trace slots carry the SNAPSHOT value, so the absolute declaration
+;; is re-rooted SNAPSHOT-relative by stripping that prefix.
 
 (defn- snapshot-classification-in
   "Re-root the elision declarations `sens-decls` / `large-decls` (registry
@@ -1208,7 +1201,9 @@
   "Compute the SNAPSHOT-relative sensitive/large path set the FRAME declares for
   the machine snapshot keyed under `actor-id` (EP-0025) — classification is
   frame-owned; there is no `:data-schema`→classification bridge.
-  Reads the frame's elision-registry declarations, keeps only those rooted at
+  Reads the frame's live classification (`rf.elision/sensitive-declarations`,
+  which applies the machine's declaration to the snapshot the frame's
+  runtime-db holds), keeps only paths rooted at
   `[:rf.runtime/machines :snapshots <actor-id> …]`, and strips that prefix so
   the remaining path indexes into the snapshot value (e.g. `[… :data :token]`).
   Returns `{:sensitive [paths] :large [paths]}` (slot omitted when empty), or nil
@@ -1222,18 +1217,52 @@
                                 (rf.elision/declarations frame-id)
                                 actor-id)))
 
+(defn- snapshot-value-classification
+  "The snapshot-relative classification `policies` give `snapshot`, actor
+  `actor-id`'s snapshot held outside runtime-db: the machines hook names the
+  machine from the snapshot itself, so a value keeps the classification it was
+  computed under after its actor is destroyed. Spec 015 §Retained values keep
+  their recorded classification."
+  [actor-id snapshot policies]
+  (let [registry (rf.elision/with-runtime-classification
+                   nil policies {:rf.runtime/machines {:snapshots {actor-id snapshot}}})]
+    (snapshot-classification-in (:sensitive-declarations registry)
+                                (:declarations registry)
+                                actor-id)))
+
+(defn- actor-classification
+  "Actor `actor-id`'s snapshot-relative classification: the frame's claims on
+  its snapshot path (`frame-snapshot-classification`), unioned with the claims
+  the frame's current policy makes on `snapshot`, the value the trace carries
+  (with none carried, a singleton's own id names its machine). A trace emitted
+  inside the event that first boots a singleton describes a snapshot
+  runtime-db does not hold yet, so the frame's claims alone would miss it.
+  Spec 015 §Subsystem projection-relative classification."
+  [frame-id actor-id snapshot]
+  (when (and frame-id actor-id)
+    (let [live (frame-snapshot-classification frame-id actor-id)
+          own  (snapshot-value-classification
+                 actor-id (if (map? snapshot) snapshot {})
+                 [(rf.elision/frame-policy frame-id)])
+          s    (into [] (distinct) (concat (:sensitive live) (:sensitive own)))
+          l    (into [] (distinct) (concat (:large live) (:large own)))]
+      (when (or (seq s) (seq l))
+        (cond-> {}
+          (seq s) (assoc :sensitive s)
+          (seq l) (assoc :large l))))))
+
 (defn- machine-classification
   "The classification actor `machine-id`'s snapshot is redacted by at egress:
-  the FRAME's declaration of that snapshot path (`frame-snapshot-classification`,
-  which carries the machine's own lowered `:source :machine` claims) UNIONED
-  with any author classification on the machine's `:event` registration meta.
+  `actor-classification` of `snapshot`, the value being projected (which
+  carries the machine's own `:source :machine` claims), UNIONED with any
+  author classification on the machine's `:event` registration meta.
   Returns `{:sensitive [paths] :large [paths]}` (slot omitted when empty), or nil
   when neither declares anything. Shared by the machine traces
   (`project-machine-tags`) and the `[:rf/machine <id>]` sub's `:rf.sub/run`
   trace (`project-sub-tags`), so one snapshot redacts identically on both."
-  [frame-id machine-id]
+  [frame-id machine-id snapshot]
   (let [author   (classification-when :event machine-id)
-        frame-mk (frame-snapshot-classification frame-id machine-id)
+        frame-mk (actor-classification frame-id machine-id snapshot)
         s        (into (vec (:sensitive author)) (:sensitive frame-mk))
         l        (into (vec (:large author))     (:large frame-mk))]
     (when (or (seq s) (seq l))
@@ -1276,6 +1305,12 @@
                (vector? (:fx outcome)) (update :fx #(mapv project-event-fx-entry %))
                (contains? outcome :db) (assoc :db rf.privacy/redacted-sentinel))))))
 
+(defn- traced-snapshot
+  "The actor snapshot a machine trace carries — its `:after`, `:before` or
+  `:snapshot` slot — or nil."
+  [tags]
+  (some #(when (map? %) %) [(:after tags) (:before tags) (:snapshot tags)]))
+
 (defn- project-machine-tags
   "Walk machine `:data`-bearing trace tag shapes. Paths are rooted at the
   SNAPSHOT — per Spec 015 §State machines — so common paths are written as
@@ -1312,7 +1347,7 @@
   (let [tags       (project-spawn-synthetic-payloads tags)
         tags       (project-action-outcome-shell tags)
         machine-id (or (:actor-id tags) (:machine-id tags))
-        class      (machine-classification frame-id machine-id)]
+        class      (machine-classification frame-id machine-id (traced-snapshot tags))]
     (if-not class
       tags
       (let [[sens large] (classification-paths class)
@@ -1418,7 +1453,7 @@
     tags
     (let [machine-id (or (:actor-id tags) (:machine-id tags))
           author     (classification-when :event machine-id)
-          frame-mk   (frame-snapshot-classification frame-id machine-id)]
+          frame-mk   (actor-classification frame-id machine-id (traced-snapshot tags))]
       (if (or (nil? frame-id)
               (seq (:sensitive author)) (seq (:sensitive frame-mk)))
         (redact-exception-slots tags)

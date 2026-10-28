@@ -33,8 +33,6 @@
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs and the :resource registrar kind.
    [re-frame.resources]
-   [re-frame.resources.classification :as rf.resources.classification]
-   [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.schemas]
@@ -124,9 +122,8 @@
 (defn- key-ids [& ks] (into #{} (map rf.resources.state/key-id) ks))
 
 (defn- install-entry!
-  "Write a `:loaded` entry for `scoped-key` AND reconcile the per-frame elision
-  registry — the two steps a real resource commit folds into one transition.
-  `stale?` sets a `:stale-at` in the past against both clocks this suite reads
+  "Write a `:loaded` entry for `scoped-key`, which the frame then classifies by
+  its resource's declaration. `stale?` sets a `:stale-at` in the past against both clocks this suite reads
   (the fixed 5000 of the metadata helper and the live epoch millis
   `hydrate-resources!` uses)."
   ([scoped-key] (install-entry! scoped-key false))
@@ -140,8 +137,7 @@
                                     :status    :loaded
                                     :data      {:total 1}
                                     :loaded-at 1000)
-                       stale? (assoc :stale-at 2000)))
-           (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta))))
+                       stale? (assoc :stale-at 2000))))))
    scoped-key))
 
 (defn- install-all! []

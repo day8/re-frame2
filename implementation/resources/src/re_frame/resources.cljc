@@ -186,54 +186,43 @@
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.resource/generation-allocation :rf/time-ms]))
 
-;; Every entry-mutating handler is wrapped in `with-classification-lowering`,
-;; which keeps the per-frame elision registry in step with `:entries`
-;; whichever handler ran. Spec 016 §Events (map payloads, not positional argument vectors)
+;; Spec 016 §Events (map payloads, not positional argument vectors)
 (rf.events/reg-event :rf.resource/ensure
                      generation-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/ensure-handler))
+                     rf.resources.events/ensure-handler)
 (rf.events/reg-event :rf.resource/refetch
                      generation-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/refetch-handler))
+                     rf.resources.events/refetch-handler)
 (rf.events/reg-event :rf.resource/load-more
                      generation-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/load-more-handler))
+                     rf.resources.events/load-more-handler)
 ;; One leg of a multi-page refetch sweep, chained by `page-succeeded-handler`.
 ;; Each leg mints its own generation for per-leg stale suppression.
 (rf.events/reg-event :rf.resource.internal/refetch-page
                      generation-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/refetch-page-handler))
+                     rf.resources.events/refetch-page-handler)
 (rf.events/reg-event :rf.resource/invalidate-tags
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/invalidate-tags-handler))
+                     rf.resources.events/invalidate-tags-handler)
 (rf.events/reg-event :rf.resource/release-owner
                      framework-authority-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/release-owner-handler))
+                     rf.resources.events/release-owner-handler)
 ;; Attach-before-release for a kept branch-plan identity: dispatched ahead of
 ;; the prior owner's release, with no fetch. Spec 016 §Plan diff and owner handoff
 (rf.events/reg-event :rf.resource.internal/adopt-owner
                      framework-authority-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/adopt-route-owner-handler))
+                     rf.resources.events/adopt-route-owner-handler)
 ;; The release-side twin, ordered after the attach fx on a same-token replan;
 ;; the replan commit owns the route slots, so it clears none.
 ;; Spec 016 §Route-plan replan — same-token reconciliation
 (rf.events/reg-event :rf.resource.internal/release-owner-identities
                      framework-authority-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/release-owner-identities-handler))
+                     rf.resources.events/release-owner-identities-handler)
 ;; Cancelling in-flight work is a completion, so these stamp the causal
 ;; `:completed-at` and declare the time cofx.
 (rf.events/reg-event :rf.resource/clear-scope
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/clear-scope-handler))
+                     rf.resources.events/clear-scope-handler)
 ;; The `:schema` is the payload shape; the handler validates each scope.
 ;; Spec 016 §Changing principal
 (rf.events/reg-event :rf.resource/change-principal
@@ -242,12 +231,10 @@
                                      [:map {:closed true}
                                       [:from {:optional true} [:maybe [:vector :any]]]
                                       [:cause :some]]])
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/change-principal-handler))
+                     rf.resources.events/change-principal-handler)
 (rf.events/reg-event :rf.resource/remove
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/remove-handler))
+                     rf.resources.events/remove-handler)
 
 ;; The scans write nothing durable but declare the time cofx, because a
 ;; replayed signal must select the same active-stale set.
@@ -263,74 +250,44 @@
 ;; Spec 016 §Race and in-flight semantics
 (rf.events/reg-event :rf.resource.internal/succeeded
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/succeeded-handler))
+                     rf.resources.events/succeeded-handler)
 (rf.events/reg-event :rf.resource.internal/failed
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/failed-handler))
+                     rf.resources.events/failed-handler)
 (rf.events/reg-event :rf.resource.internal/page-succeeded
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/page-succeeded-handler))
+                     rf.resources.events/page-succeeded-handler)
 (rf.events/reg-event :rf.resource.internal/page-failed
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/page-failed-handler))
+                     rf.resources.events/page-failed-handler)
 (rf.events/reg-event :rf.resource.internal/stale-fired
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/stale-fired-handler))
+                     rf.resources.events/stale-fired-handler)
 (rf.events/reg-event :rf.resource.internal/gc-fired
                      framework-authority-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/gc-fired-handler))
+                     rf.resources.events/gc-fired-handler)
 (rf.events/reg-event :rf.resource.internal/poll-fired
                      framework-authority-meta
-                     (rf.resources.events/with-classification-lowering
-                       rf.resources.events/poll-fired-handler))
+                     rf.resources.events/poll-fired-handler)
 (rf.events/reg-event :rf.resource.internal/stale-suppressed
                      framework-authority-meta
                      rf.resources.events/stale-suppressed-handler)
 
 (rf.resources.subs/register-subs!)
 
-;; Mutation handlers that touch entries get the entry reconcile too, because
-;; a `:populates` can create an entry the registry never lowered; instance
-;; handlers also get the `:source :mutation` reconcile.
 ;; Spec 016 §Mutations (first public-beta gate)
-(defn- with-mutation-classification-lowering
-  "Wraps mutation handler `f` so the `:rf.db/runtime` of its returned effects
-  is reconciled into the per-frame elision registry under `:source :mutation`.
-  Each reconcile touches only its own owner, so composition order with
-  `with-classification-lowering` is immaterial. A result without
-  `:rf.db/runtime` passes through."
-  [f]
-  (fn [& args]
-    (let [effects (apply f args)]
-      (if (and (map? effects) (contains? effects :rf.db/runtime))
-        (update effects :rf.db/runtime
-                rf.resources.classification/reconcile-mutation-registry rf.resources.mutation-registry/mutation-meta)
-        effects))))
 (rf.events/reg-event :rf.mutation/execute
                      generation-meta
-                     (rf.resources.events/with-classification-lowering
-                       (with-mutation-classification-lowering
-                         rf.resources.mutation-events/execute-handler)))
+                     rf.resources.mutation-events/execute-handler)
 (rf.events/reg-event :rf.mutation/clear
                      time-meta
-                     (with-mutation-classification-lowering
-                       rf.resources.mutation-events/clear-handler))
+                     rf.resources.mutation-events/clear-handler)
 (rf.events/reg-event :rf.mutation.internal/succeeded
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       (with-mutation-classification-lowering
-                         rf.resources.mutation-events/succeeded-handler)))
+                     rf.resources.mutation-events/succeeded-handler)
 (rf.events/reg-event :rf.mutation.internal/failed
                      time-meta
-                     (rf.resources.events/with-classification-lowering
-                       (with-mutation-classification-lowering
-                         rf.resources.mutation-events/failed-handler)))
+                     rf.resources.mutation-events/failed-handler)
 
 (rf.resources.mutation-subs/register-subs!)
 
@@ -404,4 +361,12 @@
    :resources/project-fx-args-egress
    rf.resources.trace-egress/project-fx-args-egress
    :resources/project-resource-sub-egress
-   rf.resources.trace-egress/project-read-sub-egress})
+   rf.resources.trace-egress/project-read-sub-egress
+   ;; The `:rf.runtime/resources` and `:rf.runtime/mutations` roots'
+   ;; classification hooks: core's egress applies each owner's declaration to
+   ;; the entries and instances present (Spec 015 §Subsystem projection-relative
+   ;; classification).
+   :resources/runtime-classification
+   rf.resources.classification/runtime-classification
+   :resources/mutation-runtime-classification
+   rf.resources.classification/mutation-runtime-classification})

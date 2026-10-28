@@ -19,6 +19,7 @@
   always ride, so a tool can still attribute a row.
   Spec 015 §Subsystem projection-relative classification."
   (:require [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
@@ -636,17 +637,19 @@
 ;; ---- read subs on `:rf.sub/run` -------------------------------------------
 ;;
 ;; A read sub returns a bare projection of its owner's entry or instance, so
-;; no elision-registry path reaches it; core's sub-trace chokepoint calls
+;; no runtime-db path reaches it; core's sub-trace chokepoint calls
 ;; `project-read-sub-egress` through the `:resources/project-resource-sub-egress`
 ;; hook, at emit.
 ;;
-;; The declaration is read from the owner SPEC, not the registry, because
-;; evicting an entry drops its lowered claims while a held sub still carries
-;; the old value as `:rf.sub/prev-value`. The claims the registry in the
-;; value's own inputs still holds are unioned in, so an owner re-registered
-;; without its declaration does not ship data loaded under it raw. A coarse
-;; root claim is never lowered, so it is not recovered. In-process
-;; `@(subscribe …)` stays raw.
+;; The declaration is read from the owner SPEC, not the live instances,
+;; because evicting an entry removes it while a held sub still carries the old
+;; value as `:rf.sub/prev-value`. The claims the value's own inputs carry are
+;; unioned in — the frame's live classification for a live value, and for a
+;; prior one the claims the policy it was computed under makes on the
+;; runtime-db it was computed from — so an owner re-registered without its
+;; declaration does not ship data loaded under it raw. A coarse root claim is
+;; not a path claim, so it is not recovered. In-process `@(subscribe …)` stays
+;; raw.
 
 (def ^:private data-roots
   "Where each read sub's value carries its owner's data projection (`[]`: the
@@ -710,12 +713,23 @@
       in)))
 
 (defn- registry-claims
-  "The elision-registry claims in `runtime-db` on paths `rel` maps to a
+  "The claims in elision-registry value `registry` on paths `rel` maps to a
   relative path (nil for uncovered): `[sensitive-paths large-paths]`."
-  [runtime-db rel]
-  (let [registry (:rf.runtime/elision runtime-db)
-        claims   (fn [decls] (into [] (keep #(rel (vec %))) (keys decls)))]
+  [registry rel]
+  (let [claims (fn [decls] (into [] (keep #(rel (vec %))) (keys decls)))]
     [(claims (:sensitive-declarations registry)) (claims (:declarations registry))]))
+
+(defn- inputs-registry
+  "The classification a read sub's value was computed under: the frame's live
+  classification for a live value, else the claims `prior-policy` makes on the
+  runtime-db in `prior-inputs`, unioned with that runtime-db's own registry."
+  [frame live? prior-inputs prior-policy]
+  (if live?
+    {:sensitive-declarations (rf.elision/sensitive-declarations frame)
+     :declarations           (rf.elision/declarations frame)}
+    (let [runtime-db (prior-runtime-db prior-inputs)]
+      (rf.elision/with-runtime-classification
+        (:rf.runtime/elision runtime-db) [prior-policy] runtime-db))))
 
 (defn- under
   "A `rel` for `registry-claims`: a path under `prefix`, with `prefix` stripped."
@@ -724,19 +738,19 @@
     (fn [p] (when (and (>= (count p) n) (= prefix (subvec p 0 n))) (subvec p n)))))
 
 (defn- recovered-data-claims
-  "The data-relative registry claims for a read sub's owner: its mutation
-  instance's `:result`, or the `:data` of every entry of its resource (one spec
-  lowered them all)."
-  [sub-id payload runtime-db]
+  "The data-relative claims `registry` holds for a read sub's owner: its
+  mutation instance's `:result`, or the `:data` of every entry of its resource
+  (one spec declares them all). `runtime-db` holds the entries the claims name."
+  [sub-id payload registry runtime-db]
   (if (contains? mutation-subs sub-id)
-    (registry-claims runtime-db
+    (registry-claims registry
                      (under (conj (rf.resources.mutation-runtime/instance-path (:instance payload))
                                   :result)))
     (let [entries (rf.resources.state/entries-path)
           n       (count entries)
           table   (get-in runtime-db entries)
           owner   (:resource payload)]
-      (registry-claims runtime-db
+      (registry-claims registry
                        (fn [p]
                          (when (and (>= (count p) (+ n 2))
                                     (= entries (subvec p 0 n))
@@ -818,12 +832,13 @@
   "Projects a resource or mutation read sub's `value` for egress: the owner's
   data declaration under each data root, a feed's merged items through its
   accessor, and the scoped keys in `:previous-key` / `:affected-keys`. `query-v`
-  names the owner; `opts` carries `:frame`. The four-arity projects a PRIOR
-  value against the `prior-inputs` it was computed from. Any other query
-  returns `value` unchanged; a value with nothing to project rides identical."
+  names the owner; `opts` carries `:frame`. The five-arity projects a PRIOR
+  value against the `prior-inputs` it was computed from and the
+  `prior-policy` it was computed under. Any other query returns `value`
+  unchanged; a value with nothing to project rides identical."
   ([query-v value opts]
-   (project-read-sub-egress query-v value opts ::live))
-  ([query-v value {:keys [frame]} prior-inputs]
+   (project-read-sub-egress query-v value opts ::live nil))
+  ([query-v value {:keys [frame]} prior-inputs prior-policy]
    (let [sub-id (when (sequential? query-v) (first query-v))
          roots  (get data-roots sub-id)]
      (if (nil? roots)
@@ -831,11 +846,13 @@
        (let [payload     (second query-v)
              live?       (or (= ::live prior-inputs) (nil? prior-inputs))
              inputs-db   (if live? (live-runtime-db frame) (prior-runtime-db prior-inputs))
+             inputs-reg  (when inputs-db
+                           (inputs-registry frame live? prior-inputs prior-policy))
              runtime-db  #(if live? (live-runtime-db frame) (first prior-inputs))
              frame-state #(if live? (live-frame-state frame) (first prior-inputs))
              spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
              recovered   (when (and inputs-db (map? payload))
-                           (recovered-data-claims sub-id payload inputs-db))
+                           (recovered-data-claims sub-id payload inputs-reg inputs-db))
              value       (if (or spec (some seq recovered))
                            (let [projected    (project-feed-items sub-id value spec recovered
                                                                   query-v frame-state)

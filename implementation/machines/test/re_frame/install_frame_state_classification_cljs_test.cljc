@@ -1,13 +1,15 @@
 (ns re-frame.install-frame-state-classification-cljs-test
   "A persisted machine installed with `[:rf/install-frame-state saved]` keeps
-  its privacy classification. The save carries no elision registry, so the
-  install re-derives each restored actor's claims from the destination's
-  registered machines, on client and server frames alike."
+  its privacy classification. The save carries no classification: each
+  restored actor is classified by the destination's registered machines as
+  soon as its snapshot is installed, on client and server frames alike, with
+  no classification step."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             #?(:cljs [cljs.reader])
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -44,7 +46,7 @@
   (:rf.runtime/elision (rf.machines.test-support/runtime-db frame-id)))
 
 (defn- sensitive-claims [frame-id]
-  (:sensitive-declarations (registry frame-id)))
+  (rf.elision/sensitive-declarations frame-id))
 
 (deftest an-installed-machine-keeps-its-classification
   (rf/reg-machine :cls/singleton classified)
@@ -62,8 +64,8 @@
         machines (get-in (rf/frame-state-value src) [:rf.db/runtime :rf.runtime/machines])
         saved    (round-trip machines)
         child    (get-in saved [:spawned :cls/parent [:open]])
-        claims   {(token-path :cls/singleton) #{{:source :machine :actor-id :cls/singleton}}
-                  (token-path child)          #{{:source :machine :actor-id child}}}
+        claims   {(token-path :cls/singleton) #{{:source :machine}}
+                  (token-path child)          #{{:source :machine}}}
         dst      (fresh-frame! :client)
         server   (fresh-frame! :server)
         install! (fn [fid]
@@ -84,6 +86,8 @@
              (mapv #(get-in out %) [(token-path :cls/singleton) (label-path :cls/singleton)
                                     (token-path child) (label-path child)])))
       (is (not (str/includes? (pr-str out) "saved-secret")) "no restored secret egresses"))
-    (let [before (registry dst)]
+    (let [before (sensitive-claims dst)]
       (install! dst)
-      (is (= before (registry dst)) "installing the same payload again adds nothing"))))
+      (is (= before (sensitive-claims dst)) "installing the same payload again adds nothing")
+      (is (not-any? #(= :machine (:source %)) (mapcat val (:sensitive-declarations (registry dst))))
+          "no machine claim is ever written into the frame's elision registry"))))

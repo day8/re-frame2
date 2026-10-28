@@ -53,7 +53,6 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.frame :as rf.frame]
-            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
@@ -156,8 +155,10 @@
        track (`reap-tracked-children!`), after its `:exit` and while its
        snapshot is still present;
     2. abort in-flight `:rf.http/managed` requests;
-    3. a machine's `[:schemas :data]` schema is validation-only and produces no
-       per-instance marks table, so there is no marks-table residue to drop;
+    3. nothing classification-related to drop: a machine's `:sensitive` /
+       `:large` declaration applies at egress to the snapshots present, so
+       the actor's classification leaves with its snapshot in 5, and a
+       `[:schemas :data]` schema is validation-only;
     4. cancel armed `:after` timers, one
        `:rf.machine.timer/cancelled :reason :on-destroy` trace per timer;
     5. apply the unified teardown projection (`rf.machines.lifecycle-fx.teardown/teardown-actor`)
@@ -197,20 +198,7 @@
   ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
   ;; actor in a sibling frame keeps its in-flight requests.
   (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id)
-  ;; (3) Drop this actor's
-  ;; per-instance classification declarations from the per-frame elision
-  ;; registry — the teardown half of `rf.machines.classification/lower-at-spawn!`. A
-  ;; subsystem instance's classification lives and dies with the instance,
-  ;; so the absolute snapshot-rooted `:sensitive` / `:large` decls the spawn
-  ;; lowered are dissoc'd here (no leak — an emptied axis slot is pruned).
-  ;; Resolve the spec BEFORE the teardown projection clears the snapshot, via
-  ;; the registered TYPE or the snapshot's `[:rf/runtime :machine-type]` (a `:spawn`
-  ;; instance carries no registrar entry). A spec that declared no
-  ;; classification is a clean no-op.
-  (let [snapshot (get-in (rf.frame/frame-runtime-db-value frame-id)
-                         (rf.machines.paths/snapshot-path actor-id))]
-    (when-let [spec (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)]
-      (rf.machines.classification/drop-at-destroy! frame-id actor-id spec owner-token)))
+  ;; (3) has no code: the actor's classification leaves with its snapshot.
   ;; (4) cancel armed `:after` timers.
   (rf.machines.timer/cancel-actor-timers! frame-id actor-id)
   ;; (5) apply the unified teardown projection through the EXACT durable write:

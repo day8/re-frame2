@@ -61,18 +61,10 @@
   It runs NO cascade. No `:entry`, no `:exit`, no `:action`, no `:raise`,
   no `:spawn`, no `:always` — none of the historical effects the server
   already performed are replayed, and no snapshot is written (the epoch is
-  read, never bumped). Beside host work, the only thing this seam writes is
-  classification.
-
-  ## Classification is re-derived, not installed
-
-  A machine's `:sensitive` / `:large` declaration is lowered per actor into
-  the frame's elision registry at spawn and at singleton first boot. An
-  installed snapshot reaches neither, and the registry itself rides neither
-  the SSR wire nor a persisted machines subtree. So before the timer work,
-  and on every platform, each installed actor's claims are lowered again from
-  the spec dispatch resolves for it, so the installed state needs no
-  classification of its own.
+  read, never bumped). The seam writes host work only: an installed actor is
+  classified as soon as its snapshot is present, because a machine's
+  `:sensitive` / `:large` declaration applies at egress to the snapshots the
+  runtime-db holds (Spec 015 §Subsystem projection-relative classification).
 
   ## Remaining duration: the FULL declared delay
 
@@ -106,7 +98,6 @@
   Pure / host-agnostic CLJC apart from the one arming call — the walk is a
   pure function of `[spec snapshot]`."
   (:require [re-frame.frame :as rf.frame]
-            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -240,33 +231,6 @@
              decl  (active-after-decls spec snapshot)]
          (assoc decl :actor-id actor-id :snapshot snapshot))))
 
-(defn- lower-installed-classification!
-  "Re-derive the machine-owned `:sensitive` / `:large` claims of every actor
-  in the installed `snapshots` into `frame-id`'s elision registry.
-
-  An installer brings back snapshots but not those claims: they live in
-  `:rf.runtime/elision`, which neither a persisted machines subtree nor the
-  SSR wire carries, and an installed snapshot never boots or spawns, so the
-  birth-time lowering never reaches it. Each actor's spec resolves the way
-  dispatch resolves it — a singleton through the destination's registrar, a
-  spawned actor through the registered type its snapshot's
-  `[:rf/runtime :machine-type]` names — so the claims come from the definition that runs the actor, never from its
-  `:data`.
-
-  This is `rf.machines.classification/lower-at-spawn!` run once per actor, so
-  the claims land under each actor's own owner, union with every other
-  owner's claim on the same path, and re-installing the same actor adds
-  nothing. An actor whose spec declares no classification, or resolves to no
-  spec, is a no-op."
-  [frame-id snapshots]
-  (let [owner-token (rf.frame/current-event-owner-token)]
-    (doseq [[actor-id snapshot] snapshots]
-      (when (map? snapshot)
-        (rf.machines.classification/lower-at-spawn!
-          frame-id actor-id
-          (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
-          owner-token)))))
-
 (defn rearm-after-timers!
   "RECONCILE the host-side `:after` timer table for `frame-id` to the
   machine snapshots its runtime-db currently holds. The body behind the
@@ -275,11 +239,6 @@
   installers has committed its runtime-db — a valid `:rf/hydrate` (the SSR
   payload) or a valid `:rf/install-frame-state` (an app's persisted
   frame-state, whose machines subtree is the snapshots it saved).
-
-  Before any timer work, and on every platform, it re-derives each installed
-  actor's machine-owned classification (`lower-installed-classification!`),
-  so the installing event has classified every restored value before it
-  completes.
 
   A reconcile, not a union. An installer replaces the machines subtree WHOLESALE
   while the timer table — host state — survives the replacement untouched,
@@ -331,16 +290,13 @@
   therefore owns the timer table for the whole reconcile, and neither phase
   rechecks its owner.
 
-  Returns nil; the only observables are the frame's elision registry, the
-  timer table, one `:rf.machine.timer/scheduled` trace per armed
-  declaration, and one `:rf.machine.timer/cancelled` trace per released one."
+  Returns nil; the only observables are the timer table, one
+  `:rf.machine.timer/scheduled` trace per armed declaration, and one
+  `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
   (when frame-id
     (let [snapshots (get-in (rf.frame/frame-runtime-db-value frame-id)
                             (rf.machines.paths/snapshot-path))]
-      ;; Classification first, on every platform: a server frame arms no
-      ;; timer but still projects its machines for the wire.
-      (lower-installed-classification! frame-id snapshots)
       (when (not= :server (or (:platform (rf.frame/frame-meta frame-id)) :client))
         (let [live (live-declarations snapshots)]
           ;; PHASE 1 — release the host work the replacement snapshots dropped.

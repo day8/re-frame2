@@ -13,7 +13,6 @@
   (:require [clojure.set :as set]
             [re-frame.error :as rf.error]
             [re-frame.reply :as rf.reply]
-            [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.registry :as rf.resources.registry]
             [re-frame.resources.reply :as rf.resources.reply]
             [re-frame.resources.reply-handlers :as rf.resources.reply-handlers]
@@ -26,21 +25,6 @@
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-;; ---- per-instance classification lowering ----------------------------------
-
-(defn with-classification-lowering
-  "Wraps handler `f` so the `:rf.db/runtime` of its returned effects is
-  reconciled through `rf.resources.classification/reconcile-registry` before
-  commit, keeping the frame's elision registry in step with `:entries`. An
-  effects map without `:rf.db/runtime` passes through unchanged. The
-  reconciliation is idempotent, so every entry-mutating handler is wrapped."
-  [f]
-  (fn [& args]
-    (let [effects (apply f args)]
-      (if (and (map? effects) (contains? effects :rf.db/runtime))
-        (update effects :rf.db/runtime rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta)
-        effects))))
 
 ;; Handlers here take "now" from the triggering token's `:rf/time-ms`
 ;; (declared via `:rf.cofx/requires`, read flat from the coeffects), never

@@ -2,9 +2,9 @@
   "The Resources tab's on-box render of RAW frame-classified resource values
   under the EP-0015 `:rf.egress/local-redacted` default.
 
-  The resource's `:sensitive` declarations are lowered by the resources
-  registry (`re-frame.resources.classification/reconcile-registry`) onto the
-  entry's absolute runtime-db coordinates, and each payload slot is projected
+  The resource's `:sensitive` declarations are claimed by the resources
+  classification hook on the entry's absolute runtime-db coordinates while the
+  frame holds the entry, and each payload slot is projected
   through `local-render/local-render-value-at` at
   `resources-helpers/slot-egress-path`, keyed on the observed frame and the
   entry's own key-id, then through `instance-row` — the pieces the panel uses.
@@ -16,7 +16,7 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.local-render :as local-render]
@@ -52,13 +52,12 @@
 (def secure-frame :app/secure)
 
 (defn- init-fn []
+  (rf/reg-resource :article/by-slug
+                   {:scope :rf.scope/global :sensitive [[:data :secret]]}
+                   (fn [_ _] {:request {:method :get :url "/articles"}}))
   (rf/make-frame {:id secure-frame})
   (rf.frame/swap-runtime-db! secure-frame
-    (fn [rt]
-      (-> rt
-          (assoc-in [:rf.runtime/resources :entries] {key-id raw-entry})
-          (rf.resources.classification/reconcile-registry
-            {:article/by-slug {:sensitive [[:data :secret]]}})))))
+    (fn [rt] (assoc-in rt [:rf.runtime/resources :entries] {key-id raw-entry}))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -69,7 +68,7 @@
      :init-fn init-fn}))
 
 ;; The `instance-row` egress-fn the panel threads: each slot egresses under the
-;; observed frame at the coordinate its declarations were lowered to.
+;; observed frame at the coordinate its declarations are claimed at.
 (defn- local-egress-fn [observed-frame]
   (fn [v slot key-id]
     (local-render/local-render-value-at v observed-frame (h/slot-egress-path key-id slot))))

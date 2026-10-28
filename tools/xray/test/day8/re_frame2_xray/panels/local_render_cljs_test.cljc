@@ -6,8 +6,8 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.routing.classification :as rf.routing.classification]
-            ;; Publishes routing's seed table; otherwise route projections walk the root.
+            ;; Publishes routing's seed table and classification hook; otherwise
+            ;; route projections walk the root unclassified.
             [re-frame.routing]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
@@ -22,10 +22,11 @@
     (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :token]]
                 :large [[:catalog :rows]]})))
-  ;; Lower a real route-owned declaration rather than hand-writing absolute paths.
+  ;; A real route-owned declaration, classifying the frame's current slice,
+  ;; rather than hand-written absolute paths.
+  (rf/reg-route :route/user {:sensitive [[:params :token] [:query :token]]} "/user/:token")
   (rf.frame/swap-runtime-db! route-frame
-    (fn [rt] (rf.routing.classification/lower-for-route
-               rt :route/user {:sensitive [[:params :token] [:query :token]]}))))
+    (fn [rt] (assoc-in rt [:rf.runtime/routing :current] {:route-id :route/user}))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture

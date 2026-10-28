@@ -8,10 +8,9 @@
   `[:rf.runtime/elision :sensitive-declarations]` (written by
   `apply-classification-effects` under `:source :effect`). Per EP-0025 there
   is no durable `:sensitive` / `:large {:app-db …}` *frame annotation*
-  — a frame is not app-db's definition site. The other sources that populate
-  these slots are `reg-flow` output declarations (`:source :flow`) and
-  subsystem projection-relative declarations (resources / routing); all
-  sources union at egress-lookup time. EP-0015 §8
+  — a frame is not app-db's definition site. The other source that populates
+  these slots is `reg-flow` output declarations (`:source :flow`); all sources
+  union at egress-lookup time. EP-0015 §8
   (Schemas Describe Shape, Not Public Egress Policy): schemas describe
   shape and validation, NOT durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
@@ -22,16 +21,18 @@
   VALIDATES `:data`, it does not classify it. Durable machine `:data` egress
   classification is machine-owned and projection-relative — top-level
   `:sensitive` / `:large` on the `reg-machine` spec
-  (`re-frame.machines.classification`), lowered per actor instance INTO this
-  registry under `:source :machine` (Spec 015 §State machines; there is no
-  root `:data-schema` slot, per EP-0029 A3). There are no
-  imperative large-path APIs.
+  (`re-frame.machines.classification`; there is no root `:data-schema` slot,
+  per EP-0029 A3). There are no imperative large-path APIs.
 
   A frame's `:classification` registrations (`reg-classification`) are the
   static app-db source: they resolve through the frame's own view into an
   immutable classification POLICY that egress unions with the registry at read
   time, and that is never written into runtime-db (Spec 015 §Static app-db
-  classification).
+  classification). The policy also carries each runtime-db root's subsystem
+  declarations — machines, resources, mutations, routes — which never enter
+  the registry: egress applies them, through the root owner's late-bound hook,
+  to the instances present in the runtime-db being projected (Spec 015
+  §Subsystem projection-relative classification).
 
   EP-0001: the elision declaration registry is DURABLE,
   serializable framework state (it must survive epoch-restore / SSR-
@@ -132,14 +133,18 @@
 ;; A frame's `:classification` registrations resolve through its OWN view —
 ;; the sealed generation of a frame made with `:images`, the live registration
 ;; store otherwise — into the frame's classification POLICY: an immutable value
-;; holding declarations only, never instances. Each path is claimed by
+;; holding declarations only, never instances. Each app-db path is claimed by
 ;; `{:source :classification :id <registration-id>}`, the owner shape the
-;; registry uses, so the walkers read both sources through one lookup.
+;; registry uses, so the walkers read both sources through one lookup. Under
+;; `:roots` it holds, per runtime-db root, the declarations that root's hook
+;; collected through the same view; egress applies them to the instances the
+;; projected runtime-db holds (`with-runtime-classification`).
 ;;
 ;; The policy is a function of the view alone, so it is cached per frame
 ;; against the view it was built from: successive egresses, and every value
 ;; recorded while the declarations stand still, share one policy value. Spec
-;; 015 §Static app-db classification.
+;; 015 §Static app-db classification, §Subsystem projection-relative
+;; classification.
 
 (def ^:private empty-policy
   {:app-db {:sensitive {} :large {}}})
@@ -147,6 +152,18 @@
 (defonce ^:private policy-cache
   ;; {frame-id {:view <what the policy was built from> :policy <policy>}}
   (atom {}))
+
+(def ^:private runtime-root-hooks
+  "Each runtime-db root, the late-bound hook its owning artefact publishes for
+  it, and the `:source` its claims carry. Each hook is a 0-arity collect of its
+  registrations' declarations and a pure 2-arity apply of them to the value
+  under the root. A root whose hook is unbound has no classification: without
+  its artefact, a runtime-db holds no instances under that root. Spec 015
+  §Subsystem projection-relative classification."
+  {:rf.runtime/machines  [:machines/runtime-classification :machine]
+   :rf.runtime/resources [:resources/runtime-classification :resource]
+   :rf.runtime/mutations [:resources/mutation-runtime-classification :mutation]
+   :rf.runtime/routing   [:routing/runtime-classification :route]})
 
 (defn- resolved-classifications
   "The `[id descriptor]` entries of every `:classification` registration the
@@ -159,8 +176,19 @@
                 desc          (vals ns->desc)]
             [id desc])))
 
+(defn- collected-roots
+  "`{root {registration-id decl}}`: what each bound root hook collects, for the
+  roots whose registrations declare anything. Called inside the frame's
+  resolution, so every hook collects through the frame's own view."
+  []
+  (reduce-kv (fn [acc root [hook _source]]
+               (let [decls (when-let [collect (rf.late-bind/get-fn hook)] (collect))]
+                 (cond-> acc (seq decls) (assoc root decls))))
+             {}
+             runtime-root-hooks))
+
 (defn- build-policy
-  [entries]
+  [entries roots]
   (let [claim (fn [m owner paths]
                 (reduce #(update %1 (vec %2) (fnil conj #{}) owner) m paths))
         app-db (reduce (fn [acc [id desc]]
@@ -170,24 +198,26 @@
                                (update :large claim owner (:large desc)))))
                        (:app-db empty-policy)
                        entries)]
-    (if (= app-db (:app-db empty-policy))
-      empty-policy
-      {:app-db app-db})))
+    (cond-> (if (= app-db (:app-db empty-policy))
+              empty-policy
+              {:app-db app-db})
+      (seq roots) (assoc :roots roots))))
 
 (defn- policy-view
-  "What the bound resolution's `:classification` entries are a function of:
-  the sealed generation when one is bound, else the registration table's
-  `:classification` slice."
+  "What the bound resolution's registrations are a function of: the sealed
+  generation when one is bound, else the registration table."
   []
   (or rf.registrar/*generation*
-      (get @rf.source-store/kind->id->ns->descriptor :classification)))
+      @rf.source-store/kind->id->ns->descriptor))
 
 (defn ^:no-doc frame-policy
   "The classification policy of frame `frame-id`:
-  `{:app-db {:sensitive {path #{owner}} :large {path #{owner}}}}`, built from
-  the `:classification` registrations the frame's own view resolves, reached
-  through the late-bound `:live-frame/call-with-frame-resolution` seam — never
-  an ambient lookup. A frame that does not exist has the empty policy."
+  `{:app-db {:sensitive {path #{owner}} :large {path #{owner}}}
+    :roots  {runtime-db-root {registration-id decl}}}`, built from the
+  `:classification` registrations and the root hooks' collections the frame's
+  own view resolves, reached through the late-bound
+  `:live-frame/call-with-frame-resolution` seam — never an ambient lookup. A
+  frame that does not exist has the empty policy."
   [frame-id]
   (if-not (and (some? frame-id) (some? (rf.frame/frame frame-id)))
     empty-policy
@@ -196,7 +226,8 @@
                           cached (get @policy-cache frame-id)]
                       (if (and cached (identical? view (:view cached)))
                         (:policy cached)
-                        (let [policy (build-policy (resolved-classifications))]
+                        (let [policy (build-policy (resolved-classifications)
+                                                   (collected-roots))]
                           (swap! policy-cache assoc frame-id {:view view :policy policy})
                           policy))))]
       (if-let [with-resolution (rf.late-bind/get-fn :live-frame/call-with-frame-resolution)]
@@ -213,6 +244,32 @@
       (seq sensitive) (update :sensitive-declarations #(merge-with into % sensitive))
       (seq large)     (update :declarations #(merge-with into % large)))))
 
+(defn ^:no-doc with-runtime-classification
+  "Registry value `reg` with the subsystem claims each of `policies` makes on
+  the instances `runtime-db` holds unioned in: each runtime-db root's hook
+  applies that policy's declarations for the root to the value under it, and
+  every absolute path it returns is claimed under the root's `:source`. A nil
+  policy contributes nothing. Pure: a read-time view, never written back.
+  Spec 015 §Subsystem projection-relative classification."
+  [reg policies runtime-db]
+  (reduce
+    (fn [reg [root decls]]
+      (let [[hook source] (get runtime-root-hooks root)
+            apply-hook    (rf.late-bind/get-fn hook)
+            root-value    (get runtime-db root)]
+        (if (and apply-hook (some? root-value))
+          (let [{:keys [sensitive large]} (apply-hook root-value decls)
+                owner {:source source}
+                claim (fn [reg slot paths]
+                        (reduce #(update-in %1 [slot (vec %2)] (fnil conj #{}) owner)
+                                reg paths))]
+            (-> reg
+                (claim :sensitive-declarations sensitive)
+                (claim :declarations large)))
+          reg)))
+    reg
+    (mapcat :roots policies)))
+
 (defn ^:no-doc record-policy
   "`v`, a retained value, carrying `policy` as the classification it was
   recorded under. It rides in metadata, so it never egresses. Spec 015
@@ -228,7 +285,9 @@
 (defn- registry-of
   "The frame's egress classification: its elision registry, read off its
   runtime-db projection as a SNAPSHOT, unioned with its static policy
-  (`frame-policy`). Its readers run inside the computations they describe —
+  (`frame-policy`) — the app-db declarations, and the subsystem claims the
+  policy makes on the instances that runtime-db holds. Its readers run inside
+  the computations they describe —
   trace classification projects a `:rf.sub/run` inside the sub's compute and a
   `:rf.view/rendered` inside the view's render — and a capturing read there
   would make the whole runtime-db projection an input of that computation, so
@@ -236,9 +295,11 @@
   reactive dependency."
   [frame-id]
   (when-let [container (rf.frame/runtime-db-container frame-id)]
-    (with-policy
-      (get-in (rf.substrate.adapter/read-container-untracked container) [:rf.runtime/elision])
-      (frame-policy frame-id))))
+    (let [runtime-db (rf.substrate.adapter/read-container-untracked container)
+          policy     (frame-policy frame-id)]
+      (-> (get runtime-db :rf.runtime/elision)
+          (with-policy policy)
+          (with-runtime-classification [policy] runtime-db)))))
 
 (defn ^:no-doc write-elision-slot
   "Set or clear the per-frame elision registry inside `runtime-db`. When
@@ -274,26 +335,25 @@
 ;; slot (`:sensitive-declarations` / `:declarations`) maps a concrete
 ;; runtime-db path to the SET of OWNER identities that currently claim it. An
 ;; owner identity is any EDN value that names a claimant for the purpose of
-;; add / remove: the commit-plane effects claim under `{:source :effect}`,
-;; `reg-flow` outputs `{:source :flow :flow-id <id>}`, machine spawns
-;; `{:source :machine :actor-id <id>}`, route activation `{:source :route}`,
-;; and resource instances `{:source :resource}`. Instance identity (`:flow-id`
-;; / `:actor-id`) is carried where an owner reconciles its OWN claims
-;; independently of a same-family sibling, so removing one leaves the rest.
+;; add / remove: the commit-plane effects claim under `{:source :effect}` and
+;; `reg-flow` outputs under `{:source :flow :flow-id <id>}`. The `:flow-id`
+;; lets one flow reconcile its OWN claims independently of a sibling flow, so
+;; removing one leaves the rest. The read-time unions — the static policy and
+;; the subsystem claims — use the same owner shape.
 ;;
 ;; Independent owners UNION: a path is redacted / size-marked at egress while
 ;; ANY owner claims it, and it is pruned from the registry only when its LAST
 ;; owner drops. This is the privacy-boundary correctness property.
 ;; With one owner per path, a second owner's claim would
 ;; either overwrite the first (then delete it on teardown) or be silently
-;; ignored — a route change / actor teardown could un-redact an
-;; effect-classified path (a fail-open on the AI-egress privacy boundary). The
+;; ignored — a flow leaving the frame could un-redact an effect-classified
+;; path (a fail-open on the AI-egress privacy boundary). The
 ;; egress read needs only PRESENCE (sensitive) or a STABLE provenance derived
 ;; from the owner-set (the large marker's `:reason`).
 ;;
-;; Family code (effects / flows / machines / routing / resources) derives only
-;; absolute paths + owner identities and DELEGATES to the pure operations
-;; below; there is no family-private source-filter / overlay logic.
+;; Family code (effects / flows) derives only absolute paths + owner identities
+;; and DELEGATES to the pure operations below; there is no family-private
+;; source-filter / overlay logic.
 
 (def ^:no-doc effect-owner
   "The owner identity the EP-0025 commit-plane classification effects claim
@@ -344,7 +404,7 @@
 (defn ^:no-doc remove-owner
   "PURE. Remove owner-identity `owner` from EVERY path in axis `slot`; a path
   whose owner-set empties is pruned. The whole-axis complement of
-  `remove-claims` — the flow-clear + the route / resource reconcile drop step.
+  `remove-claims` — the flow-clear.
   Returns the new registry value (the slot is dissoc'd when it empties)."
   [reg slot owner]
   (let [cur (get reg slot)]
@@ -364,8 +424,7 @@
 (defn ^:no-doc replace-owner-claims
   "PURE. Reconcile owner `owner`'s claims in axis `slot` to EXACTLY `paths`:
   drop `owner` from every path, then add `owner` to each path in `paths`. The
-  whole-owner reconcile the singleton route lowering, the self-dropping
-  resource lowering, and a `reg-flow` re-registration use — a foreign owner on
+  whole-owner reconcile a `reg-flow` re-registration uses — a foreign owner on
   any path survives untouched. Returns the new registry value."
   [reg slot owner paths]
   (-> reg
@@ -377,7 +436,7 @@
   provenance from a path's retained owner-set. A large path may be claimed by
   several independent owners; the marker carries ONE reproducible source so the
   wire shape is stable across runs and serialization. First match wins."
-  [:classification :effect :flow :machine :route :resource])
+  [:classification :effect :flow :machine :route :resource :mutation])
 
 (defn ^:no-doc owners->provenance
   "Derive the STABLE `:reason` / `:source` provenance keyword for a large-
@@ -406,8 +465,7 @@
   effect replaces only runtime-db; EP-0001 decision #5). But the
   elision declaration registry at `[:rf.runtime/elision]` is a CROSS-CUTTING
   durable subsystem child mutated OUT-OF-BAND by `reg-flow` / the EP-0025
-  classification effects / subsystem projection-relative declarations — NOT by
-  the event returning the effect.
+  classification effects — NOT by the event returning the effect.
   A whole-value runtime-db effect that seeds an UNRELATED subsystem (e.g.
   `:rf.runtime/routing`) and does not itself carry `:rf.runtime/elision`
   would otherwise DROP the registry on commit, silently losing every
@@ -599,9 +657,9 @@
 
   Each SET key (`:sensitive` / `:large`) ADDS the `effect-owner` to its paths
   in the axis slot (`:sensitive-declarations` / `:declarations`), UNIONING with
-  any foreign owner already on the path (`add-claims`): a SET on a path another
-  owner claims (`:source :flow` / `:machine` / `:route` / `:resource`) leaves
-  that owner in place AND records the effect owner alongside it,
+  any foreign owner already on the path (`add-claims`): a SET on a path a flow
+  claims (`:source :flow`) leaves that owner in place AND records the effect
+  owner alongside it,
   so both claims survive independently. Each CLEAR key (`:clear-sensitive` /
   `:clear-large`) removes ONLY the `effect-owner` from its named paths
   (`remove-claims`); a path still claimed by another owner stays redacted (the
@@ -651,8 +709,8 @@
   "Return the `:large` `:app-db` declarations for `frame-id` (the union of
   every source that populates the slot — the frame's `:classification`
   registrations under `:source :classification`, EP-0025 commit-plane effects
-  under `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
-  projection-relative declarations).
+  under `:source :effect`, `reg-flow` outputs under `:source :flow`, and the
+  subsystem claims its policy makes on the instances its runtime-db holds).
   Returns a snapshot, not a reactive subscription: reading it inside a
   reactive computation does not make that computation depend on the registry.
   EP-0002 — the zero-arity ambient form resolves the frame through the
@@ -669,8 +727,8 @@
   "Return the `:sensitive` `:app-db` declarations for `frame-id` (the union
   of every source that populates the slot — the frame's `:classification`
   registrations under `:source :classification`, EP-0025 commit-plane effects
-  under `:source :effect`, `reg-flow` outputs under `:source :flow`,
-  subsystem projection-relative declarations).
+  under `:source :effect`, `reg-flow` outputs under `:source :flow`, and the
+  subsystem claims its policy makes on the instances its runtime-db holds).
   Returns a snapshot, not a reactive subscription: reading it inside a
   reactive computation does not make that computation depend on the registry.
   EP-0002 — the zero-arity ambient form resolves the frame through the
@@ -695,9 +753,10 @@
 ;; transition would install it, so an app-db path is declared once (Spec 010
 ;; §`:sensitive?`). A transient value's schema (event, coeffect, fx, sub) and
 ;; a machine `[:schemas :data]` schema redact their own validation failures
-;; from their per-slot props. Durable machine `:data` DOES ride this registry — via top-level
-;; `:sensitive` / `:large` on the `reg-machine` spec, lowered per actor
-;; instance under `:source :machine` (Spec 015 §State machines).
+;; from their per-slot props. Durable machine `:data` is classified by top-level
+;; `:sensitive` / `:large` on the `reg-machine` spec, applied at egress to each
+;; actor snapshot under `:source :machine` (Spec 015 §Subsystem
+;; projection-relative classification).
 
 (defn clear-warning-cache!
   []
@@ -1459,8 +1518,8 @@
 (def ^:no-doc machine-snapshot-prefix
   "The runtime-db prefix a machine actor's snapshot lives under (EP-0001; Spec
   005 §Where snapshots live): `[:rf.runtime/machines :snapshots <actor-id>]`. A
-  machine's `:data` classification is lowered into this registry at the actor's
-  ABSOLUTE snapshot path, so a snapshot-valued read is walked from here."
+  machine's `:data` classification is claimed at the actor's ABSOLUTE snapshot
+  path, so a snapshot-valued read is walked from here."
   [:rf.runtime/machines :snapshots])
 
 (defn- sub-seed-path
@@ -1480,11 +1539,12 @@
 
 (defn elide-wire-value
   "Walk `v` and substitute the frame's declared sensitive or large paths for
-  wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
-  written by the EP-0025 commit-plane classification effects under
-  `:source :effect`, plus `reg-flow` outputs and subsystem
-  projection-relative declarations — EP-0015 §8). Sensitive wins over large
-  when both declarations match.
+  wire egress: the durable declarations in `[:rf.runtime/elision …]`, written
+  by the EP-0025 commit-plane classification effects under `:source :effect`
+  and by `reg-flow` outputs (EP-0015 §8), unioned with the frame's static
+  policy — its app-db declarations, and the subsystem claims it makes on the
+  instances the frame's runtime-db holds. Sensitive wins over large when both
+  declarations match.
 
   `opts` is a CLOSED map (`walker-opt-keys`) — one policy vocabulary,
   spelled the same way at every egress door:
@@ -1558,7 +1618,7 @@
          ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
          ;; snapshot :sub-cache / Xray) walks a framework read sub's BARE value
          ;; — a machine snapshot, a route slice — but that value's
-         ;; classification is lowered ABSOLUTE in the registry (under
+         ;; classification is claimed at its ABSOLUTE runtime-db path (under
          ;; `[:rf.runtime/machines :snapshots <id> …]` /
          ;; `[:rf.runtime/routing :current …]`). When the caller names the sub
          ;; via `:query-v`, OVERLAY the value's runtime-db storage position as
@@ -1611,7 +1671,8 @@
   is projected before that transition commits, so a path classified by the
   SAME event is redacted from its first egress. A nil `runtime-db` means the
   transition leaves runtime-db alone, so the committed registry stands. Either
-  registry is unioned with the frame's static policy.
+  registry is unioned with the frame's static policy, whose subsystem claims
+  apply to the instances that runtime-db holds.
 
   The governing frame is the explicit `:frame` opt, and it must name a LIVE
   frame, else the whole value is the sentinel. Internal: the one
@@ -1623,8 +1684,10 @@
     (if (and (some? frame-id) (some? (rf.frame/frame frame-id)))
       (elide-against-registry v opts frame-id
                               (if (some? runtime-db)
-                                (with-policy (get runtime-db :rf.runtime/elision)
-                                             (frame-policy frame-id))
+                                (let [policy (frame-policy frame-id)]
+                                  (-> (get runtime-db :rf.runtime/elision)
+                                      (with-policy policy)
+                                      (with-runtime-classification [policy] runtime-db)))
                                 (registry-of frame-id)))
       rf.privacy/redacted-sentinel)))
 

@@ -16,7 +16,6 @@
             ;; reset fixture reloads both.
             [re-frame.machines]
             [re-frame.routing]
-            [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
@@ -31,13 +30,11 @@
 (def ^:private machine-id    :review.ssr/auth)
 
 (defn- frame-a-runtime-db
-  "Frame A's runtime-db: the route's lowered `:current` declarations plus effect
-  declarations for a machine `:data` token and an app-db `[:secret]`, a
-  `:current` route slice and a machine snapshot each holding a secret."
+  "Frame A's runtime-db: effect declarations for a machine `:data` token and an
+  app-db `[:secret]`, a `:current` slice of the classified route and a machine
+  snapshot each holding a secret."
   []
-  (-> (rf.routing.classification/apply-route-classification
-        {} (rf.routing.classification/validate+extract
-             route-id {:sensitive [[:query :token]] :large [[:params :payload]]}))
+  (-> {}
       (rf.elision/apply-classification-effects
         {:sensitive [[:secret]
                      [:rf.runtime/machines :snapshots machine-id :data :token]]
@@ -56,6 +53,8 @@
               :spawned    {}})))
 
 (defn- setup-frame-a! []
+  (rf/reg-route route-id {:sensitive [[:query :token]] :large [[:params :payload]]}
+                "/oauth/callback")
   (rf/reg-event :review.ssr/seed-db (fn [_ [_ db]] {:db db}))
   (rf/make-frame {:id             server-frame
                   :platform       :server

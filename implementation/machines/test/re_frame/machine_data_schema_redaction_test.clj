@@ -1,11 +1,11 @@
 (ns re-frame.machine-data-schema-redaction-test
-  "Machine `:data` trace-egress redaction through the per-frame elision
-  registry (EP-0025). A classified snapshot `:data` path — the absolute
-  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]` — is
-  claimed under `:source :effect` by the commit-plane classification effects,
-  or under `:source :machine` by a `reg-machine` spec's projection-relative
-  `:sensitive` / `:large` declaration, which is lowered per actor at spawn /
-  first boot and dropped at destroy. The trace egress chokepoint redacts the
+  "Machine `:data` trace-egress redaction through the frame's classification
+  (EP-0025). A classified snapshot `:data` path — the absolute runtime-db path
+  `[:rf.runtime/machines :snapshots <actor-id> :data …]` — is claimed under
+  `:source :effect` by the commit-plane classification effects, or under
+  `:source :machine` by a `reg-machine` spec's projection-relative
+  `:sensitive` / `:large` declaration, which applies at egress to every
+  snapshot present. The trace egress chokepoint redacts the
   matching slot to `:rf/redacted` (sensitive) or the `:rf.size/large-elided`
   marker (large) in every machine `:data` slot of `:rf.machine/*` traces,
   leaving undeclared slots verbatim. A `:sensitive?` / `:large?` Malli prop on
@@ -188,15 +188,16 @@
 ;; ---- (4) the machine declaration (EP-0025 §subsystems), on live machines ----
 
 (defn- snapshot-elision-reg
-  "The `:rf/default` frame's elision registry, read off runtime-db. A nil
-  registry (a frame that never classified) reads as `{}`."
+  "The `:rf/default` frame's live classification, in the registry's two-axis
+  shape: the machine hook's claims on the snapshots present included."
   []
-  (or (get (:rf.db/runtime (rf/frame-state-value :rf/default)) :rf.runtime/elision) {}))
+  {:sensitive-declarations (rf.elision/sensitive-declarations :rf/default)
+   :declarations           (rf.elision/declarations :rf/default)})
 
-(deftest machine-declared-classification-lowers-at-singleton-boot
+(deftest machine-declared-classification-covers-a-booted-singleton
   (testing "a SINGLETON's projection-relative :sensitive /
-            :large `:data` declaration lowers into the per-frame elision registry
-            at first-boot, redacts at snapshot egress, and is DROPPED at destroy"
+            :large `:data` declaration is claimed on its snapshot once it boots,
+            redacts at snapshot egress, and goes with the snapshot at destroy"
     (let [mid       :rf.machine-redaction/declared-singleton
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
           abs-blob  [:rf.runtime/machines :snapshots mid :data :blob]
@@ -211,7 +212,7 @@
          :states    {:anon {:on {:login :authed}} :authed {}}})
       (rf/dispatch-sync [mid [:rf.machine/noop]])
       (is (= [#{:machine} true] (lowered))
-          "lowered to the ABSOLUTE snapshot paths at boot, under :source :machine")
+          "claimed at the ABSOLUTE snapshot paths after boot, under :source :machine")
       (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             data (get-in out [:tags :after :data])]
         (is (= [:rf/redacted true 1 false]
@@ -220,7 +221,7 @@
       (rf/reg-event :rf.machine-redaction/destroy-singleton
         (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
       (rf/dispatch-sync [:rf.machine-redaction/destroy-singleton])
-      (is (= [#{} false] (lowered)) "both entries DROPPED at destroy (no leak)"))))
+      (is (= [#{} false] (lowered)) "both claims go with the snapshot at destroy"))))
 
 (defn- live-instance-ids
   "The live spawned-actor instance ids under `:rf/default`'s machines
@@ -231,11 +232,11 @@
        keys
        (filter #(clojure.string/starts-with? (name %) prefix))))
 
-(deftest machine-declared-classification-lowers-per-spawned-instance
+(deftest machine-declared-classification-covers-each-spawned-instance
   (testing "a SPAWNED actor's :data declaration travels with
-            the machine def and lowers PER INSTANCE at spawn (the generated
-            <type>#n is classified with no per-instance author code), dropped at
-            the actor's destroy"
+            the machine def and covers every instance while its snapshot is
+            present (the generated <type>#n is classified with no per-instance
+            author code), and goes with the snapshot at the actor's destroy"
     (rf/reg-machine :rf.machine-redaction/charge
       {:sensitive [[:data :token]]
        :initial   :charging
@@ -261,9 +262,9 @@
       (is (= [#{:machine} :rf/redacted false]
              [(sources) (get-in out [:tags :snapshot :data :token])
               (.contains (pr-str out) "secret-child-jwt")])
-          "the spawned instance's :data :token lowered at spawn and redacts at egress")
+          "the spawned instance's :data :token is claimed and redacts at egress")
       (rf/dispatch-sync [:rf.machine-redaction/supervisor [:stop]])
-      (is (= #{} (sources)) "spawned instance's entry DROPPED at its destroy (no leak)"))))
+      (is (= #{} (sources)) "the spawned instance's claim goes with its snapshot"))))
 
 (deftest machine-classification-malformed-declaration-fails-loud
   (testing "EP-0025 fail-loud-input — a malformed :sensitive / :large machine

@@ -9,15 +9,15 @@
 ;; implementation/routing/test/re_frame/routing_classification_test.clj).
 ;;
 ;; A reg-route declares projection-relative :sensitive [[:query :token]] paths
-;; (rooted at the route's {:query … :params …} projection). On route activation
-;; the runtime LOWERS them per-frame into the elision registry
-;; ([:rf.runtime/elision :sensitive-declarations]), RE-ROOTED under
-;; [:rf.runtime/routing :current …] and tagged :source :route — so the slice's
+;; (rooted at the route's {:query … :params …} projection). While the route is
+;; current, egress APPLIES them through the :routing/runtime-classification
+;; hook, RE-ROOTED under [:rf.runtime/routing :current …] and claimed
+;; :source :route — so the slice's
 ;; :query :token redacts at egress while an unmarked sibling rides verbatim.
 ;;
 ;; OBSERVABLE SEAM — project-egress (the EP-0015 §10/§11 record-level boundary
-;; primitive). After navigating to the :sensitive route, the per-frame
-;; classification is installed in :rf/default's elision registry. Projecting a
+;; primitive). After navigating to the :sensitive route, :rf/default's current
+;; slice names it, so the frame's classification claims its paths. Projecting a
 ;; route-slice-shaped value against that frame under
 ;; :rf.egress/off-box-observability walks it through elide-wire-value and
 ;; redacts the declared [:rf.runtime/routing :current :query :token] path to
@@ -38,7 +38,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler
                          :data-classification/classification-effects}
- :fixture/doc          "A reg-route declaring :sensitive [[:query :token]] (projection-relative, lowered per-frame at activation, :source :route, re-rooted under [:rf.runtime/routing :current …]), after navigation, redacts the slice :query :token at egress: project-egress of a route-slice-shaped value against the navigated frame under :rf.egress/off-box-observability projects :rf/redacted at the declared path while an unmarked sibling (:other) rides verbatim. The committed runtime-db slice carries the RAW token — classification is read only at egress."
+ :fixture/doc          "A reg-route declaring :sensitive [[:query :token]] (projection-relative, applied at egress to the current slice, :source :route, re-rooted under [:rf.runtime/routing :current …]), after navigation, redacts the slice :query :token at egress: project-egress of a route-slice-shaped value against the navigated frame under :rf.egress/off-box-observability projects :rf/redacted at the declared path while an unmarked sibling (:other) rides verbatim. The committed runtime-db slice carries the RAW token — classification is read only at egress."
 
  ;; The route carries its OWN projection-relative classification on the
  ;; reg-route metadata map; the conformance runner threads it through to
@@ -54,14 +54,13 @@
 
  :fixture/frame-config {}
 
- ;; URL-driven activation lowers the route's classification into the frame's
- ;; elision registry as part of the same atomic runtime-db commit that
- ;; publishes the slice (EP-0025 §Same-event ordering).
+ ;; URL-driven activation publishes the slice; the route's classification
+ ;; applies from the commit that names it, with nothing written for it.
  :fixture/dispatches
  [[:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}]]
 
- ;; project-egress runs AFTER dispatches, so :rf/default's route-sourced
- ;; classification is installed. The :value is a route-slice-shaped runtime-db
+ ;; project-egress runs AFTER dispatches, so :rf/default's current slice
+ ;; names the :sensitive route. The :value is a route-slice-shaped runtime-db
  ;; value carrying the secret token + an unmarked sibling; the projector walks
  ;; it through elide-wire-value against :rf/default's classification.
  :fixture/calls

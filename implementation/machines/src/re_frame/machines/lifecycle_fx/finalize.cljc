@@ -50,11 +50,9 @@
   The actor-teardown runtime-db projection lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
-  (:require [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
+  (:require [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.error-emit :as rf.machines.error-emit]
-            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as rf.machines.lifecycle-fx.resource-release]
@@ -114,8 +112,8 @@
 ;; A machine's `[:schemas :data]` schema is validation-only; it does not produce
 ;; a per-instance marks table. There is therefore no schema-marks entry to
 ;; clear at destroy — a destroyed actor leaves no schema-marks residue by
-;; construction. A spawned actor's `:data` redaction rides the frame's merged
-;; classification registry, including per-actor `:source :machine` entries.
+;; construction. A spawned actor's `:data` redaction is its machine's
+;; declaration, applied at egress to the snapshot while it is present.
 
 ;; ---- the completion carrier ------------------------------------------------
 
@@ -390,14 +388,10 @@
                         ;; shared via `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
                         (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!
                           machine-id frame-id (rf.machines.result/info exit-result)))]
-  (let [;; The RAW event-owner token, threaded into the teardown
-        ;; classification drop so it rides the EXACT elision write. nil for a
-        ;; non-router pure-fn / conformance caller (no event owner) — the drop
-        ;; takes the bare write. A destroy of the owning frame requested by the
-        ;; completion-output validator or the parent `:on-done` callback waits
-        ;; for the event boundary, so this whole tail runs against the
-        ;; incarnation it started in.
-        owner-token (rf.frame/current-event-owner-token)
+  (let [;; A destroy of the owning frame requested by the completion-output
+        ;; validator or the parent `:on-done` callback waits for the event
+        ;; boundary, so this whole tail runs against the incarnation it
+        ;; started in.
         child-rt   (:rf/runtime next-snapshot)
         {:keys [error-leaf? result]} (completion-output machine machine-id frame-id next-snapshot)
         ;; Validate the completion-output payload against the
@@ -630,14 +624,6 @@
     (abort-actor-in-flight-http! frame-id machine-id)
     ;; Cancel armed `:after` timers (`:reason :on-destroy`).
     (rf.machines.timer/cancel-actor-timers! frame-id machine-id)
-    ;; Drop this actor's per-instance classification declarations from the
-    ;; per-frame elision registry — the teardown half of
-    ;; `rf.machines.classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
-    ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
-    ;; that declared no classification is a clean no-op, so the registry
-    ;; entry added at spawn dies with the instance (no leak). Thread
-    ;; `owner-token` so the drop rides the EXACT elision write.
-    (rf.machines.classification/drop-at-destroy! frame-id machine-id machine owner-token)
     ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
     ;; `:rf.registry/handler-cleared` trace.
     ;;

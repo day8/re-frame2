@@ -1,14 +1,13 @@
 (ns re-frame.final-auto-destroy-elision-drop-cljs-test
-  "A spawned actor's `:final?` auto-destroy drops its `:sensitive` / `:large`
-  claims and the finalize commit does not re-install them. The router honours
-  an effect-carried `:rf.runtime/elision` verbatim, so one built from the
-  handler's pre-drop coeffect would leave every finished actor's claim behind
-  for good. A singleton rests in its final state with its `:data` intact, so
-  it keeps its claims."
+  "A spawned actor's `:final?` auto-destroy removes its snapshot, and its
+  `:sensitive` / `:large` claims go with it: the machine's declaration applies
+  at egress to the snapshots present. A singleton rests in its final state
+  with its `:data` intact, so it keeps its claims."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.elision :as rf.elision]
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -20,15 +19,14 @@
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
 (defn- machine-claim-actors
-  "Every actor id named by a `:source :machine` claim on either axis of the
-  frame's elision registry."
+  "Every actor whose snapshot path a `:source :machine` claim names, on either
+  axis of the frame's live classification."
   []
-  (set (for [[_axis decls] (:rf.runtime/elision (rf.machines.test-support/runtime-db))
-             :when (map? decls)
-             [_path owners] decls
-             owner owners
-             :when (= :machine (:source owner))]
-         (:actor-id owner))))
+  (set (for [decls [(rf.elision/sensitive-declarations :rf/default)
+                    (rf.elision/declarations :rf/default)]
+             [path owners] decls
+             :when (some #(= :machine (:source %)) owners)]
+         (nth path 2))))
 
 (def ^:private classified-finisher
   {:sensitive [[:data :token]]
@@ -46,7 +44,7 @@
   (let [claimed-while-live? (contains? (machine-claim-actors) :fade/kid#1)]
     (rf/dispatch-sync [:fade/kid#1 [:finish]])
     (is (= [true false] [claimed-while-live? (contains? (machine-claim-actors) :fade/kid#1)])
-        "the claim lowered at spawn is gone after the :final? auto-destroy")))
+        "the actor's claim is gone after the :final? auto-destroy")))
 
 (deftest a-final-singleton-keeps-its-claims
   (rf/reg-machine :fade/single classified-finisher)

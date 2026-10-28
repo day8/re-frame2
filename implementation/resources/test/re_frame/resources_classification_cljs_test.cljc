@@ -3,8 +3,8 @@
   classification, Spec 016 §SSR and hydration). The coarse whole-entry
   `:sensitive?` / `:large?` claims redact or omit, sensitive winning. The
   fine-grained surface is the projection-relative `:sensitive` / `:large`
-  declarations, lowered per instance into the per-frame elision registry; the
-  schema props validate only. The SSR egress reads that registry, unioned with
+  declarations, claimed at egress on each entry the frame holds; the schema
+  props validate only. The SSR egress reads those claims, unioned with
   anything the frame itself classifies. A resource's params and scope are its
   identity, so `reg-resource` refuses a declaration rooted at either."
   (:require
@@ -58,21 +58,20 @@
                                        entries)
                         :tag-index {} :owner-index {}}})
 
-(defn- lower-into-frame!
-  "Lower `runtime-db`'s resource classification into `frame-id`'s registry, as a
-  resource handler does at commit. Returns the lowered runtime-db."
+(defn- install-into-frame!
+  "Install `runtime-db`'s entries into `frame-id`'s runtime-db, as a resource
+  handler's commit does, so the frame classifies the entries it holds. Returns
+  `runtime-db`."
   [frame-id runtime-db]
-  (let [lowered (rf.resources.classification/reconcile-registry runtime-db rf.resources.registry/resource-meta)]
-    (when-let [reg (get lowered :rf.runtime/elision)]
-      (rf.elision/swap-elision-slot! frame-id (constantly reg)))
-    lowered))
+  (rf.frame/swap-runtime-db! frame-id #(merge % runtime-db))
+  runtime-db)
 
 (defn- ssr-wire-entry
-  "SSR-project `runtime-db`'s single entry under `frame-id`, having lowered its
-  classification into the frame's registry. Returns the wire entry."
+  "SSR-project `runtime-db`'s single entry under `frame-id`, the frame holding
+  it. Returns the wire entry."
   [frame-id runtime-db]
-  (let [lowered (lower-into-frame! frame-id runtime-db)
-        proj    (rf/with-frame frame-id (rf.resources.ssr/project-resources-runtime-db lowered))]
+  (let [held (install-into-frame! frame-id runtime-db)
+        proj    (rf/with-frame frame-id (rf.resources.ssr/project-resources-runtime-db held))]
     (val (first (get-in proj [rf.resources.state/resources-key :entries])))))
 
 (defn- ssr-projected-key
@@ -80,11 +79,11 @@
   from `projection-metadata` because a re-keyed entry is withheld from the
   wire."
   [frame-id runtime-db]
-  (let [lowered (lower-into-frame! frame-id runtime-db)]
+  (let [held (install-into-frame! frame-id runtime-db)]
     (rf/with-frame frame-id
       (first (map :projected-key
                   (rf.resources.ssr/projection-metadata
-                    frame-id 5000 (get-in lowered (rf.resources.state/entries-path))))))))
+                    frame-id 5000 (get-in held (rf.resources.state/entries-path))))))))
 
 ;; ===========================================================================
 ;; the coarse disposition and the projection-relative declarations
@@ -184,7 +183,7 @@
         we   (ssr-wire-entry :rcfg/owner-large (runtime-db-with {k e}))]
     (is (= [{:blob big :name "ok"} :loaded] [(:data we) (:status we)])
         "the owner-declared :blob slot rides raw under :rf.egress/ssr-hydration")
-    (testing "CONTROL — the same lowered slot under :rf.egress/off-box-tool still elides"
+    (testing "CONTROL — the same classified slot under :rf.egress/off-box-tool still elides"
       (let [projected (rf.resources.classification/project-entry-data
                         (:data e) (rf.resources.state/key-id k) :rcfg/owner-large :rf.egress/off-box-tool)]
         (is (= [true "ok" false]
@@ -205,10 +204,10 @@
     (is (= [(rf.resources.state/key-id k)]
            (keys (get-in (rf/with-frame :rcfg/owner-params
                            (rf.resources.ssr/project-resources-runtime-db
-                             (lower-into-frame! :rcfg/owner-params rdb)))
+                             (install-into-frame! :rcfg/owner-params rdb)))
                          [rf.resources.state/resources-key :entries]))))))
 
-;; An infinite feed's :data is the page vector; the index-free lowered decl
+;; An infinite feed's :data is the page vector; the index-free claimed decl
 ;; `[… :data :field]` matches the indexed runtime path on every page.
 
 (deftest ssr-infinite-feed-redacts-sensitive-page-field-per-page

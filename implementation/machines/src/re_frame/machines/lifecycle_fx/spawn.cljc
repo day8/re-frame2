@@ -26,7 +26,6 @@
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             ;; The occupied-`:fixed-actor-id` replacement runs the
             ;; occupant through the ORDINARY destroy path. Nothing under
@@ -454,8 +453,8 @@
 
   Returns an EXPLICIT result: `:committed` when the runtime-db swap landed,
   `:skipped` when the exact write did not. The caller (`spawn-fx*`) runs NO
-  post-install tail (classification / `:rf.machine.lifecycle/spawned` /
-  `:start`) unless install COMMITTED.
+  post-install tail (`:rf.machine.lifecycle/spawned` / `:start`) unless
+  install COMMITTED.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
@@ -557,8 +556,8 @@
   validated EXACTLY ONCE per attempt.
 
   The entry is EDN: the prepared snapshot, nothing executable. The install
-  re-derives the stamped spec it needs (classification lowering) from the
-  registrar's current definition for the child's `:machine-id`, so a
+  re-derives the stamped spec from the registrar's current definition for the
+  child's `:machine-id`, so a
   registrar change between preflight and install is ordinary hot reload — a
   re-registered type is the definition the child runs, and an unregistered
   one leaves the admitted child installed and inert.
@@ -982,10 +981,10 @@
   inheritable keys ride the newborn's bootstrap dispatch; `args` the spawn
   args. Returns the allocated `spawned-id`."
   [frame-id envelope args]
-  (let [;; The RAW event-owner token, threaded into `install-spawn!` and the
-        ;; classification lowering so both ride the EXACT durable write. nil
-        ;; for a non-router pure-fn / conformance caller (no event owner) —
-        ;; those writes then take the bare-id path. A destroy of the owning
+  (let [;; The RAW event-owner token, threaded into `install-spawn!` so it
+        ;; rides the EXACT durable write. nil for a non-router pure-fn /
+        ;; conformance caller (no event owner) — the write then takes the
+        ;; bare-id path. A destroy of the owning
         ;; frame requested by the `[:schemas :data]` validator or a container
         ;; watch waits for the event boundary, so the whole spawn tail runs
         ;; against the incarnation it started in.
@@ -1042,8 +1041,8 @@
         ;; The stamped spec over the registrar's CURRENT definition for the
         ;; `:machine-id`, built through the SAME `candidate-spawn-spec` path
         ;; the preflight uses. For a prepared `:spawn-all` child it feeds the
-        ;; per-instance classification lowering only — the snapshot is the
-        ;; prepared one — and it is nil when the child's TYPE was
+        ;; schema-rejection check only — the snapshot is the prepared one —
+        ;; and it is nil when the child's TYPE was
         ;; unregistered after its preflight: the admitted child still installs
         ;; (inert), exactly as any live actor whose type is unregistered.
         spec''     (candidate-spawn-spec args)
@@ -1157,24 +1156,11 @@
                                        :invoke-id   invoke-id
                                        :track?      track?
                                        :owner-token owner-token})]
-        ;; Run the framework-owned tail — per-instance classification, the
-        ;; `:rf.machine.lifecycle/spawned` trace and the `:start` dispatch —
-        ;; ONLY when the install COMMITTED.
+        ;; Run the framework-owned tail — the `:rf.machine.lifecycle/spawned`
+        ;; trace and the `:start` dispatch — ONLY when the install COMMITTED.
+        ;; The new actor is classified from here on: its machine's declaration
+        ;; applies at egress to the snapshot the install landed.
         (when (= :committed installed)
-          ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
-          ;; `:data` declarations
-          ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
-          ;; each snapshot-relative `[:data …]` path to this instance's absolute
-          ;; snapshot path. The classification travels with the machine def and
-          ;; applies to every generated `<type>#n`, dropped on destroy
-          ;; (`teardown-live-actor!`). The egress READ path
-          ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is not
-          ;; involved — this writes the registry-entry source `:source :machine`, a peer of
-          ;; the general commit-plane `:source :effect` route. A spec declaring
-          ;; no classification is a no-op. Thread the `owner-token`
-          ;; so the per-instance classification lowering rides the EXACT elision
-          ;; write, as the install does.
-          (rf.machines.classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
           ;; The REGISTRAR-substrate "instance appeared" observation, the
           ;; symmetric partner of
           ;; `:rf.machine.lifecycle/created` (handler registered) and

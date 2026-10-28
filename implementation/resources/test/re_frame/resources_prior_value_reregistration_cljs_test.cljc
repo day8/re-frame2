@@ -1,13 +1,13 @@
 (ns re-frame.resources-prior-value-reregistration-cljs-test
-  "A held resource or mutation read sub's value, prior and current, keeps the
-  classification it was computed under when its owner is re-registered
-  without its declaration: besides the current owner spec, a value takes the
-  elision-registry claims held in the inputs it was computed from (the prior
-  inputs for `:rf.sub/prev-value`, the live runtime-db for `:rf.sub/value`).
-  Two boundaries are pinned: the registry never holds a coarse `:sensitive?`
-  root claim, and it holds the lowered claims only until the next resource
-  commit reconciles it against the current registrations. A scenario runs
-  re-registered and unchanged, the unchanged run its control, with two
+  "A held resource or mutation read sub's value keeps the classification it
+  was computed under when its owner is re-registered without its declaration:
+  besides the current owner spec, a `:rf.sub/prev-value` takes the claims the
+  policy it was computed with makes on the inputs it was computed from, while
+  a `:rf.sub/value` computed after the re-registration follows the current
+  registration. Two boundaries are pinned: a coarse `:sensitive?` root claim is
+  not a path claim, so it is not recovered, and the live value of a recompute
+  is classified by the registration current when it is computed. A scenario
+  runs re-registered and unchanged, the unchanged run its control, with two
   exceptions: a prior result across a clear takes its control from the read-sub
   egress suite, and prior data across a remove needs none, because its
   unchanged run holds the same recovered claims plus its spec. Trace-bus
@@ -241,7 +241,7 @@
     (assert-prior-previous-projection-redacted {})))
 
 ;; ===========================================================================
-;; 4. The documented residue: a coarse root claim is never in the registry
+;; 4. The documented residue: a coarse root claim is not recovered
 ;; ===========================================================================
 
 (deftest a-coarse-resource-re-registered-without-its-claim-ships-its-prior-data
@@ -251,8 +251,9 @@
         (is (= redacted (:rf.sub/prev-value
                           (last-run-tags [:rf.resource/data profile-q] window)))))))
   (testing "PINNED RESIDUE: re-registered without it, the prior data ships raw,
-            because a coarse `:sensitive?` claim is never lowered into the
-            registry the prior inputs carry (Spec 016 §Resource registration spec)"
+            because a coarse `:sensitive?` claim is read off the current owner
+            spec, never off the policy the prior value was computed with
+            (Spec 016 §Resource registration spec)"
     (let [[_ window] (remove-profile {:sensitive? true} {})]
       (when rf.interop/debug-enabled?
         (is (= {:name "Ann" :ssn ssn-1}
@@ -284,38 +285,30 @@
                      (read!)))]
       [(read!) window])))
 
-(defn- assert-live-profile-redacted
+(defn- live-profile-runs
+  "The recompute's `[value prev-value state-value-data state-prev-value-data]`
+  for the profile, after re-registering it under `re-registered`."
   [re-registered]
   (let [data-q        [:rf.resource/data profile-q]
         state-q       [:rf/resource profile-q]
         [live window] (recompute-profile re-registered (fn []))]
     (is (= ssn-1 (get-in live [data-q :ssn])) "the in-process read stays raw")
     (when rf.interop/debug-enabled?
-      (is (= [{:name "Ann" :ssn redacted} {:name "Ann" :ssn redacted} false]
-             [(:rf.sub/value (last-run-tags data-q window))
-              (get-in (last-run-tags state-q window) [:rf.sub/value :data]) (carries? ssn-1 (sub-runs window))])))))
+      (let [data  (last-run-tags data-q window)
+            state (last-run-tags state-q window)]
+        [(:rf.sub/value data) (:rf.sub/prev-value data)
+         (get-in state [:rf.sub/value :data]) (get-in state [:rf.sub/prev-value :data])]))))
 
 (deftest control-an-unchanged-resources-live-data-stays-redacted-on-a-recompute
-  (assert-live-profile-redacted nil))
+  (when-some [runs (live-profile-runs nil)]
+    (is (= (repeat 4 {:name "Ann" :ssn redacted}) runs))))
 
-(deftest a-re-registered-resources-live-data-keeps-its-declaration-on-a-recompute
-  (testing "the owner is re-registered without its declaration, and an unrelated
-            app-db write recomputes the held subs"
-    (assert-live-profile-redacted {})))
-
-(deftest a-resource-commit-under-the-new-registration-releases-the-live-data
-  (testing "PINNED BOUNDARY: any resource commit reconciles the registry against
-            the current registrations, so after one the re-registered owner's
-            empty declaration governs the data it did not reload"
-    (let [[_ window] (recompute-profile
-                       {}
-                       (fn []
-                         (rf/reg-resource :lafas/other
-                           {:scope :rf.scope/global :params-schema [:map]}
-                           (fn [_ _] {:request {:method :get :url "/other"}}))
-                         (rf/dispatch-sync [:rf.resource/ensure
-                                            {:resource :lafas/other :scope :rf.scope/global
-                                             :params {} :owner [:app :other]}])))]
-      (when rf.interop/debug-enabled?
-        (is (= {:name "Ann" :ssn ssn-1}
-               (:rf.sub/value (last-run-tags [:rf.resource/data profile-q] window))))))))
+(deftest a-re-registered-resources-live-data-follows-the-current-registration
+  (testing "PINNED BOUNDARY: re-registered without its declaration, an unrelated
+            app-db write recomputes the held subs under the current
+            registration, so the live data rides raw while the prior value,
+            computed under the declaration, stays redacted"
+    (when-some [[value prev state-value state-prev] (live-profile-runs {})]
+      (is (= [{:name "Ann" :ssn ssn-1} {:name "Ann" :ssn redacted}
+              {:name "Ann" :ssn ssn-1} {:name "Ann" :ssn redacted}]
+             [value prev state-value state-prev])))))

@@ -51,18 +51,27 @@
     (fn [{:keys [slug password]} _]
       {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}})))
 
-(deftest reconcile-mutation-preserves-foreign-owner
-  ;; The registry is a multi-owner union: an :effect-sourced declaration must
-  ;; survive the mutation reconcile.
+(deftest a-mutation-instance-is-classified-exactly-while-present
+  ;; The mutations root hook claims an instance's declared slots on the
+  ;; runtime-db value it is handed, beside the registry's own claims.
   (reg-secret-mutation!)
-  (let [rdb (-> {rf.resources.mutation-runtime/mutations-key
-                 {(rf.resources.mutation-runtime/instance-key-id :i1)
-                  (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}})}}
-                (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
-                          #{{:source :effect}}))
-        out (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)]
-    (is (= #{{:source :effect}}
-           (get-in out [:rf.runtime/elision :sensitive-declarations [:app :token]])))))
+  (let [k-id   (rf.resources.mutation-runtime/instance-key-id :i1)
+        inst   (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}})
+        policy (rf.elision/frame-policy :rf/default)
+        claims (fn [rdb]
+                 (:sensitive-declarations
+                   (rf.elision/with-runtime-classification
+                     (:rf.runtime/elision rdb) [policy] rdb)))
+        rdb    (-> {rf.resources.mutation-runtime/mutations-key {k-id inst}}
+                   (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
+                             #{{:source :effect}}))]
+    (is (= {[:rf.runtime/mutations k-id :params :password] #{{:source :mutation}}
+            [:app :token]                                   #{{:source :effect}}}
+           (claims rdb))
+        "the instance's params slot is claimed beside the effect claim")
+    (is (= {[:app :token] #{{:source :effect}}}
+           (claims (assoc rdb rf.resources.mutation-runtime/mutations-key {})))
+        "with the instance gone, only the effect claim stands")))
 
 (deftest execute-lowers-instance-and-redacts-egress-and-continuation
   (reg-secret-mutation!)
@@ -117,7 +126,10 @@
                               {:status :error :error {:http-status 422 :body "nope"}}))
       (is (= redacted-params (:params @replied)))
       (is (not (str/includes? (pr-str @replied) PW))))
-    (testing "clear drops the lowered instance declaration"
+    (testing "no mutation claim is written into the frame's elision registry"
+      (is (not-any? #(= :mutation (:source %))
+                    (mapcat val (get-in (runtime-db) [:rf.runtime/elision :sensitive-declarations])))))
+    (testing "clear removes the instance, and its claim with it"
       (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
       (is (empty? (get (rf.elision/sensitive-declarations :rf/default)
                        [:rf.runtime/mutations (rf.resources.mutation-runtime/instance-key-id :i1) :params :password]))))))

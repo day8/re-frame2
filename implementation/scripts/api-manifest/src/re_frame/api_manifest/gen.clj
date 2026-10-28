@@ -368,9 +368,10 @@
      re-frame.routing.match
      re-frame.routing.resolve
      re-frame.routing.url
-     ;; Registration and the projection-relative data classification lowered
-     ;; at route registration. `reg-route` / `route-ids` / `route-meta` are the
-     ;; façade's rows; these are the validators and the route-table cache.
+     ;; Registration and the projection-relative data classification applied
+     ;; at egress. `reg-route` / `route-ids` / `route-meta` are the façade's
+     ;; rows; these are the validators, the classification hook and the
+     ;; route-table cache.
      re-frame.routing.classification
      re-frame.routing.registry
      ;; Navigation planning and commit: the pre-commit planning seam, the
@@ -466,8 +467,8 @@
      re-frame.resources.mutation-runtime
      re-frame.resources.state
      ;; Registration: the three registrar kinds, the shared params
-     ;; validate+canonicalize pipeline, and the durable classification lowered
-     ;; at registration. The `reg-*` / `clear-*` / `*-ids` / `*-meta` surfaces
+     ;; validate+canonicalize pipeline, and the durable classification applied
+     ;; at egress. The `reg-*` / `clear-*` / `*-ids` / `*-meta` surfaces
      ;; are the façade's rows; these hold the validators, the registrar-kind
      ;; keywords and the scope resolvers behind them.
      re-frame.resources.classification

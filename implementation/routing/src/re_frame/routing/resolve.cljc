@@ -590,8 +590,8 @@
   and the plan diagnostic projection).
 
   A trace tag is an EGRESS surface. The route's `:sensitive` classification is
-  lowered against runtime-db slice PATHS (`classification/lower-for-route`), which
-  redacts the `:rf/route` projections a tool reads out of the slice but says
+  applied at runtime-db slice PATHS (`classification/runtime-classification`),
+  which redacts the `:rf/route` projections a tool reads out of the slice but says
   nothing about a tag map on the trace bus. The plan's `:target` nonetheless
   carries `:url` / `:params` / `:query` — carrier VALUES — and this mapping
   declines to carry them. For a value the route DECLARES sensitive, that is the
