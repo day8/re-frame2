@@ -44,6 +44,14 @@ Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
 Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-10x.preload` `:preloads` entry are v1-only and have no replacement at the same coord. If the project also pinned a `closure-defines` flag for 10x (e.g. `day8.re-frame-10x.preload.show-fps?`), drop those too.
 
+Then find what the app says about 10x's DOM element outside ClojureScript. 10x renders into a shadow root on a `<div id="--re-frame-10x--">` it appends to `<body>`, and v1 apps name that id in CSS (a print rule, a layout exclusion), in e2e and visual tests (kept out of a screenshot or an accessibility scan) and in scripts. After the swap those references match nothing, and nothing fails: the exclusion stops applying, so a print rule or a screenshot that kept the devtool out now lets Xray in. Search every tracked file, not only the ClojureScript sources:
+
+```bash
+git grep -n -F -e '--re-frame-10x--'   # CSS, HTML, JS, test and script files alike
+```
+
+Map each hit to Xray's element, or drop it if it only served 10x. Inline, Xray renders into the app's own `[data-rf-xray-host]` element (the [layout host](#the-layout-host-true-inline-default), whose recipe already hides it in print). Xray's own root is `#rf-xray-root`, created inside the host, or under `<body>` when Xray opens as an overlay, so it is the selector that reaches Xray in either mode.
+
 ### 2. Add Xray (dev build only)
 
 ```clojure
@@ -196,7 +204,7 @@ The global keydown listener in `tools/xray/src/day8/re_frame2_xray/keybinding.cl
 
 | Action | Keys | Notes |
 |---|---|---|
-| Toggle the Xray panel (show / hide) | `Ctrl+Shift+C` | Toggles visibility of the mounted shell; does not unmount. `Ctrl` only — see Cross-OS below. |
+| Toggle the Xray panel (show / hide) | `Ctrl+Shift+C` | Toggles visibility of the mounted shell; does not unmount. Inline, hiding also sets `display: none` inline on the `[data-rf-xray-host]` element, so its column collapses, and showing restores the element's earlier inline `display`, so CSS or a test that reads the host's `display` sees the change. `Ctrl` only — see Cross-OS below. |
 | Toggle Dynamic ↔ Static mode | `Cmd+Shift+M` / `Ctrl+Shift+M` | Dispatches `:rf.xray/toggle-mode` on the `:rf/xray` frame. Accepts either Cmd (macOS) or Ctrl. |
 | Toggle the command palette | `Cmd+K` / `Ctrl+K` | Dispatches `:rf.xray/palette-toggle` on the `:rf/xray` frame; opens the shell first if it isn't visible. Accepts either Cmd (macOS muscle-memory) or Ctrl (Windows/Linux). |
 
