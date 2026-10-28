@@ -180,7 +180,7 @@ Before accepting the migrated suite, audit its test doubles as [M-52](#m-52--run
 ;; REWRITE — hoist body; per-test fixture handles registrar isolation
 ;; (assumes the ns already installs make-reset-runtime-fixture via use-fixtures :each;
 ;; if not, add it — see M-52 in MIGRATION.md for the full pattern)
-body...
+body...   ; each (rf/dispatch ev) the body itself calls → (rf/dispatch-sync ev)
 
 ;; AD-HOC ALTERNATIVE — one-off bracket without converting the ns to use a :each fixture
 (let [snap (ts/snapshot-registrar)]
@@ -190,7 +190,12 @@ body...
       (ts/restore-registrar! snap))))
 ```
 
-v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.
+v1's macro did two jobs, and the hoist keeps both. It bracketed the body with `with-temp-re-frame-state`, which the per-test fixture every v2 suite installs now does. It also redefined `rf/dispatch` and `re-frame.router/dispatch` to drain at once through `dispatch-sync`, so every `rf/dispatch` made while the body ran had settled before the body's next form. v2's `dispatch-sync` drains to completion, and a dispatch made inside a running event — its handler, interceptors or `:fx` walk, a stubbed fx included — drains with it. A v2 `rf/dispatch` made outside any event joins the frame's external lane and runs on a later tick ([Spec 002 §Run-to-completion dispatch](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#run-to-completion-dispatch-drain-semantics)). So:
+
+- **Each `rf/dispatch` the body calls directly becomes `rf/dispatch-sync`.** Leave one inside a handler the body registers: it already drains with its event, and `dispatch-sync` there is `:rf.error/dispatch-sync-in-handler`.
+- **A dispatch that production code makes from a callback the body fires, outside any event** — a socket `onopen`, a promise or captured stub callback the test resolves inline — cannot be swapped at the test site. Find each one by reading what the body calls, flag it, and await its result with `ts/poll-until` or a one-shot `:rf.event/run-end` listener, as [M-25 (async tests)](#m-25-async-tests--run-test-async--wait-for) does.
+
+Missed, either kind leaves the test asserting state the dispatch has not written yet, or an assertion of absence passing vacuously.
 
 **Three v1 test-double habits compile and pass for the wrong reason in v2.** Hoisting is enough while the body only adds ids no other loaded namespace registers. Audit every double in the migrated suite against the `re-frame2` skill's [`testing-doubles.md` §Test doubles](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing-doubles.md#test-doubles), which owns the v2 patterns:
 
