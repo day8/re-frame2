@@ -379,6 +379,23 @@ Or, with the re-frame2-pair skill loaded, just describe the task — the skill's
 SKILL.md teaches the agent which tool to call. See
 [`../../skills/re-frame2-pair/SKILL.md`](../../skills/re-frame2-pair/SKILL.md).
 
+### One call from a shell, without registering the server
+
+An agent that cannot register an MCP server with its host runs one tool per
+command through `bin/call.cjs` (the `re-frame2-pair-call` bin), which starts
+`out/server.js`, completes the stdio handshake, makes the call and exits:
+
+```bash
+node bin/call.cjs discover-app '{}' -- --port-file <app>/.shadow-cljs/nrepl.port
+```
+
+The JSON object is the tool's arguments, and launch flags go after `--`. The
+tool's text result goes to stdout and the server's log to stderr; the exit
+status is 0 for a result, 1 for a tool error, 2 when no result came back.
+`npm run test:call-cli` tests it against the built server. The handshake for a
+client of your own is in
+[`mcp-transport.md` §Headless use](../../skills/re-frame2-pair/references/mcp-transport.md#headless-use--no-host-registration).
+
 ### eval-cljs and Promise-returning forms (rf2-xn4f9)
 
 By default, `eval-cljs` captures the form's synchronous return
