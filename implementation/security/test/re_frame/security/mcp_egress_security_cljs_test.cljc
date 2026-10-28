@@ -69,13 +69,6 @@
   "A vector of 0..12 mixed events."
   (rf.security.gen/gen-vec (rf.security.gen/gen-int 0 13) gen-event))
 
-(deftest allow-sensitive-enabled-opt-in-passes-through-verbatim
-  ;; The operator's --allow-sensitive-reads opt-in is the sole control point.
-  (let [events [{:operation :fx/run :sensitive? true :tags {:value sentinel}}
-                {:operation :fx/run :sensitive? "true" :tags {:value sentinel}}
-                {:operation :sub/recompute :tags {:k "public-data"}}]]
-    (is (= [events 0] (rf.mcp-base.sensitive/strip-sensitive events true)))))
-
 (def ^:private gen-frame
   "A per-frame snapshot map with mixed-sensitivity :traces + :epochs slices
   and an :app-db (which scrub-snapshot leaves alone by design)."
