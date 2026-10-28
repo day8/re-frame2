@@ -223,10 +223,10 @@ A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-d
   (is (= :loading      (:state s)))
   (is (= #{:transient} (:tags s))))
 
-;; Same assertion through the framework sub (preferred for reaction-driven tests)
-(is (= :loading      (:state @(rf/subscribe [:rf/machine :loader]))))
-(is (= true          @(rf/subscribe [:rf.machine/has-tag? :loader :transient])))
-(is (= false         @(rf/subscribe [:rf.machine/has-tag? :loader :terminal])))
+;; Same assertion through the framework subs — one-shot, nothing left subscribed
+(is (= :loading      (:state (rf/subscribe-once [:rf/machine :loader]))))
+(is (= true          (rf/subscribe-once [:rf.machine/has-tag? :loader :transient])))
+(is (= false         (rf/subscribe-once [:rf.machine/has-tag? :loader :terminal])))
 ```
 
 For compound machines, `:state` is a path vector (`[:auth :dashboard]`) and `:tags` is the union along the path. `:rf.machine/has-tag?` is null-tolerant: a missing or uninitialised machine returns `false` rather than throwing.
@@ -323,7 +323,7 @@ Pick the tightest match, run it from the directory that declares it, and report 
 - A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`); a sequence is a `doseq` over `dispatch-sync`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
-- Machine assertions use `(subscribe [:rf/machine id])` / `(subscribe [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
+- Machine assertions use `(rf/subscribe-once [:rf/machine id])` / `(rf/subscribe-once [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 - Each test double meets [`testing-doubles.md` §Test doubles](testing-doubles.md#test-doubles).
 - **Gate run** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) was run and its exact command and result reported, or the hand-off reason named.

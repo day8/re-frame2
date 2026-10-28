@@ -78,7 +78,7 @@ The machine map's top-level keys are documented in Spec 005 §Transition table t
 Declare the events a machine raises and handles **only itself** in a top-level `:internal-events` **set** — machine plumbing that is *not* part of the public event surface. An external dispatch of one (from a view, a test, or another handler) is **refused** at the machine dispatch boundary; an internal `:raise` of it is handled normally.
 
 ```clojure
-(def gate
+(rf/defmachine gate
   {:initial :waiting
    :internal-events #{:tick}                          ;; private — only the machine raises it
    :actions {:arm (fn [_] {:fx [[:raise [:tick]]]})}  ;; raise it internally…
@@ -86,6 +86,8 @@ Declare the events a machine raises and handles **only itself** in a top-level `
    {:waiting {:on {:go {:target :armed :action :arm}}}
     :armed   {:on {:tick {:target :checking}}}         ;; …and handle it with an ordinary :on clause
     :checking {}}})
+
+(rf/reg-machine :my/gate gate)
 
 (rf/dispatch [:my/gate [:go]])    ;; runs :arm → raises :tick → drives :armed → :checking
 (rf/dispatch [:my/gate [:tick]])  ;; REFUSED at the boundary — no transition, an error trace fires
