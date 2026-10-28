@@ -45,8 +45,12 @@ function fixture(body) {
   return { abs, rel: relPosix(abs) };
 }
 
-function run(depsEdnRel, localRoot, version = VERSION) {
+// `binRel`, when given, is a repo-relative directory put at the head of PATH.
+// The `bash -lc` string references only $PWD and $PATH: WSL's bash.exe
+// expands it twice, so a variable it assigned itself would read empty.
+function run(depsEdnRel, localRoot, version = VERSION, binRel = null) {
   const command = [
+    ...(binRel ? ['env', `PATH="$PWD/${binRel}:$PATH"`] : []),
     shQuote(`./${SCRIPT_REL}`),
     shQuote(localRoot),
     shQuote(version),
@@ -109,6 +113,33 @@ test('abort: two real code coordinates → exit 4 (ambiguous, refuse to guess)',
   );
   const res = run(fix.rel, '../core');
   assert.equal(res.status, 4);
+});
+
+test('abort: no candidate runs Python 3.10+ → exit 2, naming each one and what it did', () => {
+  // Stubs shadow all three candidates lib/python.sh tries: a `python3` shaped
+  // like the Microsoft Store alias, a Python 2 `python`, and a `py` that fails.
+  const bin = path.join(makeScratchDir(REPO_ROOT, 'rf2-local-root-nopy'), 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const stubs = {
+    python3: 'echo "Python was not found" >&2\nexit 49',
+    python: 'printf 2.7\nexit 1',
+    py: 'exit 9',
+  };
+  for (const [name, body] of Object.entries(stubs)) {
+    const stub = path.join(bin, name);
+    fs.writeFileSync(stub, `#!/usr/bin/env sh\n${body}\n`, { mode: 0o755 });
+    fs.chmodSync(stub, 0o755);
+  }
+  const body = '{:deps {day8/re-frame2 {:local/root "../core"}}}\n';
+  const fix = fixture(body);
+  const res = run(fix.rel, '../core', VERSION, relPosix(bin));
+  const out = res.stdout + res.stderr;
+  assert.equal(res.status, 2, `expected exit 2, got ${res.status}\n${out}`);
+  assert.match(out, /no Python 3\.10\+ interpreter runs on this host/);
+  assert.match(out, /python3 +exit 49 — the Microsoft Store alias/);
+  assert.match(out, /python +Python 2\.7, older than 3\.10/);
+  assert.match(out, /py -3 +exit 9/);
+  assert.equal(fs.readFileSync(fix.abs, 'utf8'), body, 'deps.edn must be left untouched');
 });
 
 test('the script is committed executable (release.yml invokes it directly)', () => {

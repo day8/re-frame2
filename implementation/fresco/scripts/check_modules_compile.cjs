@@ -76,6 +76,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { SHADOW_CLI } = require('../../scripts/lib/shadow.cjs');
+const { noInterpreterMessage, resolvePython } = require('../../scripts/lib/python.cjs');
 
 const IMPL = path.resolve(__dirname, '../..');
 const BUILD_ID = 'fresco-modules-compile';
@@ -143,11 +144,12 @@ const NAMESPACE_RE = /^[A-Za-z][A-Za-z0-9._*+!?<>=$%&|-]*$/;
 /**
  * Decide the optional-module entry list from the emitter's result. Pure, so
  * the self-test can prove each refusal fires without spawning Python.
+ * `python` is the interpreter's label, which the refusals name.
  *
  * @returns {{ok: true, namespaces: string[]} | {ok: false, reason: string, detail: string[]}}
  */
-function decideModuleNamespaces({ error, status, stdout, stderr }) {
-  const cmd = `python ${MODULE_ROSTER} ${MODULE_ROSTER_FLAG}`;
+function decideModuleNamespaces({ error, status, stdout, stderr, python = 'python' }) {
+  const cmd = `${python} ${MODULE_ROSTER} ${MODULE_ROSTER_FLAG}`;
   if (error) {
     return {
       ok: false,
@@ -189,14 +191,31 @@ function decideModuleNamespaces({ error, status, stdout, stderr }) {
   return { ok: true, namespaces: [...new Set(namespaces)].sort() };
 }
 
-/** Ask the roster which namespaces the optional modules own. */
+/**
+ * Ask the roster which namespaces the optional modules own — under `$PYTHON`
+ * when it is set, otherwise under the first interpreter `resolvePython()`
+ * (`scripts/lib/python.cjs`) finds running Python 3.10+. Finding none is
+ * refusal 1: the roster could not be asked.
+ */
 function optionalModuleNamespaces(impl = IMPL) {
-  const python = process.env.PYTHON || 'python';
-  const r = spawnSync(python, [MODULE_ROSTER, MODULE_ROSTER_FLAG], {
+  let python = process.env.PYTHON ? [process.env.PYTHON, []] : null;
+  if (!python) {
+    const { found, tried } = resolvePython();
+    if (!found) {
+      return {
+        ok: false,
+        reason: 'no Python interpreter could run the optional-module roster',
+        detail: noInterpreterMessage(tried).split('\n'),
+      };
+    }
+    python = found;
+  }
+  const [command, lead] = python;
+  const r = spawnSync(command, [...lead, MODULE_ROSTER, MODULE_ROSTER_FLAG], {
     cwd: impl,
     encoding: 'utf8',
   });
-  return decideModuleNamespaces(r);
+  return decideModuleNamespaces({ ...r, python: [command, ...lead].join(' ') });
 }
 
 /** The namespace a source declares — the `ns` form at column 0. */

@@ -74,10 +74,11 @@
 # # Runner / portability
 #
 # Linux-runner-only by design (sole caller is release-xray.yml on
-# ubuntu-latest). POSIX sh + python3 — python3 is a runner requirement
-# anyway, for the rewrite step that runs immediately before this, and
-# ships on ubuntu-latest. No .ps1 sibling (same rationale as
-# preflight-story-package.sh).
+# ubuntu-latest). POSIX sh + Python 3.10+, found by lib/python.sh
+# (`python3` first) — a runner requirement anyway, for the rewrite step
+# that runs immediately before this, and python3 ships on ubuntu-latest.
+# A host where no Python runs exits 2 naming what was tried. No .ps1
+# sibling (same rationale as preflight-story-package.sh).
 #
 # # Usage
 #
@@ -90,6 +91,11 @@ set -eu
 
 VERSION="${1:?usage: preflight-xray-package.sh VERSION [XRAY_DIR]}"
 XRAY_DIR="${2:-.}"
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/lib/python.sh"
+resolve_python || exit 2
+
 cd "$XRAY_DIR"
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -130,7 +136,7 @@ if [ ! -f "$POM" ]; then
 fi
 echo "preflight: pom = $POM"
 
-if ! VERSION="$VERSION" REQUIRED_FILE="$REQUIRED_FILE" python3 - "$POM" <<'PYTHON'
+if ! VERSION="$VERSION" REQUIRED_FILE="$REQUIRED_FILE" $python - "$POM" <<'PYTHON'
 import os
 import sys
 import xml.etree.ElementTree as ET
