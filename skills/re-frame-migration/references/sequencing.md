@@ -43,7 +43,7 @@ Phase 3 — the planned sweep: the rest of the Phase-0a plan,
 
 This is the skill's one statement of where the first compile falls and what its result may hold; the other leaves point here, and the "post-M-0 compile gate" they name is this attempt.
 
-1. **The inventory is read-only and comes first.** Phase 0a reads the dependency tree, dependency source and the app's committed source, searching with `rg`; it rewrites nothing and builds nothing, and its plan is written before the first dependency edit ([`inventory-and-plan.md`](inventory-and-plan.md)).
+1. **The inventory is read-only and comes first.** Phase 0a reads the dependency tree, dependency source and the app's committed source, searching with `rg`; it rewrites nothing, its only build is a report on the unmodified v1 build that leaves the project's own build output untouched, and its plan is written before the first dependency edit ([`inventory-and-plan.md`](inventory-and-plan.md)).
 2. **Two kinds of edit precede the first compile attempt, and only these:**
    - **classpath preparation** — the M-0 dependency pass carrying the Phase-0b bumps and the 10x preload drop, the exclusion of every v1 `re-frame/re-frame` edge, the install, and the classpath-clean check, run after the last dependency edit ([`setup.md`](setup.md));
    - **the plan's approved forced blocker fixes** — each Phase-0a row marked forced because the project cannot compile with it unchanged (a `console`-referencing add-on, an off-contract `re-frame.*` require), whose disposition is settled, by the plan itself or by the author's choice where the row needs one. A forced row still waiting on that choice holds only itself: the attempt runs without it and fails there, as expected.
