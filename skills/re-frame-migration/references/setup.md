@@ -12,6 +12,7 @@ Operational detail for **M-0 — the dep-coord swap**, the precondition for ever
 - The consumability done-gate
 - The pay-as-you-go artefact split — the principle
 - Edge cases
+- Import the clj-kondo config
 
 The two gates that bracket this one are their own leaves, loaded at their own phases: the Phase-0b pre-flight in [`floor-gate.md`](floor-gate.md), and the Phase-4 optimized / release compile gate in [`release-compile-gate.md`](release-compile-gate.md).
 
@@ -187,6 +188,16 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.longpaths GIT_CONFIG_VALUE_0=true \
 - **A root outside the worktree is an explicit resource boundary.** Name the path in the report, and in the task's grant where it runs under one; touch nothing beyond it — not the shared `~/.gitlibs`, not another worker's root or repositories, not `git config --global` or `--system`.
 - **Resolve fresh into an empty root** — `-Sforce` recomputes the basis rather than reusing a cached one. Reusing another cache is the fallback: its Git metadata can still point into the worktree it was copied from, so check what the copy owns and references before changing anything in it.
 - **Then carry on exactly as before.** Re-run the classpath check above under every alias the build uses, confirm each Git coordinate resolved at its intended `:git/sha`, and make the first compile with its evidence. A repaired cache waives no gate.
+
+## Import the clj-kondo config
+
+**Once the classpath check passes, import the clj-kondo config `day8/re-frame2` ships — once, before the sweep, so every unit lints against it.** clj-kondo does not macroexpand, so unaided it reports re-frame2's macros as false `Unresolved symbol` errors: the name a `reg-view` or `defmachine` introduces, the `dispatch` / `subscribe` a `reg-view` injects into its body, and the frame symbol `with-new-frame` binds. The artefact ships a clj-kondo export on its classpath that teaches those shapes, so import it with clj-kondo's ordinary dependency step, run from the project's root once a `.clj-kondo/` directory exists there (create an empty one if not):
+
+```bash
+clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs   # "$(lein classpath)" on Leiningen
+```
+
+That copies the export under your `.clj-kondo/`, where clj-kondo loads it; re-run it when you upgrade re-frame2. The export's hook rewrites `(reg-view sym [args] body)` to a `(defn sym [args] (let [dispatch … subscribe …] body))`, so clj-kondo resolves the view's own symbol and reads the injected ops as real locals; the same export lints `defmachine` as `def`, gives `with-frame` / `with-new-frame` their `do` / `let` shapes, and lets the rest of the `reg-*` family lint as ordinary calls. A genuinely unresolved symbol still reports. Commit the copied config (not `.clj-kondo/.cache/`) with M-0, so every unit's checkout carries it and a unit linting its own files mid-sweep ([`orchestrating-a-large-migration.md` §5](orchestrating-a-large-migration.md#5-the-all-or-nothing-single-compile-gate)) reads only real findings.
 
 ---
 
