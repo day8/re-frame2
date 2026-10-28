@@ -2,13 +2,13 @@
   "A held mutation read sub's `:rf.sub/run` trace redacts the slots
   its owner declares, in both `:rf.sub/value` and `:rf.sub/prev-value`.
 
-  A `reg-resource` / `reg-mutation` `:sensitive` declaration is lowered into
-  the frame's elision registry at the entry's absolute runtime-db position,
+  A `reg-resource` / `reg-mutation` `:sensitive` declaration is claimed at
+  the entry's or instance's absolute runtime-db position while it is present,
   while a read sub returns the bare projection — the entry's data, the
   instance's result, the scoped keys they sit under. So the sub's trace is
   classified from the owner spec, re-rooted onto the sub's value, and a prior
-  value stays redacted after an evict or a clear has dropped the lowered
-  claims.
+  value stays redacted after an evict or a clear has removed the instance and
+  its claims.
 
   The in-process reads stay raw: classification applies at egress only. Every
   assertion read off the trace bus sits inside a
@@ -127,7 +127,7 @@
     (is (= [token token] [(get-in settled [state-q :result :token]) (:token (get settled result-q))])
         "the in-process reads stay raw")
     (is (= [true []] [(boolean (seq claims)) (claims-under :rf.runtime/mutations)])
-        "the clear drops the settled instance's lowered claim from the registry")
+        "the settled instance's claim goes with the clear")
     (when rf.interop/debug-enabled?
       (let [state (:rf.sub/value (last-run-tags state-q settle))]
         (is (= [:success result result]

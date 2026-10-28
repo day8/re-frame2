@@ -1,14 +1,14 @@
 (ns re-frame.ssr-routing-egress-production-test
   "Route classification leaves the box in PRODUCTION through the hydration
   payload, so this namespace runs the whole chain — a real `reg-route` and
-  `:rf.route/handle-url-change` activation, the per-frame registry,
+  `:rf.route/handle-url-change` activation, the frame's classification,
   `project-runtime-db`, `build-payload` — and holds in dev AND under
   `-Dre-frame.debug=false` (the `JVM implementation/ssr (test:prod-gate)` leg
   runs it there).
 
   `re-frame.ssr-route-slice-projection-test` pins the projector against a
-  registry it installs by hand; this one also proves activation lowers the
-  declarations, the half a debug gate could plausibly be added to."
+  slice it installs by hand; this one also proves the slice activation
+  publishes is classified, the half a debug gate could plausibly be added to."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

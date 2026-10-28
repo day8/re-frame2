@@ -329,10 +329,10 @@
     (is (= [[(article-key) nil 300000]]
            (mapv (juxt :resource/key (comp :stale :timers) (comp :gc :timers)) @scheduled-timers)))))
 
-(deftest populate-lowers-sensitive-classification-without-manual-reconcile
-  ;; A :populates can create an entry no resource event ever lowered a
-  ;; declaration for; the succeeded handler must keep the elision registry in
-  ;; step, or the SSR projector would ride :ssn verbatim. No manual reconcile here.
+(deftest a-populated-entry-is-classified-with-no-reconcile
+  ;; A :populates can create an entry no resource event loaded. The resources
+  ;; hook classifies every entry present, so the SSR projector redacts :ssn
+  ;; with no step to keep in step.
   (rf/reg-resource :acct/profile
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]

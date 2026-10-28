@@ -29,8 +29,8 @@
 
 (def ^:private sentinel rf.privacy/redacted-sentinel)
 
-;; Every family lowers its claims through the same core ops under its own owner
-;; identity, so one `{:source :route}` owner stands in for any subsystem.
+;; Every owner's claims go through the same core ops under its own owner
+;; identity, so one `{:source :route}` owner stands in for any non-effect one.
 (def ^:private subsystem-owner {:source :route})
 
 (defn- claim-subsystem! [paths]

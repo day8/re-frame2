@@ -42,9 +42,10 @@
 ;;
 ;; The resource owns its classification. Its coarse `:sensitive?` / `:large?`
 ;; claim decides the whole-entry disposition (sensitive wins over large); its
-;; projection-relative `:sensitive` / `:large` path declarations are lowered
-;; into the frame's elision registry and read back when a serialized entry's
-;; data is projected. A `:params-schema` mark validates; it does not classify.
+;; projection-relative `:sensitive` / `:large` path declarations are claimed
+;; on each entry present by the resources hook and read back from the frame's
+;; classification when a serialized entry's data is projected. A
+;; `:params-schema` mark validates; it does not classify.
 ;;
 ;; The scoped key is the MAP KEY of the projected slice, so a coarse entry's
 ;; scope and params are tokenised too. The client refetch is route-driven and
@@ -248,9 +249,10 @@
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
         wire-entry  (case disposition
-                      ;; The egress reads the registry the resource's `:data`
-                      ;; declarations were lowered into, never the spec. A
-                      ;; frameless egress rides the data verbatim. An infinite
+                      ;; The egress reads the frame's classification, which
+                      ;; claims the resource's `:data` declarations on the
+                      ;; entry, never the spec. A frameless egress rides the
+                      ;; data verbatim. An infinite
                       ;; feed's page vector needs no special branch: the
                       ;; walker's index-free fork matches every page.
                       :serialize

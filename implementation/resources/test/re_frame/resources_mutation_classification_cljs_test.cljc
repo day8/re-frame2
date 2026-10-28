@@ -73,7 +73,7 @@
            (claims (assoc rdb rf.resources.mutation-runtime/mutations-key {})))
         "with the instance gone, only the effect claim stands")))
 
-(deftest execute-lowers-instance-and-redacts-egress-and-continuation
+(deftest execute-classifies-the-instance-and-redacts-egress-and-continuation
   (reg-secret-mutation!)
   (let [replied (atom nil)
         traces  (atom [])]

@@ -113,8 +113,8 @@
   (testing "an in-place request edits its frame's CURRENT route, and the
             event-vector projection sees the request but never the frame the
             event targets, so it has no route to read a declaration off: a
-            declared query value rides verbatim (Spec 012 §Lowering and
-            re-rooting)."
+            declared query value rides verbatim (Spec 012 §Re-rooting at
+            egress)."
     (reg-routes!)
     (rf/dispatch-sync [:rf.route/handle-url-change
                        (str "/acct/" param-secret "/visible?token=before&page=1")

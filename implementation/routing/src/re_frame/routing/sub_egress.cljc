@@ -22,7 +22,7 @@
   classification, not the sub registration). So a `:sensitive` route query /
   param would ship RAW on the `:rf.sub/run` dev-trace, the Pair MCP `read-sub` /
   `list-subscriptions :include-values` / `snapshot :sub-cache` reads, and Xray —
-  contradicting [Spec 012 §Lowering and re-rooting](../../../../../../spec/012-Routing.md)
+  contradicting [Spec 012 §Re-rooting at egress](../../../../../../spec/012-Routing.md)
   (\"only the trace bus / Xray / MCP / off-box / SSR egress copies are
   redacted\").
 

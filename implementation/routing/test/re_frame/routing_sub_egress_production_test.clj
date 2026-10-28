@@ -14,8 +14,8 @@
 
 (defn- navigate-to-classified-route!
   "Register a classified route and navigate to it for real, so the
-  classification reaches the frame's elision registry through activation's
-  lowering rather than a hand-installed registry."
+  classification comes from the slice activation publishes rather than a
+  hand-installed one."
   []
   (rf/reg-route :route/oauth
                 {:sensitive [[:query :token]]

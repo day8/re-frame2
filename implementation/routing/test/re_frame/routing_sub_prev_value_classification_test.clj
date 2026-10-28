@@ -2,14 +2,14 @@
   "A held route read sub's `:rf.sub/prev-value` keeps the classification of
   the route it was computed under.
 
-  A route's `:sensitive` / `:large` claims are lowered into the frame's elision
-  registry while the route is active, and a navigation REPLACES them with the
-  entering route's. So when a held `[:rf/route]` / `[:rf.route/params]` /
-  `[:rf.route/query]` sub recomputes after a navigation, its `:rf.sub/run`
-  trace carries the leaving route's slice as `:rf.sub/prev-value` while the
-  registry already holds the entering route's claims. That prior value is
-  redacted by the route it belongs to, so a secret declared by the leaving
-  route never reaches the trace.
+  A route's `:sensitive` / `:large` claims apply to the slice while the slice
+  names the route, so a navigation REPLACES them with the entering route's.
+  When a held `[:rf/route]` / `[:rf.route/params]` / `[:rf.route/query]` sub
+  recomputes after a navigation, its `:rf.sub/run` trace carries the leaving
+  route's slice as `:rf.sub/prev-value` while the frame already classifies
+  the entering route. That prior value is redacted under the policy it was
+  computed with, so a secret declared by the leaving route never reaches the
+  trace.
 
   The in-process reads stay raw: classification applies at egress only.
 
