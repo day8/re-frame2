@@ -2,7 +2,9 @@
   "Tool: trace-window — epochs in the last N ms.
 
   Cursor pagination: the response is bounded at `:limit`
-  items (default 50). When more remain, `:next-cursor` is non-nil. The
+  records (default 50), then cut to the longest prefix that fits
+  `max-tokens` (`cap/fit-page`), which stamps `:truncated-by :max-tokens`.
+  When more remain, `:next-cursor` is non-nil. The
   cursor encodes a sticky `:until-ms` so subsequent pages see the same
   window the first call did — fresh epochs landing during pagination
   don't sneak in mid-iteration.
@@ -45,6 +47,7 @@
   continuation would walk a different ring, where the live `:after-id`
   is absent and the healthy cursor reads as stale."
   (:require [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -198,75 +201,88 @@
                   (cursor/cursor-stale-result "trace-window"
                                               {:requested-id (:requested-id v)
                                                :head-id      (:head-id v)})
-                  (let [{:keys [value indicators]}
-                        (wp/run-wire-pipeline raw-epochs
-                                              {:kind   :epoch-vector
-                                               :mode   mode
-                                               :dedup? dedup?})
-                        {:keys [elided count]} indicators
-                        next-id     (:next-id v)
-                        next-cursor (cursor/encode-cursor
-                                      (when next-id
-                                        {:v        1
-                                         :after-id next-id
-                                         :ms       window-ms
-                                         :until-ms until-ms
-                                         ;; The cursor OWNS its frame
-                                         ;; from page 1 onward, so a pin
-                                         ;; changed mid-pagination
-                                         ;; cannot move the ring under
-                                         ;; the agent.
-                                         :frame    read-frame}))
-                        has-more?     (some? next-cursor)
+                  (let [cap           (cap/page-cap raw-args)
+                        n             (count raw-epochs)
                         remaining     (or (:remaining v) 0)
                         history-count (or (:history-count v) 0)
-                        ;; Advisory fires only when the window
-                        ;; surfaced ZERO epochs but the per-frame
-                        ;; history holds events that just fell
-                        ;; outside the time slice. Two ratchets:
-                        ;;   - count = 0 (the slot operators read
-                        ;;     to decide \"nothing happened\")
-                        ;;   - history-count > 0 (the underlying
-                        ;;     ring isn't empty — events exist).
-                        ;;
-                        ;; Both ratchets read the SAME frame's history,
-                        ;; which is why this cannot catch the
-                        ;; ambiguous-frame case: a nil frame would empty
-                        ;; both sides together, so the advisory would
-                        ;; stay silent on the one reading that most
-                        ;; needs explaining. The refusal above covers
-                        ;; it; this advisory has its own narrower job.
-                        advisory      (when (and (zero? count)
-                                                 (pos? history-count))
-                                        {:reason            :window-excludes-history
-                                         ;; Names the frame the count
-                                         ;; came from, which is the
-                                         ;; resolved one — an advisory
-                                         ;; reporting `:frame nil`
-                                         ;; describes a read that never
-                                         ;; happened.
-                                         :frame             read-frame
-                                         :epochs-in-history history-count
-                                         :window-ms         window-ms
-                                         :hint              (str history-count
-                                                                 " epochs exist in the per-frame "
-                                                                 "history but none fell inside the "
-                                                                 "last " window-ms "ms window. "
-                                                                 "Widen :ms (e.g. 60000), or use "
-                                                                 "`snapshot :include [:epochs]` to "
-                                                                 "inspect the full history.")})
-                        envelope      (cond-> {:ok?                 true
-                                               :window-ms           window-ms
-                                               :until-ms            until-ms
-                                               :count               count
-                                               :limit               limit
-                                               :epochs-mode         mode
-                                               :dedup               dedup?
-                                               :epochs              value
-                                               :has-more?           has-more?
-                                               :estimated-remaining remaining
-                                               :next-cursor         next-cursor}
-                                        advisory (assoc :advisory advisory))]
-                    (wire/ok-text (wire/with-indicators
-                                    envelope
-                                    {:elided elided}))))))))))))
+                        ;; The result for a page of the first `k` records.
+                        ;; `cap/fit-page` asks for the whole page first and
+                        ;; cuts it only when that overflows `max-tokens`.
+                        page-result
+                        (fn page-result [k]
+                          (let [cut?        (< k n)
+                                {:keys [value indicators]}
+                                (wp/run-wire-pipeline (subvec raw-epochs 0 k)
+                                                      {:kind   :epoch-vector
+                                                       :mode   mode
+                                                       :dedup? dedup?})
+                                {elided :elided shown :count} indicators
+                                next-id     (cursor/page-continuation-id
+                                              raw-epochs k after-id (:next-id v))
+                                next-cursor (cursor/encode-cursor
+                                              (when (some? next-id)
+                                                {:v        1
+                                                 :after-id next-id
+                                                 :ms       window-ms
+                                                 :until-ms until-ms
+                                                 ;; The cursor OWNS its frame
+                                                 ;; from page 1 onward, so a pin
+                                                 ;; changed mid-pagination
+                                                 ;; cannot move the ring under
+                                                 ;; the agent.
+                                                 :frame    read-frame}))
+                                advisory
+                                (cond
+                                  ;; Empty because of the cap: the window
+                                  ;; holds records, the first alone
+                                  ;; overflows. Ahead of the window advisory,
+                                  ;; which would blame the window.
+                                  (and cut? (zero? k))
+                                  (cursor/cut-advisory
+                                    read-frame
+                                    (cap/sum-payload-tokens (page-result 1))
+                                    cap
+                                    (some? next-cursor))
+
+                                  ;; ZERO epochs in the window while the
+                                  ;; per-frame history holds events that
+                                  ;; fell outside the time slice. Both
+                                  ;; ratchets read the SAME frame's
+                                  ;; history, which is why this cannot
+                                  ;; catch the ambiguous-frame case: a nil
+                                  ;; frame would empty both sides
+                                  ;; together. The refusal above covers it.
+                                  (and (zero? shown) (pos? history-count))
+                                  {:reason            :window-excludes-history
+                                   ;; Names the frame the count came from,
+                                   ;; which is the resolved one — an
+                                   ;; advisory reporting `:frame nil`
+                                   ;; describes a read that never happened.
+                                   :frame             read-frame
+                                   :epochs-in-history history-count
+                                   :window-ms         window-ms
+                                   :hint              (str history-count
+                                                           " epochs exist in the per-frame "
+                                                           "history but none fell inside the "
+                                                           "last " window-ms "ms window. "
+                                                           "Widen :ms (e.g. 60000), or use "
+                                                           "`snapshot :include [:epochs]` to "
+                                                           "inspect the full history.")})
+                                envelope
+                                (cond-> {:ok?                 true
+                                         :window-ms           window-ms
+                                         :until-ms            until-ms
+                                         :count               shown
+                                         :limit               limit
+                                         :epochs-mode         mode
+                                         :dedup               dedup?
+                                         :epochs              value
+                                         :has-more?           (or cut? (some? next-cursor))
+                                         :estimated-remaining (+ remaining (- n k))
+                                         :next-cursor         next-cursor}
+                                  cut?     (assoc :truncated-by :max-tokens)
+                                  advisory (assoc :advisory advisory))]
+                            (wire/ok-text (wire/with-indicators
+                                            envelope
+                                            {:elided elided}))))]
+                    (cap/fit-page n cap page-result)))))))))))

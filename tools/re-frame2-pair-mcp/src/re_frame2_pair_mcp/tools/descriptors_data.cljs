@@ -770,16 +770,21 @@
                      "The epoch vector is structurally deduped by default — repeated subtrees "
                      "(notably the per-record `:db-before` reference) collapse to a `{:rf.mcp/dedup-table ...}` "
                      "wrapper; the agent host calls `(re-frame.mcp-base.dedup/expand cache)` to reconstruct. Pass `dedup false` to skip. "
-                     "Cursor pagination: the response is bounded at `:limit` records (default 50). "
+                     "Cursor pagination: the response is bounded at `:limit` records (default 50), then cut to the "
+                     "longest prefix that fits `max-tokens` — `limit` counts records, and one real-app record can run "
+                     "to thousands of tokens. A cut page carries `:truncated-by :max-tokens`. "
                      "When more remain, `:next-cursor` carries an opaque continuation token and `:has-more? true`; "
                      "pass `cursor` back on the next call to resume. The window's upper bound is sticky across "
                      "pages — fresh epochs landing during pagination don't sneak in mid-iteration. A cursor "
                      "whose epoch-id has aged out of the runtime ring surfaces as `:reason :rf.mcp/cursor-stale`. "
+                     "When not even the first record fits, the page is empty and carries "
+                     "`:advisory {:reason :record-exceeds-max-tokens :record-tokens N}`: re-call with `max-tokens 0` or at least N. "
                      "Examples: "
                      "1. Last second on default frame: {} -> {:ok? true :window-ms 1000 :count 3 :epochs [...] :has-more? false}. "
                      "2. Larger window, paginated: {:ms 5000 :limit 20} -> {:ok? true :count 20 :has-more? true :next-cursor \"<b64>\"}; pass back as {:cursor \"<b64>\"} to get the next page. "
-                     "3. Stale cursor: {:cursor \"<aged-out-b64>\"} -> {:ok? false :reason :rf.mcp/cursor-stale :head-id ... :hint \"drop cursor and restart\"}.")
-   :typicalTokens 2000
+                     "3. Real-app records over the cap: {:ms 600000 :limit 3} -> {:ok? true :count 1 :truncated-by :max-tokens :has-more? true :estimated-remaining 2 :next-cursor \"<b64>\"}. "
+                     "4. Stale cursor: {:cursor \"<aged-out-b64>\"} -> {:ok? false :reason :rf.mcp/cursor-stale :head-id ... :hint \"drop cursor and restart\"}.")
+   :typicalTokens 4800
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
@@ -810,8 +815,7 @@
                      "`>= N`) or a comparison string (`\">100\"`, `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). "
                      "Compares against the cascade's elapsed-ms derived from the `:rf.event/run-start` / "
                      "`:rf.event/run-end` trace pair. The filter rides server-side so non-matching epochs "
-                     "never cross the wire — typicalTokens above is the worst case, narrowing on :timing-ms "
-                     "(e.g. only :>100ms epochs) shrinks the payload roughly proportional to the match rate. "
+                     "never cross the wire. "
                      "Every record crosses `re-frame.core/project-egress` before it ships: declared-sensitive "
                      "slots read `:rf/redacted`, and a record that contained classified material still ships, "
                      "labelled `:rf.epoch/sensitive? true`. "
@@ -821,16 +825,22 @@
                      "addresses the CURRENT app-db: `get-path` on it returns today's value, not that epoch's — read the "
                      "past value with the eval-cljs recipe in get-path's description. "
                      "The matches vector is structurally deduped by default; pass `dedup false` to skip. "
-                     "Cursor pagination: the matches vector is bounded at `:limit` (default 50). "
+                     "Cursor pagination: the matches vector is bounded at `:limit` (default 50), then cut to the "
+                     "longest prefix that fits `max-tokens` — `limit` counts records, and one real-app record can run "
+                     "to thousands of tokens, so a narrow `pred` does not keep a page under the cap. A cut page "
+                     "carries `:truncated-by :max-tokens`. "
                      "When more matches remain, `:next-cursor` is non-nil and `:has-more? true`; pass `cursor` "
                      "back to consume the next page. The `:cursor` arg overrides `:since-id` when both are "
                      "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
-                     "`:reason :rf.mcp/cursor-stale`. "
+                     "`:reason :rf.mcp/cursor-stale`. When not even the first match fits, the page is empty and "
+                     "carries `:advisory {:reason :record-exceeds-max-tokens :record-tokens N}`: re-call with "
+                     "`max-tokens 0` or at least N. "
                      "Examples: "
                      "1. First poll for a specific event: {:pred {:event-id :cart/checkout}} -> {:ok? true :matches [...] :count 1 :head-id 42}. "
                      "2. Resume after last seen id (since-id is read as EDN, so \"42\" names the integer id 42): {:since-id \"42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id 47}. "
-                     "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}.")
-   :typicalTokens 2000
+                     "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}. "
+                     "4. Two real-app matches over the cap: {:pred {:event-id-prefix \":orders/\"}} -> {:ok? true :count 1 :truncated-by :max-tokens :has-more? true :next-cursor \"<b64>\"}.")
+   :typicalTokens 4800
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"

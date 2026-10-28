@@ -59,7 +59,7 @@ narrowest one first.
 
 | Arg | Tools | Default | Use when |
 |---|---|---|---|
-| `max-tokens` | all read tools | 5000 | Hard cap. Lower for a probe; pass 0 to disable (rare). Overflow returns `{:rf.mcp/overflow ...}`. |
+| `max-tokens` | all read tools | 5000 | Hard cap. Lower for a probe; pass 0 to disable. Overflow returns `{:rf.mcp/overflow ...}` — except on the epoch reads (`trace-window`, `watch-epochs`), which cut their page to the records that fit instead. One real-app epoch record can be most of the 5000 default, so on those reads `max-tokens 0` (or a larger cap) is the ordinary way to take several records in one call. |
 | `path` | `snapshot` (`:app-db` slice), `get-path` | nil | You already know roughly where the answer lives. Beats slicing the whole frame. |
 | `mode "summary"` / `mode "full"` | `snapshot` | `"summary"` | Discovery snapshot first (summary is the default — counts, top keys, ~bytes). Switch to `"full"` only after the summary tells you which slice carries the answer. |
 | `modes {"app-db" "full", ...}` | `snapshot` | per-slice | Mix: e.g. live state `"full"`, history `"summary"`. |
@@ -67,7 +67,7 @@ narrowest one first.
 | `epochs-mode "diff"` / `"full"` | `snapshot`, `trace-window`, `watch-epochs` | `"diff"` | Keep diff (default). Only opt back to `"full"` when you need it for **time-travel restore** — the diffed `:db-after` can't drive `restore-epoch`. |
 | `dedup` | epoch-carrying tools | `true` | Keep on. Pass `false` only if your host can't `expand`, or for round-trip debugging. |
 | `elision` | `snapshot`, `get-path`, `read-sub`, `list-subscriptions`, `record`, `watch-until`, `dispatch-dry-run` | `true` | Keep on. Pass `false` when you need the raw bytes of a `:large` slot. It is the size override: honoured on every launch (no launch flag needed), and declared-sensitive slots still redact. |
-| `limit` + `cursor` | `trace-window`, `watch-epochs` | 50 / nil | Paginated epoch streams. First call returns up-to-`limit` records and a `:next-cursor`; pass that back to consume the next page. A stale cursor (id aged out of the ring) surfaces as `:reason :rf.mcp/cursor-stale` — drop it and restart. |
+| `limit` + `cursor` | `trace-window`, `watch-epochs` | 50 / nil | Paginated epoch streams. `limit` bounds **records, not tokens**: the page is then cut to the longest prefix that fits `max-tokens`, stamped `:truncated-by :max-tokens`, so lowering `limit` never rescues a page from the cap. First call returns up-to-`limit` records and a `:next-cursor`; pass that back to consume the next page — a cut page's cursor resumes at the first record it left out. A stale cursor (id aged out of the ring) surfaces as `:reason :rf.mcp/cursor-stale` — drop it and restart. |
 | `cache` | the idempotent reads: `discover-app`, `orient`, `snapshot`, `get-path`, `read-sub`, `list-subscriptions`, `list-handlers`, `handler-meta`, `describe-image`, `trace-window`, `watch-epochs`, `get-re-frame2-pair-instructions` | `false` | Repeated reads of the same (tool, args) within a session. On a hit the payload is replaced with `{:rf.mcp/cache-hit {:hash ... :unchanged-since <ms> :tool ... :hint ...}}` — you already have the byte-identical prior payload locally. 8-slot LRU, scoped to one MCP-server process. |
 | `include-sensitive` | `snapshot`, `get-path`, `read-sub`, `list-subscriptions`, `trace-window`, `watch-epochs`, `dispatch`, `dispatch-dry-run`, `record`, `watch-until` | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the walker option `:rf.egress/include-sensitive?`, which keeps the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a trusted-local debug session that needs the raw values at declared-sensitive app-db paths; event and effect arguments stay redacted. |
 
@@ -78,7 +78,14 @@ narrowest one first.
 - **Know the key already?** `get-path` with a deep `path`.
 - **Same read twice in a row?** Add `cache true` on the second call.
 - **Investigating recent activity?** `trace-window` with default
-  `limit 50`; paginate via `cursor` if `:has-more?`.
+  `limit 50`; paginate via `cursor` if `:has-more?`. On a real app
+  expect the page cut to a record or two (`:truncated-by :max-tokens`):
+  follow `:next-cursor`, or pass `max-tokens 0` to take the page whole.
+- **Got an empty epoch page with `:advisory {:reason
+  :record-exceeds-max-tokens}`?** The next record alone is over the
+  cap — it is not the window or the `pred`. Re-call with `max-tokens 0`
+  or at least the advisory's `:record-tokens`, passing `:next-cursor`
+  when there is one.
 - **Live-watching an event landing?** `watch-epochs` — poll in a loop,
   advancing `since-id` to each response's `:head-id`.
 - **Got an `{:rf.size/large-elided ...}` marker?** It names a path at
@@ -96,9 +103,10 @@ narrowest one first.
   `:bytes` / `:type`) across reads or epochs do NOT mean the value is
   unchanged.
 - **Got a `{:rf.mcp/overflow ...}` marker?** You tripped `max-tokens`.
-  Narrow `path`, switch a slice to `"summary"`, lower `limit`, or add
-  a tighter `pred` — pick whichever knob the overflow's
-  `:tool` hint suggests.
+  Narrow `path` or switch a slice to `"summary"` — pick whichever knob
+  the overflow's `:tool` hint suggests. The epoch reads cut their page
+  rather than overflow, so on those the marker means `max-tokens` is
+  below even an empty page: raise it.
 
 ### Cross-MCP marker family
 

@@ -6,7 +6,9 @@
   that want a tight loop call us repeatedly with the same `since-id`.
 
   Cursor pagination: a single poll's matches vector is
-  bounded by `:limit` (default 50). When more matches remain in the
+  bounded by `:limit` (default 50), then cut to the longest prefix that
+  fits `max-tokens` (`cap/fit-page`), which stamps `:truncated-by
+  :max-tokens`. When more matches remain in the
   current ring, `:next-cursor` rides the response — the agent calls
   back with the cursor to consume the remainder. The cursor is the
   opaque sibling of the `:since-id` arg; both can be used, but
@@ -50,6 +52,7 @@
   because the new frame resolves perfectly well — it is simply not the
   ring the agent was reading."
   (:require [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -237,91 +240,113 @@
                   (cursor/cursor-stale-result "watch-epochs"
                                               {:requested-id (or (:requested-id v) effective-after)
                                                :head-id      (:head-id v)})
-                  (let [matches (vec (:matches v))
-                        {:keys [value indicators]}
-                        (wp/run-wire-pipeline matches
-                                              {:kind   :epoch-vector
-                                               :mode   mode
-                                               :dedup? dedup?})
-                        {:keys [elided count]} indicators
-                        next-id       (:next-id v)
-                        next-cursor   (cursor/encode-cursor
-                                        (when next-id
-                                          {:v        1
-                                           :after-id next-id
-                                           :ms       nil
-                                           :until-ms nil
-                                           ;; The cursor OWNS its frame
-                                           ;; from page 1 onward, so a
-                                           ;; pin changed mid-pagination
-                                           ;; cannot move the ring under
-                                           ;; the agent.
-                                           :frame    read-frame
-                                           ;; Carry the sticky
-                                           ;; predicate so page 2+ keeps
-                                           ;; filtering. nil when no pred was
-                                           ;; supplied (round-trips losslessly
-                                           ;; through the base64-of-EDN codec).
-                                           :pred     sticky-pred}))
+                  (let [matches       (vec (:matches v))
+                        n             (count matches)
+                        cap           (cap/page-cap raw-args)
                         remaining     (or (:remaining v) 0)
                         history-count (or (:history-count v) 0)
                         since-count   (or (:since-count v) 0)
-                        ;; Two distinct empty-result
-                        ;; explainers, picked by the runtime data:
-                        ;;
-                        ;;   - since-count = 0 + history-count > 0
-                        ;;     → caller's :since-id is at (or past)
-                        ;;     the head; calmly say \"nothing new
-                        ;;     yet\".
-                        ;;
-                        ;;   - since-count > 0 + count = 0
-                        ;;     → events landed since the id but the
-                        ;;     :pred filtered them all out — point
-                        ;;     at the predicate, not the buffer.
-                        advisory
-                        (cond
-                          (and (zero? count)
-                               (zero? since-count)
-                               (pos? history-count))
-                          {:reason            :no-events-since-id
-                           ;; The frame the count came from — the
-                           ;; resolved one, never the asked-for nil.
-                           :frame             read-frame
-                           :epochs-in-history history-count
-                           :requested-id      effective-after
-                           :hint              (str "Per-frame history holds "
-                                                   history-count
-                                                   " epochs but none have landed since the "
-                                                   "supplied :since-id. Dispatch an event "
-                                                   "to advance the head, or omit :since-id "
-                                                   "to see the full ring.")}
+                        ;; The result for a page of the first `k` matches.
+                        ;; `cap/fit-page` asks for the whole page first and
+                        ;; cuts it only when that overflows `max-tokens`.
+                        page-result
+                        (fn page-result [k]
+                          (let [cut?        (< k n)
+                                {:keys [value indicators]}
+                                (wp/run-wire-pipeline (subvec matches 0 k)
+                                                      {:kind   :epoch-vector
+                                                       :mode   mode
+                                                       :dedup? dedup?})
+                                {elided :elided shown :count} indicators
+                                next-id     (cursor/page-continuation-id
+                                              matches k effective-after (:next-id v))
+                                next-cursor (cursor/encode-cursor
+                                              (when (some? next-id)
+                                                {:v        1
+                                                 :after-id next-id
+                                                 :ms       nil
+                                                 :until-ms nil
+                                                 ;; The cursor OWNS its frame
+                                                 ;; from page 1 onward, so a
+                                                 ;; pin changed mid-pagination
+                                                 ;; cannot move the ring under
+                                                 ;; the agent.
+                                                 :frame    read-frame
+                                                 ;; Carry the sticky
+                                                 ;; predicate so page 2+ keeps
+                                                 ;; filtering. nil when no pred was
+                                                 ;; supplied (round-trips losslessly
+                                                 ;; through the base64-of-EDN codec).
+                                                 :pred     sticky-pred}))
+                                ;; Three empty-result explainers, picked by
+                                ;; the runtime data:
+                                ;;
+                                ;;   - the cap cut the page to nothing
+                                ;;     → the first match alone overflows;
+                                ;;     name the size, not the predicate.
+                                ;;
+                                ;;   - since-count = 0 + history-count > 0
+                                ;;     → caller's :since-id is at (or past)
+                                ;;     the head; calmly say \"nothing new
+                                ;;     yet\".
+                                ;;
+                                ;;   - since-count > 0 + count = 0
+                                ;;     → events landed since the id but the
+                                ;;     :pred filtered them all out — point
+                                ;;     at the predicate, not the buffer.
+                                advisory
+                                (cond
+                                  (and cut? (zero? k))
+                                  (cursor/cut-advisory
+                                    read-frame
+                                    (cap/sum-payload-tokens (page-result 1))
+                                    cap
+                                    (some? next-cursor))
 
-                          (and (zero? count)
-                               (pos? since-count))
-                          {:reason            :pred-excludes-history
-                           ;; The frame the count came from — the
-                           ;; resolved one, never the asked-for nil.
-                           :frame             read-frame
-                           :epochs-in-history history-count
-                           :epochs-since-id   since-count
-                           :hint              (str since-count
-                                                   " epochs landed since the requested id but "
-                                                   "the :pred filter excluded all of them. "
-                                                   "Drop / widen :pred, or use trace-window for "
-                                                   "an unfiltered view.")})
-                        base          (cond-> {:ok?          true
-                                               :head-id      (:head-id v)
-                                               :id-aged-out? (boolean aged-out?)}
-                                        (:requested-id v) (assoc :requested-id (:requested-id v))
-                                        advisory          (assoc :advisory advisory))]
-                    (wire/ok-text (wire/with-indicators
-                                    (assoc base
-                                           :matches             value
-                                           :limit               limit
-                                           :count               count
-                                           :epochs-mode         mode
-                                           :dedup               dedup?
-                                           :has-more?           (some? next-cursor)
-                                           :estimated-remaining remaining
-                                           :next-cursor         next-cursor)
-                                    {:elided elided}))))))))))))
+                                  (and (zero? shown)
+                                       (zero? since-count)
+                                       (pos? history-count))
+                                  {:reason            :no-events-since-id
+                                   ;; The frame the count came from — the
+                                   ;; resolved one, never the asked-for nil.
+                                   :frame             read-frame
+                                   :epochs-in-history history-count
+                                   :requested-id      effective-after
+                                   :hint              (str "Per-frame history holds "
+                                                           history-count
+                                                           " epochs but none have landed since the "
+                                                           "supplied :since-id. Dispatch an event "
+                                                           "to advance the head, or omit :since-id "
+                                                           "to see the full ring.")}
+
+                                  (and (zero? shown)
+                                       (pos? since-count))
+                                  {:reason            :pred-excludes-history
+                                   ;; The frame the count came from — the
+                                   ;; resolved one, never the asked-for nil.
+                                   :frame             read-frame
+                                   :epochs-in-history history-count
+                                   :epochs-since-id   since-count
+                                   :hint              (str since-count
+                                                           " epochs landed since the requested id but "
+                                                           "the :pred filter excluded all of them. "
+                                                           "Drop / widen :pred, or use trace-window for "
+                                                           "an unfiltered view.")})
+                                base        (cond-> {:ok?          true
+                                                     :head-id      (:head-id v)
+                                                     :id-aged-out? (boolean aged-out?)}
+                                              (:requested-id v) (assoc :requested-id (:requested-id v))
+                                              advisory          (assoc :advisory advisory)
+                                              cut?              (assoc :truncated-by :max-tokens))]
+                            (wire/ok-text (wire/with-indicators
+                                            (assoc base
+                                                   :matches             value
+                                                   :limit               limit
+                                                   :count               shown
+                                                   :epochs-mode         mode
+                                                   :dedup               dedup?
+                                                   :has-more?           (or cut? (some? next-cursor))
+                                                   :estimated-remaining (+ remaining (- n k))
+                                                   :next-cursor         next-cursor)
+                                            {:elided elided}))))]
+                    (cap/fit-page n cap page-result)))))))))))
