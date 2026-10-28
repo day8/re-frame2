@@ -8,7 +8,6 @@
   only the runaway family's internal work. A successful destroy claim is
   terminal: no later ordinary event or intermediate render begins."
   (:require [re-frame.frame :as rf.frame]
-            [re-frame.elision :as rf.elision]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.interceptor :as rf.interceptor]
@@ -485,11 +484,8 @@
   Each validator sees its own partition's candidate and runs only when this
   transition writes that partition: app schemas on `db-after`, skipping slices
   left `identical?` to `db-before`, and machine `[:schemas :data]` on
-  `runtime-db-after`. The app arm also receives `runtime-db-after`, whose
-  elision registry already carries this event's classification effects, so a
-  failure trace honours a path the same event classifies even though the
-  rejection installs nothing. Both arms always run, so every violation emits
-  its own trace. A validator-machinery throw also rejects (fail closed), since
+  `runtime-db-after`. Both arms always run, so every violation emits its own
+  trace. A validator-machinery throw also rejects (fail closed), since
   a throwing validator cannot prove conformance."
   [db-before db-after runtime-db-after app-effect? rt-effect? event-id frame]
   (let [emit-throw-reject!
@@ -550,7 +546,7 @@
             true))
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
-                                  db-after :app-db db-before runtime-db-after)
+                                  db-after :app-db db-before)
         machines-ok?
         (run-partition-validator! rt-effect? :machines/validate-machine-data!
                                   runtime-db-after :machine-data)]
@@ -582,8 +578,8 @@
                 :frame             frame}))
 
 (defn- commit-frame-effects!
-  "Install the cascade's `:db`, `:rf.db/runtime` and classification effects as
-  one atomic `commit-frame-transition!` (Spec 002 §An ordinary `:db` return
+  "Install the cascade's `:db` and `:rf.db/runtime` effects as one atomic
+  `commit-frame-transition!` (Spec 002 §An ordinary `:db` return
   replaces only app-db). Returns true when installed or when there was
   nothing to install; false when candidate validation rejected it.
 
@@ -595,17 +591,9 @@
   `db-changed` and `db-noop` are app-db only, and `frame-state-changed` names
   the partitions that changed. A `:db nil` effect is coerced to `{}` with a
   dev warning, because it is usually a bug."
-  [effects event-id event frame frame-record ctx]
+  [effects event-id event frame ctx]
   (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
-        ;; Classification effects commit with `:db`, as a runtime-db write in
-        ;; the same transition, so a same-event classify-then-egress redacts
-        ;; (Spec 015 §Durable app-db — the four commit-plane effects). They
-        ;; were validated pre-commit in `rf.events/commit-fx-effects`.
-        class-effect? (rf.elision/classification-effect? effects)
-        ;; The flow pass's exact output claims, a fn of runtime-db, install
-        ;; with the outputs they describe (Spec 013 §Failure semantics).
-        flow-claims  (:claims (:rf/flow-pass ctx))
         nil-db?      (and app-effect? (nil? (:db effects)))
         new-db       (if nil-db? {} (:db effects))]
     (when (and nil-db? rf.interop/debug-enabled?)
@@ -621,38 +609,14 @@
                          "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
                          "nil); for a deliberate clear, return `{:db {}}` (which emits no "
                          "diagnostic).")}))
-    (if (or app-effect? rt-effect? class-effect? flow-claims)
+    (if (or app-effect? rt-effect?)
       (let [emit-event (rf.interceptor/get-coeffect ctx :event)
-            ;; A whole-value `:rf.db/runtime` effect would drop the elision
-            ;; registry, which other subsystems write out of band, so the
-            ;; effect is reconciled to keep it unless it names the registry
-            ;; itself. Reconcile against the LIVE runtime-db, not the
-            ;; chain-start snapshot: a reentrant `reg-flow`, an actor spawn or
-            ;; a route activation can rewrite the registry mid-cascade, and the
-            ;; stale snapshot would let those paths egress raw for one commit.
-            live-runtime-result
-            (when (or rt-effect? class-effect? flow-claims)
-              (rf.frame/frame-record-state-value frame-record))
-            live-runtime-db
-            (get live-runtime-result rf.frame/runtime-partition-key)
-            reconciled-rt  (when rt-effect?
-                             (rf.elision/reconcile-runtime-db-effect
-                               (:rf.db/runtime effects) live-runtime-db))
-            new-runtime-db (cond-> (cond
-                                     class-effect?
-                                     (rf.elision/apply-classification-effects
-                                       (if rt-effect? reconciled-rt live-runtime-db)
-                                       effects)
-                                     rt-effect? reconciled-rt
-                                     flow-claims live-runtime-db
-                                     :else nil)
-                             flow-claims flow-claims)
-            ;; A no-op classification collapses to no change at commit, so a
-            ;; stray partition write is harmless.
-            rt-partition?  (or rt-effect? class-effect? flow-claims)
+            ;; A whole-value replace (Spec 002 §A runtime effect replaces
+            ;; only runtime-db).
+            new-runtime-db (when rt-effect? (or (:rf.db/runtime effects) {}))
             partitions (cond-> {}
-                         app-effect?   (assoc rf.frame/app-partition-key     new-db)
-                         rt-partition? (assoc rf.frame/runtime-partition-key new-runtime-db))
+                         app-effect? (assoc rf.frame/app-partition-key     new-db)
+                         rt-effect?  (assoc rf.frame/runtime-partition-key new-runtime-db))
             validation-result
               (run-candidate-validation!
                 (:db (:coeffects ctx)) new-db new-runtime-db app-effect?
@@ -682,8 +646,8 @@
 
   Outermost is load-bearing: `path`'s `:after` must splice the handler's slice
   back into the full db before flows read their full-app-db inputs. The pass's
-  result rides `:rf/flow-pass`, so its claims install with the candidate and
-  its memo publishes only once that candidate has installed. A flow
+  result rides `:rf/flow-pass`, so its memo publishes only once the candidate
+  it describes has installed. A flow
   throw discards the pending `:db` and stashes the throw under
   `:rf/flow-error`, so the event aborts with nothing installed and no `:fx`
   (Spec 013 §Failure semantics). Emits the dev-only pending-db pair: t1
@@ -719,24 +683,13 @@
               ;; The same per-event attribution every other `:rf.event` emit
               ;; carries; epoch assembly relies on it.
               emit-event  (when has-db? (rf.interceptor/get-coeffect ctx :event))
-              event-id    (when has-db? (some-> emit-event first))
-              ;; t1 and t2 precede the commit that folds this event's
-              ;; classification effects into the registry, so carry them under
-              ;; a private tag the projection consumes and strips: a path
-              ;; classified in this event is redacted on its first egress.
-              ;; Dev-only.
-              class-effects (when (and rf.interop/debug-enabled?
-                                       (rf.elision/classification-effect? effects))
-                              (rf.elision/classification-effects effects))]
+              event-id    (when has-db? (some-> emit-event first))]
           (when has-db?
             (rf.trace/emit! :rf.event :rf.event/db-pending
-                         (cond-> {:rf.trace/event-id event-id
-                                  :rf.event/v        emit-event
-                                  :frame             frame
-                                  :rf.event/db       pending-db}
-                           class-effects
-                           (assoc :re-frame.classification/pending-classification-effects
-                                  class-effects))))
+                         {:rf.trace/event-id event-id
+                          :rf.event/v        emit-event
+                          :frame             frame
+                          :rf.event/db       pending-db}))
           (if run-on-db
             (try
               (let [pass   (run-on-db frame pending-db pending-runtime-db)
@@ -747,13 +700,10 @@
                   (let [t2-event   (or emit-event (rf.interceptor/get-coeffect ctx :event))
                         t2-evt-id  (or event-id (some-> t2-event first))]
                      (rf.trace/emit! :rf.event :rf.event/db-pending-post-flow
-                                 (cond-> {:rf.trace/event-id t2-evt-id
-                                          :rf.event/v        t2-event
-                                          :frame             frame
-                                          :rf.event/db       new-db}
-                                   class-effects
-                                   (assoc :re-frame.classification/pending-classification-effects
-                                          class-effects)))))
+                                 {:rf.trace/event-id t2-evt-id
+                                  :rf.event/v        t2-event
+                                  :frame             frame
+                                  :rf.event/db       new-db})))
                 (cond-> (assoc ctx :rf/flow-pass pass)
                   (or has-db? (not (identical? new-db pending-db)))
                   (rf.interceptor/assoc-effect :db new-db)))
@@ -786,47 +736,14 @@
         (some? failed-id) (assoc :flow-id failed-id)
         (some? phase)     (assoc :phase phase)))))
 
-(defn- emit-classification-effect-shape!
-  "Emit `:rf.error/classification-effect-shape` for a malformed commit-plane
-  classification effect in the final effects map. `defect` is
-  `rf.elision/classification-effect-defect`'s map.
-
-  In-band, not a throw: a throw would escape into `drain-emergency-release!`
-  and abandon the queue, so only this event aborts, with nothing committed
-  and no `:fx`. Only `:offending-key` reaches the always-on record: program
-  structure from a closed four-keyword domain, and the one discriminator
-  between the axes. `:value` is the rejected payload and `:reason`
-  interpolates it, so both stay on the dev trace; the tags carry no
-  `:failing-id`, whose lift would drag `:reason` onto the record.
-  `re-frame.classification-effect-shape-record-cljs-test` pins the record's
-  keys."
-  [defect event event-id frame start-ms]
-  ;; Build the discriminator ONCE, before either axis sees it — the two axes
-  ;; must never be able to disagree about which key was at fault.
-  (let [end-ms        (rf.interop/now-ms)
-        elapsed-ms    (elapsed-ms-from start-ms end-ms)
-        offending-key (:offending-key defect)]
-    (rf.error-emit/emit-error-both!
-      :rf.error/classification-effect-shape
-      event event-id frame nil elapsed-ms end-ms
-      ;; Axis 2 — the dev trace. Carries the full diagnosis, DCE'd in prod.
-      {:frame             frame
-       :rf.trace/event-id event-id
-       :rf.event/v        event
-       :offending-key     offending-key
-       :value             (:value defect)
-       :recovery          :fix-effect
-       :reason            (:reason defect)}
-      ;; Axis 1 — the always-on record: the bounded discriminator only.
-      {:offending-key offending-key})))
-
 (defn- emit-effect-map-shape!
   "Emit `:rf.error/effect-map-shape` for a malformed effect-map envelope in the
   final effects map: a foreign top-level key, or a non-sequential `:fx`.
   `defect` is `rf.events/effect-map-defect`'s map.
 
-  In-band like `emit-classification-effect-shape!`, aborting only this event.
-  It refuses rather than drops the key, because dropping it would commit `:db`
+  In-band, not a throw: a throw would escape into `drain-emergency-release!`
+  and abandon the queue, so only this event aborts, with nothing committed
+  and no `:fx`. It refuses rather than drops the key, because dropping it would commit `:db`
   while the effect never ran (Conventions §No silent swallow), and does so in
   every build so dev never aborts what production commits. Only
   `:offending-key` reaches the always-on record: app-authored, but program
@@ -998,7 +915,7 @@
   transition, the memo published with it. A flow throw installs nothing and
   reports `:rf.error/flow-eval-exception` against this event; the walk's own
   writes stand, as every effect's do."
-  [state-before-walk event-id event frame frame-record start-ms]
+  [state-before-walk event-id event frame start-ms]
   (when-let [run-on-db (rf.late-bind/get-fn :flows/run-flows-on-db)]
     (let [state (rf.frame/frame-state-value frame)]
       (when-not (identical? state state-before-walk)
@@ -1009,7 +926,7 @@
                         :rf/flow-pass pass}]
               (when (commit-frame-effects!
                       (if (identical? (:db pass) db) {} {:db (:db pass)})
-                      event-id event frame frame-record ctx)
+                      event-id event frame ctx)
                 (publish-flow-memo! ctx)))
             (catch #?(:clj Throwable :cljs :default) e
               (emit-flow-eval-exception! e event event-id frame start-ms))))))))
@@ -1039,8 +956,7 @@
         ;; Verbatim: `commit-fx-effects` does not clean it, so a foreign key or
         ;; a malformed `:fx` is still here to be refused.
         effects      (:effects final-ctx)
-        shape-defect (rf.events/effect-map-defect effects event)
-        class-defect (rf.elision/classification-effect-defect effects)]
+        shape-defect (rf.events/effect-map-defect effects event)]
     (cond
       error
       (do
@@ -1054,18 +970,10 @@
           flow-error event event-id frame start-ms)
         :flow-error)
 
-      ;; The envelope check comes first: when the top level is malformed, no
-      ;; diagnosis of what is inside it is trustworthy.
       shape-defect
       (do
         (emit-effect-map-shape!
           shape-defect event event-id frame start-ms)
-        :error)
-
-      class-defect
-      (do
-        (emit-classification-effect-shape!
-          class-defect event event-id frame start-ms)
         :error)
 
       ;; `re-frame.cofx` already emitted `:rf.error/coeffect-exception`. Below
@@ -1075,7 +983,7 @@
       :error
 
       (not (commit-frame-effects!
-             effects event-id event frame frame-record final-ctx))
+             effects event-id event frame final-ctx))
       :rolled-back
 
       :else
@@ -1084,7 +992,7 @@
         (let [state-before-walk (rf.frame/frame-state-value frame)]
           (run-fx-effects! effects frame frame-record fx-overrides envelope)
           (settle-flows-after-walk!
-            state-before-walk event-id event frame frame-record start-ms))
+            state-before-walk event-id event frame start-ms))
         (if (:rf/boundary-rejected? final-ctx) :rejected :ok)))))
 
 ;; ---- the boundary-rejection always-on record ------------------------------

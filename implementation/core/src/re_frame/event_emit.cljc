@@ -76,7 +76,7 @@
   the record rather than suppressing the record: first the event
   registration's own `:sensitive` / `:large` paths, resolved through the
   frame's own view, then `re-frame.elision/elide-wire-value` against the frame's
-  `[:rf.runtime/elision]` registry. Both come from
+  classification. Both come from
   `re-frame.projection/project-event-slot`, the pass the frame-owned sink
   route and the error-emit record also run."
   (:require [re-frame.emit-substrate :as rf.emit-substrate]
