@@ -228,3 +228,57 @@
                               [:rf.db/runtime :rf.runtime/machines :snapshots
                                :settings/form :data :draft :password]))
           "the live snapshot still holds the REAL password"))))
+
+(defn- sub-run-values
+  "The `:rf.sub/value` of every emitted `:rf.sub/run` trace for `sub-id`."
+  [traces sub-id]
+  (->> traces
+       (filter #(and (= :rf.sub/run (:operation %))
+                     (= sub-id (get-in % [:tags :rf.sub/id]))))
+       (map #(get-in % [:tags :rf.sub/value]))))
+
+;; Classification does not propagate from app-db to a sub's output, so each of
+;; these subs declares `:sensitive` over the secret it returns
+;; (docs/core/how-to/build-a-form.md).
+(def ^:private secret-bearing-subs
+  "Every managed-HTTP app sub whose output carries the JWT or a draft password,
+   with the path of the secret inside that output."
+  [[[:auth/token]               []]
+   [[:auth.login-form/draft]    [:password]]
+   [[:auth.login-form/slice]    [:draft :password]]
+   [[:auth.register-form/draft] [:password]]
+   [[:auth.register-form/slice] [:draft :password]]
+   [[:settings/draft]           [:password]]])
+
+(deftest secret-bearing-subs-redact-their-own-output
+  (testing "a sub whose output carries the JWT or a draft password reads
+            :rf/redacted at the secret in its `:rf.sub/run` trace, while the
+            value it hands its reader stays real"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
+      (rf/dispatch-sync [:auth/store-session {:username "alice"
+                                              :email    "alice@example.com"
+                                              :bio      nil
+                                              :image    nil
+                                              :token    token-sentinel}]
+                        {:frame f})
+      (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-password {:value sentinel}] {:frame f})
+      (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.register-form/edit-password {:value sentinel}] {:frame f})
+      (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
+      (rf/dispatch-sync [:settings/edit-password {:value sentinel}] {:frame f})
+      (let [traces (record-traces! ::secret-bearing-subs)
+            live   (into {} (for [[q _] secret-bearing-subs]
+                              [q (rf/subscribe-once q {:frame f})]))]
+        (rf/unregister-listener! :trace ::secret-bearing-subs)
+        (doseq [[q path] secret-bearing-subs]
+          (let [runs (sub-run-values @traces (first q))]
+            (is (seq runs) (str (pr-str q) " emitted a :rf.sub/run trace"))
+            (is (every? #(= rf.privacy/redacted-sentinel (get-in % path)) runs)
+                (str (pr-str q) " reads :rf/redacted at " (pr-str path)))
+            (is (#{sentinel token-sentinel} (get-in (live q) path))
+                (str (pr-str q) " hands its reader the live secret"))))
+        (let [leaking (filter #(or (leaks? sentinel %) (leaks? token-sentinel %)) @traces)]
+          (is (empty? leaking)
+              (str "LEAK ops: " (pr-str (mapv :operation leaking)))))))))
