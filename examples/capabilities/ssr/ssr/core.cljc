@@ -396,11 +396,9 @@
                    ;;   - Any path the app classified `:sensitive` inside what
                    ;;     the allowlist let through is redacted.
                    ;;   - The runtime-db keeps only the durable route and
-                   ;;     machine slices, with their classified values redacted
-                   ;;     and the frame's classification registry left out.
+                   ;;     machine slices, with their classified values redacted.
                    ;;     Shipping the raw partition instead would put a route's
-                   ;;     `:sensitive` query token, and that registry, into
-                   ;;     cacheable HTML.
+                   ;;     `:sensitive` query token into cacheable HTML.
                    ;; This page's runtime-db is empty, so the payload has no
                    ;; `:rf/runtime-db` at all — a present nil would be a
                    ;; malformed slice that `:rf/hydrate` refuses.
