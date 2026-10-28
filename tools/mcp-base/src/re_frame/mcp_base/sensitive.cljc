@@ -4,7 +4,7 @@
 
   ## What spec/009 mandates
 
-  Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server,
+  Framework-published forwarders — Sentry / Honeybadger,
   Story-MCP — MUST default-drop trace events whose
   registration declared `:sensitive? true`. The runtime stamps the
   flag at the top level of every emitted trace event inside such a
@@ -17,8 +17,10 @@
   The opt-in arg name (`:include-sensitive`) is the fixed, cross-
   server vocabulary an agent learns once. Every MCP tool that surfaces
   trace-like data MUST accept this arg, default it to false, and feed
-  it to `strip-sensitive` (and any analogous walker that recurses
-  through snapshot slices). The wire-key omits the trailing `?` per
+  it to its sensitive gate: `strip-sensitive` (and any analogous walker
+  that recurses through snapshot slices), or the
+  `:rf.egress/include-sensitive?` opt of the `project-egress` call a
+  projecting server makes. The wire-key omits the trailing `?` per
   Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` —
   predicate-style `?` is rejected there. The predicate FUNCTION name
   `include-sensitive?` retains its `?` (the idiom belongs on the
@@ -268,10 +270,9 @@
   `strip-sensitive` predicate (spec/009 §Privacy stamp check).
   Three-arity form `[snapshot include? strip-fn]` accepts a custom
   strip-fn matching the `[items include?] => [kept dropped]`
-  contract — re-frame2-pair-mcp passes its union predicate that also catches
-  the epoch-level `:sensitive?` rollup (`sensitive-event? OR
-  sensitive-epoch?`). The default arity preserves the
-  trace-event-only filter for story-mcp consumers.
+  contract, for a consumer whose filter must also read a record-level
+  rollup. The default arity is the trace-event-only filter story-mcp
+  uses.
 
   ## Slice-shape discipline + fail-closed
 

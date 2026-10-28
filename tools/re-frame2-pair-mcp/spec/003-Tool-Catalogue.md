@@ -213,10 +213,15 @@ or a `:rf.size/large-elided` marker. Agents that pattern-match on
 tolerate `:rf/redacted` (and arbitrary app-supplied shapes) at every leaf.
 
 The `:rf.epoch/sensitive?` rollup is computed from the raw
-record's schema-declared sensitive leaves **before** the projection
+record's declared-sensitive leaves **before** the projection
 runs, so it remains an accurate signal even when the projection erases
-the leaves it keyed on — `--allow-sensitive-reads OFF` strips records
-that carry the rollup regardless.
+the leaves it keyed on. It says the record contained classified
+material, not that the run touched a secret: it is true whenever any
+declared-sensitive path holds a non-nil value in `:db-before` or
+`:db-after`. `trace-window`, `watch-epochs` and `snapshot` ship a
+flagged record like any other — projected, with the rollup and each
+trace event's `:sensitive?` stamp riding on it as labels — so none of
+them withholds a record or reports `:dropped-sensitive`.
 
 **GUARD G3 — an epoch record must arrive STAMPED.** `project-egress`
 is the ONE record-level door (rf2-bv1p, ruling rf2-kuky.9 option A
@@ -238,26 +243,21 @@ the `:ok? false` frame-untargetable envelope both carry none.
 
 ### Framework-default projection (rf2-8fin7.1)
 
-For the pull-mode epoch tools the framework backstop is
+For the pull-mode epoch tools the off-box gate is
 `re-frame.core/project-egress`: each egressed record is routed
 through it server-side under the `--allow-sensitive-reads OFF`
-default, so a schema-declared sensitive **slot** sitting inside a
-**non-sensitive** epoch's `:db-before` / `:db-after` lands as
-`:rf/redacted` — even though the whole-epoch sensitivity rollup is false.
+default, so a declared-sensitive **slot** inside any epoch's
+`:db-before` / `:db-after` lands as `:rf/redacted`, whatever the
+record's `:rf.epoch/sensitive?` rollup says.
 
 `snapshot`'s `:epochs` slot is held to the SAME projection
 contract as `trace-window` / `watch-epochs` (rf2-6wvh5): every
 epoch record in the slice is mapped through `project-egress`
 server-side when the slice expands to `:full`. The
 `:include-sensitive` two-key opt-in (launch flag AND per-call arg)
-changes only the app-db sensitive axis within that projection. Before
-rf2-8fin7.1 the `:epochs` slice carried no server-side projection at
-all — the client-side sensitive scrub merely DROPS whole epochs
-stamped `:rf.epoch/sensitive? true` and never redacts a sensitive slot
-inside a non-sensitive epoch — so the slot leaked off-box under the OFF
-default. The projection closes that asymmetry; `snapshot :epochs`
-now carries the same fail-closed posture as the cursor-paged
-epoch tools.
+changes only the app-db sensitive axis within that projection. The
+projection is the slice's only off-box gate, exactly as it is for the
+cursor-paged epoch tools.
 
 `snapshot`'s `:traces` slot takes the same projection. It ships the
 frame's trace ring as event bundles, and a bundle carries the same raw
@@ -279,9 +279,8 @@ every other payload, unschematized HTTP bodies included, reads
 Declared-sensitive app-db slots redact. The `:include-sensitive` two-key
 opt-in lifts the sensitive axis, the app-db slots and the trace-tag
 allow-list, exactly as it does for `:epochs`; it never lifts the event or
-effect arguments. The client-side whole-bundle
-sensitive drop still applies afterwards, on the per-event `:sensitive?`
-stamps the projection keeps.
+effect arguments. A bundle ships whatever its events'
+`:sensitive?` stamps say; the projection keeps them as labels.
 
 Two answers leave a bundle with no events to fold. A frame that
 classifies its whole app-db sensitive (`{:sensitive [[]]}`) gets its
@@ -1392,7 +1391,7 @@ structurally unable to execute a declared effect:
    machine exit-cascade walk, a resource-release walk) — RECORDS each
    well-shaped `[fx-id args]` entry and SKIPS execution, BEFORE any
    override / reserved-fx / handler runs. This is the whole no-effect
-   guarantee: it covers reject-tier reserved fx and image-only inline
+   guarantee: it covers reserved fx and image-only inline
    fx WITHOUT enumerating the registrar (the old override-recording
    composition missed both — the security hole this bead closed).
 3. `dispatch-sync` — the reducer + interceptor chain run normally
@@ -1423,7 +1422,7 @@ project together into the response shape.
 - **Machine transitions** — the machine-step machinery runs (pure
   data per Spec 005); transitions appear in cascade-summary's
   `:machine-transitions` slot. Machine-fired fx (timer schedules,
-  spawn/destroy) are RECORDED + SKIPPED by the sink — the reject-tier
+  spawn/destroy) are RECORDED + SKIPPED by the sink — their
   spawn/destroy bodies never install or clear runtime state.
 - **Frame mismatch** — the runtime fails with `:reason
   :ambiguous-frame` before the dispatch; no rollback needed.

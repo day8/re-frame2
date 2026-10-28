@@ -89,8 +89,9 @@ across the day8 MCP family). With it OFF, every **structured read tool**
 declared-large → `:rf.size/large-elided`. The epoch-egressing tools additionally route
 each record through `project-egress` — the one record-level egress door, which
 recognises an epoch record by its stamped `:kind` — so a sensitive slot inside
-`:db-before` / `:db-after` redacts and a whole epoch the runtime stamped `:rf.epoch/sensitive?`
-drops entirely. Net: structured reads are safe to fire by default.
+`:db-before` / `:db-after` redacts. An epoch the runtime stamped `:rf.epoch/sensitive?`
+still ships, redacted, with the stamp as a label that the record contained classified
+material. Net: structured reads are safe to fire by default.
 
 ### The raw-eval carve-out — eval-cljs is OUTSIDE the structured guarantee
 

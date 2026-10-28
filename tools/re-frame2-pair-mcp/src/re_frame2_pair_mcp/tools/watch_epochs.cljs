@@ -241,10 +241,9 @@
                         {:keys [value indicators]}
                         (wp/run-wire-pipeline matches
                                               {:kind   :epoch-vector
-                                               :incl?  incl?
                                                :mode   mode
                                                :dedup? dedup?})
-                        {:keys [dropped elided count]} indicators
+                        {:keys [elided count]} indicators
                         next-id       (:next-id v)
                         next-cursor   (cursor/encode-cursor
                                         (when next-id
@@ -325,4 +324,4 @@
                                            :has-more?           (some? next-cursor)
                                            :estimated-remaining remaining
                                            :next-cursor         next-cursor)
-                                    {:dropped dropped :elided elided}))))))))))))
+                                    {:elided elided}))))))))))))

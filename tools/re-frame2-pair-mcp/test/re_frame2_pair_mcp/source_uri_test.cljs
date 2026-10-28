@@ -60,6 +60,5 @@
        (is (= ["cursor://file/src/app/events.cljs:42:7" "cursor://file/src/app/subs.cljs:42:7"]
               (mapv :rf.mcp/source-uri
                     (:value (wp/run-wire-pipeline epochs {:kind   :epoch-vector
-                                                          :incl?  false
                                                           :mode   :diff
                                                           :dedup? false}))))))))

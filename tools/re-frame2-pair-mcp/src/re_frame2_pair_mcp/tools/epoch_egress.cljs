@@ -5,10 +5,10 @@
   carrying `:db-before` / `:db-after` app-db snapshots (plus
   `:trigger-event` / `:trace-events`) — over the MCP wire. The
   `:epoch-vector` wire-pipeline arm
-  (`re-frame2-pair-mcp.tools.wire-pipeline`) only DROPS whole epochs
-  STAMPED `:rf.epoch/sensitive?` and then diff-encodes / dedups the rest
-  — none of which redact a declared-sensitive SLOT (e.g.
-  `[:auth :password]`) sitting inside `:db-before` / `:db-after`. Without
+  (`re-frame2-pair-mcp.tools.wire-pipeline`) only diff-encodes and
+  dedups them — it redacts nothing, so a declared-sensitive SLOT (e.g.
+  `[:auth :password]`) sitting inside `:db-before` / `:db-after` is
+  protected by this projection alone, sensitive-flagged record or not. Without
   the projection this ns applies, a schema-declared `:sensitive?` slot
   would ride off-box verbatim even with the `--allow-sensitive-reads`
   gate OFF (the published default).

@@ -201,10 +201,9 @@
                   (let [{:keys [value indicators]}
                         (wp/run-wire-pipeline raw-epochs
                                               {:kind   :epoch-vector
-                                               :incl?  incl?
                                                :mode   mode
                                                :dedup? dedup?})
-                        {:keys [dropped elided count]} indicators
+                        {:keys [elided count]} indicators
                         next-id     (:next-id v)
                         next-cursor (cursor/encode-cursor
                                       (when next-id
@@ -270,4 +269,4 @@
                                         advisory (assoc :advisory advisory))]
                     (wire/ok-text (wire/with-indicators
                                     envelope
-                                    {:dropped dropped :elided elided}))))))))))))
+                                    {:elided elided}))))))))))))

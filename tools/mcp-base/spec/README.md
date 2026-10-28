@@ -116,11 +116,9 @@ Two rules:
    Clojars-published, so a dep `clein pom` cannot express (`:git/url`,
    `:local/root` outside the rewrite set) makes the jar unshippable. If
    your primitive needs cheshire / re-frame.trace / shadow-cljs /
-   js-interop, it belongs in its consumer, not here. (re-frame2-pair-mcp
-   keeps a thin local alias ns — `tools/sensitive.cljs` — that
-   delegates to `re-frame.mcp-base.sensitive` for code-review locality;
-   story-mcp requires `re-frame.mcp-base.sensitive` directly. The
-   predicate itself lives here.)
+   js-interop, it belongs in its consumer, not here. (story-mcp
+   requires `re-frame.mcp-base.sensitive` directly; the predicate
+   itself lives here.)
 
 What this rules out — concrete rejection cases so a contributor
 sees the trap before falling in:

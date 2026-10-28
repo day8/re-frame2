@@ -48,7 +48,7 @@ What this layer covers:
   pins the function shape (args coercion, eval-form composition,
   wire envelope, error surfaces) without touching the network.
 - Cross-cutting concerns — `cache_test.cljs`, `wire_cap_test.cljs`,
-  `dedup_test.cljs`, `sensitive_filter_test.cljs`, `path_slicing_test.cljs`,
+  `dedup_test.cljs`, `path_slicing_test.cljs`,
   `elision_test.cljs`, `lazy_summary_test.cljs`,
   `cursor_pagination_test.cljs`, `args_test.cljs`,
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
