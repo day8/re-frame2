@@ -230,7 +230,7 @@
    ;; a submit is in flight, the snapshot at [:data :submitted :password].
    ;; Both are credentials, so classify them :sensitive relative to the
    ;; snapshot's :data (EP-0025 projection-relative machine classification,
-   ;; lowered per actor at spawn). The snapshot then reads :rf/redacted at
+   ;; applied at egress to each actor present). The snapshot then reads :rf/redacted at
    ;; every egress — machine-transition traces, epoch, off-box shipper, SSR —
    ;; while the action bodies still read the live value to send it.
    :sensitive [[:data :draft :password]

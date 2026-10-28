@@ -98,20 +98,18 @@
           [:dispatch [:auth.register-form/initialise]]]}))
 
 ;; The JWT at [:auth :token] is a real credential, so we'd rather it didn't
-;; turn up in a trace export or an SSR payload. The fix is one line: tell the
-;; framework the path is sensitive, via the `:sensitive` classification
-;; effect, returned alongside `:db` from an event the frame runs at creation
-;; (`:initial-events`, before any boot dispatch or any chance to leak off-box).
-;; From then on, anything that leaves the box — an observability capture, an
-;; external tool, a hydration payload — sees the token redacted, while the
-;; running app keeps the raw value it needs.
+;; turn up in a trace export or an SSR payload. The fix is one declaration: the
+;; `reg-classification` below tells the framework the path is sensitive. It
+;; holds before any event runs, so the token is redacted from the very first
+;; write. Anything that leaves the box — an observability capture, an external
+;; tool, a hydration payload — sees the token redacted, while the running app
+;; keeps the raw value it needs.
 ;;
 ;; The JWT is not the only credential in this app, and it is a mistake to think
 ;; the login / register / settings PASSWORD is safe just because it is
 ;; "throwaway form state". A password is a credential the moment it is typed,
 ;; and it egresses raw unless classified — every surface it crosses gets its
-;; own classification, mirroring the same discipline this event applies to the
-;; JWT:
+;; own classification, mirroring the same discipline the JWT gets:
 ;;
 ;;   - The DRAFT, while the user types, lives in app-db
 ;;     ([:auth :login-form :draft :password] / [:auth :register-form :draft
