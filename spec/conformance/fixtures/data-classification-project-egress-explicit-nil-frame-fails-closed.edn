@@ -47,8 +47,8 @@
    :value             {:auth {:token "super-secret"} :public {:count 3}}
    :expect            :rf/redacted}
 
-  ;; [1] CONTROL — the SAME value under the SAME frame, named explicitly. Its
-  ;; declaration registry is empty, so the walk is the identity and the token
+  ;; [1] CONTROL — the SAME value under the SAME frame, named explicitly. It
+  ;; declares no classification, so the walk is the identity and the token
   ;; rides through. A green here is what makes [0]'s redaction a refusal to
   ;; borrow rather than an absence of anything to borrow.
   {:call              :project-egress

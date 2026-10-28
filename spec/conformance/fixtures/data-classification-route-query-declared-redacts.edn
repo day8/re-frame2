@@ -43,8 +43,8 @@
  ;; The route carries its OWN projection-relative classification on the
  ;; reg-route metadata map; the conformance runner threads it through to
  ;; rf/reg-route (register-routes! passes the meta minus :path verbatim), so
- ;; the :sensitive declaration lands in the route registry and lowers per-frame
- ;; on activation. A :query schema promotes the `token` query key to the
+ ;; the :sensitive declaration lands in the route registry, and egress applies
+ ;; it to the current slice. A :query schema promotes the `token` query key to the
  ;; keyword slot :token (Spec 012 §Query strings) so the projection-relative
  ;; [:query :token] lands on the slice value.
  :fixture/registry
