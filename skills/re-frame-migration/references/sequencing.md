@@ -37,7 +37,7 @@ Phase 3 — the planned sweep: the rest of the Phase-0a plan,
 
 **"All green" is not "clean compile."** Phase 4's done-bar is compile + tests + a clean **boot smoke-test** with live `app-db` introspection, with every Type B decision resolved — *not* a clean compile (see [`../SKILL.md`](../SKILL.md) Phase 4 + Done checklist, and [`runtime-smoke-test.md`](runtime-smoke-test.md)). v2 moves a large class of v1 failures from compile-time to **runtime**; a clean compile means "the rewrites parse," not "the app boots and runs."
 
-[`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Your task" sets the expectation: *the median migration is M-0 plus a handful of compile errors* — though M-73 (every event registration) and M-11 (every subscribing `defn` view) touch nearly every v1 app. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
+[`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Your task" sets the expectation: *the median migration is M-0 plus a handful of compile errors* — though M-73 (every event registration) and M-11 (every bare `dispatch` / `subscribe` that can run with no frame in scope, such as one in each `:on-click`) touch nearly every v1 app. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
 
 ## The first compile
 
@@ -184,7 +184,7 @@ Order of presentation within the batch (most-blocking first):
 1. **M-3** — run-to-completion impact: any animation timing, queue-peek tests, intermediate-render dependencies.
 2. **M-18** — `reg-sub-raw` rewrites: each call site needs the user's read on what the raw body is doing.
 3. **M-71** — the **v1 signal-function `reg-sub` sites that miss one of the corpus's four conditions** ([`guided-interceptors-subs.md` §Classify each site](guided-interceptors-subs.md#classify-each-site--the-case-decides-the-type)). A site that meets them was already applied as Type A and is reported, not asked.
-4. **M-11** — ambient frame reads in callbacks that run after the render, and boundary-less views: each call site.
+4. **M-11** — ambient frame reads in callbacks that run after the render, in reaction and `reg-sub` bodies, and in boundary-less views: each call site.
 5. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
 6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / registered-interceptor (`reg-interceptor` + ref by id) / fx routing.
 7. **M-10** — reserved-namespace collisions.
