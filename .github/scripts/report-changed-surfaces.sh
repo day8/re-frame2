@@ -687,10 +687,11 @@ else
     # THE ROSTER IS THE UNION OF BOTH FIXTURES' CLASSPATHS. The two fixtures
     # share core and the Reagent adapter, and share this one output. But
     # `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FOUR in-repo
-    # artefacts, not two — the shipped preload `:require`s `re-frame.schemas`
-    # and `re-frame.machines` directly for its `get-path`/`orient`/
-    # list-machines surfaces, which are not on the `re-frame.core` facade.
-    # Without those two roots, half of that job's own in-repo classpath would
+    # artefacts, not two — schemas, which the shipped preload `:require`s
+    # directly for its `schemas` read (app-schemas are not on the
+    # `re-frame.core` facade), and machines, which is on the fixture
+    # classpath though nothing the fixture compiles requires it (the preload
+    # reads machines through the registrar). Without those two roots, half of that job's own in-repo classpath would
     # classify `skills_structural=false`, and an owned-namespace API or
     # behaviour change in either could break `re_frame2_pair.pure` or the
     # runtime preload while the only job that compiles and tests that shipped

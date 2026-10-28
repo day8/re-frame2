@@ -4106,11 +4106,12 @@ jobs:
       # fixture watch. The fixture at
       # `skills/re-frame2-pair/tests/fixture/` resolves FOUR in-repo
       # artefacts as `:local/root` entries — core, reagent, schemas
-      # and machines (the last two because the shipped preload `:require`s
-      # `re-frame.schemas` and `re-frame.machines` directly, per the
-      # fixture's own deps.edn) — so a cold-cache run pulls every
-      # transitive dep of those four artefacts (Reagent, Malli, …)
-      # before shadow-cljs can even write the nREPL port file.
+      # and machines (the shipped preload `:require`s `re-frame.schemas`
+      # directly; machines is on the classpath, though nothing the fixture
+      # compiles requires it, per the fixture's own deps.edn) — so a
+      # cold-cache run pulls every transitive dep of those four artefacts
+      # (Reagent, Malli, …) before shadow-cljs can even write the nREPL
+      # port file.
       #
       # On a cold-cache GHA runner that resolve takes >240s and the
       # hermetic orchestrator's `SHADOW_BOOT_TIMEOUT_MS` watchdog fires
@@ -4609,10 +4610,11 @@ jobs:
           node-version: '24'
 
       # The fixture resolves FOUR in-repo artefacts as `:local/root` entries —
-      # core, reagent, schemas and machines (the last two because the
-      # shipped preload `:require`s `re-frame.schemas` and `re-frame.machines`
-      # directly, per the fixture's own deps.edn) — so a cold-cache run pulls
-      # every transitive dep (Reagent, Malli, …) before shadow-cljs can compile.
+      # core, reagent, schemas and machines (the shipped preload `:require`s
+      # `re-frame.schemas` directly; machines is on the classpath, though
+      # nothing the fixture compiles requires it, per the fixture's own
+      # deps.edn) — so a cold-cache run pulls every transitive dep (Reagent,
+      # Malli, …) before shadow-cljs can compile.
       #
       # THE KEY MUST NAME ALL FOUR. A key naming fewer would let a schemas or
       # machines dependency bump restore a classpath cache predating that
