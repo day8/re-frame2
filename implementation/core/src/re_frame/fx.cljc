@@ -46,10 +46,9 @@
                                       extra-slots)))
 
 (defn- emit-fx-registration-invalid!
-  "Emit and throw `:rf.error/fx-registration-invalid`. A `reg-fx` without a
-  handler fn would otherwise register and fail late, at fire time, as a
-  misleading `:rf.error/fx-handler-exception` (Spec 009 §Error event
-  catalogue)."
+  "Emit and throw `:rf.error/fx-registration-invalid` for a `reg-fx` that
+  would otherwise register and then fail late, or never run at all (Spec 009
+  §Error event catalogue)."
   [id reason]
   (rf.trace/emit-error! :rf.error/fx-registration-invalid
                      {:rf.fx/id id
@@ -73,6 +72,23 @@
            "effect fires (it would fail LATE at fire-time as a misleading "
            "`:rf.error/fx-handler-exception`). Supply the handler fn."))))
 
+(declare ^:private reserved-fx-handlers)
+
+(defn- refuse-reserved-body-id!
+  "Refuse a `reg-fx` of `:dispatch` or `:dispatch-later`. `handle-one-fx` runs
+  their reserved bodies before any registry lookup, so the handler would
+  register without complaint and never run; an `:fx-overrides` entry is what
+  replaces one (Conventions §Reserved fx-ids). Shared by `reg-fx` and
+  `lower-inline-fx`."
+  [id]
+  (when (contains? reserved-fx-handlers id)
+    (emit-fx-registration-invalid!
+      id
+      (str "`reg-fx` cannot register `" id "`: it is a reserved fx-id whose "
+           "body the runtime runs before any registry lookup, so this handler "
+           "would never run. To replace `" id "` in a test or story, give the "
+           "frame or the dispatch `:fx-overrides {" id " (fn [ctx args] ...)}`."))))
+
 (defn reg-fx
   "Register an effect handler under `id`; it runs for each `[id args]` entry
   in an event's `:fx` vector. Returns `id` (Spec 001 §Registration grammar).
@@ -86,13 +102,16 @@
   the emitted value. Metadata: `:doc`; `:schema` for `args` (Spec 010 §On
   every `reg-*`); and `:platforms`, default `#{:client :server}`, outside
   which the fx is skipped with a warning. Throws
-  `:rf.error/fx-registration-invalid` when no handler fn is given."
+  `:rf.error/fx-registration-invalid` when no handler fn is given, and for
+  `:dispatch` / `:dispatch-later`, whose bodies the runtime runs itself
+  (Conventions §Reserved fx-ids)."
   [id metadata-or-handler & maybe-handler]
   (let [[meta handler-fn]
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
     (validate-fx-handler! id handler-fn)
+    (refuse-reserved-body-id! id)
     (register-with-classification! :fx id meta handler-fn nil)
     id))
 
@@ -114,6 +133,7 @@
   id, for diagnostics. Writes nothing."
   [id meta impl]
   (validate-fx-handler! id impl)
+  (refuse-reserved-body-id! id)
   (validate-registration-meta! :fx id meta)
   (assoc meta :handler-fn impl))
 
