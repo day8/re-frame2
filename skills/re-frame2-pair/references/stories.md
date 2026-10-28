@@ -223,11 +223,12 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 - **Epoch history** — `(rf.epoch/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's.
 - **Sub cache** — the live snapshot (`re-frame.subs.tooling/sub-cache-snapshot`) is per-frame; `[:count]` materialised in one variant is independent of `[:count]` in another.
 - **Trace events** — `:frame` is stamped on every emitted event (Spec 009 §Frame identity on the raw event), so filter raw trace by `{:frame :story.counter/loaded}` to scope.
-- **`[:rf.runtime/elision :declarations]`** — the elision registry lives in the runtime-db partition under the reserved `:rf.runtime/elision` child (Spec 009 §Nomination — the classification registry), so large-path nominations are per-frame too.
 - **Error observability** — `:frame` is stamped on every `:rf.error/*` record, so a per-frame `:observability :errors` sink (or filtering the process default's records by `:frame`) scopes errors to one variant. Recovery is framework-owned; there is no per-frame recovery policy.
 - **`:fx-overrides`** — Story's `:fx-override` decorators stub fx per-variant. Calls into one variant's stub do not affect another.
 
 **Registrations are NOT per-variant.** A frame resolves behaviour against its resolved image generation (SKILL.md §Multi-frame model). In a single-installation app — the Story case — `reg-event`, `reg-sub`, `reg-machine`, `reg-view`, `reg-decorator` register into one shared set every variant sees. So a hot-swap through `eval-cljs` affects **every** variant sharing that set: useful for the experiment loop, occasionally surprising. If you need a change scoped to one variant, dispatch different args into different variants rather than reaching for the per-frame `:interceptor-overrides` slot (Spec 002 §Per-frame overrides), which Story's variant-mount does not expose.
+
+**Classification is a registration too.** A variant's `:sensitive` / `:large` slots register a `reg-classification` named for its frame (`:rf.story.classification.story.counter/loaded` for `:story.counter/loaded`), cleared when the frame is destroyed. While it runs, every frame resolving the live registrations applies it as well, which redacts more, never less; a variant that composes `:images` declares its paths in one of its images' namespaces instead. `(re-frame.elision/sensitive-declarations <frame-id>)` and `(re-frame.elision/declarations <frame-id>)` read what a frame classifies.
 
 ## Diff two variants of the same component
 

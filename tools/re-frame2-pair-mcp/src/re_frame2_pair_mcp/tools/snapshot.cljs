@@ -52,9 +52,9 @@
         ;; get the `:rf.size/large-elided` / `:rf/redacted` marker
         ;; server-side, before the EDN crosses the wire.
         ;;
-        ;; The walker reads the `[:rf.runtime/elision]` registry from the
-        ;; frame's durable runtime-db partition (EP-0001) — it has to run
-        ;; app-side, where the registry is reachable. The walk fires on
+        ;; The walker reads the frame's classification policy
+        ;; (`re-frame.elision/frame-policy`) — it has to run
+        ;; app-side, where the policy is reachable. The walk fires on
         ;; every read; `elision false` only overlays
         ;; `:rf.egress/include-large? true` on the named profile.
         ;;

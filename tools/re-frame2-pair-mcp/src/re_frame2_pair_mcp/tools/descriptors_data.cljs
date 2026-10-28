@@ -941,10 +941,10 @@
                      "partition, which Spec 011 §Off-box redaction REDACTS/OMITS off-box by default. Under the "
                      "default `:rf.egress/off-box-tool` posture (Tool-Pair EP-0015 adoption) the whole "
                      "`:machines` slice therefore FAILS CLOSED to the `:rf/redacted` sentinel — its `:data` "
-                     "(which can carry durable sensitive runtime state, classified schema-first via per-slot "
-                     "`[:schemas :data]` `:sensitive?` / `:large?` props per Spec 015) never crosses the wire raw. "
-                     "There is NO top-level machine `:sensitive` / `:large` key and NO interceptor-based "
-                     "payload redaction (neither exists under EP-0015 — the slice is gated by the off-box egress "
+                     "(which can carry durable sensitive runtime state, classified by the top-level `:sensitive` / "
+                     "`:large` keys on its `reg-machine` definition and applied at egress) never crosses the wire raw. "
+                     "There is NO interceptor-based "
+                     "payload redaction (the slice is gated by the off-box egress "
                      "posture, not a public interceptor). The trusted-local `--allow-sensitive-reads` gate "
                      "(surfaced as `include-sensitive true`) threads through to ship the live runtime-db "
                      "snapshots — an opt-in to richer runtime-db diagnostics, never a bypass of projection. "
@@ -1080,7 +1080,7 @@
                      "Examples: "
                      "1. Hit: {:path \"[:cart :items 0 :sku]\"} -> {:ok? true :exists? true :path [:cart :items 0 :sku] :value \"sku-abc\"}. "
                      "2. Path-not-found: {:path \"[:cart :items 99]\"} -> {:ok? false :reason :path-not-found :path [:cart :items 99] :deepest-valid-prefix [:cart :items]}. "
-                     "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :effect :handle [:rf.elision/at [:big :payload]]}} :elision true}; fetch it raw with {:path \"[:big :payload]\" :elision false}. "
+                     "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :classification :handle [:rf.elision/at [:big :payload]]}} :elision true}; fetch it raw with {:path \"[:big :payload]\" :elision false}. "
                      "4. Batch read: {:paths \"[[:cart :total] [:user :id] [:missing :k]]\"} -> {:ok? true :results {[:cart :total] {:exists? true :value 42} [:user :id] {:exists? true :value \"u-1\"} [:missing :k] {:exists? false :value nil}}}.")
    :typicalTokens 500
    :annotations idempotent-read-only-annotations
@@ -1331,7 +1331,7 @@
                                                            "— same shape get-path / snapshot emit.")}
                               :frame    {:type "string"
                                          :description (str "Operating frame (e.g. \":stories\") — scopes the :subs-read "
-                                                           "slice and the elision registry. Defaults to the operating frame.")}
+                                                           "slice and the classification the elision walker applies. Defaults to the operating frame.")}
                               :build    {:type "string"}}
                  :additionalProperties false}})
 

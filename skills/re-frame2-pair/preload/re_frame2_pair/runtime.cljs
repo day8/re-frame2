@@ -501,8 +501,8 @@
   no boundary to cross at all, and passing the value through untouched is
   both cheaper and strictly narrower than routing it through the door.
 
-  `frame-id` is supplied so the projection resolves the right
-  `[:rf.runtime/elision]` registry (in the frame's runtime-db)."
+  `frame-id` is supplied so the projection reads the right frame's
+  classification policy (`re-frame.elision/frame-policy`)."
   [v frame-id]
   (if (:allow-raw-state? @raw-state-config)
     v
@@ -519,8 +519,8 @@
   never reach ship RAW. The framework boundary `re-frame.core/project-egress`
   — the `:rf.observe/derived-tree` record kind (EP-0025 B4) — walks
   the tree through `project-egress` against the frame's classification (the
-  SAME per-frame registry the `:app-db` path walker reads: frame- /
-  EP-0025-commit-plane-effect- / flow-sourced declarations, unioned).
+  SAME per-frame policy the `:app-db` path walker reads: `reg-classification`
+  and flow-output declarations, unioned).
 
   EP-0025 FAIL-OPEN: there is NO value-match (taint-by-equality) engine — a
   secret copied from a declared-sensitive app-db slot into a non-app-db DOM
@@ -2986,7 +2986,7 @@
    leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
    already close via `re-frame.core/project-egress`. This routes the
    value through the SAME door, server-side (app-side, where the
-   `[:rf.runtime/elision]` registry in runtime-db is reachable).
+   frame's classification policy is reachable).
 
    Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces:
 
@@ -3014,8 +3014,8 @@
    digests, but the name is the claim). The MCP path reaches
    off-box-tool, because that is the profile it names.
 
-   `frame-id` is supplied so the projection resolves the right per-frame
-   elision registry."
+   `frame-id` is supplied so the projection reads the right frame's
+   classification policy."
   [v frame-id elide-opts]
   (let [gate-on? (:allow-raw-state? @raw-state-config)
         ;; Fail-closed: when the gate is OFF, force include-sensitive? false

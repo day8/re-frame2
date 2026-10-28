@@ -17,7 +17,7 @@
   ## Where in the pipeline
 
   Elision runs FIRST — server-side inside the eval form, where the
-  frame's `[:rf.runtime/elision]` runtime-db registry is reachable. The MCP server gets
+  frame's classification policy (`re-frame.elision/frame-policy`) is reachable. The MCP server gets
   back data that already carries `:rf.size/large-elided` markers in
   place of declared-`:large` slots. The downstream pipeline
   (path-slicing → diff-encode → dedup → wire-cap) operates on the
@@ -173,8 +173,8 @@
   which reads the SAME reactive cache source (so both redact alike).
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or a
-  runtime `current-frame` call) so the door resolves the right
-  `[:rf.runtime/elision]` runtime-db registry; `egress-opts` is the
+  runtime `current-frame` call) so the door reads the right frame's
+  classification policy; `egress-opts` is the
   rendered `egress-opts-edn` map naming the `:rf.egress/*` profile the
   `--allow-sensitive-reads` gate resolved to.
 
@@ -183,8 +183,8 @@
   `:rf.route/query` / `:rf.route/params`) re-seeds the walk at its
   `[:rf.runtime/routing :current …]` storage position (via the
   routing-owned seed table the walk consults), redacting a `:sensitive`
-  route query / param that would otherwise ride RAW (the route
-  classification is re-rooted ABSOLUTE in the registry; the bare slice the
+  route query / param that would otherwise ride RAW (the frame's policy
+  claims the route classification at its ABSOLUTE runtime-db path; the bare slice the
   sub returns would never match a whole-value-rooted walk)."
   [frame-edn egress-opts]
   (str "(fn [entry]"

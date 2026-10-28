@@ -35,7 +35,7 @@
 
     - `:db-state-after-simulation` (the would-be app-db) is run
       through `re-frame.core/project-egress` SERVER-SIDE (app-side,
-      where the `[:rf.runtime/elision]` runtime-db registry is
+      where the frame's classification policy is
       reachable) before the EDN crosses the wire. Large slots collapse
       to `:rf.size/large-elided` markers; declared-sensitive slots
       redact to `:rf/redacted`. This slot IS rooted at the frame's
@@ -211,8 +211,8 @@
   through untouched.
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or
-  a runtime `current-frame` call) so the door resolves the right
-  `[:rf.runtime/elision]` runtime-db registry; `egress-opts` is the rendered
+  a runtime `current-frame` call) so the door reads the right frame's
+  classification policy; `egress-opts` is the rendered
   `egress-opts-edn` map naming the `:rf.egress/*` profile the
   `--allow-sensitive-reads` gate resolved to."
   [frame-edn egress-opts]
@@ -339,7 +339,7 @@
             opts-form (ef/rt-quote opts-map)
             ;; The runtime returns the structured dry-run envelope. We
             ;; transform it server-side in two composed stages (the walker
-            ;; reaches the live elision registry only app-side):
+            ;; reaches the frame's classification policy only app-side):
             ;;
             ;;   1. fx-args fail-close (ALWAYS) — the
             ;;      `:would-fire-effects[*].args` slot carries RAW fx-handler

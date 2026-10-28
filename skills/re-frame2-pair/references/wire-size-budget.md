@@ -123,8 +123,8 @@ inside the relevant slice) before treating a result as raw data:
   re-call `get-path` on its `:path` with `elision false` (see the
   decision tree above for past-epoch markers). Markers come from
   owner-declared `:large` path classification: a durable app-db path
-  classified by the **`:large` commit-plane effect** a handler returns
-  alongside `:db`, or a projection-relative `:large` declaration on a
+  classified by a **`reg-classification`** beside the feature that writes
+  it, or a projection-relative `:large` declaration on a
   subsystem definition (machine `:data`, resource data/params). If a large
   value appears unclassified, dev builds emit
   `:rf.warning/large-value-unschema'd`; classify its path at its owner when

@@ -140,14 +140,15 @@ server-side before the EDN crosses the wire (see
 [`Principles.md` §Size-elision wire markers](Principles.md#size-elision-wire-markers-rf2-urjnc)).
 Each affected tool accepts an `elision` arg (boolean,
 default `true`). A value at or below a path classified `:large`
-(the commit-plane `:large` effect) is substituted with
+(a `reg-classification` declaration, or a subsystem's own `:large`
+declaration) is substituted with
 
 ```clojure
 {:rf.size/large-elided
  {:path   [<segment>...]
   :bytes  <int>
   :type   :map | :vector | :set | :string | :scalar
-  :reason :effect | :machine | :resource | :route | :flow
+  :reason :classification | :flow | :machine | :route | :resource | :mutation
   :hint   <string-or-nil>
   :handle [:rf.elision/at <path>]}}
 ```
@@ -822,8 +823,8 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    slot (`epoch/tool_pair.cljc` §`elide-trigger-event-slot`). It is
    applied SERVER-SIDE inside the runtime projection
    (`restore-cascade-summary` / `cascade-summary`) because the
-   trigger-event is not addressed by an app-db path the elision registry
-   classifies. It therefore covers `restore-epoch`, `dispatch-dry-run`
+   trigger-event is not addressed by an app-db path the frame's classification
+   policy names. It therefore covers `restore-epoch`, `dispatch-dry-run`
    (whose `:cascade-summary` is otherwise NOT walked, being a counts-only
    projection), AND `dispatch` itself (rf2-8fin7.3) — every tool whose
    cascade-summary copies a dispatched `:trigger-event`. For `dispatch`
@@ -2735,7 +2736,7 @@ annotations so hosts auto-approve.
 `":my.app/header"`), `point` (object `{x N y N}`), `selector` (string —
 CSS selector); plus `max-text` (integer — per-node `textContent` char
 cap, default 2000), `frame` (string — operating frame for the
-`:subs-read` slice + elision registry), `build` (string).
+`:subs-read` slice + the classification the elision walker applies), `build` (string).
 
 **Returns** on success:
 
