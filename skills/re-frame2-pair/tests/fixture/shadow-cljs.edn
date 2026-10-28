@@ -9,13 +9,14 @@
 ;;
 ;; The two re-frame2-pair-specific bits are:
 ;;
-;; 1. The `../../preload` source path — directory carrying the
-;; `re_frame2_pair/runtime.cljs` namespace that ships in the
-;; `@day8/re-frame2-pair` npm package's `preload/`. re-frame2-pair's SKILL.md
-;; §Setup tells consumers to put `node_modules/@day8/re-frame2-pair/preload`
-;; on the build's source paths; here we point straight at the
-;; in-repo source. With `:deps true` the source-paths live in
-;; `deps.edn` `:paths`, not here.
+;; 1. The `../../preload` source path — the skill's own `preload/`
+;; directory, carrying the `re_frame2_pair/runtime.cljs` namespace.
+;; re-frame2-pair's SKILL.md §Setup tells consumers to put the linked
+;; skill's `preload/` directory on the build's classpath in whichever
+;; file owns it (for a `:deps` app, a `deps.edn` alias's `:local/root`
+;; on the skill directory); here we point straight at the in-repo
+;; source. With `:deps true` the source-paths live in `deps.edn`
+;; `:paths`, not here.
 ;;
 ;; 2. `:devtools :preloads [re-frame2-pair.runtime]` — shadow-cljs's
 ;; standard mechanism for loading the namespace before app code,
