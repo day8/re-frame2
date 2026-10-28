@@ -31,16 +31,19 @@ The harness covers:
 * **The spine's own tree (Z, AB)** — a diff touching `scripts/test-fast-pr.sh`
   arms every tier; an ordinary `scripts/` change takes the unknown-surface
   fallback and does not arm the documentation tier.
-* **Hermetic mkdocs resolution (AC2, AD, AE)** — on GitHub CI `requirements.txt`
-  puts a bare `mkdocs` on PATH, so a host-consulting case could never execute
-  the module fallback there. These cases construct the module-only state
-  instead: a PATH with every `mkdocs`-providing directory removed plus a stub
-  directory that shadows all three launchers `resolve_mkdocs` tries and lets at
-  most one answer `-m mkdocs --version`. AC2 lets only `py`, the last launcher,
-  answer, so it also proves the loop walks past the two that fail; AD asserts a
-  console script wins over a working module launcher; AE asserts a host where
-  nothing resolves reports `unresolved` rather than anything that reads as a
-  pass.
+* **Hermetic mkdocs resolution (AC2, AC3, AD, AE)** — on GitHub CI
+  `requirements.txt` puts a bare `mkdocs` on PATH, so a host-consulting case
+  could never execute the module fallback there. These cases construct the
+  module-only state instead: a PATH with every `mkdocs`-providing directory
+  removed plus a stub directory that shadows the three bare launchers
+  `resolve_mkdocs` tries and lets at most one answer `-m mkdocs --version`.
+  `resolve_mkdocs` tries the spine's own launcher before those names, so each
+  case pins `RF2_FAST_PR_PYTHON` to a stubbed one. AC2 lets only `py`, the last
+  launcher, answer, so it also proves the loop walks past the two that fail;
+  AC3 asserts the spine's own launcher, a two-word `py -3`, wins over a working
+  bare `python`; AD asserts a console script wins over a working module
+  launcher; AE asserts a host where nothing resolves reports `unresolved`
+  rather than anything that reads as a pass.
 * **Hermetic Python launcher probe (P1, P2)** — the spine picks its Python by
   running each candidate, because on Windows the Store alias resolves and
   exits 49. A stub directory shadows `python`, `python3` and `py`: P1 makes the

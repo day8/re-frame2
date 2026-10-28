@@ -17,8 +17,9 @@
 #   U            — the JVM tier adds a touched artefact, matched on a path boundary;
 #   Z, AB        — the spine's own file arms every tier; an ordinary script takes
 #                  the unknown-surface fallback without the docs tier;
-#   AC2, AD, AE  — hermetic mkdocs resolution: the module fallback through the
-#                  last launcher, a console script preferred, `unresolved`;
+#   AC2-AE       — hermetic mkdocs resolution: the module fallback through the
+#                  last launcher, the spine's own launcher tried before the bare
+#                  names, a console script preferred, `unresolved`;
 #   P1, P2       — hermetic Python launcher probe: a Store-alias stub that
 #                  resolves and exits 49 is passed over, and an interpreter
 #                  carrying requirements.txt beats an earlier bare one;
@@ -225,9 +226,12 @@ assert "AB an ordinary scripts/ change does NOT arm the docs tier" \
 # HERMETIC mkdocs RESOLUTION.  CI has a bare `mkdocs` console script on PATH, so
 # a host-consulting case would never execute the `python -m mkdocs` fallback
 # there.  These cases ask the host nothing: they CONSTRUCT a PATH with every
-# bare `mkdocs` removed plus a stub directory that shadows all three launchers
-# `resolve_mkdocs` tries and lets at most one answer `-m mkdocs --version`, then
-# assert the EXACT command the real spine selected.
+# bare `mkdocs` removed plus a stub directory that shadows all three bare
+# launchers `resolve_mkdocs` tries and lets at most one answer
+# `-m mkdocs --version`, then assert the EXACT command the real spine selected.
+# `resolve_mkdocs` tries the spine's own `$python` before those names, so each
+# case pins RF2_FAST_PR_PYTHON to a stubbed name: left at the host's launcher it
+# would answer from the host.
 # ---------------------------------------------------------------------------
 
 # $PATH with every entry that provides a bare `mkdocs` removed.  Globbing is
@@ -257,7 +261,7 @@ mkdocs_free="$(mkdocs_free_path)"
 # A stub directory shadowing all three launchers; only `$2` (or none, for
 # `none`) answers `-m mkdocs --version`.  The shadowing is what makes a case
 # hermetic: the host's real interpreters are still on the sanitised PATH, and
-# `resolve_mkdocs` tries `python` first.
+# `resolve_mkdocs`'s bare-name loop tries `python` first.
 make_launcher_bin() {
   local dir="$1" working="$2" l
   mkdir -p "$dir"
@@ -287,6 +291,19 @@ none_bin="$tmp_root/no-mkdocs-bin";       make_launcher_bin "$none_bin" none
 both_bin="$tmp_root/console-wins-bin";    make_launcher_bin "$both_bin" python
 printf '#!/bin/sh\nexit 0\n' > "$both_bin/mkdocs"
 chmod +x "$both_bin/mkdocs"
+# The spine's own launcher beside a WORKING bare `python` the loop would pick.
+# `py` answers only when handed its `-3`, so only `$python` = `py -3`, expanded
+# unquoted, reaches it.
+resolved_bin="$tmp_root/resolved-launcher-bin"; make_launcher_bin "$resolved_bin" python
+cat > "$resolved_bin/py" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = "-3" ] && [ "${2:-}" = "-m" ] && [ "${3:-}" = "mkdocs" ] && [ "${4:-}" = "--version" ]; then
+  printf 'mkdocs, version 1.6.1 (hermetic self-test stub)\n'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$resolved_bin/py"
 
 # The sandbox must still carry the tools the spine shells out to, and must hide
 # every bare mkdocs; otherwise the cases below would fail for the wrong reason,
@@ -308,18 +325,22 @@ fi
 if [ "$hermetic_ready" = yes ]; then
   assert "AC2 only py can run mkdocs → 'py -m mkdocs' selected" \
     "PLAN-MKDOCS py -m mkdocs" \
-    "$(PATH="$module_bin_py:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
+    "$(RF2_FAST_PR_PYTHON=python PATH="$module_bin_py:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
+
+  assert "AC3 the spine's own launcher is tried before the bare names → 'py -3 -m mkdocs'" \
+    "PLAN-MKDOCS py -3 -m mkdocs" \
+    "$(RF2_FAST_PR_PYTHON='py -3' PATH="$resolved_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 
   assert "AD console script wins over a WORKING module launcher" \
     "PLAN-MKDOCS mkdocs" \
-    "$(PATH="$both_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
+    "$(RF2_FAST_PR_PYTHON=python PATH="$both_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 
   assert "AE nothing resolves → 'unresolved' (never a silent pass)" \
     "PLAN-MKDOCS unresolved" \
-    "$(PATH="$none_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
+    "$(RF2_FAST_PR_PYTHON=python PATH="$none_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 else
   printf '  FAIL AC2-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
-  fail_count=$((fail_count + 3))
+  fail_count=$((fail_count + 4))
 fi
 
 # ---------------------------------------------------------------------------
