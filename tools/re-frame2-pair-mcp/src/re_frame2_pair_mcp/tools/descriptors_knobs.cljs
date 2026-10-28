@@ -22,16 +22,16 @@
                      "`{:rf.mcp/invalid-arg ...}` error.")})
 
 (def limit-property
-  "Per-tool descriptor slot for the `:limit` cursor-pagination knob.
-  Applied to surfaces that ship epoch vectors and would otherwise blow
-  the wire-cap on a single call: `trace-window` and `watch-epochs`.
-  Default 50 — sized to fit the 5K-token cap after diff-encode +
-  dedup."
+  "Per-tool descriptor slot for the `:limit` cursor-pagination knob on
+  the surfaces that ship epoch vectors: `trace-window` and
+  `watch-epochs`. A bound on records, not tokens — the page is then cut
+  to what fits `max-tokens` (`cap/fit-page`)."
   {:type        "integer"
    :description (str "Maximum number of epoch records in the response "
-                     "(default 50). The default is sized to fit the "
-                     "5K-token wire-cap with diff-encode + "
-                     "dedup active. When more records remain, "
+                     "(default 50). It bounds RECORDS, not tokens: one real-app "
+                     "record can run to thousands of tokens, so the page is also "
+                     "cut to the longest prefix that fits `max-tokens`, stamped "
+                     "`:truncated-by :max-tokens`. When more records remain, "
                      "`:next-cursor` is non-nil and `:has-more? true`; "
                      "pass the cursor back to fetch the next page.")})
 

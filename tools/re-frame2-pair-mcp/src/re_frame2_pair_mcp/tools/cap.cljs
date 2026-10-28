@@ -34,17 +34,17 @@
     the assembled `{:content [...]}` shape's text slots. Multi-part
     responses share one cumulative budget rather than per-key.
   - **Per-call override**: every tool accepts a `max-tokens` arg —
-    integer cap, `0` disables (escape hatch for callers that have
-    already paginated). Default `5000`.
-  - **Pluggable strategy**: `rf.mcp-base.cap/apply-cap` dispatches on a
-    strategy keyword. Only `:truncate-with-marker` is
-    implemented — replace the payload with the overflow marker.
-    Future strategies (path-slicing, lazy summary, diff encoding,
-    etc.) compose in the base without rebuilding the wrapper here.
+    integer cap, `0` disables. Default `5000`.
+  - **One strategy**: an over-cap payload is replaced whole with the
+    overflow marker.
   - **Centralised**: applied as the final step in `invoke`. Per-tool
-    functions know nothing of the cap; they emit their own shapes.
-    The wire-cap is a property of the egress boundary, not of
-    each tool's internals."
+    functions emit their own shapes and the wire-cap is a property of
+    the egress boundary. The one exception is a paginated read, whose
+    page can be cut at any record: `trace-window` and `watch-epochs`
+    hand [[fit-page]] a page builder, so an over-cap page comes back as
+    the longest prefix of its records that fits, with a cursor to the
+    rest, rather than as the marker. They measure with [[fits?]], the
+    cap's own gate, so a fitted page always passes it."
   (:require [applied-science.js-interop :as j]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
@@ -86,8 +86,8 @@
   fallback when a tool isn't listed."
   {"snapshot"      "Narrow scope: pass `path [:k1 :k2]` to slice the :app-db slice, `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Default mode is :summary — drill down via `get-path` once you know the key."
    "get-path"      "Narrow the path further — pass a deeper segment so the addressed subtree is smaller. Or call `snapshot` with no `path` first for a tree-summary, then re-aim."
-   "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
-   "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or fetch incrementally with `since-id` / `cursor`."
+   "trace-window"  "This read already cuts its page to the records that fit, so the marker means `max-tokens` is below even an empty page. Raise `max-tokens` (0 disables the cap)."
+   "watch-epochs"  "This read already cuts its page to the records that fit, so the marker means `max-tokens` is below even an empty page. Raise `max-tokens` (0 disables the cap)."
    "eval-cljs"     "Slice the value at the call-site (`get-in`, `take`, project to fewer keys) before returning."
    "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame2-pair.runtime/health)` directly via `eval-cljs` with a projection."
    "orient"        "orient takes no narrowing argument and already caps each id list at 20 examples, so the bulk is frame lists or wide app-db top levels. Read ids with `list-handlers` (`kind`, optional `frame`), one frame's state shape with `snapshot` (`path`), or re-call orient with a larger `max-tokens` (0 disables the cap)."
@@ -166,9 +166,6 @@
   (when under the cap or cap disabled) or a fresh result carrying the
   overflow marker.
 
-  Pluggable on `strategy` — see `rf.mcp-base.cap/apply-cap`. Only
-  `:truncate-with-marker` is wired; unknown strategies degrade safely.
-
   Adds re-frame2-pair-mcp's `overflow-hints` table lookup before delegating to
   `rf.mcp-base.cap/apply-cap`.
 
@@ -195,13 +192,47 @@
   payload — never a verbatim over-budget body. The cache only
   cares about identity; the cap cares about byte count, and an
   error's bytes count just like a success's."
-  [result-js {:keys [tool cap strategy]
-              :or   {strategy :truncate-with-marker}}]
+  [result-js {:keys [tool cap]}]
   (if (wire/marker? result-js)
     result-js
     (rf.mcp-base.cap/apply-cap result-io result-js
-                        {:tool     tool
-                         :cap      cap
-                         :hint     (get overflow-hints tool)
-                         :strategy strategy})))
+                               {:tool tool
+                                :cap  cap
+                                :hint (get overflow-hints tool)})))
+
+(defn fits?
+  "True when `result-js` passes [[apply-cap]] unchanged at `cap` — the cap's
+  own token and character gates, over the same wire slots. A nil `cap` (the
+  cap disabled) always fits."
+  [result-js cap]
+  (or (nil? cap)
+      (identical? result-js (rf.mcp-base.cap/apply-cap result-io result-js {:cap cap}))))
+
+(defn page-cap
+  "The cap a paginated read fits its page to: the call's resolved
+  `max-tokens`, or nil when the cap is disabled. An out-of-domain value is
+  refused at `invoke` before any tool runs, so it reads as nil here."
+  [args]
+  (let [cap (max-tokens-arg args)]
+    (when-not (invalid-arg? cap) cap)))
+
+(defn fit-page
+  "The wire result for the longest prefix of a paginated read's `n` records
+  that fits `cap`. `page-result` maps a record count `k` (0..n) to the whole
+  result for a page of the first `k` records, including its continuation
+  cursor. A page that fits whole costs one call; an over-cap one is bisected
+  for the largest fitting `k`, on the premise that a page never shrinks as it
+  gains a record. When no `k` above 0 fits, the result is `(page-result 0)`,
+  which the caller shapes to say why the page is empty."
+  [n cap page-result]
+  (let [render (memoize page-result)]
+    (if (or (zero? n) (fits? (render n) cap))
+      (render n)
+      (loop [lo 0 hi (dec n)]
+        (if (>= lo hi)
+          (render lo)
+          (let [mid (quot (+ lo hi 1) 2)]
+            (if (fits? (render mid) cap)
+              (recur mid hi)
+              (recur lo (dec mid)))))))))
 

@@ -353,9 +353,12 @@ stay inside the budget by construction:
   (`trace-window`, `watch-epochs` matches, `registrations`
   listings under `discover-app`) MUST accept a `:limit`
   argument and return a `:cursor` for continuation. The
-  default `:limit` MUST keep the response under the cap. No
-  unbounded list responses; no "best-effort" omission of
-  pagination.
+  response MUST stay under the cap whatever the `:limit`: a
+  `:limit` counts items, not tokens, so a page that would
+  overflow is cut to the longest prefix that fits, says so
+  (`:truncated-by :max-tokens`), and carries a cursor that
+  resumes at the first item it left out. No unbounded list
+  responses; no "best-effort" omission of pagination.
 - **Summarisation modes for rich payloads.** Ops with rich
   per-item shape (`snapshot`, `trace-window`, `discover-app`)
   MUST expose a `:mode` (or equivalent) argument with at

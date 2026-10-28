@@ -62,8 +62,10 @@ replaced with a structured marker:
 
 The marker is the only over-budget response shape — silent truncation
 is not allowed. Agents pattern-match on `:rf.mcp/overflow` and either
-narrow their args or pass `max-tokens 0` for the rare case where the
-full payload is genuinely needed.
+narrow their args or pass `max-tokens 0` when the full payload is
+genuinely needed. The paginated epoch reads are the one place a
+payload is cut rather than replaced, and the cut is never silent: see
+§Cursor pagination on epoch slices.
 
 ## Universal: caller-supplied ids have keyword grammar
 
@@ -303,9 +305,11 @@ response-payload size in tokens that AI clients use to budget calls
 and pick size-conscious args (`max-tokens`, `cache`, `cursor`)
 without trial-and-error. The slot is a hint, not a contract: the
 real cap is the per-call wire-cap enforced by §Universal:
-wire-boundary token cap above. Worst-case-shape; narrowing on tool-
-specific args (`limit`, `path`, `:timing-ms` for watch-epochs) shrinks
-the actual payload roughly proportional to the match rate.
+wire-boundary token cap above. Narrowing on tool-specific args (`path`,
+`:timing-ms` for watch-epochs) shrinks the actual payload roughly
+proportional to the match rate. The epoch reads declare 4800, a page
+holding one real-app record: their page is cut to the cap, so a call
+returning several records fills most of it.
 
 Each entry lists its declared `:typicalTokens` value in the tool
 descriptor — read the body of each tool below to see the budget
@@ -1780,17 +1784,35 @@ error rather than silently restarting (see
 
 ```clojure
 {:ok?                 true
- :limit               50              ; the cap that bounded this page
+ :limit               50              ; the record bound on this page
  :count               50              ; items in this page
  :epochs              [...]           ; the page itself
  :has-more?           true|false
  :estimated-remaining N                ; remaining matches in current ring
- :next-cursor         "<base64-edn>" | nil}
+ :next-cursor         "<base64-edn>" | nil
+ :truncated-by        :max-tokens}    ; only when the cap cut the page
 ```
 
 The cursor is opaque on the wire — agents pass `:next-cursor` back as
-`:cursor` on the next call. Default `:limit` (50) is sized to fit the
-5K-token wire-cap after diff-encode (rf2-1wdzp) and dedup (rf2-obpa9).
+`:cursor` on the next call. `:limit` bounds **records, not tokens**,
+and one real-app record can run to thousands of tokens, so the page is
+bounded a second time by `max-tokens`: when the `:limit`-bounded page
+would overflow, the response is the longest prefix of it that fits,
+stamped `:truncated-by :max-tokens`, with `:has-more? true`, the records
+it left out added to `:estimated-remaining`, and a `:next-cursor` that
+resumes at the first of them. When not even the first record fits, the
+page is empty and says so instead of blaming the window or the filter:
+
+```clojure
+{:advisory {:reason        :record-exceeds-max-tokens
+            :frame         <frame-id>
+            :record-tokens N          ; a page holding just the next record
+            :cap-tokens    C
+            :hint          "… Re-call with max-tokens 0 (no cap) or at least N …"}}
+```
+
+Its `:next-cursor` resumes from the position the call read after, and is
+nil on a first page, which is re-called with the same arguments.
 The cursor's payload (base64-encoded EDN; subject to change behind the
 opaque boundary) carries the last-emitted epoch-id plus sticky window
 fields (`:ms`, `:until-ms`, `:frame`) so subsequent pages see the same
@@ -1835,7 +1857,7 @@ above), `epochs-mode` (string — `"diff"` (default) or `"full"`, see
 §Diff-encoded `:db-after` below), `dedup` (boolean, default `true` —
 see §Structural dedup at the top of this catalogue), `build` (string).
 
-**Returns**: `{:ok? true :window-ms N :until-ms T :count K :limit L :epochs-mode :diff|:full :epochs [...] :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
+**Returns**: `{:ok? true :window-ms N :until-ms T :count K :limit L :epochs-mode :diff|:full :epochs [...] :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`, plus `:truncated-by :max-tokens` on a page the cap cut (see §Cursor pagination above).
 
 When the window surfaces zero matches but the per-frame epoch-history
 is non-empty, the envelope additionally carries an `:advisory` slot —
@@ -1945,15 +1967,15 @@ cascade's elapsed-ms (derived from the `:rf.event/run-start` /
 `:rf.event/run-end` trace pair on `:time`; spans first run-start to last
 run-end so synchronously-dispatched same-cascade chains roll up). The
 filter rides server-side so non-matching epochs never cross the wire
-— `typicalTokens` is the worst case; narrowing on `:timing-ms` (e.g.
-`">100"` to surface only slow events) shrinks the payload roughly
-proportional to the match rate. Accepts either a number (sugar for
+— narrowing on `:timing-ms` (e.g. `">100"` to surface only slow
+events) shrinks how many records match, though not what one record
+costs. Accepts either a number (sugar for
 `>= N`) or a comparison string `">N"` / `">=N"` / `"<N"` / `"<=N"` /
 `"=N"`. Epochs whose `:trace-events` slot was elided (long-aged ring
 entries) carry no derivable timing and never match a numeric
 threshold.
 
-**Returns**: `{:ok? true :matches [...] :limit L :count K :head-id <epoch-id> :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
+**Returns**: `{:ok? true :matches [...] :limit L :count K :head-id <epoch-id> :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`, plus `:truncated-by :max-tokens` on a page the cap cut (see §Cursor pagination above).
 
 When the call surfaces zero matches but the per-frame epoch-history is
 non-empty, the envelope additionally carries an `:advisory` slot —

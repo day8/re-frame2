@@ -2,11 +2,10 @@
   "Cursor pagination on epoch-shipping tools.
 
   `trace-window` and `watch-epochs` both surface unbounded epoch
-  vectors. With default ring depth 50 and ~2× app-db per record (or ~1%
-  that, after diff-encode), a single call can blow the 5K
-  wire-cap. Lazy-summary trims `snapshot` for
-  discovery; here the agent explicitly asked for the records — the
-  right answer is to PAGE the slice, not to collapse it.
+  vectors, and on a real app one record can run to thousands of tokens,
+  so a single call can blow the 5K wire-cap. Lazy-summary trims
+  `snapshot` for discovery; here the agent explicitly asked for the
+  records — the right answer is to PAGE the slice, not to collapse it.
 
   ## Shared codec
 
@@ -21,14 +20,19 @@
 
   ## Mechanism
 
-  Both tools accept `:limit` (int, default 50 — sized to fit the cap
-  after diff-encode + dedup) and `:cursor` (opaque string). The
-  response carries:
+  Both tools accept `:limit` (int, default 50 — a bound on RECORDS) and
+  `:cursor` (opaque string), and the page is bounded twice: by `:limit`
+  in the runtime, then by `max-tokens` in the server, which cuts it to the
+  longest prefix that fits (`cap/fit-page`). The response carries:
 
-    {:items [...]                                ; capped at :limit
+    {:items [...]                                ; at most :limit
      :next-cursor \"<base64>\"                   ; nil when no more
      :has-more? true|false
-     :estimated-remaining N}
+     :estimated-remaining N
+     :truncated-by :max-tokens}                  ; only on a page the cap cut
+
+  A cut page's cursor resumes at the first record it left out
+  (`page-continuation-id`), so the cut costs a call, never a record.
 
   The opaque cursor is `pr-str`+base64 of a small EDN map. Encoding is
   an implementation detail — agents pass it back verbatim. The shape
@@ -108,19 +112,15 @@
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def default-limit
-  ;; Sized to fit a 5K-token cap after diff-encode and
-  ;; dedup. With diff-encode collapsing `:db-after` to ~1%
-  ;; of `:db-before` and dedup pooling repeated `:db-before` references,
-  ;; 50 epochs fit comfortably under 5K tokens for typical app-db sizes.
-  ;; Agents that have explicit budget headroom raise via `:limit` arg.
+  ;; A bound on records, not tokens: the wire-cap cuts the page to what
+  ;; fits whatever the limit, so this only bounds what the runtime ships
+  ;; over nREPL for one call.
   50)
 
 (def ^:const max-limit
-  ;; Hard ceiling on a caller-supplied `:limit`. The wire-cap is the
-  ;; real backstop (an over-large page overflows to the
-  ;; `:rf.mcp/overflow` marker), so this is a generous DoS guard, not
-  ;; the tuning knob — a legitimate large request still works, just
-  ;; capped here before the runtime slices.
+  ;; Hard ceiling on a caller-supplied `:limit` — a generous DoS guard on
+  ;; what the runtime slices, not the tuning knob; the wire-cap fits the
+  ;; page either way.
   1000)
 
 (defn parse-limit-arg
@@ -182,6 +182,35 @@
     (if (rf.mcp-base.cursor/malformed? decoded)
       ::malformed
       decoded)))
+
+(defn page-continuation-id
+  "The `:after-id` a page of `k` of the `records` read resumes from. A page cut
+  short resumes after its last record — or, when it holds none, from
+  `read-after-id`, the position this call read from. A whole page resumes
+  from `runtime-next-id`, which the runtime sets only when its `limit` left
+  records behind."
+  [records k read-after-id runtime-next-id]
+  (cond
+    (= k (count records)) runtime-next-id
+    (pos? k)              (:epoch-id (nth records (dec k)))
+    :else                 read-after-id))
+
+(defn cut-advisory
+  "The `:advisory` a page cut to `max-tokens` carries when not even its first
+  record fits, so the page is empty because of the cap rather than the
+  window or the filter. `record-tokens` is what a page holding just the next
+  record measures."
+  [frame record-tokens cap next-cursor?]
+  {:reason        :record-exceeds-max-tokens
+   :frame         frame
+   :record-tokens record-tokens
+   :cap-tokens    cap
+   :hint          (str "The next epoch record alone measures about " record-tokens
+                       " tokens, over max-tokens " cap ", so this page holds none. "
+                       "Re-call with max-tokens 0 (no cap) or at least " record-tokens
+                       (if next-cursor?
+                         ", passing this response's next-cursor as cursor."
+                         ", with the same arguments."))})
 
 (defn cursor-stale-result
   "Structured cursor-stale error result. The `:reason` value
