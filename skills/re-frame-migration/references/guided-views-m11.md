@@ -21,7 +21,7 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 
 **Decision shape** — the fixes:
 
-1. **Capture at render time.** Call the ops a `reg-view` injects (`dispatch` / `subscribe`, captured when the view renders), or take `(rf/capture-frame)` during the render — in a plain fn too — and call its ops from the callback: `(let [{:keys [dispatch]} (rf/capture-frame)] [:button {:on-click #(dispatch [:inc])} "+"])`. Recommended.
+1. **Capture at render time.** Call the ops a `reg-view` injects (`dispatch` / `subscribe`, captured when the view renders), or take `(rf/capture-frame)` during the render — in a plain fn too — and call its `dispatch` from the callback: `(let [{:keys [dispatch]} (rf/capture-frame)] [:button {:on-click #(dispatch [:inc])} "+"])`. A sub the callback reads takes a one-shot read, not the captured `subscribe` (below). Recommended.
 2. **Carry the frame explicitly.** A frame api passed in as an argument or a prop — the `(rf/capture-frame)` the caller took at render, which follows that caller's frame, whichever it is; or `(rf/capture-frame frame-id)` locked to a named frame, or a `{:frame <id>}` opt on the call, where the frame is a fixed, known one.
 3. **Scope the render** — for a boundary-less view, mount it under a `frame-provider` / `frame-root`.
 4. **Leave as-is** — when the fn calls `rf/subscribe` / `rf/dispatch` only during its render under a boundary, or establishes / carries a frame explicitly in its own body. Do **not** describe a boundary-less frame-dependent fn as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so it raises `:rf.error/no-frame-context`; it does not silently route to a default. To *intentionally* target `:rf/default`, scope or pass that frame explicitly like any other; document why.
@@ -32,12 +32,14 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 | Site | Fix |
 |---|---|
 | An ambient read during a render under a boundary | **4** — leave as-is. |
-| A callback (Identify 1) | **1** — call the captured ops from the callback. |
+| A callback (Identify 1) | **1** — call the captured `dispatch` from the callback, and read a sub there once (below). |
 | A reaction body (Identify 2) | **1**, with the captured `subscribe` called *inside the body* (below). |
 | A helper a callback reaches, whether or not a render reaches it too | **2** — the helper takes the frame api as an argument (below). |
 | A `reg-sub` body that reads a sub (Identify 3) | **5** (below). |
 | A callback a `reg-sub` body builds (Identify 3) | **2** with a named frame, where the app reads the sub under one known frame (below). |
 | A view under no boundary (Identify 4) | **3** — scope the render. |
+
+**A callback reads a sub once.** The captured `subscribe` is a reactive read, and a callback is no reactive owner: each call there takes a sub-cache share that nothing releases — one more per fire — and returns the right value, so nothing shows the leak. Read the current value with `(rf/subscribe-once query-v {:frame frame})`, `frame` taken at render (the `:frame` of the `(rf/capture-frame)` taken there, or `(rf/current-frame-id)` in a `reg-view`): it retains nothing. Where the callback should see the value as it stood at render, read it at render and close over it. A live read outside a render belongs only in a reaction body, which owns it (below), or in a hook that pairs it with an `unsubscribe`, as route 2's imperative recipe does. `{:frame frame}` addresses the frame by id where the captured ops are pinned to the incarnation live at capture, so where a frame can be destroyed and re-created under the same id while the callback is live, the one-shot read reaches the successor.
 
 **A reaction body keeps a reactive read.** Capture at render — the `reg-view`-injected `subscribe`, or `(rf/capture-frame)` taken during the render — and call the captured `subscribe` inside the reaction body. The reaction is that read's reactive owner and releases it when the reaction disposes, so nothing outlives the reaction. Keep it `subscribe`: `subscribe-once` is a non-reactive read, so the reaction would not re-run when that sub changes. For a fn the view hands to a helper's reaction, close that fn over the view's captured `subscribe`.
 
@@ -307,8 +309,8 @@ Each is registered outside any `frame-provider` and fires **after** boot, so the
 
 **CRUCIAL — the remedy differs from the M-40 boot kick.** The boot kick is fixed by a `with-frame` *around the synchronous boot dispatch*. That does **not** carry here: a `with-frame` (or a `frame-provider`) established at **registration time** is a dynamic binding that is **already unwound by the time the async callback fires** — wrapping the `addEventListener` / `setTimeout` call itself in `with-frame` leaves the callback *body* running under no scope, and it still raises `:rf.error/no-frame-context`. Re-establish the frame **inside the callback**, two ways:
 
-1. **Wrap the dispatch in `(rf/with-frame app-frame …)` at FIRE time** — inside the callback body, not around its registration.
-2. **Close the callback over a `(rf/capture-frame)` taken where a frame IS in scope** — capture the frame api under an existing scope, then call its `:dispatch` / `:subscribe` from the callback. The captured handle, unlike the ambient dynamic binding, **survives the async boundary** (the property M-11 decision-shape 2 above relies on).
+1. **Wrap the dispatch in `(rf/with-frame app-frame …)` at FIRE time** — inside the callback body, not around its registration. A sub read there is still a one-shot `(rf/subscribe-once query-v {:frame app-frame})`: an `@(rf/subscribe …)` in the body resolves the frame and takes a share nothing releases.
+2. **Close the callback over a `(rf/capture-frame)` taken where a frame IS in scope** — capture the frame api under an existing scope, then call its `:dispatch` from the callback, and read a sub there once, `(rf/subscribe-once query-v {:frame (:frame api)})`, as an M-11 callback does. The captured handle, unlike the ambient dynamic binding, **survives the async boundary** (the property M-11 decision-shape 2 above relies on).
 
 ```clojure
 ;; v1 — a module-level routing listener bare-dispatches. In v1 the global
