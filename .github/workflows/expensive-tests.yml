@@ -365,9 +365,10 @@ jobs:
       # below) boots shadow-cljs against `skills/re-frame2-pair/tests/fixture/`,
       # so this cache covers the fixture's classpath as well as the two MCP
       # servers'. That fixture resolves FOUR in-repo artefacts as `:local/root`
-      # entries — core, reagent, schemas and machines (the last two
-      # because the shipped preload `:require`s `re-frame.schemas` and
-      # `re-frame.machines` directly, per the fixture's own deps.edn).
+      # entries — core, reagent, schemas and machines (the shipped preload
+      # `:require`s `re-frame.schemas` directly; machines is on the
+      # classpath, though nothing the fixture compiles requires it, per the
+      # fixture's own deps.edn).
       #
       # THE KEY MUST NAME ALL FOUR. With a key naming none of them, an
       # artefact dependency bump leaves the key unchanged: the pre-bump entry
