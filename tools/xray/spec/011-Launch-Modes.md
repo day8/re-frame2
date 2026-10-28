@@ -42,7 +42,7 @@ Minimal host markup (note the DOM order: `<main>` first, host
 column):
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
@@ -55,7 +55,7 @@ below):
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var (rf2-9ovfb) — see below */
 body { margin: 0; }
-.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
@@ -71,7 +71,12 @@ body { margin: 0; }
   border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
 }
 #app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
+
+The wrapper class is namespaced, like every other Xray surface, so the
+pasted rule cannot restyle a class the app already uses. The print rule
+hides the host, so a printed page is the app alone at full width.
 
 The window scrolls the app, and the app and Xray never share a
 scrollbar. The host is sticky at the viewport's top and right edges and
@@ -87,6 +92,14 @@ restoration act on the window
 ([`spec/012-Routing.md` §Scroll restoration](../../../spec/012-Routing.md#scroll-restoration)),
 so an `#app` that scrolls on its own opens every new page at the
 previous page's depth, and Back restores nothing.
+
+An app that already scrolls an inner pane, and is not routed by re-frame2
+routing, keeps its pane with one change: the wrapper takes
+`height: 100vh` in place of `min-height: 100vh`. `min-height` leaves the
+row's height indefinite, so an `html, body, #app { height: 100% }` chain
+grows to its content and the pane never scrolls; a definite row height
+gives that chain a height to resolve against. The window then does not
+scroll, which is why the default keeps it as the scroller.
 
 The user-draggable resize handle is auto-injected by Xray
 (rf2-70u8q; see [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance)).

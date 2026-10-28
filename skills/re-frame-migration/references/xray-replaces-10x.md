@@ -120,7 +120,7 @@ Xray's default launch is **true inline**: it mounts into a host element the app 
 Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<aside>` second — flex flow puts the aside on the right):
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
@@ -128,18 +128,26 @@ Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<as
 
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var — host stylesheets read var(--rf-xray-accent) to tint dev chrome */
-.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+body { margin: 0; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
+  box-sizing: border-box;
   position: sticky;
   top: 0;
   right: 0;
   height: 100vh;
   overflow: hidden;
+  border-left: 1px solid #2a2a2a;
 }
 #app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
+
+The wrapper class is namespaced (`rf-xray-layout`) so the pasted rule cannot meet a class the app or its CSS framework already styles. The window is the app's scroller and Xray scrolls inside its own sticky host, because re-frame2 routing's scroll-to-top and Back restoration act on the window ([`tools/xray/spec/011-Launch-Modes.md` §Layout host contract](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md#layout-host-contract)). The print rule hides the host, so a printed page is the app alone at full width.
+
+**If the app already scrolls an inner pane** — a dashboard that pins `html, body, #app` to `height: 100%` and scrolls an element inside — give the wrapper `height: 100vh` in place of `min-height: 100vh`. `min-height` leaves the row's height indefinite, so that `height: 100%` chain grows to its content and the pane stops scrolling. The window then never scrolls, so routing's window scroll handling has nothing to act on: that costs nothing for an app whose own router owns its pane (the usual v1 app), and an app on re-frame2 routing keeps the window as its scroller instead.
 
 If the host element is missing, Xray logs an actionable `console.error` and exposes the same diagnostic through `window.day8.re_frame2_xray.status()`. It does not silently overlay or dock as a fallback — true-inline is the contract.
 

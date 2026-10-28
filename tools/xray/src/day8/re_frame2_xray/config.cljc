@@ -247,6 +247,11 @@
   ;;     window as the app's scroller: routing's scroll-to-top and Back
   ;;     restoration act on the window, so an `#app` that scrolls on
   ;;     its own opens every new page at the previous page's depth.
+  ;;   - the wrapper class is `rf-xray-layout`, namespaced like every
+  ;;     other Xray surface, so the pasted rule cannot restyle an
+  ;;     element of the app's own.
+  ;;   - `@media print` hides the host, so a printed page is the app
+  ;;     alone at full width.
   ;;   - `--rf-xray-accent` published on `:root` so
   ;;     host stylesheets can colour their own dev chrome (resize
   ;;     handles, dock separators, story chips) to match Xray
@@ -258,7 +263,7 @@
   ;; rendered width INCLUDING the 1px `border-left` separator. Without
   ;; it, the host renders one pixel wider than the documented value —
   ;; an off-by-one that surfaces in any pixel-exact contract.
-  "<div class=\"app-shell\">
+  "<div class=\"rf-xray-layout\">
   <main id=\"app\"></main>
   <aside data-rf-xray-host></aside>
 </div>
@@ -266,7 +271,7 @@
 <style>
   :root { --rf-xray-accent: #539bf5; }
   body { margin: 0; }
-  .app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+  .rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
   [data-rf-xray-host] {
     flex: 0 0 var(--rf-xray-inline-width, 560px);
     min-width: 320px;
@@ -279,6 +284,7 @@
     border-left: 1px solid #2a2a2a;
   }
   #app { flex: 1; min-width: 0; }
+  @media print { [data-rf-xray-host] { display: none; } }
 </style>")
 
 (defonce

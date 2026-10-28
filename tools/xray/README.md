@@ -123,7 +123,7 @@ right-side host to the app layout (DOM order: `<main>` first, host
 `<aside>` second — flex puts the aside on the right):
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
@@ -131,7 +131,8 @@ right-side host to the app layout (DOM order: `<main>` first, host
 
 ```css
 :root { --rf-xray-accent: #539bf5; }
-.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+body { margin: 0; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
@@ -144,6 +145,7 @@ right-side host to the app layout (DOM order: `<main>` first, host
   border-left: 1px solid #2a2a2a;
 }
 #app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
 
 The window scrolls the app, as it would without Xray, and Xray keeps a
@@ -151,7 +153,9 @@ scrollbar of its own: the host is sticky at the viewport's top and
 right edges, so scrolling the page never moves Xray, and it clips, so
 nothing inside Xray widens the page. Keep the window as the app's
 scroller, because routing's scroll-to-top and Back restoration act on
-the window.
+the window; an app that already scrolls an inner pane uses the variant in
+[spec 011 §Layout host contract](spec/011-Launch-Modes.md#layout-host-contract).
+A printed page hides the host and prints the app alone.
 
 That's the whole consumer surface — no `resize: horizontal` on the
 host. Xray auto-injects a polished drag handle on the

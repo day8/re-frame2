@@ -51,35 +51,41 @@ compatible pin.
 ## Reserve the host
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
 ```
 
 ```css
-.app-shell {
-  display: flex;
-  width: fit-content;
-  min-width: 100%;
-  min-height: 100vh;
-}
-#app { flex: 1; min-width: 0; }
+:root { --rf-xray-accent: #539bf5; }
+body { margin: 0; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
   position: sticky;
   top: 0;
+  right: 0;
   height: 100vh;
   overflow: hidden;
-  border-left: 1px solid #aaa;
+  border-left: 1px solid #2a2a2a;
 }
+#app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
 
 Keep the window as the app's scroller: routing's scroll-to-top and Back
 restoration use it. Xray stays beside the app and scrolls its own contents.
 Drag its left edge to change its width; Xray remembers the chosen width.
+A printed page hides Xray and prints the app at full width.
+
+An app that already scrolls an inner pane, with `html, body, #app` at
+`height: 100%`, gives the wrapper `height: 100vh` instead of
+`min-height: 100vh`, so that chain resolves against a fixed height and the
+pane keeps scrolling. The window then does not scroll, so use this only
+where the app's own router, not re-frame2 routing, manages the pane.
 
 With the preload installed, start your usual dev build and interact with
 the app. Xray opens automatically. **Ctrl+Shift+C** hides or shows it.
