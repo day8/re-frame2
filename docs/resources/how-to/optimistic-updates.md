@@ -26,7 +26,7 @@ Both the read and write use the same viewer scope.
 (rf/reg-resource-scope :article/viewer
   {:inputs {:username [:db [:auth :user :username]]}}
   (fn [{:keys [username]} _ctx]
-    (when username [:rf.scope/viewer {:username username}])))
+    (when username [:article.scope/viewer {:username username}])))
 
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]

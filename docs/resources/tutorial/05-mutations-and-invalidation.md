@@ -241,8 +241,8 @@ server rejects the second article's favorite, so its button shows the error.
             :token    [:db [:auth :token]]}}
   (fn [{:keys [username token]} _ctx]
     (cond
-      username           [:rf.scope/viewer {:username username}]
-      (str/blank? token) [:rf.scope/viewer :anonymous]
+      username           [:conduit.scope/viewer {:username username}]
+      (str/blank? token) [:conduit.scope/viewer :anonymous]
       :else              nil)))
 
 (rf/reg-resource-scope :conduit/session
