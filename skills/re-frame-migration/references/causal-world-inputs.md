@@ -80,7 +80,7 @@ So follow the calls each handler, reducer, machine action and guard makes back t
     (if ready? {:db (assoc db :saved? true)} {})))
 ```
 
-Live, the supplier runs at processing-start and `{:editor/ready? true}` is recorded in the token's `:rf.cofx`; replay re-presents it and takes the same branch whatever the editor is doing by then. Where the code that owns the editor also dispatches the event, the event payload (below) is the simpler route.
+Live, the supplier runs at processing-start and `{:editor/ready? true}` is recorded in the token's `:rf.cofx`; replay re-presents it and takes the same branch whatever the editor is doing by then. Where the code that owns the editor also dispatches the event, the event payload (below) is the simpler route, at the cost of publishing the value with the event.
 
 The walk does not mean recording every atom read. Leave these alone:
 
@@ -112,7 +112,7 @@ The migration path: replace `(interop/now-ms)` / `js/Date.now` / `(.now js/Date)
 
 ## UUID / random / browser / storage → event payloads or recordable facts
 
-These follow the same boundary. If the generated or read value becomes durable, it must be a recorded fact. The `:rf.cofx` map is **flat** (one fact per owner-qualified key — no `:uuid {…}` / `:random […]` grouping sub-maps). Use the **event payload** when the caller owns the value, a **recordable generator** when the fold needs a fresh fact, or a **provided** recordable fact when a boundary owns it. Both coeffect routes require a `reg-cofx` registration and a consumer's `:rf.cofx/requires` declaration; supplying an unregistered key on the token does not register it.
+These follow the same boundary. If the generated or read value becomes durable, it must be a recorded fact. The `:rf.cofx` map is **flat** (one fact per owner-qualified key — no `:uuid {…}` / `:random […]` grouping sub-maps). Use the **event payload** when the caller owns the value, a **recordable generator** when the fold needs a fresh fact, or a **provided** recordable fact when a boundary owns it. A value on the payload is published with the event: every interceptor on the chain, the trace stream and epoch history see the event vector, and a handler that stores the event, in a pending or retry list say, keeps a copy in app-db that needs its own commit-plane `:sensitive` mark ([Spec 015 §Durable app-db](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)), because a mark on the `reg-event` ([§Registration-owned transient classification](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#registration-owned-transient-classification)) does not propagate to it. The dev payload lint (`:rf.warning/non-serialisable-event-payload`) walks map values and vector and set elements only, so a fn or host object in the payload's metadata draws no warning. Both coeffect routes require a `reg-cofx` registration and a consumer's `:rf.cofx/requires` declaration; supplying an unregistered key on the token does not register it.
 
 - **Generated identity (UUID).** A durable entity id minted with `random-uuid` inside a handler is a world fact. The minting ladder's preferred rung is the **event payload** — the caller pins the id and the view can render it optimistically:
 
