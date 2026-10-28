@@ -27,8 +27,9 @@ The agent looks for:
 - Maven coord `day8.re-frame/async-flow-fx` in `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn` (any version).
 - `(:require [day8.re-frame.async-flow-fx :as ...])` in any namespace (the require has no public symbols beyond the fx-registration side-effect; the require alone is enough to indicate adoption).
 - `:async-flow` keys inside effect maps returned by `reg-event-fx` handlers — the unmistakable fingerprint. The key may appear at the top level (v1 effect-map shape, pre-M-8) or inside `:fx` (post-M-8 shape `:fx [[:async-flow {...}]]`).
+- `:forward-events` keys, top-level or inside `:fx`: the effect of `day8.re-frame/forward-events-fx`, which async-flow-fx depends on. That add-on calls the removed `re-frame.core/console` and `add-post-event-callback` too, so it must go as well. A flow registers its own forwarders inside the add-on, and its conversion replaces them. A `:forward-events` that app code returns itself is not a flow and falls under [M-26](README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces): each forwarder dispatched its `:dispatch-to` vector with the matched event appended, so it becomes that dispatch appended to the matched event's handler, as [§Retarget the producers](#retarget-the-producers--the-1-silent-stall-hazard) appends one, or it is removed.
 
-Each call site is one flow. The agent presents the flow's spec, the proposed machine, and the diff for operator approval before any edit.
+Each `:async-flow` call site is one flow. The agent presents the flow's spec, the proposed machine, and the diff for operator approval before any edit.
 
 ## async-flow → reg-machine concept mapping
 
