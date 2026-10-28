@@ -275,7 +275,7 @@ The authoritative v1→v2 mapping table — for a flow that survives the triage 
 - **Dropped / re-homed v1 keys (the judgment-bearing, Type B part):**
   - `:live?` / `:live-inputs` — **dropped.** A gate is data: the events that flipped the predicate write its value into `app-db`, and the flow reads it as one of its `:inputs`. Deciding which events write the gate is intent static analysis can't recover — flag it for human review.
   - `:cleanup` — **dropped.** Teardown is always a `dissoc-in` on `:output-path` (no opt-out); copy the value elsewhere first if it must survive the clear.
-  - per-flow `:fx` — **dropped.** Dispatch a follow-up event whose handler reads the flow's output and emits the effect.
+  - per-flow `:fx` — **dropped.** v1 (1.4.4+) fired it on three transitions: an input change while the flow was live, its first live evaluation after registration, and every dead → live flip — the last two even when no input and no output changed. Dispatch a follow-up event whose handler reads the flow's output and emits the effect, once for each firing the app relies on: from the handler that changes the input, from whatever writes the gate open (the `:live?` bullet above), and, for a flow live from the start, from the boot event. A follow-up keyed to output change never fires on the flip, so a panel that re-fetched each time it became live again silently stops.
 
 So M-30's Type column is **A/B**: the dep-add is automatic, but the `:live?` re-home (and any per-flow `:fx` → follow-up-event rewrite) is a judgment call — present it for human review like the other Type-B rules, citing **M-30** plus the spec/013 table.
 
