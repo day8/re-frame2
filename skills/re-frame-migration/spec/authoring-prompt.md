@@ -49,7 +49,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *- Don't write `*.md` documentation outside `skills/re-frame-migration/`.*
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
-> *- Don't restate the execution posture anywhere but cardinal rule 5 — no per-leaf "the author runs it" clauses, no paste loop, no interactive / orchestrated / CI taxonomy; the leaves point at rule 5. (Keep teaching the boot smoke-test as the done-bar: `references/runtime-smoke-test.md` is a kept leaf, and its seven steps double as the checklist handed over when no runtime is connected.)*
+> *- Don't restate the execution posture anywhere but cardinal rule 5 — no per-leaf "the author runs it" clauses, no paste loop, no interactive / orchestrated / CI taxonomy; the leaves point at rule 5. (Keep teaching the boot smoke-test as the done-bar: `references/runtime-smoke-test.md` is a kept leaf, and its loop doubles as the checklist handed over when no runtime is connected.)*
 > *- Don't duplicate `migration/from-re-frame-v1/README.md` content — reference it by rule id and link.*
 >
 > *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/core/25-from-re-frame-v1.md`, `docs/the-mayor-method/`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
