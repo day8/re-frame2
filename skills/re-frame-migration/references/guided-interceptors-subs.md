@@ -11,6 +11,7 @@ For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-
 - M-71 — the v1 signal-function `reg-sub` form (3-arity) → v2 `input-fn`s
 - M-19 — opt-in map-payload migration (only if user asked)
 - M-21 — `on-changes` / `enrich` / `after`
+- Chain aborts — an interceptor that empties `:queue` (M-17 / M-21 / M-70)
 - M-23 — `:re-frame/lifecycle` annotation drop
 - M-26 — `add-post-event-callback` / `remove-post-event-callback`
 
@@ -42,7 +43,7 @@ For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-
 
 **Decision shape** (per interceptor):
 
-1. Read the interceptor body. Modifies behaviour? Observes only? Both?
+1. Read the interceptor body. Modifies behaviour? Observes only? Both? A body that empties `:queue` to stop the event needs the port in [*Chain aborts*](#chain-aborts--an-interceptor-that-empties-queue) on whichever path is picked.
 2. Present the three rewrite paths with a recommendation based on the body.
 3. Author confirms; apply.
 
@@ -195,6 +196,26 @@ Read the body and propose; author confirms.
 ```
 
 `f` now runs in the effect walk after the commit, not inside the chain. A body that only logs to the console can call `f` in place and return `ctx`, because repeating it on replay is harmless.
+
+---
+
+## Chain aborts — an interceptor that empties `:queue`
+
+**Identify**: an interceptor body that empties or replaces the context's `:queue`, such as `(assoc ctx :queue [])`, `(update ctx :queue empty)` or `(dissoc ctx :queue)`, whichever rule brought the interceptor here: a global one (M-17), a chain value (M-70) or an escape hatch (M-21). Search for the keyword itself (`rg -n -F ':queue'`), because a helper fn can make the write.
+
+**Risk**: v1's executor walked `:queue`, moving each interceptor onto `:stack` before calling its `:before`. A `:before` that emptied `:queue` therefore stopped every later `:before` and the handler, and the `:after` pass ran only what was on `:stack`: the interceptors up to and including the guard. re-frame2 runs a fixed chain with no `:queue`, so the same write does nothing. The later stages and the handler run, nothing errors, and a ported guard lets through every event it used to stop. re-frame2 has no non-throwing abort:
+
+- `(assoc ctx :rf/skip-handler? true)` in a `:before` skips the handler alone. Every later `:before` and every `:after` still runs.
+- A throw from the `:before` reaches as far as v1's abort did: the later `:before`s and the handler are skipped, and only the entered stages run their `:after` ([002 §Interceptor chain execution](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#interceptor-chain-execution--before-short-circuit-after-always-runs)). But the event then commits nothing, not even an effect the guard added, and every stopped event reports `:rf.error/interceptor-exception`.
+
+**Decision shape** (per interceptor):
+
+1. Port the decision to `(assoc ctx :rf/skip-handler? true)` in the guard's `:before`, keeping any effect it adds, such as a redirect row in `[:effects :fx]`.
+2. Audit every stage after the guard in the effective chain, frame refs first and then the event's own, because each still runs on a stopped event where v1 ran none of them. A stage that must not act on one checks `(:rf/skip-handler? ctx)` and returns `ctx` unchanged. The framework sets the same flag when a coeffect or a schema check fails, so the check skips those events too.
+3. Throw instead only where nothing may commit and an error for each stopped event is acceptable.
+4. An `:after` that emptied `:queue` skipped the outer `:after`s instead, v1's effect executor among them, so nothing the event produced ran. No stage can skip an outer `:after`: clear the effects with `(assoc ctx :effects {})` and audit the outer stages as in step 2.
+
+Present the guard, the stages that now run on a stopped event, and the proposed port; the author confirms.
 
 ---
 
