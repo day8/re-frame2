@@ -301,14 +301,13 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id) → boolean           ;; current frame, named handler
   (validate-app-schema! db event-id frame-id) → boolean  ;; explicit frame
   (validate-app-schema! db event-id frame-id db-before) → boolean
-  (validate-app-schema! db event-id frame-id db-before runtime-db-after) → boolean
   ```
 - **Description**: Validates the handler's proposed `app-db` before installation, against every schema the frame resolves whose path the proposed `app-db` has. A path it lacks is skipped in every arity, and a present `nil` is checked. A schema the frame's images do not select is ignored.
     - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. When any slot in the schema is `:sensitive?`, or the walker cannot fully inspect it, every value-bearing slot is redacted — `:value` (the failing leaf) as well as `:explain` and `:explain-humanized` (the whole registered value) — and `:path` keeps only the leading keys the schema declares on a `:map`, with `:rf/redacted` in place of every later segment.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
     - `db-before` (optional, and what the runtime passes) is the `app-db` the candidate replaces. A schema whose slice the candidate leaves `identical?` to it is skipped, since the commit does not write that slice. A parent path is still checked when a write lands beneath it, and `[]` whenever the db changed.
-    - `runtime-db-after` (optional, and what the runtime passes) is the candidate `runtime-db` the same transition would install, `nil` when it leaves `runtime-db` alone. A failure is also projected through the frame's elision registry as that candidate carries it, so a path the same event classifies with a `:sensitive` or `:large` effect is redacted or size-elided in the trace. Without it the frame's committed registry is read.
+    - A failure is projected through the frame's classification, so a path a [`reg-classification`](re-frame.core.md#reg-classification) declares `:sensitive` or `:large` is redacted or size-elided in the trace.
     - Returns `true` when every schema conformed, and also when no validator is installed, the frame resolves no schema, or the build elided validation.
     - Returns `false` when at least one schema failed. The router then rejects the transition: `app-db` keeps its pre-handler value and the event's `:fx` are skipped.
     - Does nothing for any schema when `set-schema-fns!` has installed a `nil` `:validate`.
@@ -457,5 +456,5 @@ This function resets the artefact's once-per-process warning latch between tests
 
 ## See also
 
-- [re-frame.core](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade entries, the `:boundary? true` registration flag, and the commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) that classify durable `app-db` paths.
+- [re-frame.core](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade entries, the `:boundary? true` registration flag, and `reg-classification`, which classifies durable `app-db` paths.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — data classification, `:sensitive?`, and large values.

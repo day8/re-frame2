@@ -775,16 +775,15 @@ An event handler returns an effect map describing what should happen; the runtim
 
 ### The effect map
 
-The effect map is closed. It has seven top-level keys:
+The effect map is closed. It has three top-level keys:
 
 | Key | Value | Rules |
 |---|---|---|
 | `:db` | The new `app-db`, installed at commit. | `{:db nil}` installs `{}`, and development builds emit `:rf.warning/db-nil-coerced`, since a nil is usually a bug; return `{:db {}}` to clear `app-db` on purpose. |
 | `:fx` | A vector of `[fx-id args]` entries (`[fx-id]` with no args), each run by the handler registered with `reg-fx`. | Must be a vector or `nil`; any other value, such as a bare map, rejects the event with `:rf.error/effect-map-shape`. `nil` and `[]` entries are skipped, so `(when saving? [:app/save doc])` works as a conditional effect. An entry that is not a vector, has a non-keyword fx id or has more than two elements emits `:rf.error/effect-map-shape` and is dropped; the other entries run and the `:db` write stands. |
-| `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` | Classify `app-db` paths in the same commit (see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md)). | A malformed value rejects the event with `:rf.error/classification-effect-shape`. |
 | `:rf.db/runtime` | Reserved for the framework and runtime extensions. | An application handler that returns it still has it applied, and development builds emit `:rf.warning/app-handler-runtime-effect`. |
 
-Any other top-level key rejects the event before anything commits, so a valid `:db` beside it does not land either, and the runtime emits `:rf.error/effect-map-shape`. These checks apply to the final effect map, including keys an interceptor's `:after` adds. See [The effect map](../core/effects.md#the-effect-map).
+Any other top-level key rejects the event before anything commits, so a valid `:db` beside it does not land either, and the runtime emits `:rf.error/effect-map-shape`. Classification is not an effect: a `:sensitive` or `:large` key here is rejected the same way, with a `:reason` naming [`reg-classification`](#reg-classification), which is where `app-db` paths are classified. These checks apply to the final effect map, including keys an interceptor's `:after` adds. See [The effect map](../core/effects.md#the-effect-map).
 
 ### `reg-interceptor`
 
@@ -926,17 +925,15 @@ Which function makes the frame depends on who owns its lifetime:
     - `:rf.error/initial-events-step-failed`: a step's handler, an interceptor, a coeffect or a flow threw. The frame is destroyed, and the error names `:step-index` and `:event`.
 - **Example**:
   ```clojure
-  ;; Classify app-db paths with a commit-plane effect, run at frame creation
-  ;; through :initial-events. A frame config cannot classify data.
+  ;; Seed app-db at frame creation through :initial-events.
   (rf/reg-event :app/init
     (fn [{:keys [db]} _]
-      {:db        (assoc db :auth {})
-       :sensitive [[:auth :token]]}))   ;; classify before any value lands
+      {:db (assoc db :auth {})}))
 
   (rf/make-frame
     {:id             :rf/default
      :doc            "App demo frame."
-     :initial-events [[:app/init]]})    ;; classifies [:auth :token] at creation
+     :initial-events [[:app/init]]})    ;; runs once, before make-frame returns
   ```
 
 ### Frame config keys
@@ -971,7 +968,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
 - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
 - `:preset :test` sets `:rf.http/stub-only? true`, `:drain-depth 1000` and `:rf.cofx/mint-policy :strict`; `:preset :story` sets `:rf.http/stub-only? true` and `:drain-depth 16`. Under either, a `:rf.http/managed` request no [stub transport](re-frame.http.md#testing-without-a-network) answers fails as `:rf.http/transport`, with a message naming `with-transport` and `install-transport!`. Keys you pass win over the preset's.
-- A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the [`make-frame`](#make-frame) example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+- A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. Declare the paths with [`reg-classification`](#reg-classification) beside the feature that owns them; every frame applies the declarations its view resolves. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - Any other key is stored with the frame and returned by `frame-meta`; nothing reads it, and nothing warns.
 - The errors a malformed config raises are listed under [`make-frame`](#make-frame).
 
