@@ -230,19 +230,19 @@ The server renders the whole page in one response; it does not stream regions. T
 
 ### `:payload` — the fail-closed allowlist
 
-`:payload` decides what is sent to the client, and it **fails closed**. The vector is an allowlist of top-level app-db keys; every other key stays on the server, including keys you add later. Add a `:secrets/api-token` to app-db next year and forget the allowlist, and the token still stays on the server. A denylist would do the opposite and leak each new server-only key.
+`:payload` decides what is sent to the client, and it **fails closed**. The vector is an allowlist of top-level app-db keys, and of paths into app-db ([Classified values inside the allowlist](#classified-values-inside-the-allowlist)); everything else stays on the server, including keys you add later. Add a `:secrets/api-token` to app-db next year and forget the allowlist, and the token still stays on the server. A denylist would do the opposite and leak each new server-only key.
 
 Leave `:payload` out and the handler throws `:rf.error/ssr-missing-payload-policy` when it is constructed, before any request is served. To ship nothing, say so with an empty allowlist, `:payload []`: the payload's `:rf/app-db` is then `{}` however much state the server holds. To ship the whole app-db, say so with the keyword `:rf.ssr.payload/whole-app-db`.
 
 ??? note "The three boot-time payload errors"
 
-    The allowlist accepts any sequential of keywords. A literal vector is the usual form, but a computed `(filterv …)` or `(keep …)` works too, and one that computes to `[]` ships nothing. Three construction-time errors tell three mistakes apart:
+    The allowlist accepts any sequential of keywords and paths. A literal vector is the usual form, but a computed `(filterv …)` or `(keep …)` works too, and one that computes to `[]` ships nothing. Three construction-time errors tell three mistakes apart:
 
     - a **missing** policy — no `:payload`, or `nil` — throws `:rf.error/ssr-missing-payload-policy`;
     - an **unknown** policy keyword throws `:rf.error/ssr-unknown-payload-policy`;
-    - a **string instead of a keyword** — `["public/articles"]` for `[:public/articles]` — throws `:rf.error/ssr-malformed-payload-allowlist`, with the offending entries under `:bad-entries`.
+    - a **string instead of a keyword** — `["public/articles"]` for `[:public/articles]` — or any entry that is neither a keyword nor a non-empty vector throws `:rf.error/ssr-malformed-payload-allowlist`, with the offending entries under `:bad-entries`. So does a `:payload-include-sensitive` option, naming the `:payload` path that carries its permit.
 
-    A **set** is rejected: the allowlist is an ordered key selection. Because the policy is either a sequential or a keyword, the two forms can't be confused.
+    A **set** is rejected: the allowlist is an ordered selection. Because the policy is either a sequential or a keyword, the two forms can't be confused.
 
 #### Numbers that change on the way
 
@@ -448,7 +448,7 @@ The form action needs `wrap-params` in front of the handler and a `:match?` that
             [:rf.server/redirect {:status 303 :location "/articles"}]]})))
 ```
 
-`:rf.server/*` fx are server-only, so the client's dispatch of `:comment/submit` skips them. A real form also checks a CSRF token before acting: ship it to the page with [`:payload-include-sensitive`](#classified-values-inside-the-allowlist) and compare it in the handler.
+`:rf.server/*` fx are server-only, so the client's dispatch of `:comment/submit` skips them. A real form also checks a CSRF token before acting: ship it to the page with a [`:payload` path](#classified-values-inside-the-allowlist) and compare it in the handler.
 
 ## What you give up
 
@@ -565,7 +565,7 @@ A few things change between your REPL and a production server:
 |---|---|---|
 | First `rf/reg-head` / `rf/reg-error-projector` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
 | `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` | Set a `:payload` allowlist (`[]` ships nothing), or `:rf.ssr.payload/whole-app-db` |
-| Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; a sequential, not a set |
+| Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords and non-empty path vectors only; a sequential, not a set |
 | Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back, or a map or set whose numbers it reads as one (`1` beside `1.0`) | Send ids as strings, money as integer cents, give colliding numbers one type, or drop the key from `:payload` |
 | Server HTML is missing data fetched at boot | Only blocking route resources are waited for | Declare the read as a route resource with `:blocking? true` |
 | `:form-params` / `:session` is `nil` on the server | The Ring middleware didn't run before the SSR handler | Wrap with `wrap-params` / `wrap-session` outside it |
@@ -631,17 +631,17 @@ The [`default-html-shell`](../api/re-frame.ssr.ring.md#default-html-shell) entry
 
 `:payload` decides *which keys* are sent; your [classification](../core/how-to/keep-secrets-out-of-traces.md) still applies *inside* them. A path you classify `:sensitive` reaches the browser as `:rf/redacted`, while a `:large` one is sent whole: the payload becomes the client's live state, so it isn't size-trimmed the way a tool feed is.
 
-Sometimes the user's own browser needs a classified value: a CSRF token the page must send back, the signed-in user's email. Name those paths with `:payload-include-sensitive`:
+Sometimes the user's own browser needs a classified value: a CSRF token the page must send back, the signed-in user's email. Name each one by its path in `:payload`, beside the keys:
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:frame                     {:initial-events [[:app/server-init]]}
-   :root-view                 (fn [] ((rf/view :app/root)))
-   :payload                   [:session :articles]
-   :payload-include-sensitive [[:session :csrf]]})   ;; app-db PATHS, not keys
+  {:frame     {:initial-events [[:app/server-init]]}
+   :root-view (fn [] ((rf/view :app/root)))
+   :payload   [:session :articles
+               [:session :csrf]]})   ;; a path: this classified leaf ships raw
 ```
 
-The raw value is taken from the allowlisted slice, so a permit for a path outside the allowlist does nothing. A permit never reaches through a classified ancestor: if all of `:session` is sensitive, permit `[:session]` or classify at the leaves. Permitting a whole map releases everything under it, so prefer leaves, and never permit a long-lived bearer token. The same permit applies to a Fresco render and a Node renderer's render state, so the HTML and the payload agree. Written unwrapped — `[:session :csrf]` for `[[:session :csrf]]` — it throws `:rf.error/ssr-malformed-payload-allowlist` at construction.
+A path ships the value it reaches, so `[[:session :csrf]]` on its own sends `{:session {:csrf …}}` and nothing else of the session. It permits exactly the leaf it names — a string, a number, anything but a map, vector, set or sequence — and nothing beside it: a classified sibling stays redacted, and a keyword never permits. Naming a map releases none of its classified descendants, and a path never reaches through a classified ancestor, so if all of `:session` is sensitive, classify at the leaves instead. A path steps only through maps: through a vector or into a missing key it sends nothing. Never permit a long-lived bearer token. The same paths permit in a Fresco render and in a Node renderer's render state, so the HTML and the payload agree.
 
 A value the *browser* produced — a password the user is typing — is not permitted; the client re-seeds it after `hydrate!` installs the server's state:
 
@@ -897,7 +897,10 @@ starts in its initial state in the render's own per-request frame, which is the
 right page. Name the key either way: the list is the most the deployment may
 send, not a promise that something fills it.
 
-Both policies are fail-closed allowlists of top-level keys. The render-state
+Both policies are fail-closed allowlists: `:payload` of top-level keys and
+paths, `:render-state` of top-level keys per partition. A classified value in
+the render state's app-db partition is redacted unless a `:payload` path
+permits it, so the markup and the payload agree. The render-state
 wire refuses the same JVM-only numbers the hydration payload refuses (a Long
 past 2^53, a BigInt, a BigDecimal, a Ratio, a Float) and the same maps and sets
 whose numbers the browser reads as one (`1` beside `1.0`). It is stricter than

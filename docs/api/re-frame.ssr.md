@@ -172,12 +172,11 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   (hydration-payload frame opts) → payload-map
   ```
 - **Description**: Builds the hydration payload for a server frame, for a host that runs its own request lifecycle instead of [`ssr-handler`](re-frame.ssr.ring.md). It applies the same policy and projections `ssr-handler` does, under this frame's classification:
-    - `:rf/app-db` is the app-db keys the `:payload` policy allows, with any path the frame classifies `:sensitive` redacted.
+    - `:rf/app-db` is the app-db keys and paths the `:payload` policy allows, with any path the frame classifies `:sensitive` redacted unless a `:payload` path names it as a leaf.
     - `:rf/runtime-db` is only the durable runtime state (the route, machine snapshots, resource entries), with classified values redacted. It is absent when there is nothing durable to ship.
     - `frame` is the frame's id or the frame value `make-frame` returns. Call it once the frame has settled and before `destroy-frame!`: a frame that is not live projects its app-db as fully redacted.
 - **Options**: `ssr-handler`'s payload options.
-    - `:payload` — required. A vector of top-level app-db keys to ship (`[]` ships nothing), or `:rf.ssr.payload/whole-app-db`.
-    - `:payload-include-sensitive` — app-db paths whose raw value may ship although the frame classifies it `:sensitive`.
+    - `:payload` — required. A vector of top-level app-db keys and paths to ship (`[]` ships nothing), or `:rf.ssr.payload/whole-app-db`. A path that names a value the frame classifies `:sensitive` ships that leaf raw, e.g. `[:session [:session :csrf]]`.
     - `:client-frame-id` — a stable client frame id to stamp as `:rf/frame-id`. Leave it out for a per-request frame, whose id would fail the client's frame-id check.
     - `:schema-digest` — stamped as `:rf/schema-digest`.
 - **Errors**: a missing or malformed policy throws `:rf.error/ssr-missing-payload-policy`, `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist`, the errors `ssr-handler` throws at construction.

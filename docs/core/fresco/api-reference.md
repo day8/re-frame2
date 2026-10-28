@@ -240,7 +240,8 @@ Its `opts`:
 | `:app-element-id`, `:script-src`, `:title` | the document envelope's |
 | `:frame-opts` | extra `rf/make-frame` options for the request frame, such as `:images`, `:url-strategy` or `:fx-overrides`. `:id`, `:platform` (always `:server`) and `:initial-events` belong to this module and cannot be overridden |
 | `:schema-digest` | passed to the payload builder |
-| `:payload-include-sensitive` | optional vector of app-db paths classified `:sensitive` whose raw value may ride the payload (a CSRF token, say). Absent, every classified value arrives as `:rf/redacted` |
+
+A `:payload` path that names a classified leaf (a CSRF token, say) carries it raw; every other classified value arrives as `:rf/redacted`.
 
 If the runtime recorded an error during the render, even one it recovered
 from, `server/render` raises `:rf.error/ssr-render-failed` instead of returning
