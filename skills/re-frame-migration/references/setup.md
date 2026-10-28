@@ -94,7 +94,7 @@ These three are **read-only provenance checks** — allow-listed (the scoped `Ba
 
 **The author supplies the route and the pin; the skill never picks either.** The rule — never invent a pin, never guess "latest", and today's routes while nothing is published (a pinned `:git/sha` per artefact, or a `:local/root` sibling checkout) — is [`MIGRATION.md` §M-0](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-0-bump-the-dependency-coordinate-to-day8re-frame2), which also says a first release is not a precondition. Stop and ask before editing any dependency file only when the kickoff prompt supplies **no consumption route at all**; once it supplies one, apply every rule exactly as you would against a published target.
 
-To help the author choose, the pinned `day8/re-frame2` checkout carries `VERSION` (the next release string) and `CHANGELOG.md`, and `https://github.com/day8/re-frame2/releases` lists the tags. A `:git/sha` must name a pushed commit ([§The consumability done-gate](#the-consumability-done-gate)). Record the chosen route and pin — the SHA, the sibling-checkout path, or a `<v2-version>` once one resolves — in the migration report.
+To help the author choose, the pinned `day8/re-frame2` checkout carries `VERSION` (the next release string) and `CHANGELOG.md`, and `https://github.com/day8/re-frame2/releases` lists the tags. A `:git/sha` must name a pushed commit ([§The consumability done-gate](#the-consumability-done-gate)). Record the chosen route and pin — the SHA, the sibling-checkout path, or a `<v2-version>` once one resolves — in the migration report. A sibling-checkout path names no revision, so each local gate run on that route records its own ([§The consumability done-gate](#the-consumability-done-gate)).
 
 ## The consumability done-gate
 
@@ -120,6 +120,8 @@ Error building classpath. Local lib day8/re-frame2-reagent not found: ...
 - the basis selects the framework at all — a provisioned checkout nothing selects, or a basis still resolving v1, proves nothing.
 
 A missing, stale (HEAD not the pinned SHA) or escaping root, mismatched revisions across modules, and a basis selecting zero framework libraries each fail the gate. So does an absolute path, or a relative one the runner does not provision — the error above.
+
+**Route 2's local half: a local gate result names the framework revision it ran against.** The author's compile, suite and smoke resolve the same relative roots against the sibling checkout on disk, at whatever its HEAD is when the gate runs — which can sit far from the runner's pinned SHA, and moves whenever anyone pulls that checkout. So record `git -C <checkout> rev-parse HEAD` immediately before and after each local gate run, beside its result; two readings that differ mean the run had no single framework revision, so re-run it. The result is evidence for that revision only: where it is not the runner's pinned SHA, CI's green and the local result describe two different frameworks, so re-run the local gate with the checkout at the pin before counting them as the same evidence.
 
 **Any forked or extended upstream MUST be pushed.** A `:git/sha` (or a provisioned SHA) that exists only in a local commit is no more resolvable than an unprovisioned `:local/root` path — CI cannot fetch an unpushed SHA. Push the fork's branch so its SHA is fetchable, then pin to it.
 
