@@ -173,7 +173,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   ```
 - **Description**: Builds the hydration payload for a server frame, for a host that runs its own request lifecycle instead of [`ssr-handler`](re-frame.ssr.ring.md). It applies the same policy and projections `ssr-handler` does, under this frame's classification:
     - `:rf/app-db` is the app-db keys the `:payload` policy allows, with any path the frame classifies `:sensitive` redacted.
-    - `:rf/runtime-db` is only the durable runtime state (the route, machine snapshots, resource entries), with classified values redacted and the classification registry left out. It is absent when there is nothing durable to ship.
+    - `:rf/runtime-db` is only the durable runtime state (the route, machine snapshots, resource entries), with classified values redacted. It is absent when there is nothing durable to ship.
     - `frame` is the frame's id or the frame value `make-frame` returns. Call it once the frame has settled and before `destroy-frame!`: a frame that is not live projects its app-db as fully redacted.
 - **Options**: `ssr-handler`'s payload options.
     - `:payload` — required. A vector of top-level app-db keys to ship (`[]` ships nothing), or `:rf.ssr.payload/whole-app-db`.
