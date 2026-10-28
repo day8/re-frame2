@@ -196,6 +196,10 @@ travels as a claim the worker re-checks and its own result wins.
 - **Hot-zone files take one toucher at a time**, and where a remedy needs one the instruction is **stop
   and report**, not edit. **A citation is not permission**: briefs routinely cite a specification section
   as context, and a worker can read that as licence to edit it.
+- **A repository another coordinator operates is fenced at the git level too**, so a brief sending a
+  worker to read one says so in those words, with [the instruments that replace a
+  fetch](bootstrap.md#a-repository-another-coordinator-operates-is-read-only-at-the-git-level-too):
+  *never edit it* is read as covering the working tree alone.
 - **A GENERATED file is the one same-file overlap sequencing does not fix.** Two regenerations conflict
   textually and agree semantically, so serialising them serialises the fleet for nothing. Brief every
   toucher to regenerate after rebasing, never hand-merge, and run the job that diffs committed against

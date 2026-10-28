@@ -135,6 +135,16 @@ Workers violate this rule repeatedly even when told, so **pair the ban with the
 alternative** — commit first, then rebase — and say why. A prohibition with no named
 substitute is the one workers route around.
 
+### A repository another coordinator operates is read-only at the git level too
+
+Reading its files is harmless; its version control is not. A fetch writes refs and takes
+locks in a repository somebody else is operating, so it collides with that coordinator's
+own git — and when the lock falls the other way, it is *their* fetch or push that fails.
+So no fetch, pull, gc or any other command that writes refs or takes a lock, by you or
+your workers. **Pair the ban with the instruments that replace it**: learn the tip with
+`git ls-remote` or the host's API, and read files from its working tree or with
+`git show <sha>:<path>`.
+
 ### The worktree guard can be fooled
 
 Edit-tool path resolution can land a worker's write in the mayor checkout even after a
