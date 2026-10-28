@@ -23,10 +23,11 @@
 #
 # THE FAILURE MODE THIS EXISTS TO STOP
 #
-#   A worker worktree carries `.beads/issues.jsonl` as it stood at the commit
-#   the worktree was created from, and that snapshot goes stale as the
-#   tracker moves on: an ordinary `bd` write lands in the database and does
-#   not rewrite the file, which only scripts/beads-checkpoint.sh installs.
+#   A worker worktree carries the tracker export (`.beads/tracker/`) as it
+#   stood at the commit the worktree was created from, and that snapshot goes
+#   stale as the tracker moves on: an ordinary `bd` write lands in the
+#   database and does not rewrite the export, which only
+#   scripts/beads-checkpoint.sh installs.
 #   Committing the snapshot TIME-TRAVELS the tracker: beads closed since the
 #   snapshot reopen, beads filed since it vanish.
 #
@@ -35,14 +36,14 @@
 #
 # WHY NOT `git update-index --skip-worktree`?
 #
-#   Setting `--skip-worktree` on `.beads/issues.jsonl` in every new worker
+#   Setting `--skip-worktree` on the tracker export in every new worker
 #   checkout, so a changed snapshot could never be staged at all, is STRICTLY
 #   WORSE than refusing the commit:
 #
 #     skip-worktree hides the local edit from `git status` (clean tree), but
 #     `git pull --rebase` still refuses to advance over it —
 #       "error: Your local changes to the following files would be
-#        overwritten by merge: .beads/issues.jsonl ... Aborting"
+#        overwritten by merge: .beads/tracker/issues-3.jsonl ... Aborting"
 #     — leaving HEAD frozen with NOTHING in `git status` to explain why. The
 #     worktree then silently rots at a stale base.
 #
@@ -57,7 +58,9 @@
 #   allow-list covers artefacts that do not exist yet (`.beads/events.jsonl`
 #   when events-export is enabled, `.beads/dolt/**`, `.beads/*.db`) without
 #   anyone having to remember to extend a deny-list — the same reasoning as
-#   the sibling lib/check-mayor-commit-boundary.sh.
+#   the sibling lib/check-mayor-commit-boundary.sh. The tracker export's
+#   parts (`.beads/tracker/**`) and its older single-file form
+#   (`.beads/issues.jsonl`) fall to that same arm, with no rule of their own.
 #
 #   `.beads/PRIME.md` is on that list for the same reason as README.md: it is
 #   hand-written prose, not a database export. It overrides `bd prime`'s
@@ -305,7 +308,7 @@ check_beads_boundary() {
 #
 # THE SAME FILE, A DIFFERENT QUESTION. Everything above decides WHO may commit
 # the beads database and says nothing about WHAT is in it — and the answer to
-# "what" can be "nothing". A plain `git add` of the JSONL caught mid-rewrite
+# "what" can be "nothing". A plain `git add` of the export caught mid-rewrite
 # stages an empty or badly shrunken tracker, and from the MAYOR checkout —
 # where committing the tracker is the intended flow and the boundary check
 # above correctly no-ops — it commits. Afterwards working tree, index and HEAD
@@ -334,29 +337,64 @@ check_beads_boundary() {
 # SCOPE. This is a guard for a failure that is silent. It is deliberately not
 # extended to the CI arm: a mayor checkpoint goes to main directly and never
 # appears in a pull-request diff, so the CI arm could never see it.
+#
+# A FLOOR ON THE SUM OF THE PARTS. The tracker is committed as parts under
+# `.beads/tracker/` (see scripts/beads-checkpoint.sh), and older commits carry
+# it as the single file `.beads/issues.jsonl`. A tree holding any part carries
+# the parts and nothing else; a tree holding none carries the single file —
+# the checkpoint's own layout rule, so the two count the same rows. The floor
+# compares the TOTAL, never a part: rows move between parts, and the cut-over
+# commit stages the single file's deletion beside parts holding every one of
+# its rows, both of which a per-part floor would refuse as losses.
 # ---------------------------------------------------------------------------
 
 RF2_BEADS_TRACKER=".beads/issues.jsonl"
+RF2_BEADS_PARTS_DIR=".beads/tracker"
+
+# rf2_beads_is_tracker_path PATH — 0 when PATH belongs to the tracker export,
+# in either layout.
+rf2_beads_is_tracker_path() {
+  case "$1" in
+    "$RF2_BEADS_TRACKER"|"$RF2_BEADS_PARTS_DIR"/*) return 0 ;;
+  esac
+  return 1
+}
 
 # rf2_beads_rows PREFIX — row count of the tracker at a `git show` prefix:
 # `:` reads the INDEX (what is about to be committed), `HEAD:` the last commit.
-# Prints 0 when the path is absent there, which is also the honest answer for a
-# staged deletion.
+# Sums the parts when that tree holds any, and counts the single file
+# otherwise. Prints 0 when neither is there, which is also the honest answer
+# for a staged deletion.
 rf2_beads_rows() {
-  git show "$1$RF2_BEADS_TRACKER" 2>/dev/null | awk 'END{print NR}'
+  if [ "$1" = ":" ]; then
+    _rf2r_parts=$(git ls-files -- "$RF2_BEADS_PARTS_DIR/" 2>/dev/null) || _rf2r_parts=""
+  else
+    _rf2r_parts=$(git ls-tree -r --name-only "${1%:}" -- "$RF2_BEADS_PARTS_DIR/" 2>/dev/null) \
+      || _rf2r_parts=""
+  fi
+  if [ -z "$_rf2r_parts" ]; then
+    git show "$1$RF2_BEADS_TRACKER" 2>/dev/null | awk 'END{print NR}'
+    return 0
+  fi
+  _rf2r_sum=0
+  for _rf2r_p in $_rf2r_parts; do
+    _rf2r_n=$(git show "$1$_rf2r_p" 2>/dev/null | awk 'END{print NR}')
+    _rf2r_sum=$((_rf2r_sum + _rf2r_n))
+  done
+  printf '%s\n' "$_rf2r_sum"
 }
 
 # check_beads_truncation
 #
-# Reads newline-separated staged paths from stdin. When the tracker is among
-# them, compares the INDEX row count against HEAD's and refuses a commit that
-# would lose more than a tenth of the tracker, printing a didactic block to
-# stderr. Returns 0 in every other case — including a first-ever add, since a
-# HEAD that carries no rows can lose none.
+# Reads newline-separated staged paths from stdin. When any tracker path is
+# among them, compares the INDEX row total against HEAD's and refuses a commit
+# that would lose more than a tenth of the tracker, printing a didactic block
+# to stderr. Returns 0 in every other case — including a first-ever add, since
+# a HEAD that carries no rows can lose none.
 check_beads_truncation() {
   _rf2t_seen=0
   while IFS= read -r _rf2t_p; do
-    if [ "$_rf2t_p" = "$RF2_BEADS_TRACKER" ]; then
+    if rf2_beads_is_tracker_path "$_rf2t_p"; then
       _rf2t_seen=1
     fi
   done
@@ -375,12 +413,12 @@ check_beads_truncation() {
   printf '\n' >&2
   printf 'ERROR: refusing to commit a TRUNCATED beads tracker.\n' >&2
   printf '\n' >&2
-  printf '  %s\n' "$RF2_BEADS_TRACKER" >&2
+  printf '  the tracker export (%s/, or %s)\n' "$RF2_BEADS_PARTS_DIR" "$RF2_BEADS_TRACKER" >&2
   printf '    staged: %s rows\n' "$_rf2t_new" >&2
   printf '    HEAD:   %s rows\n' "$_rf2t_old" >&2
   printf '\n' >&2
   printf '  More than a tenth of the tracker would disappear in this commit.\n' >&2
-  printf '  A plain `git add` that catches the JSONL mid-rewrite stages exactly\n' >&2
+  printf '  A plain `git add` that catches the export mid-rewrite stages exactly\n' >&2
   printf '  this, and a commit made that way leaves `git status` clean\n' >&2
   printf '  afterwards, so nothing else on screen would say anything was\n' >&2
   printf '  wrong.\n' >&2
@@ -393,7 +431,7 @@ check_beads_truncation() {
     printf '\n' >&2
   fi
   printf '  Fix — drop the staged copy and re-export from the database:\n' >&2
-  printf '    git restore --staged %s\n' "$RF2_BEADS_TRACKER" >&2
+  printf '    git restore --staged .beads\n' >&2
   printf '    sh scripts/beads-checkpoint.sh\n' >&2
   printf '\n' >&2
   printf '  If the shrink is GENUINE — a deliberate `bd gc`, a mass delete you\n' >&2

@@ -30,7 +30,9 @@
 # The contract is allow-list, not deny-list: any staged path not matched
 # below is refused.
 #
-#   - .beads/issues.jsonl                — bd closure / state edits
+#   - .beads/tracker/**                  — the tracker export's parts
+#   - .beads/issues.jsonl                — its older single-file form, whose
+#                                          removal the cut-over commits
 #   - MEMORY.md (root)                   — optional operator-memory file
 #
 # Gitignored paths cannot normally reach the staged diff at all (git
@@ -50,6 +52,7 @@
 # leading `./`).
 is_permitted_mayor_path() {
   case "$1" in
+    .beads/tracker/*)    return 0 ;;
     .beads/issues.jsonl) return 0 ;;
     MEMORY.md)           return 0 ;;
     *)                   return 1 ;;
@@ -99,7 +102,8 @@ check_mayor_commit_boundary() {
   done < "$refused_file"
   printf '\n' >&2
   printf '  Permitted in mayor commits:\n' >&2
-  printf '    .beads/issues.jsonl  (bd closures)\n' >&2
+  printf '    .beads/tracker/**    (the tracker export, by checkpoint)\n' >&2
+  printf '    .beads/issues.jsonl  (its older single-file form)\n' >&2
   printf '    MEMORY.md            (operator-memory file, if present)\n' >&2
   printf '\n' >&2
   printf '  Any source / spec / test / doc / script change must originate\n' >&2

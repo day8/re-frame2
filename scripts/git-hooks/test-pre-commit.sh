@@ -208,6 +208,21 @@ if [ "$lookalikes_ok" = "1" ]; then
   pass "PRIME lookalikes still refused (.bak, .jsonl, prime/, NOTES.md)"
 fi
 
+# 3f: the tracker export is database-derived in BOTH layouts — its parts and
+# the single file older commits carry — and the allow-list refuses both with
+# no rule of its own.
+parts_ok=1
+for p in .beads/tracker/issues-0.jsonl .beads/tracker/issues-f.jsonl .beads/tracker/memories.jsonl .beads/issues.jsonl; do
+  out=$(printf '%s\n' "$p" | run_beads_lib 2>"$BERR") || true
+  case "$out" in
+    *EXIT=1*) ;;
+    *) parts_ok=0; fail "tracker export path WRONGLY permitted: $p (exit: $out)" ;;
+  esac
+done
+if [ "$parts_ok" = "1" ]; then
+  pass "tracker export refused in both layouts (.beads/tracker/*, .beads/issues.jsonl)"
+fi
+
 rm -f "$BERR"
 
 # ----------------------------------------------------------------------------
@@ -237,6 +252,25 @@ else
   cat "$SMOKE_ERR" >&2 || true
 fi
 ( cd "$WORKER" && git reset -q HEAD && git checkout -q -- .beads ) || true
+
+# (e2): the same refusal for a tracker PART, the layout the checkpoint writes.
+scenario_e2() {
+  cd "$WORKER"
+  mkdir -p .beads/tracker
+  printf '{"id":"stale","title":"stale worktree snapshot"}\n' > .beads/tracker/issues-3.jsonl
+  git add .beads/tracker/issues-3.jsonl
+  git commit -q -m 'worker: stale tracker part'
+}
+rc=$(scenario_rc scenario_e2)
+if [ "$rc" != "0" ] \
+   && grep -q '\.beads/tracker/issues-3\.jsonl' "$SMOKE_ERR" \
+   && grep -q 'STALE WORKER-SNAPSHOT' "$SMOKE_ERR"; then
+  pass "(e2) worker commit: a tracker part -> refused, names the part (exit $rc)"
+else
+  fail "(e2) worker commit staging a tracker part was NOT blocked (exit $rc)"
+  cat "$SMOKE_ERR" >&2 || true
+fi
+( cd "$WORKER" && git reset -q HEAD && rm -rf .beads/tracker ) || true
 
 # (g): a worker commits human-authored beads CONFIG -> passes.
 scenario_g() {
@@ -410,11 +444,16 @@ CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
 
   git branch worker/clean
   git branch worker/contaminated
+  git branch worker/contaminated-part
   git branch worker/renamed-out
 
-  # Only THEN does the base advance, with a mayor beads-only checkpoint.
+  # Only THEN does the base advance, with a mayor beads-only checkpoint that
+  # touches both layouts of the tracker export.
   printf '{"id":"seed"}\n{"id":"filed-after-the-fork"}\n' > .beads/issues.jsonl
-  git commit -q -am 'chore(beads): mayor heartbeat AFTER the branches forked'
+  mkdir -p .beads/tracker
+  printf '{"id":"filed-after-the-fork"}\n' > .beads/tracker/issues-0.jsonl
+  git add -A
+  git commit -q -m 'chore(beads): mayor heartbeat AFTER the branches forked'
   git update-ref refs/remotes/origin/main "$(git rev-parse main)"
 
   git checkout -q worker/clean
@@ -427,6 +466,14 @@ CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
     > .beads/issues.jsonl
   git add -A
   git commit -q -m 'worker: real work + bd auto-staged tracker snapshot'
+
+  git checkout -q worker/contaminated-part
+  printf '(ns seed)\n;; ordinary work\n' > implementation/core/src/seed.cljc
+  mkdir -p .beads/tracker
+  printf '{"id":"claimed-by-this-worker","status":"in_progress"}\n' \
+    > .beads/tracker/issues-3.jsonl
+  git add -A
+  git commit -q -m 'worker: real work + a stale tracker part'
 
   # An EXACT rename out of the protected tree: git scores it R100, and a
   # rename-detecting `--name-only` would report the destination alone.
@@ -469,6 +516,23 @@ case "$out" in
       pass "(5b) branch that DID commit the tracker -> refused, names path + remedy"
     else
       fail "(5b) refused, but the diagnostic is missing the path or the remedy"
+      cat "$CIERR" >&2 || true
+    fi
+    ;;
+esac
+
+# 5g: the same refusal for a tracker PART, the layout the checkpoint writes.
+out=$(run_ci_guard worker/contaminated-part origin/main)
+case "$out" in
+  EXIT=0)
+    fail "(5g) FALSE GREEN: a branch that committed a tracker part was not blocked"
+    ;;
+  *)
+    if grep -q '\.beads/tracker/issues-3\.jsonl' "$CIERR" \
+       && grep -q 'STALE WORKER-SNAPSHOT' "$CIERR"; then
+      pass "(5g) branch that committed a tracker PART -> refused, names the part"
+    else
+      fail "(5g) refused, but the diagnostic is missing the part path"
       cat "$CIERR" >&2 || true
     fi
     ;;
@@ -869,6 +933,8 @@ chmod +x "$CBIN/bd"
 sed 's/"id":"rf2-b","status":"open"/"id":"rf2-b","status":"closed"/' \
   "$CBOX/head.jsonl" > "$CBOX/db-closed.jsonl"
 
+# The seed is the SINGLE-FILE layout older commits carry, so 8a's checkpoint
+# is the cut-over to parts, and every later case runs on parts.
 (
   cd "$CREPO"
   git init -q -b main
@@ -877,16 +943,36 @@ sed 's/"id":"rf2-b","status":"open"/"id":"rf2-b","status":"closed"/' \
   git config commit.gpgsign false
   cp "$CHECKPOINT" scripts/
   cp "$REPO_ROOT/scripts/git-hooks/lib/check-beads-boundary.sh" scripts/git-hooks/lib/
+  printf '.beads/tracker/** text eol=lf\n.beads/issues.jsonl text eol=lf\n' > .gitattributes
   cp -f "$CBOX/head.jsonl" .beads/issues.jsonl
-  git add scripts .beads/issues.jsonl
+  git add scripts .gitattributes .beads/issues.jsonl
   git commit -q -m 'seed: tracker at HEAD, two open issues'
 ) >/dev/null 2>&1
+CSEED=$(git -C "$CREPO" rev-parse HEAD)
 
 run_checkpoint() {
   # $1 = directory; rest = args to the helper. Echoes EXIT=<n>.
   d="$1"; shift
   ( cd "$d" && PATH="$CBIN:$PATH" sh scripts/beads-checkpoint.sh "$@" \
       >"$COUT" 2>"$CERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# cat_at [REV] — the tracker export at REV (the working tree without one),
+# read through the helper's own --cat: the route every recovery takes.
+cat_at() {
+  ( cd "$CREPO" && sh scripts/beads-checkpoint.sh --cat ${1:+"$1"} ) 2>/dev/null
+}
+
+# seed_tracker FILE SUBJECT — commit FILE as HEAD's tracker, written into the
+# parts by --split and committed as the hand commit --split prints.
+seed_tracker() {
+  ( cd "$CREPO" && sh scripts/beads-checkpoint.sh --split "$1" \
+      && git commit -q -m "$2" -- .beads ) >/dev/null 2>&1
+}
+
+# rec_ref_of FILE — the commit the warning's recovery lookup names.
+rec_ref_of() {
+  sed -n 's/^ *sh scripts\/beads-checkpoint\.sh --cat \([0-9a-f]*\).*/\1/p' "$1" | sed -n '1p'
 }
 
 # 8a: THE CORE CASE. Revert the working file exactly as the pre-pull cleanup
@@ -896,7 +982,7 @@ run_checkpoint() {
 cp -f "$CBOX/db-closed.jsonl" "$CBOX/db.jsonl"
 git -C "$CREPO" checkout -q HEAD -- .beads
 out=$(run_checkpoint "$CREPO")
-committed=$(git -C "$CREPO" show HEAD:.beads/issues.jsonl 2>/dev/null || true)
+committed=$(cat_at HEAD || true)
 case "$out" in
   EXIT=0)
     case "$committed" in
@@ -914,9 +1000,25 @@ case "$out" in
   *) fail "(8a) checkpoint failed ($out)"; cat "$CERR" >&2 ;;
 esac
 
+# 8a, the cut-over: that first checkpoint over a single-file HEAD commits the
+# seventeen parts AND the single file's removal, from index and tree alike,
+# while --cat at the seed commit still reads the single file.
+head_names=$(git -C "$CREPO" ls-tree -r --name-only HEAD -- .beads)
+n_parts=$(printf '%s\n' "$head_names" | grep -c '^\.beads/tracker/' || :)
+if [ "$n_parts" = "17" ] \
+   && ! printf '%s\n' "$head_names" | grep -qx '\.beads/issues\.jsonl' \
+   && [ ! -e "$CREPO/.beads/issues.jsonl" ] \
+   && git -C "$CREPO" show HEAD:.beads/tracker/memories.jsonl | grep -q '"key":"m1"' \
+   && [ "$(cat_at "$CSEED")" = "$(cat "$CBOX/head.jsonl")" ]; then
+  pass "(8a) the first checkpoint is the cut-over: 17 parts in, the single file out, history still readable"
+else
+  fail "(8a) the cut-over did not land as specified ($n_parts parts)"
+  printf '%s\n' "$head_names" >&2
+fi
+
 # 8b: --pre-pull REFUSES while the working export carries state HEAD lacks, and
 # names the remedy — before the checkout, not after the close is gone.
-printf '{"_type":"issue","id":"rf2-c","status":"open"}\n' >> "$CREPO/.beads/issues.jsonl"
+printf '{"_type":"issue","id":"rf2-c","status":"open"}\n' >> "$CREPO/.beads/tracker/issues-0.jsonl"
 out=$(run_checkpoint "$CREPO" --pre-pull)
 case "$out" in
   EXIT=0) fail "(8b) --pre-pull certified a working export that is ahead of HEAD" ;;
@@ -963,8 +1065,8 @@ esac
 # so a reorder is not a change.
 before=$(git -C "$CREPO" rev-parse HEAD)
 {
-  git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep '"_type":"issue"'
-  git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep '"_type":"memory"' | sort -r
+  cat_at HEAD | grep '"_type":"issue"'
+  cat_at HEAD | grep '"_type":"memory"' | sort -r
 } > "$CBOX/db.jsonl"
 out=$(run_checkpoint "$CREPO")
 after=$(git -C "$CREPO" rev-parse HEAD)
@@ -1004,6 +1106,16 @@ case "$out" in
     fail "(8g) --pre-pull refused to answer from a worker worktree ($out)"
     cat "$CERR" >&2 ;;
 esac
+
+# So does --cat, the other read-only question; --split, a write, is refused.
+cat_out=$(run_checkpoint "$CWORKER" --cat HEAD)
+split_out=$(run_checkpoint "$CWORKER" --split "$CBOX/db.jsonl")
+if [ "$cat_out" = "EXIT=0" ] && [ "$split_out" != "EXIT=0" ] && grep -q 'mayor checkout' "$CERR"; then
+  pass "(8g) --cat answers from a worker worktree, and --split is refused there"
+else
+  fail "(8g) worker worktree: --cat $cat_out, --split $split_out"
+  cat "$CERR" >&2
+fi
 git -C "$CREPO" worktree remove --force "$CWORKER" >/dev/null 2>&1 || true
 
 # 8h: A REAL CHANGE COMMITS THE REAL CHANGE ONLY. rf2-a closes while four
@@ -1037,7 +1149,7 @@ after=$(git -C "$CREPO" rev-parse HEAD)
 case "$out" in
   EXIT=0)
     # Diff body only: added/removed rows, not the +++/--- headers.
-    cdiff=$(git -C "$CREPO" diff "$before" "$after" -- .beads/issues.jsonl \
+    cdiff=$(git -C "$CREPO" diff "$before" "$after" -- .beads \
               | grep '^[+-]' | grep -v '^[+-][+-]' || true)
     churn=$(printf '%s\n' "$cdiff" | grep '"_type":"memory"' || true)
     real=$(printf '%s\n' "$cdiff" | grep '"id":"rf2-a"' || true)
@@ -1050,7 +1162,7 @@ case "$out" in
     elif [ -z "$real" ] || [ "$(printf '%s\n' "$cdiff" | awk 'END{print NR}')" != "2" ]; then
       fail "(8h) the commit did not carry exactly the two rf2-a lines"
       printf '%s\n' "$cdiff" >&2
-    elif [ "$(git -C "$CREPO" show HEAD:.beads/issues.jsonl | LC_ALL=C sort)" \
+    elif [ "$(cat_at HEAD | LC_ALL=C sort)" \
            != "$(LC_ALL=C sort < "$CBOX/db.jsonl")" ]; then
       fail "(8h) the minimal-diff rewrite changed the committed ROW SET"
     else
@@ -1103,12 +1215,7 @@ esac
   printf '{"_type":"memory","key":"m2","value":"two"}\n'
 } > "$CBOX/db.jsonl"
 
-(
-  cd "$CREPO"
-  cp -f "$CBOX/head-diverged.jsonl" .beads/issues.jsonl
-  git add -- .beads/issues.jsonl
-  git commit -q -m 'seed: HEAD and the database have diverged at equal row count'
-) >/dev/null 2>&1
+seed_tracker "$CBOX/head-diverged.jsonl" 'seed: HEAD and the database have diverged at equal row count'
 
 # 8j: refused, naming what would be lost WITH its fields — an id-set
 # comparison proves presence and nothing more — and nothing of the Dolt side.
@@ -1137,7 +1244,7 @@ case "$out" in
     elif grep -qE 'rf2-c|rf2-d1' "$CERR"; then
       fail "(8j) cried wolf over the DOLT-side facts; forward motion is not a divergence"
       cat "$CERR" >&2
-    elif ! grep -q 'rf2-g1' "$CREPO/.beads/issues.jsonl"; then
+    elif ! cat_at | grep -q 'rf2-g1'; then
       fail "(8j) the tracker was overwritten despite the refusal"
     else
       pass "(8j) an equal-count divergence is refused, naming both lost facts and their fields"
@@ -1198,12 +1305,7 @@ esac
 grep -v '"key":"mem-key-03"' "$CBOX/head-mem.jsonl" \
   | grep -v '"key":"mem-key-07"' > "$CBOX/db-mem-culled.jsonl"
 
-(
-  cd "$CREPO"
-  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
-  git add -- .beads/issues.jsonl
-  git commit -q -m 'seed: 20 issues and 10 memories'
-) >/dev/null 2>&1
+seed_tracker "$CBOX/head-mem.jsonl" 'seed: 20 issues and 10 memories'
 
 # 8m: a memory-only deletion warns loudly, names exactly the lost keys, counts
 # both populations on both sides, says it is not a refusal — and commits.
@@ -1241,17 +1343,21 @@ esac
 
 # The printed recovery lookup must name the pre-checkpoint commit by oid:
 # `HEAD` is the commit that removed the rows by the time anyone pastes it, and
-# a lookup against it exits 0 and prints nothing.
-rec_lines=$(grep -c '^ *git show ' "$CERR" || :)
-rec_ref=$(sed -n 's/^ *git show \([^:]*\):.*/\1/p' "$CERR" | sed -n '1p')
+# a lookup against it exits 0 and prints nothing. Run AFTER the checkpoint has
+# committed, the lookup still finds the lost key, while HEAD does not.
+rec_lines=$(grep -c '^ *sh scripts/beads-checkpoint.sh --cat ' "$CERR" || :)
+rec_ref=$(rec_ref_of "$CERR")
 if [ "$rec_lines" != "1" ]; then
   fail "(8m) expected exactly one recovery lookup in the warning, found $rec_lines"
   cat "$CERR" >&2
 elif [ "$rec_ref" != "$before" ]; then
   fail "(8m) the recovery lookup names '$rec_ref', not the pre-checkpoint commit $before"
   cat "$CERR" >&2
+elif ! cat_at "$rec_ref" | grep -q '"key":"mem-key-03"' \
+     || cat_at HEAD | grep -q '"key":"mem-key-03"'; then
+  fail "(8m) the printed lookup does not recover the lost key after the commit"
 else
-  pass "(8m) the recovery lookup names the immutable pre-checkpoint commit, not \`HEAD\`"
+  pass "(8m) the recovery lookup names the immutable pre-checkpoint commit, and recovers through it"
 fi
 
 # 8o: a row of an unknown `_type` is reported — the two populations no longer
@@ -1300,13 +1406,13 @@ mkdir -p "$CSEAM"
 cat > "$CSEAM/git" <<EOF
 #!/usr/bin/env sh
 case "\$*" in
-  'rev-parse --verify HEAD'|'show '*':.beads/issues.jsonl')
+  'rev-parse --verify --quiet HEAD'|'ls-tree '*|'show '*':.beads/'*)
     if [ -f "$CBOX/seam-armed" ]; then
       "$REAL_GIT" "\$@"
       st=\$?
       rm -f "$CBOX/seam-armed"
-      cp -f "$CBOX/race-concurrent.jsonl" "$CREPO/.beads/issues.jsonl"
-      "$REAL_GIT" -C "$CREPO" add -- .beads/issues.jsonl >/dev/null 2>&1
+      cp -f "$CBOX/race-parts/"*.jsonl "$CREPO/.beads/tracker/"
+      "$REAL_GIT" -C "$CREPO" add -- .beads/tracker >/dev/null 2>&1
       "$REAL_GIT" -C "$CREPO" commit -q -m 'a concurrent checkpoint lands between the two reads' >/dev/null 2>&1
       exit \$st
     fi ;;
@@ -1315,15 +1421,16 @@ exec "$REAL_GIT" "\$@"
 EOF
 chmod +x "$CSEAM/git"
 
-(
-  cd "$CREPO"
-  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
-  git add -- .beads/issues.jsonl
-  git commit -q -m 'seed: 20 issues and 10 memories, ahead of the race'
-) >/dev/null 2>&1
+seed_tracker "$CBOX/head-mem.jsonl" 'seed: 20 issues and 10 memories, ahead of the race'
 race_a=$(git -C "$CREPO" rev-parse HEAD)
 
+# B's parts, built by --split and copied aside for the shim; the tree then
+# goes back to A.
 cp -f "$CBOX/db-mem-culled.jsonl" "$CBOX/race-concurrent.jsonl"
+mkdir -p "$CBOX/race-parts"
+( cd "$CREPO" && sh scripts/beads-checkpoint.sh --split "$CBOX/race-concurrent.jsonl" \
+    && cp -f .beads/tracker/*.jsonl "$CBOX/race-parts/" \
+    && git checkout -q HEAD -- .beads ) >/dev/null 2>&1
 {
   cat "$CBOX/db-mem-culled.jsonl"
   printf '{"_type":"memory","key":"mem-key-11","value":"a new lesson"}\n'
@@ -1347,7 +1454,7 @@ if [ "$seam_fired" != "1" ] || [ -z "$race_b" ] || [ "$race_b" = "$race_a" ] \
     "$seam_fired" "$race_a" "$race_b" "$race_b_subject" >&2
 fi
 
-race_ref=$(sed -n 's/^ *git show \([^:]*\):.*/\1/p' "$CERR" | sed -n '1p')
+race_ref=$(rec_ref_of "$CERR")
 case "$out" in
   EXIT=0)
     if ! grep -q 'MEMORY RECONCILIATION FAILED' "$CERR" \
@@ -1367,12 +1474,7 @@ esac
 # 8p: THE NO-FALSE-POSITIVE CASE. Ordinary forward motion — an issue closes, a
 # memory is ADDED, the rest are shuffled — commits without a murmur. HEAD is
 # re-seeded first so this grades a clean baseline, not the race's leftovers.
-(
-  cd "$CREPO"
-  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
-  git add -- .beads/issues.jsonl
-  git commit -q -m 'seed: back to 20 issues and 10 memories'
-) >/dev/null 2>&1
+seed_tracker "$CBOX/head-mem.jsonl" 'seed: back to 20 issues and 10 memories'
 {
   awk 'BEGIN{for(i=1;i<=20;i++){s=(i==4?"closed":"open"); u=(i==4?"2026-09-02T00:00:00Z":"2026-09-01T00:00:00Z"); printf "{\"_type\":\"issue\",\"id\":\"rf2-m%02d\",\"status\":\"%s\",\"updated_at\":\"%s\"}\n", i, s, u}}'
   awk 'BEGIN{for(i=10;i>=1;i--) printf "{\"_type\":\"memory\",\"key\":\"mem-key-%02d\",\"value\":\"body %d\"}\n", i, i}'
@@ -1390,13 +1492,58 @@ case "$out" in
     elif grep -q 'MEMORY RECONCILIATION' "$CERR"; then
       fail "(8p) the reconciliation CRIED WOLF on a close plus a new memory plus a reorder"
       cat "$CERR" >&2
-    elif ! git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep -q '"key":"mem-key-11"'; then
+    elif ! cat_at HEAD | grep -q '"key":"mem-key-11"'; then
       fail "(8p) the new memory did not reach the commit"
     else
       pass "(8p) a close, a NEW memory and a full memory reorder warn about nothing"
     fi ;;
   *) fail "(8p) ordinary forward motion was refused ($out)"; cat "$CERR" >&2 ;;
 esac
+
+# 8q: THE ROUTE IS PINNED, ID BY ID. The .ps1 sibling must put every row where
+# write_parts does, or alternating runs would move rows between parts on every
+# checkpoint. Neither test can run the other script, so both pin this one
+# table, computed independently of either: its -SelfTest T10 holds the same
+# rows. Each issue row carries a comment id after its own, so the route is
+# graded on the FIRST id.
+{
+  printf '{"_type":"issue","id":"rf2-a","comments":[{"id":"zz"}]}\n'
+  printf '{"_type":"issue","id":"rf2-tipmv","comments":[{"id":"zz"}]}\n'
+  printf '{"_type":"issue","id":"rf2-k97c.3","comments":[{"id":"zz"}]}\n'
+  printf '{"_type":"issue","id":"rf2-uelji","comments":[{"id":"zz"}]}\n'
+  printf '{"_type":"issue","id":"rf2-zzzzz.12","comments":[{"id":"zz"}]}\n'
+  printf '\n'
+  printf '{"_type":"memory","key":"rf2-a","value":"v"}\n'
+} > "$CBOX/route.jsonl"
+route_ok=1
+( cd "$CREPO" && sh scripts/beads-checkpoint.sh --split "$CBOX/route.jsonl" ) >/dev/null 2>&1 || route_ok=0
+for want in 'rf2-a:issues-2' 'rf2-tipmv:issues-1' 'rf2-k97c.3:issues-6' \
+            'rf2-uelji:issues-8' 'rf2-zzzzz.12:issues-4'; do
+  id=${want%%:*}; part=${want#*:}
+  if ! grep -qF "\"id\":\"$id\"" "$CREPO/.beads/tracker/$part.jsonl" 2>/dev/null; then
+    route_ok=0; fail "(8q) $id did not land in $part.jsonl"
+  fi
+done
+if [ "$(grep -c '^$' "$CREPO/.beads/tracker/issues-0.jsonl" 2>/dev/null || :)" != "1" ] \
+   || [ "$(awk 'END{print NR}' "$CREPO/.beads/tracker/memories.jsonl" 2>/dev/null)" != "1" ]; then
+  route_ok=0; fail "(8q) the id-less row is not in issues-0.jsonl, or the memory not in memories.jsonl"
+fi
+if [ "$route_ok" = "1" ]; then
+  pass "(8q) every pinned id routes to its pinned part, by its FIRST id; no-id and memory rows too"
+fi
+git -C "$CREPO" checkout -q HEAD -- .beads >/dev/null 2>&1 || true
+
+# 8r: --cat REFUSES A COMMIT CARRYING NO TRACKER rather than printing an empty
+# success, which a recovery walk would read as "the rows were never there".
+empty_tree=$(printf '' | git -C "$CREPO" mktree)
+no_tracker=$(git -C "$CREPO" commit-tree "$empty_tree" -m 'a commit with no tracker')
+out=$(run_checkpoint "$CREPO" --cat "$no_tracker")
+if [ "$out" != "EXIT=0" ] && grep -q 'carries no tracker export' "$CERR" && [ ! -s "$COUT" ]; then
+  pass "(8r) --cat at a commit carrying no tracker refuses, and prints no rows"
+else
+  fail "(8r) --cat at a tracker-less commit returned $out"
+  cat "$CERR" >&2
+fi
 
 rm -rf "$CBOX"
 
@@ -1554,6 +1701,122 @@ else
   fail "(9f) FALSE POSITIVE: an unrelated permitted commit was refused (exit $rc)"
   cat "$TERR" >&2
 fi
+
+# 9g-9j: THE FLOOR IS ON THE SUM OF THE PARTS. The checkpoint commits the
+# tracker as parts under .beads/tracker/, and the floor totals them — never
+# grading a part alone, since rows move between parts and the cut-over stages
+# the single file's deletion beside parts holding all its rows. These commits
+# also run the mayor boundary block, so they grade its allow-list too.
+
+# stage_parts_rows N0 N1 — write two parts holding N0 and N1 rows and stage
+# them, with the single file's removal while the index carries it (as the
+# checkpoint's own staging does), then verify the INDEX total.
+stage_parts_rows() {
+  mkdir -p "$MAYOR/.beads/tracker"
+  write_tracker "$1" "$MAYOR/.beads/tracker/issues-0.jsonl" p0
+  write_tracker "$2" "$MAYOR/.beads/tracker/issues-1.jsonl" p1
+  git -C "$MAYOR" add .beads/tracker
+  if git -C "$MAYOR" ls-files --error-unmatch .beads/issues.jsonl >/dev/null 2>&1; then
+    git -C "$MAYOR" rm -q --cached .beads/issues.jsonl
+  fi
+  rm -f "$MAYOR/.beads/issues.jsonl"
+  staged_rows=$(( $(git -C "$MAYOR" show :.beads/tracker/issues-0.jsonl | awk 'END{print NR}') \
+                + $(git -C "$MAYOR" show :.beads/tracker/issues-1.jsonl | awk 'END{print NR}') ))
+  if [ "$staged_rows" != "$(( $1 + $2 ))" ]; then
+    fail "(9-setup) index parts carry $staged_rows rows, expected $(( $1 + $2 )) — the mutation did not apply"
+    return 1
+  fi
+  return 0
+}
+
+parts_rc() {
+  ( cd "$MAYOR" && git commit -q -m 'mayor: tracker parts' -- .beads ) \
+    >/dev/null 2>"$TERR" && echo 0 || echo $?
+}
+
+head_parts_rows() {
+  _hp=0
+  for _p in $(git -C "$MAYOR" ls-tree -r --name-only HEAD -- .beads/tracker/); do
+    _hp=$(( _hp + $(git -C "$MAYOR" show "HEAD:$_p" | awk 'END{print NR}') ))
+  done
+  printf '%s' "$_hp"
+}
+
+reset_parts() {
+  ( cd "$MAYOR" && git reset -q HEAD -- .beads && rm -rf .beads/tracker \
+      && git checkout -q HEAD -- .beads ) >/dev/null 2>&1 || true
+}
+
+# A 200-row single-file HEAD to cut over from.
+if stage_tracker 200 base; then
+  rc=$(trunc_rc)
+  if [ "$rc" != "0" ] || [ "$(mayor_rows)" != "200" ]; then
+    fail "(9-setup) could not seed a 200-row single-file HEAD (exit $rc)"
+    cat "$TERR" >&2 || true
+  fi
+fi
+
+# 9j: a cut-over whose parts hold 150 of the single file's 200 rows -> refused.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_parts_rows 75 75; then
+  rc=$(parts_rc)
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$rc" != "0" ] && [ "$before" = "$after" ] \
+     && grep -q 'staged: 150 rows' "$TERR" && grep -q 'HEAD:   200 rows' "$TERR"; then
+    pass "(9j) a cut-over whose parts hold 150 of 200 rows is refused against the single file"
+  else
+    fail "(9j) FALSE GREEN or wrong diagnostic: a short cut-over (exit $rc)"
+    cat "$TERR" >&2
+  fi
+fi
+reset_parts
+
+# 9g: THE CUT-OVER — the single file's deletion beside parts holding all 200
+# rows. A floor reading either layout alone would see 0 staged rows and refuse.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_parts_rows 100 100; then
+  rc=$(parts_rc)
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$rc" = "0" ] && [ "$before" != "$after" ] && [ "$(head_parts_rows)" = "200" ] \
+     && ! git -C "$MAYOR" cat-file -e HEAD:.beads/issues.jsonl 2>/dev/null; then
+    pass "(9g) the cut-over commit passes the mayor boundary and the summed floor"
+  else
+    fail "(9g) FALSE POSITIVE: the cut-over commit was refused or misapplied (exit $rc)"
+    cat "$TERR" >&2
+  fi
+fi
+
+# 9h: ROWS MOVE BETWEEN PARTS. issues-0 drops from 100 to 60 rows — a 40%
+# loss for that part — while issues-1 gains them: the total is unchanged, so
+# the commit passes. A per-part floor would refuse it.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_parts_rows 60 140; then
+  rc=$(parts_rc)
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$rc" = "0" ] && [ "$before" != "$after" ] && [ "$(head_parts_rows)" = "200" ]; then
+    pass "(9h) rows moving between parts pass: the floor grades the total, not a part"
+  else
+    fail "(9h) FALSE POSITIVE: a move between parts was refused (exit $rc)"
+    cat "$TERR" >&2
+  fi
+fi
+
+# 9i: A PART EMPTIED BELOW THE SUMMED FLOOR. issues-0 goes from 60 rows to 0
+# and the total from 200 to 140 -> refused, with the totals.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_parts_rows 0 140; then
+  rc=$(parts_rc)
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$rc" != "0" ] && [ "$before" = "$after" ] \
+     && grep -q 'TRUNCATED' "$TERR" \
+     && grep -q 'staged: 140 rows' "$TERR" && grep -q 'HEAD:   200 rows' "$TERR"; then
+    pass "(9i) a part emptied below the summed floor is refused, with the totals"
+  else
+    fail "(9i) FALSE GREEN: a 140-of-200 sharded tracker was committed (exit $rc)"
+    cat "$TERR" >&2
+  fi
+fi
+reset_parts
 rm -f "$TERR" "$SMOKE_ERR"
 
 # ----------------------------------------------------------------------------

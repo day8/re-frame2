@@ -6,14 +6,34 @@
 # system ANSI codepage, so a BOM-less UTF-8 multibyte char (e.g. an em-dash)
 # in a code position breaks tokenization. Keep this file pure ASCII.
 #
+# THE TRACKED EXPORT IS A SET OF PARTS
+#
+#   The tracker is committed under .beads/tracker/: sixteen issue parts,
+#   issues-0.jsonl to issues-f.jsonl, each holding the issues whose id hashes
+#   to that hex digit, and memories.jsonl, holding every `bd remember` row.
+#   One file holding the whole database grows without bound, and GitHub
+#   refuses a push carrying any file over 100 MiB; split by id hash, each part
+#   grows at a sixteenth of the rate. Concatenated, the parts ARE the export -
+#   the row multiset `bd export --include-memories` writes - so `bd import`
+#   sees the same database either way.
+#
+#   Older commits carry the export as one file, .beads/issues.jsonl. A tree
+#   holding any file under .beads/tracker/ carries the parts and nothing else;
+#   a tree holding none carries that single file. Every read below applies
+#   that one rule, so -Cat reads the tracker at any commit in the history,
+#   either side of the split. The first checkpoint over a single-file HEAD is
+#   the cut-over: it writes the parts and commits the single file's removal
+#   alongside them. Every guard reads the WHOLE export - the parts
+#   concatenated - so a row moving between parts is not a loss.
+#
 # THE FAULT THIS EXISTS TO STOP
 #
 #   CLAUDE.md requires `git checkout HEAD -- .beads` before every update, and
-#   rightly: an uncommitted .beads/issues.jsonl makes the update abort,
-#   freezing HEAD at a stale base. But the JSONL is a full-database EXPORT. If
-#   a `bd close` or `bd create` happened after the last export-commit, that
+#   rightly: an uncommitted tracker export makes the update abort, freezing
+#   HEAD at a stale base. But the export is a full-database EXPORT. If a
+#   `bd close` or `bd create` happened after the last export-commit, that
 #   checkout reverts the export to its pre-close state, and a checkpoint that
-#   then commits (or re-imports) the working file writes the revert back over
+#   then commits (or re-imports) the working files writes the revert back over
 #   the database. The close simply evaporates.
 #
 # SO IT EXPORTS FIRST. A checkpoint asks the Dolt database what the tracker
@@ -48,19 +68,30 @@
 #   deletion.
 #
 # The commit carries the rows that changed and nothing else: `bd export` does
-# not fix the order of the memory rows, so the file is written in minimal-diff
+# not fix the order of the memory rows, so the rows are put in minimal-diff
 # order first (Write-MinimalDiffOrder below).
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -Message "chore(beads): checkpoint (6931 merged)"
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -PrePull
+#   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -Cat [-Rev <rev>]
+#   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -Split <file>
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -SelfTest
+#
+# -Cat writes the tracker export at commit -Rev (or as the working tree holds
+# it, without -Rev) to stdout as raw bytes; exit 1 when -Rev carries no
+# tracker. -Split writes a file's rows into the parts, in its order, and
+# stages them with the single file's removal if the index still carries it -
+# the checkpoint's own write step, for the hand commit its refusals describe.
 
 [CmdletBinding()]
 param(
     [switch]$PrePull,
     [switch]$SelfTest,
+    [switch]$Cat,
+    [string]$Rev = '',
+    [string]$Split = '',
     [string]$Message = 'chore(beads): checkpoint'
 )
 
@@ -69,11 +100,24 @@ $ErrorActionPreference = 'Stop'
 # is to not lose data quietly. Every arm below is exercised by -SelfTest.
 Set-StrictMode -Version Latest
 
-$tracker = '.beads/issues.jsonl'
+$legacy   = '.beads/issues.jsonl'
+$partsDir = '.beads/tracker'
+$parts    = @('issues-0', 'issues-1', 'issues-2', 'issues-3', 'issues-4', 'issues-5',
+              'issues-6', 'issues-7', 'issues-8', 'issues-9', 'issues-a', 'issues-b',
+              'issues-c', 'issues-d', 'issues-e', 'issues-f', 'memories')
+$partPaths = @($parts | ForEach-Object { "$partsDir/$_.jsonl" })
+
+# -Split's file is the caller's path, so it is resolved before the move below.
+if ($Split -and -not [System.IO.Path]::IsPathRooted($Split)) {
+    $Split = Join-Path (Get-Location).Path $Split
+}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = (Resolve-Path (Join-Path $scriptDir '..')).Path
 Set-Location $repoRoot
+# .NET resolves a relative path against the PROCESS directory, which
+# Set-Location does not move; every [System.IO.File] call below takes one.
+[System.Environment]::CurrentDirectory = $repoRoot
 
 function Die {
     param([string]$Text)
@@ -96,7 +140,8 @@ function Invoke-RawToFile {
     param(
         [string]$Exe,
         [string[]]$Arguments,
-        [string]$OutFile
+        [string]$OutFile,
+        [switch]$Append
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
@@ -111,8 +156,8 @@ function Invoke-RawToFile {
     $psi.WorkingDirectory = (Get-Location).Path
 
     $proc = [System.Diagnostics.Process]::Start($psi)
-    $fs = [System.IO.File]::Open($OutFile, [System.IO.FileMode]::Create,
-                                 [System.IO.FileAccess]::Write)
+    $mode = if ($Append) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
+    $fs = [System.IO.File]::Open($OutFile, $mode, [System.IO.FileAccess]::Write)
     try {
         $proc.StandardOutput.BaseStream.CopyTo($fs)
     } finally {
@@ -147,23 +192,153 @@ $gitExe = 'git'
 $gitCmd = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)
 if ($gitCmd.Count -gt 0 -and $gitCmd[0].Source) { $gitExe = $gitCmd[0].Source }
 
-# Write $Ref's copy of the tracker to $Path (default HEAD); an empty file if the
-# tracker does not exist there (a first-ever checkpoint, or an unborn branch).
+# Write the tracker export at commit $Oid to $Path, whichever layout that
+# commit carries: the parts in the order the tree lists them, or the single
+# file. Returns 0; 2, leaving $Path empty, when the commit carries neither (a
+# commit older than the tracker); 1 when a part it lists cannot be read.
 #
-# THE REF PARAMETER IS LOAD-BEARING, not an ergonomic flourish. The caller prints a commit oid as a RECOVERY REFERENCE,
-# and a helper that re-resolves `HEAD` for itself makes that oid a SEPARATE READ
-# of a moving branch: a commit landing in the shared checkout between the two
-# reads leaves the guard comparing commit A's bytes while printing commit B's
-# oid, and B never carried the values the operator is told to recover. Adjacent
-# calls are not one snapshot - the drift reproduces deterministically with a
-# single commit in the gap. Pass the resolved oid and the two cannot disagree.
-# `${Ref}:` needs the braces: a bare `$Ref:` parses as a scope qualifier.
-function Write-HeadCopy {
-    param([string]$Path, [string]$Ref = 'HEAD')
-    $code = Invoke-RawToFile -Exe $gitExe -Arguments @('show', "${Ref}:$tracker") -OutFile $Path
-    if ($code -ne 0) {
-        [System.IO.File]::WriteAllText($Path, '', (New-Object System.Text.UTF8Encoding $false))
+# TAKES A RESOLVED OID, NEVER A REF NAME. The caller prints that oid as a
+# RECOVERY REFERENCE, and the parts are SEVERAL reads: given `HEAD`, a commit
+# landing in the shared checkout between two of them would splice two
+# snapshots into one baseline, and between the first read and the printed oid
+# it would leave the guard comparing commit A's bytes while naming commit B,
+# which never carried the values the operator is told to recover. Every read
+# goes through this one oid and the one resolved $gitExe, so they cannot
+# disagree. `${Oid}:` needs the braces: a bare `$Oid:` parses as a scope
+# qualifier.
+function Write-TrackerAt {
+    param([string]$Path, [string]$Oid)
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $list = $Path + '.ls'
+    $names = @()
+    try {
+        $code = Invoke-RawToFile -Exe $gitExe -Arguments @('ls-tree', '-r', '--name-only', $Oid, '--', "$partsDir/") -OutFile $list
+        if ($code -eq 0) {
+            $names = @([System.IO.File]::ReadAllLines($list) | Where-Object { $_ -ne '' })
+        }
+    } finally {
+        Remove-Item -LiteralPath $list -Force -ErrorAction SilentlyContinue
     }
+    [System.IO.File]::WriteAllText($Path, '', $enc)
+    if ($names.Count -gt 0) {
+        foreach ($n in $names) {
+            $c = Invoke-RawToFile -Exe $gitExe -Arguments @('show', "${Oid}:$n") -OutFile $Path -Append
+            if ($c -ne 0) { return 1 }
+        }
+        return 0
+    }
+    $c = Invoke-RawToFile -Exe $gitExe -Arguments @('show', "${Oid}:$legacy") -OutFile $Path
+    if ($c -ne 0) {
+        [System.IO.File]::WriteAllText($Path, '', $enc)
+        return 2
+    }
+    return 0
+}
+
+# Write the tracker export as the working tree holds it to $Path, by the same
+# layout rule. $false, leaving $Path empty, when the working tree holds
+# neither layout.
+function Write-TrackerInWorktree {
+    param([string]$Path)
+    [string[]]$files = @()
+    if (Test-Path -LiteralPath $partsDir -PathType Container) {
+        $files = @(Get-ChildItem -LiteralPath $partsDir -File | ForEach-Object { $_.FullName })
+        [System.Array]::Sort($files, [System.StringComparer]::Ordinal)
+    }
+    if ($files.Count -eq 0 -and (Test-Path -LiteralPath $legacy -PathType Leaf)) {
+        $files = @((Resolve-Path -LiteralPath $legacy).Path)
+    }
+    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
+    try {
+        foreach ($f in $files) {
+            $in = [System.IO.File]::OpenRead($f)
+            try { $in.CopyTo($fs) } finally { $in.Dispose() }
+        }
+    } finally {
+        $fs.Dispose()
+    }
+    return ($files.Count -gt 0)
+}
+
+# The part a row belongs to. Identical contract to write_parts in the .sh
+# sibling, which explains the route: a memory row goes to memories.jsonl, and
+# any other row to the issue part named by h mod 16, where
+# h = (h * 31 + byte) mod (2^31 - 1) over the bytes of the row's FIRST
+# "id":"..." value (empty when the row has none). The two scripts must agree
+# on every id, or alternating runs would move rows back and forth between
+# parts; -SelfTest T10 and the .sh test's layer 8 pin the same table.
+function Get-PartName {
+    param([string]$Line)
+    if ($Line.IndexOf('"_type":"memory"', [System.StringComparison]::Ordinal) -ge 0) { return 'memories' }
+    $id = Get-JsonValue -Line $Line -Key 'id'
+    [long]$h = 0
+    foreach ($b in [System.Text.Encoding]::UTF8.GetBytes($id)) { $h = ($h * 31 + $b) % 2147483647 }
+    return 'issues-' + '0123456789abcdef'.Substring([int]($h % 16), 1)
+}
+
+# Route $Source's rows into the parts in the working tree, keeping $Source's
+# order within each part. Every part is rewritten, so a part left with no rows
+# is an empty file rather than a stale one. LF, UTF-8 without a BOM, CR
+# stripped: the bytes write_parts in the .sh sibling writes.
+function Write-Parts {
+    param([string]$Source)
+    New-Item -ItemType Directory -Force -Path $partsDir | Out-Null
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $writers = @{}
+    try {
+        foreach ($p in $parts) {
+            $w = New-Object System.IO.StreamWriter((Join-Path $repoRoot "$partsDir/$p.jsonl"), $false, $enc)
+            $w.NewLine = "`n"
+            $writers[$p] = $w
+        }
+        foreach ($raw in [System.IO.File]::ReadLines($Source)) {
+            $l = $raw -replace "`r$", ''
+            $writers[(Get-PartName -Line $l)].WriteLine($l)
+        }
+    } finally {
+        foreach ($w in $writers.Values) { $w.Dispose() }
+    }
+}
+
+# The row total across every part in the working tree.
+function Get-PartsRowCount {
+    $n = 0
+    foreach ($p in $parts) { $n += Get-RowCount -Path (Join-Path $repoRoot "$partsDir/$p.jsonl") }
+    return $n
+}
+
+# Stage every part, and the single file's removal when the index still
+# carries it: the cut-over. Returns $true when it staged that removal, so the
+# commit names the path. The working copy of the single file goes either way:
+# a reassembled copy left for `bd bootstrap` would otherwise sit beside the
+# parts as a second, staler export.
+function Save-PartsToIndex {
+    & git add -- $partPaths
+    if ($LASTEXITCODE -ne 0) { Die 'git add failed.' }
+    $legacyStaged = $false
+    $tracked = @(& git ls-files -- $legacy)
+    if ($tracked.Count -gt 0) {
+        & git rm -q --cached -- $legacy
+        if ($LASTEXITCODE -ne 0) { Die 'git rm --cached failed.' }
+        $legacyStaged = $true
+    }
+    Remove-Item -LiteralPath (Join-Path $repoRoot $legacy) -Force -ErrorAction SilentlyContinue
+    return $legacyStaged
+}
+
+# A commit oid for $Ref, or '' when it names none. `~0` peels to a commit as
+# `^{commit}` does, and is spelled that way because $gitExe can be a git.cmd,
+# where cmd.exe reads `^` as its escape character and hands git `HEAD{commit}`.
+# The try/catch is load-bearing rather than defensive: $ErrorActionPreference
+# is 'Stop' here, and pwsh 7.4+ turns a native command's non-zero exit into a
+# terminating error, so asking about an unborn HEAD would abort the script.
+function Resolve-Commit {
+    param([string]$Ref)
+    try {
+        $probe = (& $gitExe rev-parse --verify --quiet "$Ref~0" 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $probe) { return ([string]$probe).Trim() }
+    } catch { }
+    return ''
 }
 
 # Write $Export's rows to $OutFile, but emit every row HEAD already carries in
@@ -511,10 +686,10 @@ function Get-MemoryFacts {
 # same derivation as scripts/git-hooks/lib/check-beads-boundary.sh and
 # scripts/assert-worker-worktree.ps1, with the same RF2_MAYOR_ROOT override.
 #
-# Only the COMMITTING arm is gated. -PrePull is a read-only question -
-# "would clearing .beads discard tracker state?" - that every worktree
-# legitimately asks before its own update, so it answers from worker
-# worktrees too.
+# Only the WRITING arms are gated. -PrePull and -Cat are read-only questions
+# that every worktree legitimately asks - "would clearing .beads discard
+# tracker state?" before its own update, "what did the tracker say at this
+# commit?" during a recovery - so they answer from worker worktrees too.
 # ---------------------------------------------------------------------------
 function Get-NormalizedPath {
     param([string]$Path)
@@ -524,7 +699,7 @@ function Get-NormalizedPath {
     return ($Path -replace '\\', '/').TrimEnd('/').ToLowerInvariant()
 }
 
-if (-not $PrePull -and -not $SelfTest) {
+if (-not $PrePull -and -not $SelfTest -and -not $Cat) {
     $gitRoot = (& git rev-parse --show-toplevel 2>$null)
     if ($LASTEXITCODE -ne 0 -or -not $gitRoot) {
         Die 'not inside a git checkout.'
@@ -615,23 +790,62 @@ if ($SelfTest) {
 
     function Get-ChildErr { return (Get-Content -LiteralPath $childErr -Raw -ErrorAction SilentlyContinue) }
     function Get-ChildOut { return (Get-Content -LiteralPath $childOut -Raw -ErrorAction SilentlyContinue) }
-    function Get-HeadTracker { return (& git -C $repo show 'HEAD:.beads/issues.jsonl') -join "`n" }
     function Get-HeadSha { return (& git -C $repo rev-parse HEAD).Trim() }
+
+    # The tracker export at $Ref (the working tree when $Ref is empty), read
+    # through the script's own -Cat - the route every recovery takes - into
+    # files of its own, so a case's captured stdout and stderr survive it.
+    # $null when -Cat refuses.
+    $catOut = Join-Path $box 'cat-out.txt'
+    $catErr = Join-Path $box 'cat-err.txt'
+    function Get-TrackerAt {
+        param([string]$Ref)
+        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                 (Join-Path $repo 'scripts/beads-checkpoint.ps1'), '-Cat')
+        if ($Ref) { $all += @('-Rev', $Ref) }
+        $p = Start-Process -FilePath $hostExe -ArgumentList $all -WorkingDirectory $repo `
+                           -NoNewWindow -Wait -PassThru `
+                           -RedirectStandardOutput $catOut -RedirectStandardError $catErr
+        if ($p.ExitCode -ne 0) { return $null }
+        return [System.IO.File]::ReadAllText($catOut).Replace("`r", '')
+    }
+    function Get-HeadTracker {
+        $t = Get-TrackerAt -Ref 'HEAD'
+        if ($null -eq $t) { return '' }
+        return $t.TrimEnd("`n")
+    }
+
+    # Seed HEAD's tracker as parts: the rows go through -Split, the same write
+    # step a checkpoint takes, and the commit names `.beads` as the hand
+    # commit -Split prints does.
+    $seedFile = Join-Path $box 'seed.jsonl'
+    function Set-HeadTracker {
+        param([string[]]$Rows, [string]$Subject)
+        Write-Rows -Path $seedFile -Rows $Rows
+        $code = Invoke-Child @('-Split', $seedFile)
+        if ($code -ne 0) { throw "seeding through -Split failed (exit $code): $(Get-ChildErr)" }
+        & git -C $repo commit -q -m $Subject -- .beads | Out-Null
+    }
+
+    # Rows in the working parts that are blank lines.
+    function Get-BlankRowCount {
+        $n = 0
+        foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $repo '.beads/tracker') -File)) {
+            foreach ($l in [System.IO.File]::ReadAllLines($f.FullName)) { if ($l -eq '') { $n++ } }
+        }
+        return $n
+    }
 
     # The memory `value` a given commit carries for a key, or '' when that commit
     # carries no such row. This is the emitted recovery lookup expressed without
     # jq, which Windows does not ship: the claim under test is that the printed
-    # REFERENCE still resolves, not that jq is installed. `${Ref}:` needs the
-    # braces - a bare `$Ref:` parses as a scope qualifier. The try/catch is
-    # load-bearing under $ErrorActionPreference = 'Stop': pwsh 7.4+ turns a
-    # native command's non-zero exit into a terminating error, and asking an
-    # unresolvable ref is a case these tests deliberately exercise.
+    # REFERENCE still resolves, not that jq is installed.
     function Get-MemoryValueAt {
         param([string]$Ref, [string]$Key)
         if (-not $Ref) { return '' }
-        try { $rows = @(& git -C $repo show "${Ref}:.beads/issues.jsonl" 2>$null) }
-        catch { return '' }
-        if ($LASTEXITCODE -ne 0) { return '' }
+        $text = Get-TrackerAt -Ref $Ref
+        if ($null -eq $text) { return '' }
+        $rows = @($text -split "`n")
         foreach ($r in $rows) {
             if ($r -match '"_type":"memory"' -and
                 $r -match ('"key":"' + [regex]::Escape($Key) + '"') -and
@@ -683,9 +897,15 @@ if ($SelfTest) {
         '{"_type":"memory","key":"m2","value":"two"}'
     )
 
+    # The first seed is the SINGLE-FILE layout older commits carry, so T1 grades
+    # the guard against it and T2's checkpoint is the cut-over.
     Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $headRowsFixture
-    & git -C $repo add -- 'scripts/beads-checkpoint.ps1' '.beads/issues.jsonl' | Out-Null
+    # The repository's own LF pin, so the sandbox's bytes are the field's.
+    Write-Rows -Path (Join-Path $repo '.gitattributes') `
+               -Rows @('.beads/tracker/** text eol=lf', '.beads/issues.jsonl text eol=lf')
+    & git -C $repo add -- 'scripts/beads-checkpoint.ps1' '.gitattributes' '.beads/issues.jsonl' | Out-Null
     & git -C $repo commit -q -m 'seed: tracker at HEAD' | Out-Null
+    $seedSha = Get-HeadSha
     Write-Rows -Path $dbPath -Rows $doltRowsFixture
 
     # T1 - THE CORE CASE. Equal counts, disjoint one-for-one substitution, one
@@ -745,6 +965,16 @@ if ($SelfTest) {
     Assert-True ($committed -match '"id":"rf2-c","status":"closed"') 'T2 the Dolt-side close SURVIVED'
     Assert-True ($committed -match '"key":"m1"' -and $committed -match '"key":"m2"') `
                 'T2 and the memory rows rode along (--include-memories intact)'
+    # T2 is also THE CUT-OVER: the first checkpoint over a single-file HEAD
+    # commits the parts and the single file's removal together.
+    $headNames = @(& git -C $repo ls-tree -r --name-only HEAD -- .beads)
+    $headParts = @($headNames | Where-Object { $_ -like '.beads/tracker/*' })
+    Assert-True ($headParts.Count -eq 17 -and -not ($headNames -contains '.beads/issues.jsonl')) `
+                'T2 the cut-over commits 17 parts and removes the single file' ($headNames -join ', ')
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $repo '.beads/issues.jsonl'))) `
+                'T2 and the single file leaves the working tree too'
+    Assert-True (((& git -C $repo show 'HEAD:.beads/tracker/memories.jsonl') -join "`n") -match '"key":"m1"') `
+                'T2 and the memory rows are in memories.jsonl'
 
     # T3 - THE FALSE-POSITIVE CASE, which matters more than the rest. Ordinary
     # forward motion - Dolt closes a bead and gains a new one, Git is simply
@@ -778,13 +1008,13 @@ if ($SelfTest) {
 
     # T5 - the read-only arm still answers, under the same StrictMode. The
     # working tracker matches HEAD here, so the answer is a silent yes.
-    & git -C $repo checkout -q HEAD -- .beads/issues.jsonl
+    & git -C $repo checkout -q HEAD -- .beads
     $code = Invoke-Child @('-PrePull')
     Assert-True ($code -eq 0) 'T5 -PrePull is silent on a checkpointed tracker' "exit $code : $(Get-ChildErr)"
 
     # T6 - and it warns when the working export IS ahead of HEAD, which is the
     # other half of this file's job.
-    Add-Content -LiteralPath (Join-Path $repo '.beads/issues.jsonl') `
+    Add-Content -LiteralPath (Join-Path $repo '.beads/tracker/issues-0.jsonl') `
                 -Value '{"_type":"issue","id":"rf2-z","status":"open","updated_at":"2026-08-04T00:00:00Z"}'
     $code = Invoke-Child @('-PrePull')
     Assert-True ($code -ne 0) 'T6 -PrePull warns when clearing .beads would discard state'
@@ -820,9 +1050,7 @@ if ($SelfTest) {
         $n = $i.ToString('00')
         $memHead += '{"_type":"memory","key":"mem-key-' + $n + '","value":"body ' + $i + '"}'
     }
-    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
-    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
-    & git -C $repo commit -q -m 'seed: 20 issues and 10 memories' | Out-Null
+    Set-HeadTracker -Rows $memHead -Subject 'seed: 20 issues and 10 memories'
 
     # The same database one retention cull later: two memories dropped, every
     # issue row untouched.
@@ -853,7 +1081,7 @@ if ($SelfTest) {
     # T7, second half: THE PRINTED RECOVERY COMMAND MUST ACTUALLY RECOVER.
     #
     # The checkpoint COMMITS the export a few lines after printing the warning.
-    # A recovery instruction reading `git show HEAD:.beads/issues.jsonl` would
+    # A recovery instruction reading the tracker at `HEAD` would
     # therefore name, by the time an operator pastes it, the commit that
     # removed the rows, so the lookup would exit 0 and print NOTHING - the worst
     # available failure shape for a recovery instruction, because success and
@@ -862,7 +1090,7 @@ if ($SelfTest) {
     # These assertions therefore run the emitted lookup AFTER the checkpoint has
     # committed, with the HEAD-form control beside them reproducing the defect in
     # the same repo in the same breath.
-    $recRefs = @([regex]::Matches($err, '(?m)^\s*git show (\S+?):') |
+    $recRefs = @([regex]::Matches($err, '(?m)^\s*sh scripts/beads-checkpoint\.sh --cat (\S+)') |
                  ForEach-Object { $_.Groups[1].Value })
     $recRef = if ($recRefs.Count -gt 0) { $recRefs[0] } else { '' }
     Assert-True ($recRefs.Count -eq 1) `
@@ -910,7 +1138,7 @@ if ($SelfTest) {
     #
     # THE SHIM REACHES BOTH READS ONLY BECAUSE THE SCRIPT RESOLVES git ONCE.
     # `& git` is PowerShell's resolution and finds a .cmd; Process.Start's PATH
-    # search appends only .exe and would not. Write-HeadCopy therefore launches
+    # search appends only .exe and would not. Write-TrackerAt therefore launches
     # the resolved $gitExe, exactly as the bd call does and for the same
     # documented reason - which is also what stops the two reads resolving to
     # two different binaries in the field.
@@ -939,6 +1167,7 @@ if ($SelfTest) {
     New-Item -ItemType Directory -Force -Path $seamBin | Out-Null
     $armFile = Join-Path $box 'seam-armed'
     $raceLedger = Join-Path $box 'race-concurrent.jsonl'
+    $raceParts = Join-Path $box 'race-parts'
     # CRLF, and written whole: cmd.exe mis-parses a parenthesised block in an
     # LF-only batch file, and this shim is nothing but such a block.
     $seamLines = @(
@@ -947,13 +1176,14 @@ if ($SelfTest) {
         'set "RF2ARGS=%*"',
         'set "RF2FIRE="',
         'echo(!RF2ARGS!| findstr /C:"rev-parse --verify" >nul 2>&1 && set "RF2FIRE=1"',
-        'echo(!RF2ARGS!| findstr /C:":.beads/issues.jsonl" >nul 2>&1 && set "RF2FIRE=1"',
+        'echo(!RF2ARGS!| findstr /C:"ls-tree" >nul 2>&1 && set "RF2FIRE=1"',
+        'echo(!RF2ARGS!| findstr /C:":.beads/" >nul 2>&1 && set "RF2FIRE=1"',
         ('if defined RF2FIRE if exist "' + $armFile + '" ('),
         ('  "' + $realGit + '" %*'),
         '  set RF2ST=!ERRORLEVEL!',
         ('  del "' + $armFile + '" >nul 2>&1'),
-        ('  copy /y "' + $raceLedger + '" "' + (Join-Path $repo '.beads\issues.jsonl') + '" >nul 2>&1'),
-        ('  "' + $realGit + '" -C "' + $repo + '" add -- .beads/issues.jsonl >nul 2>&1'),
+        ('  copy /y "' + (Join-Path $raceParts '*.jsonl') + '" "' + (Join-Path $repo '.beads\tracker') + '" >nul 2>&1'),
+        ('  "' + $realGit + '" -C "' + $repo + '" add -- .beads/tracker >nul 2>&1'),
         ('  "' + $realGit + '" -C "' + $repo + '" commit -q -m "a concurrent checkpoint lands between the two reads" >nul 2>&1'),
         '  exit /b !RF2ST!',
         ')',
@@ -965,13 +1195,17 @@ if ($SelfTest) {
                                    (New-Object System.Text.UTF8Encoding $false))
 
     # A: the baseline this checkpoint will compare against and must name.
-    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
-    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
-    & git -C $repo commit -q -m 'seed: 20 issues and 10 memories, ahead of the race' | Out-Null
+    Set-HeadTracker -Rows $memHead -Subject 'seed: 20 issues and 10 memories, ahead of the race'
     $raceA = Get-HeadSha
 
-    # B: what the racing process commits. E: what this checkpoint exports.
+    # B: what the racing process commits, as parts the shim copies in. They are
+    # built by -Split and the tree is then put back to A. E: what this
+    # checkpoint exports.
     Write-Rows -Path $raceLedger -Rows $memCulled
+    if ((Invoke-Child @('-Split', $raceLedger)) -ne 0) { throw "building the racer's parts failed: $(Get-ChildErr)" }
+    New-Item -ItemType Directory -Force -Path $raceParts | Out-Null
+    Copy-Item -Path (Join-Path $repo '.beads/tracker/*') -Destination $raceParts -Force
+    & git -C $repo checkout -q HEAD -- .beads
     Write-Rows -Path $dbPath -Rows ($memCulled +
         @('{"_type":"memory","key":"mem-key-11","value":"a new lesson"}'))
 
@@ -1004,7 +1238,7 @@ if ($SelfTest) {
                  ($err -match 'mem-key-03') -and ($err -match 'mem-key-07')) `
                 'T7 a concurrent commit does not stop the warning naming the lost keys' $err
 
-    $raceRefs = @([regex]::Matches($err, '(?m)^\s*git show (\S+?):') |
+    $raceRefs = @([regex]::Matches($err, '(?m)^\s*sh scripts/beads-checkpoint\.sh --cat (\S+)') |
                   ForEach-Object { $_.Groups[1].Value })
     $raceRef = if ($raceRefs.Count -gt 0) { $raceRefs[0] } else { '' }
     Assert-True ($raceRef -eq $raceA) `
@@ -1016,8 +1250,8 @@ if ($SelfTest) {
     # bytes from one snapshot described under another's name IS the drift.
     if ($raceRef) {
         $refRows = @()
-        try { $refRows = @(& git -C $repo show "${raceRef}:.beads/issues.jsonl" 2>$null) }
-        catch { $refRows = @() }
+        $refText = Get-TrackerAt -Ref $raceRef
+        if ($null -ne $refText) { $refRows = @($refText.TrimEnd("`n") -split "`n") }
         $refIss = @($refRows | Where-Object { $_ -match '"_type":"issue"' }).Count
         $refMem = @($refRows | Where-Object { $_ -match '"_type":"memory"' }).Count
         $want = "HEAD    $($refRows.Count) rows = $refIss issues + $refMem memories"
@@ -1037,9 +1271,7 @@ if ($SelfTest) {
 
     # Put HEAD's tracker back exactly as it stood before this arm, so T8 and
     # T9 see the same inputs with or without it.
-    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $raceHeadBefore
-    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
-    & git -C $repo commit -q -m 'restore: the tracker as it stood before the race arm' | Out-Null
+    Set-HeadTracker -Rows $raceHeadBefore -Subject 'restore: the tracker as it stood before the race arm'
 
     # T8 - a row of an unknown `_type` is reported, AND IT IS NOT REPORTED AS A
     # DELETION. This is the "two populations sum to the row count" check. It
@@ -1071,14 +1303,12 @@ if ($SelfTest) {
     # T8b - A TRAILING BLANK LINE. The unclassifiable row that fires in practice
     # is a TRAILING BLANK LINE, not a row of an invented `_type`. Same arm, same
     # verdict.
-    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
-    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
-    & git -C $repo commit -q -m 'seed: back to 20 issues and 10 memories' | Out-Null
+    Set-HeadTracker -Rows $memHead -Subject 'seed: back to 20 issues and 10 memories'
     Write-Rows -Path $dbPath -Rows ($memHead + @(''))
     $before = Get-HeadSha
     $code = Invoke-Child @()
     $err  = Get-ChildErr
-    $trackerText = [System.IO.File]::ReadAllText((Join-Path $repo '.beads/issues.jsonl')).Replace("`r", '')
+    $blankRows = Get-BlankRowCount
     Assert-True ($code -eq 0) 'T8b a trailing blank line does not refuse the checkpoint' "exit $code"
     Assert-True ((Get-HeadSha) -ne $before) 'T8b and it still commits'
     Assert-True (-not ($err -match 'MEMORY RECONCILIATION FAILED')) `
@@ -1090,8 +1320,8 @@ if ($SelfTest) {
     Assert-True (($err -match 'export  31 rows = 20 issues \+ 10 memories') -and
                  ($err -match 'HEAD    30 rows = 20 issues \+ 10 memories')) `
                 'T8b and the two memory counts are EQUAL, which is why it is not a loss' $err
-    Assert-True ($trackerText.EndsWith("`n`n")) `
-                'T8b the blank line does ride into this commit, exactly as the note says'
+    Assert-True ($blankRows -eq 1) `
+                'T8b the blank line does ride into this commit, exactly as the note says' "blank rows: $blankRows"
 
     # T8c - the note's other claim, graded rather than asserted: the NEXT
     # checkpoint drops it. HEAD now carries the blank line and the fresh export
@@ -1104,11 +1334,11 @@ if ($SelfTest) {
     $before = Get-HeadSha
     $code = Invoke-Child @()
     $err  = Get-ChildErr
-    $trackerText = [System.IO.File]::ReadAllText((Join-Path $repo '.beads/issues.jsonl')).Replace("`r", '')
+    $blankRows = Get-BlankRowCount
     Assert-True ($code -eq 0) 'T8c the follow-up checkpoint runs clean' "exit $code"
     Assert-True ((Get-HeadSha) -ne $before) 'T8c and it commits'
-    Assert-True (-not $trackerText.EndsWith("`n`n")) `
-                'T8c and the blank line is GONE - benign and self-healing, as the note promises'
+    Assert-True ($blankRows -eq 0) `
+                'T8c and the blank line is GONE - benign and self-healing, as the note promises' "blank rows: $blankRows"
     Assert-True (-not ($err -match 'MEMORY RECONCILIATION FAILED')) `
                 'T8c and a blank line sitting at HEAD is not a deletion either' $err
 
@@ -1120,9 +1350,7 @@ if ($SelfTest) {
     # row, so HEAD would carry it into this case and the guard would truthfully
     # report it - a red that looks like a false positive and is not one. A
     # no-false-positive case has to start from a clean baseline.
-    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
-    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
-    & git -C $repo commit -q -m 'seed: back to 20 issues and 10 memories' | Out-Null
+    Set-HeadTracker -Rows $memHead -Subject 'seed: back to 20 issues and 10 memories'
 
     $forwardMem = @()
     for ($i = 1; $i -le 20; $i++) {
@@ -1147,6 +1375,41 @@ if ($SelfTest) {
     Assert-True ((Get-HeadTracker) -match '"key":"mem-key-11"') `
                 'T9 and the new memory reached the commit'
 
+    # T10 - THE ROUTE IS PINNED, ID BY ID. The .sh sibling's write_parts must
+    # put every row where Get-PartName does, or alternating runs would move
+    # rows between parts on every checkpoint. Neither test can run the other
+    # script, so both pin this one table, computed independently of either.
+    $route = [ordered]@{
+        'rf2-a' = 'issues-2'; 'rf2-tipmv' = 'issues-1'; 'rf2-k97c.3' = 'issues-6';
+        'rf2-uelji' = 'issues-8'; 'rf2-zzzzz.12' = 'issues-4'
+    }
+    $routeOk = $true
+    foreach ($k in $route.Keys) {
+        $got = Get-PartName -Line ('{"_type":"issue","id":"' + $k + '","comments":[{"id":"zz"}]}')
+        if ($got -ne $route[$k]) { $routeOk = $false; Write-Output "        $k -> $got, want $($route[$k])" }
+    }
+    Assert-True $routeOk 'T10 every pinned id routes to its pinned part, by its FIRST id'
+    Assert-True ((Get-PartName -Line '') -eq 'issues-0') 'T10 a row with no id routes as the empty id does'
+    Assert-True ((Get-PartName -Line '{"_type":"memory","key":"rf2-a","value":"v"}') -eq 'memories') `
+                'T10 a memory row goes to memories.jsonl'
+
+    # T11 - -Cat READS EITHER LAYOUT. The seed commit predates the cut-over and
+    # carries the single file; -Cat at it is that file's rows. A commit with
+    # no tracker at all is a refusal, not an empty success.
+    $seedText = Get-TrackerAt -Ref $seedSha
+    Assert-True ($null -ne $seedText -and $seedText.TrimEnd("`n") -eq ($headRowsFixture -join "`n")) `
+                'T11 -Cat at a pre-split commit reads the single file'
+    $noTracker = ''
+    try {
+        & git -C $repo checkout -q --orphan rf2-no-tracker | Out-Null
+        & git -C $repo rm -rq --cached . | Out-Null
+        & git -C $repo commit -q --allow-empty -m 'a commit with no tracker' | Out-Null
+        $noTracker = Get-HeadSha
+        & git -C $repo checkout -q -f main | Out-Null
+    } catch { }
+    Assert-True ($noTracker -ne '' -and $noTracker -ne $seedSha) 'T11 an orphan commit with no tracker was built' "got '$noTracker'"
+    Assert-True ($null -eq (Get-TrackerAt -Ref $noTracker)) 'T11 -Cat at a commit carrying no tracker refuses'
+
     Remove-Item -LiteralPath $box -Recurse -Force -ErrorAction SilentlyContinue
     if ($script:failures -gt 0) {
         Write-Output ''
@@ -1164,16 +1427,60 @@ $tmpHead   = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
                                        "rf2-bdchk-head-$PID.jsonl")
 $tmpOrdered = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
                                         "rf2-bdchk-ordered-$PID.jsonl")
+$tmpWork   = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
+                                       "rf2-bdchk-work-$PID.jsonl")
 
 try {
+    # -----------------------------------------------------------------------
+    # -Cat: the tracker export at a commit, or in the working tree, as raw
+    # bytes on stdout - never through PowerShell's own output, which would
+    # re-encode other people's words in the console codepage.
+    # -----------------------------------------------------------------------
+    if ($Cat) {
+        if ($Rev) {
+            $catOid = Resolve-Commit -Ref $Rev
+            if (-not $catOid) { Die "'$Rev' does not name a commit." }
+            $catCode = Write-TrackerAt -Path $tmpWork -Oid $catOid
+            if ($catCode -eq 2) { Die "$Rev carries no tracker export (neither $partsDir/ nor $legacy)." }
+            if ($catCode -ne 0) { Die "a tracker part at $Rev could not be read." }
+        } elseif (-not (Write-TrackerInWorktree -Path $tmpWork)) {
+            Die "the working tree holds no tracker export (neither $partsDir/ nor $legacy)."
+        }
+        $stdout = [Console]::OpenStandardOutput()
+        $in = [System.IO.File]::OpenRead($tmpWork)
+        try { $in.CopyTo($stdout); $stdout.Flush() } finally { $in.Dispose() }
+        exit 0
+    }
+
+    # -----------------------------------------------------------------------
+    # -Split: write a given export into the parts and stage them.
+    # -----------------------------------------------------------------------
+    if ($Split) {
+        if (-not (Test-Path -LiteralPath $Split -PathType Leaf)) { Die "no such file: $Split" }
+        $splitRows = Get-RowCount -Path $Split
+        if ($splitRows -le 0) { Die "$Split has no rows; refusing to write an empty tracker." }
+        Write-Parts -Source $Split
+        $partRows = Get-PartsRowCount
+        if ($partRows -ne $splitRows) {
+            Die ("the parts hold $partRows rows for a $splitRows-row file; nothing was staged. " +
+                 '`git checkout HEAD -- .beads` restores them.')
+        }
+        $null = Save-PartsToIndex
+        Write-Output "beads-checkpoint: wrote $splitRows rows into $partsDir/ and staged them. Commit with:"
+        Write-Output '    git commit -m "chore(beads): ..." -- .beads'
+        exit 0
+    }
+
     # -----------------------------------------------------------------------
     # -PrePull: would clearing .beads throw tracker state away?
     # -----------------------------------------------------------------------
     if ($PrePull) {
-        if (-not (Test-Path -LiteralPath $tracker)) { exit 0 }
-        Write-HeadCopy -Path $tmpHead
-        if (Test-SameContent -A $tracker -B $tmpHead) { exit 0 }
-        $workRows = Get-RowCount -Path $tracker
+        if (-not (Write-TrackerInWorktree -Path $tmpWork)) { exit 0 }
+        $preOid = Resolve-Commit -Ref 'HEAD'
+        [System.IO.File]::WriteAllText($tmpHead, '', (New-Object System.Text.UTF8Encoding $false))
+        if ($preOid) { $null = Write-TrackerAt -Path $tmpHead -Oid $preOid }
+        if (Test-SameContent -A $tmpWork -B $tmpHead) { exit 0 }
+        $workRows = Get-RowCount -Path $tmpWork
         $headRows = Get-RowCount -Path $tmpHead
         # The third step below is deliberately NOT the `&&` form the .sh sibling
         # prints. It is a pasteable PowerShell line, and `&&` is a
@@ -1188,7 +1495,7 @@ try {
         $lines = @(
             '',
             '[re-frame2] the working tracker export is AHEAD of HEAD.',
-            "  working $workRows rows, HEAD $headRows rows, in $tracker",
+            "  working $workRows rows, HEAD $headRows rows, in the tracker export",
             '',
             '  `git checkout HEAD -- .beads` here would revert it, and the next',
             '  checkpoint would write that revert back over the database, which',
@@ -1222,7 +1529,7 @@ try {
     # memories.
     $code = Invoke-RawToFile -Exe $bdCmd.Source -Arguments @('export', '--include-memories') -OutFile $tmpExport
     if ($code -ne 0) {
-        Die "bd export failed (exit $code); leaving $tracker untouched."
+        Die "bd export failed (exit $code); leaving the tracker export untouched."
     }
 
     # THE BASELINE SNAPSHOT. Resolved ONCE, and resolved FIRST - every read of
@@ -1240,31 +1547,30 @@ try {
     # this exact tree after the checkpoint commits and after every later one.
     #
     # WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN. Capturing the oid
-    # immediately AFTER Write-HeadCopy would rest on the reasoning that adjacent
-    # statements cannot drift. They can: those would be two separate reads of a
-    # moving branch, and this is the mayor's SHARED checkout, where a second
-    # checkpoint or an ordinary commit can land in the gap. When one does, the
-    # guard compares commit A's bytes and prints commit B's oid - and B never
-    # contained the values the message tells the operator to recover. Resolving
-    # the oid first while leaving Write-HeadCopy to resolve `HEAD` for itself
-    # would REVERSE that race, not close it; both reads have to come from this
-    # one oid.
+    # immediately AFTER reading the tracker would rest on the reasoning that
+    # adjacent statements cannot drift. They can: those would be separate
+    # reads of a moving branch, and this is the mayor's SHARED checkout, where
+    # a second checkpoint or an ordinary commit can land in the gap. When one
+    # does, the guard compares commit A's bytes and prints commit B's oid - and
+    # B never contained the values the message tells the operator to recover.
+    # Resolving the oid first while letting the reads resolve `HEAD` for
+    # themselves would REVERSE that race, not close it; every read has to come
+    # from this one oid, which is why Write-TrackerAt takes an oid and nothing
+    # else.
     #
     # Empty on an unborn branch (a first-ever checkpoint), where there is no
-    # baseline to recover from and the recovery paragraph is skipped; the copy
-    # then falls back to `HEAD`, which fails the same way and yields the same
-    # empty comparison file. --quiet keeps git silent there, and the try/catch
-    # is load-bearing rather than defensive: $ErrorActionPreference is 'Stop'
-    # here, and pwsh 7.4+ turns a native command's non-zero exit into a
-    # terminating error, so the unborn-branch case would abort the checkpoint.
-    $baselineCommit = ''
-    try {
-        $probe = (& $gitExe rev-parse --verify --quiet HEAD 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $probe) { $baselineCommit = ([string]$probe).Trim() }
-    } catch { $baselineCommit = '' }
+    # baseline to compare against or recover from: the comparison file stays
+    # empty and the recovery paragraph is skipped.
+    $baselineCommit = Resolve-Commit -Ref 'HEAD'
 
-    $baselineRef = if ($baselineCommit) { $baselineCommit } else { 'HEAD' }
-    Write-HeadCopy -Path $tmpHead -Ref $baselineRef
+    [System.IO.File]::WriteAllText($tmpHead, '', (New-Object System.Text.UTF8Encoding $false))
+    if ($baselineCommit) {
+        $headCode = Write-TrackerAt -Path $tmpHead -Oid $baselineCommit
+        if ($headCode -eq 1) {
+            Die ("a tracker part at HEAD ($baselineCommit) could not be read; refusing to " +
+                 'checkpoint against a partial baseline.')
+        }
+    }
 
     $exportRows = Get-RowCount -Path $tmpExport
     $headRows   = Get-RowCount -Path $tmpHead
@@ -1272,13 +1578,19 @@ try {
     # TRUNCATION GUARD. An empty export, or one that loses a tenth of the
     # tracker, is a bug, not a checkpoint.
     if ($exportRows -le 0) {
-        Die "bd export produced 0 rows; refusing to checkpoint. $tracker is untouched."
+        Die 'bd export produced 0 rows; refusing to checkpoint. The tracker export is untouched.'
     }
     if ($headRows -gt 0 -and ($exportRows * 10) -lt ($headRows * 9)) {
         Die ("export has $exportRows rows, HEAD has $headRows - more than a tenth of the " +
-             "tracker would disappear. Refusing to checkpoint; $tracker is untouched. " +
+             'tracker would disappear. Refusing to checkpoint; the tracker export is untouched. ' +
              'Inspect with `bd status`, then commit by hand if the shrink is genuine.')
     }
+
+    # The hand commit every refusal below describes: the export taken as it
+    # is, written into the parts by -Split, committed by the operator. `-o`
+    # rather than a redirect: `>` in Windows PowerShell 5.x re-encodes a native
+    # command's output as UTF-16.
+    $handExport = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'rf2-beads-export.jsonl')
 
     # DIVERGENCE GUARD. The floor above answers "is the export big
     # enough?". It cannot answer "does the export still contain what HEAD
@@ -1299,7 +1611,7 @@ try {
         foreach ($r in $facts.Report) { $lines.Add($r) }
         $lines.Add('')
         $lines.Add('  Committing this export would lose exactly those facts, so it was NOT committed.')
-        $lines.Add("  $tracker is UNTOUCHED.")
+        $lines.Add('  The tracker export is UNTOUCHED.')
         $lines.Add('')
         if ($facts.RemedyRows.Count -gt 0) {
             $remedyPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
@@ -1325,8 +1637,9 @@ try {
         $lines.Add('  If the loss is DELIBERATE (a `bd delete`, a `bd gc`, an AMBIG row you have')
         $lines.Add('  adjudicated), take the export by hand and commit it yourself:')
         $lines.Add('')
-        $lines.Add("      bd export --include-memories > $tracker")
-        $lines.Add("      git add -- $tracker; git commit -m ""chore(beads): ...""")
+        $lines.Add("      bd export --include-memories -o $handExport")
+        $lines.Add("      powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -Split $handExport")
+        $lines.Add('      git commit -m "chore(beads): ..." -- .beads')
         $lines.Add('')
         [Console]::Error.WriteLine(($lines -join "`n"))
         exit 1
@@ -1380,7 +1693,7 @@ try {
             $lines.Add('  lost. The commit this export was compared against still carries every')
             $lines.Add('  one of them, and this is the lookup:')
             $lines.Add('')
-            $lines.Add("      git show ${baselineCommit}:$tracker |")
+            $lines.Add("      sh scripts/beads-checkpoint.sh --cat $baselineCommit |")
             $lines.Add('        jq -r --arg k "<key>" ''select(._type=="memory" and .key==$k)|.value''')
             $lines.Add('')
             $lines.Add('  THAT COMMIT IS SPELLED OUT RATHER THAN `HEAD` ON PURPOSE. This checkpoint')
@@ -1392,7 +1705,7 @@ try {
             $lines.Add('  Older checkpoints are NOT a general fallback - one made before a key was')
             $lines.Add('  created does not carry it. To find the commit where any single key changed:')
             $lines.Add('')
-            $lines.Add("      git log -S'""key"":""<key>""' -- $tracker")
+            $lines.Add("      git log -S'""key"":""<key>""' -- .beads")
         } else {
             $lines.Add('  lost - but this is a first-ever checkpoint with no commit behind it, so')
             $lines.Add('  there is no baseline to recover from. The database is the only copy.')
@@ -1419,15 +1732,12 @@ try {
         foreach ($r in $memFacts) { $lines.Add($r) }
         $lines.Add('')
         $lines.Add('  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The')
-        $lines.Add('  count above names the side that carries it - the tracker this checkpoint')
-        $lines.Add('  is about to commit, or HEAD''s copy of it (`git show HEAD:' + $tracker + '`)')
-        $lines.Add('  - and either check settles it in seconds:')
+        $lines.Add('  count above names the side that carries it - the parts this checkpoint is')
+        $lines.Add('  about to commit, or HEAD''s copy of them - and either check settles it')
+        $lines.Add('  in seconds, naming each offending row (a blank line prints as an empty one):')
         $lines.Add('')
-        $lines.Add('      grep -n -v ''^{'' ' + $tracker)
-        $lines.Add('      tail -c 3 ' + $tracker + ' | od -c')
-        $lines.Add('')
-        $lines.Add('  The first names the offending rows; the second shows a trailing blank line')
-        $lines.Add('  as a doubled newline at the end of the file.')
+        $lines.Add('      grep -n -v ''^{'' ' + $partsDir + '/*')
+        $lines.Add('      sh scripts/beads-checkpoint.sh --cat HEAD | grep -n -v ''^{''')
         $lines.Add('')
         $lines.Add('  A blank line is BENIGN and does not accumulate: Write-MinimalDiffOrder')
         $lines.Add('  takes its rows from the fresh export, so one that is absent there is not')
@@ -1438,39 +1748,60 @@ try {
     }
 
     # The export is trustworthy - it is now the working tracker. From here on
-    # the working file cannot be a stale revert, whatever it was a moment ago.
+    # the working parts cannot be a stale revert, whatever they were a moment
+    # ago.
     #
     # It is written in MINIMAL-DIFF order rather than raw export
     # order, so the staged ledger shows the rows that changed and nothing else.
     # The row-count check is the safety net: the rewrite must reproduce the
     # export's rows exactly, and if it ever does not, the raw export wins.
     # Losing a row to a cosmetic reordering would be a far worse bug than the
-    # churn it removes.
+    # churn it removes. The parts are counted again once written, for the same
+    # reason: a row the split lost would be a deletion, so it refuses rather
+    # than staging one.
     Write-MinimalDiffOrder -Export $tmpExport -HeadCopy $tmpHead -OutFile $tmpOrdered
     $orderedRows = Get-RowCount -Path $tmpOrdered
-    if ($orderedRows -eq $exportRows) {
-        Copy-Item -LiteralPath $tmpOrdered -Destination $tracker -Force
-    } else {
+    $splitSource = $tmpOrdered
+    if ($orderedRows -ne $exportRows) {
         [Console]::Error.WriteLine(
             "beads-checkpoint: minimal-diff rewrite produced $orderedRows rows for a " +
             "$exportRows-row export; committing the raw export instead (order churn, " +
             'but no lost rows).')
-        Copy-Item -LiteralPath $tmpExport -Destination $tracker -Force
+        $splitSource = $tmpExport
+    }
+    Write-Parts -Source $splitSource
+    $partRows = Get-PartsRowCount
+    if ($partRows -ne $exportRows) {
+        Die ("the parts hold $partRows rows for a $exportRows-row export; nothing was staged. " +
+             '`git checkout HEAD -- .beads` restores the parts as HEAD carries them.')
     }
 
-    if (Test-SameContent -A $tracker -B $tmpHead) {
+    $legacyStaged = Save-PartsToIndex
+    # A native exit of 1 means "differs" here, and pwsh 7.4+ can raise one as
+    # a terminating error, so the catch reads as "differs".
+    $unchanged = $false
+    try {
+        & git diff --cached --quiet -- $partsDir $legacy
+        $unchanged = ($LASTEXITCODE -eq 0)
+    } catch { $unchanged = $false }
+    if ($unchanged) {
         Write-Output "beads-checkpoint: nothing to checkpoint ($exportRows rows, unchanged)."
         exit 0
     }
 
-    # Explicit pathspec, both to `git add` and to `git commit`: anything else
-    # the operator had staged stays staged, and nothing else is swept in.
-    & git add -- $tracker
-    if ($LASTEXITCODE -ne 0) { Die 'git add failed.' }
-    & git commit -q -m $Message -- $tracker
+    # Explicit pathspec: anything else the operator had staged stays staged,
+    # and nothing else is swept in.
+    $commitPaths = @($partPaths)
+    if ($legacyStaged) { $commitPaths += $legacy }
+    & git commit -q -m $Message -- $commitPaths
     if ($LASTEXITCODE -ne 0) { Die 'git commit failed.' }
-    Write-Output "beads-checkpoint: committed $tracker ($exportRows rows, HEAD had $headRows)."
+    if ($legacyStaged) {
+        Write-Output ("beads-checkpoint: committed the tracker as $partsDir/ ($exportRows rows; " +
+                      "HEAD had $headRows in $legacy, now removed).")
+    } else {
+        Write-Output "beads-checkpoint: committed $partsDir/ ($exportRows rows, HEAD had $headRows)."
+    }
 }
 finally {
-    Remove-Item -LiteralPath $tmpExport, $tmpHead, $tmpOrdered -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tmpExport, $tmpHead, $tmpOrdered, $tmpWork -Force -ErrorAction SilentlyContinue
 }

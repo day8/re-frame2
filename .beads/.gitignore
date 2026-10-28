@@ -56,6 +56,12 @@ dolt-server.activity
 # Backup data (auto-exported JSONL, local-only)
 backup/
 
+# The single-file tracker export that older commits carry. The tracker is
+# committed as parts under tracker/ (scripts/beads-checkpoint.sh), so a copy
+# reassembled here for `bd bootstrap` or `bd import` is derived data, and
+# committing it beside the parts would track the database twice.
+issues.jsonl
+
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 
