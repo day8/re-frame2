@@ -14,7 +14,13 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 ## Install / configure (one-time)
 
-The MCP server is **not yet published to npm** — build it from a re-frame2 clone (`cd tools/re-frame2-pair-mcp && npm install && npm run build`; see [`docs/LOCAL_DEV.md` §MCP server from a clone](../docs/LOCAL_DEV.md#mcp-server-from-a-clone)), then point your Claude Code `mcpServers` entry at the compiled `out/server.js`:
+The MCP server is **not yet published to npm** — build it from a re-frame2 clone (`cd tools/re-frame2-pair-mcp && npm install && npm run build`; see [`docs/LOCAL_DEV.md` §MCP server from a clone](../docs/LOCAL_DEV.md#mcp-server-from-a-clone)), then register the compiled `out/server.js` with Claude Code, from the command line:
+
+```bash
+claude mcp add re-frame2-pair --scope local -e SHADOW_CLJS_BUILD_ID=app -- node <repo>/tools/re-frame2-pair-mcp/out/server.js
+```
+
+or by hand, as the `mcpServers` entry that command writes (merge it with any entries already in the file):
 
 ```json
 {
@@ -30,7 +36,9 @@ The MCP server is **not yet published to npm** — build it from a re-frame2 clo
 }
 ```
 
-**Launch flags** go in `args` after the script path. Three gates, each the operator's call and each needing a fresh session to change:
+**The scope decides the file.** `local` (the default) and `user` write `~/.claude.json` and stay private to you — `local` for this project, `user` for every project. `project` writes `.mcp.json` at the project root, which is committed and shared, so an absolute `<repo>` path, naming one machine's disk, belongs at `local` or `user` instead. The JSON form is what `.mcp.json` holds; for the private scopes let the command write it. Keep the server name straight after `add`: `-e` takes several `KEY=value` pairs and reads a name after it as one more. A registration reaches only sessions started after it ([`setup.md` §Registering the MCP server](setup.md#registering-the-mcp-server)).
+
+**Launch flags** go after the script path — on the command line after `--`, which hands everything after it to the server untouched (`… out/server.js --allow-writes`), or in `args`. To change them, `claude mcp remove re-frame2-pair --scope <scope>` and add the server again. Three gates, each the operator's call and each needing a fresh session to change:
 
 | Flag | Default | Effect |
 |---|---|---|
