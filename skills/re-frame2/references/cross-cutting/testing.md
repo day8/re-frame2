@@ -28,7 +28,7 @@ Everything you need — fixtures, helpers — lives under `re-frame.test-support
   (ts/make-reset-runtime-fixture {:adapter substrate/adapter}))
 ```
 
-`make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
+`make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed before the fixture was built. That baseline is the registration table at the moment the `use-fixtures` form is evaluated: required namespaces and top-level forms above it are in, while a top-level `reg-*` below it runs after the baseline and the first reset removes it, so keep a test namespace's top-level registrations above its `use-fixtures` form, or put them in `:init-fn`.
 
 A **JVM-only** (`.clj`) test drops the conditional and names the plain-atom substrate directly:
 
