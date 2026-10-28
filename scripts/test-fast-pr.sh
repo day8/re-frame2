@@ -239,8 +239,8 @@ fi
 # `$python` is expanded UNQUOTED at every call site so that `py -3` splits into
 # a command and its argument.  That spelling is also the shape
 # `check_fast_pr_gap.py` reads this spine's coverage from; see THE REST OF CI'S
-# ALWAYS-ON INVARIANT CHECKERS below.  `resolve_mkdocs` asks its own question
-# and keeps its own probe.
+# ALWAYS-ON INVARIANT CHECKERS below.  `resolve_mkdocs` asks this launcher
+# whether it runs `-m mkdocs` before falling back to its own list.
 # ---------------------------------------------------------------------------
 spine_python_probe='import importlib.util, sys
 if sys.version_info < (3, 10):
@@ -305,10 +305,15 @@ run() {
 # success without having examined anything.
 #
 # So resolve mkdocs the way it is actually installed — console script first,
-# then the module under each Python launcher.  `-m mkdocs --version` is the
-# probe rather than a bare import because it also proves the entry point runs.
-# It costs ~0.25s and is paid ONLY when the documentation tier runs, so a
-# code-only diff (the common case) pays nothing.
+# then the module under the spine's own `$python`, then under each bare
+# launcher name.  `$python` goes first because the probe above chose it for
+# carrying the requirements.txt packages, mkdocs among them, and it may be one
+# no bare name reaches: on a Windows host whose `python` is the Store alias and
+# whose `py` is a newer Python without those packages, it is a `python3.N`.
+# `-m mkdocs --version` is the probe rather than a bare import because it also
+# proves the entry point runs.  It costs ~0.25s a launcher and is paid ONLY
+# when the documentation tier runs, so a code-only diff (the common case) pays
+# nothing.
 #
 # The resolved command is invoked through `bash -c`, NOT `bash -lc`: a login
 # shell re-derives PATH from the profile, so probing here and running there
@@ -321,6 +326,11 @@ resolve_mkdocs() {
   fi
   if command -v mkdocs >/dev/null 2>&1; then
     mkdocs_cmd="mkdocs"
+    return 0
+  fi
+  # shellcheck disable=SC2086  # `py -3` must split into command + argument.
+  if [ -n "$python" ] && $python -m mkdocs --version >/dev/null 2>&1; then
+    mkdocs_cmd="$python -m mkdocs"
     return 0
   fi
   local launcher
@@ -1670,8 +1680,8 @@ if [ "$run_docs" = true ]; then
       bash -c "cd '$spine_root' && $mkdocs_cmd build --strict"
   else
     printf '    NOT CHECKED: mkdocs --strict build — mkdocs resolves neither as a\n'
-    printf '      console script nor as `python -m mkdocs` (tried: mkdocs, python,\n'
-    printf '      python3, py).  This is NOT a pass.  Left with NO local gate:\n'
+    printf '      console script nor as `python -m mkdocs` (tried: mkdocs, %s,\n' "$python"
+    printf '      python, python3, py).  This is NOT a pass.  Left with NO local gate:\n'
     printf '      mkdocs.yml (nav, exclude_docs, theme, markdown extensions),\n'
     printf '      mkdocs_hooks.py, requirements.txt, and link resolution in the\n'
     printf '      staged docs/spec + docs/migration copies the build creates.\n'
