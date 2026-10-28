@@ -45,8 +45,14 @@
 (defn- registry [frame-id]
   (:rf.runtime/elision (rf.machines.test-support/runtime-db frame-id)))
 
-(defn- sensitive-claims [frame-id]
-  (rf.elision/sensitive-declarations frame-id))
+(defn- sensitive-claims
+  "`frame-id`'s sensitive claims from machines and effects, the two this test
+  makes. A `reg-classification` applies to every frame that resolves it, so a
+  build that loads one elsewhere adds its paths to every frame here too."
+  [frame-id]
+  (into {}
+        (filter (fn [[_ owners]] (some #(#{:machine :effect} (:source %)) owners)))
+        (rf.elision/sensitive-declarations frame-id)))
 
 (deftest an-installed-machine-keeps-its-classification
   (rf/reg-machine :cls/singleton classified)
