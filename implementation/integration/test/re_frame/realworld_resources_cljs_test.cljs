@@ -274,6 +274,36 @@
                       (select-keys % [:username :token]))
                   args)]))))))
 
+;; Classification does not propagate from app-db to a sub's output, so each
+;; draft sub declares `:sensitive` over the password it returns
+;; (docs/core/how-to/build-a-form.md).
+(deftest password-draft-subs-redact-their-own-output
+  (let [pw "PW-RESOURCES-SENTINEL-6b3e9a"]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-password {:value pw}] {:frame f})
+      (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.register-form/edit-password {:value pw}] {:frame f})
+      (rf/dispatch-sync [:settings/load] {:frame f})
+      (rf/dispatch-sync [:settings/edit-password {:value pw}] {:frame f})
+      (with-trace-recorder! [traces]
+        (let [subs [:auth.login-form/draft :auth.register-form/draft :settings/draft]
+              live (mapv #(:password (rf/subscribe-once [%] {:frame f})) subs)
+              runs (fn [sub-id]
+                     (->> @traces
+                          (filter #(and (= :rf.sub/run (:operation %))
+                                        (= sub-id (get-in % [:tags :rf.sub/id]))))
+                          (map #(get-in % [:tags :rf.sub/value :password]))))]
+          (is (= [pw pw pw] live) "each sub hands its reader the live password")
+          (doseq [sub-id subs]
+            (is (= [true true]
+                   [(boolean (seq (runs sub-id)))
+                    (every? #{rf.privacy/redacted-sentinel} (runs sub-id))])
+                (str sub-id " emits a :rf.sub/run trace reading :rf/redacted at :password")))
+          (is (not-any? #(str/includes? (pr-str %) pw) @traces)
+              "no emitted trace carries the raw password"))))))
+
 (deftest favorite-populates-the-detail-and-invalidates-both-scopes
   (with-new-frame [f (app-frame!)]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})

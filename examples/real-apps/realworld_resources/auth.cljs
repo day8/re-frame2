@@ -784,8 +784,13 @@
          `restoring-session?` above is its one definition."}
   (fn [db _] (restoring-session? db)))
 
-(rf/reg-sub :auth.login-form/draft    (fn [db _] (get-in db [:auth :login-form :draft])))
-(rf/reg-sub :auth.register-form/draft (fn [db _] (get-in db [:auth :register-form :draft])))
+;; A sub's output is its own egress surface: classification does not
+;; propagate from app-db to a sub, so a sub that returns a secret declares
+;; `:sensitive` over it (docs/core/how-to/build-a-form.md).
+(rf/reg-sub :auth.login-form/draft    {:sensitive [[:password]]}
+  (fn [db _] (get-in db [:auth :login-form :draft])))
+(rf/reg-sub :auth.register-form/draft {:sensitive [[:password]]}
+  (fn [db _] (get-in db [:auth :register-form :draft])))
 
 ;; ============================================================================
 ;; VIEWS

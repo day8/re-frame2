@@ -751,10 +751,15 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
+;; A sub's output is its own egress surface: classification does not
+;; propagate from app-db to a sub, so a sub that returns a secret declares
+;; `:sensitive` over it (docs/core/how-to/build-a-form.md).
+
 (rf/reg-sub :auth/user
   (fn [db _] (get-in db [:auth :user])))
 
 (rf/reg-sub :auth/token
+  {:sensitive [[]]}
   (fn [db _] (get-in db [:auth :token])))
 
 (rf/reg-sub :auth/restoring-session?
@@ -794,9 +799,11 @@
     (or (= state :submitting) (= state :restoring))))
 
 (rf/reg-sub :auth.login-form/draft
+  {:sensitive [[:password]]}
   (fn [db _] (get-in db [:auth :login-form :draft])))
 
 (rf/reg-sub :auth.login-form/slice
+  {:sensitive [[:draft :password]]}
   (fn [db _] (get-in db [:auth :login-form])))
 
 (rf/reg-sub :auth.login-form/field-error
@@ -811,9 +818,11 @@
       (get-in form [:errors field]))))
 
 (rf/reg-sub :auth.register-form/draft
+  {:sensitive [[:password]]}
   (fn [db _] (get-in db [:auth :register-form :draft])))
 
 (rf/reg-sub :auth.register-form/slice
+  {:sensitive [[:draft :password]]}
   (fn [db _] (get-in db [:auth :register-form])))
 
 (rf/reg-sub :auth.register-form/field-error

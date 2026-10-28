@@ -774,8 +774,10 @@
 ;; to the view as a plain boolean — the machine-ness stays behind the curtain.
 
 (rf/reg-sub :settings/draft
-  {:doc "The settings-form draft, read out of the machine's :data."
-   :inputs [[:rf/machine :settings/form]]}
+  {:doc       "The settings-form draft, read out of the machine's :data."
+   :inputs    [[:rf/machine :settings/form]]
+   ;; The machine's own `:sensitive` covers its snapshot, not this output.
+   :sensitive [[:password]]}
   (fn sub-settings-draft [[snap] _]
     (get-in snap [:data :draft])))
 

@@ -246,7 +246,8 @@
       ;; ownership record with it.
       :else {:db (dissoc db :settings-save-owner)})))
 
-(rf/reg-sub :settings/draft (fn [db _] (get-in db [:settings-form :draft])))
+(rf/reg-sub :settings/draft {:sensitive [[:password]]}
+  (fn [db _] (get-in db [:settings-form :draft])))
 
 ;; ============================================================================
 ;; VIEW  (pure Form-1 render — never dispatches out of band)
