@@ -59,6 +59,20 @@
             (rf-error-id #(eval-source! source))
             (some? (rf.registrar/lookup :event :counter/dec))]))))
 
+(deftest chain-resolved-through-a-def-registers
+  (let [src (str "(def counter-chain [[:rf.interceptor/path [:counter]]])\n"
+                 "(def counter-path [:rf.interceptor/path [:counter]])\n"
+                 "(rf/reg-event-db :counter/inc {:interceptors counter-chain}\n"
+                 "  (fn [db _] (update db :value inc)))\n"
+                 "(rf/reg-event-db :counter/dec {:interceptors [counter-path]}\n"
+                 "  (fn [db _] (update db :value dec)))\n")
+        {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+    (is (= [[:rewrite :rewrite] nil true true]
+           [(mapv :action findings)
+            (rf-error-id #(eval-source! source))
+            (some? (rf.registrar/lookup :event :counter/inc))
+            (some? (rf.registrar/lookup :event :counter/dec))]))))
+
 (deftest old-preserved-inline-path-output-throws-path-removed
   (let [old (str "(rf/reg-event :counter/inc\n"
                  "  {:interceptors [(rf/path :counter)]}\n"

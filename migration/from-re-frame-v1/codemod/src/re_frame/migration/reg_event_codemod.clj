@@ -57,12 +57,17 @@
         Positional chains are wrapped into (or merged into) the ONE
         metadata-map `:interceptors` form; entry declaration order is
         preserved.
-      - Entries that are ALREADY v2 refs are preserved verbatim.
-      - Any OTHER inline interceptor (a custom value, a var, `(rf/debug)`, a
-        call whose registered id cannot be derived without author intent) makes
-        the WHOLE site an unresolved M-70 Type-B finding (`:flag
-        :interceptors`) and the source is left unchanged — a codemod must never
-        certify output the target rejects.
+      - Entries that are ALREADY v2 refs are preserved verbatim, and so is a
+        bare symbol that a top-level `def` of the same source binds to one (or,
+        as the whole chain, to a vector of them).
+      - Anything else makes the WHOLE site an unresolved M-70 Type-B finding
+        and the source is left unchanged — a codemod must never certify output
+        the target rejects. `:flag :interceptors` when the chain holds what v2
+        certainly rejects at namespace load (a non-reference literal, an inline
+        interceptor map, `(rf/debug)` or any other re-frame.core call);
+        `:flag :interceptors-unverified` when it holds a symbol or call whose
+        value only evaluation shows, so the site may already be valid v2
+        (`certainly-invalid?`).
 
   * reg-event (already renamed) — RESCANNED for invalid middle-slot survivors.
       A partially migrated tree (e.g. one produced by the pre-rf2-8odvg
@@ -134,6 +139,7 @@
      :action     :rewrite | :rename | :flag
      :flag       nil | :nil-capable | :complex | :ctx
                  | :interceptors                               ;; unresolved M-70 Type B
+                 | :interceptors-unverified                    ;; M-70 Type B it cannot see
                  | :binding                                    ;; bare `reg-event` not bindable
      :target     :reg-event | nil                              ;; suggested target form
      :note       \"human-readable explanation\"}"
@@ -545,6 +551,7 @@
   top-level form. Returns
     {:ns? bool           ;; did the source carry a top-level ns form?
      :rf-aliases #{\"a\"} ;; aliases the ns form resolves to re-frame.core
+     :rf-refers #{\"n\"}  ;; names a re-frame.core `:refer` vector lists
      :bare-path? bool}    ;; is bare `path` referred from re-frame.core?
   An ns form whose sexpr cannot be read yields `{:ns? true}` with nothing
   resolved — every path head then takes the conservative flag route."
@@ -556,6 +563,7 @@
             rf      (filter #(= standard-path-ns (:ns %)) entries)]
         {:ns?        true
          :rf-aliases (into #{} (keep :alias) rf)
+         :rf-refers  (into #{} (mapcat #(when (set? (:refers %)) (:refers %))) rf)
          :bare-path? (boolean (some #(let [r (:refers %)]
                                        (or (= :all r)
                                            (and (set? r) (contains? r "path"))))
@@ -697,21 +705,28 @@
       (and (= :list (z/tag z)) (form-binds? target (z/node z))) true
       :else (recur (z/up z)))))
 
+(defn- rf-core-qualifier?
+  "Does the namespace qualifier `q` of a call head denote re-frame.core under
+  `path-ctx` (per `path-head-context`)? Decision table in the section comment
+  above. A namespace-qualified symbol names a var, so no local binding can
+  shadow it."
+  [q {:keys [ns? rf-aliases]}]
+  (or (= q standard-path-ns)
+      (if ns?
+        (contains? rf-aliases q)
+        ;; fragment mode: a dotless qualifier is an unresolvable alias —
+        ;; keep the conventional reading; a dotted one is a concrete
+        ;; namespace and must BE re-frame.core (the branch above).
+        (not (str/includes? q ".")))))
+
 (defn- standard-path-head?
   "Does the call-head symbol `hv` — already known to carry the simple name
   `path` — actually denote the STANDARD `re-frame.core/path` constructor
   under `path-ctx` (per `path-head-context`, plus the call site's
   `:shadowed-bare-path?`)? Decision table in the section comment above."
-  [hv {:keys [ns? rf-aliases bare-path? shadowed-bare-path?]}]
+  [hv {:keys [ns? bare-path? shadowed-bare-path?] :as path-ctx}]
   (if-let [q (namespace hv)]
-    ;; A namespace-qualified symbol names a var: no local binding can shadow it.
-    (or (= q standard-path-ns)
-        (if ns?
-          (contains? rf-aliases q)
-          ;; fragment mode: a dotless qualifier is an unresolvable alias —
-          ;; keep the conventional reading; a dotted one is a concrete
-          ;; namespace and must BE re-frame.core (the branch above).
-          (not (str/includes? q "."))))
+    (rf-core-qualifier? q path-ctx)
     (and (not shadowed-bare-path?)
          (or (not ns?) (boolean bare-path?)))))
 
@@ -772,18 +787,127 @@
   [path-vec]
   (n/coerce [:rf.interceptor/path path-vec]))
 
+;; UNRESOLVED IS TWO VERDICTS. The codemod reads source text, so a chain it
+;; cannot certify is either one it can SEE is invalid — a literal that is not a
+;; reference, an inline interceptor map, a re-frame.core call (v1's interceptor
+;; constructors build values) — or one holding a symbol or other call whose
+;; value only evaluation shows. The first hard-fails v2 registration at
+;; namespace load (`:flag :interceptors`); the second may already be valid v2
+;; (a def or helper that yields references), so it is reported as such
+;; (`:flag :interceptors-unverified`) and checked by registering it. Both leave
+;; the source unchanged. A bare symbol that a top-level `def` of the same
+;; source binds to a reference literal is read through the def (`chain-defs`).
+
+(defn- rf-core-call?
+  "Is `node` a call of a re-frame.core function? In a chain every such call is
+  one of v1's interceptor constructors (`path`, `->interceptor`, `debug`,
+  `enrich`, ...), which build interceptor VALUES, never references. A
+  qualified head resolves per `rf-core-qualifier?`. A bare head counts only
+  when a re-frame.core `:refer` vector names it and no scope around the
+  registration rebinds it: `:refer :all` does not say which bare names are
+  re-frame.core's (a bare `into` is still clojure.core's)."
+  [node {:keys [ns? rf-refers site] :as path-ctx}]
+  (when (= :list (n/tag node))
+    (let [hd (first (sig-children node))
+          hv (when (and hd (= :token (n/tag hd)))
+               (try (n/sexpr hd) (catch Exception _ nil)))]
+      (when (symbol? hv)
+        (if-let [q (namespace hv)]
+          (rf-core-qualifier? q path-ctx)
+          (and ns?
+               (contains? rf-refers (name hv))
+               (not (and site (enclosing-scope-binds? hv site)))))))))
+
+(defn- literal-node?
+  "Does the source text alone fix `node`'s value: a token that is not a
+  symbol, or a collection literal of such tokens?"
+  [node]
+  (case (n/tag node)
+    :token              (let [v (try (n/sexpr node) (catch Exception _ ::unreadable))]
+                          (not (or (symbol? v) (= ::unreadable v))))
+    (:vector :map :set) (every? literal-node? (sig-children node))
+    false))
+
+(defn- certainly-invalid?
+  "Is `node` — a chain entry, a whole `:interceptors` value or a bare middle
+  slot that the reference checks did not accept — something v2 rejects
+  whatever the program binds? A literal's value is in the source and is not
+  what the position needs; a map, set or fn literal is never a reference or a
+  chain vector; a `path` or other re-frame.core call builds an interceptor
+  value. A symbol or any other call is not: only evaluation shows its value."
+  [node path-ctx]
+  (boolean
+    (or (#{:map :set :fn} (n/tag node))
+        (literal-node? node)
+        (path-call-info node path-ctx)
+        (rf-core-call? node path-ctx))))
+
+(defn- chain-defs
+  "symbol -> VALUE node for each top-level `(def NAME VALUE)` (a docstring and
+  name metadata allowed) that is the only top-level definition of NAME in the
+  source rooted at `zroot`: the defs `resolved-def` reads a chain through."
+  [zroot]
+  (let [sexpr   #(try (n/sexpr %) (catch Exception _ nil))
+        forms   (filter #(= :list (n/tag %)) (n/children (z/root zroot)))
+        defines (fn [form]
+                  (let [[hd nm] (sig-children form)
+                        hv      (some-> hd sexpr)
+                        sym     (some-> nm sexpr)]
+                    (when (and (symbol? hv) (str/starts-with? (name hv) "def") (symbol? sym))
+                      [(name hv) sym])))
+        counts  (frequencies (keep (comp second defines) forms))]
+    (into {}
+          (for [form  forms
+                :let  [[head sym] (defines form)]
+                :when (and (= "def" head) (= 1 (counts sym)))
+                :let  [more  (drop 2 (sig-children form))
+                       value (case (count more)
+                               1 (first more)
+                               2 (when (string? (sexpr (first more))) (second more))
+                               nil)]
+                :when value]
+            [sym value]))))
+
+(defn- chain-context
+  "The per-source context the chain analysis reads: `path-head-context` plus
+  the `chain-defs` a chain resolves through. `analyse-call` adds the call
+  site (`:site`)."
+  [zroot]
+  (assoc (path-head-context zroot) :defs (chain-defs zroot)))
+
+(defn- resolved-def
+  "The VALUE node that bare symbol `node` names through `chain-defs`, unless a
+  scope around the registration rebinds the name; nil otherwise."
+  [node {:keys [defs site]}]
+  (when (= :token (n/tag node))
+    (let [v (try (n/sexpr node) (catch Exception _ nil))]
+      (when (and (symbol? v) (nil? (namespace v)))
+        (when-let [value (get defs v)]
+          (when-not (and site (enclosing-scope-binds? v site))
+            value))))))
+
+(defn- unresolved
+  "The unresolved verdict on `offending`, `:unverified? true` unless the
+  caller found it `invalid?` (per `certainly-invalid?`)."
+  [offending invalid?]
+  (cond-> {:kind :unresolved :offending offending}
+    (not invalid?) (assoc :unverified? true)))
+
 (defn- convert-entry
   "Classify ONE chain-entry node:
-     {:kind :keep}                       — already a v2 ref; preserved verbatim
+     {:kind :keep}                       — already a v2 ref (directly, or through
+                                           a def); preserved verbatim
      {:kind :convert :node <ref-node>}   — standard path call, lowered
-     {:kind :unresolved :offending node} — no derivable stable id (M-70 Type B)"
+     {:kind :unresolved :offending node} — no derivable stable id (M-70 Type B);
+                                           per `unresolved`"
   [node path-ctx]
-  (if (ref-entry-node? node)
-    {:kind :keep}
-    (let [pc (path-call-info node path-ctx)]
-      (if (map? pc)
-        {:kind :convert :node (path-ref-node (:path-vec pc))}
-        {:kind :unresolved :offending node}))))
+  (let [d (resolved-def node path-ctx)]
+    (if (or (ref-entry-node? node) (and d (ref-entry-node? d)))
+      {:kind :keep}
+      (let [pc (path-call-info node path-ctx)]
+        (if (map? pc)
+          {:kind :convert :node (path-ref-node (:path-vec pc))}
+          (unresolved node (certainly-invalid? (or d node) path-ctx)))))))
 
 (defn- convert-chain-vector
   "Convert the entries of a chain VECTOR node (a positional middle slot, or a
@@ -791,27 +915,30 @@
   preserved; entry declaration order is preserved.
      {:kind :ok}                          — every entry already a v2 ref
      {:kind :convert :node <new-vector>}  — >=1 path call lowered
-     {:kind :unresolved :offending node}  — >=1 underivable entry"
+     {:kind :unresolved :offending node}  — >=1 underivable entry: the first
+                                            certainly-invalid one, else the
+                                            first unverifiable one"
   [vec-node path-ctx]
   (let [res (reduce
               (fn [acc kid]
                 (if (n/whitespace-or-comment? kid)
                   (update acc :kids conj kid)
-                  (let [{:keys [kind node offending]} (convert-entry kid path-ctx)]
+                  (let [{:keys [kind node] :as verdict} (convert-entry kid path-ctx)]
                     (case kind
                       :keep       (update acc :kids conj kid)
                       :convert    (-> acc
                                       (update :kids conj node)
                                       (assoc :changed? true))
-                      :unresolved (reduced
-                                    (assoc acc :offending (or offending kid)))))))
+                      :unresolved (if (:unverified? verdict)
+                                    (update acc :unresolved #(or % verdict))
+                                    (reduced (assoc acc :unresolved verdict)))))))
               {:kids [] :changed? false}
               (n/children vec-node))]
     (cond
-      (:offending res) {:kind :unresolved :offending (:offending res)}
-      (:changed? res)  {:kind :convert
-                        :node (n/replace-children vec-node (:kids res))}
-      :else            {:kind :ok})))
+      (:unresolved res) (:unresolved res)
+      (:changed? res)   {:kind :convert
+                         :node (n/replace-children vec-node (:kids res))}
+      :else             {:kind :ok})))
 
 (defn- meta-map-interceptors-value
   "The VALUE node of the `:interceptors` key inside a metadata MAP node, or nil
@@ -823,6 +950,19 @@
         v
         (recur (rest pairs))))))
 
+(defn- non-vector-chain-verdict
+  "The verdict on a NON-vector `:interceptors` value `v`: `{:kind :ok}` for a
+  symbol a def binds to a vector of references, else unresolved — certainly
+  invalid when `v`, or an entry of the vector its def gives it, is."
+  [v path-ctx]
+  (let [d (resolved-def v path-ctx)]
+    (if (and d (= :vector (n/tag d)))
+      (let [unaccepted (remove ref-entry-node? (sig-children d))]
+        (if (empty? unaccepted)
+          {:kind :ok}
+          (unresolved v (boolean (some #(certainly-invalid? % path-ctx) unaccepted)))))
+      (unresolved v (certainly-invalid? (or d v) path-ctx)))))
+
 (defn- analyse-meta-map
   "Analyse a metadata MAP node's `:interceptors` chain.
      {:kind :ok}   — no `:interceptors` key, or all entries already refs
@@ -831,8 +971,8 @@
   [map-node path-ctx]
   (if-let [v (meta-map-interceptors-value map-node)]
     (if (not= :vector (n/tag v))
-      ;; a non-vector `:interceptors` value cannot be certified (v2 rejects it)
-      {:kind :unresolved :offending v}
+      ;; v2 needs a vector; a symbol or call may evaluate to one
+      (non-vector-chain-verdict v path-ctx)
       (let [res (convert-chain-vector v path-ctx)]
         (if (= :convert (:kind res))
           {:kind :convert
@@ -925,7 +1065,7 @@
                :replace {m (wrap-chain-in-meta-node
                              (n/vector-node
                                [(path-ref-node (:path-vec pc))]))}}
-              {:kind :unresolved :offending m}))))
+              (unresolved m (certainly-invalid? m path-ctx))))))
     2 (let [[a b] middles]
         (if (and (= :map (n/tag a)) (= :vector (n/tag b)))
           (let [res (merge-vector-into-meta a b path-ctx)]
@@ -1087,26 +1227,43 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- interceptors-flag-finding
-  "The unresolved-M-70 (`:flag :interceptors`) finding for a site whose
-  interceptor chain carries an entry with no mechanically derivable v2
-  reference. The site is left unchanged: inline values and positional chains
-  are rejected by v2 `reg-event` at namespace load, so a head-only rewrite
-  would certify output the target rejects."
-  [base form-kw offending]
+  "The unresolved-M-70 finding for a site whose interceptor chain the codemod
+  cannot certify, from the `analyse-middle` verdict; the site is left
+  unchanged, since a rewrite would certify output the target may reject.
+  `:flag :interceptors` when the chain holds something v2 certainly rejects
+  at namespace load; `:flag :interceptors-unverified` when it holds a symbol
+  or call whose value only evaluation shows (see `certainly-invalid?`)."
+  [base form-kw {:keys [offending unverified?]}]
   (let [got (some-> offending n/string str/trim)]
-    (finding base
-             {:action :flag :flag :interceptors :target :reg-event
-              :note (str (name form-kw)
-                         " carries an interceptor chain entry with no mechanically"
-                         " derivable v2 reference"
-                         (when got (str ": `" got "`"))
-                         " — unresolved M-70 (Type B). v2 chains are"
-                         " reference-only: register the interceptor with"
-                         " reg-interceptor and reference it by id (a bare keyword,"
-                         " or [id arg] like [:rf.interceptor/path [:counter]]),"
-                         " then re-run the codemod. Left unrewritten — inline"
-                         " values / positional chains hard-fail v2 registration"
-                         " at namespace load.")})))
+    (if unverified?
+      (finding base
+               {:action :flag :flag :interceptors-unverified :target :reg-event
+                :note (str (name form-kw)
+                           " carries an interceptor chain the codemod cannot verify"
+                           (when got (str ": only evaluation shows the value of `" got "`"))
+                           ", so the site may already be valid v2 — unresolved M-70"
+                           " (Type B)."
+                           (if (= :reg-event form-kw)
+                             " Load the namespace (or run the boot smoke-test):"
+                             (str " Left unrewritten: apply the M-73 rewrite by hand,"
+                                  " then load the namespace:"))
+                           " v2 checks the evaluated chain at registration. References"
+                           " register clean; an inline interceptor value throws"
+                           " :rf.error/inline-interceptor-removed, so register it with"
+                           " reg-interceptor and reference it by id.")})
+      (finding base
+               {:action :flag :flag :interceptors :target :reg-event
+                :note (str (name form-kw)
+                           " carries an interceptor chain entry with no mechanically"
+                           " derivable v2 reference"
+                           (when got (str ": `" got "`"))
+                           " — unresolved M-70 (Type B). v2 chains are"
+                           " reference-only: register the interceptor with"
+                           " reg-interceptor and reference it by id (a bare keyword,"
+                           " or [id arg] like [:rf.interceptor/path [:counter]]),"
+                           " then re-run the codemod. Left unrewritten — inline"
+                           " values / positional chains hard-fail v2 registration"
+                           " at namespace load.")}))))
 
 (defn- bind-bare-rename
   "Settle the binding of an accepted rename of a BARE head at `zloc` (per
@@ -1152,7 +1309,7 @@
         ;; `path-ctx` is derived once per SOURCE (what the ns form makes
         ;; available); a bare `path` head also has to survive the lexical
         ;; scopes enclosing THIS site, which is a per-call-site fact.
-        path-ctx (cond-> path-ctx
+        path-ctx (cond-> (assoc path-ctx :site zloc)
                    (enclosing-scope-binds? 'path zloc)
                    (assoc :shadowed-bare-path? true))]
     (case form-kw
@@ -1164,7 +1321,7 @@
       :reg-event-fx
       (let [mid (analyse-middle middles path-ctx)]
         (case (:kind mid)
-          :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
+          :unresolved {:finding (interceptors-flag-finding base form-kw mid)
                        :kind :flag}
           :convert    {:finding (finding base {:action :rewrite :target :reg-event
                                                :note "reg-event-fx -> reg-event; v1 interceptor chain normalized to metadata :interceptors references (M-70 x M-73)"})
@@ -1180,7 +1337,7 @@
       :reg-event
       (let [mid (analyse-middle middles path-ctx)]
         (case (:kind mid)
-          :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
+          :unresolved {:finding (interceptors-flag-finding base form-kw mid)
                        :kind :flag}
           :convert    {:finding (finding base {:action :rewrite :target :reg-event
                                                :note "reg-event carries a v1 interceptor middle slot (partially migrated site); normalized to metadata :interceptors references (M-70)"})
@@ -1190,7 +1347,7 @@
       :reg-event-db
       (let [mid (analyse-middle middles path-ctx)]
         (if (= :unresolved (:kind mid))
-          {:finding (interceptors-flag-finding base form-kw (:offending mid))
+          {:finding (interceptors-flag-finding base form-kw mid)
            :kind :flag}
           (let [handler-node (last kids)
                 simple-fn    (simple-handler-fn? handler-node)
@@ -1625,7 +1782,7 @@
    (let [zroot (parse-source s (:file opts))]
      (:findings (walk zroot (assoc opts
                                    :rewrite? false
-                                   :path-ctx (path-head-context zroot)
+                                   :path-ctx (chain-context zroot)
                                    :binding-ctx (bare-binding-context zroot)))))))
 
 (defn rewrite-string
@@ -1640,7 +1797,7 @@
          {:keys [zip findings append-refer]}
          (walk zroot (assoc opts
                             :rewrite? true
-                            :path-ctx (path-head-context zroot)
+                            :path-ctx (chain-context zroot)
                             :binding-ctx (bare-binding-context zroot)))
          root   (z/root (or zip zroot))]
      {:source   (n/string (cond-> root
