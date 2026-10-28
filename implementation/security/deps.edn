@@ -18,6 +18,7 @@
                  day8/re-frame2-machines {:local/root "../machines"}
                  day8/re-frame2-routing  {:local/root "../routing"}
                  day8/re-frame2-flows    {:local/root "../flows"}
+                 day8/re-frame2-http     {:local/root "../http"}
                  day8/re-frame2-ssr      {:local/root "../ssr"}
                  ;; Default-suppress egress filter; test-only tool dependency.
                  day8/re-frame2-mcp-base {:local/root "../../tools/mcp-base"}
