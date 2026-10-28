@@ -21,14 +21,12 @@
 (def ^:private canonical-slots
   [{:slot     :include-sensitive
     :servers  #{:re-frame2-pair-mcp :story-mcp}
-    :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
+    :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/args.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"]
                ;; story-mcp's `:include-sensitive` parsing lives in
                ;; `args.cljc` (the cross-MCP `args/parse-boolean` reader)
                ;; and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
-               ;; No `sensitive.cljc` (that is the re-frame2-pair-mcp
-               ;; shape, which doesn't apply to story-mcp).
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/args.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}}
 
@@ -113,7 +111,7 @@
 ;; Server source only: the specs mention alternative spellings in prose.
 (deftest no-near-miss-variants-in-server-tool-sources
   (let [impl-sources-by-server
-        {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
+        {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/args.cljs"
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_knobs.cljs"
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/cap.cljs"

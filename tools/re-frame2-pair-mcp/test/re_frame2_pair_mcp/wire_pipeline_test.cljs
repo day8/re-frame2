@@ -25,7 +25,7 @@
 
 (deftest epoch-vector-counts-all-elided-markers-pre-dedup
   (let [elided (fn [epochs]
-                 (-> (wp/run-wire-pipeline epochs {:kind :epoch-vector :incl? false
+                 (-> (wp/run-wire-pipeline epochs {:kind :epoch-vector
                                                    :mode :diff :dedup? true})
                      :indicators :elided))]
     (is (= 3 (elided (vec (for [n (range 3)] (epoch-with-marker n (large-marker [:slot]))))))
@@ -46,7 +46,6 @@
 (defn- snapshot-count
   [snap overrides]
   (-> (wp/run-wire-pipeline snap (merge {:kind        :snapshot-map
-                                         :incl?       false
                                          :mode        :diff
                                          :dedup?      true
                                          :slice-mode  :summary

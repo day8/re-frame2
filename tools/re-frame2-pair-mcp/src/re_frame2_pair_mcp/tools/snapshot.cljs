@@ -103,13 +103,11 @@
         ;; VALUES with an explicit `:path`. Handing an epoch record to the
         ;; bare-value arm would be the leak, which is why
         ;; `epoch_egress/project-page-src` guards the `:kind` stamp before
-        ;; it calls the door. Without the projection the client-side sensitive
-        ;; scrub only DROPS whole epochs stamped `:rf.epoch/sensitive? true`;
-        ;; it never redacts a schema-declared-sensitive SLOT (e.g.
-        ;; `[:auth :token]`) sitting inside a NON-sensitive epoch's
-        ;; `:db-before` / `:db-after`, so a sensitive slot would leak
-        ;; off-box under the default `--allow-sensitive-reads` OFF posture
-        ;; whenever the slice expanded to `:full`. The `:epochs` slice
+        ;; it calls the door. The projection is the slice's only off-box
+        ;; gate: without it a declared-sensitive SLOT (e.g. `[:auth :token]`)
+        ;; inside an epoch's `:db-before` / `:db-after` would leak off-box
+        ;; under the default `--allow-sensitive-reads` OFF posture whenever
+        ;; the slice expanded to `:full`. The `:epochs` slice
         ;; ALWAYS projects — same posture trace-window / watch-epochs use.
         ;; `incl?` (the sensitive opt-in) does NOT bypass the projection:
         ;; it threads `{:rf.egress/include-sensitive? true}` INTO `project-egress`
@@ -263,13 +261,12 @@
                        {:keys [value indicators]}
                        (wp/run-wire-pipeline snap-value
                                              {:kind          :snapshot-map
-                                              :incl?         incl?
                                               :mode          mode
                                               :dedup?        dedup?
                                               :path          path
                                               :slice-mode    slice-mode
                                               :slice-modes   slice-modes})
-                       {:keys [dropped elided path-status
+                       {:keys [elided path-status
                                resolved-modes app-db-mode]} indicators
                        response-mode (cond
                                        path                  :path-sliced
@@ -309,4 +306,4 @@
                                                        "(e.g. frames [\":rf/xray\"])."))
                                      path              (assoc :path path)
                                      (seq path-status) (assoc :path-not-found path-status))
-                                   {:dropped dropped :elided elided}))))))))
+                                   {:elided elided}))))))))

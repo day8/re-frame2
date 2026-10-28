@@ -673,7 +673,7 @@ snapshot and get-path tools include the walker call in the
 EDN form they send over nREPL.
 
 **Where in the pipeline**. Elision runs FIRST. The downstream
-pipeline (`scrub-sensitive` → `slice-app-db-in-snapshot` →
+pipeline (`slice-app-db-in-snapshot` →
 `diff-encode-epochs` → `dedup-epochs` → wire-cap) operates on
 the post-elision payload. Cap measures post-elision bytes —
 a single declared-`:large?` slot can no longer blow the cap
@@ -773,7 +773,7 @@ invocation:
 **Why hash the result, not app-db directly**. The hash is
 taken one step downstream of app-db: by the time the result
 is built, it has been
-path-sliced, summarised, diff-encoded, deduped, scrubbed.
+path-sliced, summarised, diff-encoded, deduped.
 Two calls with the same args against the same upstream state
 produce the same serialised text — so hashing the text catches
 the same hit and is robust against every transform in the wire

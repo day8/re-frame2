@@ -96,7 +96,7 @@ src tree carries further concern ns — `source_uri`,
 | Cap (token-budget pipeline)   | `tools/cap.cljs`                  |
 | Dedup (structural)            | `re-frame.mcp-base.dedup` (required directly) |
 | Elision (size-bounded leaves) | `tools/elision.cljs`              |
-| Sensitive (privacy filter)    | `tools/sensitive.cljs`            |
+| Off-box projection (privacy)  | `tools/epoch_egress.cljs`         |
 | Cursor (pagination)           | `tools/cursor.cljs`               |
 | Args (coercion + parsing)     | `tools/args.cljs`                 |
 | Summary (lazy tree-summary)   | `tools/summary.cljs`              |

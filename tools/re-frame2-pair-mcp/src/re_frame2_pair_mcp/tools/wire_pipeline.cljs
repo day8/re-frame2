@@ -19,8 +19,7 @@
 
   The full pipeline runs in this order:
 
-      sensitive-strip
-        → path-slice          (snapshot only — :app-db sliced before summary)
+      path-slice              (snapshot only — :app-db sliced before summary)
         → diff-encode         (epoch records)
         → dedup               (structural sharing across the wire)
         → summary             (lazy-summary for non-app-db rich slices)
@@ -31,6 +30,15 @@
                                every :source-coord map; runs after
                                shrink so no URI build is wasted on
                                summary-replaced subtrees)
+
+  ## Sensitive records ship
+
+  Every epoch record and trace bundle reaches this pipeline already
+  projected app-side through `re-frame.core/project-egress`
+  (`re-frame2-pair-mcp.tools.epoch-egress`), so no step here withholds a
+  record: `:rf.epoch/sensitive?` and a trace event's `:sensitive?` stamp
+  ride on what ships as labels that the record contained classified
+  material. Contract: Spec 009 §Privacy / sensitive data in traces.
 
   ## Indicator counting
 
@@ -60,8 +68,8 @@
   - `:snapshot-map`  — per-frame snapshot map (`snapshot-tool`).
                        Full pipeline including path-slice + summary.
   - `:epoch-vector`  — vector of epoch records (`trace-window`,
-                       `watch-epochs`). sensitive-strip → diff-encode
-                       → dedup → indicator-count. No summary; the
+                       `watch-epochs`). diff-encode → dedup →
+                       indicator-count. No summary; the
                        epoch shape is already bounded by the cursor
                        `:limit`.
   - `:scalar-value`  — the literal post-`get-in` value (`get-path`).
@@ -72,10 +80,10 @@
                        the value off its envelope and re-assembles
                        afterwards — the arm walks only what ships.
 
-  Each kind returns `{:value v :indicators {:dropped N :elided N
-  :path-status M}}`. `:path-status` is the per-frame path-not-found
-  map on `:snapshot-map` calls when `:path` was supplied and at
-  least one frame's path didn't resolve; empty / absent otherwise.
+  Each kind returns `{:value v :indicators {:elided N :path-status M}}`.
+  `:path-status` is the per-frame path-not-found map on `:snapshot-map`
+  calls when `:path` was supplied and at least one frame's path didn't
+  resolve; empty / absent otherwise.
 
   Tools call this once and splice the result through
   `wire/with-indicators` onto their envelope — the per-tool tail is a
@@ -112,7 +120,6 @@
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame.mcp-base.elision :as rf.mcp-base.elision]
             [re-frame2-pair-mcp.config :as config]
-            [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.source-uri :as source-uri]))
 
@@ -139,15 +146,14 @@
 (defn- run-snapshot-map
   "Full snapshot pipeline. Sequences:
 
-    scrub-sensitive
-      → slice-app-db (path-slice or full)
+    slice-app-db (path-slice or full)
       → diff-encode-epochs
       → dedup-epochs
       → summarise other slices
       → count elision markers over what ships
 
-  Returns `{:value snapshot :indicators {:dropped N :elided N
-  :path-status M :resolved-modes M}}`.
+  Returns `{:value snapshot :indicators {:elided N :path-status M
+  :resolved-modes M}}`.
 
   `:elided-large` counts the markers ENCOUNTERED in the response
   payload (Spec 009 §Indicator field), so it is counted AFTER the path
@@ -156,10 +162,9 @@
   over the whole walked state — every frame's full `:app-db`, every
   `:sub-cache` entry, every epoch — so it is NOT used here: it would
   report markers a summary or a path-sliced read never contains."
-  [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes]}]
+  [snapshot {:keys [mode dedup? path slice-mode slice-modes]}]
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
-        [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
-        [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
+        [sliced path-status]  (pipeline/slice-app-db-in-snapshot snapshot path app-db-mode)
         ;; Cap the full-mode `:epochs` slice to the most-recent
         ;; N records BEFORE diff-encode + dedup so those operate on the
         ;; bounded set. Only fires when `:epochs` resolves to `:full`
@@ -184,8 +189,7 @@
                                        path :path-sliced
                                        :else app-db-mode))]
     {:value      summarised
-     :indicators {:dropped        dropped
-                  :elided         elided
+     :indicators {:elided         elided
                   :path-status    path-status
                   :resolved-modes resolved-modes
                   :app-db-mode    app-db-mode}}))
@@ -195,15 +199,14 @@
   `watch-epochs`). The cursor `:limit` bounds the input; no summary
   pass — the epoch shape is already bounded.
 
-  Sequences: strip-sensitive → diff-encode → dedup → count.
+  Sequences: diff-encode → dedup → count.
 
-  Returns `{:value deduped :indicators {:dropped N :elided N
+  Returns `{:value deduped :indicators {:elided N
   :count <pre-dedup-encoded-count>}}`. `:count` is the raw
   post-encode count tools surface as the `:count` slot on the
   envelope."
-  [epochs {:keys [incl? mode dedup?]}]
-  (let [[kept dropped] (sensitive/strip-sensitive epochs incl?)
-        encoded        (rf.mcp-base.diff-encode/diff-encode-epochs kept mode)
+  [epochs {:keys [mode dedup?]}]
+  (let [encoded        (rf.mcp-base.diff-encode/diff-encode-epochs epochs mode)
         deduped        (rf.mcp-base.dedup/dedup-value encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
         ;; Spec 009 §Indicator field — shared by
@@ -221,9 +224,8 @@
         ;; reason.
         elided         (rf.mcp-base.elision/count-elided-markers encoded)]
     {:value      deduped
-     :indicators {:dropped dropped
-                  :elided  elided
-                  :count   (count encoded)}}))
+     :indicators {:elided elided
+                  :count  (count encoded)}}))
 
 (defn- run-scalar-value
   "Minimal pipeline for the literal post-`get-in` value. The eval form
@@ -262,7 +264,6 @@
   Opts:
 
   - `:kind`           one of `:snapshot-map`, `:epoch-vector`, `:scalar-value`.
-  - `:incl?`          sensitive opt-in flag (true ⇒ no drop).
   - `:mode`           epochs-mode keyword (`:diff` / `:full`).
   - `:dedup?`         boolean — run structural dedup at the wire boundary.
   - `:path`           path vector (snapshot path-slicing).

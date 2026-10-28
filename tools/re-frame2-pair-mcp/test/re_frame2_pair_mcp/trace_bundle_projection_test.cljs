@@ -12,8 +12,8 @@
   the late-bound epoch projector.
 
   The projected bundles then go through the `snapshot` tool's own wire
-  pipeline, because that is where a bundle whose `:trace-events` is not a
-  sequence meets the server-side sensitive filter."
+  pipeline, because a bundle whose `:trace-events` is not a sequence has
+  to ship through it whole."
   (:require [cljs.reader :as reader]
             [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]

@@ -758,9 +758,9 @@
 (def trace-window
   {:name "trace-window"
    :description (str "Return the :rf/epoch-records added in the last N ms for the operating frame. "
-                     "Per spec/009 §Privacy this forwarder default-drops items carrying `:sensitive? true` "
-                     "at the top level; opt back in with `include-sensitive true`. Dropped count surfaces "
-                     "as `:dropped-sensitive` on the result when non-zero. "
+                     "Every record crosses `re-frame.core/project-egress` before it ships: declared-sensitive "
+                     "slots read `:rf/redacted`, and a record that contained classified material still ships, "
+                     "labelled `:rf.epoch/sensitive? true`. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode) (needed for time-travel restore). "
                      "A `{:rf.size/large-elided ...}` marker in a record describes that epoch's value, but its `:path` "
@@ -792,7 +792,7 @@
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection: default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Lift the sensitive axis inside the off-box projection every egressed epoch takes through `re-frame.core/project-egress`: declared-sensitive app-db slots in `:db-before` / `:db-after` and the trace-tag allow-list ship verbatim instead of `:rf/redacted`. Default false; honoured only when the server was launched with --allow-sensitive-reads, otherwise forced false. Event and effect arguments, runtime-db and large slots stay fail-closed either way."}
                               :build {:type "string"}}
                  :additionalProperties false}})
 
@@ -811,8 +811,9 @@
                      "`:rf.event/run-end` trace pair. The filter rides server-side so non-matching epochs "
                      "never cross the wire — typicalTokens above is the worst case, narrowing on :timing-ms "
                      "(e.g. only :>100ms epochs) shrinks the payload roughly proportional to the match rate. "
-                     "Per spec/009 §Privacy this forwarder "
-                     "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive true`. "
+                     "Every record crosses `re-frame.core/project-egress` before it ships: declared-sensitive "
+                     "slots read `:rf/redacted`, and a record that contained classified material still ships, "
+                     "labelled `:rf.epoch/sensitive? true`. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode). "
                      "A `{:rf.size/large-elided ...}` marker in a match describes that epoch's value, but its `:path` "
@@ -843,7 +844,7 @@
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection: default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Lift the sensitive axis inside the off-box projection every egressed epoch takes through `re-frame.core/project-egress`: declared-sensitive app-db slots in `:db-before` / `:db-after` and the trace-tag allow-list ship verbatim instead of `:rf/redacted`. Default false; honoured only when the server was launched with --allow-sensitive-reads, otherwise forced false. Event and effect arguments, runtime-db and large slots stay fail-closed either way."}
                               :build    {:type "string"}}
                  :additionalProperties false}})
 
@@ -909,8 +910,6 @@
                      "replaced with a structural diff against its own `:db-before` by default — pass "
                      "`epochs-mode \"full\"` for full-pair shape (the time-travel-restore mode, which needs verbatim state). "
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
-                     "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
-                     "`:sensitive? true`; opt back in with `include-sensitive true`. "
                      "Every `:epochs` record, and the trace events of every `:traces` event bundle, cross "
                      "`re-frame.core/project-egress`'s epoch projector under `:rf.egress/off-box-tool` whatever "
                      "their flags: every trace tag passes a closed allow-list, so ids, flags, counts and "
@@ -918,7 +917,9 @@
                      "payload read `:rf/redacted`; declared-sensitive app-db slots redact, and a bundle's domino "
                      "slots are rebuilt from its projected events. `include-sensitive true` lifts the sensitive "
                      "axis inside that projection, the app-db slots and the trace-tag allow-list, never the event "
-                     "or effect arguments. A build that elides epoch has no "
+                     "or effect arguments. A record or bundle that contained classified material still ships, "
+                     "labelled `:rf.epoch/sensitive? true` or by its events' `:sensitive?` stamps. "
+                     "A build that elides epoch has no "
                      "projector, so each bundle's trace events read `:rf/redacted`. "
                      "Per Tool-Pair §Direct-read privacy posture the `:app-db` and `:sub-cache` "
                      "slices are routed through `re-frame.core/project-egress` with off-box defaults — "
@@ -1016,9 +1017,7 @@
                               :dedup    knobs/dedup-property
                               :elision  knobs/elision-property
                               :include-sensitive {:type "boolean"
-                                                   :description (str "Opt back in to BOTH (a) forwarding `:sensitive? true` "
-                                                                     "items in the :traces / :epochs slices AND (b) seeing "
-                                                                     "the raw value at declared-sensitive app-db paths, in the "
+                                                   :description (str "See the raw value at declared-sensitive app-db paths, in the "
                                                                      ":app-db / :sub-cache slices and inside the :epochs / "
                                                                      ":traces projection (the walker's "
                                                                      "`:rf.egress/include-sensitive?` opt; event and effect "

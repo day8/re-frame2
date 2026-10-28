@@ -118,8 +118,8 @@
       done)))
 
 ;; ---------------------------------------------------------------------------
-;; snapshot. The client-side scrub only drops whole sensitive epochs, so the
-;; `:epochs` slice crosses the same guarded door. `:app-db` walks whole and
+;; snapshot. The projection is the `:epochs` slice's only off-box gate, so
+;; the slice crosses the same guarded door. `:app-db` walks whole and
 ;; `:sub-cache` per entry, threading each entry's query-v so a route read sub
 ;; re-seeds at its storage position; the runtime-db `:machines` slice is
 ;; redacted whole unless the sensitive opt-in is given.

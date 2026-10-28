@@ -80,11 +80,11 @@ Per [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md), non-trace 
 Two arities:
 
 - `[snapshot include?]` — uses the base `strip-sensitive` predicate (the spec/009 §Privacy stamp check).
-- `[snapshot include? strip-fn]` — accepts a custom strip-fn matching the `[items include?] => [kept dropped]` contract (re-frame2-pair-mcp passes a union predicate that also catches the epoch-level `:sensitive?` rollup).
+- `[snapshot include? strip-fn]` — accepts a custom strip-fn matching the `[items include?] => [kept dropped]` contract, for a consumer whose filter must also read a record-level rollup.
 
 ## Cross-server arg-vocabulary convention
 
-The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices) — and the **wire-key spelling is now uniform** across every server:
+The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to the server's sensitive gate (`strip-sensitive` and any analogous walker that recurses through snapshot slices, or the `:rf.egress/include-sensitive?` opt of the `project-egress` call a projecting server makes) — and the **wire-key spelling is now uniform** across every server:
 
 - Both servers ship the unqualified `:include-sensitive` wire key (no trailing `?`).
 - The walker option key inside the framework (`vocab/include-sensitive-opt`) is the namespaced `:rf.egress/include-sensitive?` — internal, not a wire-key, so the predicate `?` is retained.
@@ -97,7 +97,7 @@ The default-OFF posture aligns with the framework's privacy-by-default stance (p
 
 re-frame2-pair-mcp is a CLJS Node bundle without `re-frame.trace` on its classpath; story-mcp is JVM-side. This zero-framework-dependency predicate gives both hosts the same fail-closed classification.
 
-Consumers reach the predicate two ways: re-frame2-pair-mcp keeps a thin local alias ns (`tools/sensitive.cljs`) that delegates here, for code-review locality; story-mcp requires `re-frame.mcp-base.sensitive` directly (no local alias ns). Either way the fail-closed predicate itself lives here.
+story-mcp requires `re-frame.mcp-base.sensitive` directly. re-frame2-pair-mcp does not filter: its epoch tools ship every record projected through `re-frame.core/project-egress`, with `:rf.epoch/sensitive?` and `:sensitive?` riding as labels that the record contained classified material (per [Spec 009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)).
 
 ## Conformance posture
 
