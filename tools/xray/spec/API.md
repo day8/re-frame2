@@ -882,9 +882,9 @@ omits `:frame` entirely keeps the ambient-resolution behaviour, which is
 what the palette's already-validated `with-frame` wrap wants.
 
 `egress-value` also takes an optional `:path` — the ABSOLUTE app-db path
-the value sits at. The framework's declarations (classified via the
-EP-0025 commit-plane `:sensitive` / `:large` effects; Spec 015 §Data
-classification) are keyed by absolute path, so a slice egress'd in
+the value sits at. The framework's app-db declarations
+(`reg-classification`; Spec 015 §Static app-db classification) are keyed
+by absolute path, so a slice egress'd in
 isolation must tell the walker where it lives or the declaration will
 not match (rf2-a96xq). The whole-db snapshot passes no `:path` — the
 value IS the walked root.

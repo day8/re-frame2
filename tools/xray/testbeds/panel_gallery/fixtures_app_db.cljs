@@ -213,7 +213,7 @@
   lives in the `:rf.db/runtime` partition under the `:rf.runtime/*`
   roots the panel's `runtime-areas` table catalogues — `:rf.runtime/routing
   :current`, `:rf.runtime/machines :snapshots`, `:rf.runtime/machines
-  :spawned`, `:rf.runtime/elision`). Panel routes diff triples rooted in
+  :spawned`). Panel routes diff triples rooted in
   the reserved `:rf.db/runtime` partition into the `[runtime]` group via
   `app-db-diff-helpers/partition-reserved` — the axis pins that branch."
   []

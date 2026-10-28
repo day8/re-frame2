@@ -29,7 +29,7 @@
 
   ## Reserved keys — `runtime-areas`
 
-  The runtime subsystems (machines / routing / elision) live in a
+  The runtime subsystems (machines / routing) live in a
   SEPARATE runtime-db partition (`:rf.runtime/*`), not in app-db. The
   `[runtime]` group is built
   from that partition via the `runtime-areas` table,
@@ -198,11 +198,11 @@
 ;; ---- runtime subsystem area table ---------------------------------------
 ;;
 ;; The framework's durable subsystem
-;; state — machine snapshots, the route slice, the spawn registry, the
-;; elision registry — lives OUTSIDE app-db, in a
+;; state — machine snapshots, the route slice, the spawn registry — lives
+;; OUTSIDE app-db, in a
 ;; SEPARATE runtime-db partition (`:rf.db/runtime` in the frame-state),
 ;; whose top-level keys are the reserved `:rf.runtime/*` namespace family
-;; (`:rf.runtime/machines` / `:rf.runtime/routing` / `:rf.runtime/elision`).
+;; (`:rf.runtime/machines` / `:rf.runtime/routing`).
 ;; The App-DB panel surfaces these as separate operator-facing sections;
 ;; this table maps the logical area-id (the operator-facing label) to the
 ;; sub-path UNDER THE RUNTIME-DB PARTITION VALUE that carries the area's
@@ -211,6 +211,11 @@
 ;; `:rf.db/runtime` projection of `:frame-state-before` / `-after`),
 ;; mirroring the Machines inspector + Routing tab, which read
 ;; runtime-db at these paths.
+;;
+;; Classification has no area: it is the frame's classification policy, a
+;; value built from registrations rather than state either partition holds,
+;; so there is nothing here to inspect or diff (spec/004 §Reserved-keys
+;; group).
 
 (def runtime-areas
   "Logical area-id → sub-path under the RUNTIME-DB partition value. The
@@ -222,8 +227,7 @@
   {:rf/machines           [:rf.runtime/machines :snapshots]
    :rf/spawned            [:rf.runtime/machines :spawned]
    :rf/route              [:rf.runtime/routing :current]
-   :rf/pending-navigation [:rf.runtime/routing :pending-navigation]
-   :rf/elision            [:rf.runtime/elision]})
+   :rf/pending-navigation [:rf.runtime/routing :pending-navigation]})
 
 ;; ---- current-state sectioning ------------------------------------------
 ;;
@@ -249,9 +253,8 @@
 ;;   - **singleton slice** — one current-value slice rendered as a
 ;;     single section. `:rf/route` (the SINGULAR current-route slice
 ;;     `{:id :params :query :fragment :transition :error :nav-token}`,
-;;     schema `:rf/route-slice`, spec/012 §The `:rf/route` slice),
-;;     `:rf/pending-navigation`, and `:rf/elision`
-;;     are singletons.
+;;     schema `:rf/route-slice`, spec/012 §The `:rf/route` slice) and
+;;     `:rf/pending-navigation` are singletons.
 ;;
 ;; Empty / absent reserved areas are FILTERED at projection time
 ;; — `current-state-sections` omits any area that is
@@ -269,8 +272,7 @@
   [:rf/machines
    :rf/spawned
    :rf/route
-   :rf/pending-navigation
-   :rf/elision])
+   :rf/pending-navigation])
 
 (def map-of-instances-areas
   "Reserved areas whose value is a map-of-instances keyed by id — each

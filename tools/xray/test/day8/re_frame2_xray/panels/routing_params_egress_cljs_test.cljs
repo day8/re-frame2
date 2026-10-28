@@ -12,10 +12,11 @@
   `[:params :token]` declaration matches with no `:params` schema.
 
   The rows assert on the RENDERED output, because only the rendered text can
-  fail on a panel that leaks, and they navigate for real, because it is
-  ACTIVATION that re-roots the route's projection-relative paths into the
-  frame's elision registry — a hand-typed slice would carry no registry and
-  pass against a panel that leaks."
+  fail on a panel that leaks, and they navigate for real, so the slice under
+  test is the one the router writes: its `:route-id` names the route whose
+  projection-relative declaration the frame's classification policy
+  re-roots onto `[:rf.runtime/routing :current …]` at egress. A hand-typed
+  slice could diverge from it and pass against a panel that leaks."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

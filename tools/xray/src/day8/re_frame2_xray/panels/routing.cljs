@@ -706,7 +706,7 @@
   The two axes are the same in the contract —
   `re-frame.routing.classification` validates any concrete path
   (`normalize-axis-paths`) and re-roots every one of them the same way
-  (`apply-route-classification`), and PARAMS are the axis that cannot
+  (`runtime-classification`), and PARAMS are the axis that cannot
   fail open, because a path capture is always keyword-keyed
   (`re-frame.routing.match`) where an unpromoted query key stays a
   string. So a surface projecting query alone would honour half a
@@ -788,7 +788,7 @@
   ;; because a route declares projection-relative to the whole
   ;; `{:query … :params …}` shape and the classification code treats the
   ;; two axes identically. It must be the OBSERVED frame and
-  ;; not a resolved or ambient one: the elision registry is per-frame, so
+  ;; not a resolved or ambient one: classification is per-frame, so
   ;; the ambient read at a panel render (Xray's own chrome frame, which is
   ;; live and declares nothing) would ship the value raw under a borrowed
   ;; policy. The sibling `:rf.xray/target-frame-runtime-db` pivots

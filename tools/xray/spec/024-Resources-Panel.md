@@ -145,12 +145,12 @@ Two elision layers compose:
    The per-slot declaration match happens at the entry's ABSOLUTE
    runtime-db coordinate, rooted at the entry's `key-id`:
    `[:rf.runtime/resources :entries <key-id> <slot>]` — mirroring exactly
-   where the resources artefact's own per-instance lowering
-   (`re-frame.resources.classification/reconcile-registry`) writes a
-   resource's declared `:data` slots. A resource declares nothing under its
+   where the `:resources/runtime-classification` hook
+   (`re-frame.resources.classification/runtime-classification`) re-roots a
+   resource's declared `:data` slots in the frame's classification policy. A resource declares nothing under its
    scope or params — they are its identity, not a classified slot — so the
    local operator sees them on-box. A slot-only path (omitting `<key-id>`)
-   never matches a real lowered declaration, so a declared-sensitive
+   never matches a re-rooted declaration, so a declared-sensitive
    resource would silently ride raw.
 
 3. **Per-slot egress for the TRACE-borne projections**

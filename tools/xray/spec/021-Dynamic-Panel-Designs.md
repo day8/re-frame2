@@ -993,17 +993,17 @@ shorthand). Section order, top → bottom:
   instance.
 - **`:rf/route`** — a **single section** (singleton — the current-route slice; NOT fanned
   out).
-- **Other reserved singletons** — `:rf/pending-navigation` and `:rf/elision`, one section
-  each, titled by the key.
+- **`:rf/pending-navigation`** — a **single section**, titled by the key.
 
 An absent or empty reserved area renders **nothing** — no section, no placeholder
 (rf2-jcdvo: `current-state-sections` filters it at projection time, pinned by the App-DB
 suite's "no placeholder card for empty reserved area" test). Only `app-db` always renders.
 With a focused epoch, emptiness covers **both** sides: an area the epoch emptied (the last
 machine destroyed, a pending navigation cleared) still renders, showing what was removed (§4.3).
-The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route`,
-`:rf/pending-navigation` and `:rf/elision` (`reserved-area-order`); there is no `SYSTEM-IDS`
-area. The `:rf/*` names are section LABELS: since EP-0001 the reserved areas are read off the
+The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route` and
+`:rf/pending-navigation` (`reserved-area-order`); there is no `SYSTEM-IDS` area, and no
+classification area — classification is the frame's policy, not partition state
+([004 §Reserved-keys group](004-App-DB-Diff.md#reserved-keys-group)). The `:rf/*` names are section LABELS: since EP-0001 the reserved areas are read off the
 frame's runtime-db partition (`app_db_diff_helpers/runtime-areas` → `[:rf.runtime/machines
 :snapshots]`, `[:rf.runtime/routing :current]`, …), while `app-db` reads the app-db partition. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
 inter-section hairline. The mode-accent stripe sits at the panel's left edge.
@@ -3921,19 +3921,16 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
   the handler emitted, with `→ <target>` beside it.
 - **No `other` rows.** A top-level effect key outside the closed set
   `re-frame.events/closed-effect-map-keys` — `:db`, `:rf.db/runtime`,
-  `:fx` and the four EP-0025 classification effects (`:sensitive`,
-  `:large`, `:clear-sensitive`, `:clear-large`) — is NOT silently
-  dropped: the router REFUSES the whole event at its final-effects
-  boundary (rf2-04tx). Nothing commits — no `:db`, no `:rf.db/runtime`,
-  no classification install, no `:fx` — and `:rf.error/effect-map-shape`
-  is emitted in band. The panel surfaces that refusal as an error card on
-  this step (`attach-unclassified-errors` places the op on SIDE EFFECTS,
-  its message lifted from the trace's `:reason`, which names the
-  offending key) and the epoch outcome reads `:error`. rf2-m2ye2 deleted
-  the former `other` tier: a refused key never reaches do-fx, and every
-  key inside the closed set is legal, so the tier had no truthful
-  population — its hand-copied 3-key set would have reported the four
-  classification effects as ignored.
+  `:fx` — is NOT silently dropped: the router REFUSES the whole event at
+  its final-effects boundary. Nothing commits — no `:db`, no
+  `:rf.db/runtime`, no `:fx` — and `:rf.error/effect-map-shape` is emitted
+  in band; a classification key returned beside `:db` is refused the same
+  way, its `:reason` naming `reg-classification`. The panel surfaces that
+  refusal as an error card on this step (`attach-unclassified-errors`
+  places the op on SIDE EFFECTS, its message lifted from the trace's
+  `:reason`, which names the offending key) and the epoch outcome reads
+  `:error`. There is no `other` tier: a refused key never reaches do-fx,
+  so such a tier would have no truthful population.
 
 **Atomicity governs which rows appear.** A `:db` schema-fail (pre-commit
 transactional) rolls the cascade back BEFORE any `:fx` ran (spec/002

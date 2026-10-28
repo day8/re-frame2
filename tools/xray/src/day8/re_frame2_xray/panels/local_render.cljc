@@ -220,9 +220,10 @@
   `:rf.route/params` — egress'd in isolation for an on-box render.
 
   A route declares `:sensitive` / `:large` PROJECTION-RELATIVE to its
-  `{:query … :params …}` shape, and route activation RE-ROOTS those paths
-  to runtime-db-absolute `[:rf.runtime/routing :current …]` in the frame's
-  elision registry (`re-frame.routing.classification`). So a bare route
+  `{:query … :params …}` shape, and the frame's classification policy
+  RE-ROOTS those paths to runtime-db-absolute `[:rf.runtime/routing
+  :current …]` at egress
+  (`re-frame.routing.classification/runtime-classification`). So a bare route
   value walked at the whole-value root — which is what `local-render-value`
   does — can never match its OWN declaration, and the declared-sensitive
   query would ride to the DOM verbatim.
@@ -287,12 +288,12 @@
   This is the whole-slice composition of the route-sub arm above, and it
   exists because a route's declaration is projection-relative to the
   `{:query … :params …}` shape: `[:params :token]` and `[:query :token]`
-  are BOTH ordinary declarations, re-rooted at activation to
+  are BOTH ordinary declarations, re-rooted at egress to
   `[:rf.runtime/routing :current :params :token]` and
   `[… :query :token]`. Nothing in
   `re-frame.routing.classification` treats the two axes differently —
   `normalize-axis-paths` validates any concrete path and
-  `apply-route-classification` re-roots every one of them the same way — so
+  `runtime-classification` re-roots every one of them the same way — so
   a surface that projects one axis and not the other honours half a
   contract.
 
