@@ -877,9 +877,8 @@
   ;; reached through `re-frame.machines/reg-machine*` (classified
   ;; below). The `reg-machine` / `defmachine` MACROS are on the façade.
   ;; There is no imperative path-marks API and no `re-frame.marks` namespace
-  ;; (EP-0025): durable app-db classification is the four
-  ;; commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` /
-  ;; `:clear-large`, returned by a `reg-event` alongside `:db`) + `project-egress`,
+  ;; (EP-0025): durable app-db classification is `reg-classification`
+  ;; + `project-egress`,
   ;; over the `re-frame.classification` / `re-frame.elision` engine.
   ["re-frame.core" "reg-flow"]            {:tier :advanced    :owner "013" :status "v1"
                                           :action :keep
@@ -1995,8 +1994,7 @@
                                                      :action :keep
                                                      :justification "The tag-to-axis lookup the two `tags-*` reads are built on, exposed so a custom sidebar can order tags the way the built-in one does."}
   ;; EP-0015 / EP-0025: Story does not re-export `add-marks`
-  ;; / `set-marks`. Durable app-db classification is the four commit-plane
-  ;; classification effects (returned by a `reg-event` alongside `:db`); there
+  ;; / `set-marks`. Durable app-db classification is `reg-classification`; there
   ;; is no imperative path-marks mutation surface and no `re-frame.marks`
   ;; namespace (nor `re-frame.core/{add-marks,set-marks}` facade vars).
   ;; Canonical vocabulary tables -- read-only data an author consults while
