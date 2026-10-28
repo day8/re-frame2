@@ -72,10 +72,10 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 |---|---|---|---|
 | `:sensitive` | reg-meta key | Vector of paths into the registration's primary data shape (event arg-map, fx-input map, cofx value, sub output, flow output, machine transition payload) | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
 | `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
-| `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` | commit-plane effects (`reg-event` return) | The owner of durable app-db classification (EP-0025) — each a vector of `:rf/path` vectors, applied **with the `:db` write** at the commit point into the per-frame elision registry. A handler classifies a durable app-db path by returning these alongside `:db`. There is no frame-config `:sensitive {:app-db …}` annotation and no `add-marks` / `set-marks` / `declare-sensitive-*!` surface. | [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects) |
-| subsystem `:sensitive` / `:large` | subsystem registration (`reg-machine`, `reg-resource`, `reg-mutation`, `reg-route`) | Projection-relative durable classification declared on a subsystem definition (e.g. a machine's `:data`-rooted `:rf/path` vectors), re-rooted to the instance's absolute runtime path and unioned into the same per-frame registry the commit-plane effects write. | [015 §Subsystem projection-relative classification](015-Data-Classification.md#subsystem-projection-relative-classification) |
+| `reg-classification` | registration (`(rf/reg-classification id {:sensitive [paths] :large [paths]})`) | The owner of durable app-db classification — a closed declaration of app-db-absolute `:rf/path` vectors, registered beside the feature that writes them and resolved through each frame's own view into its classification policy. There is no frame-config `:sensitive {:app-db …}` annotation and no `add-marks` / `set-marks` / `declare-sensitive-*!` surface. | [015 §Static app-db classification](015-Data-Classification.md#static-app-db-classification) |
+| subsystem `:sensitive` / `:large` | subsystem registration (`reg-machine`, `reg-resource`, `reg-mutation`, `reg-route`) | Projection-relative durable classification declared on a subsystem definition (e.g. a machine's `:data`-rooted `:rf/path` vectors), applied at egress to each instance present, re-rooted to the instance's absolute runtime path, and unioned into the frame's classification policy. | [015 §Subsystem projection-relative classification](015-Data-Classification.md#subsystem-projection-relative-classification) |
 | `:rf.http/managed` `:carriers` | `reg-fx :rf.http/managed` meta | App-specific HTTP carrier names (a union onto the immutable built-in defaults) — the EP-0025 transient-payload case. `(rf/reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)`. | [015 §HTTP carriers](015-Data-Classification.md#http-carriers) |
-| frame `:observability` | frame config (`make-frame`) | Observability sink policy. There is no frame `:sensitive` key — durable app-db classification is the four commit-plane effects above, and HTTP carriers ride `:rf.http/managed`; a frame config `:sensitive` is rejected fail-loud. | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
+| frame `:observability` | frame config (`make-frame`) | Observability sink policy. There is no frame `:sensitive` key — durable app-db classification is `reg-classification` above, and HTTP carriers ride `:rf.http/managed`; a frame config `:sensitive` is rejected fail-loud. | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `project-egress` | record-level boundary primitive | `(rf/project-egress record opts)` → projected record. The public record-level projection primitive (knows app-db-/event-/exception-/HTTP-/summary-shaped slots); the **required step before any off-box sink**. Delegates per tree-shaped slot to `elide-wire-value`. A façade export (subject to the facade-export classification rule). | [015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) |
 | `register-observability-sink!` / `unregister-observability-sink!` | façade fns | Register the concrete sink fn against the id a frame's `:observability` policy names; the sink consumes the already-projected record. Façade exports (subject to the facade-export classification rule). | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries a truthy `:sensitive?` stamp at the top level. The framework-published predicate every forwarder composes against; there are no tool-side aliases over it. **Fail-closed**: `true` is sensitive, `false` / `nil` / absent are not, and any OTHER truthy value (a string `"true"`, a keyword `:yes`, a number) counts as SENSITIVE — the schema types the stamp as a boolean, so a non-boolean is a contract violation, and a `(true? …)` reading would forward the event in exactly the case where the producer has already proved unreliable. Matches the posture `re-frame.mcp-base.sensitive/sensitive-stamp?` applies on the MCP wire. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
@@ -85,9 +85,10 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 **Not present** (listed so a reader looking for one of these names lands here):
 
 - `:rf.egress/output-sensitivity` reg-meta key — the derived-output declassification claim + its `:rf.egress/inherit` / `:sensitive` / `:public` value set; classification does **not** propagate, so there is nothing to declassify (per [015 §No propagation, no taint](015-Data-Classification.md#no-propagation-no-taint)).
-- the frame-config `:sensitive` / `:large {:app-db …}` durable annotation — durable app-db classification is the four commit-plane effects above; a frame config `:sensitive {:app-db …}` is rejected fail-loud.
+- the frame-config `:sensitive` / `:large {:app-db …}` durable annotation — durable app-db classification is `reg-classification` above; a frame config `:sensitive {:app-db …}` is rejected fail-loud.
+- `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` as `reg-event` effect-map keys — a handler returning one is refused pre-commit with `:rf.error/effect-map-shape` (per [002 §Classification is a registration, not an effect](002-Frames.md#classification-is-a-registration-not-an-effect)).
 - `redact-derived-slots` — a value-match / taint dual of `elide-wire-value`; absent from the façade **and** from `re-frame.elision` (value-match is propagation by another name). The only derived-tree egress boundary is `project-egress` over a `:rf.observe/derived-tree` record, path-walked against the frame's classification (per [015 §project-egress](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)).
-- `populate-elision-from-schemas!` / `populate-sensitive-from-schemas!` — there is no schema→registry bridge (schemas describe shape, not durable app-db egress policy — per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)).
+- `populate-elision-from-schemas!` / `populate-sensitive-from-schemas!` — there is no schema→classification bridge (schemas describe shape, not durable app-db egress policy — per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)).
 
 ### `re-frame.http`
 
@@ -104,12 +105,12 @@ Built-in denylists ship populated with the obvious cross-app names (`authorizati
 
 ### `re-frame.schemas` (declarative — no imperative surface)
 
-Schema-attached slot props. On an HTTP request's `:decode` schema they classify the decoded response body; elsewhere they drive only **schema-validation error-trace** redaction, and only where the runtime validates against that schema. They are **not** a route for durable classification — app-db, or machine / resource / mutation state — per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy); there are no schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`; see the note above).
+Schema-attached slot props. On an HTTP request's `:decode` schema they classify the decoded response body; elsewhere they drive only **schema-validation error-trace** redaction, and only where the runtime validates against that schema. They are **not** a route for durable classification — app-db, or machine / resource / mutation state — per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy); there are no schema→classification hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`; see the note above).
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on a schema slot. On an HTTP `:decode` schema, which validates the response, it classifies the decoded response body. On a schema the runtime validates against — an event, coeffect, fx or sub schema, a machine `[:schemas :data]`, a resource or mutation `:params-schema` — it drives validation-failure-trace redaction only. On an app-schema slot it still redacts that schema's failures, but an `app-db` path's failure traces follow the path's commit-plane classification, so the path is declared once. A resource `:data-schema` is shape metadata reflected to tooling and nothing validates against it, so there the prop drives nothing. Durable machine / resource state is classified by the owner's projection-relative `:sensitive` paths, per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy). Schema-validation error traces consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces), [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge) |
-| `:large? true` | schema slot prop | Symmetric to `:sensitive?` for the size axis. On an HTTP `:decode` schema it elides the matching slot of the decoded response body to `:rf.size/large-elided`. On a schema the runtime validates against — a machine `[:schemas :data]`, a resource or mutation `:params-schema`, an app-schema slot — validation-failure traces consult it and substitute `:rf.size/large-elided` for the matching slot value. A resource `:data-schema` is shape metadata that nothing validates against, so there the prop drives nothing. (Not a durable *app-db*, machine or resource route — those ride the four commit-plane effects and the owner's projection-relative `:large` paths.) | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
+| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on a schema slot. On an HTTP `:decode` schema, which validates the response, it classifies the decoded response body. On a schema the runtime validates against — an event, coeffect, fx or sub schema, a machine `[:schemas :data]`, a resource or mutation `:params-schema` — it drives validation-failure-trace redaction only. On an app-schema slot it still redacts that schema's failures, but an `app-db` path's failure traces follow the path's `reg-classification`, so the path is declared once. A resource `:data-schema` is shape metadata reflected to tooling and nothing validates against it, so there the prop drives nothing. Durable machine / resource state is classified by the owner's projection-relative `:sensitive` paths, per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy). Schema-validation error traces consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces), [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge) |
+| `:large? true` | schema slot prop | Symmetric to `:sensitive?` for the size axis. On an HTTP `:decode` schema it elides the matching slot of the decoded response body to `:rf.size/large-elided`. On a schema the runtime validates against — a machine `[:schemas :data]`, a resource or mutation `:params-schema`, an app-schema slot — validation-failure traces consult it and substitute `:rf.size/large-elided` for the matching slot value. A resource `:data-schema` is shape metadata that nothing validates against, so there the prop drives nothing. (Not a durable *app-db*, machine or resource route — those ride `reg-classification` and the owner's projection-relative `:large` paths.) | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
 
 ### `re-frame.epoch`
 
@@ -117,7 +118,7 @@ Per EP-0015 issue 6, epoch records are **causal replay material** (per [EP-0010]
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event / declared-sensitive leaf in the record was sensitive. Computed at build-time from the stamped trace events and the non-nil leaves at the frame's registry-declared sensitive paths in the raw record's db, so it stays an accurate off-box-branch signal on the raw ring record. It means the record contained classified material, not that the run touched a secret. The re-frame2-pair MCP surfaces it as an annotation on the projected record it forwards; an external forwarder may drop on it. | [Tool-Pair §Time-travel](Tool-Pair.md) |
+| `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event / declared-sensitive leaf in the record was sensitive. Computed at build-time from the stamped trace events and the non-nil leaves at the sensitive paths the frame's classification declares in the raw record's db, so it stays an accurate off-box-branch signal on the raw ring record. It means the record contained classified material, not that the run touched a secret. The re-frame2-pair MCP surfaces it as an annotation on the projected record it forwards; an external forwarder may drop on it. | [Tool-Pair §Time-travel](Tool-Pair.md) |
 | The `:kind :rf/epoch-record` arm of `project-egress` | per-kind projector *(late-bound, never public)* | `(rf/project-egress record)` — off-box-safe projection of a `:rf/epoch-record`. The one public door dispatches the record's stamped `:kind` to epoch's private projector (late-bound as `:epoch/project-record`); there is no second public name, because the door names the BOUNDARY, not a record kind. Routes each tree slot through `elide-wire-value` under the named profile, strips raw `:db-before` / `:db-after`, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The single projection site when shipping epoch data off-box. Idempotent. The whole ring is `(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))`. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
 | `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` | trusted-local egress opts | The three epoch-only axes on `project-egress` — effect `:args`, the `:rf.db/runtime` frame-state partition, and trigger / trace event args. They are NOT app-db axes: each defaults false and lifts only its own boundary, so `:rf.egress/include-sensitive? true` never implies any of them. All six axes share the `:rf.egress/*` namespace, and these three ride the one `project-egress` door. | [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) |
 
@@ -137,21 +138,21 @@ The framework-published privacy filter every MCP forwarder composes. Apps don't 
 
 ## Inventory by declaration source
 
-Same surfaces, regrouped by **the owner that declares the classification** ([015 §The ownership split](015-Data-Classification.md#the-ownership-split)): handler commit-plane effects classify durable app-db state; machine / resource / mutation definitions classify owner-local schema'd data (projection-relative); registration metadata classifies transient payloads (including the `:rf.http/managed` `:carriers` block — HTTP carrier names); frame config carries frame-local egress facts (observability sink policy, SSR allowlist).
+Same surfaces, regrouped by **the owner that declares the classification** ([015 §The ownership split](015-Data-Classification.md#the-ownership-split)): `reg-classification` declarations beside the feature classify durable app-db state; machine / resource / mutation definitions classify owner-local schema'd data (projection-relative); registration metadata classifies transient payloads (including the `:rf.http/managed` `:carriers` block — HTTP carrier names); frame config carries frame-local egress facts (observability sink policy, SSR allowlist).
 
-### Handler commit-plane effects (durable app-db, EP-0025)
+### `reg-classification` (durable app-db)
 
-Durable app-db classification is declared by the four commit-plane effects a handler returns alongside `:db`; the classification commits **with the db write** into the per-frame elision registry, value-independently:
+Durable app-db classification is declared once, beside the feature that writes the paths; every frame's egress resolves it through the frame's own view, value-independently:
 
-- `{:db … :sensitive [[:auth :token] …]}` — classify durable app-db sensitive paths (`:rf/path` values)
-- `{:db … :large [[:docs :csv-upload] …]}` — classify durable app-db large paths
-- `{:db … :clear-sensitive [[:auth :token]]}` / `{:db … :clear-large [[:docs :csv-upload]]}` — un-classify
+- `(rf/reg-classification :auth {:sensitive [[:auth :token]]})` — classify durable app-db sensitive paths (`:rf/path` values)
+- `(rf/reg-classification :docs {:large [[:docs :csv-upload]]})` — classify durable app-db large paths
+- `(rf/clear :classification :auth)` — remove a declaration; re-registering the id replaces it
 
-There is no frame-config `:sensitive` / `:large {:app-db …}` annotation and no `add-marks` / `set-marks` app-db path-mark API (see [§Removed surfaces](#removed-surfaces)). Per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects).
+There is no frame-config `:sensitive` / `:large {:app-db …}` annotation and no `add-marks` / `set-marks` app-db path-mark API (see [§Removed surfaces](#removed-surfaces)). Per [015 §Static app-db classification](015-Data-Classification.md#static-app-db-classification).
 
 ### Frame config (frame-local egress facts)
 
-The frame carries observability sink policy (there is no `:sensitive` key — durable app-db classification is the commit-plane effects and HTTP carriers ride `:rf.http/managed`; a frame config `:sensitive` is rejected fail-loud):
+The frame carries observability sink policy (there is no `:sensitive` key — durable app-db classification is `reg-classification` and HTTP carriers ride `:rf.http/managed`; a frame config `:sensitive` is rejected fail-loud):
 
 - `(rf/make-frame {:id :app :observability {:handled-events […] :errors […]}})` — production sink policy ([§Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy))
 - The SSR hydration allowlist is NOT frame config: it is the SSR host adapter's `:payload` opt (top-level app-db keys), beside the optional `:payload-include-sensitive` permit naming classified paths the user's own browser may receive raw — the allowlist-first SSR/hydration boundary, per [011 §`:rf/app-db` projection](011-SSR.md#rfapp-db-projection--explicit-fail-closed-policy)
@@ -160,7 +161,7 @@ Frame config installs atomically at frame creation (before the `:initial-events`
 
 ### Per-slot schema props (owner-local schema'd data)
 
-`{:sensitive? true}` / `{:large? true}` Malli props on an HTTP request's `:decode` schema classify the decoded response body — the transient product that schema owns. Whole-shape claims are the degenerate root-prop case; an unschematized HTTP body is whole-sensitive (fail-closed). On a schema the runtime validates against — a machine `[:schemas :data]`, a resource or mutation `:params-schema`, an app-db schema — the props redact only that schema's own validation-failure traces. A resource `:data-schema` is shape metadata that nothing validates against, so its props drive nothing. None of these props classify durable state or feed anything into the elision registry. Durable machine / resource / mutation state is classified by projection-relative `:sensitive` / `:large` paths on the machine, resource or mutation spec, lowered per instance into the per-frame elision registry. Per [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge), [§Resource and mutation](015-Data-Classification.md#resource-and-mutation-durable-classification), [§HTTP response bodies](015-Data-Classification.md#http-response-bodies). (Schema props on an *app-db* schema are **not** a route to durable app-db classification — that rides the four commit-plane effects; there are no schema→registry hydrators, per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
+`{:sensitive? true}` / `{:large? true}` Malli props on an HTTP request's `:decode` schema classify the decoded response body — the transient product that schema owns. Whole-shape claims are the degenerate root-prop case; an unschematized HTTP body is whole-sensitive (fail-closed). On a schema the runtime validates against — a machine `[:schemas :data]`, a resource or mutation `:params-schema`, an app-db schema — the props redact only that schema's own validation-failure traces. A resource `:data-schema` is shape metadata that nothing validates against, so its props drive nothing. None of these props classify durable state or feed the frame's classification policy. Durable machine / resource / mutation state is classified by projection-relative `:sensitive` / `:large` paths on the machine, resource or mutation spec, applied at egress to each instance present. Per [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-frame-owned-ep-0025-reversal-of-the-ep-0005-redaction-bridge), [§Resource and mutation](015-Data-Classification.md#resource-and-mutation-durable-classification), [§HTTP response bodies](015-Data-Classification.md#http-response-bodies). (Schema props on an *app-db* schema are **not** a route to durable app-db classification — that rides `reg-classification`; there are no schema→classification hydrators, per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
 
 ### Registration metadata (transient payloads)
 
@@ -269,10 +270,9 @@ The single most-asked question this doc answers: **what runs when, in what order
 │     - The structured :effects rows' :args (raw fx-handler payload, not      │
 │       app-db-rooted so the walker cannot prove it safe) FAIL CLOSED to      │
 │       :rf/redacted off-box, lifted only by :rf.egress/include-fx-args? true.          │
-│     - `elide-wire-value` walks tree-typed payloads; consults the per-frame  │
-│       [:rf.runtime/elision :declarations] +                                 │
-│       [:rf.runtime/elision :sensitive-declarations] (effect-, flow- and     │
-│       subsystem-sourced entries — union at lookup time).                    │
+│     - `elide-wire-value` walks tree-typed payloads against the frame's      │
+│       classification policy (reg-classification, flow-output and            │
+│       subsystem declarations — union at lookup time).                       │
 │     - Composition rule: sensitive drop WINS over large elision when both    │
 │       apply at the same path (the size marker would otherwise leak :path /  │
 │       :bytes / :digest).                                                    │
@@ -297,12 +297,12 @@ The single most-asked question this doc answers: **what runs when, in what order
 
 ### Rule summary
 
-- **Composition is additive at every site.** A commit-plane `:sensitive` classification effect (durable app-db) and a subsystem's lowered projection-relative `:sensitive` declaration that resolve to the same path both redact at the same observation surface — they union.
+- **Composition is additive at every site.** A `reg-classification` path, a flow output declaration and a subsystem's projection-relative declaration all join the frame's one classification policy, and each redacts at every observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
 - **Real values are never redacted mid-handler.** The handler body reads the unredacted `:event` coeffect. Each observation is projected at its own emit / egress boundary, before delivery — whether it is raised before, during or after the handler runs.
 - **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
-- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch arm of the `project-egress` boundary, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, SSR metadata — the per-frame elision-declaration registry is omitted, per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.egress/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
+- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch arm of the `project-egress` boundary, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, SSR metadata, per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.egress/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
 
 ---
 
@@ -378,20 +378,17 @@ The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `
 The canonical question: *"I have a `:password` field in `app-db` and a `:token` header on an HTTP request — what do I declare where to keep both out of off-box egress?"*
 
 ```clojure
-;; 1. Declare the durable app-db classification via COMMIT-PLANE EFFECTS
-;;    (EP-0025) — a handler returns `:sensitive` (a vector of `:rf/path`
-;;    vectors) alongside `:db`; the classification commits WITH the db write
-;;    into the per-frame elision registry. Classify a path before any value
-;;    lands there (value-independent); an init event is the natural home.
-;;    (App-specific HTTP carriers ride the :rf.http/managed registration —
-;;    see step 3; the observability sink policy lives on the frame map.)
-(rf/reg-event :app/init-classification
-  (fn [{:keys [db]} _]
-    {:db db
-     :sensitive [[:auth :password]
-                 [:auth :token]
-                 [:auth :refresh-token]
-                 [:user :ssn]]}))
+;; 1. Declare the durable app-db classification with reg-classification,
+;;    beside the feature that writes the paths. It is value-independent and
+;;    holds before any event runs, so a declared path is redacted from its
+;;    first egress. (App-specific HTTP carriers ride the :rf.http/managed
+;;    registration — see step 3; the observability sink policy lives on the
+;;    frame map.)
+(rf/reg-classification :auth
+  {:sensitive [[:auth :password]
+               [:auth :token]
+               [:auth :refresh-token]
+               [:user :ssn]]})
 
 ;; App-specific HTTP carrier names ride the :rf.http/managed registration's
 ;; :carriers block (EP-0025 §HTTP carriers). The frame map carries frame
@@ -428,9 +425,8 @@ The canonical question: *"I have a `:password` field in `app-db` and a `:token` 
 (rf/reg-event :auth/log-in-success
   {:sensitive [[:jwt] [:refresh-token]]}
   (fn [{:keys [db]} [_ {:keys [jwt refresh-token user]}]]
-    ;; Writing the JWT into app-db [:auth :token] — the commit-plane
-    ;; `:sensitive` classification from step 1 (standing in the per-frame
-    ;; registry) means downstream Xray renders the path as :rf/redacted.
+    ;; Writing the JWT into app-db [:auth :token] — the reg-classification
+    ;; from step 1 means downstream Xray renders the path as :rf/redacted.
     ;; Classification does NOT propagate: a sub/flow reading this path does
     ;; not auto-inherit — classify the derived output path too (see step 5).
     {:db (-> db
@@ -472,7 +468,7 @@ The canonical question: *"I have a `:password` field in `app-db` and a `:token` 
 | Handler body (`:auth/log-in`) | Real password value in `:event` coeffect (via the regular handler arg) |
 | Trace bus `:rf.event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
 | Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:rf.fx/args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
-| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (the commit-plane `:sensitive` classification effect that classified `[:auth :token]`) |
+| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (the step-1 `reg-classification` that declares `[:auth :token]`) |
 | Xray App-DB Diff panel | Same as above (Xray projects via `project-egress` under `:rf.egress/local-redacted`, consulting the same frame classification) |
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots (projected under `:rf.egress/off-box-tool`); `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Routed by frame `:observability` under `:rf.egress/off-box-observability`; drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
@@ -505,11 +501,11 @@ Surfaces that do not exist, listed so readers don't search for them.
 
 | Surface | Use instead |
 |---|---|
-| `add-marks` / `set-marks` (public app-db path-mark API) | Durable app-db egress policy is declared by the **four commit-plane effects** (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, returned by a handler alongside `:db`), not a post-creation imperative mutation. There is no marks API or `marks.cljc` namespace; the projection substrate is the elision engine. |
+| `add-marks` / `set-marks` (public app-db path-mark API) | Durable app-db egress policy is declared by a **`reg-classification`** beside the feature, not a post-creation imperative mutation. There is no marks API or `marks.cljc` namespace; the projection substrate is the elision engine. |
 | `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) | App-specific HTTP carrier names belong on the **`:rf.http/managed` `reg-fx` registration** (`:carriers {:headers […] :query-params […]}`), union onto the immutable built-in defaults — not process-global mutation and not a frame annotation. |
 | frame `:sensitive {:http …}` carrier block | A frame config carries no `:sensitive {:http …}` carrier block (there is no `:sensitive` frame key at all). App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case). A frame config `:sensitive` is rejected fail-loud. |
 | `redact-interceptor` (public positional interceptor) | Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. |
-| Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | Schemas describe shape; durable app-db egress policy rides the four commit-plane effects. Per-slot props classify only an HTTP `:decode` body and redact a schema's own validation-failure traces; they are not a route for durable app-db, machine or resource state. There are no schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`). |
+| Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | Schemas describe shape; durable app-db egress policy rides `reg-classification`. Per-slot props classify only an HTTP `:decode` body and redact a schema's own validation-failure traces; they are not a route for durable app-db, machine or resource state. There are no schema→classification hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`). |
 | `inject-cofx` (public cofx-injection interceptor) | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. There is no `inject-cofx` (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
 | Handler-meta `:sensitive?` registration flag | Use Spec 015 per-path declarations. A handler that is the unit of sensitivity (the rare "this whole run is sensitive" case) declares the path-marks that the handler reads / writes. |
 | `:rf.fx/sensitive-mode` configure key | Use per-call `{:sensitive? true}` on `:rf.http/managed` args. The name `set-trace-redaction-policy` is not in `re-frame.core`. |
