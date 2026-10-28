@@ -41,6 +41,13 @@ The harness covers:
   console script wins over a working module launcher; AE asserts a host where
   nothing resolves reports `unresolved` rather than anything that reads as a
   pass.
+* **Hermetic Python launcher probe (P1, P2)** — the spine picks its Python by
+  running each candidate, because on Windows the Store alias resolves and
+  exits 49. A stub directory shadows `python`, `python3` and `py`: P1 makes the
+  first two Store-alias stubs and asserts `py -3` is chosen; P2 asserts an
+  interpreter carrying the requirements.txt packages beats an earlier one
+  without them. M and N run under the launcher the spine resolved
+  (`PLAN-PYTHON`), so they hold on a host whose `python` is the stub.
 * **The pinned clj-kondo lane (AF1–AF5)** — a later `--lint` root and
   `lint.yml` itself arm it, a docs-only diff does not, and an unresolvable base
   arms it conservatively.

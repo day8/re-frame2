@@ -196,6 +196,9 @@ Flags:
   --repo-root DIR   gather the change set from DIR instead of the spine tree
                     (test hook; does not move the real gate scripts)
   (default)     classify the diff and run only the owning tiers
+
+RF2_FAST_PR_PYTHON=CMD names the Python launcher for every Python step
+(e.g. "py -3.14"); unset, the spine probes for one and prints its choice.
 EOF
       exit 0
       ;;
@@ -211,6 +214,64 @@ if [ ! -x "$classifier" ] && [ ! -f "$classifier" ]; then
   printf 'error: changed-surface classifier not found at %s\n' "$classifier" >&2
   exit 2
 fi
+
+# ---------------------------------------------------------------------------
+# PYTHON LAUNCHER — one interpreter for every Python step, found by RUNNING
+# each candidate.  A name that resolves is not a Python: on Windows the
+# Microsoft Store's app-execution aliases put a `python` and a `python3` on
+# PATH that print an install hint and exit 49, so `command -v python` succeeds
+# and every checker handed to it fails on a green tree.
+#
+# Candidates, in order: `python`, `python3`, the Windows launcher's `py -3`,
+# then every `python3.N` on PATH, newest first (the Python install manager's
+# aliases on Windows, the distro's binaries elsewhere).  The first that runs
+# Python 3.10+ AND can import the requirements.txt packages the checkers load
+# wins; failing that, the first that runs Python 3.10+, whose checkers then
+# name the missing package themselves.  The toolchain pass exists because the
+# newest interpreter on a host need not be the one requirements.txt was
+# installed into, and `py -3` picks the newest.  Where `python` has the
+# toolchain — CI's runners — the first probe wins.
+#
+# `RF2_FAST_PR_PYTHON=<launcher>` names it outright and skips the probe: the
+# spine's self-test sets it once rather than paying the probe per case, and an
+# operator sets it where the probe's choice is the wrong one.
+#
+# `$python` is expanded UNQUOTED at every call site so that `py -3` splits into
+# a command and its argument.  That spelling is also the shape
+# `check_fast_pr_gap.py` reads this spine's coverage from; see THE REST OF CI'S
+# ALWAYS-ON INVARIANT CHECKERS below.  `resolve_mkdocs` asks its own question
+# and keeps its own probe.
+# ---------------------------------------------------------------------------
+spine_python_probe='import importlib.util, sys
+if sys.version_info < (3, 10):
+    sys.exit(1)
+wanted = ("markdown", "mkdocs", "pymdownx", "yaml")
+found = all(importlib.util.find_spec(m) for m in wanted)
+sys.stdout.write("toolchain" if found else "bare")'
+
+spine_python_candidates() {
+  printf '%s\n' python python3 'py -3'
+  { compgen -c python3. 2>/dev/null || true; } |
+    sed -n 's/^\(python3\.[0-9][0-9]*\)\(\.exe\)\{0,1\}$/\1/p' |
+    sort -u -t. -k2,2nr
+}
+
+python="${RF2_FAST_PR_PYTHON:-}"
+spine_python_bare=""
+if [ -z "$python" ]; then
+  while IFS= read -r _launcher; do
+    # shellcheck disable=SC2086  # `py -3` must split into command + argument.
+    _answer="$($_launcher -c "$spine_python_probe" </dev/null 2>/dev/null)" || true
+    case "$_answer" in
+      toolchain) python="$_launcher"; break ;;
+      bare) [ -n "$spine_python_bare" ] || spine_python_bare="$_launcher" ;;
+    esac
+  done <<EOF
+$(spine_python_candidates)
+EOF
+  python="${python:-$spine_python_bare}"
+fi
+printf 'python: %s\n' "${python:-unresolved}"
 
 # Every tier or step this run did NOT execute, named in the final PASS line.
 # `PASS fast PR spine` on its own would be compatible with the docs build never
@@ -437,7 +498,8 @@ if [ -n "$changed_files" ]; then
   while IFS= read -r _f; do
     [ -n "$_f" ] && _kondo_arr+=("$_f")
   done <<< "$changed_files"
-  if kondo_out="$(python "$spine_root/scripts/lint_kondo.py" --classify \
+  if [ -n "$python" ] &&
+     kondo_out="$($python "$spine_root/scripts/lint_kondo.py" --classify \
                     "${_kondo_arr[@]}" 2>/dev/null)"; then
     case "$kondo_out" in
       *kondo_surface=true*) kondo_surface=true ;;
@@ -658,9 +720,19 @@ if [ "$plan_only" = true ]; then
   printf 'PLAN-KONDO %s\n' "$([ "$run_kondo" = true ] && echo run || echo skip)"
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
   printf 'PLAN-MKDOCS %s\n' "$mkdocs_plan"
+  printf 'PLAN-PYTHON %s\n' "${python:-unresolved}"
   printf 'PLAN-SELFTEST %s\n' "$([ "$spine_self_surface" = true ] && echo run || echo skip)"
   printf 'PLAN-NODE%s\n' "$node_plan"
   exit 0
+fi
+
+if [ -z "$python" ]; then
+  printf '\nFAIL python launcher — none of python, python3, py -3 or any python3.N on\n' >&2
+  printf '  PATH runs Python 3.10+.  A name that resolves is not enough: the Windows\n' >&2
+  printf '  Store alias resolves and exits 49.  This is NOT a pass.  Left with NO local\n' >&2
+  printf '  gate: every scripts/check_*.py step and the clj-kondo lane.  Install Python\n' >&2
+  printf '  3.10+ and run pip install -r requirements.txt.\n' >&2
+  exit 2
 fi
 
 # ---------------------------------------------------------------------------
@@ -973,7 +1045,7 @@ run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
   bash -lc "tmp='$spine_root/.github/scripts/.verify-version-lockstep.tmp.'\$\$; trap 'rm -f \"\$tmp\"' EXIT; tr -d '\r' < '$spine_root/.github/scripts/verify-version-lockstep.sh' > \"\$tmp\"; bash \"\$tmp\""
 
 run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_mcp_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_mcp_drift.py" --verbose --ci
 
 # Cite-integrity guard: every M-id the re-frame-migration skill cites must name
 # a consistent rule in MIGRATION.md.  Catches the id-collision / phantom-cite
@@ -982,7 +1054,7 @@ run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --v
 # and the drift can be introduced by a MIGRATION.md *heading* edit that the
 # documentation-surface gate below also sees but doesn't semantically check.
 run "skill migration cite-integrity" "python scripts/check_skill_migration_cites.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_migration_cites.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_migration_cites.py" --verbose --ci
 
 # Foundation-order guard: the re-frame2-implementor skill must keep
 # Spec 015 (Data Classification — v1-required) inside the core-complete gate.
@@ -991,10 +1063,10 @@ run "skill migration cite-integrity" "python scripts/check_skill_migration_cites
 # without the required privacy/large-payload elision surface.  Self-test first
 # (proves the guard fires on the drift shapes), then the live scan.
 run "implementor order-guard self-test" "python scripts/check_skill_implementor_order.py --self-test" \
-  python "$spine_root/scripts/check_skill_implementor_order.py" --self-test
+  $python "$spine_root/scripts/check_skill_implementor_order.py" --self-test
 
 run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_implementor_order.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_implementor_order.py" --verbose --ci
 
 # Eval-docs drift guard: each packaged skill's eval harness README carries a
 # hand-maintained coverage table, total count, and per-axis breakdowns that can
@@ -1005,10 +1077,10 @@ run "implementor foundation-order" "python scripts/check_skill_implementor_order
 # both README shapes), then the live scan asserts each README agrees with its
 # JSON.
 run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-test" \
-  python "$spine_root/scripts/check_skill_eval_docs.py" --self-test
+  $python "$spine_root/scripts/check_skill_eval_docs.py" --self-test
 
 run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
 # SKILL.md description-budget gate.  Guards the
 # SKILL.md description limits: the portable 1,024 and the Claude 1,536.  It
@@ -1032,17 +1104,17 @@ run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py 
 # runs it in a job that installs requirements.txt.  Self-test first (proves
 # both rules fire in both directions), then the live scan.
 run "SKILL.md description-budget self-test" "python scripts/check_skill_description_budget.py --self-test" \
-  python "$spine_root/scripts/check_skill_description_budget.py" --self-test
+  $python "$spine_root/scripts/check_skill_description_budget.py" --self-test
 
 run "SKILL.md descriptions fit listing budget" "python scripts/check_skill_description_budget.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_description_budget.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_description_budget.py" --verbose --ci
 
 # README inventory ratchet: layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # documentation diff) because the drift it catches can be triggered by a *dir*
 # add/remove that never touches an .md file.  Fast + pure-Python.
 run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
-  python "$spine_root/scripts/check_readme_inventories.py"
+  $python "$spine_root/scripts/check_readme_inventories.py"
 
 # EP-0007 §Enforcement retired-spelling gate: a retired spelling reappearing in
 # repo source is a CI failure, not a doc note.  Among the retired spellings it
@@ -1060,10 +1132,10 @@ run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
 # live scan asserts the corpus is clean.  See
 # scripts/check_retired_spellings.py.
 run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py --self-test" \
-  python "$spine_root/scripts/check_retired_spellings.py" --self-test
+  $python "$spine_root/scripts/check_retired_spellings.py" --self-test
 
 run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
-  python "$spine_root/scripts/check_retired_spellings.py" --verbose
+  $python "$spine_root/scripts/check_retired_spellings.py" --verbose
 
 # Thrown-error human-message corpus gate (Spec 009 §The thrown-error shape): a
 # framework `(ex-info …)` whose MESSAGE is a bare `:rf.*` discriminator keyword
@@ -1074,10 +1146,10 @@ run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py
 # the conformant counterparts), then the live scan asserts framework source is
 # clean.  See scripts/check_thrown_error_messages.py.
 run "thrown-error message gate self-test" "python scripts/check_thrown_error_messages.py --self-test" \
-  python "$spine_root/scripts/check_thrown_error_messages.py" --self-test
+  $python "$spine_root/scripts/check_thrown_error_messages.py" --self-test
 
 run "thrown-error message gate" "python scripts/check_thrown_error_messages.py --verbose" \
-  python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
+  $python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
 
 # EP-0010 §Validation/Conformance ambient-durable-read gate: a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE
@@ -1093,10 +1165,10 @@ run "thrown-error message gate" "python scripts/check_thrown_error_messages.py -
 # sanctioned counterpart), then the live scan asserts the durable-write
 # namespaces are clean.  See scripts/check_ambient_durable_reads.py.
 run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_reads.py --self-test" \
-  python "$spine_root/scripts/check_ambient_durable_reads.py" --self-test
+  $python "$spine_root/scripts/check_ambient_durable_reads.py" --self-test
 
 run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
-  python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
+  $python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
 
 # Require-alias dialect ratchet.  Conventions §Require-alias dialect gives
 # every framework namespace ONE alias — `re-frame.core` keeps the bare root
@@ -1111,10 +1183,10 @@ run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_
 # fixture NAMED, each negative one silent, and the runtime-`(require ...)`
 # surface proven load-bearing in both directions), then the ratchet itself.
 run "require-alias dialect self-test" "python scripts/check_require_alias_dialect.py --self-test" \
-  python "$spine_root/scripts/check_require_alias_dialect.py" --self-test
+  $python "$spine_root/scripts/check_require_alias_dialect.py" --self-test
 
 run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.py --verbose" \
-  python "$spine_root/scripts/check_require_alias_dialect.py" --verbose
+  $python "$spine_root/scripts/check_require_alias_dialect.py" --verbose
 
 # Test-lane bijection.  The per-lane floor makes a lane that ran ZERO tests red;
 # it cannot see a lane that ran SOME of what it should — a test file on a lane's
@@ -1128,10 +1200,10 @@ run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.
 # not touch the tier that owns it.  Self-test first (proves each rule fires on
 # its own defect and stays green on a clean tree), then the live scan.
 run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py --self-test" \
-  python "$spine_root/scripts/check_test_lane_bijection.py" --self-test
+  $python "$spine_root/scripts/check_test_lane_bijection.py" --self-test
 
 run "test-lane bijection" "python scripts/check_test_lane_bijection.py" \
-  python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
+  $python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
 # WORKFLOW YAML WELL-FORMEDNESS — placed AHEAD of all four gates below that
 # read `.github/workflows/`, deliberately.
@@ -1172,12 +1244,12 @@ run "test-lane bijection" "python scripts/check_test_lane_bijection.py" \
 # without having examined anything is the failure mode this spine exists to
 # avoid.  Self-test first (proves it fires on four distinct break shapes and
 # stays green on a valid workflow), then the live sweep.
-if python -c "import yaml" >/dev/null 2>&1; then
+if $python -c "import yaml" >/dev/null 2>&1; then
   run "workflow YAML self-test" "python scripts/check_workflow_yaml.py --self-test --verbose" \
-    python "$spine_root/scripts/check_workflow_yaml.py" --self-test --verbose
+    $python "$spine_root/scripts/check_workflow_yaml.py" --self-test --verbose
 
   run "workflow YAML well-formed" "python scripts/check_workflow_yaml.py" \
-    python "$spine_root/scripts/check_workflow_yaml.py" --repo-root "$spine_root"
+    $python "$spine_root/scripts/check_workflow_yaml.py" --repo-root "$spine_root"
 else
   printf '\n    NOT CHECKED: workflow YAML — PyYAML is not importable on this\n'
   printf '      interpreter, so nothing read .github/workflows/ this run.  This is\n'
@@ -1195,10 +1267,10 @@ fi
 # deps.edn, and every row is run by a required test.yml job gated on its
 # predicate.  Self-test first, then the live scan.
 run "JVM lanes self-test" "python scripts/check_jvm_lanes.py --self-test" \
-  python "$spine_root/scripts/check_jvm_lanes.py" --self-test
+  $python "$spine_root/scripts/check_jvm_lanes.py" --self-test
 
 run "JVM lanes vs deps.edn and test.yml" "python scripts/check_jvm_lanes.py" \
-  python "$spine_root/scripts/check_jvm_lanes.py"
+  $python "$spine_root/scripts/check_jvm_lanes.py"
 
 # Fast-PR gap map.  The gates above assert that every JVM lane is a row and a
 # required CI job; they say nothing about the required checks that have no local lane at
@@ -1217,10 +1289,10 @@ run "JVM lanes vs deps.edn and test.yml" "python scripts/check_jvm_lanes.py" \
 # step-granularity class fires and that a stale lane signature goes red), then
 # the live audit.  The `--brief` digest is printed with the PASS line below.
 run "fast-PR gap map self-test" "python scripts/check_fast_pr_gap.py --self-test" \
-  python "$spine_root/scripts/check_fast_pr_gap.py" --self-test
+  $python "$spine_root/scripts/check_fast_pr_gap.py" --self-test
 
 run "fast-PR gap map" "python scripts/check_fast_pr_gap.py --verbose" \
-  python "$spine_root/scripts/check_fast_pr_gap.py" --check
+  $python "$spine_root/scripts/check_fast_pr_gap.py" --check
 
 # ---------------------------------------------------------------------------
 # THE REST OF CI'S ALWAYS-ON INVARIANT CHECKERS.
@@ -1245,7 +1317,8 @@ run "fast-PR gap map" "python scripts/check_fast_pr_gap.py --verbose" \
 # WRITTEN OUT ONE PER LINE, deliberately.  A loop over a script-name variable
 # would be shorter and would BREAK THE RATCHET: `check_fast_pr_gap.py` derives
 # this spine's coverage by reading THIS FILE's source for the literal shape
-# `python "$spine_root/scripts/check_<name>.py"`, matching (script, mode) pairs
+# `$python "$spine_root/scripts/check_<name>.py"` (its pattern matches the
+# `python "$spine_root/…"` inside it), matching (script, mode) pairs
 # against CI's.  Interpolate the name and the derivation sees nothing, every CI
 # checker is re-reported as unrun, and the gap map goes from derived to
 # fictional.  The literal form is what keeps the map true with no second list to
@@ -1256,94 +1329,94 @@ run "fast-PR gap map" "python scripts/check_fast_pr_gap.py --verbose" \
 # the same way.  The rationale for each individual gate lives in that job's
 # step comments in `.github/workflows/test.yml`.
 run "MCP/skill title-safety self-test" "python scripts/check_skill_mcp_drift.py --self-test --ci" \
-  python "$spine_root/scripts/check_skill_mcp_drift.py" --self-test --ci
+  $python "$spine_root/scripts/check_skill_mcp_drift.py" --self-test --ci
 
 run "skill migration cite-integrity self-test" "python scripts/check_skill_migration_cites.py --self-test" \
-  python "$spine_root/scripts/check_skill_migration_cites.py" --self-test
+  $python "$spine_root/scripts/check_skill_migration_cites.py" --self-test
 
 run "migration contract-drift self-test" "python scripts/check_skill_migration_contract_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_migration_contract_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_migration_contract_drift.py" --self-test
 
 run "migration contract drift (M-11/M-13)" "python scripts/check_skill_migration_contract_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_migration_contract_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_migration_contract_drift.py" --verbose --ci
 
 run "migration O-16/O-17 router self-test" "python scripts/check_skill_migration_o1617_router_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --self-test
 
 run "migration O-16/O-17 router drift" "python scripts/check_skill_migration_o1617_router_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_migration_o1617_router_drift.py" --verbose --ci
 
 run "implementor partition self-test" "python scripts/check_skill_implementor_partition_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --self-test
 
 run "implementor partition drift" "python scripts/check_skill_implementor_partition_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_implementor_partition_drift.py" --verbose --ci
 
 run "re-frame2 skill drift self-test" "python scripts/check_skill_re_frame2_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_re_frame2_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_re_frame2_drift.py" --self-test
 
 run "re-frame2 skill drift" "python scripts/check_skill_re_frame2_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_re_frame2_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_re_frame2_drift.py" --verbose --ci
 
 run "skill package-refs self-test" "python scripts/check_skill_package_refs.py --self-test" \
-  python "$spine_root/scripts/check_skill_package_refs.py" --self-test
+  $python "$spine_root/scripts/check_skill_package_refs.py" --self-test
 
 run "skill package refs" "python scripts/check_skill_package_refs.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_package_refs.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_package_refs.py" --verbose --ci
 
 run "skill installer behavior" "python scripts/check_skill_installers.py" \
-  python "$spine_root/scripts/check_skill_installers.py"
+  $python "$spine_root/scripts/check_skill_installers.py"
 
 run "pair-authoring drift self-test" "python scripts/check_skill_pair_authoring_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --self-test
 
 run "pair-authoring drift" "python scripts/check_skill_pair_authoring_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --verbose --ci
 
 run "setup-counter drift self-test" "python scripts/check_skill_setup_counter_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_setup_counter_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_setup_counter_drift.py" --self-test
 
 run "setup-counter drift" "python scripts/check_skill_setup_counter_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_setup_counter_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_setup_counter_drift.py" --verbose --ci
 
 run "eval-packaging self-test" "python scripts/check_skill_eval_packaging.py --self-test --ci" \
-  python "$spine_root/scripts/check_skill_eval_packaging.py" --self-test --ci
+  $python "$spine_root/scripts/check_skill_eval_packaging.py" --self-test --ci
 
 run "skill eval packaging" "python scripts/check_skill_eval_packaging.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_eval_packaging.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_eval_packaging.py" --verbose --ci
 
 run "Xray tab-inventory self-test" "python scripts/check_skill_xray_tab_inventory_drift.py --self-test" \
-  python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --self-test
+  $python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --self-test
 
 run "Xray tab-inventory drift" "python scripts/check_skill_xray_tab_inventory_drift.py --verbose --ci" \
-  python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --verbose --ci
+  $python "$spine_root/scripts/check_skill_xray_tab_inventory_drift.py" --verbose --ci
 
 run "skill redirect anchors" "python scripts/check_skill_redirect_anchors.py" \
-  python "$spine_root/scripts/check_skill_redirect_anchors.py"
+  $python "$spine_root/scripts/check_skill_redirect_anchors.py"
 
 run "keyword-catalogue drift self-test" "python scripts/check_keyword_catalogue_drift.py --self-test --verbose" \
-  python "$spine_root/scripts/check_keyword_catalogue_drift.py" --self-test --verbose
+  $python "$spine_root/scripts/check_keyword_catalogue_drift.py" --self-test --verbose
 
 run "keyword-catalogue drift" "python scripts/check_keyword_catalogue_drift.py --verbose" \
-  python "$spine_root/scripts/check_keyword_catalogue_drift.py" --verbose
+  $python "$spine_root/scripts/check_keyword_catalogue_drift.py" --verbose
 
 run "SSR prop-drop roster self-test" "python scripts/check_ssr_prop_drop_roster_drift.py --self-test --verbose" \
-  python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --self-test --verbose
+  $python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --self-test --verbose
 
 run "SSR prop-drop roster drift" "python scripts/check_ssr_prop_drop_roster_drift.py --verbose" \
-  python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --verbose
+  $python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --verbose
 
 run "CI reproduce-commands self-test" "python scripts/check_ci_reproduce_commands.py --self-test --verbose" \
-  python "$spine_root/scripts/check_ci_reproduce_commands.py" --self-test --verbose
+  $python "$spine_root/scripts/check_ci_reproduce_commands.py" --self-test --verbose
 
 run "CI reproduce-commands" "python scripts/check_ci_reproduce_commands.py --check --verbose" \
-  python "$spine_root/scripts/check_ci_reproduce_commands.py" --check --verbose
+  $python "$spine_root/scripts/check_ci_reproduce_commands.py" --check --verbose
 
 run "gate-scheduling audit self-test" "python scripts/check_gate_scheduling.py --self-test --verbose" \
-  python "$spine_root/scripts/check_gate_scheduling.py" --self-test --verbose
+  $python "$spine_root/scripts/check_gate_scheduling.py" --self-test --verbose
 
 run "gate-scheduling audit" "python scripts/check_gate_scheduling.py --verbose" \
-  python "$spine_root/scripts/check_gate_scheduling.py" --verbose
+  $python "$spine_root/scripts/check_gate_scheduling.py" --verbose
 
 # Conformance-corpus EDN well-formedness.  Always-on rather than tiered:
 # `spec/conformance/fixtures/*.edn` is not an `.md` path so it never arms the
@@ -1352,10 +1425,10 @@ run "gate-scheduling audit" "python scripts/check_gate_scheduling.py --verbose" 
 # milliseconds, so it runs on every diff, mirroring its always-on step in the
 # invariant job.
 run "conformance fixture EDN gate self-test" "python scripts/check_conformance_fixture_edn.py --self-test --verbose" \
-  python "$spine_root/scripts/check_conformance_fixture_edn.py" --self-test --verbose
+  $python "$spine_root/scripts/check_conformance_fixture_edn.py" --self-test --verbose
 
 run "conformance fixture EDN gate" "python scripts/check_conformance_fixture_edn.py --verbose" \
-  python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
+  $python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
 
 # Egress-walker residue.  Always-on for the same reason as the
 # conformance-EDN gate above: the subject is `tools/*/src` + `skills/*/preload`
@@ -1364,26 +1437,26 @@ run "conformance fixture EDN gate" "python scripts/check_conformance_fixture_edn
 # scan over ~400 files costs milliseconds, so it runs on every diff, mirroring
 # its always-on step in the invariant job.
 run "egress-walker residue self-test" "python scripts/check_egress_walker_residue.py --self-test --verbose" \
-  python "$spine_root/scripts/check_egress_walker_residue.py" --self-test --verbose
+  $python "$spine_root/scripts/check_egress_walker_residue.py" --self-test --verbose
 
 run "egress-walker residue" "python scripts/check_egress_walker_residue.py --verbose" \
-  python "$spine_root/scripts/check_egress_walker_residue.py" --verbose
+  $python "$spine_root/scripts/check_egress_walker_residue.py" --verbose
 
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
 # CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the
 # documentation tier; only the self-test arm runs here, so the live scan stays
 # in that tier and a code-only diff pays nothing for it.
 run "README link validator self-test" "python scripts/check_readme_links.py --self-test --verbose" \
-  python "$spine_root/scripts/check_readme_links.py" --self-test --verbose
+  $python "$spine_root/scripts/check_readme_links.py" --self-test --verbose
 
 run "README inventory ratchet self-test" "python scripts/check_readme_inventories.py --self-test --verbose" \
-  python "$spine_root/scripts/check_readme_inventories.py" --self-test --verbose
+  $python "$spine_root/scripts/check_readme_inventories.py" --self-test --verbose
 
 run "adapter-disposition self-test" "python scripts/check_adapter_disposition.py --self-test --verbose" \
-  python "$spine_root/scripts/check_adapter_disposition.py" --self-test --verbose
+  $python "$spine_root/scripts/check_adapter_disposition.py" --self-test --verbose
 
 run "adapter disposition" "python scripts/check_adapter_disposition.py --verbose --ci" \
-  python "$spine_root/scripts/check_adapter_disposition.py" --verbose --ci
+  $python "$spine_root/scripts/check_adapter_disposition.py" --verbose --ci
 
 # The lockstep gate's OWN self-test.  The live scan runs first in this block;
 # its self-test arm — the thing that proves the lockstep checkers still fire —
@@ -1431,13 +1504,13 @@ if [ "$run_docs" = true ]; then
   printf '\n--- documentation surface changed → running link/anchor/status gates ---\n'
 
   run "README link/anchor validator" "python scripts/check_readme_links.py --ci" \
-    python "$spine_root/scripts/check_readme_links.py" --ci
+    $python "$spine_root/scripts/check_readme_links.py" --ci
 
   run "docs corpus anchor self-test" "python scripts/check_doc_slugs.py --self-test --verbose" \
-    python "$spine_root/scripts/check_doc_slugs.py" --self-test --verbose
+    $python "$spine_root/scripts/check_doc_slugs.py" --self-test --verbose
 
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
-    python "$spine_root/scripts/check_doc_slugs.py"
+    $python "$spine_root/scripts/check_doc_slugs.py"
 
   # Flattened nested lists.  Neither gate above can see this class
   # — a flattened list is valid markup with no broken target and no anchor —
@@ -1447,10 +1520,10 @@ if [ "$run_docs" = true ]; then
   # cite CI rather than a green spine for a diff the classifier did not call
   # documentation.
   run "flattened-list gate self-test" "python scripts/check_flattened_lists.py --self-test" \
-    python "$spine_root/scripts/check_flattened_lists.py" --self-test
+    $python "$spine_root/scripts/check_flattened_lists.py" --self-test
 
   run "flattened-list gate" "python scripts/check_flattened_lists.py" \
-    python "$spine_root/scripts/check_flattened_lists.py"
+    $python "$spine_root/scripts/check_flattened_lists.py"
 
   # Escaped continuation blocks.  The gate above cannot see this class
   # either: it grades consecutive list ITEMS, so a continuation PARAGRAPH that
@@ -1460,10 +1533,10 @@ if [ "$run_docs" = true ]; then
   # classifier-gated here, so cite CI and not a green spine for a diff the
   # classifier did not call documentation.
   run "escaped-continuation gate self-test" "python scripts/check_escaped_continuations.py --self-test" \
-    python "$spine_root/scripts/check_escaped_continuations.py" --self-test
+    $python "$spine_root/scripts/check_escaped_continuations.py" --self-test
 
   run "escaped-continuation gate" "python scripts/check_escaped_continuations.py" \
-    python "$spine_root/scripts/check_escaped_continuations.py"
+    $python "$spine_root/scripts/check_escaped_continuations.py"
 
   # Provenance pins.  This repo rebase-merges, so a Fresco page
   # that pins a measurement to its own authored SHA is stranded the moment its
@@ -1472,7 +1545,7 @@ if [ "$run_docs" = true ]; then
   # block with a SHA that IS an ancestor of origin/main.
   run "provenance pin self-test" \
     "python scripts/check_provenance_pins.py --self-test --verbose" \
-    python "$spine_root/scripts/check_provenance_pins.py" --self-test --verbose
+    $python "$spine_root/scripts/check_provenance_pins.py" --self-test --verbose
 
   # The BLOCKING arm is scoped to pages this branch touches, so it holds every
   # new and edited page to the rule without making an untouched page a
@@ -1482,7 +1555,7 @@ if [ "$run_docs" = true ]; then
   if [ "$base_resolved" = true ]; then
     run "provenance pins on changed pages" \
       "python scripts/check_provenance_pins.py --changed-since origin/main --verbose" \
-      python "$spine_root/scripts/check_provenance_pins.py" \
+      $python "$spine_root/scripts/check_provenance_pins.py" \
         --changed-since origin/main --verbose
   else
     printf 'SKIP provenance pins on changed pages (origin/main unresolved — no baseline for "landed")\n'
@@ -1520,22 +1593,22 @@ if [ "$run_docs" = true ]; then
   # naming the file and the unresolvable target.  See also the
   # `mkdocs --strict build` block below.
   run "inject-cofx residue self-test" "python scripts/check_inject_cofx_residue.py --self-test --verbose" \
-    python "$spine_root/scripts/check_inject_cofx_residue.py" --self-test --verbose
+    $python "$spine_root/scripts/check_inject_cofx_residue.py" --self-test --verbose
 
   run "inject-cofx residue" "python scripts/check_inject_cofx_residue.py --verbose" \
-    python "$spine_root/scripts/check_inject_cofx_residue.py" --verbose
+    $python "$spine_root/scripts/check_inject_cofx_residue.py" --verbose
 
   run "failure-corpus residue self-test" "python scripts/check_failure_corpus_residue.py --self-test --verbose" \
-    python "$spine_root/scripts/check_failure_corpus_residue.py" --self-test --verbose
+    $python "$spine_root/scripts/check_failure_corpus_residue.py" --self-test --verbose
 
   run "failure-corpus residue" "python scripts/check_failure_corpus_residue.py --verbose" \
-    python "$spine_root/scripts/check_failure_corpus_residue.py" --verbose
+    $python "$spine_root/scripts/check_failure_corpus_residue.py" --verbose
 
   run "retired composition-vocab self-test" "python scripts/check_retired_composition_vocab.py --self-test --verbose" \
-    python "$spine_root/scripts/check_retired_composition_vocab.py" --self-test --verbose
+    $python "$spine_root/scripts/check_retired_composition_vocab.py" --self-test --verbose
 
   run "retired composition vocab" "python scripts/check_retired_composition_vocab.py --verbose" \
-    python "$spine_root/scripts/check_retired_composition_vocab.py" --verbose
+    $python "$spine_root/scripts/check_retired_composition_vocab.py" --verbose
 
   # `check_retired_image_keys.py --verbose` costs ~0.9s: a token pre-filter in
   # front of the regex battery, a one-sweep string mask, and a pruned directory
@@ -1548,20 +1621,20 @@ if [ "$run_docs" = true ]; then
   # live scan over a corpus that contains no retired spellings cannot tell you the
   # difference between "clean" and "blind".
   run "retired image-keys self-test" "python scripts/check_retired_image_keys.py --self-test --verbose" \
-    python "$spine_root/scripts/check_retired_image_keys.py" --self-test --verbose
+    $python "$spine_root/scripts/check_retired_image_keys.py" --self-test --verbose
 
   run "retired image keys" "python scripts/check_retired_image_keys.py --verbose" \
-    python "$spine_root/scripts/check_retired_image_keys.py" --verbose
+    $python "$spine_root/scripts/check_retired_image_keys.py" --verbose
 
   # EP index status-sync guard: docs/EP/README.md restates each EP's Status:
   # line in its index table, and the two can drift by hand (an EP at
   # `accepted` while the index says `proposal`).  Self-test first (proves
   # the guard fires on mismatch / missing-row / orphan-row), then the live scan.
   run "EP status-sync self-test" "python scripts/check_ep_status_sync.py --self-test" \
-    python "$spine_root/scripts/check_ep_status_sync.py" --self-test
+    $python "$spine_root/scripts/check_ep_status_sync.py" --self-test
 
   run "EP status-sync" "python scripts/check_ep_status_sync.py" \
-    python "$spine_root/scripts/check_ep_status_sync.py"
+    $python "$spine_root/scripts/check_ep_status_sync.py"
 
   # Runtime-subsystem grading drift guard (EP-0006): every reserved
   # `:rf.runtime/*` key (spec/Conventions.md §Reserved runtime-db keys) MUST
@@ -1571,10 +1644,10 @@ if [ "$run_docs" = true ]; then
   # extra-row / missing-clause / ungraded-clause / clause-order), then the live
   # scan.  See scripts/check_runtime_subsystem_grading.py.
   run "runtime-subsystem grading self-test" "python scripts/check_runtime_subsystem_grading.py --self-test" \
-    python "$spine_root/scripts/check_runtime_subsystem_grading.py" --self-test
+    $python "$spine_root/scripts/check_runtime_subsystem_grading.py" --self-test
 
   run "runtime-subsystem grading drift" "python scripts/check_runtime_subsystem_grading.py" \
-    python "$spine_root/scripts/check_runtime_subsystem_grading.py"
+    $python "$spine_root/scripts/check_runtime_subsystem_grading.py"
 
   # The strict site build.  A HARD gate wherever mkdocs resolves at all; where
   # it does not, the step says what it did not check and — measured, not
@@ -1632,7 +1705,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$run_kondo" = true ]; then
   kondo_status=0
-  python "$spine_root/scripts/lint_kondo.py" --print-binary >/dev/null 2>&1 \
+  $python "$spine_root/scripts/lint_kondo.py" --print-binary >/dev/null 2>&1 \
     || kondo_status=$?
   if [ "$kondo_status" -eq 2 ]; then
     printf '\n    NOT CHECKED: clj-kondo — the version lint.yml pins could not be\n'
@@ -1644,7 +1717,7 @@ if [ "$run_kondo" = true ]; then
     note_skipped "clj-kondo (pinned) — the pinned binary could not be provisioned, so no local lane linted implementation/, examples/, testbeds/ or tools/ this run"
   else
     run "clj-kondo (pinned, CI's own command)" "python scripts/lint_kondo.py" \
-      bash -lc "cd '$spine_root' && python scripts/lint_kondo.py"
+      bash -lc "cd '$spine_root' && $python scripts/lint_kondo.py"
   fi
 else
   printf '\n--- no clj-kondo lint surface in the diff → skipping the lint lane ---\n'
@@ -1807,4 +1880,4 @@ fi
 # buried inside jobs it does run, which is the class a skipped-tier list cannot
 # see.  Derived at print time from the workflows, so it cannot go
 # stale; `--list` swaps the digest for a local command per check.
-python "$spine_root/scripts/check_fast_pr_gap.py" --brief || true
+$python "$spine_root/scripts/check_fast_pr_gap.py" --brief || true
