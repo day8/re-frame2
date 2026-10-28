@@ -13,9 +13,10 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 **Identify** — every bare fully-qualified `rf/dispatch` / `rf/subscribe` (the ambient 1-arity forms) that can run where no frame is in scope — outside a render under a boundary, with no frame binding around it — in a `reg-view` and a plain fn alike:
 
 1. **A callback that runs after the render** — an `:on-*` handler, a timer, a promise continuation, a lifecycle method — and a helper such a callback calls.
-2. **A view under no boundary** — one that reads the frame ambiently but renders outside every `[rf/frame-provider {:frame <id>} …]` / `[rf/frame-root {:id <id>} …]` boundary, with no live `with-frame` around its render. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.)
+2. **The body of a reaction a view creates** — `r/reaction`, `r/track` / `r/track!`, `reagent.ratom/make-reaction` — and a fn the view hands to a helper that runs it inside a reaction of its own. The reaction's first run sits inside the render and resolves; when a source changes, Reagent re-runs it from its own flush, outside every render.
+3. **A view under no boundary** — one that reads the frame ambiently but renders outside every `[rf/frame-provider {:frame <id>} …]` / `[rf/frame-root {:id <id>} …]` boundary, with no live `with-frame` around its render. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.)
 
-**Risk**: code that runs outside a render has no tree to consult, so only the dynamic scope can answer — which has unwound by the time that code runs. The call carries no frame and raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing); a boundary-less view raises the same way when it renders. Each surfaces at runtime, at its own moment: a callback when it first fires; a boundary-less view when it first renders.
+**Risk**: code that runs outside a render has no tree to consult, so only the dynamic scope can answer — which has unwound by the time that code runs. The call carries no frame and raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing); a boundary-less view raises the same way when it renders. Each surfaces at runtime, at its own moment: a callback when it first fires; a boundary-less view when it first renders; a reaction body on the first change to one of its sources, which a boot smoke that only renders never reaches.
 
 **Decision shape** — the fixes:
 
@@ -30,12 +31,29 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 |---|---|
 | An ambient read during a render under a boundary | **4** — leave as-is. |
 | A callback (Identify 1) | **1** — call the captured ops from the callback. |
+| A reaction body (Identify 2) | **1**, with the captured `subscribe` called *inside the body* (below). |
 | A helper a callback reaches, whether or not a render reaches it too | **2** — the helper takes the frame api as an argument (below). |
-| A view under no boundary (Identify 2) | **3** — scope the render. |
+| A view under no boundary (Identify 3) | **3** — scope the render. |
+
+**A reaction body keeps a reactive read.** Capture at render — the `reg-view`-injected `subscribe`, or `(rf/capture-frame)` taken during the render — and call the captured `subscribe` inside the reaction body. The reaction is that read's reactive owner and releases it when the reaction disposes, so nothing outlives the reaction. Keep it `subscribe`: `subscribe-once` is a non-reactive read, so the reaction would not re-run when that sub changes. For a fn the view hands to a helper's reaction, close that fn over the view's captured `subscribe`.
+
+```clojure
+;; before — the reaction's first run is in the render and resolves; Reagent's
+;; flush re-runs it on the first change, where the ambient subscribe raises
+(defn visible-rows []
+  (let [rows (r/reaction (filter-rows @(rf/subscribe [:rows]) @(rf/subscribe [:filter])))]
+    (fn [] [:ul (for [row @rows] ^{:key (:id row)} [:li (:label row)])])))
+
+;; after — captured in the outer fn, which runs in the first render; read in the body
+(defn visible-rows []
+  (let [{:keys [subscribe]} (rf/capture-frame)
+        rows (r/reaction (filter-rows @(subscribe [:rows]) @(subscribe [:filter])))]
+    (fn [] [:ul (for [row @rows] ^{:key (:id row)} [:li (:label row)])])))
+```
 
 **A helper a callback reaches takes the frame api as an argument.** Every caller passes the `(rf/capture-frame)` it took at render, and the helper calls that api's ops, so it follows each caller's frame. A helper that only dispatches may keep its signature instead: it takes `(rf/capture-frame)` at entry, and each caller in a callback wraps the call in `(rf/with-frame (:frame api) …)` with the api it captured at render. A helper that reads a sub keeps the reactive read on the render path — hoist the read into the render and pass the value in — and gives its callback path a one-shot `(rf/subscribe-once query-v {:frame (:frame api)})`. Wrapping a subscribing helper in `with-frame` stops the raise, but its `@(subscribe …)` then runs with no reactive owner and takes a sub-cache share that nothing releases. In a migration fanned out across units the helper's shape binds every caller's unit, so its owner fixes and publishes it before any caller's unit converts a call site, as Wave 0 publishes ids ([`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files)).
 
-**Size it in the Phase-0a inventory.** Count the deferred call sites up front. A v1 app dispatched from every `:on-click` with a bare `rf/dispatch`, because v1 had one global frame, so this is usually the larger half of M-11.
+**Size it in the Phase-0a inventory.** Count the deferred call sites up front, reaction bodies included. A v1 app dispatched from every `:on-click` with a bare `rf/dispatch`, because v1 had one global frame, so this is usually the larger half of M-11.
 
 ### Executing the conversion: views from defn to reg-view
 
@@ -244,9 +262,9 @@ Do **not** reach for a re-pointable bundle or a mutable frame handle to "fix" th
 
 **A fourth body shape — `defmulti` / `defmethod`-dispatched views.** A large app commonly renders a polymorphic view as a `defmulti` plus one `defmethod` per variant. This shape maps to none of Form-1/2/3, and (like Form-3) it cannot be `reg-view`-wrapped: a multimethod is not defn-shaped, so there is no `(reg-view sym [args] body)` form to give it. Its methods are invoked in function position, so a method body runs inside its caller's render and its reads resolve the frame that render resolves; a method needs a fix only where a callback it sets up dispatches with a fresh `rf/dispatch`. Then take `(rf/capture-frame)` in the method body, which runs during the render, and call the captured ops from the callback — or extract the method's hiccup into its own `reg-view` child and reduce the `defmethod` to a thin dispatcher that returns `[child-view props]` in *hiccup* position, so the child mounts as a component with its own injected ops. (The `defmulti` declaration is unchanged.)
 
-**Scope — fix the call sites, do not over-convert.** The fix is keyed on *where the read runs*, not on being a view. A component needs one **iff** a fresh `rf/subscribe` / `rf/dispatch` sits in a callback it sets up, or it reads the frame while rendering under no boundary. **Leave as `defn`** every other fn — subscribing renders under a boundary included, since they resolve the tree's frame — and every pure value-taking presentational component. This is option 4 of the decision table applied at conversion time.
+**Scope — fix the call sites, do not over-convert.** The fix is keyed on *where the read runs*, not on being a view. A component needs one **iff** a fresh `rf/subscribe` / `rf/dispatch` sits in a callback or a reaction body it sets up, or it reads the frame while rendering under no boundary. **Leave as `defn`** every other fn — subscribing renders under a boundary included, since they resolve the tree's frame — and every pure value-taking presentational component. This is option 4 of the decision table applied at conversion time.
 
-**Compile-silent — only the boot-smoke catches a miss.** A missed site is valid ClojureScript: it compiles **0 errors / 0 warnings** and is invisible in the build log. The gap surfaces only at runtime: `:rf.error/no-frame-context` when the callback first fires, or when a boundary-less view first renders. Because it throws on *interaction or render* (not at ns-load), it is precisely the silent class the Phase-4 [boot smoke-test](runtime-smoke-test.md) exists to catch: boot the dev build, exercise each first-screen surface and its controls, and watch the console for `:rf.error/no-frame-context`. Treat the sweep as unverified until a clean boot drives the screens' controls — which is why Phase-0a **sizes** it rather than discovering the extent one click at a time.
+**Compile-silent — only the boot-smoke catches a miss.** A missed site is valid ClojureScript: it compiles **0 errors / 0 warnings** and is invisible in the build log. The gap surfaces only at runtime: `:rf.error/no-frame-context` when the callback first fires, or when a boundary-less view first renders. Because it throws on *interaction or render* (not at ns-load), it is precisely the silent class the Phase-4 [boot smoke-test](runtime-smoke-test.md) exists to catch: boot the dev build, exercise each first-screen surface and its controls, and watch the console for `:rf.error/no-frame-context`. A reaction body raises only on the first change to one of its sources, so let each screen's controls change state. Treat the sweep as unverified until a clean boot drives the screens' controls — which is why Phase-0a **sizes** it rather than discovering the extent one click at a time.
 
 **After converting — fix any function-position call site of a converted view.** A `reg-view` mounts as its own component only when it appears as the head of a hiccup vector, `[my-view props]`. A v1 codebase that called the old plain render fn in **function position**, `(my-view props)`, still compiles after the conversion but bypasses the mount: no component is minted, so the view has no component identity of its own and its frame is whatever its caller's render resolves. So add one identify/verify step to the sweep: after converting the view symbols, grep each converted symbol used in call position — `(my-view …)` — and rewrite it to hiccup, `[my-view …]`. (The bracket-head lookup form `[(rf/view :my-view) …]` is also hiccup and mounts normally; only the **bare** `(my-view …)` call bypasses the mount.)
 
