@@ -885,7 +885,7 @@ A site that fails any of the four, or whose signal fn cannot be read (defined el
 **Type B** for the durable-read judgment, **Type A** for the mechanical reshape. The EP-0017 coeffect surface (`docs/EP/EP-0017-recordable-coeffects.md`) lands five changes that touch any v1 app using `inject-cofx` or a `:now`/UUID/random/storage cofx:
 
 1. **`inject-cofx` is removed (no alias).** Calling `(rf/inject-cofx :id)` is the hard error `:rf.error/inject-cofx-removed`. A handler now takes delivery of a coeffect by **declaring** the id in `:rf.cofx/requires` registration metadata; the value arrives **flat** in the coeffects map under its id.
-2. **`reg-cofx` is value-returning.** The v1 ctx→ctx shape (`(fn [ctx] (assoc-in ctx [:coeffects :id] v))`) is retired. A supplier is now `(fn [] value)` or `(fn [arg] value)` and returns the coeffect value directly.
+2. **`reg-cofx` is value-returning.** The v1 ctx→ctx shape (`(fn [ctx] (assoc-in ctx [:coeffects :id] v))`) is retired. A supplier is now `(fn [] value)` or `(fn [arg] value)` and returns the coeffect value directly. It sees only its own arg, so a v1 cofx that derived its value from the coeffects' `:db` is deleted, and its consumers read the value themselves — never from `:db` under a path focus (the note after the reshape below).
 3. **`:rf.world/inputs` → `:rf.cofx`** (EP-0010's envelope field renamed + flattened). It is a **flat** `fact-name → value` map (no `:uuid`/`:random` grouping sub-maps). `:rf.world/inputs` was a draft-only name (never shipped), so supplying it as a dispatch opt earns no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx`. The durable wall-clock fact is the framework's one built-in coeffect, **`:rf/time-ms`** (recordable, provided, stamped at enqueue).
 4. **Nothing implicit, including the time.** A handler that folds a timestamp into durable state declares `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat.
 5. **`reg-cofx` is recordable by default.** A v1 cofx ran fresh on every injection; a v2 registration with no `:recordable?` key is recorded and replayed, so its value must be EDN. A display, diagnostic or host-object supplier registers `{:recordable? false}` to keep v1's run-every-time behaviour; `:rf.error/cofx-value-invalid` names any non-EDN one that was missed.
@@ -917,6 +917,8 @@ A site that fails any of the four, or whose signal fn cannot be read (defined el
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} _] {:db (assoc db :saved-at time-ms)}))
 ```
+
+**Under a path focus, `:db` is the slice.** v1's `inject-cofx` ran `(update context :coeffects handler)`, and `path` swapped `:db` only in its own `:before`, so a v1 cofx ahead of `(rf/path …)` in the chain derived its value from the ROOT db. v2's standard path interceptor stages the focused slice as the handler's `:db`, and [M-73](#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018) lowers each `(rf/path …)` to that `[:rf.interceptor/path …]` ref, so deleting such a cofx and re-reading its value from `:db` returns `nil` with no error. Read the value from the root instead: `(rf/subscribe-once [:the/sub])` in the body, or wrapped as an ambient cofx ([`re-frame2` skill, `cofx.md` §Reading a sub from a handler](../../skills/re-frame2/references/fundamentals/cofx.md#reading-a-sub-from-a-handler--subscribe-once-wrapped-as-an-ambient-cofx)), or drop the path focus and read from the root db. Check each removed db-reading cofx's consumers for a path ref.
 
 **The durable-read judgment (Type B) lives in [`causal-world-inputs.md`](../../skills/re-frame-migration/references/causal-world-inputs.md):** which host reads must become recorded facts (durable bucket) vs may stay ambient (diagnostic / host-transient). EP-0017 changes the *destination* of a durable read (declared `:rf/time-ms` / event payload / — slice B — a recordable generator cofx) but not the rule: **durable state folds facts, never reads.**
 
@@ -1231,12 +1233,14 @@ The four built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forev
 | `(reg :cofx :id ...)` | `(reg-cofx :id ...)` |
 | `(reg :flow :id ...)` | `(reg-flow :id {:inputs [...] :output-path [...]} derive-fn)` — the canonical **3-slot** grammar: flow-id first, the reflection-metadata map second, the pure derive fn **third**. The v1-alpha flow map does not survive as a map: `:id` becomes the first slot; `:inputs` goes from a keyword→path map to a **vector of paths** (order is the derive fn's parameter order); `:path` becomes `:output-path`; and `:output` moves *out* of the map into the third slot — a `:derive` key left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`. **Only the key renames are mechanical.** The `:output` fn destructured a resolved-inputs *map*, so its body must be rewritten to take the inputs **positionally** — and re-frame 1.4.4+ also passes `:output` the previous inputs and previous output, which a derive fn never receives, so an `:output` that reads them holds state and becomes ordinary `app-db` state rather than a flow (013's `:output` and `:cleanup` rows); and v1's `:live?` / `:live-inputs`, `:cleanup`, per-flow `:fx` and `flow<-` have no v2 slot at all. Those belong to [M-30](#m-30-flows-spec-013-ships-in-a-separate-artefact--day8re-frame2-flows), which owns the flow-map conversion (the `:live?` re-home is Type B); the full key table is [013 §Migration from v1 alpha flows](../../spec/013-Flows.md#migration-from-v1-alpha-flows). |
 | `(sub {:re-frame/q ::id :param 1})` | `(subscribe [::id 1])` — except a `:flow` query (below) |
+| `(sub ::id)` | `(subscribe [::id])` — alpha reads a bare keyword as `{:re-frame/q ::id}`. **Not a rename** (below the table). |
+| `(sub ::id {:param 1})` | `(subscribe [::id 1])` — alpha reads an id plus a map as `{:re-frame/q ::id :param 1}`, the query-map row. **Not a rename** (below the table). |
 | `(sub <vector>)` | `(subscribe <vector>)` (alpha/sub already accepts vectors; just switch the namespace) — except a `:flow` query (below) |
 | `(sub :flow {:id ::f})`, the vector `[:flow {:id ::f}]` or the query map `{:re-frame/q :flow :id ::f}` — a read of a flow's output | **Not a rename.** v1's `re-frame.alpha` registers a `:flow` sub itself, and v2 flows publish no subscriptions ([013 §Sub integration](../../spec/013-Flows.md#sub-integration)), so a renamed read emits `:rf.error/no-such-sub` and yields `nil`. Read the flow's `:output-path` through a `reg-sub` and subscribe to that; [M-30](#m-30-flows-spec-013-ships-in-a-separate-artefact--day8re-frame2-flows) counts these reads. |
 | `:re-frame/lifecycle <policy>` annotation | **Drop.** The v2 sub-cache handles disposal automatically via deferred ref-counting (Spec 006). For specific edge cases that genuinely need `:no-cache` / `:forever` semantics (e.g. one-shot queries; never-disposed values), **file a GitHub issue against `day8/re-frame2`** naming the actual use case — don't paper over by inventing an API. |
 | `(reg-sub-lifecycle :my-lifecycle ...)` | **Drop.** No replacement — the lifecycle-policy extension surface is gone. File a GitHub issue against `day8/re-frame2` if a real need surfaces. |
 
-The per-kind registration macros (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`), `reg-flow`, `reg-route`, and the vector-form `subscribe` are available in `re-frame.core`; this migration is mostly find-and-replace, save for the `:event-*` rows that fold onto the one `reg-event` (and the `:event-ctx` interceptor path) per M-73, the `(reg :flow …)` row, whose key renames are mechanical but whose `:output`-fn-to-derive-fn reshape and dropped `:live?` / `:cleanup` / `:fx` keys ride M-30, and the `:flow` query row, which re-points a read rather than renaming it.
+The per-kind registration macros (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`), `reg-flow`, `reg-route`, and the vector-form `subscribe` are available in `re-frame.core`; this migration is mostly find-and-replace, save for the `:event-*` rows that fold onto the one `reg-event` (and the `:event-ctx` interceptor path) per M-73, the `(reg :flow …)` row, whose key renames are mechanical but whose `:output`-fn-to-derive-fn reshape and dropped `:live?` / `:cleanup` / `:fx` keys ride M-30, the `:flow` query row, which re-points a read rather than renaming it, and the two `sub` shorthand rows. Neither shorthand is a rename: v2's `subscribe` takes a query vector, and its 2-arity is `[query-v opts]`, so a renamed `(subscribe ::id)` passes a keyword where the query vector goes, and a renamed `(subscribe ::id {:param 1})` hands the params to `opts`, which drops them.
 
 **Why:** the alpha namespace was an experiment that did not graduate. Its central idea (one generalised registration entry across kinds) lost out to the per-kind macros, which are friendlier to source-coord capture and to per-kind metadata grammars. The lifecycle-policy mechanism shipped with no real-world use cases that the default policy didn't handle, while complicating the cache implementation. Pre-v1 is the right time to cut the dead code.
 
@@ -2178,7 +2182,7 @@ Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx` and so on) and ap
 
 **Type A** (mechanical).
 
-v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim" under `re-frame.test-support`, but the shim was pure migration tax — v2's `dispatch-sync` is already settle-by-default (drains the event queue to fixed point synchronously per [Spec 002 §Run-to-completion dispatch](../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics) and [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)), and v2 test suites already wrap each test in `make-reset-runtime-fixture` (or a manual `snapshot-registrar` / `restore-registrar!` bracket) for registrar isolation. The macro's only job was a snapshot/restore bracket around the body, and the per-test fixture supplies that uniformly. Per pre-alpha policy: v2 drops the shim.
+v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim" under `re-frame.test-support`, but the shim was pure migration tax — v2's `dispatch-sync` is already settle-by-default (drains the event queue to fixed point synchronously per [Spec 002 §Run-to-completion dispatch](../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics) and [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)), and v2 test suites already wrap each test in `make-reset-runtime-fixture` (or a manual `snapshot-registrar` / `restore-registrar!` bracket) for registrar isolation. v1's macro did two jobs. It bracketed the body with `with-temp-re-frame-state`, which the per-test fixture supplies uniformly. It also redefined `rf/dispatch` and `re-frame.router/dispatch` to queue the event and drain at once through `dispatch-sync`, so every `rf/dispatch` made while the body ran had settled before the body's next form. v2 has no such redefinition: a dispatch made inside a running event — its handler, interceptors or `:fx` walk — drains with it, but an `rf/dispatch` made outside any event joins the frame's external lane and runs on a later tick (Spec 002 §Run-to-completion dispatch, rule 2). So the hoist makes the body's dispatches synchronous itself. Per pre-alpha policy: v2 drops the shim.
 
 **What to look for** in the codebase:
 
@@ -2189,14 +2193,20 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
 (rf-test/run-test-sync body...)
 ```
 
-**What to do.** Hoist the body to inline `dispatch-sync` calls under the standard per-test fixture — `run-test-sync` was a thin body wrapper, not a synchronicity primitive.
+**What to do.** Hoist the body under the standard per-test fixture, and make its dispatches synchronous where the macro did:
+
+- **Each `rf/dispatch` the body calls directly becomes `rf/dispatch-sync`.**
+- **Leave one inside a handler the body registers.** It already drains with its event, and `dispatch-sync` there is `:rf.error/dispatch-sync-in-handler`.
+- **Flag a dispatch that production code makes from a callback the body fires, outside any event** — a socket `onopen`, a promise or captured stub callback the test resolves inline. It cannot be swapped at the test site: find each one by reading what the body calls, and await its result with `ts/poll-until` or a one-shot `:rf.event/run-end` listener, as [M-25](#m-25-day8re-frametest-helpers-renamed-to-re-frametest-support)'s `run-test-async` and `wait-for` rows do.
+
+Missed, either kind leaves the test asserting state the dispatch has not written yet, or an assertion of absence passing vacuously.
 
 ```clojure
 ;; before
 (deftest legacy-flow
   (ts/run-test-sync
     (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-    (rf/dispatch-sync [:counter/inc])
+    (rf/dispatch [:counter/inc])
     (is (= 1 (:n (rf/app-db-value :rf/default))))))
 
 ;; after — body is hoisted; per-test fixture handles registrar isolation
@@ -2205,7 +2215,7 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
 
 (deftest legacy-flow
   (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
-  (rf/dispatch-sync [:counter/inc])
+  (rf/dispatch-sync [:counter/inc])   ;; the body's direct rf/dispatch, made synchronous
   (is (= 1 (:n (rf/app-db-value :rf/default)))))
 ```
 
@@ -2225,7 +2235,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
         (ts/restore-registrar! snap)))))
 ```
 
-**Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
+**Why:** v2's `dispatch-sync` drains to completion, so the macro's synchronous half is one explicit `dispatch-sync` at each direct dispatch, and its registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose jobs are duplicated by the standard fixture and an explicit call is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
 
 **Cross-references.** [M-25](#m-25-day8re-frametest-helpers-renamed-to-re-frametest-support) for the `day8.re-frame.test` require and its async helpers (`run-test-async`, `wait-for`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
 
