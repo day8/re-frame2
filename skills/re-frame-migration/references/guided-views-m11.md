@@ -10,19 +10,30 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 
 **What already works.** While a view renders, its ambient `subscribe` / `dispatch` resolve the frame from the component tree — the closest enclosing `frame-provider` (SCOPE) or `frame-root` (ENSURE) — for a `reg-view` and a plain `(defn …)` Reagent fn alike, and the provider wins over any `with-frame` around the render. A subscribing plain fn under the app's root boundary needs no conversion.
 
-**Identify**:
+**Identify** — every bare fully-qualified `rf/dispatch` / `rf/subscribe` (the ambient 1-arity forms) that can run where no frame is in scope — outside a render under a boundary, with no frame binding around it — in a `reg-view` and a plain fn alike:
 
-1. Every bare fully-qualified `rf/dispatch` / `rf/subscribe` (the ambient 1-arity forms) inside an `:on-*` handler or any other callback that runs after the render — a timer, a promise continuation, a lifecycle method — in a `reg-view` and a plain fn alike.
-2. Every view that reads the frame ambiently but renders outside every `[rf/frame-provider {:frame <id>} …]` / `[rf/frame-root {:id <id>} …]` boundary, with no live `with-frame` around its render. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.)
+1. **A callback that runs after the render** — an `:on-*` handler, a timer, a promise continuation, a lifecycle method — and a helper such a callback calls.
+2. **A view under no boundary** — one that reads the frame ambiently but renders outside every `[rf/frame-provider {:frame <id>} …]` / `[rf/frame-root {:id <id>} …]` boundary, with no live `with-frame` around its render. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.)
 
-**Risk**: a callback runs with no component rendering, so its ambient read has no tree to consult and only the dynamic scope can answer — which has unwound by the time the callback fires. The call carries no frame and raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing). A boundary-less view raises the same way when it renders. Both surface at runtime: when the callback first fires, or when the view first renders.
+**Risk**: code that runs outside a render has no tree to consult, so only the dynamic scope can answer — which has unwound by the time that code runs. The call carries no frame and raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing); a boundary-less view raises the same way when it renders. Each surfaces at runtime, at its own moment: a callback when it first fires; a boundary-less view when it first renders.
 
-**Decision shape** (per call site):
+**Decision shape** — the fixes:
 
 1. **Capture at render time.** Call the ops a `reg-view` injects (`dispatch` / `subscribe`, captured when the view renders), or take `(rf/capture-frame)` during the render — in a plain fn too — and call its ops from the callback: `(let [{:keys [dispatch]} (rf/capture-frame)] [:button {:on-click #(dispatch [:inc])} "+"])`. Recommended.
-2. **Carry the frame explicitly.** `(rf/capture-frame frame-id)` locked to a named frame, a `{:frame <id>}` opt on the call, or a frame api passed in as a prop. Use this where the frame is a fixed, known one.
+2. **Carry the frame explicitly.** A frame api passed in as an argument or a prop — the `(rf/capture-frame)` the caller took at render, which follows that caller's frame, whichever it is; or `(rf/capture-frame frame-id)` locked to a named frame, or a `{:frame <id>}` opt on the call, where the frame is a fixed, known one.
 3. **Scope the render** — for a boundary-less view, mount it under a `frame-provider` / `frame-root`.
 4. **Leave as-is** — when the fn calls `rf/subscribe` / `rf/dispatch` only during its render under a boundary, or establishes / carries a frame explicitly in its own body. Do **not** describe a boundary-less frame-dependent fn as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so it raises `:rf.error/no-frame-context`; it does not silently route to a default. To *intentionally* target `:rf/default`, scope or pass that frame explicitly like any other; document why.
+
+**Which fix, per site:**
+
+| Site | Fix |
+|---|---|
+| An ambient read during a render under a boundary | **4** — leave as-is. |
+| A callback (Identify 1) | **1** — call the captured ops from the callback. |
+| A helper a callback reaches, whether or not a render reaches it too | **2** — the helper takes the frame api as an argument (below). |
+| A view under no boundary (Identify 2) | **3** — scope the render. |
+
+**A helper a callback reaches takes the frame api as an argument.** Every caller passes the `(rf/capture-frame)` it took at render, and the helper calls that api's ops, so it follows each caller's frame. A helper that only dispatches may keep its signature instead: it takes `(rf/capture-frame)` at entry, and each caller in a callback wraps the call in `(rf/with-frame (:frame api) …)` with the api it captured at render. A helper that reads a sub keeps the reactive read on the render path — hoist the read into the render and pass the value in — and gives its callback path a one-shot `(rf/subscribe-once query-v {:frame (:frame api)})`. Wrapping a subscribing helper in `with-frame` stops the raise, but its `@(subscribe …)` then runs with no reactive owner and takes a sub-cache share that nothing releases. In a migration fanned out across units the helper's shape binds every caller's unit, so its owner fixes and publishes it before any caller's unit converts a call site, as Wave 0 publishes ids ([`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files)).
 
 **Size it in the Phase-0a inventory.** Count the deferred call sites up front. A v1 app dispatched from every `:on-click` with a bare `rf/dispatch`, because v1 had one global frame, so this is usually the larger half of M-11.
 
