@@ -209,7 +209,12 @@ What breaks, the Type of each symbol, the mount rewrite — the adapter's own `c
 1. **`render` / `unmount-component-at-node`** — Type A once the caller's `container` reference is identified: the corpus's mount recipe, applied in the Type A sweep under the sweep-level announcement (Cardinal rule 4).
 2. **`dom-node`** — Type B. Report every site before the first compile, since an unswept site breaks the build; the author supplies the parent's `:ref` ownership.
 3. **`force-update-all`** — Type B. It re-renders only roots the legacy mount made, so once the mount is rewritten it does nothing; ask whether the call can be removed; if not, file an issue ([`issue-filing.md`](issue-filing.md)) rather than inventing a replacement.
-4. **Raw-HTML producers** — wrap a producer's value in `reagent.core/unsafe-html` only where the code shows its string escaped, sanitized or application-owned, and change nothing else (not the sanitizer policy, the callback timing or a server API); hold every other producer for the author's ownership decision. Never tag a site to bring its content back, and never tag every hit in one sweep: that turns a silent loss into an injection.
+4. **Raw-HTML producers** — wrap a producer's value in `reagent.core/unsafe-html` only where the code shows its string escaped, sanitized or application-owned, and change nothing else (not the sanitizer policy, the callback timing or a server API); hold every other producer for the author's ownership decision. Never tag a site to bring its content back, and never tag every hit in one sweep: that turns a silent loss into an injection. The tag replaces the whole `{:__html …}` map, because Reagent keeps the prop only when its value *is* the tag — `{:__html (r/unsafe-html s)}` is deleted as silently as the untagged map, with the tag on the line to make the site look done:
+
+    ```clojure
+    [:div {:dangerouslySetInnerHTML {:__html s}}]          ; v1
+    [:div {:dangerouslySetInnerHTML (r/unsafe-html s)}]    ; re-frame2, on the Reagent bridge
+    ```
 
 **Evidence, per preserved raw-HTML producer — the loss reports nothing, so a clean compile and a clean boot console prove nothing.** Assert the real rendered output — the mounted element's markup, or the static string — never the sanitizer's return value, beside two controls: ordinary text that still renders as escaped text, and hostile input (`<img src=x onerror=…>`, a `<script>`) that comes out sanitized or escaped. Remove only the tag and watch exactly that producer's assertions go red, then restore it and watch them go green.
 
