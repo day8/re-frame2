@@ -16,6 +16,7 @@ integration scripts.
 | Do connect / dispatch / trace / hot-reload work end-to-end against a live browser-hosted fixture, through the real MCP boundary? | **JS** — `live-e2e-fixture.cjs` |
 | Do the three Fresco evidence-door tools return a schema-matched, non-empty, value-free projection when actually run against a live Fresco application — and, against a build that has never loaded the door, reach `:evidence-tier-unavailable` rather than an analyzer compile error? | **JS** — `live-fresco-wire.cjs` |
 | Does closing stdin (EOF) retire the session — close the persistent nREPL socket and exit 0 — with no out-of-band kill? | **JS** — `stdin-eof-shutdown.cjs` |
+| Does a client that writes its frames and closes stdin at once still get the answer to a `tools/call` in flight at EOF? | **JS** — `stdin-eof-drain.cjs` |
 
 If a regression would only be visible after the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
@@ -238,7 +239,20 @@ cases:
 Every case also asserts stdout purity — teardown emits nothing but MCP
 frames on stdout.
 
-Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`).
+Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`),
+which runs `stdin-eof-drain.cjs` after it.
+
+#### `stdin-eof-drain.cjs` — a piped client gets its answers
+
+The drain half of the EOF contract: on stdin EOF the server answers the
+`tools/call` requests already in flight before it exits. It writes
+`initialize`, `notifications/initialized` and one `eval-cljs` call to a
+FILE and hands that file to `out/server.js` as stdin, so EOF lands right
+behind the last frame — a heredoc or a file piped in whole. Its fake
+bencode nREPL answers every op late, so the call is still waiting on the
+nREPL when EOF arrives. It asserts the call's response reaches stdout, the
+server exits `0`, stdout stays pure and stderr reports the drain. A server
+that exits on EOF without draining writes the `initialize` response alone.
 
 #### `post-merge-hook-test.cjs` — stale-binary post-merge hook
 
@@ -278,7 +292,7 @@ Is the regression visible in CLJS source?
   │
   └── no → JS integration test
             ├── concerns the stdio handshake / tool catalogue?   → stdio-roundtrip.js
-            ├── concerns the stdin-EOF shutdown lifecycle?        → stdin-eof-shutdown.cjs
+            ├── concerns the stdin-EOF shutdown lifecycle?        → stdin-eof-shutdown.cjs / stdin-eof-drain.cjs
             ├── concerns the live nREPL socket?                   → live-nrepl.js
             ├── concerns an end-to-end flow against a live app?   → live-e2e-fixture.cjs
             └── concerns the Fresco door against a live app?     → live-fresco-wire.cjs

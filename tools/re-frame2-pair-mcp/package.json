@@ -22,7 +22,7 @@
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "test:call-cli": "node test/call-cli.cjs",
-    "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs",
+    "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs && node test/stdin-eof-drain.cjs",
     "test:post-merge-hook": "node ../../scripts/git-hooks/post-merge-hook-test.cjs",
     "test:roots-discovery-live": "node test/roots-discovery-live.js",
     "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs",

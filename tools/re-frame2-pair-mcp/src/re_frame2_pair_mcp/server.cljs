@@ -37,8 +37,11 @@
 
   6. stdin EOF: the MCP host owns process lifecycle — when it closes
      stdin, Node reaches EOF and `shutdown!` retires the session: it
-     closes the persistent nREPL socket (via `nrepl/close!`), closes the
-     SDK server + stdio transport, and exits 0. The SDK 1.29
+     answers the `tools/call`s already in flight (bounded by
+     `drain-bound-ms`), closes the persistent nREPL socket (via
+     `nrepl/close!`), closes the SDK server + stdio transport, and exits
+     0. A client can therefore write its frames and close stdin straight
+     away — a heredoc or a file piped in whole. The SDK 1.29
      `StdioServerTransport` registers only `data`/`error` on stdin — it
      does NOT convert EOF into a transport close — so `connect-transport!`
      owns the stdin `end` signal directly.
@@ -663,6 +666,22 @@
     (j/call server :setRequestHandler CallToolSchema call-handler)
     server))
 
+(defonce ^:private in-flight
+  ;; JSON-RPC request id -> {:tool <name> :settled <Promise>} for each
+  ;; `tools/call` whose handler has not settled yet; `shutdown!` drains it.
+  (atom {}))
+
+(defn- track-call!
+  "Record the `tools/call` `req` as in flight until `p`, its handler's
+  Promise, settles, so a stdin EOF answers it before exit (`shutdown!`).
+  Returns `p`."
+  [req extra p]
+  (let [id      (or (some-> extra (j/get :requestId)) (str (random-uuid)))
+        settled (.then p (fn [_] nil) (fn [_] nil))]
+    (swap! in-flight assoc id {:tool (j/get-in req [:params :name]) :settled settled})
+    (.then settled (fn [_] (swap! in-flight dissoc id)))
+    p))
+
 (defn boot!
   "Build the MCP server, register handlers, capture the server reference
   for the lazy-discovery flow, and return it. Exposed for tests so they
@@ -671,7 +690,8 @@
   `launch-flags` is the parsed `parse-launch-flags` map — the discovery
   cascade reads `:port-file` and `:http-port` from it on first tool call."
   [launch-flags]
-  (let [server (build-server (fn [req extra] (handle-call launch-flags req extra)))]
+  (let [server (build-server (fn [req extra]
+                               (track-call! req extra (handle-call launch-flags req extra))))]
     (reset! server-instance server)
     server))
 
@@ -681,6 +701,55 @@
   synchronously (or resolve on the next microtask); this only guards
   against a stalled SDK close so process teardown never hangs on it."
   250)
+
+(def ^:private drain-bound-ms
+  "How long `shutdown!` waits on stdin EOF for the `tools/call`s in flight
+  to settle before it exits anyway: one nREPL round-trip's own deadline
+  (`nrepl/default-timeout-ms`), so a call gets as long to answer after EOF
+  as one op gets to answer at all. A call still waiting then is waiting on a
+  wedged runtime, or on a request to a client that has closed its end, and
+  is abandoned."
+  nrepl/default-timeout-ms)
+
+(defn- next-macrotask
+  "A Promise resolving on the next macrotask, after every microtask queued
+  before it — the SDK's request dispatch and response writes among them."
+  []
+  (js/Promise. (fn [resolve] (js/setImmediate resolve))))
+
+(defn- drain-in-flight!
+  "Resolve once every `tools/call` in flight has settled and the SDK has
+  handed its response to stdout, or once `drain-bound-ms` has passed,
+  naming on stderr each call still in flight then. It first waits a
+  macrotask, because a request read in the same chunk as the EOF reaches
+  its handler — and `in-flight` — only after the stdin `end` fires."
+  []
+  (-> (next-macrotask)
+      (.then
+        (fn [_]
+          (let [calls @in-flight]
+            (when (seq calls)
+              (log! "answering" (count calls) "tool call(s) in flight before exit:"
+                    (str/join ", " (map (fn [[id {:keys [tool]}]] (str tool " (id " id ")")) calls)))
+              (let [timer (atom nil)
+                    bound (js/Promise. (fn [resolve]
+                                         (reset! timer (js/setTimeout #(resolve ::bound) drain-bound-ms))))]
+                (-> (js/Promise.race
+                      #js [(js/Promise.all (into-array (map :settled (vals calls)))) bound])
+                    (.then (fn [outcome]
+                             (js/clearTimeout @timer)
+                             (when (= outcome ::bound)
+                               (doseq [[id {:keys [tool]}] @in-flight]
+                                 (log! "drain bound" drain-bound-ms "ms reached — abandoning tools/call"
+                                       tool (str "(id " id ")"))))
+                             (next-macrotask)))))))))))
+
+(defn- flush-stdout!
+  "Call `f` once stdout has handed every write queued before it to the OS, so
+  a drained response is not cut off by the exit that follows."
+  [f]
+  (try (.write js/process.stdout "" (fn [_] (f)))
+       (catch :default _ (f))))
 
 (defonce ^:private shutdown-claimed?
   ;; `defonce` (not `def`) so a dev hot-reload can't reset the latch
@@ -702,13 +771,15 @@
   cannot double-close the socket, republish a conn, throw an unhandled
   rejection, or change the exit status.
 
-  Teardown, in order: close the persistent nREPL socket via the
+  Teardown, in order: answer the `tools/call`s already in flight
+  (`drain-in-flight!`, bounded by `drain-bound-ms`; with none in flight
+  this costs one macrotask), close the persistent nREPL socket via the
   idempotent `nrepl/close!` (which bumps the conn generation so a late /
   in-flight connect candidate can't publish behind us), drop the session
   conn reference, then close the SDK server + its stdio transport so no
-  further frames are accepted. Exit 0 once those settle. A bounded,
-  `unref`-ed fallback timer forces exit if the SDK close stalls — it is a
-  fail-safe, never the process-liveness policy.
+  further frames are accepted. Exit 0 once those settle and stdout has
+  flushed. A bounded, `unref`-ed fallback timer forces exit if the SDK
+  close stalls — it is a fail-safe, never the process-liveness policy.
 
   Diagnostics stay on stderr; teardown emits nothing on stdout (reserved
   for MCP frames).
@@ -722,24 +793,27 @@
      (js/Promise.resolve nil)
      (do
        (log! "stdin EOF —" reason "— closing nREPL socket and exiting")
-       (when-let [conn (:conn @session-state)]
-         (try (nrepl/close! conn) (catch :default _ nil)))
-       (swap! session-state assoc :conn nil)
-       (let [close-p (if-let [^js server @server-instance]
-                       (-> (js/Promise.resolve (try (j/call server :close)
-                                                    (catch :default _ nil)))
-                           (.catch (fn [_] nil)))
-                       (js/Promise.resolve nil))
-             timer   (js/setTimeout (fn [] (exit-fn 0)) shutdown-fallback-ms)]
-         ;; `.unref` keeps the fallback timer from being the sole event-loop
-         ;; handle holding the process open (Node exposes it; guard for
-         ;; runtimes/fakes that don't).
-         (when (fn? (some-> timer .-unref))
-           (.unref timer))
-         (-> close-p
-             (.then (fn [_]
-                      (js/clearTimeout timer)
-                      (exit-fn 0)))))))))
+       (-> (drain-in-flight!)
+           (.then
+             (fn [_]
+               (when-let [conn (:conn @session-state)]
+                 (try (nrepl/close! conn) (catch :default _ nil)))
+               (swap! session-state assoc :conn nil)
+               (let [close-p (if-let [^js server @server-instance]
+                               (-> (js/Promise.resolve (try (j/call server :close)
+                                                            (catch :default _ nil)))
+                                   (.catch (fn [_] nil)))
+                               (js/Promise.resolve nil))
+                     timer   (js/setTimeout (fn [] (exit-fn 0)) shutdown-fallback-ms)]
+                 ;; `.unref` keeps the fallback timer from being the sole event-loop
+                 ;; handle holding the process open (Node exposes it; guard for
+                 ;; runtimes/fakes that don't).
+                 (when (fn? (some-> timer .-unref))
+                   (.unref timer))
+                 (-> close-p
+                     (.then (fn [_]
+                              (js/clearTimeout timer)
+                              (flush-stdout! (fn [] (exit-fn 0))))))))))))))
 
 (defn- connect-transport!
   "Connect `server` to a fresh stdio transport. Logs `ready-msg` on

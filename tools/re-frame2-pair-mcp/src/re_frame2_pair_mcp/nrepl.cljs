@@ -706,7 +706,7 @@
 
 (defn- new-id [] (str (random-uuid)))
 
-(def ^:private default-timeout-ms
+(def default-timeout-ms
   "Per-op timeout when the caller doesn't override. 30s is generous
   for shadow-cljs cljs-eval round-trips; heavy forms (e.g. a
   trace-window walk over the full epoch ring under load) can pass

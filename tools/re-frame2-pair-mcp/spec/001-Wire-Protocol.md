@@ -22,7 +22,13 @@ the framing; we don't roll our own.
    notification semantics).
 4. Client sends `tools/list`, `tools/call`, etc. Server dispatches via
    `setRequestHandler` keyed by the SDK's request schemas.
-5. Shutdown: client closes stdin → Node EOF → process exits.
+5. Shutdown: client closes stdin → Node EOF → the server answers the
+   `tools/call` requests it has already read, then closes its nREPL
+   socket and exits 0. With nothing in flight it exits at once, so a
+   client may write all its frames and close stdin straight away. The
+   wait is bounded by one nREPL round-trip's deadline (30 s); a call
+   still unanswered then is named on stderr and abandoned, and the
+   server exits 0 anyway.
 
 ## Protocol version
 

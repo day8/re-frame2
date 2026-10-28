@@ -95,7 +95,7 @@ The word after the tool name is its arguments as one JSON object (default `{}`),
 2. Send `{"jsonrpc":"2.0","method":"notifications/initialized"}`.
 3. Call tools: `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"discover-app","arguments":{}}}`. The response's `result.content[0].text` is the EDN envelope this skill describes, and `result.isError` is true on a refusal. `tools/list` returns the descriptors when you want them; nothing requires it.
 4. Answer any request the server sends — a line carrying both `method` and `id`, such as the `roots/list` discovery sends when no `--port-file` wins — with `{"jsonrpc":"2.0","id":<its id>,"error":{"code":-32601,"message":"Method not found"}}`. Left unanswered, it holds that call for the SDK's 60-second request timeout.
-5. Close stdin to end the session, once the last response has arrived: the server closes its nREPL socket and exits 0 without answering a call still in flight, so a file piped in whole gets the `initialize` response and nothing more.
+5. Close stdin to end the session. Closing it before the responses arrive is safe: the server answers every call it has read, then closes its nREPL socket and exits 0, so frames piped in whole from a file or a heredoc get their answers. It waits at most 30 seconds, one nREPL round-trip's deadline, then exits anyway, naming on stderr each call it abandoned. A client that has closed stdin cannot answer step 4's `roots/list`, so give a piped session `--port-file`.
 
 `bin/call.cjs` is a short working client to start from.
 
