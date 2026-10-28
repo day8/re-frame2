@@ -21,29 +21,22 @@
 ;; descendant-elides-after-redaction` (path walker) deftests, lifted to the
 ;; host-agnostic corpus through the runtime's emit-time projection chokepoint.
 ;;
-;; Harness note: `:fixture/classification-effects` declares `[:a]` :large and
-;; `[:a :b]` :sensitive via two ordered ops. Capability
-;; `:data-classification/classification-effects`.
+;; Harness note: the `:fixture/registry :classification` entry declares `[:a]`
+;; :large and `[:a :b]` :sensitive. Capability `:data-classification/static`.
 
 {:fixture/id           :data-classification/nested-large-over-sensitive-elides-after-redaction
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/classification-effects}
+                         :data-classification/static}
  :fixture/doc          "A :large-marked subtree [:a] containing a :sensitive descendant [:a :b] elides to the ordinary :rf.size/large-elided marker at [:a] in the t1 :rf.event/db-pending trace event, its :bytes measured over the subtree after [:a :b] is redacted, so the marker never varies with the secret (Spec 015 §No propagation)."
 
  :fixture/registry
- {:event {:dc/store {:doc "Writes a large-marked subtree carrying a sensitive descendant + a plain sibling into app-db."}}}
+ {:event {:dc/store {:doc "Writes a large-marked subtree carrying a sensitive descendant + a plain sibling into app-db."}}
+  :classification {:dc/classification {:sensitive [[:a :b]] :large [[:a]]}}}
 
  :fixture/handlers
  {:event {:dc/store [[:set [:a :b] "TOP-SECRET-TOKEN"]
                      [:set [:a :c] "public"]]}}
-
- ;; Declare [:a] :large (the ancestor subtree) and [:a :b] :sensitive (a
- ;; strict descendant) — two ordered ops. The marker must be measured after
- ;; redaction regardless of declaration order.
- :fixture/classification-effects
- [{:large     [[:a]]}
-  {:sensitive [[:a :b]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/store]]}
@@ -66,6 +59,6 @@
                      {:path   [:a]
                       :bytes  30
                       :type   :map
-                      :reason :effect
+                      :reason :classification
                       :hint   nil
                       :handle [:rf.elision/at [:a]]}}}}}]}}

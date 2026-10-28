@@ -50,17 +50,14 @@
 
 {:fixture/id           :data-classification/process-default-record-projection
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/capabilities #{:data-classification/static}
  :fixture/doc          "The projection a PROCESS-DEFAULT sink consumes for a record with no frame authority (Spec 015 §The process default): the governing frame is explicitly nil, so tree slots fail closed to :rf/redacted while summary ids — including a STALE :frame id kept as a diagnostic and never re-resolved — survive. The control call shows the same record under a live classified frame is walked, not redacted whole; the local-raw call is the sanctioned cross-frame raw hook. (Per-stream precedence and routing are pinned by re-frame.observability-process-default-cljs-test.)"
+
+ :fixture/registry
+ {:classification {:dc/classification {:sensitive [[:auth :token]]}}}
 
  :fixture/frames
  [{:id :obs/main}]
-
- ;; EP-0025: durable app-db classification rides the commit-plane
- ;; `:sensitive` effect, not a frame annotation. Installed on the scope frame
- ;; `:obs/main` — the LIVE owner call [2] projects under.
- :fixture/classification-effects
- [{:sensitive [[:auth :token]]}]
 
  :fixture/calls
  [;; [0] FRAMELESS — the shape `:rf.error/no-frame-context` and fresco's

@@ -36,7 +36,7 @@
 
 {:fixture/id           :data-classification/project-egress-explicit-nil-frame-fails-closed
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/capabilities #{:data-classification/static}
  :fixture/doc          "project-egress with an EXPLICIT :frame nil fails closed to :rf/redacted rather than borrowing the live frame in scope, which the control call shows would have shipped the value verbatim. The opt is read by key presence, not truthiness."
 
  :fixture/calls

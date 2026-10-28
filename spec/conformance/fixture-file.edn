@@ -79,7 +79,6 @@
    [:fixture/runtime {:optional true}
     [:map {:closed true} [:platform {:optional true} [:enum :client :server]]]]
    [:fixture/flow-bodies {:optional true} [:map-of :keyword :conformance/flow-body]]
-   [:fixture/classification-effects {:optional true} [:vector :conformance/classification-op]]
    [:fixture/dispatches {:optional true} [:vector :conformance/dispatch-entry]]
    [:fixture/clock {:optional true} [:vector :conformance/clock-step]]
    [:fixture/calls {:optional true} [:vector :conformance/call]]
@@ -96,7 +95,7 @@
   [:enum
    :actor/declarative-spawn :actor/spawn-and-join :actor/spawn-destroy
    :core/error :core/event-handler :core/frame :core/fx :core/sub :core/trace
-   :data-classification/classification-effects
+   :data-classification/static
    :flow/basic :flow/dirty-check :flow/frame-scoped :flow/hot-reload :flow/toggle :flow/topo :flow/trace
    :fsm/choice :fsm/delayed-after :fsm/eventless-always :fsm/final-states :fsm/flat :fsm/hierarchical
    :fsm/history :fsm/internal-events :fsm/parallel-regions :fsm/registration-validation :fsm/tags
@@ -114,7 +113,9 @@
   ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas`
   ;; carries the registrar kind `:app-schema`, keyed by app-db path: each entry
   ;; maps a path to the schema itself, which the runner registers there with
-  ;; `reg-app-schema`.
+  ;; `reg-app-schema`. A `:classification` entry is the declaration itself
+  ;; (`{:sensitive [path …] :large [path …]}`), registered with
+  ;; `reg-classification`.
   :conformance/registry
   [:map {:closed true}
    [:event           {:optional true} [:map-of :keyword :map]]
@@ -127,24 +128,11 @@
    [:machine-action  {:optional true} [:map-of :keyword :map]]
    [:machine-guard   {:optional true} [:map-of :keyword :map]]
    [:flow            {:optional true} [:map-of :keyword :map]]
+   [:classification  {:optional true} [:map-of :keyword :map]]
    [:resource        {:optional true} [:map-of :keyword :map]]
    [:error-projector {:optional true} [:map-of :keyword :map]]
    [:head            {:optional true} [:map-of :keyword :map]]
    [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]]
-
-  ;; One commit-plane classification, applied in order after the frame exists.
-  ;; Each op carries EXACTLY ONE of the four effect keys: the harness applies
-  ;; an op through a priority-ordered choice, so an op naming two axes would
-  ;; silently apply one and an empty op none. The value is a vector of
-  ;; `get-in` paths. `classification-op-map-guard` in the core conformance
-  ;; tests, and its CLJS mirror, feed the runner each malformed op and assert
-  ;; it fails.
-  :conformance/classification-op
-  [:or
-   [:map {:closed true} [:sensitive       [:vector [:vector :any]]]]
-   [:map {:closed true} [:large           [:vector [:vector :any]]]]
-   [:map {:closed true} [:clear-sensitive [:vector [:vector :any]]]]
-   [:map {:closed true} [:clear-large     [:vector [:vector :any]]]]]
 
   ;; ---------------------------------------------------------------------------
   ;; Dispatch entries. An event vector is dispatched with `dispatch-sync` (an

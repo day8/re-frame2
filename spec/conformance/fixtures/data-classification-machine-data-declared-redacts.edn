@@ -11,17 +11,15 @@
 ;; the `:machines/runtime-classification` hook
 ;; (`re-frame.machines.classification/runtime-classification`), re-rooting
 ;; `[:data :token]` to the absolute snapshot path `[:rf.runtime/machines
-;; :snapshots <actor-id> :data :token]`, claimed `{:source :machine}` and
-;; unioned with the claims the four commit-plane effects make — so an actor is
-;; classified exactly while its snapshot exists. NO frame annotation and NO author-side absolute
+;; :snapshots <actor-id> :data :token]`, claimed `{:source :machine}` — so an
+;; actor is classified exactly while its snapshot exists. NO frame annotation and NO author-side absolute
 ;; runtime path: the classification travels with the machine DEFINITION like
 ;; XState's `context` shape, covering every generated instance with zero
 ;; per-instance author code.
 ;;
 ;; The fixture's machine spec carries the classification directly
-;; (`:sensitive [[:data :token]]`); no frame-declared absolute path and no
-;; `:fixture/classification-effects` op is needed — the booted snapshot is
-;; classified by its machine's declaration.
+;; (`:sensitive [[:data :token]]`); no absolute app-db declaration is needed —
+;; the booted snapshot is classified by its machine's declaration.
 ;;
 ;; The machine's `[:schemas :data]` schema carries NO `:sensitive?` prop
 ;; (validation-only; per EP-0025 there is no schema→classification bridge);
@@ -33,13 +31,13 @@
 ;; snapshot-path claim relative to the snapshot value via
 ;; `classification/frame-snapshot-classification`).
 ;;
-;; Capability `:data-classification/classification-effects` (claimed by both the
+;; Capability `:data-classification/static` (claimed by both the
 ;; JVM and CLJS conformance corpus runners) + `:fsm/flat` + `:core/trace`.
 
 {:fixture/id           :data-classification/machine-data-declared-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/trace
-                         :data-classification/classification-effects}
+                         :data-classification/static}
  :fixture/doc          "A reg-machine declaring :sensitive [[:data :token]] PROJECTION-RELATIVE (applied at egress to the actor snapshot, :source :machine), after a transition whose action writes a secret token into :data, projects :rf/redacted at [:data :token] in the :rf.machine/transition and :rf.machine/snapshot-updated trace :after snapshot; an unmarked sibling slot (:retries) rides egress verbatim. The committed runtime-db snapshot carries the raw value — redaction is trace-egress only. EP-0025: the machine definition declares its own classification (the [:schemas :data] schema validates but does not classify); no frame annotation, no author-side absolute runtime path."
 
  :fixture/registry

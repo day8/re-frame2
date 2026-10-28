@@ -20,12 +20,12 @@
 ;; metadata through to `reg-event-*`, so the `:sensitive` key lands
 ;; in the event's registrar metadata, where the registration projection derives
 ;; it at emit time (no imperative side-table; there is no imperative
-;; `add-marks` API). Capability `:data-classification/classification-effects`.
+;; `add-marks` API). Capability `:data-classification/static`.
 
 {:fixture/id           :data-classification/event-arg-sensitive-path-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/classification-effects}
+                         :data-classification/static}
  :fixture/doc          "A reg-event-* with a :sensitive [[:password]] registration-metadata key, dispatched with {:password \"secret\"}, projects [event-id {:password :rf/redacted}] in the :rf.event/db-changed trace event's :rf.event/v slot; an unmarked sibling (:user) rides verbatim. The handler body sees the unredacted payload — only the trace surface redacts. EP-0025: event args are a registration-owned transient payload."
 
  :fixture/registry
