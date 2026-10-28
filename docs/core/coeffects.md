@@ -136,7 +136,7 @@ vector are the handler's inputs; it should not reach out to read the world.
 
 | | Inputs (coeffects) | Outputs (effects) |
 |---|---|---|
-| **Framework keys** | `:db`, `:event`, `:rf.frame/id`, runtime context | `:db` and commit-plane keys |
+| **Framework keys** | `:db`, `:event`, `:rf.frame/id`, runtime context | `:db` and the framework's `:rf.db/runtime` |
 | **Register more with** | `reg-cofx` | `reg-fx` |
 | **Use in a handler via** | `:rf.cofx/requires` | the `:fx` vector |
 | **The impure work happens in** | the cofx supplier | the [effect handler](glossary.md#effect-handler) |

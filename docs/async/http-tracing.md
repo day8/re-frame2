@@ -32,8 +32,10 @@ without recording those values.
   (fn [{:keys [db]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:auth :token] (:token value))
-             (assoc-in [:auth :status] :authenticated))
-     :sensitive [[:auth :token]]}))
+             (assoc-in [:auth :status] :authenticated))}))
+
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})
 
 (rf/reg-event :auth/login-failed
   (fn [{:keys [db]} _]
@@ -49,8 +51,9 @@ path is `[:value :token]`.
 and the response payload, in HTTP traces. `LoginResponse` also marks the token
 by field: when that schema is used without a whole-request flag, the token is
 redacted while `:user-id` remains visible. Your receiving handler gets the real
-token. Its `:sensitive` effect classifies the copy stored in app-db: a response's
-classification does not automatically apply to the values your handler writes.
+token. The `:auth` `reg-classification` classifies the copy stored in app-db: a
+response's classification does not automatically apply to the values your handler
+writes.
 
 Add `day8/re-frame2-schemas` and require `re-frame.schemas` when using schema
 marks. A request with marks but without that artefact is refused before sending
@@ -109,5 +112,5 @@ classification applies to dev traces and is removed with tracing in production.
 |---|---|---|
 | `:rf.error/schemas-artefact-missing` and no request | The decode schema has marks, but the schemas artefact is not loaded | Add `day8/re-frame2-schemas` and require `re-frame.schemas` |
 | `:rf.error/bad-classification` naming `:rf.http/managed` | Its `:carriers` declaration is malformed | Use vectors of names under `:headers` and `:query-params`, as above |
-| A token is redacted in HTTP traces but visible in app-db history | The receiving handler wrote it to an unclassified path | Return `:sensitive` for each stored path |
+| A token is redacted in HTTP traces but visible in app-db history | The receiving handler wrote it to an unclassified path | Declare each stored path in a `reg-classification` |
 | An error body is missing from an export | The body has no schema classification | Inspect it locally; exports omit raw error bodies |

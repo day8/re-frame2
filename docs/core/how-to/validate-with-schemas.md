@@ -288,7 +288,7 @@ If you use [machines](../../machines/concepts.md), a machine's `:data` takes a s
 
 A validation failure carries the failing value, which is what makes it debuggable, but a credential that fails its schema would then reach every listener, including off-box monitors. Where you declare a value sensitive depends on whether it lives in `app-db`.
 
-**An `app-db` path: classify it.** The classification effect that keeps a path out of ordinary traces, epochs and production records covers the path's validation failures too, so the path is declared once:
+**An `app-db` path: classify it.** The `reg-classification` that keeps a path out of ordinary traces, epochs and production records covers the path's validation failures too, so the path is declared once:
 
 ```clojure
 (rf/reg-app-schema [:auth]
@@ -296,12 +296,11 @@ A validation failure carries the failing value, which is what makes it debuggabl
    [:user  [:maybe [:map [:email :string] [:username :string]]]]
    [:token [:maybe :string]]])
 
-(rf/reg-event :auth/init
-  (fn [_ _]
-    {:sensitive [[:auth :token]]}))   ;; a bad :token fails redacted
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})   ;; a bad :token fails redacted
 ```
 
-When a classified path fails its schema, the trace's `:value`, `:explain` (which would repeat the value) and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot. The classification counts from the event that returns it, so a bad value written by that same event already fails redacted. A path classified `:large` fails with a `:rf.size/large-elided` marker in place of the value. [Keep secrets out of traces](keep-secrets-out-of-traces.md) covers the classification effects.
+When a classified path fails its schema, the trace's `:value`, `:explain` (which would repeat the value) and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot. The declaration holds before any event runs, so the first bad value ever written there already fails redacted. A path classified `:large` fails with a `:rf.size/large-elided` marker in place of the value. [Keep secrets out of traces](keep-secrets-out-of-traces.md#classify-a-durable-secret-in-app-db) covers `reg-classification`.
 
 **A value passing through: mark its schema.** An event's payload, a coeffect, an effect's arguments, a subscription's value and a machine's `:data` are checked against their own schemas, and two reserved keys in a schema slot's properties map change what that check's failure trace carries:
 
@@ -322,7 +321,7 @@ The registration's `:sensitive` paths classify the payload wherever the event is
 
 !!! warning "Gotcha: schema flags affect only the failure trace"
 
-    `:sensitive?` and `:large?` in a schema control only what a validation-failure trace carries. They don't classify the value for normal traces, epochs, or production records. A `:sensitive?` prop on an `app-db` schema is legal and still redacts that schema's failures, but it is not how an `app-db` path is declared sensitive: the classification effect is, and it covers the failures as well.
+    `:sensitive?` and `:large?` in a schema control only what a validation-failure trace carries. They don't classify the value for normal traces, epochs, or production records. A `:sensitive?` prop on an `app-db` schema is legal and still redacts that schema's failures, but it is not how an `app-db` path is declared sensitive: `reg-classification` is, and it covers the failures as well.
 
 ### Query your schemas (tools and agents)
 

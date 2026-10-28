@@ -121,8 +121,8 @@ keys:
 | `:db` | Replace `app-db` with this value. |
 | `:fx` | A vector of `[fx-id arg]` rows. Each names a registered effect and passes it one argument. Every other effect goes here: a storage write, an HTTP request, a follow-up dispatch, a navigation. |
 
-([App-db](app-db.md) also taught the privacy classification keys, `:sensitive`,
-`:large` and their `clear-` counterparts, which may sit beside these two.)
+(Privacy classification is not an effect: [App-db](app-db.md#keeping-secrets-out-of-traces)
+declares sensitive paths with `reg-classification`.)
 
 Because `:fx` is a vector, one handler can ask for several things:
 

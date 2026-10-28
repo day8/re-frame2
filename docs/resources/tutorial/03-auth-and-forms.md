@@ -57,10 +57,14 @@ Every form lives in its own app-db slice with one standard shape. This event see
                     :errors            {}       ;; {field ["msg" ...]}; :_form for form-level
                     :touched           #{}      ;; fields the user has touched
                     :submit-attempted? false    ;; latches on the first submit click
-                    :submit-error      nil})   ;; transport failure (network down)
-     :sensitive [[:auth :login-form :draft :password]
-                 [:auth :login-form :submitted :password]]}))
+                    :submit-error      nil})}))   ;; transport failure (network down)
+
+(rf/reg-classification :auth.forms
+  {:sensitive [[:auth :login-form :draft :password]
+               [:auth :login-form :submitted :password]]})
 ```
+
+The `reg-classification` beside the form's events marks the password paths `:sensitive`, so every trace, epoch and off-box record shows them as `:rf/redacted` from the first keystroke, while your handlers still read the real value.
 
 `:draft` is what's being typed. `:status` is the lifecycle. `:errors` holds renderable validation results, client- or server-produced — the [view](../../core/glossary.md#view) doesn't care which — with `:_form` reserved for errors no single field owns. `:submit-error` is separate because a transport failure has nothing field-shaped to render. `:submitted` holds the last server-accepted draft, which a `dirty?` check compares against to detect unsaved changes ([Build a form](../../core/how-to/build-a-form.md) has the full convention).
 
@@ -356,11 +360,13 @@ the `/user` verification is asynchronous.
     (rf/dispatch [:auth/session-read {:generation generation :token (read-saved-token)}]
                  {:frame frame})))
 
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})
+
 (rf/reg-event :auth/initialise
   (fn [{:keys [db]} _]
     (let [generation (inc (or (:auth-generation db) 0))]
       {:db (assoc db :auth-generation generation :auth {:user nil :token nil})
-       :sensitive [[:auth :token]]
        :fx [[:auth.session/load {:generation generation}]]})))
 
 (rf/reg-event :auth/session-read
@@ -440,8 +446,9 @@ Register it with `reg-http-interceptor` and name it in the frame's `:http-interc
 
 Credentials pass through several independently classified values:
 
-- The init events classify app-db's token and password paths; the login slice
-  subscription classifies its returned draft and submitted password.
+- The `:auth` and `:auth.forms` `reg-classification` declarations classify
+  app-db's token and password paths; the login slice subscription classifies its
+  returned draft and submitted password.
 - The password-edit event uses a map payload marked `:sensitive`. Session-read
   and HTTP reply handlers classify their token fields; the persistence effect
   classifies its own token argument.
