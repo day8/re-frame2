@@ -19,7 +19,10 @@
   The MCP protocol's `roots` capability lets a client surface the workspace
   roots the user has opened via `roots/list`. We walk each root for
   `shadow-cljs.edn`, then test the standard port-file candidates relative to
-  that project root. A readable candidate identifies a live nREPL endpoint. The walk is bounded
+  that project root. A candidate counts only when its port accepts a
+  connect: shadow-cljs deletes its port files from a JVM shutdown hook, so
+  a JVM that was force-killed or crashed leaves a readable file naming a
+  port nothing listens on. The walk is bounded
   shallow (typical locations: the root itself, `<root>/implementation/`, plus
   one extra level for monorepos) and skips directories that can't contain a
   project (`node_modules`, `.git`, `target`, `.shadow-cljs`).
@@ -31,9 +34,10 @@
 
   This file is the pure file-system walk + roots-list orchestrator. It
   doesn't open sockets, parse argv, or connect to nREPL — those concerns
-  live in `nrepl.cljs` (the transport) and `server.cljs` (the boot wiring).
-  The walk and the candidate-branch logic are unit-testable here by injecting
-  the directory reader and the `roots/list` fn.
+  live in `nrepl.cljs` (the transport, which owns the port probe) and
+  `server.cljs` (the boot wiring, which threads that probe in). The walk and
+  the candidate-branch logic are unit-testable here by injecting the
+  directory reader, the port probe and the `roots/list` fn.
 
   ## Fallbacks for older clients
 
@@ -177,7 +181,8 @@
   "Given an absolute project-home directory, look for a port file at the
   three standard relative locations. Returns
   `{:project-home <abs> :port-file <abs> :port <int>}` on the first hit,
-  or nil if no port file is present (shadow isn't running for that project).
+  or nil if none reads. Whether that port is live is the orchestrator's
+  question ([[discover-via-roots*]]), not this fn's.
 
   Injected `read-file-fn` is the fs reader (path → string, throws on missing).
   Production reaches this fn through [[candidates-from-edns*]], which
@@ -194,13 +199,14 @@
         port-file-relpaths))
 
 (defn candidates-from-edns*
-  "Map a JS array of `shadow-cljs.edn` paths to the live nREPL candidates.
+  "Map a JS array of `shadow-cljs.edn` paths to the nREPL candidates.
   Each edn's parent directory is the project root; we ask
-  `project-home->candidate*` whether a port file exists there.
+  `project-home->candidate*` whether a port file reads there.
 
   Returns a CLJS vector of `{:project-home :port-file :port}` maps — one
-  per project with a running shadow. Projects whose shadow isn't running
-  are filtered out (no port file ≡ no live build to attach to)."
+  per project with a readable port file; a project without one is filtered
+  out. A readable file is not yet a live build: [[discover-via-roots*]]
+  probes each candidate's port before counting it."
   [read-file-fn edn-paths]
   (->> (array-seq edn-paths)
        (map (fn [edn] (node-path/dirname edn)))
@@ -216,8 +222,8 @@
   {:reason       :no-running-shadow-in-workspace
    :roots        (vec root-paths)
    :checked-edns (vec (array-seq edn-paths))
-   :hint         (str "No `.shadow-cljs/nrepl.port` found beside any "
-                      "`shadow-cljs.edn` in the open workspace roots. "
+   :hint         (str "No `shadow-cljs.edn` in the open workspace roots has "
+                      "a port file whose port accepts a connect. "
                       "Start `shadow-cljs watch <build>` in one of these "
                       "projects, or pass `--port-file <absolute-path>`.")})
 
@@ -244,21 +250,28 @@
   - `walk-fn`         `(dir) → JS array<edn-path>` — directory walk
                       (production: [[walk-for-shadow-edns]]).
   - `read-file-fn`    `(path) → string` — file reader (production: `fs.readFileSync`).
+  - `probe-port-fn`   `(port) → Promise<boolean>` — does the port accept a
+                      connect (production: `nrepl/port-accepts?`).
+
+  Every candidate is probed, and only one whose port accepts counts. The
+  file of each refused candidate is listed under `:stale-port-files` (only
+  when there is one) beside any status, so the caller can name it.
 
   Returns a Promise resolving to one of:
 
     - `{:status :one  :candidate {:project-home :port-file :port}}`
-      single match — attach silently.
+      single live match — attach silently.
     - `{:status :many :candidates [{...} {...}]}`
       caller (server.cljs) is expected to elicit a choice.
     - `{:status :error :error <reason-map>}` with `:reason` one of
-      `:workspace-discovery-unsupported`, `:no-running-shadow-in-workspace`,
-      or `:ambiguous-shadow` (the latter applies when the caller can't
-      elicit — `discover-via-roots*` itself doesn't synthesize this branch;
-      it returns `:many` and lets the caller decide).
+      `:workspace-discovery-unsupported`, `:no-running-shadow-in-workspace`
+      (no candidate, or every candidate refused), or `:ambiguous-shadow`
+      (the latter applies when the caller can't elicit —
+      `discover-via-roots*` itself doesn't synthesize this branch; it
+      returns `:many` and lets the caller decide).
 
   Pure orchestrator — no globals, no side effects beyond the injected fns."
-  [list-roots-fn walk-fn read-file-fn]
+  [list-roots-fn walk-fn read-file-fn probe-port-fn]
   (-> (try (list-roots-fn) (catch :default e (js/Promise.reject e)))
       (.then
         (fn [resp]
@@ -271,26 +284,29 @@
                                  (distinct))
                 edn-array   (clj->js edn-hits)
                 candidates  (candidates-from-edns* read-file-fn edn-array)]
-            (cond
-              (zero? (count candidates))
-              {:status :error :error (result-no-shadow root-paths edn-array)}
-
-              (= 1 (count candidates))
-              {:status :one :candidate (first candidates)}
-
-              :else
-              {:status :many :candidates candidates}))))
+            (-> (js/Promise.all (into-array (map #(probe-port-fn (:port %)) candidates)))
+                (.then
+                  (fn [verdicts]
+                    (let [probed (map vector candidates (array-seq verdicts))
+                          live   (vec (keep (fn [[c live?]] (when live? c)) probed))
+                          stale  (vec (keep (fn [[c live?]] (when-not live? (:port-file c))) probed))]
+                      (cond-> (case (count live)
+                                0 {:status :error :error (result-no-shadow root-paths edn-array)}
+                                1 {:status :one :candidate (first live)}
+                                {:status :many :candidates live})
+                        (seq stale) (assoc :stale-port-files stale)))))))))
       (.catch
         (fn [_err]
           (js/Promise.resolve
             {:status :error :error (result-unsupported)})))))
 
 (defn discover-via-roots
-  "Default-arity production wrapper around [[discover-via-roots*]]. Takes
-  the MCP server's `list-roots-fn` (the only piece that varies per-call
-  in production) and threads in the real filesystem walkers."
-  [list-roots-fn]
-  (discover-via-roots* list-roots-fn walk-for-shadow-edns (.-readFileSync fs)))
+  "Production wrapper around [[discover-via-roots*]]. Takes the MCP
+  server's `list-roots-fn` (the only piece that varies per-call in
+  production) and the port probe the transport owns, and threads in the
+  real filesystem walkers."
+  [list-roots-fn probe-port-fn]
+  (discover-via-roots* list-roots-fn walk-for-shadow-edns (.-readFileSync fs) probe-port-fn))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers exposed for the caller's branching on ambiguity

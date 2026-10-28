@@ -65,7 +65,7 @@ In precedence order:
    `node_modules` / `.git` / `target` / etc.) for `shadow-cljs.edn`,
    then test the standard port-file candidates relative to each project
    root. One live candidate → silent attach. Multiple → drive
-   `elicitation/create` so the user picks. Zero matches → step 4. The discovery runs lazily on
+   `elicitation/create` so the user picks. Zero live candidates → step 4. The discovery runs lazily on
    first tool call (so the client has finished `initialize` and its
    `roots` capability is observable).
 4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info`
@@ -79,6 +79,21 @@ In precedence order:
 
 If none resolve, the first tool call returns a structured error and
 subsequent calls retry discovery (see § Lazy discovery below).
+
+### Port-file liveness
+
+A port file counts only when its port accepts a TCP connect within
+`probe-timeout-ms`, at every step that reads one (1, 3, 4, 5); the env
+var (step 2) names no file and is taken as given. shadow-cljs deletes its
+port files from a JVM shutdown hook, so a JVM that is force-killed or
+crashes leaves a readable file naming a port nothing listens on. Such a
+file is skipped: an explicit or roots file falls through to the next
+step, a roots file is never offered in the elicitation, and step 5 never
+attaches to a file the roots walk already refused. Every skipped file is
+reported as `:stale-port-files` (absolute paths): logged on stderr
+whatever the outcome, and carried by the
+`:rf.error/pair-mcp-nrepl-port-not-found` and
+`:rf.error/pair-mcp-ambiguous-shadow` envelopes.
 
 ### Lazy discovery
 

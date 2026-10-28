@@ -5,10 +5,13 @@
 //
 //   1. Declares the `roots` capability in `initialize`.
 //   2. Responds to the server's `roots/list` request with a synthetic
-//      workspace listing.
+//      workspace listing two projects.
 //   3. Triggers a tool call and observes the server's discovery cascade
 //      land on step 3 (roots-based) — proven by the server logging the
 //      port it discovered.
+//   4. Observes the server skip the second project, whose port file names a
+//      port nothing listens on (the file a force-killed shadow-cljs JVM
+//      leaves behind), and name that file on stderr.
 //
 // This is NOT testing against the real Claude Code MCP client — that
 // path is exercised by reloading the freshly-built MCP server in a
@@ -21,25 +24,36 @@
 
 const { spawn } = require('node:child_process');
 const fs        = require('node:fs');
+const net       = require('node:net');
 const os        = require('node:os');
 const path      = require('node:path');
 
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 
-// Build a synthetic workspace with one shadow project — a fake
-// `shadow-cljs.edn` + a port file at `.shadow-cljs/nrepl.port` with
-// a port number the test asserts the server picked up.
+// A synthetic workspace: each project is a fake `shadow-cljs.edn` beside a
+// port file at `.shadow-cljs/nrepl.port`.
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-roots-discovery-'));
-const PROJ     = path.join(TMP_ROOT, 'proj');
-fs.mkdirSync(PROJ, { recursive: true });
-fs.writeFileSync(path.join(PROJ, 'shadow-cljs.edn'), '{}\n');
-const SHADOW_DIR = path.join(PROJ, '.shadow-cljs');
-fs.mkdirSync(SHADOW_DIR);
-const PORT_FILE = path.join(SHADOW_DIR, 'nrepl.port');
-const FAKE_PORT = 65432;
-fs.writeFileSync(PORT_FILE, String(FAKE_PORT));
 
-function run() {
+function writeProject(name, port) {
+  const proj = path.join(TMP_ROOT, name);
+  fs.mkdirSync(path.join(proj, '.shadow-cljs'), { recursive: true });
+  fs.writeFileSync(path.join(proj, 'shadow-cljs.edn'), '{}\n');
+  const portFile = path.join(proj, '.shadow-cljs', 'nrepl.port');
+  fs.writeFileSync(portFile, String(port));
+  return portFile;
+}
+
+// A listener on an ephemeral port. It drops every connection it accepts:
+// discovery needs only the connect, and nothing here answers nREPL.
+function listen() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((sock) => sock.destroy());
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
+function run({ livePort, deadPort, deadPortFile }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     delete env.SHADOW_CLJS_NREPL_PORT;
@@ -146,37 +160,30 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/call — should trigger the roots-based discovery cascade.
-      // The server will issue roots/list, walk the synthetic workspace,
-      // find the port file at the fake port, then try to connect to that
-      // port. The connection will FAIL (no real nREPL listening at the
-      // fake port) but the failure mode tells us the cascade landed on
-      // step 3 and read OUR port file. The structured error contains the
-      // port-number trace.
-      const resp = await call('tools/call', {
-        name: 'discover-app',
-        arguments: {},
-      });
+      // 2. tools/call — triggers the roots-based discovery cascade. The
+      // server issues roots/list, walks the synthetic workspace, probes both
+      // port files, and connects to the live one. Nothing there answers
+      // nREPL, so the call itself is not awaited: the stderr lines are the
+      // evidence of which file discovery chose and which it skipped.
+      call('tools/call', { name: 'discover-app', arguments: {} });
+
+      // The server logs `nREPL port = <port>` from `new-conn-for-port`.
+      await waitForStderr(new RegExp('nREPL port = ' + livePort + '\\b'));
       if (!rootsListAnswered) {
         throw new Error('Server did not issue roots/list — discovery cascade skipped step 3');
       }
-
-      // Check stderr for the discovered port — the server logs
-      // `nREPL port = <port>` from `new-conn-for-port`. If our fake port
-      // appears there, the roots discovery walked our workspace, found
-      // the port file, and used it.
-      if (!stderrBuf.includes('nREPL port = ' + FAKE_PORT)) {
-        throw new Error(
-          'Server did not pick up the roots-discovered port file at ' + FAKE_PORT +
-          '. stderr:\n' + stderrBuf,
-        );
-      }
-      console.log('OK   roots/list → walk → port-file → port=' + FAKE_PORT +
+      console.log('OK   roots/list → walk → port-file → port=' + livePort +
                   ' (roots-discovery primary path live-verified)');
 
-      // The actual tool call will surface an isError (no live nREPL at
-      // the fake port). We only care that discovery worked.
-      console.log('OK   discover-app result envelope:', resp.result?.isError ? 'isError (expected — fake port)' : 'unexpectedly ok');
+      await waitForStderr(/skipped port file\(s\) whose port refused a connect:/);
+      if (!stderrBuf.includes(deadPortFile)) {
+        throw new Error('Server did not name the refused port file ' + deadPortFile +
+                        '. stderr:\n' + stderrBuf);
+      }
+      if (stderrBuf.includes('nREPL port = ' + deadPort)) {
+        throw new Error('Server attached to the refused port ' + deadPort);
+      }
+      console.log('OK   refused port file skipped and named: ' + deadPortFile);
 
       child.kill();
       console.log('\nROOTS-DISCOVERY LIVE VERIFY GREEN');
@@ -188,7 +195,23 @@ function run() {
   });
 }
 
-run().then(() => {
+async function main() {
+  const live = await listen();
+  // A port that was bound and then released, so nothing listens on it.
+  const released = await listen();
+  const deadPort = released.address().port;
+  await new Promise((r) => released.close(r));
+  const livePort = live.address().port;
+  writeProject('live', livePort);
+  const deadPortFile = writeProject('dead', deadPort);
+  try {
+    await run({ livePort, deadPort, deadPortFile });
+  } finally {
+    await new Promise((r) => live.close(r));
+  }
+}
+
+main().then(() => {
   try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }); } catch (_) {}
   process.exit(0);
 }).catch((e) => {

@@ -93,6 +93,15 @@
        "`--port-file <absolute-path-to-nrepl.port>` "
        "(the cwd-independent escape hatch)."))
 
+(defn- stale-port-files-hint
+  "The sentence naming the port files discovery skipped because their port
+  refused a connect, and why such a file exists."
+  [stale]
+  (str "Skipped " (count stale) " port file(s) whose port refused a connect: "
+       (str/join ", " stale) ". A shadow-cljs JVM that is force-killed or "
+       "crashes leaves its port files behind; starting `shadow-cljs watch` "
+       "in that project replaces them, and deleting one drops it from discovery."))
+
 ;; ---------------------------------------------------------------------------
 ;; Session-cache for the lazy-discovered project.
 ;; ---------------------------------------------------------------------------
@@ -255,14 +264,20 @@
   drive `elicitation/create` to ask the user. Cache the chosen port +
   project-home in `session-state`.
 
+  Port files the cascade skipped because their port refused a connect
+  (`:stale-port-files`) are logged on every outcome and ride the failure
+  ex-info, so a failed discovery names them.
+
   Returns a Promise resolving to the session-state map on success, or
   rejecting with a structured ex-info on failure."
   [launch-flags]
   (let [{:keys [port-file http-port]} launch-flags
-        roots-fn (fn [] (roots-discovery/discover-via-roots list-roots-fn))]
+        roots-fn (fn [] (roots-discovery/discover-via-roots list-roots-fn nrepl/port-accepts?))]
     (-> (nrepl/discover-port port-file http-port roots-fn)
         (.then
           (fn [result]
+            (when-let [stale (seq (:stale-port-files result))]
+              (log! "skipped port file(s) whose port refused a connect:" (str/join ", " stale)))
             (cond
               ;; Single shadow build in workspace, or fallback succeeded.
               (and (:port result) (nil? (:ambiguous result)))
@@ -315,21 +330,27 @@
                       (let [payload (roots-discovery/ambiguous-result-payload
                                       (:ambiguous result))]
                         (throw (ex-info ":rf.error/pair-mcp-ambiguous-shadow"
-                                        {:rf.error/id :rf.error/pair-mcp-ambiguous-shadow
-                                         :where    're-frame2-pair-mcp/discover-and-cache!
-                                         :recovery :pick-via-port-file
-                                         :reason   (:reason payload)
-                                         :candidates (:candidates payload)
-                                         :hint     (:hint payload)}))))))
+                                        (cond-> {:rf.error/id :rf.error/pair-mcp-ambiguous-shadow
+                                                 :where    're-frame2-pair-mcp/discover-and-cache!
+                                                 :recovery :pick-via-port-file
+                                                 :reason   (:reason payload)
+                                                 :candidates (:candidates payload)
+                                                 :hint     (:hint payload)}
+                                          (:stale-port-files result)
+                                          (assoc :stale-port-files (:stale-port-files result)))))))))
 
               ;; Nothing resolved.
               :else
-              (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
-                              {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
-                               :where    're-frame2-pair-mcp/discover-and-cache!
-                               :recovery :no-recovery
-                               :reason   port-not-found-hint
-                               :hint     port-not-found-hint}))))))))
+              (let [stale (:stale-port-files result)]
+                (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
+                                (cond-> {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
+                                         :where    're-frame2-pair-mcp/discover-and-cache!
+                                         :recovery :no-recovery
+                                         :reason   port-not-found-hint
+                                         :hint     port-not-found-hint}
+                                  stale (assoc :stale-port-files stale
+                                               :hint (str port-not-found-hint " "
+                                                          (stale-port-files-hint stale)))))))))))))
 
 (defn- run-transition!
   "Start a single-flight session transition. `body-fn` is a 0-arg thunk
@@ -600,12 +621,11 @@
         (fn [err]
           ;; Discovery failed — surface a structured tool-call error.
           (let [data    (or (ex-data err) {})
-                payload {:ok?    false
-                         :reason (or (:rf.error/id data) :nrepl-port-not-found)
-                         :hint   (or (:hint data) port-not-found-hint)}
-                payload (if-let [cs (:candidates data)]
-                          (assoc payload :candidates cs)
-                          payload)]
+                payload (cond-> {:ok?    false
+                                 :reason (or (:rf.error/id data) :nrepl-port-not-found)
+                                 :hint   (or (:hint data) port-not-found-hint)}
+                          (:candidates data)       (assoc :candidates (:candidates data))
+                          (:stale-port-files data) (assoc :stale-port-files (:stale-port-files data)))]
             ;; Same namespace-preserving projection as the handler-threw
             ;; path; a raw `clj->js` drops the namespace on `:rf.error/*`
             ;; reason values.

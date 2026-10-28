@@ -140,6 +140,12 @@ The server auto-discovers the nREPL port from (highest precedence first):
    on a fresh ephemeral port is picked up by the same per-tool-call
    re-read as the other file-backed steps.
 
+A port file counts only when its port accepts a TCP connect within half a
+second, at every step that reads one. A shadow-cljs JVM that is
+force-killed or crashes skips the shutdown hook that deletes its port
+files, so its files name a port nothing listens on; discovery skips them,
+and a failed discovery names them in `:stale-port-files`.
+
 > The cwd caveat step 3 solves (rf2-3grub). Step 5 is bare
 > relative paths resolved against `process.cwd()`. The MCP server
 > runs as a subprocess of the agent host (Claude Code / Cursor /

@@ -2,11 +2,17 @@
   "The workspace-roots discovery cascade with all I/O injected: `uri->path`,
   the bounded `shadow-cljs.edn` walk, the port-file candidate beside each
   edn, and the `discover-via-roots*` orchestrator's one / many / none /
-  unsupported branches. Live verification is `test/roots-discovery-live.js`."
+  unsupported branches, including the candidates whose port refuses a
+  connect. Live verification is `test/roots-discovery-live.js`."
   (:require [cljs.test :refer-macros [deftest is async]]
             [clojure.string :as str]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.roots-discovery :as rd]
-            ["path" :as node-path]))
+            ["fs" :as fs]
+            ["net" :as net]
+            ["os" :as os]
+            ["path" :as node-path]
+            ["url" :as node-url]))
 
 ;; Expected paths go through node:path/join, as the production walk does,
 ;; so they carry the platform's separator.
@@ -164,12 +170,17 @@
 (defn- port-file-in [dir]
   (jp dir "target" "shadow-cljs" "nrepl.port"))
 
+(def ^:private accepts-all
+  "A port probe under which every candidate's port accepts a connect."
+  (fn [_port] (js/Promise.resolve true)))
+
 (deftest discover-via-roots-zero-candidates
   (async done
     (let [pairs (uri-decoding-pairs ["/empty"])]
       (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
                                   (walk-returns {})
-                                  (fn [_] (throw (js/Error. "ENOENT"))))
+                                  (fn [_] (throw (js/Error. "ENOENT")))
+                                  accepts-all)
           (.then (fn [r]
                    (is (= [:error :no-running-shadow-in-workspace (mapv second pairs)]
                           [(:status r) (-> r :error :reason) (-> r :error :roots)]))
@@ -181,7 +192,8 @@
           proj  (second (first pairs))]
       (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
                                   (walk-returns {proj [(jp proj "shadow-cljs.edn")]})
-                                  (reads-ports {proj "9001"}))
+                                  (reads-ports {proj "9001"})
+                                  accepts-all)
           (.then (fn [r]
                    (is (= {:status    :one
                            :candidate {:project-home proj :port-file (port-file-in proj) :port 9001}}
@@ -196,7 +208,8 @@
       (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
                                   (walk-returns {a-path [(jp a-path "shadow-cljs.edn")]
                                                  b-path [(jp b-path "shadow-cljs.edn")]})
-                                  (reads-ports {a-path "1111" b-path "2222"}))
+                                  (reads-ports {a-path "1111" b-path "2222"})
+                                  accepts-all)
           (.then (fn [r]
                    (is (= {:status     :many
                            :candidates #{{:project-home a-path :port-file (port-file-in a-path) :port 1111}
@@ -213,7 +226,8 @@
       (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
                                   (walk-returns {a-path [(jp a-path "shadow-cljs.edn")]
                                                  b-path [(jp b-path "shadow-cljs.edn")]})
-                                  (reads-ports {a-path "3333"}))
+                                  (reads-ports {a-path "3333"})
+                                  accepts-all)
           (.then (fn [r]
                    (is (= {:status    :one
                            :candidate {:project-home a-path :port-file (port-file-in a-path) :port 3333}}
@@ -232,7 +246,8 @@
                                                  sub-path  [sub-edn]})
                                   (fn [path]
                                     (if (re-find #"target" path) "9999"
-                                        (throw (js/Error. "ENOENT")))))
+                                        (throw (js/Error. "ENOENT"))))
+                                  accepts-all)
           (.then (fn [r]
                    (is (= :one (:status r)))
                    (done)))))))
@@ -249,9 +264,96 @@
                                       "list-roots throws synchronously"]]]
               (.then (rd/discover-via-roots* list-roots
                                              (walk-returns {})
-                                             (fn [_] (throw (js/Error. "ENOENT"))))
+                                             (fn [_] (throw (js/Error. "ENOENT")))
+                                             accepts-all)
                      (fn [r]
                        (is (= [:error :workspace-discovery-unsupported]
                               [(:status r) (-> r :error :reason)])
                            note))))))
         (.then (fn [_] (done))))))
+
+;; ===========================================================================
+;; Liveness — shadow-cljs deletes its port files from a JVM shutdown hook, so
+;; a JVM that was force-killed leaves one naming a port nothing listens on.
+;; Discovery neither attaches to it nor offers it as a choice, and names it.
+;; ===========================================================================
+
+(deftest discover-via-roots-every-candidate-refused
+  ;; The orchestrator falls through (`:error`) rather than attaching.
+  (async done
+    (let [pairs (uri-decoding-pairs ["/proj"])
+          proj  (second (first pairs))]
+      (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
+                                  (walk-returns {proj [(jp proj "shadow-cljs.edn")]})
+                                  (reads-ports {proj "9001"})
+                                  (fn [_port] (js/Promise.resolve false)))
+          (.then (fn [r]
+                   (is (= [:error :no-running-shadow-in-workspace [(port-file-in proj)]]
+                          [(:status r) (-> r :error :reason) (:stale-port-files r)]))
+                   (done)))))))
+
+(defn- listen!
+  "Resolve a `net.Server` listening on an ephemeral 127.0.0.1 port. It drops
+  each connection it accepts: a probe needs only the connect."
+  []
+  (js/Promise.
+    (fn [resolve reject]
+      (let [^js srv (net/createServer (fn [^js sock] (.destroy sock)))]
+        (.once srv "error" reject)
+        (.listen srv 0 "127.0.0.1" #(resolve srv))))))
+
+(defn- port-of [^js srv]
+  (.-port (.address srv)))
+
+(defn- close-server! [^js srv]
+  (js/Promise. (fn [resolve] (.close srv (fn [_] (resolve nil))))))
+
+(defn- write-project!
+  "A project directory `dir` under `root`, holding a `shadow-cljs.edn` and a
+  `.shadow-cljs/nrepl.port` naming `port`. Returns the directory."
+  [root dir port]
+  (let [home (jp root dir)]
+    (fs/mkdirSync (jp home ".shadow-cljs") #js {:recursive true})
+    (fs/writeFileSync (jp home "shadow-cljs.edn") "{}\n")
+    (fs/writeFileSync (jp home ".shadow-cljs" "nrepl.port") (str port))
+    home))
+
+(deftest discover-via-roots-drops-a-port-file-whose-port-refuses
+  ;; Real files, real sockets and the production probe. One workspace root
+  ;; holds two projects: one port file names a listening port, the other a
+  ;; port that was bound and then released, so nothing listens on it.
+  (async done
+    (let [root (fs/mkdtempSync (jp (os/tmpdir) "pair-roots-stale-"))
+          live (atom nil)]
+      (-> (js/Promise.all #js [(listen!) (listen!)])
+          (.then
+            (fn [servers]
+              (let [[live-srv dead-srv] (array-seq servers)
+                    live-port           (port-of live-srv)
+                    dead-port           (port-of dead-srv)]
+                (reset! live live-srv)
+                (-> (close-server! dead-srv)
+                    (.then
+                      (fn [_]
+                        (let [live-home (write-project! root "live" live-port)
+                              dead-home (write-project! root "dead" dead-port)
+                              uri       (.-href (node-url/pathToFileURL root))]
+                          (-> (rd/discover-via-roots
+                                (fn [] (js/Promise.resolve (clj->js {:roots [{:uri uri}]})))
+                                nrepl/port-accepts?)
+                              (.then
+                                (fn [r]
+                                  (is (= {:status           :one
+                                          :candidate        {:project-home live-home
+                                                             :port-file    (jp live-home ".shadow-cljs" "nrepl.port")
+                                                             :port         live-port}
+                                          :stale-port-files [(jp dead-home ".shadow-cljs" "nrepl.port")]}
+                                         r)
+                                      "the live project attaches silently; the dead one is dropped and named")))))))))))
+          (.catch (fn [e] (is false (str "discovery rejected: " (.-message e)))))
+          (.finally
+            (fn []
+              (-> (if-let [srv @live] (close-server! srv) (js/Promise.resolve nil))
+                  (.then (fn [_]
+                           (fs/rmSync root #js {:recursive true :force true})
+                           (done))))))))))
