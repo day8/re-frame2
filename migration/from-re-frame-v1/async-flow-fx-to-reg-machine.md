@@ -224,7 +224,7 @@ Drop. Machine snapshots are not optional-location; they live at `[:rf.runtime/ma
 
 ### `:rules` with multi-event `:when` predicates
 
-The translation is one rule at a time. For each rule:
+The translation is one rule at a time, after one check across them. v1 tests every rule on each event it sees and fires all those whose `:when` now holds, in declaration order, as one `:dispatch-n`, halting afterwards if any of them has `:halt?`. A machine takes one transition per event, so first list, for each event, the rules whose `:events` include it. Where two or more of those rules can become ready on that event together, translate them as one transition whose `:action` dispatches every co-ready rule's events in v1 rule order, and reach the next state from that transition, or through an `:always` step when which rules fired decides it. Then, for each rule:
 
 1. **Identify which machine state the rule's predicate becomes meaningful in.** A rule that watches for `:auth/done` is meaningful while the machine is in a state that's *waiting for authentication*; it doesn't apply once the machine has advanced past that.
 2. **Place the transition on that state's `:on` map.** Single-event rules become `{<event> {:target <next-state>}}`.
@@ -234,7 +234,7 @@ The translation is one rule at a time. For each rule:
 
 ### `:halt?`
 
-`:halt? true` rules become `:final?` states. A singleton rests in a `:final?` state, and a spawned machine is torn down on entering one (per Spec 005 §Final states). A resting singleton stops reacting as a halted flow did: an event with no declared way out is an unhandled no-op, and its snapshot stays readable at its address. If the halt rule dispatched an event (e.g. `:dispatch [:app/ready]`), put the dispatch in the `:final?` state's `:entry` action — the action runs once, on entry.
+`:halt? true` rules become `:final?` states. A singleton rests in a `:final?` state, and a spawned machine is torn down on entering one (per Spec 005 §Final states). A resting singleton stops reacting as a halted flow did: an event with no declared way out is an unhandled no-op, and its snapshot stays readable at its address. If the halt rule dispatched an event (e.g. `:dispatch [:app/ready]`) and no other rule can become ready on the same event, put the dispatch in the `:final?` state's `:entry` action — the action runs once, on entry. A halt rule that can fire beside another rule dispatches from the `:action` of each transition into its `:final?` state instead, in v1 rule order among the rules it fires beside: v1 sent every ready rule's dispatches as one `:dispatch-n` in rule order before halting, while a machine runs `:entry` effects after the transition `:action`'s ([005 §Entry/exit cascading along the LCA](../../spec/005-StateMachines.md#entryexit-cascading-along-the-lca)), so an `:entry` dispatch always comes last.
 
 ### `:halt-fns?`
 
