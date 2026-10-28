@@ -828,7 +828,8 @@ async function runGateOnArm() {
     assertOk(carry, 'gate-on eval-cljs carry-args');
     const twArgs = await client.callTool({
       name: 'trace-window',
-      arguments: { ms: TRACE_WINDOW_MS, 'include-sensitive': true, 'epochs-mode': 'full', dedup: false },
+      // Full, undeduped and uncapped, so every argument slot is plain text.
+      arguments: { ms: TRACE_WINDOW_MS, 'include-sensitive': true, 'epochs-mode': 'full', dedup: false, 'max-tokens': 0 },
     });
     assertOk(twArgs, 'gate-on trace-window (argument axes)');
     const twArgsText = responseText(twArgs);
