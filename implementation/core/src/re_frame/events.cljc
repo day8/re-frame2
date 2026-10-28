@@ -243,69 +243,60 @@
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect-map a reg-event handler returns is a CLOSED shape of SEVEN
-;; top-level keys — the three everyday ones (:db, :rf.db/runtime, :fx) plus the
-;; four EP-0025 commit-plane classification effects. Legacy v1 top-level keys
+;; the effect-map a reg-event handler returns is a CLOSED shape of three
+;; top-level keys: :db, :rf.db/runtime and :fx. Legacy v1 top-level keys
 ;; (:dispatch, :dispatch-later, :dispatch-n, :http, etc.) must move into :fx
 ;; as [[fx-id args] ...] entries.
 ;;
-;; The closed set is #{:db :rf.db/runtime :fx :sensitive :large
-;; :clear-sensitive :clear-large} — see `closed-effect-map-keys` below, which
-;; is the authority (per Spec-Schemas §:rf/effect-map + Spec 002 §Write
-;; authority + §Commit-plane data-classification effects). `:db` is the app-db
+;; `closed-effect-map-keys` below is the authority (per Spec-Schemas
+;; §:rf/effect-map + Spec 002 §Write authority). `:db` is the app-db
 ;; partition; `:rf.db/runtime` is the runtime-db partition — a state-bearing
 ;; top-level key, reserved BY CONVENTION for framework-authority writers (NOT a
 ;; security boundary), per EP-0001. `:rf.db/runtime` is NOT a shape error
 ;; here — a non-framework handler emitting it is surfaced by the
 ;; `:rf.warning/app-handler-runtime-effect` dev diagnostic (in
-;; `commit-fx-effects`), not dropped. The four classification effects
-;; (:sensitive / :large / :clear-sensitive / :clear-large, each a vector of
-;; :rf/path vectors) are commit-plane state effects too, applied WITH the :db
-;; write; their PAYLOAD shape is policed separately by
-;; `re-frame.elision/classification-effect-defect` at the same boundary. All
-;; OTHER unknown top-level keys are shape errors.
+;; `commit-fx-effects`), not dropped. Every other top-level key is a shape
+;; error — `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`
+;; included, whose refusal names `reg-classification`, where app-db
+;; classification is declared (Spec 015 §Static app-db classification).
 ;;
 ;; The runtime polices this contract at the router's FINAL-effects boundary:
 ;; a top-level key outside the closed set REFUSES the event. Nothing commits —
-;; no `:db`, no `:rf.db/runtime`, no classification install, no `:fx` — and
+;; no `:db`, no `:rf.db/runtime`, no `:fx` — and
 ;; :rf.error/effect-map-shape is emitted through the always-on error-emit
 ;; substrate (Spec 009 §Error contract, recovery :fix-effect). See
 ;; [[effect-map-defect]].
 
 (def ^:private closed-effect-map-keys
   "The closed set of top-level effect-map keys a `reg-event` handler may
-  return. Per Spec-Schemas §:rf/effect-map + Spec 002 §commit-plane effects:
+  return. Per Spec-Schemas §:rf/effect-map:
 
     - `:db`              — app-db partition write;
     - `:rf.db/runtime`   — runtime-db partition write (framework-authority by
                            convention, EP-0001);
-    - `:fx`              — everything else (the open do-fx plane);
-    - `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` —
-                           the four EP-0025 commit-plane data-classification
-                           effects, applied WITH the `:db` write at the commit
-                           point (a frame-state transform into the per-frame
-                           elision registry), NOT routed through do-fx.
+    - `:fx`              — everything else (the open do-fx plane).
 
-  These are all COMMIT-PLANE effects (state-bearing, applied at the atomic
-  commit boundary), distinct from the open `:fx` do-fx plane. The four
-  classification keys (EP-0025) join `:db` / `:rf.db/runtime` here so
-  [[effect-map-defect]] does NOT report them as foreign top-level keys.
   Widening this set is a Spec change; any other top-level key is a shape
   error."
-  #{:db :rf.db/runtime :fx
-    :sensitive :large :clear-sensitive :clear-large})
+  #{:db :rf.db/runtime :fx})
+
+(def ^:private classification-keys
+  "The top-level keys a handler returning app-db classification reaches for.
+  Classification is a registration, so these get a refusal naming
+  `reg-classification` rather than the move-it-into-`:fx` advice (Spec 015
+  §Static app-db classification)."
+  #{:sensitive :large :clear-sensitive :clear-large})
 
 ;; ---- the FINAL-effects shape carrier --------------------------------------
 ;;
 ;; ONE check at ONE boundary. `effect-map-defect` is a PURE first-defect-or-nil
-;; validator over the effects map the ROUTER is about to consume — the same
-;; shape as `re-frame.elision/classification-effect-defect`, and consumed at the
-;; same place (`re-frame.router/commit-and-flow!`'s FINAL-effects boundary,
-;; immediately before the commit). The router emits `:rf.error/effect-map-shape`
+;; validator over the effects map the ROUTER is about to consume, at
+;; `re-frame.router/commit-and-flow!`'s FINAL-effects boundary, immediately
+;; before the commit. The router emits `:rf.error/effect-map-shape`
 ;; IN-BAND (never a throw — a throw there escapes into
 ;; `drain-emergency-release!` and abandons the rest of the drained queue) and
-;; ABORTS the event: no `:db`, no `:rf.db/runtime`, no classification install,
-;; no `:fx`. No partial commit.
+;; ABORTS the event: no `:db`, no `:rf.db/runtime`, no `:fx`. No partial
+;; commit.
 ;;
 ;; ## Why refuse rather than drop
 ;;
@@ -339,16 +330,15 @@
   map. Returns the FIRST defect as a map `{:offending-key <k> :value <bad>
   :reason <string>}` — or nil when the envelope is well-shaped. Does NOT throw
   and does NOT emit; the caller (the router's FINAL-effects boundary) emits
-  `:rf.error/effect-map-shape` in-band and aborts the event pre-commit,
-  mirroring the `classification-effect-shape` rejection at that same
-  boundary.
+  `:rf.error/effect-map-shape` in-band and aborts the event pre-commit.
 
   Two defect cases, checked in that order:
 
     (a) BAD TOP-LEVEL KEY — a key outside `closed-effect-map-keys` (per Spec
         migration M-8 + EP-0001). The commonest v1 reflex: a top-level
         `:dispatch` / `:dispatch-later` / `:http` / a user-registered fx-id
-        sitting beside `:db`.
+        sitting beside `:db`. A classification key (`:sensitive` / `:large` /
+        `:clear-*`) is refused with a reason naming `reg-classification`.
     (b) BAD `:fx` VALUE — a non-`nil`, non-sequential `:fx` (`{:fx :oops}`,
         `{:fx {…}}` — the forgot-the-outer-vector typo). Per Spec-Schemas
         §:rf/effect-map the `:fx` value is `[:vector [:tuple :keyword :any]]`.
@@ -376,13 +366,20 @@
         (let [k (first (remove closed-effect-map-keys (keys effects)))]
           {:offending-key k
            :value         (get effects k)
-           :reason        (str "Effect-map for `" event-id "` returned top-level key `" k
-                               "`; the effect-map is closed — `:db`, `:rf.db/runtime`"
-                               " and `:fx` (plus the four commit-plane"
-                               " classification keys) are the only top-level keys."
-                               " Move `" k "` into `:fx` (e.g. `{:fx [[" k " …]]}`)."
-                               " The event is refused until corrected — nothing"
-                               " committed.")})
+           :reason        (if (contains? classification-keys k)
+                            (str "Effect-map for `" event-id "` returned top-level key `" k
+                                 "`; app-db classification is a registration, not an"
+                                 " effect — declare the path with"
+                                 " `(rf/reg-classification <feature-id> {:sensitive [[…]]})`"
+                                 " (or `:large`) beside the feature that writes it."
+                                 " The event is refused until corrected — nothing"
+                                 " committed.")
+                            (str "Effect-map for `" event-id "` returned top-level key `" k
+                                 "`; the effect-map is closed — `:db`, `:rf.db/runtime`"
+                                 " and `:fx` are the only top-level keys."
+                                 " Move `" k "` into `:fx` (e.g. `{:fx [[" k " …]]}`)."
+                                 " The event is refused until corrected — nothing"
+                                 " committed."))})
         ;; (b) — the whole-`:fx` value.
         (let [fx-val (:fx effects)]
           (when-not (or (not (contains? effects :fx))
@@ -882,8 +879,7 @@
     ;; cycle-free. Runs for MACHINE registrations too: a machine's author
     ;; classification rides its `:event` reg meta (via `reg-machine` opts);
     ;; `registration-classification :event <id>` returns those registrar-derived
-    ;; author paths (EP-0025 — frame-declared paths are the sole app-db
-    ;; classification mechanism).
+    ;; author paths (app-db paths are `reg-classification`'s).
     (rf.classification/validate-classification! :event meta)
     ;; Replacing a framework REPLACEABLE DEFAULT
     ;; (`:rf.route/entry-denied` / `:rf.route/navigation-blocked`) replaces
@@ -932,13 +928,9 @@
   2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
      by the registered fx handlers (see `reg-fx`).
 
-  The effect-map is a **closed shape** — SEVEN top-level keys (per
-  migration M-8 + EP-0001 + EP-0025): the three everyday ones
-  `:db` / `:rf.db/runtime` / `:fx`, plus the four commit-plane
-  data-classification effects `:sensitive` / `:large` /
-  `:clear-sensitive` / `:clear-large` (each a vector of `:rf/path`
-  vectors, applied WITH the `:db` write). App handlers return only
-  `:db` and `:fx` day to day; `:rf.db/runtime` (the runtime-db partition)
+  The effect-map is a **closed shape** — three top-level keys (per
+  migration M-8 + EP-0001): `:db` / `:rf.db/runtime` / `:fx`. App handlers
+  return only `:db` and `:fx` day to day; `:rf.db/runtime` (the runtime-db partition)
   is reserved by convention for framework / runtime-extension authority
   and is not part of an ordinary handler's vocabulary. Legacy v1
   top-level keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as

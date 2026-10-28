@@ -423,9 +423,9 @@
 ;; clicks them; without it, only the arm that was waited out would be
 ;; witnessed at all, and the other could be wired to nothing.
 ;; The effects ride in `:fx`, and that is not a style choice. re-frame2's
-;; effect-map is a CLOSED shape — seven top-level keys, `#{:db :rf.db/runtime
-;; :fx}` plus the four EP-0025 commit-plane classification effects (migration
-;; M-8 / EP-0001) — so the v1 spelling, a top-level `:dispatch-later` beside
+;; effect-map is a CLOSED shape — three top-level keys, `#{:db :rf.db/runtime
+;; :fx}` (Spec-Schemas §`:rf/effect-map`) — so the v1 spelling,
+;; a top-level `:dispatch-later` beside
 ;; `:db`, REFUSES the event pre-commit: no timer and no label, a loud
 ;; failure where a dropped key would be a silent one.
 ;;
