@@ -32,11 +32,15 @@
     {:ok?    false
      :reason :port-unresolved
      :port   port
-     :hint   (str "No shadow-cljs build serves port " port " via the "
-                  ":dev-http map (the port may be missing from :dev-http, "
-                  "or no build's :output-dir matches its file roots). "
-                  "Check the port in your browser's address bar, or pass "
-                  ":build with the build-id directly.")}))
+     :hint   (str "No build in the connected shadow-cljs process serves port " port
+                  " via its :dev-http map: the port may be missing from :dev-http, "
+                  "no build's :output-dir matches its file roots, or the port "
+                  "belongs to another shadow-cljs process (the server stays on the "
+                  "one process it connected to at its first tool call). Check the "
+                  "port in your browser's address bar, or pass :build with the "
+                  "build-id directly; to reach another process, launch the server "
+                  "with --port-file <that checkout>/.shadow-cljs/nrepl.port and "
+                  "start a fresh session.")}))
 
 (defn- resolve-build-id
   "Resolve the build discover-app should probe. Returns a Promise of a

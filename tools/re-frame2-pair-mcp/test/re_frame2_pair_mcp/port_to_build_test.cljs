@@ -65,3 +65,28 @@
           (.then (fn [_]
                    (set! probe/resolve-build-by-port orig)
                    (done)))))))
+
+(deftest discover-app-port-unresolved-names-another-process
+  ;; The port resolves through the CONNECTED process's :dev-http map, so a
+  ;; port another shadow-cljs process serves is unresolved here, and the
+  ;; hint names that cause and the --port-file way to reach the other one.
+  (async done
+    (let [conn (fresh-conn)
+          orig probe/resolve-build-by-port]
+      (set! probe/resolve-build-by-port (fn [& _] (js/Promise.resolve nil)))
+      (-> (discover-app/discover-app conn (tu/args->js {:port 8031}))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                (is (tu/error? result))
+                (is (= {:ok? false :reason :port-unresolved :port 8031}
+                       (select-keys edn [:ok? :reason :port])))
+                (is (re-find #"another shadow-cljs process" (str (:hint edn))))
+                (is (re-find #"--port-file" (str (:hint edn)))))
+              nil))
+          (.catch (fn [e]
+                    (is false (str "port-unresolved discovery rejected: " e))
+                    nil))
+          (.then (fn [_]
+                   (set! probe/resolve-build-by-port orig)
+                   (done)))))))
