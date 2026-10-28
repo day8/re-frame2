@@ -1705,8 +1705,9 @@ The mechanism is symmetric with how event handlers receive their context: **an f
 `reg-fx`'s primary signature in re-frame2 is binary:
 
 ```clojure
-;; re-frame2's standard :dispatch fx, frame-aware
-(reg-fx :dispatch
+;; a frame-aware user fx that dispatches back into the event's frame
+;; (`:dispatch` itself is a reserved fx-id whose body the runtime runs, so `reg-fx` refuses it)
+(reg-fx :my-app/dispatch-in-frame
   (fn [m event]
     (rf/dispatch event {:frame (:frame m)})))
 
