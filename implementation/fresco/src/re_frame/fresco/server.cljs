@@ -335,12 +335,10 @@
                          identity rather than asking every caller to
                          remember it.
       :schema-digest     passed to `build-payload`.
-      :payload-include-sensitive
-                         optional: a vector of app-db PATHS the frame
-                         classifies `:sensitive` whose raw value may ride the
-                         payload (a CSRF token, say) — `payload-policy`'s
-                         permit. Absent, every classified value
-                         arrives as `:rf/redacted`.
+
+  A `:payload` path that names a classified leaf (a CSRF token, say) carries
+  it raw — `payload-policy`'s permit; every other classified value arrives
+  as `:rf/redacted`.
 
   The first eight are the spellings `18-ssr-and-hydration.md` teaches
   (naming-ledger row 22, which settles them as a set).
@@ -356,9 +354,10 @@
   render; the listener is unregistered, the window closed and the frame
   destroyed in a `finally`, in that order, so a render that threw leaks no
   more than one that returned."
-  [{:keys [hiccup snapshot initial-events payload payload-include-sensitive frame-opts
+  [{:keys [hiccup snapshot initial-events payload frame-opts
            client-frame-id identifier-prefix schema-digest app-element-id
-           script-src title]}]
+           script-src title]
+    :as   opts}]
   (let [frame-id  (fresh-frame-id)
         ;; Per REQUEST and reachable from nothing else — never a
         ;; module-level flag, which would let one request's throw leave
@@ -416,13 +415,16 @@
                             ;; NEVER `frame-id`.
                             (:client-frame-id policy-opts)
                             (rf.ssr.payload-policy/project-app-db-egress
-                              (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
+                              ;; The caller's whole option map, so the policy
+                              ;; refuses an option it does not take rather
+                              ;; than this door dropping it unread.
+                              (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) opts)
                               ;; PROJECTION frame — the real per-request one.
                               frame-id
                               ;; The markup above printed the LIVE
                               ;; frame, so a permitted value must reach the
                               ;; payload raw too, or the two halves disagree.
-                              payload-include-sensitive)
+                              payload)
                             policy-opts)
               payload-edn (pr-str payload-map)
               script      (payload-script payload-edn)]

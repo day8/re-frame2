@@ -337,14 +337,13 @@
 
 (deftest a-permitted-sensitive-value-rides-the-payload-raw
   ;; This door renders the LIVE frame into the HTML and projects
-  ;; the payload separately, so the host's `:payload-include-sensitive` must
-  ;; reach the payload for the two halves to agree.
+  ;; the payload separately, so the host's `:payload` path must permit in
+  ;; the payload for the two halves to agree.
   (let [session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
         {:keys [payload document]}
         (rf.fresco.server/render
-          (request :snapshot                  (assoc snapshot :session session)
-                   :payload                   [:label :session]
-                   :payload-include-sensitive [[:session :csrf]]))
+          (request :snapshot (assoc snapshot :session session)
+                   :payload  [:label :session [:session :csrf]]))
         db (:rf/app-db payload)]
     (is (= "csrf-abc-123" (get-in db [:session :csrf]))
         (str "the permitted value rides the payload raw; got " (pr-str (:session db))))
@@ -354,6 +353,20 @@
         "control: the unclassified sibling rides")
     (is (not (str/includes? document "sk-server-only"))
         "control: the withheld value reaches the document by no route")))
+
+(deftest a-separate-permit-list-is-refused-rather-than-dropped
+  ;; This door has no construction step, so the policy reads the caller's
+  ;; whole option map: an option it does not take fails the render loudly
+  ;; instead of every classified value arriving redacted without a word.
+  (let [data (try (rf.fresco.server/render
+                    (request :payload                   [:label]
+                             :payload-include-sensitive [[:session :csrf]]))
+                  nil
+                  (catch :default e (ex-data e)))]
+    (is (= {:rf.error/id :rf.error/ssr-malformed-payload-allowlist
+            :opt         :payload-include-sensitive
+            :replacement :payload}
+           (select-keys data [:rf.error/id :opt :replacement])))))
 
 (deftest the-document-carries-the-pinned-payload-script
   (let [{:keys [document]}

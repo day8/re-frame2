@@ -2,7 +2,7 @@
   "The hydration app-db slice runs through the frame's `:rf.egress/ssr-hydration`
   projection AFTER the `:payload` allowlist (EP-0015 §14): a frame-classified
   sensitive child of a shipped key redacts, a `:large` one ships whole, and only
-  the paths the host names in `:payload-include-sensitive` ride raw."
+  the classified leaves a `:payload` path names ride raw."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
@@ -49,9 +49,8 @@
     (fn [] [:input {:type "hidden" :name "csrf" :value (rf/subscribe-once [:rf.hjz4r/csrf])}])))
 
 (def ^:private handler-opts
-  {:frame {:initial-events            [[:rf.hjz4r/seed-session]]}
-   :payload                   [:session]
-   :payload-include-sensitive [[:session :csrf]]})
+  {:frame   {:initial-events [[:rf.hjz4r/seed-session]]}
+   :payload [:session [:session :csrf]]})
 
 (def ^:private permitted-session {:session {:csrf "csrf-abc-123" :upstream-key redacted :user "alice"}})
 
@@ -77,14 +76,22 @@
            (rf/with-frame client (rf.ssr/render-to-string [(rf/view :rf.hjz4r/root)])))
         "the hydrated client frame renders the server's markup")))
 
-(deftest a-malformed-permit-fails-at-handler-construction
-  (let [data (try (rf.ssr.ring/ssr-handler
-                    (assoc handler-opts
-                           :root-view (fn [] [:p "x"])
-                           :payload-include-sensitive [:session :csrf]))
-                  nil
-                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-    (is (= {:rf.error/id :rf.error/ssr-malformed-payload-allowlist
-            :opt         :payload-include-sensitive
-            :bad-entries [:session :csrf]}
-           (select-keys data [:rf.error/id :opt :bad-entries])))))
+(defn- construction-error [opts]
+  (try (rf.ssr.ring/ssr-handler (assoc opts :root-view (fn [] [:p "x"])))
+       nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest a-malformed-path-fails-at-handler-construction
+  (is (= {:rf.error/id :rf.error/ssr-malformed-payload-allowlist
+          :bad-entries [[]]}
+         (select-keys (construction-error (assoc handler-opts :payload [:session []]))
+                      [:rf.error/id :opt :bad-entries]))))
+
+(deftest the-separate-permit-list-fails-at-handler-construction
+  (is (= {:rf.error/id :rf.error/ssr-malformed-payload-allowlist
+          :opt         :payload-include-sensitive
+          :replacement :payload}
+         (select-keys (construction-error (assoc handler-opts
+                                                 :payload                   [:session]
+                                                 :payload-include-sensitive [[:session :csrf]]))
+                      [:rf.error/id :opt :replacement]))))

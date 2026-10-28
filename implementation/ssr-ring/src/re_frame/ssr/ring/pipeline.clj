@@ -581,8 +581,7 @@
   is required for registered lookups and frame-sensitive egress
   classification."
   [frame-id
-   {:keys [renderer schema-digest payload
-           payload-include-sensitive html-shell content-type client-frame-id]
+   {:keys [renderer schema-digest payload html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
   ;; make this a no-op.
@@ -623,9 +622,9 @@
                 hydration-payload
                 (rf.ssr.ring.payload/build-payload frame-id app-db runtime-db
                                        {:schema-digest   schema-digest
+                                        ;; The allowlist, and the paths
+                                        ;; that permit a classified leaf.
                                         :payload         payload
-                                        ;; The host's permit.
-                                        :payload-include-sensitive payload-include-sensitive
                                         ;; The stable WIRE
                                         ;; :rf/frame-id (nil ⇒ omit).
                                         :client-frame-id client-frame-id})]
