@@ -91,13 +91,16 @@ Two lines matter beyond the boilerplate. `:init-fn` names your boot function, wh
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://demo.productionready.io/main.css">
   <style>
-    .app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+    :root { --rf-xray-accent: #539bf5; }
+    body { margin: 0; }
+    .rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; box-sizing: border-box; position: sticky; top: 0; right: 0; height: 100vh; overflow: hidden; border-left: 1px solid #2a2a2a; }
     #app { flex: 1; min-width: 0; }
-    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; position: sticky; top: 0; right: 0; height: 100vh; overflow: hidden; }
+    @media print { [data-rf-xray-host] { display: none; } }
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="rf-xray-layout">
     <main id="app"></main>
     <aside data-rf-xray-host></aside>  <!-- Xray renders here, in dev builds only -->
   </div>
