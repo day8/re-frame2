@@ -100,7 +100,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          # Every commit and tree, HEAD's blobs only: the classifier diffs
+          # names with `--no-renames` and never reads a blob, and old blobs are
+          # almost all of this repository by size.
           fetch-depth: 0
+          filter: blob:none
 
       # Hand the classifier the event's ACCEPTED BASE so a
       # MULTI-COMMIT push to main is classified over the WHOLE push rather than
@@ -125,8 +129,15 @@ jobs:
       # push changed.
       - name: Classify changed surfaces
         id: detect
+        # On-demand fetching off, so this answers as a full clone would. On a
+        # push the classifier arms every surface when `github.event.before`
+        # does not resolve, as for a force-pushed tip no branch holds; a
+        # partial clone would instead fetch that commit from GitHub wherever it
+        # is still served, a pull-request ref among them, and classify against
+        # it.
         env:
           CHANGED_SURFACES_BASE_REF: ${{ github.event.before }}
+          GIT_NO_LAZY_FETCH: '1'
         run: ./.github/scripts/report-changed-surfaces.sh
 
       # A second implementation of the leg rule, in Python, over the same rows
@@ -1380,8 +1391,12 @@ jobs:
           # commit and both branch tips must be present. A shallow clone
           # frequently lacks the fork; the guard then fails CLOSED rather than
           # passing vacuously, which would turn a missing fetch into a red
-          # gate on unrelated PRs. Full history is the cheap, correct answer.
+          # gate on unrelated PRs. Full history is the correct answer, and
+          # without old blobs it is the cheap one: both guards read commits,
+          # changed names and messages, never a file at an old revision, and
+          # old blobs are almost all of this repository by size.
           fetch-depth: 0
+          filter: blob:none
 
       # Self-test before enforce — the shape verify-readme-links already uses
       # for its Python guards. Layer 5 of this harness is the diverged-history

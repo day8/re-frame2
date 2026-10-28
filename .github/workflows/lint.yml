@@ -186,7 +186,7 @@ jobs:
   # path in the lint surface changed; on push / schedule / dispatch it
   # always lights so the linters run unconditionally. The heavy clj-kondo +
   # Splint jobs key their `if:` on this output, while the always-present
-  # aggregator does not — so an unrelated PR runs only this ~5-second job
+  # aggregator does not — so an unrelated PR runs only this sub-minute job
   # plus the rollup, and both linters skip.
   #
   # `js_surface` is the same idea for the ESLint job, and is
@@ -203,7 +203,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          # Every commit and tree, HEAD's blobs only, for the reason docs.yml's
+          # `detect` job gives: the step below reads names from a merge-base
+          # diff, and the one old blob its rename detection can want, the old
+          # side of a renamed-and-edited file, is fetched on demand.
           fetch-depth: 0
+          filter: blob:none
 
       # On a PR, classify the changed-file list against the lint surface.
       # On any non-PR event (push/schedule/dispatch) light the gate so the
