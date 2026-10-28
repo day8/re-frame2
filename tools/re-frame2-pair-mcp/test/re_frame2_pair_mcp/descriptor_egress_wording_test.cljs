@@ -36,7 +36,7 @@
         (str tool " must name the default off-box-tool egress profile")))
   (testing "snapshot describes :machines as redacted and fail-closed"
     (let [desc (description-by-name "snapshot")]
-      (doseq [needle [":machines" ":rf/redacted" "[:schemas :data]"]]
+      (doseq [needle [":machines" ":rf/redacted" "`reg-machine`"]]
         (is (str/includes? desc needle) needle))
       (is (or (str/includes? desc "FAILS CLOSED")
               (str/includes? desc "fails closed"))))))

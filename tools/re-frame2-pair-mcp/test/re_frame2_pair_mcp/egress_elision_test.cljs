@@ -2,8 +2,8 @@
   "Form-level pins for off-box redaction on the pull-mode tools.
 
   Redaction runs app-side, inside the eval form each tool ships over
-  nREPL: `re-frame.core/project-egress` reads the frame's runtime-db
-  elision registry, which exists only in the live app. So these tests
+  nREPL: `re-frame.core/project-egress` reads the frame's classification
+  policy, which exists only in the live app. So these tests
   capture the form the real tool sends and assert that every egressed
   value crosses the door under the right `:rf.egress/*` boundary, with
   the `--allow-sensitive-reads` gate off (the default) and on. What the

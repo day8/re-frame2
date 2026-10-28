@@ -634,10 +634,11 @@ such slots with a marker carrying a fetch handle.
 **The transform**. Each frame's `:app-db` slice (in
 `snapshot`) and each get-path resolved value (in `get-path`)
 is run through the walker server-side, inside the eval form
-sent over nREPL. The walker reads the per-frame
-`[:rf.runtime/elision]` runtime-db registry — populated by the
-commit-plane `:large` classification effect (EP-0025) — and
-substitutes values at or below registered paths:
+sent over nREPL. The walker reads the frame's classification
+policy (`re-frame.elision/frame-policy`) — the `reg-classification`
+declarations the frame's view resolves, its flows' outputs and its
+subsystems' own declarations — and substitutes values at or below
+declared `:large` paths:
 
 ```clojure
 ;; Wire shape (substitution at a single elidable slot)
@@ -645,8 +646,8 @@ substitutes values at or below registered paths:
  {:path   [<segment>...]            ; address of the elided slot
   :bytes  <int>                     ; pr-str byte count
   :type   :map | :vector | :set | :string | :scalar
-  :reason :effect                   ; the declaration's source
-  :hint   <string-or-nil>           ; from the registry entry
+  :reason :classification           ; the declaring source (:flow, :machine, ...)
+  :hint   <string-or-nil>           ; the declaring owner's hint, if any
   :handle [:rf.elision/at <path>]}} ; get-path on :path, elision false
 ```
 
@@ -666,9 +667,9 @@ past epoch record is not a route to that epoch's value
 (rf2-3x7nj.32.5; read the retained record with `eval-cljs`).
 
 **Why server-side, not wire-side**. The walker reads the
-`[:rf.runtime/elision]` registry from the live frame's runtime-db partition. The MCP server
+live frame's classification policy. The MCP server
 is a Node process that doesn't have direct access to the
-running re-frame frame; the registry is reachable only inside
+running re-frame frame; the policy is reachable only inside
 the eval form. The walker is the single normative emission
 site for the marker — per Spec API §`project-egress`,
 per-tool reimplementation is prohibited. So re-frame2-pair-mcp's

@@ -102,8 +102,8 @@
     :selector  CSS selector — `querySelector`, then walk up to the view.
     :max-text  per-node textContent char cap (default 2000). Over-cap text
                collapses to a `:rf.size/large-elided` marker.
-    :frame     operating-frame override (the `:subs-read` slice + elision
-               registry).
+    :frame     operating-frame override (the `:subs-read` slice + the
+               classification the elision walker applies).
     :build     shadow-cljs build id (as every other op).
 
   Output EDN (success):

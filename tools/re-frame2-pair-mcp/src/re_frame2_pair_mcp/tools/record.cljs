@@ -59,7 +59,7 @@
   is threaded into the runtime's `start-recording!` as `:elide-opts`, so
   every `:app-db` / `:sub` sample is walked through
   `re-frame.core/project-egress` server-side (app-side, where the
-  per-frame elision registry lives) BEFORE it lands in the change-log.
+  frame's classification policy is reachable) BEFORE it lands in the change-log.
   Gate OFF (the published default) forces `:include-sensitive false` ⇒
   declared-sensitive slots redact to `:rf/redacted`. The tool also issues
   `raw-state/signal-runtime!` before `start-recording!` so the runtime's
