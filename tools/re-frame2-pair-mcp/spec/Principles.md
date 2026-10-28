@@ -185,7 +185,7 @@ re-frame2-pair-mcp-specific (epoch-record diff encoding).
 Every catalogue entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) declares
 which mechanisms apply, with a **typical-token** hint
-(`~1.2k`, `~3k under :sample`) and a **cap-reached**
+(`~1.2k`, `~3k under mode "full"`) and a **cap-reached**
 behaviour note. The hints surface in `list-tools` so the
 agent can plan ahead. The cap is enforced at the wire
 boundary, not just documented.
@@ -350,27 +350,31 @@ stay inside the budget by construction:
 
 - **Pagination / cursor for unbounded surfaces.** Any op that
   returns a list whose size is a function of runtime state
-  (`trace-window`, `watch-epochs` matches, `registrations`
-  listings under `discover-app`) MUST accept a `:limit`
-  argument and return a `:cursor` for continuation. The
-  response MUST stay under the cap whatever the `:limit`: a
-  `:limit` counts items, not tokens, so a page that would
-  overflow is cut to the longest prefix that fits, says so
-  (`:truncated-by :max-tokens`), and carries a cursor that
-  resumes at the first item it left out. No unbounded list
-  responses; no "best-effort" omission of pagination.
-- **Summarisation modes for rich payloads.** Ops with rich
-  per-item shape (`snapshot`, `trace-window`, `discover-app`)
-  MUST expose a `:mode` (or equivalent) argument with at
-  least `:count` (return totals only), `:sample` (return a
-  bounded prefix or stratified sample with sizes attached),
-  and `:full` (return everything, paginated). The default
-  MUST be `:sample` for any op whose `:full` payload can
-  exceed the cap. Agents opt into `:full` when they actually
-  need it.
+  (`trace-window`, `watch-epochs` matches) MUST accept a
+  `:limit` argument and return a `:next-cursor` for
+  continuation. The response MUST stay under the cap whatever
+  the `:limit`: a `:limit` counts records, not tokens, so a
+  page that would overflow is cut to the longest prefix that
+  fits, says so (`:truncated-by :max-tokens`), and carries a
+  cursor that resumes at the first record it left out. When not
+  even the first record fits, the page is empty and carries
+  `:advisory {:reason :record-exceeds-max-tokens :record-tokens
+  N ...}`, which names the `max-tokens` that record needs. No
+  unbounded list responses; no "best-effort" omission of
+  pagination.
+- **Summarisation modes for rich payloads.** An op whose rich
+  slices can exceed the cap (`snapshot`) MUST expose a `:mode`
+  (or equivalent) argument whose default replaces each rich
+  slice with a `{:rf.mcp/summary ...}` marker, and whose
+  `:full` returns the raw payload. Agents opt into `:full` when
+  they actually need it. The epoch-paging tools page rather than
+  summarise: a page holds whole records, cut to the cap as
+  above. A compact per-record mode for them is where to go when
+  real apps' records outgrow the default cap; until then the
+  advisory's `max-tokens` re-call reaches a record of any size.
 Each op's reference entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) carries a
-**typical-token** hint (e.g., `~1.2k`, `~3k under :sample`)
+**typical-token** hint (e.g., `~1.2k`, `~3k under mode "full"`)
 and a **cap-reached** behaviour note (the structured-overflow
 marker described above, optionally with tool-specific hint
 text). The hints surface in `list-tools` so the agent can
@@ -393,7 +397,8 @@ plan ahead.
    the post-shrink payload would still trip the cap. Default
    is `{:rf.mcp/overflow ...}` with the tool-specific hint
    string; tools that paginate (`trace-window`, `watch-epochs`)
-   instead emit `:has-more? true` + `:next-cursor` and never
+   instead cut the page to the records that fit (`:truncated-by
+   :max-tokens`, `:has-more? true` + `:next-cursor`) and never
    trip the cap on a single page.
 4. **The default mode / limit / dedup / elision values** for
    every applicable knob. No tool ships without these slots.
