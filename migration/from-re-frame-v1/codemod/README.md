@@ -19,7 +19,7 @@ on a bare JVM with `clojure` on the path — no re-frame2 build in the loop.
 | `reg-event-fx` | **rename** | `reg-event` (body byte-for-byte unchanged — `reg-event` *is* `reg-event-fx`); a v1 interceptor chain in the middle slot is normalized (or flagged) per the chain rules below |
 | simple `reg-event-db` | **rewrite** | `reg-event`; the `db` param is destructured (`{:keys [db]}`) and the body is wrapped `{:db BODY}`; the chain rules below apply to the middle slot |
 | `reg-event-db` whose first param is a non-`db` symbol (e.g. a path-scoped slice `c`) | **rewrite** | `reg-event`; the param is rebound `{c :db}` — the db value back under its original name — so every body reference to `c` stays resolved while the body is left byte-for-byte unchanged. (Rebinding to `{:keys [db]}` here would orphan the body's `c` references — `rf2-xhfxcs.15`.) |
-| any form whose chain has an entry with no derivable v2 reference | **flag** (`:interceptors`) | left unchanged — unresolved **M-70 Type B**; see the chain rules below |
+| any form whose chain has an entry with no derivable v2 reference | **flag** (`:interceptors`, or `:interceptors-unverified` when only evaluation can tell) | left unchanged — unresolved **M-70 Type B**; see the chain rules below |
 | already-renamed `reg-event` carrying a v1 chain survivor | **rewrite** / **flag** (`:interceptors`) | the rescan (below) repairs or flags partially migrated trees; valid `reg-event` forms produce **no** finding |
 | nil-capable `reg-event-db` | **flag** (`:nil-capable`) | left unchanged — D7: under v2 a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}`, so the author chooses the intended reading |
 | complex `reg-event-db` | **flag** (`:complex`) | left unchanged — non-literal handler (var / higher-order / multi-arity) or a destructured first param |
@@ -102,15 +102,36 @@ mechanical and flags the rest (`rf2-8odvg`):
   unaffected.
   Positional chains are wrapped (or merged) into the one metadata-map
   `:interceptors` form; entry declaration order is preserved.
-- **Entries that are already v2 refs are preserved verbatim.**
-- **Anything else flags the whole site** (`:flag :interceptors`, source
-  unchanged): a custom value, a var, `(rf/debug)`, a `path` call whose head
-  does not resolve to `re-frame.core/path`, a standard `path` call with a
-  non-literal arg — its registered id cannot be derived without author
-  intent, so it is an unresolved **M-70 Type B** finding. Register the
-  interceptor with `reg-interceptor`, reference it by id, and re-run. The
-  codemod never reports a site as rewritten while its output would be
-  rejected by v2.
+- **Entries that are already v2 refs are preserved verbatim**, and so is a
+  bare symbol that a top-level `def` in the same file binds to a reference
+  literal: `(def auth :auth/required)` as an entry, or
+  `(def chain [:auth/required …])` as the whole `:interceptors` value. The
+  def must be the file's only definition of the name, and no scope around the
+  registration may rebind it.
+- **Anything else flags the whole site** as an unresolved **M-70 Type B**
+  finding, source unchanged. The codemod never reports a site as rewritten
+  while its output would be rejected by v2, and it reads source text, so the
+  flag says which of two things it knows:
+    - **`:flag :interceptors` — certainly invalid.** The chain holds something
+      v2 rejects at namespace load whatever the program binds: an inline
+      interceptor map, a literal that is not a reference, a non-vector literal
+      chain, `(rf/debug)` or any other `re-frame.core` call (v1's interceptor
+      constructors build values), a standard `path` call with a non-literal arg,
+      a def whose value is one of those, or a positional chain beside a
+      non-vector metadata chain. Register the interceptor with
+      `reg-interceptor`, reference it by id, and re-run.
+    - **`:flag :interceptors-unverified` — cannot be verified statically.** The
+      chain holds a symbol or a call whose value only evaluation shows: a var or
+      local, a helper that returns a chain, `(into [:auth/required] extra)`, a
+      `path` call whose head does not resolve to `re-frame.core/path`. The site
+      may already be valid v2, and the check is the registration itself: load
+      the namespace (on a v1 form, after migrating it by hand), or run the boot
+      smoke-test. References register clean; an inline value throws
+      `:rf.error/inline-interceptor-removed` (another non-reference,
+      `:rf.error/reg-event-bad-interceptors`). A rescan re-reports a valid
+      computed chain, so a gate on a clean rescan counts these separately rather
+      than requiring zero flags. Do not rewrite a valid computed chain into a
+      literal only to quiet the codemod.
 - **Already-renamed `reg-event` forms are rescanned** for these invalid
   survivors, so a re-run recovers a partially migrated tree. Valid
   `reg-event` registrations produce no finding.
@@ -176,6 +197,7 @@ A `finding` is a map:
  :action :rewrite | :rename | :flag
  :flag   nil | :nil-capable | :complex | :ctx
          | :interceptors                          ;; unresolved M-70 Type B
+         | :interceptors-unverified               ;; M-70 Type B it cannot see
          | :binding                               ;; bare `reg-event` not bindable
  :target :reg-event | nil
  :note   "human-readable explanation"}
@@ -203,7 +225,9 @@ binders such as `clojure.core/let` and under unrecognised binders such as
 `defmethod` / `when-first` / a project macro, while an enclosing form that binds
 some *other* name still lowers; qualified heads are unaffected by a local of the
 same name), custom inline interceptors
-flagged as unresolved M-70 Type B, the `reg-event` invalid-survivor rescan,
+flagged as unresolved M-70 Type B (`:interceptors` when certainly invalid,
+`:interceptors-unverified` for a symbol or call), chains read through a
+same-file `def`, the `reg-event` invalid-survivor rescan,
 `-fx` rename, `-ctx`, nil-capable bodies (`when` / `if` / `get` / `cond` / `and` / `or` /
 `some->` / literal `nil`), complex `-db` (var / multi-arity / destructured db
 param), alias-agnostic detection, bare-head binding (every bare call in the
@@ -214,7 +238,8 @@ round-trips byte-for-byte), comment/whitespace preservation, idempotence, and th
 filesystem entry points.
 
 The integration tests in `test-integration/` register the emitted output
-against the actual v2 core and pin the negative controls: the pre-fix
+against the actual v2 core (a chain read through a `def` included) and pin the
+negative controls: the pre-fix
 preserved-inline output throws `:rf.error/path-removed`, a surviving
 positional middle slot throws `:rf.error/reg-event-bad-middle-slot`, an inline
 interceptor value throws `:rf.error/inline-interceptor-removed`, and an

@@ -98,7 +98,7 @@
                  "(rf/reg-event :d {:doc \"plain metadata\"} (fn [{:keys [db]} _] {:db db}))\n")]
     (is (= [[] src] (outcome src)))))
 
-(deftest unresolved-chain-entry-flags-whole-site
+(deftest certainly-invalid-chain-flags-whole-site
   (doseq [[label src form]
           [["a positional custom call is not pure-renamed"
             "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
@@ -106,18 +106,84 @@
            ["(rf/path p) with a non-literal arg has no derivable path vector"
             "(rf/reg-event-db :x {:interceptors [(rf/path p)]} (fn [db _] (assoc db :k 1)))"
             :reg-event-db]
-           ["a convertible path beside an underivable entry is not half-converted"
-            "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
-            :reg-event-db]
-           ["an already-renamed reg-event with an underivable entry"
-            "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
-            :reg-event]]]
-    (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= [[form :flag :interceptors] true src]
-             [((juxt :form :action :flag) (first findings)) (str/includes? (:note (first findings)) "M-70") source])
+           ["an inline interceptor map"
+            "(rf/reg-event :x {:interceptors [{:id :my/ic :before identity}]} (fn [{:keys [db]} _] {:db db}))"
+            :reg-event]
+           ["a literal that is not a vector, as the whole chain"
+            "(rf/reg-event :x {:interceptors :my/ic} (fn [{:keys [db]} _] {:db db}))"
+            :reg-event]
+           ["a certainly-invalid entry outranks an unverifiable one before it"
+            "(rf/reg-event-fx :x {:interceptors [my-ic (rf/debug)]} (fn [c _] {}))"
+            :reg-event-fx]
+           ["a symbol a top-level def binds to an inline value"
+            (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                 "(def my-ic (rf/->interceptor :id :my/ic))\n"
+                 "(rf/reg-event-fx :x {:interceptors [my-ic]} (fn [c _] {}))\n")
+            :reg-event-fx]]]
+    (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)
+          note (str (:note (first findings)))]
+      (is (= [[form :flag :interceptors] true true src]
+             [((juxt :form :action :flag) (first findings))
+              (str/includes? note "M-70")
+              (str/includes? note "hard-fail v2 registration")
+              source])
           label))))
 
-(def ^:private path-flag [[:reg-event-db :flag :interceptors :reg-event]])
+(deftest unverifiable-chain-flags-whole-site-as-unverified
+  (doseq [[label src form]
+          [["a var entry on an already-renamed reg-event"
+            "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
+            :reg-event]
+           ["a convertible path beside an unverifiable entry is not half-converted"
+            "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
+            :reg-event-db]
+           ["a symbol as the whole chain"
+            "(rf/reg-event :x {:interceptors chain} (fn [{:keys [db]} _] {:db db}))"
+            :reg-event]
+           ["a computed chain"
+            "(rf/reg-event-fx :x {:interceptors (into [:auth/required] extra)} (fn [c _] {}))"
+            :reg-event-fx]
+           ["a helper call entry"
+            (str "(ns app.events (:require [re-frame.core :as rf] [app.chains :as chains]))\n"
+                 "(rf/reg-event :x {:interceptors [(chains/auth)]} (fn [{:keys [db]} _] {:db db}))\n")
+            :reg-event]
+           ["a def that a scope around the registration shadows"
+            (str "(def chain [:auth/required])\n"
+                 "(let [chain (build)]\n"
+                 "  (rf/reg-event :x {:interceptors chain} (fn [{:keys [db]} _] {:db db})))\n")
+            :reg-event]
+           ["a name defined twice"
+            (str "(def chain [:auth/required])\n(def chain [:other])\n"
+                 "(rf/reg-event :x {:interceptors chain} (fn [{:keys [db]} _] {:db db}))\n")
+            :reg-event]]]
+    (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)
+          note (str (:note (first findings)))]
+      (is (= [[form :flag :interceptors-unverified] true false src]
+             [((juxt :form :action :flag) (first findings))
+              (str/includes? note "v2 checks the evaluated chain at registration")
+              (str/includes? note "hard-fail")
+              source])
+          label))))
+
+(deftest chains-resolved-through-a-top-level-def
+  (doseq [[label src out actions]
+          [["a def'd reference vector as the whole chain renames"
+            "(def chain [:auth/required [:rf.interceptor/path [:cart]]])\n(rf/reg-event-fx :x {:interceptors chain} (fn [c _] {}))\n"
+            "(def chain [:auth/required [:rf.interceptor/path [:cart]]])\n(rf/reg-event :x {:interceptors chain} (fn [c _] {}))\n"
+            [:rename]]
+           ["a def'd reference entry is kept beside a lowered path"
+            "(def ^:private auth \"the auth gate\" :auth/required)\n(rf/reg-event-db :x {:interceptors [auth (rf/path :a)]} (fn [db _] (assoc db :k 1)))\n"
+            "(def ^:private auth \"the auth gate\" :auth/required)\n(rf/reg-event :x {:interceptors [auth [:rf.interceptor/path [:a]]]} (fn [{:keys [db]} _] {:db (assoc db :k 1)}))\n"
+            [:rewrite]]
+           ["a valid def'd chain on reg-event is no finding"
+            "(def chain [:auth/required])\n(rf/reg-event :x {:interceptors chain} (fn [{:keys [db]} _] {:db db}))\n"
+            nil
+            []]]]
+    (is (= [actions (or out src)] (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+                                     [(mapv :action findings) source]))
+        label)))
+
+(def ^:private path-flag [[:reg-event-db :flag :interceptors-unverified :reg-event]])
 
 (deftest non-standard-path-heads-flagged
   (doseq [[label src]
