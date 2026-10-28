@@ -881,6 +881,13 @@ byte beyond the `1,107 B` bound, which on the record's own text lapses the
 acceptance; [`budgets.md` §5](product/budgets.md#the-breach-is-carried-never-normalised)
 records it.
 
+**[Re-affirmed 2026-10-28, operator ruling on `rf2-e1bwb`.]** The operator
+re-affirmed the acceptance against the re-taken figures, with both run means
+inside the bound and that `1,108 B` round on the record, and moved its React
+condition from 19.2.0 to 19.3.0;
+[`budgets.md` §5](product/budgets.md#the-breach-is-carried-never-normalised)
+records the ruling.
+
 ## Timing (HD-015)
 
 The programme starts immediately: P0 and the donor arm are ordinary bench-lane
