@@ -168,7 +168,7 @@
                         :generation (:generation e) :data {:title "Intro"}}]))
   (let [payload      {:rf/frame-id   :rf/default
                       :rf/app-db     {}
-                      :rf/runtime-db (rf.ssr.payload-policy/project-runtime-db (runtime-db))}
+                      :rf/runtime-db (rf.ssr.payload-policy/project-runtime-db (runtime-db) :rf/default)}
         ;; the token's value is host-dependent, so pin the one that rode the wire
         server-token (get-in payload [:rf/runtime-db :rf.runtime/routing :current :nav-token])]
     (is (some? server-token) "precondition: the route and its nav-token ride the wire")

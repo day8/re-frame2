@@ -449,97 +449,25 @@
 (def ^:private reserved-prop-keys
   #{"__proto__" "constructor" "prototype"})
 
-;; `on*` event-handler-prop matcher. Two layers,
-;; both applied to the attribute name, together covering every casing a
-;; case-insensitive HTML parser fires:
-;;
-;;   1. STRUCTURAL — framework-shaped custom handler spellings the
-;;      re-frame hiccup adapters and react-dom/server recognise:
-;;        - camelCase: `on` + an upper-case letter — `onClick`,
-;;          `onMouseDown`, `onCustomEvent`. (`on[A-Z]…`)
-;;        - kebab-case: `on-` prefix — `on-click`, `on-custom-event`.
-;;          (`on-…`)
-;;      Only the `on` PREFIX is case-folded (`[Oo][Nn]`), so `OnClick`
-;;      / `ON-CLICK` strip too — but the discriminating class stays a
-;;      strict `[A-Z]`. Making the WHOLE pattern case-insensitive would
-;;      be a bug: `(?i)` over `[A-Z]` matches `[A-Za-z]`, so it would eat
-;;      innocuous English-word keys (`one`, `once`, `online`, `only`)
-;;      AND swallow grammar-breakout payloads (`onclick=alert(1) data-x`)
-;;      that must instead surface at the `validate-attr-name!` gate. A
-;;      structural handler is always `on` + upper-case or `on` + hyphen,
-;;      which discriminates cleanly from `on` + lowercase-word.
-;;
-;;   2. CANONICAL ALLOWLIST — the all-lowercase canonical HTML spellings
-;;      (`onclick`, `onload`, `onerror`, …) that layer 1 cannot catch
-;;      (no upper-case letter, no hyphen) yet are the *exact* names a
-;;      browser fires and the canonical choice of an attacker who
-;;      controls an attribute KEY. HTML attribute names are
-;;      case-insensitive, so we test `(str/lower-case nm)` against the
-;;      WHATWG event-handler-content-attribute set. An allowlist (not a
-;;      `on` + lowercase wildcard) is required so legitimate non-handler
-;;      keys like `online` / `once` / `only` / `on` survive.
-(def ^:private event-handler-name-re
-  #"[Oo][Nn](?:[A-Z].*|-.*)")
-
-;; WHATWG event-handler content attributes (HTML Living Standard
-;; §"Event handlers on elements, Document objects, and Window objects",
-;; plus the IDL `on*` attributes on Window/Document/Element), and the
-;; W3C Touch Events Level 2 §8 `GlobalEventHandlers` touch attributes
-;; (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`).
-;; The structural regex only catches the camelCase/kebab
-;; spellings, so the lower-case canonical touch names MUST be enumerated
-;; here or they ride through as live attributes on touch-capable
-;; browsers — an XSS-equivalent gap of the same class as `:onclick`). All
-;; lower-case; the lookup lower-cases the candidate name first so every
-;; casing (`onload`, `ONLOAD`, `OnLoad`) is covered. Curated to the
-;; event-handler names browsers actually fire — NOT a broad `on`-prefix —
-;; so non-handler keys (`online`, `once`, `only`, `on`) are never eaten.
-(def ^:private event-handler-allowlist
-  #{"onabort" "onafterprint" "onanimationcancel" "onanimationend"
-    "onanimationiteration" "onanimationstart" "onauxclick"
-    "onbeforeinput" "onbeforematch" "onbeforeprint" "onbeforetoggle"
-    "onbeforeunload" "onblur" "oncancel" "oncanplay" "oncanplaythrough"
-    "onchange" "onclick" "onclose" "oncommand" "oncontextlost"
-    "oncontextmenu" "oncontextrestored" "oncopy" "oncuechange" "oncut"
-    "ondblclick"
-    "ondrag" "ondragend" "ondragenter" "ondragleave" "ondragover"
-    "ondragstart" "ondrop" "ondurationchange" "onemptied" "onended"
-    "onerror" "onfocus" "onformdata" "onfullscreenchange"
-    "onfullscreenerror" "ongotpointercapture" "onhashchange" "oninput"
-    "oninvalid" "onkeydown" "onkeypress" "onkeyup" "onlanguagechange"
-    "onload" "onloadeddata" "onloadedmetadata" "onloadstart"
-    "onlostpointercapture" "onmessage" "onmessageerror" "onmousedown"
-    "onmouseenter" "onmouseleave" "onmousemove" "onmouseout"
-    "onmouseover" "onmouseup" "onoffline" "ononline" "onpagehide"
-    "onpagereveal" "onpageshow" "onpageswap" "onpaste" "onpause"
-    "onplay" "onplaying" "onpointercancel" "onpointerdown"
-    "onpointerenter" "onpointerleave" "onpointermove" "onpointerout"
-    "onpointerover" "onpointerrawupdate" "onpointerup" "onpopstate"
-    "onprogress" "onratechange" "onrejectionhandled" "onreset"
-    "onresize" "onscroll" "onscrollend" "onsecuritypolicyviolation"
-    "onseeked" "onseeking" "onselect" "onselectionchange"
-    "onselectstart" "onslotchange" "onstalled" "onstorage" "onsubmit"
-    "onsuspend" "ontimeupdate" "ontoggle" "ontouchcancel" "ontouchend"
-    "ontouchmove" "ontouchstart" "ontransitioncancel"
-    "ontransitionend" "ontransitionrun" "ontransitionstart"
-    "onunhandledrejection" "onunload" "onvolumechange" "onwaiting"
-    "onwheel"})
-
 (defn- event-handler-name?
-  "True when attribute name `nm` denotes an `on*` event-handler prop that
-  must be stripped at SSR static-markup emission.
+  "True when attribute name `nm` is an `on*` event-handler prop, stripped at
+  static-markup emission.
 
-  Matches either the structural camelCase/kebab handler spellings
-  (`event-handler-name-re`, case-insensitive) — so framework-shaped
-  custom handlers like `:onCustomEvent` / `:on-custom-event` strip — OR
-  the canonical all-lowercase HTML event-handler names in
-  `event-handler-allowlist`, looked up against `(str/lower-case nm)` so
-  every casing of a real handler (`onload` / `ONLOAD` / `OnLoad`) is
-  caught while non-handler keys (`online` / `once` / `only` / `on`)
-  survive."
+  This is react-dom's own rule, on its client and its server alike: a name
+  longer than two characters whose first two are `o`/`O` then `n`/`N` is a
+  handler and is never painted as an attribute. Matching it exactly keeps the
+  roster closed in both directions with no list to keep current — every
+  vendor or future event (`onbegin` on SVG `<animate>`,
+  `onwebkitanimationend`, `onsearch`) strips, and `on` and `data-on` paint
+  as they do on the client. Spec 011 §XSS at output boundaries.
+
+  A name outside the attribute grammar is not a handler to drop silently:
+  `onclick=alert(1) data-x` is a breakout payload, so it is left for
+  `validate-attr-name!` to refuse."
   [nm]
-  (or (some? (re-matches event-handler-name-re nm))
-      (contains? event-handler-allowlist (str/lower-case nm))))
+  (and (> (count nm) 2)
+       (= "on" (str/lower-case (subs nm 0 2)))
+       (some? (re-matches attr-name-grammar nm))))
 
 ;; JSX source-coord props. React DevTools' "View source" gesture reads
 ;; `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` off the
@@ -646,11 +574,11 @@
   emission:
 
     - `on*` event-handler props (`:on-click`, `:onMouseDown`,
-      `:onclick`, `:ONLOAD`, …). The client-side substrate adapters
-      wire handlers at hydration; the server-rendered string MUST NOT
-      carry them inline. Matched (case-insensitively) by
-      `event-handler-name?` — the structural camelCase/kebab spellings
-      plus the WHATWG canonical all-lowercase event-handler names.
+      `:onclick`, `:ONLOAD`, `:onbegin`, …). The client-side substrate
+      adapters wire handlers at hydration; the server-rendered string
+      MUST NOT carry them inline. Matched by `event-handler-name?`,
+      react-dom's rule: any grammar-valid name over two characters that
+      begins `on`, case-insensitively.
     - function-valued prop values — a fn can only be a handler/callback;
       it has no HTML-attribute serialisation and must never reach output.
     - reserved prototype-pollution keys (`__proto__` / `constructor` /

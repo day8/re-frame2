@@ -36,6 +36,17 @@
                   (float 0.1)]]
          (is (not (rf.ssr.wire/edn-carryable? v)) (pr-str v))))))
 
+(deftest only-idents-that-read-back-ride-the-wire
+  (testing "admitted — plain and punctuated names, with and without a namespace"
+    (doseq [v [:a :a/b :user.profile/first-name :ok? :<> :a.b/c->d 'sym 'ns/sym]]
+      (is (rf.ssr.wire/edn-carryable? v) (pr-str v))))
+  (testing "refused — a name the reader would split, rename or take as a literal"
+    (doseq [v [(keyword "a b") (keyword "a,b") (keyword "") (symbol "nil")
+               (symbol "a b")]]
+      (is (not (rf.ssr.wire/edn-carryable? v)) (pr-str v)))
+    (is (not (rf.ssr.wire/edn-carryable? {(keyword "a b") 1}))
+        "as a map key, where a silent rename would land")))
+
 ;; ---- numbers a collection cannot carry ------------------------------------
 ;;
 ;; Every number below passes on its own; the collection holding them does

@@ -5,8 +5,8 @@
   A route declares its classification projection-relative; at egress it is
   re-rooted under `[:rf.runtime/routing :current …]` onto the current slice
   (Spec 012 §Route data classification), which `project-routing-egress`
-  walks. Here the slice is installed directly into the ambient `:rf/default`
-  frame and projected with the one-arity `project-runtime-db`;
+  walks. Here the slice is installed directly into the `:rf/default` frame
+  and projected under it;
   `re-frame.ssr-routing-egress-production-test` drives a real route
   activation instead."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -45,9 +45,10 @@
                                     :query    {:token     "secret-oauth-token"
                                                :return-to "/dashboard"}
                                     :params   {:payload "huge-callback-blob-value"}}
-               :pending-navigation {:id "pn-1" :reason :can-leave}}})))))
+               :pending-navigation {:id "pn-1" :reason :can-leave}}})
+           :rf/default))))
 
 (deftest unclassified-route-slice-rides-verbatim
   (let [rt {:rf.runtime/routing {:current {:route-id :route/home
                                            :query    {:token "still-here"}}}}]
-    (is (= rt (rf.ssr.payload-policy/project-runtime-db rt)))))
+    (is (= rt (rf.ssr.payload-policy/project-runtime-db rt :rf/default)))))

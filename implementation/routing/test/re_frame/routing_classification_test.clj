@@ -233,7 +233,7 @@
                 "/oauth")
   (visit! "/oauth?token=secret123")
   (let [rdb   (:rf.db/runtime (rf/frame-state-value :rf/default))
-        route (get-in (rf.ssr.payload-policy/project-runtime-db rdb)
+        route (get-in (rf.ssr.payload-policy/project-runtime-db rdb :rf/default)
                       [:rf.runtime/routing :current])]
     (testing "project-runtime-db, the SSR egress boundary, redacts the declared value"
       (is (= sentinel (get-in route [:query :token])))

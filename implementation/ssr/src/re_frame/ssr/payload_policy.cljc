@@ -476,41 +476,23 @@
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
-  Fail-closed on a lost frame: an EXPLICIT `frame-id` is handed
-  STRAIGHT to `project-egress`, which is PATH-precise under a LIVE frame (an
-  unclassified route slice rides verbatim — only the declared `:query` /
-  `:params` slots redact / elide) and FAILS CLOSED under a destroyed /
-  re-registered / unresolvable one (the whole `:current` slice redacts to
-  `:rf/redacted`). This is the SAME fail-closed posture as
-  `project-app-db-egress`. It closes the teardown-race leak: a `:current` route
-  slice captured while its frame was live does not ride RAW once that frame is
-  torn down (or re-registered under the same id) between capture and projection —
-  its classification authority is gone, so the slice fails closed rather than
-  serialising declared `:query` / `:params` under no policy. Riding the slice
-  VERBATIM whenever the frame is not live would be exactly that
-  leak: a stale explicit target shipping the raw classified route state.
-
-  A nil `frame-id` is the frameless / ambient-nil convenience (the one-arity
-  `project-runtime-db` called outside any frame): there is no frame policy to
-  lose, so the already-allowlisted durable `:current` slice rides VERBATIM.
-  Handing a nil frame to `project-egress` would fail closed and redact the whole
-  slice — wrong for genuinely frameless projection. The security-critical
-  builders always pass the live request frame explicitly, so the fail-closed arm
-  governs every real render; the verbatim arm is only the no-target convenience."
+  Fail-closed on a lost frame: `frame-id` is handed STRAIGHT to
+  `project-egress`, which is PATH-precise under a LIVE frame (an unclassified
+  route slice rides verbatim — only the declared `:query` / `:params` slots
+  redact / elide) and FAILS CLOSED under a nil, destroyed, re-registered or
+  unresolvable one (the whole `:current` slice redacts to `:rf/redacted`). This
+  is the SAME fail-closed posture as `project-app-db-egress`. It closes the
+  teardown-race leak: a `:current` route slice captured while its frame was
+  live does not ride RAW once that frame is torn down (or re-registered under
+  the same id) between capture and projection — its classification authority
+  is gone, so the slice fails closed rather than serialising declared `:query`
+  / `:params` under no policy."
   [slice frame-id]
-  (if (some? frame-id)
-    ;; Explicit target: project-egress is precise under a live frame and fails
-    ;; closed (redacts whole) under a destroyed / re-registered / unresolvable
-    ;; one; routing around it with a verbatim branch would be the
-    ;; teardown-race leak.
-    (rf.projection/project-egress
-      slice
-      {:frame             frame-id
-       :path              [:rf.runtime/routing]
-       :rf.egress/profile :rf.egress/ssr-hydration})
-    ;; No explicit target (frameless / ambient-nil convenience): no frame policy
-    ;; to lose, so the allowlisted durable slice rides verbatim.
-    slice))
+  (rf.projection/project-egress
+    slice
+    {:frame             frame-id
+     :path              [:rf.runtime/routing]
+     :rf.egress/profile :rf.egress/ssr-hydration}))
 
 ;; ---- runtime-db hydration projection --------------------------------------
 ;;
@@ -605,53 +587,35 @@
 
   ## The projection frame is the EXPLICIT carried target
 
-  The two-arity `[runtime-db frame-id]` is the canonical form: it projects
-  every runtime-db slice under the EXPLICIT `frame-id` the caller carries — the
+  Every runtime-db slice projects under the `frame-id` the caller carries — the
   same target the payload is stamped `:rf/frame-id`, and the same target
   the payload builder threads to the app-db
   projection. A hydration payload therefore projects BOTH partitions under ONE
-  frame, regardless of ambient scope.
+  frame, regardless of ambient scope. Resolving the frame AMBIENTLY would let a
+  builder called outside `rf/with-frame`, or under a DIFFERENT ambient frame,
+  serialize classified route / machine / resource state under no policy or the
+  WRONG frame's — a serialization privacy leak.
 
-  This matters because the runtime-db projectors fail in OPPOSITE directions on
-  a missing frame: `project-routing-egress` fails OPEN (no frame ⇒ the
-  classified route `:current` slice rides RAW) while the machines projector
-  skips `:data` redaction. Resolving the frame AMBIENTLY would mean a builder
-  called outside `rf/with-frame`, or under
-  a DIFFERENT ambient frame, serializes classified route / machine / resource
-  state under nil or the WRONG frame's policy — a serialization privacy leak.
-
-  The one-arity `[runtime-db]` is a convenience that projects under the ambient
-  scope frame — sound ONLY at a call site already inside the MATCHING
-  `rf/with-frame` (ambient == target). The security-critical builders MUST pass
-  the explicit target.
+  A `frame-id` that does not resolve to a LIVE frame — nil, never made,
+  destroyed — fails closed: the routing and machines slices redact whole and
+  the resource slice is omitted.
 
   The late-bound `:ssr/extend-runtime-db-projection` hook (resources) takes the
-  explicit target as a second parameter (`[runtime-db frame-id]`);
-  the two-arity threads the same `frame-id` into it so the extension projects
-  under the SAME frame as every other slice — never a borrowed / mismatched
-  ambient scope."
-  ([runtime-db]
-   ;; Convenience: project under the AMBIENT scope frame. Correct only when the
-   ;; call site is inside the frame's own `with-frame` (ambient == the target).
-   ;; The security-critical builders pass the explicit target.
-   (project-runtime-db runtime-db (rf.frame/resolve-current-frame)))
-  ([runtime-db frame-id]
-   (when (map? runtime-db)
-    (let [;; An EXPLICIT `frame-id` that no longer resolves to a
-          ;; LIVE frame (destroyed, or re-registered under the same id, between
-          ;; the caller's state capture and this projection) has lost the
-          ;; frame policy that classifies every user-bearing runtime-db
-          ;; slice. Routing fails closed on its own (`project-routing-
-          ;; egress` delegates to `project-egress`, which redacts a dead-frame
-          ;; slice whole); but the MACHINES snapshot hook and the RESOURCE
-          ;; extension hook classify PRECISELY only under a live frame and would
-          ;; otherwise ride the captured, still-classified state VERBATIM under
-          ;; absent policy — so when the explicit target is stale we do NOT
-          ;; invoke them: the machines slice redacts whole and the resource slice
-          ;; is omitted. A nil `frame-id` is the frameless / ambient-nil
-          ;; convenience (no frame policy to lose) and stays precise, matching the
-          ;; one-arity contract.
-          stale-target?    (and (some? frame-id) (nil? (rf.frame/frame frame-id)))
+  same target as its second parameter (`[runtime-db frame-id]`), so the
+  extension projects under the SAME frame as every other slice."
+  [runtime-db frame-id]
+  (when (map? runtime-db)
+    (let [;; A `frame-id` that does not resolve to a LIVE frame (nil, or
+          ;; destroyed or re-registered under the same id between the caller's
+          ;; state capture and this projection) carries no frame policy to
+          ;; classify the user-bearing runtime-db slices. Routing fails closed
+          ;; on its own (`project-egress` redacts the slice whole); the MACHINES
+          ;; snapshot hook and the RESOURCE extension hook classify PRECISELY
+          ;; only under a live frame and would otherwise ride the captured,
+          ;; still-classified state VERBATIM — so for a stale target we do NOT
+          ;; invoke them: the machines slice redacts whole and the resource
+          ;; slice is omitted.
+          stale-target?    (nil? (rf.frame/frame frame-id))
           project-machines (rf.late-bind/get-fn :machines/project-ssr-runtime-db)
           machines-slice   (when (contains? runtime-db :rf.runtime/machines)
                              (cond
@@ -701,7 +665,7 @@
                     slice
                     (merge slice (extend-fn runtime-db frame-id)))
                   slice)]
-      (when (seq slice) slice)))))
+      (when (seq slice) slice))))
 
 ;; ---- protocol version + payload assembly ---------------------------------
 ;;

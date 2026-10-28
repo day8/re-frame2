@@ -36,7 +36,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---- shared HTML helpers --------------------------------------------------
 ;;
@@ -1174,15 +1174,7 @@
 ;; set-hiccup-emitter! through `:reagent/set-hiccup-emitter!`; we
 ;; consume that hook below so ssr does not statically :require the
 ;; Reagent adapter ns.
-#?(:clj
-   (try
-     (require 're-frame.substrate.plain-atom)
-     ((requiring-resolve 're-frame.substrate.plain-atom/set-hiccup-emitter!)
-      render-to-string)
-     (catch Throwable _ nil)))
-
-#?(:cljs
-   (rf.substrate.plain-atom/set-hiccup-emitter! render-to-string))
+(rf.substrate.plain-atom/set-hiccup-emitter! render-to-string)
 
 ;; Reagent adapter wiring (load-order-symmetric counterpart to the
 ;; plain-atom path above). No-op when the Reagent adapter isn't on the

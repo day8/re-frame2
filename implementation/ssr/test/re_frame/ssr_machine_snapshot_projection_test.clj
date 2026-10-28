@@ -43,7 +43,7 @@
             {:snapshots {auth-id {:state :authed
                                   :data  {:retries 2 :token :rf/redacted :blob "huge-blob-value"}}}
              :spawned   {}}}
-           (rf.ssr.payload-policy/project-runtime-db runtime-db)))))
+           (rf.ssr.payload-policy/project-runtime-db runtime-db :rf/default)))))
 
 (deftest a-collection-element-declaration-redacts-every-element-as-the-trace-does
   ;; A spawned actor's projection-relative `[:data :items :token]` names the
@@ -83,4 +83,4 @@
     {:initial :idle :data {:public "ok"} :states {:idle {}}})
   (let [rt {:rf.runtime/machines
             {:snapshots {:rf.ssr-machine/plain {:state :idle :data {:public "ok"}}}}}]
-    (is (= rt (rf.ssr.payload-policy/project-runtime-db rt)))))
+    (is (= rt (rf.ssr.payload-policy/project-runtime-db rt :rf/default)))))

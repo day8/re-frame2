@@ -11,7 +11,9 @@
   answers the whole question for one value; `portable-number?` answers its
   numeric type / range half and `numeric-collision` its collection half, and
   the hydration payload's crossing check reuses both so the two wires cannot
-  drift apart on what crosses (Spec 011 §The numeric crossing rule).")
+  drift apart on what crosses (Spec 011 §The numeric crossing rule)."
+  (:require #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as reader])))
 
 (def ^:const max-safe-integer
   "`2^53 - 1` — the largest integer a browser number (an IEEE-754 double)
@@ -157,6 +159,32 @@
        (sequential? v) (first (keep-indexed (fn [i x] (numeric-collision x (conj path i))) v))
        :else           nil))))
 
+;; A name segment every EDN reader takes back as itself: letter-led, then word
+;; characters and the reader's symbol punctuation.
+(def ^:private plain-name-segment #"[A-Za-z][\w.*+!?<>=-]*")
+
+(defn- reads-back?
+  "True when `v`'s printed form reads back `=` to `v` under the safe EDN
+  reader. A keyword or symbol can be built from any string —
+  `(keyword \"a b\")` prints `:a b` and reads back as `:a` — so its name is
+  checked, not assumed."
+  [v]
+  (try (= v #?(:clj  (edn/read-string (pr-str v))
+               :cljs (reader/read-string (pr-str v))))
+       (catch #?(:clj Exception :cljs :default) _ false)))
+
+(defn- carryable-ident?
+  "A keyword whose namespace and name are plain segments crosses without a
+  read, which keeps the common case cheap; anything else — and every symbol,
+  since `nil`, `true` and `false` print as symbols but read as literals — is
+  read back."
+  [v]
+  (or (and (keyword? v)
+           (some? (re-matches plain-name-segment (name v)))
+           (or (nil? (namespace v))
+               (some? (re-matches plain-name-segment (namespace v)))))
+      (reads-back? v)))
+
 (defn- carryable-alone?
   "`edn-carryable?` for each value on its own: scalars and collections of
   carryable values, with no question asked of a collection as a whole."
@@ -169,8 +197,8 @@
     ;; WRONG rather than failing — see `wire-number?`.
     (number? v)  (wire-number? v)
     (string? v)  true
-    (keyword? v) true
-    (symbol? v)  true
+    (keyword? v) (carryable-ident? v)
+    (symbol? v)  (carryable-ident? v)
     ;; A record satisfies `map?`, so without this arm it would take the map
     ;; branch, every entry would test carryable, and the record would be
     ;; declared wire-safe. But `pr-str` does not emit a record as a
@@ -192,8 +220,9 @@
 
 (defn edn-carryable?
   "Can `v` ride an EDN wire to the browser? Scalars (nil / boolean / number
-  / string / keyword / symbol) and collections of carryable values, where no
-  map or set holds two numbers the browser reads as one. A fn, a host object,
+  / string, and a keyword or symbol whose printed form reads back as itself)
+  and collections of carryable values, where no map or set holds two numbers
+  the browser reads as one. A fn, a host object,
   or any other opaque value cannot, and a caller refuses it rather than
   silently dropping it.
 

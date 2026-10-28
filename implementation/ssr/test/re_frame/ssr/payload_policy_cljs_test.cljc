@@ -4,8 +4,27 @@
   payload assembly. Platform-neutral, so it runs on the JVM and Node.
 
   It also runs in the production gate (`-Dre-frame.debug=false`)."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
+
+;; The runtime-db projection classifies under a live frame, and making one
+;; needs an adapter. COLD-START the slot: this ns shares the node bundle with
+;; suites that seat other adapters, and `init!` raises when handed a different
+;; one.
+(use-fixtures :once
+  (fn [f]
+    (rf/destroy-adapter!)
+    (rf/init! rf.ssr/adapter)
+    (try (f) (finally (rf/destroy-adapter!)))))
+
+(def ^:private projection-frame :rf.ssr.payload-policy-test/server)
+
+(defn- project-under-live-frame [runtime-db]
+  (rf/make-frame {:id projection-frame :platform :server})
+  (try (rf.ssr.payload-policy/project-runtime-db runtime-db projection-frame)
+       (finally (rf/destroy-frame! projection-frame))))
 
 (def sample-app-db
   {:public/articles  [:a :b :c]
@@ -89,13 +108,20 @@
   (is (= {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
           :rf.runtime/routing  {:current {:route-id :route/home}}
           :rf.runtime/ssr      {:hydration {:version 1}}}
-         (rf.ssr.payload-policy/project-runtime-db sample-runtime-db))))
+         (project-under-live-frame sample-runtime-db))))
 
 (deftest project-runtime-db-nil-and-empty
   ;; nil lets build-payload omit the optional :rf/runtime-db key.
-  (is (nil? (rf.ssr.payload-policy/project-runtime-db nil)))
-  (is (nil? (rf.ssr.payload-policy/project-runtime-db {:rf.runtime/routing {:scroll-positions {}}}))
+  (is (nil? (project-under-live-frame nil)))
+  (is (nil? (project-under-live-frame {:rf.runtime/routing {:scroll-positions {}}}))
       "a runtime-db with only transient routing keys projects to nil"))
+
+(deftest project-runtime-db-fails-closed-without-a-live-frame
+  ;; No frame means no classification policy, so nothing user-bearing rides.
+  (is (= {:rf.runtime/machines :rf/redacted
+          :rf.runtime/routing  :rf/redacted
+          :rf.runtime/ssr      {:hydration {:version 1}}}
+         (rf.ssr.payload-policy/project-runtime-db sample-runtime-db nil))))
 
 ;; ---- payload assembly -----------------------------------------------------
 

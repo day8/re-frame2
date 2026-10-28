@@ -11,6 +11,7 @@
   and the headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
   (:require [re-frame.cofx :as rf.cofx]
+            [re-frame.error :as rf.error]
             [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
@@ -207,9 +208,18 @@
     :schema-digest   — stamped as `:rf/schema-digest`.
 
   Call it once the frame has settled and before `destroy-frame!`: a frame that
-  is not live projects as fully redacted."
+  is not live throws `:rf.error/frame-destroyed`, because a payload built from
+  it would only redact whole and be refused by the client."
   [frame opts]
-  (let [frame-id                    (rf.frame/frame-value->id frame)
+  (let [frame-id (rf.frame/frame-value->id frame)
+        _        (when-not (rf.frame/frame frame-id)
+                   (rf.error/throw-error!
+                     :rf.error/frame-destroyed 'rf.ssr/hydration-payload
+                     (str "hydration-payload needs a LIVE frame; " (pr-str frame-id)
+                          " is not registered (destroyed, or never made). Build the"
+                          " payload before destroy-frame!.")
+                     {:recovery :pass-the-live-per-request-frame
+                      :extra    {:frame frame-id}}))
         {:rf.db/keys [app runtime]} (rf.frame/frame-state-value frame-id)]
     (rf.ssr.payload-policy/build-payload
       (:client-frame-id opts)

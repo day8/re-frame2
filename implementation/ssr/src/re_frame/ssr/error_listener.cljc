@@ -213,6 +213,15 @@
                                       (assoc response :status (:status public-error)))))
   public-error)
 
+(defn- project-pending-traces!
+  "Drain frame-id's error-trace buffer and return the worst projected public
+  error (the later one among equals), or nil when nothing was buffered.
+  Stamps nothing."
+  [frame-id]
+  (some->> (seq (consume-pending-traces! frame-id))
+           (map #(rf.ssr.error-projector/project-error frame-id %))
+           (reduce worse-public-error)))
+
 (defn apply-error-projection!
   "Project an error trace event via the active projector for frame-id
   and stamp the public-error's :status onto the response accumulator.
@@ -242,9 +251,8 @@
   does not overwrite it."
   ([frame-id]
    (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id))
-     (when-let [public-errors (seq (mapv #(rf.ssr.error-projector/project-error frame-id %)
-                                         (consume-pending-traces! frame-id)))]
-       (stamp-projected-status! frame-id (reduce worse-public-error public-errors)))))
+     (when-let [public-error (project-pending-traces! frame-id)]
+       (stamp-projected-status! frame-id public-error))))
   ([frame-id trace-event]
    (when (and frame-id trace-event (rf.ssr.error-projector/server-frame? frame-id))
      (stamp-projected-status! frame-id
@@ -253,14 +261,15 @@
 (defn project-render-exception!
   "Route a render-time `Throwable` through the SSR error projector for
   `frame-id`. Synthesises a `:rf.error/ssr-render-failed` trace event
-  carrying the exception and drives the projector via
-  `apply-error-projection!` so the response accumulator's `:status`
-  is stamped with the projector's output. Also emits the trace on the
+  carrying the exception, projects it, and stamps the response
+  accumulator's `:status` with the worse of that projection and any fault
+  buffered earlier in the request — the worst failure decides, as at the
+  drain-time settle. Also emits the trace on the
   trace bus so monitoring listeners (`register-listener!`) see the
   rich internal detail (Spec 011 §Internal trace events are not
   leaked).
 
-  Returns the public-error map produced by the projector (the
+  Returns the public-error map whose status was stamped (the
   caller's contract for rendering the wire error body), or `nil`
   when projection is not applicable (frame missing / not a server
   frame).
@@ -299,18 +308,15 @@
           ;; (handler, fx, sub, render-time view)").
           trace-event {:op-type   :error
                        :operation :rf.error/ssr-render-failed
-                       :tags      tags}]
-      ;; Drain the capture buffer first so an earlier in-drain trace
-      ;; (e.g. an :rf.error/fx-handler-exception that fired during
-      ;; on-create) is not silently dropped if the render-time throw
-      ;; reaches us after a drain that buffered a trace. The 1-arity
-      ;; call is a no-op when the buffer is empty.
-      (apply-error-projection! frame-id)
+                       :tags      tags}
+          ;; Drain the capture buffer first: a fault buffered earlier in the
+          ;; request (an :rf.error/fx-handler-exception during on-create, say)
+          ;; still competes for the status. The worst of it and the render
+          ;; failure settles the response, as `flush-response-result!` settles
+          ;; a drain — Spec 011 §Drain-time error classification.
+          earlier     (project-pending-traces! frame-id)]
       ;; Emit on the trace bus so monitoring listeners see the rich
-      ;; internal trace event for the render-time failure. The dev
-      ;; capture will buffer the trace under :ssr.error/render-failed;
-      ;; we drain it again via the 1-arity call below so the buffer
-      ;; clears.
+      ;; internal trace event for the render-time failure.
       (rf.trace/emit-error! :rf.error/ssr-render-failed tags)
       ;; ALSO ride the always-on error-emit axis so
       ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
@@ -321,8 +327,8 @@
       ;; pending-error-traces atom as the dev capture; the
       ;; `consume-pending-traces!` clear below
       ;; drops BOTH buffered duplicates, so the wire status is driven solely
-      ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
-      ;; re-project on a later flush). Union record shape.
+      ;; by the direct projection here (no double-stamp, no re-project on a
+      ;; later flush). Union record shape.
       (rf.ssr.error-projector/emit-always-on-error!
         {:rf.error/id :rf.error/ssr-render-failed
          :frame frame-id
@@ -333,17 +339,15 @@
          :ex-class          #?(:clj  (.getName (class t))
                                :cljs (str (type t)))
          :recovery          :projected-to-public-error})
-      ;; Apply directly with the synthesised trace event — this is
-      ;; the projection that stamps :status on the response and
-      ;; returns the public-error map the caller uses to render the
-      ;; wire body.
-      (let [public-error (apply-error-projection! frame-id trace-event)]
-        ;; Clear any duplicate buffer entry the capture hooks appended above
-        ;; (apply-error-projection! 2-arity does not drain). Without
-        ;; this a later settle would re-project the same event.
-        ;; Clears BOTH the dev-trace AND the always-on buffered duplicates.
+      (let [rendered (rf.ssr.error-projector/project-error frame-id trace-event)]
+        ;; Clear the duplicates the capture hooks appended above, or a later
+        ;; settle would re-project the same event.
         (consume-pending-traces! frame-id)
-        public-error))))
+        ;; The status stamped and the map returned are the same public error,
+        ;; so the caller's wire body agrees with the status it ships under.
+        (stamp-projected-status! frame-id (if earlier
+                                            (worse-public-error earlier rendered)
+                                            rendered))))))
 
 (defn error-projection-listener
   "Dev error capture — buffers error trace events bound to a server frame
