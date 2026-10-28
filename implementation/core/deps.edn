@@ -81,15 +81,17 @@
   ;; implementation/routing/deps.edn, implementation/flows/deps.edn,
   ;; implementation/http/deps.edn and implementation/ssr/deps.edn.
   :test {:extra-paths ["test"
-                       ;; The example sources the JVM tests load (`ssr.core`,
-                       ;; `resources-ssr.core`,
-                       ;; `state-machine-walkthrough.core`) live under the
-                       ;; concept buckets; each bucket is a classpath root.
-                       ;; examples_test.clj requires only the example *source*
-                       ;; nses (their headless test fns live IN
-                       ;; re-frame.examples-test as inline deftest bodies), so
-                       ;; no examples/.../test source path is needed and the
-                       ;; example tree is test-free.
+                       ;; The example sources the JVM tests load (`login.model`,
+                       ;; `ssr.core`, `resources-ssr.core`,
+                       ;; `state-machine-walkthrough.core`,
+                       ;; `realworld-http.ssr`) live under the concept buckets;
+                       ;; each bucket is a classpath root, and `:slow-test`
+                       ;; carries the same list.
+                       ;; The tests require only the example *source* nses
+                       ;; (their headless test fns live in core's test/ tree
+                       ;; as inline deftest bodies), so no examples/.../test
+                       ;; source path is needed and the example tree is
+                       ;; test-free.
                        "../../examples/core"
                        "../../examples/capabilities/machines"
                        "../../examples/capabilities/routing"
@@ -201,8 +203,23 @@
   ;; Nightly/rigorous slow-test gate. INCLUDES ONLY the
   ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
   ;; excludes), so `:test` + `:slow-test` together cover every test once.
+  ;;
+  ;; ITS CLASSPATH IS A COPY OF `:test`'s — the same `:extra-paths`, example
+  ;; roots included, and the same `:extra-deps` — and the two stay equal.
+  ;; This alias does NOT compose onto `:test` (unlike `:prod-gate`), and the
+  ;; runner REQUIRES every `.*-test$` namespace under `test/` before it
+  ;; filters vars, so an entry missing here fails the whole lane at
+  ;; namespace load, on a namespace none of whose tests this lane selects.
   :slow-test
-  {:extra-paths ["test"]
+  {:extra-paths ["test"
+                 "../../examples/core"
+                 "../../examples/capabilities/machines"
+                 "../../examples/capabilities/routing"
+                 "../../examples/capabilities/resources"
+                 "../../examples/capabilities/ssr"
+                 "../../examples/patterns"
+                 "../../examples/real-apps"
+                 "../../examples/substrates"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                  day8/re-frame2-machines   {:local/root "../machines"}
                  day8/re-frame2-routing    {:local/root "../routing"}
