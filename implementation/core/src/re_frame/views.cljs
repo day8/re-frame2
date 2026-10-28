@@ -258,7 +258,7 @@
                       every other user-data trace payload uses — the marks
                       projection's `:rf.view/rendered` arm runs
                       `re-frame.elision/elide-wire-value` against the
-                      frame's app-db elision registry (sensitive paths →
+                      frame's classification policy (sensitive paths →
                       `:rf/redacted`, large leaves → `:rf.size/large-elided`)
                       before the event reaches any listener / the wire.
                       Spec 009 §Privacy / Spec 015 §Data classification.
@@ -334,7 +334,7 @@
                    ;; (`re-frame.classification/project-trace-event`, gated by the same
                    ;; `rf.interop/debug-enabled?` upstream in `rf.trace/emit!`) routes
                    ;; this slot through `elide-wire-value` against the frame's
-                   ;; app-db elision registry BEFORE delivery — the identical
+                   ;; classification policy BEFORE delivery — the identical
                    ;; emit-time treatment `:rf.event/db` gets — so sensitive /
                    ;; large user data never reaches a listener or the wire raw.
                    (seq render-args)

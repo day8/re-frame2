@@ -8,7 +8,7 @@
   path, untouched here.
 
   The hazard: `rf.error-emit/dispatch-on-error!` runs a dispatched event's
-  `:event` through the frame's durable app-db elision registry, and a
+  `:event` through the frame's app-db classification policy, and a
   coincidental concrete integer app-db path (`[1]`) matches a query-vector
   coordinate, so `[:patient/record \"SECRET\"]` would egress as
   `[:patient/record :rf/redacted]`. The generic walker is correct to match it

@@ -3,8 +3,8 @@
 
   With tracing on, every `:rf.sub/run` of `:rf.route/query` and
   `:rf.route/params` passes through the routing egress projector, which reads
-  the frame's elision registry out of runtime-db to redact the route's
-  `:sensitive` query / params. That read happens INSIDE the leaf's reaction
+  the frame's runtime-db to redact the current route's `:sensitive` query /
+  params. That read happens INSIDE the leaf's reaction
   compute. On a ratom substrate a capturing read there would register the whole
   runtime-db projection as an undeclared input of a leaf whose one declared
   input is `[:rf/route]`, so an unrelated runtime-db write would wake the leaf.

@@ -104,8 +104,8 @@
     (is (not (.contains (pr-str auth) token-1)))))
 
 ;; ---------------------------------------------------------------------------
-;; Teardown drops a destroyed actor's claims from the frame's elision registry
-;; and the held sub recomputes to nil. Its trace still carries the live
+;; A destroyed actor's snapshot leaves runtime-db, so the machines hook claims
+;; nothing for it, and the held sub recomputes to nil. Its trace still carries the live
 ;; snapshot as `:rf.sub/prev-value`, classified by the claims that governed it.
 ;; ---------------------------------------------------------------------------
 

@@ -22,8 +22,8 @@
   (rf/reg-event :seed (fn [_ _] {:db {:n 1}})))
 
 (deftest destroy-frame-drops-flow-output-marks
-  ;; The marks live in the frame's own elision registry, inside the state
-  ;; container the destroy drops, so teardown needs no per-flow scrub.
+  ;; A flow output is classified through the frame's own `:flows` and memo,
+  ;; both of which the destroy drops, so teardown needs no per-flow scrub.
   (let [marks #(vector (rf.elision/sensitive-declarations :fc/scratch)
                        (rf.elision/declarations :fc/scratch))]
     (reg-scratch-flows!)

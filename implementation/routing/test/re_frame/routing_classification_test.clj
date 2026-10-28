@@ -131,7 +131,7 @@
   (is (seq (route-paths :sensitive-declarations)))
   (rf/destroy-frame! :rf/default)
   (is (nil? (:rf.db/runtime (rf/frame-state-value :rf/default)))
-      "the frame's runtime-db, elision registry included, goes with it"))
+      "the frame's runtime-db goes with it"))
 
 (deftest sensitive-wins-over-large-at-extraction
   (rf/reg-route :route/both

@@ -53,7 +53,7 @@
          (:combined (pass! {:app-first :A :app-last :B} {:rt {:mid :R}})))))
 
 (deftest runtime-input-trace-value-elides-at-stripped-declaration-path
-  ;; The elision registry keys declarations by partition-relative path, so the
+  ;; The classification policy keys declarations by partition-relative path, so the
   ;; runtime input `[:rf.db/runtime :rt :val]` elides against `[:rt :val]`.
   (let [computed (atom [])]
     (rf.trace.tooling/register-listener!

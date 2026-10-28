@@ -153,8 +153,8 @@
   recorded db. Returns `false` otherwise (always a strict boolean —
   consumers branch on `(true? ...)` / `(false? ...)`).
 
-  Runs once per dequeued event. `sensitive-paths-for` derefs
-  the elision registry once; the leaf check short-circuits at the
+  Runs once per dequeued event. `sensitive-paths-for` reads
+  the frame's classification policy once; the leaf check short-circuits at the
   first non-nil hit; the trace-event check short-circuits at the first
   stamped event. For the common case (no frame-declared sensitive
   paths, no sensitive handlers in scope) the cost is one keys-of-empty
@@ -182,8 +182,8 @@
   frame-declared sensitive paths whose value differs between
   `db-before` and `db-after`.
 
-  Runs once per dequeued event. `sensitive-paths-for` derefs
-  the elision registry once and the walk is O(P) where P is the
+  Runs once per dequeued event. `sensitive-paths-for` reads
+  the frame's classification policy once and the walk is O(P) where P is the
   declared-sensitive-path count for the frame — typically a small
   constant (apps declare a handful of `[:auth :password]`-shaped
   paths). For the common case (no frame-declared sensitive paths)

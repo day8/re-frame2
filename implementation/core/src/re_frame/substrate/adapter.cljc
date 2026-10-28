@@ -623,7 +623,7 @@
   a later change to `container` does not re-run the computation that read it.
 
   For a read made inside a computation it DESCRIBES rather than feeds — trace
-  classification reads the frame's elision registry while a sub computes or a
+  classification reads the frame's runtime-db while a sub computes or a
   view renders — so that observing a computation never adds an input to it.
 
   Uses the installed adapter's optional `:read-container-untracked`
