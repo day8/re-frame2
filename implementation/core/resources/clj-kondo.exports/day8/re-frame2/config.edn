@@ -37,6 +37,7 @@
              re-frame.core/reg-error-projector
              re-frame.core/reg-head
              re-frame.core/reg-http-interceptor
+             re-frame.core/reg-classification
              re-frame.core/reg-machine
              re-frame.core/defmachine
              re-frame.core/reg-view]}}
