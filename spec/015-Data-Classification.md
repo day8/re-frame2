@@ -2,7 +2,7 @@
 
 > Status: Drafting. **v1-required.** Data classification (see [EP-0025 (Data Classification)](../docs/EP/EP-0025-data-classification.md)) is a lightweight **hygiene helper** that classifies a *path* (durable app-db / runtime-db) or a *payload shape* (transient event / fx / cofx) and redacts the classified value at the framework's mediated-egress boundaries. Builds on the registration grammar in [001-Registration](001-Registration.md), the commit-plane effect map in [002-Frames](002-Frames.md), the schema surface in [010-Schemas](010-Schemas.md), the trace surface in [009-Instrumentation](009-Instrumentation.md), the reserved-namespace policy in [Conventions](Conventions.md), and the privacy posture in [Security](Security.md).
 >
-> **The minimum claim.** You classify a *path* (or a transient payload shape); the framework redacts the classified value at a mediated-egress boundary. Durable app-db paths are classified by **four commit-plane effects** (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns with its `:db` write, recorded in a **per-frame elision registry**; transient payloads are classified by `:sensitive` / `:large` **registration metadata**; each runtime subsystem classifies its own instance data, **projection-relative**, lowered per instance. Real values flow through the application unchanged; redaction happens only where a value crosses a framework-mediated observation boundary.
+> **The minimum claim.** You classify a *path* (or a transient payload shape); the framework redacts the classified value at a mediated-egress boundary. Durable app-db paths are classified by a **static `reg-classification` declaration** beside the feature, or by **four commit-plane effects** (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns with its `:db` write, recorded in a **per-frame elision registry**; transient payloads are classified by `:sensitive` / `:large` **registration metadata**; each runtime subsystem classifies its own instance data, **projection-relative**, lowered per instance. Real values flow through the application unchanged; redaction happens only where a value crosses a framework-mediated observation boundary.
 >
 > **Posture — hygiene, NOT security.** This contract is a **leak-prevention overlay on observability**, and a *convenience*, not a security boundary. Its single job is to stop secrets and large payloads from *accidentally* reaching observability sinks (Datadog, off-box logs) and AI tools (MCP, the trace bus an AI pair reads). It is **fail-open**: a path you never classify ships raw — that's fine, hygiene not a guarantee. It does not police ownership, enforce secrecy, or track taint. Apps still own their own auth/authorisation, encryption-at-rest, and transport security. See [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the pattern-level threat model this contract grounds.
 >
@@ -33,6 +33,7 @@ This feature is about **hygiene and convenience, not security**, and the design 
 
 There is **one axis vocabulary** (`:sensitive` / `:large`) over `:rf/path` vectors, used in three lowering shapes:
 
+- **A static declaration** (durable app-db) — bare `:sensitive` / `:large` in the closed map a `reg-classification` registers, app-db-absolute, beside the feature (see [§Static app-db classification](#static-app-db-classification)).
 - **Handler effects** (durable app-db) — bare `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` in the open effect map a handler returns; written into the per-frame elision registry **with the `:db` write** (see [§Durable app-db — the four commit-plane effects](#durable-app-db--the-four-commit-plane-effects)).
 - **Registration metadata** (transient payloads) — bare `:sensitive` / `:large` in the closed registration map of `reg-event` / `reg-fx` / `reg-cofx` / `reg-sub` (see [§Registration-owned transient classification](#registration-owned-transient-classification)).
 - **Subsystem declarations** (durable runtime-subsystem state) — bare `:sensitive` / `:large` on `reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, **projection-relative** to the instance shape; the subsystem lowers them into the same per-frame registry per instance (see [§Subsystem projection-relative classification](#subsystem-projection-relative-classification)).
@@ -84,6 +85,26 @@ Semantics — these are the **commit-plane** half of [002 §Commit-plane data-cl
 The classification lands in the per-frame **elision registry** in runtime-db at `[:rf.runtime/elision …]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)): the sensitive axis under `:sensitive-declarations`, the large axis under `:declarations`, each path mapped to a `{:source …}` record. The four effects write `:source :effect`; the registry is read at egress by both the path walker and the record projector. Locating the registry in runtime-db (not app-db) means a classification **walks back atomically with the frame** on a revert, per [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility).
 
 > **There is no frame `:sensitive {:app-db …}` / `:large {:app-db …}` annotation, and no schema-prop route to durable app-db classification.** A frame config `:sensitive` key carrying an `:app-db` block and a top-level `:large` frame key are both **rejected fail-loud** (declare durable classification from a handler's commit-plane effects); a `reg-app-schema` slot's `:sensitive?` / `:large?` props do **not** classify a durable app-db path (see [§What is removed](#what-is-removed-and-what-is-kept) and [§Schemas describe shape](#schemas-describe-shape-not-durable-app-db-egress-policy)).
+
+## Static app-db classification
+
+A feature declares the app-db paths it makes sensitive or large once, beside its other registrations ([EP-0039](../docs/EP/EP-0039-static-data-classification.md)):
+
+```clojure
+(rf/reg-classification :auth.login
+  {:doc       "The login draft's password."
+   :sensitive [[:auth :login-form :draft :password]]})
+```
+
+- **The registration.** `(reg-classification id decl)` registers `decl` under the registrar kind `:classification` ([001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)) and returns `id`. `decl` is a closed map: `:sensitive` and `:large`, each a vector of `:rf/path` vectors **absolute in app-db** (`[]` classifies the whole of app-db), plus an optional `:doc`. Any other key, or a malformed path, raises `:rf.error/bad-classification` at registration. Re-registering the id replaces the declaration, and `(rf/clear :classification id)` removes it.
+- **Matching and union.** The paths take the same collection matcher as every other declaration ([§Projection](#collection-matching)). A frame's app-db classification is the union of the `:classification` registrations its own view resolves with the registry the four effects and its flows' outputs write; sensitive still wins, and a large marker a declaration produces carries `:reason :classification`.
+- **Resolution through the target frame.** The registrations resolve through the frame being projected — its sealed generation for a frame made with `:images`, the live registration store for one made without — never through whatever resolution the caller stands in, so two frames running different images classify differently. They resolve into the frame's **classification policy**, an immutable value holding declarations only, rebuilt only when that view changes.
+- **First egress, no event.** A declaration exists before any event runs, so a declared path is redacted from its first egress — the pending-db trace of the very event that writes it included — and nothing is written into runtime-db.
+- **SSR.** The server and the client run the same image, so they resolve the same declarations: the hydration payload carries no classification, and the `:payload-include-sensitive` permit applies unchanged ([§SSR and hydration](#ssr-and-hydration-are-allowlist-first)).
+
+### Retained values keep their recorded classification
+
+An epoch record keeps a reference to the policy current when it was assembled — in the record's metadata, so it never egresses — and its app-db slots project under that policy first, then under the frame's current classification. A record made while a path was declared therefore stays redacted after the declaration is replaced or cleared, while a value recorded afterwards egresses under the new declaration.
 
 ## Registration-owned transient classification
 
