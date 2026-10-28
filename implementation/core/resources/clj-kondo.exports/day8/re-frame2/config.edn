@@ -10,8 +10,9 @@
 ;;
 ;; The re-frame2 reg-* macros emit a defmacro under `re-frame.core` (see
 ;; `core_reg_macros.cljc` → `defreg-macro` / `defreg-event-macro`). Each
-;; user-facing reg-* macro takes the shape `(reg-foo :id ... body)` —
-;; structurally a `def`-like top-level form. `reg-view` is the outlier
+;; user-facing reg-* macro takes the shape `(reg-foo :id ... body)` — a
+;; registration call, written at top level or inside a fn body, that lints
+;; as an ordinary call (see `:lint-as` below). `reg-view` is the outlier
 ;; (`(reg-view sym [args] body)`) and a hook rewrites it to `defn`.
 ;; No custom findings ship: every entry gives a macro its shape, so kondo's
 ;; ordinary analysis applies.

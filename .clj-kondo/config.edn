@@ -8,8 +8,9 @@
 ;; not described here: core ships them as a clj-kondo export, imported below.
 ;;
 ;; Story's authoring macros (`reg-story` / `reg-variant` / `reg-workspace`
-;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`)
-;; follow the core registration shape and get lint-as'd here.
+;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`) are
+;; registration calls, like the core reg-* family, and lint as ordinary
+;; calls the same way; their `:unresolved-var` exclusions are below.
 {;; Core and Fresco each ship a clj-kondo export from the artefact, macro
  ;; shapes only:
  ;;   - `implementation/core/resources/clj-kondo.exports/day8/re-frame2/` —
@@ -57,7 +58,11 @@
 
   ;; `:unresolved-var` exclusions for Story's registration macros, by
   ;; qualified symbol, so editor integrations and CI agree. Core's own
-  ;; exclusions ship in its export.
+  ;; exclusions ship in its export. Like core's, the Story macros take no
+  ;; `:lint-as` entry: each `(reg-foo :id metadata)` expands to a
+  ;; registrar call, so clj-kondo lints it as the ordinary call it is.
+  ;; Most are written inside a fn body (a `register-all!`), where a `do`
+  ;; shape reports `redundant do` at every call site once that linter is on.
   :unresolved-var
   {:level :warning
    :exclude [re-frame.story/reg-story
@@ -96,18 +101,6 @@
   ;; foreign component's business rather than the declaration's. Goes
   ;; with the arm, as `defview` above does.
   re-frame.bench.fresco.arm1.lang/defhost clojure.core/def
-
-  ;; Story authoring macros — `(reg-foo :id metadata)` is a registration
-  ;; call, same shape as the core reg-* family. Same `do`-shape lint-as
-  ;; rationale.
-  re-frame.story/reg-story         clojure.core/do
-  re-frame.story/reg-variant       clojure.core/do
-  re-frame.story/reg-workspace     clojure.core/do
-  re-frame.story/reg-mode          clojure.core/do
-  re-frame.story/reg-story-panel   clojure.core/do
-  re-frame.story/reg-decorator     clojure.core/do
-  re-frame.story/reg-tag           clojure.core/do
-
 
   ;; UIx authoring — `defui` from `uix.core` is also `defn`-shaped.
   uix.core/defui                    clojure.core/defn}
