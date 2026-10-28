@@ -128,6 +128,8 @@ A handler that writes a durable timestamp / generated id **declares** the fact i
 
 Pin at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. Pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when absent (omit it and the runtime stamps the wall clock at dispatch — fine for a non-durable assertion, but pin it whenever the test asserts a durable timestamp/id). A multi-event scenario needing a pinned clock dispatches each step through its own `rf/dispatch-sync` with the opt. (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx); a plain ambient cofx for a diagnostic read needs no pinning.)
 
+The `:rf/default` frame the reset fixture seats has no `:preset`, so it mints under the router's `:live` default: a declared recordable generator left unpinned runs fresh on each dispatch, so a test that never reads the value passes unchanged and only a test asserting it needs the `:rf.cofx` pin. A frame made with `:preset :test` is `:strict`: there an unpinned generator fails the dispatch with `:rf.error/missing-required-cofx` until the test supplies the fact or passes `{:rf.cofx/mint-policy :live}` in the dispatch opts.
+
 ## Pinning a frame: `with-frame`
 
 `with-frame` binds the active frame inside the body. Two shapes:
