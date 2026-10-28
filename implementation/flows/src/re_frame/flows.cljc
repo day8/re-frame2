@@ -233,26 +233,41 @@
           {}
           ids))
 
+(defn ^:no-doc output-classification
+  "The `:flows/output-classification` hook: `{flow-id {:sensitive [abs-path …]
+  :large [abs-path …]}}` for the flows frame `frame-id` runs that classify
+  their output — each id its `:flows` names that resolves through the bound
+  view, and each definition its memo holds a row for, so a departed or moved
+  output stays classified until the event that vacates it. Called while
+  `re-frame.elision/frame-policy` builds the frame's policy, inside its
+  resolution. Spec 013 §Flow tracing."
+  [frame-id]
+  (let [defs (concat (vals (active-flows (:flows (rf.frame/frame-config frame-id))))
+                     (keep :flow (vals (rf.flows.registry/frame-last-inputs-snapshot frame-id))))]
+    (reduce (fn [acc flow]
+              (if-let [decl (rf.flows.registry/output-declaration flow)]
+                (update acc (:id flow) #(merge-with into % decl))
+                acc))
+            nil
+            defs)))
+
 (defn- reconcile-departures
   "Vacate what the memo `rows` record for flows that no longer run as they did:
   a row whose flow left the active set has its output path removed from `db`
   and the row dropped, and a row whose flow now writes a different
-  `:output-path` has the old path removed. Returns `[db rows claims]`, where
-  `claims` maps each departed flow that declared output marks to nil, so its
-  claims go with the install.
+  `:output-path` has the old path removed. Returns `[db rows]`.
 
   A row whose id the frame still names but which no longer resolves — its
   registration cleared or swept — warns `:rf.warning/unregistered-flow`."
   [frame-id ids active db rows]
   (let [named (set ids)]
     (reduce-kv
-      (fn [[db rows claims] id row]
-        (let [old-flow (:flow row)
-              old-path (:output-path old-flow)]
+      (fn [[db rows] id row]
+        (let [old-path (:output-path (:flow row))]
           (if-let [flow (get active id)]
             (if (= old-path (:output-path flow))
-              [db rows claims]
-              [(rf.flows.registry/vacate-path-in-db db old-path) rows claims])
+              [db rows]
+              [(rf.flows.registry/vacate-path-in-db db old-path) rows])
             (do
               (when (and rf.interop/debug-enabled? (contains? named id))
                 (rf.trace/emit! :warning :rf.warning/unregistered-flow
@@ -267,10 +282,8 @@
                                                " is vacated, and re-registering"
                                                " the id resumes it.")}))
               [(rf.flows.registry/vacate-path-in-db db old-path)
-               (dissoc rows id)
-               (cond-> claims
-                 (rf.flows.registry/flow-declares-marks? old-flow) (assoc id nil))]))))
-      [db rows {}]
+               (dissoc rows id)]))))
+      [db rows]
       rows)))
 
 (defn run-flows-on-db
@@ -286,34 +299,31 @@
   through its sealed generation for one made with them.
 
   The memo decides what runs. A flow with no row, a row computed with a
-  different definition, or a row a tool write left without inputs, claims its
-  output paths and recomputes; otherwise `=`-equal inputs skip `:derive` and
-  re-assert the remembered output. A row whose flow left the frame, or
+  different definition, or a row a tool write left without inputs, recomputes;
+  otherwise `=`-equal inputs skip `:derive` and re-assert the remembered
+  output. A row whose flow left the frame, or
   moved its `:output-path`, has the old path vacated in this same pending db.
   The activation checks run over the active set on every pass, so a
   re-registration that completes a cycle or an output overlap aborts the event.
 
   The pass proposes; the install publishes. When the memo changes the result
   carries `:publish!`, a thunk the router calls once the candidate has
-  installed, and when output claims change it carries `:claims`, a fn of
-  runtime-db the router applies to the candidate it installs. A throw, a
-  rejected candidate or an aborted event never publishes, so there is nothing
-  to undo: the only live write ahead of the install adds claims
-  (`add-output-marks!`), and an extra claim redacts more, never less."
+  installed. A throw, a rejected candidate or an aborted event never
+  publishes, so there is nothing to undo."
   [frame-id db runtime-db]
   (let [ids   (:flows (rf.frame/frame-config frame-id))
         prior (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
     (if (and (empty? ids) (empty? prior))
       {:db db}
       (let [active (active-flows ids)
-            [db rows claims] (reconcile-departures frame-id ids active db prior)
+            [db rows] (reconcile-departures frame-id ids active db prior)
             _     (rf.flows.topo/detect-output-path-overlap!
                     active 're-frame.flows/run-flows-on-db)
             order (rf.flows.topo/topo-sort
                     active 're-frame.flows/run-flows-on-db)
-            [db rows claims]
+            [db rows]
             (reduce
-              (fn [[db rows claims] id]
+              (fn [[db rows] id]
                 (let [flow       (get active id)
                       row        (get rows id)
                       ;; A row a tool write left without inputs no longer
@@ -322,26 +332,14 @@
                                       (contains? row :inputs))
                       new-inputs (read-inputs db runtime-db flow)]
                   (if (and evaluated? (= new-inputs (:inputs row)))
-                    [(reassert-output frame-id db flow new-inputs row) rows claims]
-                    (let [claim? (and (not evaluated?)
-                                      (or (rf.flows.registry/flow-declares-marks? flow)
-                                          (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))]
-                      ;; A definition the memo does not vouch for claims its
-                      ;; output paths before it emits.
-                      (when claim?
-                        (rf.flows.registry/add-output-marks! frame-id flow))
-                      (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
-                        [db
-                         (assoc rows id {:flow flow :inputs new-inputs :output output})
-                         (cond-> claims claim? (assoc id flow))])))))
-              [db rows claims]
+                    [(reassert-output frame-id db flow new-inputs row) rows]
+                    (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
+                      [db (assoc rows id {:flow flow :inputs new-inputs :output output})]))))
+              [db rows]
               order)]
         (cond-> {:db db}
           (not (identical? rows prior))
-          (assoc :publish! #(rf.flows.registry/publish-memo! frame-id rows))
-
-          (seq claims)
-          (assoc :claims (rf.flows.registry/exact-output-marks claims)))))))
+          (assoc :publish! #(rf.flows.registry/publish-memo! frame-id rows)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
@@ -353,12 +351,12 @@
 (rf.late-bind/set-fn! :flows/check-activation!  rf.flows.registry/check-activation!)
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
+(rf.late-bind/set-fn! :flows/output-classification output-classification)
 ;; Epoch's tool writes install frame-state outside any event, so the memo stops
 ;; vouching for what it cached.
 (rf.late-bind/set-fn! :flows/distrust-memo!     rf.flows.registry/distrust-memo!)
 ;; Frame destruction drops the frame's memo: the flow definitions are registrar
-;; rows a destroy leaves alone, and the output marks leave with the frame
-;; value, so the memo is the whole teardown. Spec 002 §Lifecycle contributions.
+;; rows a destroy leaves alone, so the memo is the whole teardown. Spec 002 §Lifecycle contributions.
 (rf.frame/contribute-lifecycle!
   {:id                 :flows
    :phase              #{:post-dead}

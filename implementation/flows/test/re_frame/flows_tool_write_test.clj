@@ -72,9 +72,10 @@
     (is (= {:n 3 :old 4} (touch!)))
     (is (= 2 @runs) "the event after the write recomputes rather than trusting the memo")))
 
-(deftest a-tool-write-that-rewinds-the-elision-registry-gets-the-claims-back
-  ;; The elision registry lives in runtime-db, which a tool write can replace,
-  ;; so the next event re-claims the output before anything reads it.
+(deftest a-tool-write-that-empties-runtime-db-leaves-the-output-classified
+  ;; A flow output's classification is a declaration the frame's policy
+  ;; resolves, not frame-state, so no tool write can drop it (Spec 015
+  ;; §Static app-db classification).
   (run-flow! {:inputs [[:n]] :output-path [:old] :sensitive [[]]}
              (fn [_] "flow-secret"))
   (let [redacted? #(= :rf/redacted
@@ -82,6 +83,6 @@
                                                    {:frame :t/f :path [:old]}))]
     (is (redacted?) "precondition: the committed output is classified")
     (is (tool-write! {:rf.db/app (db) :rf.db/runtime {}}))
-    (is (not (redacted?)) "precondition: the write removed the claim")
+    (is (redacted?) "the write leaves the claim standing")
     (touch!)
-    (is (redacted?) "the next event re-claims the output")))
+    (is (redacted?) "and so does the next event")))

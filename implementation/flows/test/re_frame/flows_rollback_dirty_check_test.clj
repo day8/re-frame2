@@ -93,8 +93,8 @@
   (is (= {:n 5 :out-keep 35 :touched true} (db))))
 
 (deftest final-effects-abort-restores-flow-dirty-check
-  ;; A user `:after` inserts a malformed classification effect after the
-  ;; handler ran, so the flows `:after` runs cleanly and advances the row
+  ;; A user `:after` inserts a `:sensitive` key, which the closed effect map
+  ;; refuses, after the handler ran, so the flows `:after` runs cleanly and advances the row
   ;; before the commit aborts at the final-effects boundary.
   (rf/reg-event :seed (fn [_ _] {:db {:n 4}}))
   (rf/dispatch-sync [:seed])
@@ -115,14 +115,15 @@
 ;; `re-frame.partitioned-commit-test/schema-rejection-keeps-flow-claims-on-the-committed-output`.
 
 (defn- a-throwing-replacement
-  "Run `:secret`, whose whole output at `[:old]` is classified, beside an
-  effect's claim on `[:note]`. Then re-register it with `metadata` and a
+  "Run `:secret`, whose whole output at `[:old]` is classified, beside a
+  `reg-classification` claim on `[:note]`. Then re-register it with `metadata` and a
   `:derive` that throws, and dispatch an event that changes nothing. Returns
   `[before after]`, each the app-db, the frame's sensitive claims as a set of
   `[path owner]` pairs, and the committed output as the wire walker elides
   it."
   [metadata]
-  (rf/reg-event :seed (fn [_ _] {:db {:n 3 :note "public"} :sensitive [[:note]]}))
+  (rf/reg-classification ::note {:sensitive [[:note]]})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 3 :note "public"}}))
   (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
   (rf/reg-flow :secret {:inputs [[:n]] :output-path [:old] :sensitive [[]]}
     (fn [_] "flow-secret"))

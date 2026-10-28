@@ -6,7 +6,6 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -45,11 +44,10 @@
   [tags]
   (dissoc tags :rf.trace/dispatch-id))
 
-;; EP-0025: durable app-db classification rides the commit-plane
-;; classification effects (`:source :effect`).
-(defn- classify! [frame-id axis & paths]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {axis (mapv vec paths)}))))
+;; Durable app-db classification is a `reg-classification`.
+(defn- classify! [axis & paths]
+  (let [decl {axis (mapv vec paths)}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 ;; ---- registration evidence -------------------------------------------------
 
@@ -177,10 +175,10 @@
   (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob]}
     (fn [n] {:bytes (str "blob-" n)}))
   (run-flows! :payload)
-  (classify! :rf/default :large [:derived :blob])
+  (classify! :large [:derived :blob])
   (rf/dispatch-sync [:init])
   (let [tags (:tags (last (by-op :rf.flow/computed)))]
-    (is (= {:path [:derived :blob] :reason :effect}
+    (is (= {:path [:derived :blob] :reason :classification}
            (select-keys (:rf.size/large-elided (:before tags)) [:path :reason])))
     (is (rf.elision/marker? (:result tags)))))
 
@@ -220,7 +218,7 @@
 (deftest flow-failed-redacts-exception-slots-when-frame-sensitive
   ;; On a frame holding sensitive data the message and the author-keyed ex-data
   ;; may embed a secret, so both are redacted whole; attribution survives.
-  (classify! :rf/default :sensitive [:auth :token])
+  (classify! :sensitive [:auth :token])
   (let [[ev & more] (sign-in-through-throwing-flow! "TOP-SECRET")]
     (is (nil? more))
     (is (= {:flow-id :auth/derived-user :frame :rf/default
@@ -238,7 +236,7 @@
 
 (deftest flow-failed-redacts-a-plain-error-message-when-frame-sensitive
   ;; A throw with no `ex-data` still carries a message that can quote the secret.
-  (classify! :rf/default :sensitive [:auth :token])
+  (classify! :sensitive [:auth :token])
   (let [[ev] (sign-in-through-throwing-flow! "TOP-SECRET" plain-error)]
     (is (= [:rf/redacted true false]
            [(-> ev :tags :exception-message) (:sensitive? ev)
@@ -253,7 +251,7 @@
 ;; cause, so it redacts on the same condition as `:rf.flow/failed`. Its `:event`
 ;; is the dispatched event, classified by that event's own registration.
 (deftest flow-eval-exception-row-redacted-when-frame-sensitive
-  (classify! :rf/default :sensitive [:auth :token])
+  (classify! :sensitive [:auth :token])
   (let [[ev & more] (flow-eval-exception-rows #(sign-in-through-throwing-flow! "TOP-SECRET"))]
     (is (= [nil :rf/redacted true false]
            [more (-> ev :tags :exception) (:sensitive? ev)
@@ -279,7 +277,7 @@
 (deftest flow-trace-sensitive-values-redacted-on-wire
   ;; A classified input and a classified output path redact on the
   ;; `:rf.flow/computed` row.
-  (classify! :rf/default :sensitive [:auth :token] [:auth :derived-token])
+  (classify! :sensitive [:auth :token] [:auth :derived-token])
   (rf/reg-flow :auth/derived-token {:inputs [[:auth :token]] :output-path [:auth :derived-token]}
     (fn [t] (str "derived-" t)))
   (run-flows! :auth/derived-token)
@@ -290,25 +288,26 @@
     (is (= [:rf/redacted [:rf/redacted]]
            [(get-in ev [:tags :result]) (get-in ev [:tags :input-values])]))))
 
-(deftest flow-and-effect-claims-union-and-remove-independently
-  ;; A flow's output claim and an app effect's claim on the same absolute path
-  ;; union, and each removes only itself: the path stays classified while any
-  ;; owner claims it. A flow claim reads as `:flow`; the effect's is exact. A
-  ;; cleared flow drops its claims on the frame's next event, as it vacates.
+(deftest flow-and-registration-claims-union-and-remove-independently
+  ;; A flow's output claim and a `reg-classification` claim on the same
+  ;; absolute path union, and each removes only itself: the path stays
+  ;; classified while either declares it. A flow claim reads as `:flow`. A
+  ;; cleared flow's claim goes on the frame's next event, as its output vacates.
   (let [p      [:auth :creds :secret]
+        app    {:source :classification :id ::creds}
         owners #(set (map (fn [d] (if (= :flow (:source d)) :flow d))
                           (get (rf.elision/sensitive-declarations :rf/default) p)))]
     (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]}
       (fn [n] {:secret n}))
     (run-flows! :creds)
     (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :classify (fn [{:keys [db]} _] {:db db :sensitive [p]}))
-    (rf/reg-event :declassify (fn [{:keys [db]} _] {:db db :clear-sensitive [p]}))
-    (rf/dispatch-sync [:classify])
-    (is (= #{:flow {:source :effect}} (owners)))
-    (rf/dispatch-sync [:declassify])
-    (is (= #{:flow} (owners)))
-    (rf/dispatch-sync [:classify])
-    (rf/clear :flow :creds)
+    (rf/reg-classification ::creds {:sensitive [p]})
     (rf/dispatch-sync [:touch])
-    (is (= #{{:source :effect}} (owners)))))
+    (is (= #{:flow app} (owners)))
+    (rf/clear :classification ::creds)
+    (is (= #{:flow} (owners)))
+    (rf/reg-classification ::creds {:sensitive [p]})
+    (rf/clear :flow :creds)
+    (is (= #{:flow app} (owners)) "the flow's claim stands while its output does")
+    (rf/dispatch-sync [:touch])
+    (is (= #{app} (owners)))))

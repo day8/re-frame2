@@ -7,8 +7,7 @@
   The only per-frame state is the evaluation memo — one row per flow the frame
   has evaluated, recording the definition the evaluation used and the inputs
   and output it produced."
-  (:require [re-frame.elision :as rf.elision]
-            [re-frame.error :as rf.error]
+  (:require [re-frame.error :as rf.error]
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.interop :as rf.interop]
             [re-frame.path :as rf.path]
@@ -26,7 +25,7 @@
 ;; the flow was last evaluated with, the inputs that evaluation read and the
 ;; output it produced. The definition carries its `:output-path`, so a row also
 ;; names the slot it wrote. A row holding only `:flow` is one a tool write left
-;; untrusted (`distrust-memo!`): its flow re-claims and recomputes on the next
+;; untrusted (`distrust-memo!`): its flow recomputes on the next
 ;; event, and the reconciler can still vacate the slot it names.
 ;;
 ;; The memo always describes the committed frame state: a pass proposes rows
@@ -79,7 +78,7 @@
   "Strip the inputs and output from every row of `frame-id`'s memo, keeping
   each row's definition. The `:flows/distrust-memo!` hook: epoch fires it after
   a tool write installs frame-state outside any event, so the next event
-  re-claims and recomputes every flow against the installed state, while each
+  recomputes every flow against the installed state, while each
   row still names the output path a departure or a moved `:output-path`
   vacates."
   [frame-id]
@@ -250,17 +249,11 @@
 ;;   :sensitive  [paths]— per-output-path sensitive sub-slots ([[]] = whole)
 ;;   :large      [paths]— per-output-path large sub-slots ([[]] = whole)
 ;;
-;; A frame claims a flow's output paths in its elision registry when it first
-;; evaluates the definition, and drops the claims when the flow leaves the
-;; frame. Before that evaluation emits anything, the pass ADDS the paths to the
-;; live registry, so the first trace of the output is redacted; the exact set,
-;; with the old definition's paths or a departed flow's claims removed, rides
-;; the candidate runtime-db and installs with the outputs it describes. Adding
-;; never un-redacts, so an event that does not commit needs no undo: at worst a
-;; path no output occupies stays claimed. The registry governs flow traces and
-;; observation of the materialized app-db slot. The owner identity names the
-;; flow, so replacing or dropping one flow's claims leaves every other claim on
-;; the same path standing.
+;; The declarations join the app-db classification of every frame that runs
+;; the flow, through the `:flows/output-classification` hook
+;; (`re-frame.flows/output-classification`), so they govern the flow's traces
+;; and the materialized app-db slot from the first egress. Spec 013 §Flow
+;; tracing.
 
 (defn- explicit-flow-output-mark-paths
   "Return `[sensitive-paths large-paths]` as absolute app-db paths."
@@ -277,49 +270,13 @@
     [(vec sensitive-paths)
      (vec (concat whole-output-large large-paths))]))
 
-(defn ^:no-doc flow-declares-marks?
-  "True when the flow declares output classification."
+(defn ^:no-doc output-declaration
+  "`flow`'s output classification as `{:sensitive [abs-path …] :large
+  [abs-path …]}`, absolute in app-db, or nil when it declares none."
   [flow]
-  (or (contains? flow :sensitive)
-      (contains? flow :large)
-      (contains? flow :large?)))
-
-(defn- flow-owner
-  "The elision-registry owner identity a flow's output claims sit under."
-  [flow-id]
-  {:source :flow :flow-id flow-id})
-
-(defn ^:no-doc add-output-marks!
-  "Add the paths `flow`'s definition declares to its claims in `frame-id`'s
-  live elision registry, keeping the claims it already holds."
-  [frame-id flow]
-  (let [owner (flow-owner (:id flow))
-        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)]
-    (rf.elision/swap-elision-slot!
-      frame-id
-      (fn [reg]
-        (-> (or reg {})
-            (rf.elision/add-claims :sensitive-declarations owner explicit-s)
-            (rf.elision/add-claims :declarations owner explicit-l))))))
-
-(defn ^:no-doc exact-output-marks
-  "A fn of runtime-db that sets each flow's claims to exactly what it declares.
-  `claims` maps a flow id to the definition the pass evaluated, or to nil for
-  a flow that left the frame, whose claims go."
-  [claims]
-  (fn [runtime-db]
-    (let [runtime-db (or runtime-db {})]
-      (rf.elision/write-elision-slot
-        runtime-db
-        (reduce-kv
-          (fn [reg id flow]
-            (let [owner   (flow-owner id)
-                  [s l]   (if flow (explicit-flow-output-mark-paths flow) [[] []])]
-              (-> reg
-                  (rf.elision/replace-owner-claims :sensitive-declarations owner s)
-                  (rf.elision/replace-owner-claims :declarations owner l))))
-          (or (:rf.runtime/elision runtime-db) {})
-          claims)))))
+  (let [[s l] (explicit-flow-output-mark-paths flow)]
+    (when (or (seq s) (seq l))
+      {:sensitive s :large l})))
 
 ;; ---- partition-qualified input primitives -------------------------------
 ;;
@@ -509,8 +466,7 @@
 
 (defn teardown-on-frame-destroy!
   "Drop the destroyed frame's evaluation memo. Definitions live in the
-  registrar and the frame's elision registry dies with its frame-state
-  container, so nothing else is frame-owned. Idempotent."
+  registrar, so nothing else is frame-owned. Idempotent."
   [frame-id]
   (when frame-id
     (swap! frame-memo dissoc frame-id))

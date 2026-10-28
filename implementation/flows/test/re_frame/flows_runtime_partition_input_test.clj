@@ -6,7 +6,6 @@
   trace value elides against its partition-relative declaration path."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -63,8 +62,7 @@
     (try
       (rf/reg-flow :route-blob {:inputs [[:rf.db/runtime :rt :val]] :output-path [:out]} identity)
       (run-flows! :route-blob)
-      (rf.frame/swap-runtime-db! :rf/default
-        (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:rt :val]]})))
+      (rf/reg-classification ::classified {:large [[:rt :val]]})
       (pass! {} (assoc-in (rf.frame/frame-runtime-db-value :rf/default) [:rt :val] {:big "payload"}))
       (let [[input] (get-in (peek @computed) [:tags :input-values])]
         (is (= [:rt :val] (get-in input [:rf.size/large-elided :path]))))
