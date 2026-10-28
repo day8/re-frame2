@@ -19,7 +19,14 @@
 #                  the unknown-surface fallback without the docs tier;
 #   AC2, AD, AE  — hermetic mkdocs resolution: the module fallback through the
 #                  last launcher, a console script preferred, `unresolved`;
+#   P1, P2       — hermetic Python launcher probe: a Store-alias stub that
+#                  resolves and exits 49 is passed over, and an interpreter
+#                  carrying requirements.txt beats an earlier bare one;
 #   AF1-AF5      — the pinned clj-kondo lane's arming.
+#
+# M and N run the validators under the launcher the spine itself resolved
+# (`PLAN-PYTHON`), which is also exported as RF2_FAST_PR_PYTHON so the other
+# cases skip the probe.
 #
 # CI: test.yml's always-on `verify-readme-links` job runs this file.
 #
@@ -89,6 +96,12 @@ docs_repo="$tmp_root/committed-docs"; mkrepo "$docs_repo"
 mkdir -p "$docs_repo/docs/core"; printf '# h\n' > "$docs_repo/docs/core/x.md"
 git -C "$docs_repo" add docs/core/x.md; git -C "$docs_repo" commit -q -m docs
 assert "A committed docs-only → docs only" "PLAN docs=true jvm=false node=false" "$(plan PLAN "$docs_repo")"
+
+# The interpreter the spine probed for on this host, used by M and N below.
+self_test_python="$(plan PLAN-PYTHON "$docs_repo")"
+self_test_python="${self_test_python#PLAN-PYTHON }"
+printf '  (python launcher: %s)\n' "$self_test_python"
+export RF2_FAST_PR_PYTHON="$self_test_python"
 
 # ---- B: staged code diff (reused below as THE code-only diff) ----
 code_repo="$tmp_root/staged-code"; mkrepo "$code_repo"
@@ -170,11 +183,13 @@ assert "NODE-e no origin/main → every node lane" "PLAN-NODE scripts cljs isola
 assert "NODE-f docs-only → no node lane" "PLAN-NODE <none>" "$(plan PLAN-NODE "$docs_repo")"
 
 # ---- M, N: the doc validators' main() exits 1 on a bundled broken fixture ----
-python "$repo_root/scripts/check_doc_slugs.py" \
+# shellcheck disable=SC2086  # `py -3` must split into command + argument.
+$self_test_python "$repo_root/scripts/check_doc_slugs.py" \
   --repo-root "$repo_root/scripts/_test_fixtures/check_doc_slugs/broken_anchor" >/dev/null 2>&1
 assert "M check_doc_slugs catches broken anchor" "1" "$?"
 
-python "$repo_root/scripts/check_readme_links.py" --ci \
+# shellcheck disable=SC2086
+$self_test_python "$repo_root/scripts/check_readme_links.py" --ci \
   --repo-root "$repo_root/scripts/_test_fixtures/check_readme_links/broken_internal_link" >/dev/null 2>&1
 assert "N check_readme_links catches broken target" "1" "$?"
 
@@ -305,6 +320,49 @@ if [ "$hermetic_ready" = yes ]; then
 else
   printf '  FAIL AC2-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
   fail_count=$((fail_count + 3))
+fi
+
+# ---------------------------------------------------------------------------
+# HERMETIC PYTHON LAUNCHER PROBE.  The spine RUNS each candidate rather than
+# asking `command -v`, because the Windows Store alias resolves and exits 49.
+# A stub directory shadows the three named candidates (`python`, `python3`,
+# `py -3`); a stub handed `-c` answers in the probe's own protocol — `bare` or
+# `toolchain` on stdout — so a case can say which interpreter carries the
+# requirements.txt packages.  Each case resolves before the probe reaches the
+# host's own `python3.N` names, which stay on the sanitised PATH.
+# ---------------------------------------------------------------------------
+
+# make_python_bin DIR PYTHON PYTHON3 PY — each one of: store, bare, toolchain.
+make_python_bin() {
+  local dir="$1" l kind
+  mkdir -p "$dir"
+  shift
+  for l in python python3 py; do
+    kind="$1"; shift
+    if [ "$kind" = store ]; then
+      printf '#!/bin/sh\necho "Python was not found (self-test Store-alias stub)" >&2\nexit 49\n' > "$dir/$l"
+    else
+      printf '#!/bin/sh\n[ "${1:-}" = -3 ] && shift\nif [ "${1:-}" = -c ]; then printf %%s %s; exit 0; fi\nexit 1\n' \
+        "$kind" > "$dir/$l"
+    fi
+    chmod +x "$dir/$l"
+  done
+}
+
+store_bin="$tmp_root/python-store-stubs";  make_python_bin "$store_bin" store store toolchain
+bare_bin="$tmp_root/python-bare-first";    make_python_bin "$bare_bin" bare toolchain store
+
+if [ "$hermetic_ready" = yes ]; then
+  assert "P1 a Store-alias stub (resolves, exits 49) is passed over → 'py -3'" \
+    "PLAN-PYTHON py -3" \
+    "$(unset RF2_FAST_PR_PYTHON; PATH="$store_bin:$mkdocs_free" plan PLAN-PYTHON "$docs_repo")"
+
+  assert "P2 requirements.txt beats an earlier bare interpreter → 'python3'" \
+    "PLAN-PYTHON python3" \
+    "$(unset RF2_FAST_PR_PYTHON; PATH="$bare_bin:$mkdocs_free" plan PLAN-PYTHON "$docs_repo")"
+else
+  printf '  FAIL P1-P2: cannot construct a sanitised PATH on this host — %s\n' "$missing_tool"
+  fail_count=$((fail_count + 2))
 fi
 
 # ---------------------------------------------------------------------------
