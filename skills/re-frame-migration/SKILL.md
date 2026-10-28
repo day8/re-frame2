@@ -126,7 +126,7 @@ Load a leaf when its phase or rule comes up; none needs reading up front.
 | [`auto-call-site-rewrites.md`](references/auto-call-site-rewrites.md) | Per-call-site recipes — ns requires (M-1, M-23, M-25, M-38), subscriptions (M-75, `:->` / `:=>`), effect maps (M-8), fx arity (M-51), dispatch shapes (M-4, M-9, M-16), the `reg-event` codemod (M-73), the test layer. |
 | [`auto-cross-cutting.md`](references/auto-cross-cutting.md) | Cross-cutting recipes — keyword renames (M-20), interceptor cleanup (M-21, M-70), views (M-22, M-24), M-26 drops, `init!` and the boot sequence (M-40), per-feature artefact adds (M-27–M-33). |
 | [`guided-handlers-state.md`](references/guided-handlers-state.md) | M-3, M-5, M-10, M-12, M-13, M-14, M-15, M-15b, M-34, M-42. |
-| [`guided-views-m11.md`](references/guided-views-m11.md) | M-11 — subscribing plain `defn` views → `reg-view`, and the async listener / timer class. |
+| [`guided-views-m11.md`](references/guided-views-m11.md) | M-11 — a bare `dispatch` / `subscribe` in a callback that runs after the render or in a view under no frame boundary, the `defn` → `reg-view` recipe where converting is the fix, and the async listener / timer class. |
 | [`guided-interceptors-subs.md`](references/guided-interceptors-subs.md) | M-17, M-18, M-19, M-21, M-23, M-26, M-71. |
 | [`causal-world-inputs.md`](references/causal-world-inputs.md) | M-72 — `inject-cofx` removal and which host reads (`Date.now`, `random-uuid`, `localStorage`, …) must become recorded coeffects. |
 | [`error-events.md`](references/error-events.md) | Wiring error observability after M-13 / M-17 / M-26: the production `:observability :errors` sink versus the dev-only `:trace` listener. There is no frame-level `:on-error` recovery policy. |

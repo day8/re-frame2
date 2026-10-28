@@ -25,7 +25,8 @@ Two contract facts, each pinned against the shipped spec:
     fall-through). The stale claim this gate kills: "a plain Reagent fn cannot
     read / does not inherit the surrounding provider's frame" / "a bare
     `subscribe` in a plain fn under a provider raises
-    `:rf.error/no-frame-context`".
+    `:rf.error/no-frame-context`" / "a plain `(defn …)` view that subscribes
+    in its render throws `:rf.error/no-frame-context` at first render".
 
   * **M-13 — there is NO frame-level `:on-error` recovery policy.** `reg-event-
     error-handler` is dropped and has no app-steering recovery replacement;
@@ -307,20 +308,28 @@ def _scanned_files() -> list[Path]:
 # --- Rule 1: M-11 — a plain Reagent fn "cannot read" a frame boundary.
 #
 # Fires when a line couples a PLAIN (non-reg-view) Reagent fn to a frame-provider
-# / established-frame SCOPE with a CANNOT-READ claim (cannot / does not read,
-# inherit, resolve …, or the no-frame-context error), UNLESS the same line names
-# what genuinely has no frame: code that runs after the render (a callback, a
-# timer, a promise, a lifecycle hook) or a view with no boundary above it. The
-# correct wording always places the failure there, because during the render the
-# boundary above the component answers whatever its form. All three signals are
-# required, so a line that merely mentions a plain fn and a provider is clean.
+# / established-frame SCOPE, or to its own RENDER, with a CANNOT-READ claim
+# (cannot / does not read, inherit, resolve …, or the no-frame-context error),
+# UNLESS the same line names what genuinely has no frame: code that runs after
+# the render (a callback, a timer, a promise, a lifecycle hook) or a view with no
+# boundary above it. The correct wording always places the failure there,
+# because during the render the boundary above the component answers whatever
+# its form. All three signals are required, so a line that merely mentions a
+# plain fn and a provider is clean. The render alternative catches the claim
+# stated with no provider named — a plain `(defn …)` view "throws
+# `:rf.error/no-frame-context` at first render".
 PLAIN_FN_RE = re.compile(
-    r"plain[- ](?:reagent[- ])?fn|plain[- ]reagent|non-`?reg-view`?\s+(?:reagent\s+)?fn",
+    r"plain[- ](?:reagent[- ])?fn|plain[- ]reagent|non-`?reg-view`?\s+(?:reagent\s+)?fn"
+    r"|plain\s+`?\(?defn\b",
     re.IGNORECASE,
 )
 FRAME_SCOPE_RE = re.compile(
     r"frame[- ]provider|frame scope|established frame|provider(?:'s)? frame"
     r"|surrounding (?:provider|frame)|inside (?:any|the|a)\s+.*frame",
+    re.IGNORECASE,
+)
+M11_RENDER_TIME_RE = re.compile(
+    r"\b(?:in|during|at|on)\s+(?:(?:its|their|the)\s+)?(?:first\s+)?render\b",
     re.IGNORECASE,
 )
 M11_CANNOT_READ_RE = re.compile(
@@ -755,7 +764,7 @@ def line_problems(line: str) -> list[str]:
     # Rule 1 — M-11 plain-fn-cannot-read-frame stale claim.
     if (
         PLAIN_FN_RE.search(line)
-        and FRAME_SCOPE_RE.search(line)
+        and (FRAME_SCOPE_RE.search(line) or M11_RENDER_TIME_RE.search(line))
         and M11_CANNOT_READ_RE.search(line)
         and not M11_NO_FRAME_SITE_RE.search(line)
     ):
@@ -2658,6 +2667,18 @@ def _self_test() -> int:
         "while it renders; a bare `rf/dispatch` in its `:on-click` callback "
         "raises `:rf.error/no-frame-context`.",
         dirty=False, label="B2 the callback after the render is the frameless site",
+    )
+    expect(
+        "| Reagent view components that `subscribe` **in their render** but are "
+        "registered as plain `(defn …)` throw `:rf.error/no-frame-context` at "
+        "first render | **M-11** |",
+        dirty=True, label="A3 plain defn view throws at first render",
+    )
+    expect(
+        "A plain `(defn …)` that subscribes during its render under a boundary "
+        "reads its frame; a bare `rf/dispatch` in its `:on-click` callback "
+        "raises `:rf.error/no-frame-context`.",
+        dirty=False, label="B3 plain defn reads at render; the callback is the site",
     )
     expect(
         "| `(rf/reg-event-error-handler ...)` | M-13 | B | Moved to frame-level "
