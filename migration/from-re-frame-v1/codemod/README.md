@@ -21,7 +21,7 @@ on a bare JVM with `clojure` on the path — no re-frame2 build in the loop.
 | `reg-event-db` whose first param is a non-`db` symbol (e.g. a path-scoped slice `c`) | **rewrite** | `reg-event`; the param is rebound `{c :db}` — the db value back under its original name — so every body reference to `c` stays resolved while the body is left byte-for-byte unchanged. (Rebinding to `{:keys [db]}` here would orphan the body's `c` references — `rf2-xhfxcs.15`.) |
 | any form whose chain has an entry with no derivable v2 reference | **flag** (`:interceptors`, or `:interceptors-unverified` when only evaluation can tell) | left unchanged — unresolved **M-70 Type B**; see the chain rules below |
 | already-renamed `reg-event` carrying a v1 chain survivor | **rewrite** / **flag** (`:interceptors`) | the rescan (below) repairs or flags partially migrated trees; valid `reg-event` forms produce **no** finding |
-| nil-capable `reg-event-db` | **flag** (`:nil-capable`) | left unchanged — D7: under v2 a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}`, so the author chooses the intended reading |
+| `reg-event-db` whose body is not proven non-nil | **flag** (`:nil-capable`) | left unchanged — D7: under v2 a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}`, so the author chooses the intended reading; the note names the deciding form (see the D7 rules below) |
 | complex `reg-event-db` | **flag** (`:complex`) | left unchanged — non-literal handler (var / higher-order / multi-arity) or a destructured first param |
 | `reg-event-ctx` | **flag** (`:ctx`) | left unchanged — withdrawn from the public surface; rewrite the full-context work to a **registered interceptor** (`reg-interceptor`, referenced by id in `:interceptors`; EP-0022) by hand |
 | a bare head whose `reg-event` binding cannot be proved | **flag** (`:binding`) | left unchanged — see the bare-head binding rules below |
@@ -141,16 +141,32 @@ mechanical and flags the rest (`rf2-8odvg`):
 `BODY` in a `reg-event-db` always evaluates to the new app-db, so `{:db BODY}` is
 a faithful, semantics-preserving wrap regardless of how complex `BODY` is — with
 one subtlety. If `BODY` can evaluate to `nil` (a `when` / `if`-without-else /
-`cond` / `and` / `or` / bare `get` / `some->` tail, a literal `nil`, …) the
-codemod does not silently rewrite it. Under the new model a bare `nil`
-return is a clean no-op (and `{:db nil}` coerces to `{:db {}}` — see `rf2-ekq28v`),
-so the author may now prefer that reading over faithfully reproducing the v1
-"write nil to app-db" footgun. The codemod flags these for human review.
+`cond`-without-`:else` / `and` / `or` / bare `get` / `some->` tail, a literal
+`nil`, …) the codemod does not silently rewrite it. Under the new model a bare
+`nil` return is a clean no-op (and `{:db nil}` coerces to `{:db {}}` — see
+`rf2-ekq28v`), so the author may now prefer that reading over faithfully
+reproducing the v1 "write nil to app-db" footgun. The codemod flags these for
+human review.
 
-The nil analysis is conservative: it answers "non-nil" only for bodies it can
-prove are non-nil (a literal collection, or a builder headed by `assoc` /
-`assoc-in` / `update` / `merge` / `dissoc` / … or a `->` thread ending in one of
-those). Anything it is unsure about it flags — the safe direction for D7.
+The nil analysis is conservative and local: `:nil-capable` means **not proven
+non-nil**. It answers "non-nil" only for a body it can prove is: a literal
+collection, the handler's own db param, a builder headed by `assoc` /
+`assoc-in` / `update` / `merge` / `dissoc` / … or a `->` thread ending in one,
+an `if` / `if-not` / `if-let` / `if-some` with an else branch, a `cond` ending
+in an `:else` clause or a `case` (a `case` with no matching clause throws
+rather than returning nil) whose every branch is proven non-nil, a `cond->` /
+`cond->>` over a non-nil init whose every stage is such a builder, and a
+`do` / `let` whose last form is proven non-nil. Anything else flags, the safe
+direction for D7, and the note names the **deciding form** and which of two
+things the codemod knows:
+
+- **can evaluate to nil**: the form returns nil for some input, as a `when`
+  does when its test fails, or an `if` with no else branch, or a `get`. Choose
+  the reading by hand.
+- **is not proven non-nil**: the codemod cannot see the value, as for a call
+  to an application helper, a local, or a `cond->` stage it does not know.
+  Check what the helper returns, not the body's branches. If the body is never
+  nil, wrap it `{:db BODY}` by hand.
 
 ## Usage
 
@@ -229,7 +245,9 @@ flagged as unresolved M-70 Type B (`:interceptors` when certainly invalid,
 `:interceptors-unverified` for a symbol or call), chains read through a
 same-file `def`, the `reg-event` invalid-survivor rescan,
 `-fx` rename, `-ctx`, nil-capable bodies (`when` / `if` / `get` / `cond` / `and` / `or` /
-`some->` / literal `nil`), complex `-db` (var / multi-arity / destructured db
+`some->` / literal `nil`, each note naming its deciding form) beside bodies every
+branch of which is proven non-nil (`if` with an else, `cond` with `:else`,
+`case`, `cond->` over the db, the db param itself), complex `-db` (var / multi-arity / destructured db
 param), alias-agnostic detection, bare-head binding (every bare call in the
 output resolves through the emitted ns form, or its site flags `:binding`),
 reader-discarded `#_` forms (no finding, bytes kept, filesystem counts
